@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
   </ItemGroup>
 
   <ItemGroup>

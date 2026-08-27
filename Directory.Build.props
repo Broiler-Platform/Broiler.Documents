@@ -1,5 +1,13 @@
 ﻿<Project>
 
+  <!-- Chain to a parent Directory.Build.props when one exists (in-tree build).
+       Skipped for standalone / submodule builds. The path is captured in a
+       property first so the inner quotes don't collide with the Condition. -->
+  <PropertyGroup>
+    <BroilerParentBuildProps>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))</BroilerParentBuildProps>
+  </PropertyGroup>
+  <Import Project="$(BroilerParentBuildProps)" Condition="'$(BroilerParentBuildProps)' != ''" />
+
   <!-- Broiler NuGet packaging metadata (vendored; do not edit by hand). -->
   <Import Project="$(MSBuildThisFileDirectory)eng\Broiler.Packaging.props" />
 
@@ -19,10 +27,15 @@
 
     <DefineConstants Condition="'$(BroilerTargetOperatingSystem)' == 'Linux'">$(DefineConstants);LINUX</DefineConstants>
     <DefineConstants Condition="'$(BroilerTargetOperatingSystem)' == 'Windows'">$(DefineConstants);WINDOWS</DefineConstants>
+  </PropertyGroup>
 
-    <Authors>Broiler contributors</Authors>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+  <!-- Component-owned overrides. These are evaluated AFTER the import above and
+       therefore win, which is the extension point the vendored file documents.
+       The shared default points at the organisation; a published package should
+       link to the component's own repository instead. Authors, license, and the
+       rest of the identity come from the vendored file. -->
+  <PropertyGroup>
+    <PackageProjectUrl>https://github.com/Broiler-Platform/Broiler.Documents</PackageProjectUrl>
     <PackageTags>broiler;documents;rich-text;codec;rtf;docx;html;markdown</PackageTags>
   </PropertyGroup>
 </Project>
-

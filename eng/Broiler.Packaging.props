@@ -39,7 +39,7 @@
     <!-- Project / repository links. RepositoryUrl is filled by SourceLink
          from the component's own git origin (PublishRepositoryUrl below),
          which keeps each component self-contained. -->
-    <PackageProjectUrl>https://github.com/MaiRat</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/Broiler-Platform</PackageProjectUrl>
     <RepositoryType>git</RepositoryType>
 
     <!-- README + icon are packed by the ItemGroup below. -->
@@ -102,6 +102,11 @@
   <!-- SourceLink provider. PrivateAssets=all keeps it out of the
        package dependency graph. -->
   <ItemGroup>
+    <!-- The Remove keeps this import idempotent. When one component is checked
+         out INSIDE another (submodule layout), the inner Directory.Build.props
+         chains to the outer one, so both vendored copies of this file are
+         imported and the bare Include would land twice - which is NU1504. -->
+    <PackageReference Remove="Microsoft.SourceLink.GitHub" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all" />
   </ItemGroup>
 

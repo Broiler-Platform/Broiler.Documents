@@ -16,8 +16,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Broiler.Documents.FormatCodes\Broiler.Documents.FormatCodes.csproj" />
-    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents.FormatCodes\Broiler.Documents.FormatCodes.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,7 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\tests\formatting-codes-phase0\fixtures.json" Link="fixtures.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="fixtures.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,212 @@
+name: Publish
+
+# Publishes the seven Broiler.Documents packages.
+#
+# Every project in this component is platform-neutral net10.0, so one host and
+# one configuration produce the whole set. Broiler.Documents.Pdf is
+# IsPackable=false until its delivery gates pass (docs/pdf-support-roadmap.md
+# §4.1) and the *.Tests projects never pack, so neither appears in the output.
+#
+# The packages carry dependencies on Broiler.Graphics, Broiler.Dom, and
+# Broiler.Dom.Html at the same suite version. Those have to be on the target feed
+# for a consumer to restore - inside this repository they are project references
+# through the submodules, which is why the build itself needs no feed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which feed to publish to
+        type: choice
+        options:
+          - github
+          - nuget
+        default: github
+      version-suffix:
+        description: 'Override VersionSuffix, e.g. preview.2. Leave empty to use eng/Broiler.Packaging.props.'
+        type: string
+        default: ''
+      dry-run:
+        description: Pack and upload the artifact, but do not push to the feed
+        type: boolean
+        default: true
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Both hosts are exercised before anything is pushed. The codecs are the part
+  # of the suite most likely to differ between them - encodings, newlines, and
+  # path handling - so a tag push should not publish a commit that only ever ran
+  # on one of the two.
+  validate:
+    name: Validate ${{ matrix.configuration }}
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            configuration: Release-Linux
+          - os: windows-latest
+            configuration: Release-Windows
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Check out the graphics submodule's own dependency
+        run: git -C Broiler.Graphics submodule update --init --depth 1 Broiler.Media
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: dotnet build Broiler.Documents.slnx -c ${{ matrix.configuration }} --nologo
+
+      - name: Test
+        run: dotnet test Broiler.Documents.slnx -c ${{ matrix.configuration }} --no-build --nologo
+
+  publish:
+    name: Publish to ${{ github.event_name == 'push' && 'nuget' || inputs.target }}
+    needs: validate
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      # A tag push is always a real nuget.org release. A manual run chooses,
+      # and defaults to a dry run so the workflow is safe to try out.
+      TARGET: ${{ github.event_name == 'push' && 'nuget' || inputs.target }}
+      DRY_RUN: ${{ github.event_name == 'push' && 'false' || inputs.dry-run }}
+
+    steps:
+      # Submodules again: the packed assemblies are built from project references
+      # into Broiler.Graphics and Broiler.DOM, and SourceLink stamps this checkout.
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Check out the graphics submodule's own dependency
+        run: git -C Broiler.Graphics submodule update --init --depth 1 Broiler.Media
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          suffix='${{ inputs.version-suffix }}'
+          if [ -n "$suffix" ]; then
+            version_args="-p:VersionSuffix=$suffix"
+          else
+            version_args=""
+          fi
+
+          # eng/Broiler.Packaging.props is the source of truth for the suite
+          # version, so ask MSBuild what it will actually stamp rather than
+          # reconstructing it here.
+          version=$(dotnet msbuild src/Broiler.Documents/Broiler.Documents.csproj $version_args -getProperty:PackageVersion)
+          version=$(echo "$version" | tr -d '[:space:]')
+
+          if [ -z "$version" ]; then
+            echo "::error::Could not resolve the package version from MSBuild."
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "version_args=$version_args" >> "$GITHUB_OUTPUT"
+          echo "Version: $version -> $TARGET (dry-run: $DRY_RUN)"
+
+      - name: Check the tag matches the packaged version
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          tag="${tag#v}"
+          if [ "$tag" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::Tag '$tag' does not match the packaged version '${{ steps.version.outputs.version }}'. eng/Broiler.Packaging.props is the source of truth for the suite version - update it and commit, or move the tag."
+            exit 1
+          fi
+
+      - name: Require a NuGet.org API key
+        if: env.TARGET == 'nuget' && env.DRY_RUN != 'true'
+        run: |
+          if [ -z "${{ secrets.NUGET_API_KEY }}" ]; then
+            echo "::error::Publishing to nuget.org needs the NUGET_API_KEY repository secret."
+            exit 1
+          fi
+
+      - name: Pack
+        run: |
+          set -euo pipefail
+          dotnet pack Broiler.Documents.slnx -c Release --nologo ${{ steps.version.outputs.version_args }} -o ./artifacts
+          echo "Packed:"
+          ls -1 ./artifacts
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-packages-${{ steps.version.outputs.version }}
+          path: artifacts/*
+          if-no-files-found: error
+
+      # GitHub Packages does not accept snupkg symbol packages, hence
+      # --no-symbols. The feed owner must match the package RepositoryUrl,
+      # which SourceLink fills in from this checkout's origin.
+      - name: Push to GitHub Packages
+        if: env.TARGET == 'github' && env.DRY_RUN != 'true'
+        run: >
+          dotnet nuget push artifacts/*.nupkg
+          --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+          --api-key ${{ secrets.GITHUB_TOKEN }}
+          --skip-duplicate
+          --no-symbols
+
+      # Pushing a .nupkg also pushes the .snupkg sitting beside it.
+      - name: Push to NuGet.org
+        if: env.TARGET == 'nuget' && env.DRY_RUN != 'true'
+        run: >
+          dotnet nuget push artifacts/*.nupkg
+          --source https://api.nuget.org/v3/index.json
+          --api-key ${{ secrets.NUGET_API_KEY }}
+          --skip-duplicate
+
+      - name: Summary
+        run: |
+          {
+            echo "### Broiler.Documents ${{ steps.version.outputs.version }}"
+            echo
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "Dry run - packages were built and attached to this run, nothing was pushed."
+            else
+              echo "Pushed to \`$TARGET\`."
+            fi
+            echo
+            echo '```'
+            ls -1 ./artifacts
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

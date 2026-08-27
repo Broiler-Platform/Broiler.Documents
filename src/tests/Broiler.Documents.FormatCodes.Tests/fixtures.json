@@ -1,0 +1,50 @@
+[
+  {
+    "id": "plain-1k",
+    "generator": "plain",
+    "targetChars": 1000,
+    "paragraphs": 1,
+    "expectedRuns": 1,
+    "purpose": "Small-document synchronous path and low run density."
+  },
+  {
+    "id": "plain-100k",
+    "generator": "plain",
+    "targetChars": 100000,
+    "paragraphs": 1,
+    "expectedRuns": 1,
+    "purpose": "Medium document with one normalized run."
+  },
+  {
+    "id": "plain-1m",
+    "generator": "plain",
+    "targetChars": 1000000,
+    "paragraphs": 1,
+    "expectedRuns": 1,
+    "purpose": "Large-document rebuild, allocation, and cancellation threshold."
+  },
+  {
+    "id": "high-run-density-100k",
+    "generator": "high-run-density",
+    "targetChars": 100000,
+    "paragraphs": 10000,
+    "expectedRuns": 10000,
+    "purpose": "Many formatting transitions and paragraph boundaries."
+  },
+  {
+    "id": "many-empty-paragraphs",
+    "generator": "empty-paragraphs",
+    "targetChars": 10000,
+    "paragraphs": 10001,
+    "expectedRuns": 0,
+    "purpose": "Zero-length paragraphs and boundary-token expansion."
+  },
+  {
+    "id": "unicode-heavy-100k",
+    "generator": "unicode",
+    "targetChars": 100000,
+    "paragraphs": 1,
+    "expectedRuns": 1,
+    "purpose": "Surrogate pairs, combining marks, RTL, CJK, escapes, and controls."
+  }
+]

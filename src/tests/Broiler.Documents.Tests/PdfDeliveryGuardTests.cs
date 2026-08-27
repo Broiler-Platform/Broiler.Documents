@@ -23,13 +23,19 @@ namespace Broiler.Documents.Tests;
 /// Writers too, whose package-size, memory, trimming and AOT gates it has not
 /// passed.
 /// </para>
+/// <para>
+/// The packaging guards below read this component and always run. The three
+/// registration guards read the application heads, which do not live in this
+/// repository; they report as skipped in a standalone checkout and run in full
+/// inside the aggregate. See <see cref="PdfGuardRoots"/>.
+/// </para>
 /// </remarks>
 public sealed class PdfDeliveryGuardTests
 {
     /// <summary>
-    /// The only files in <c>src</c> that may name the PDF codec: the two desktop
-    /// composition roots that register it, their project files, and the Writer
-    /// tests that cover the registration.
+    /// The only files in the aggregate's <c>src</c> that may name the PDF codec:
+    /// the two desktop composition roots that register it, their project files,
+    /// and the Writer tests that cover the registration.
     /// </summary>
     private static readonly string[] RegistrationSites =
     [
@@ -54,12 +60,13 @@ public sealed class PdfDeliveryGuardTests
         "src/Broiler.Writer.WebAssembly",
     ];
 
+    private static string PdfProjectPath => Path.Combine(
+        PdfGuardRoots.Component, "src", "Broiler.Documents.Pdf", "Broiler.Documents.Pdf.csproj");
+
     [Fact(Timeout = 600000)]
     public void The_Pdf_Package_Is_Not_Packable_Before_Its_Release_Gates_Pass()
     {
-        string project = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "Broiler.Documents/Broiler.Documents.Pdf/Broiler.Documents.Pdf.csproj"));
+        string project = File.ReadAllText(PdfProjectPath);
 
         Assert.Contains("<IsPackable>false</IsPackable>", project);
     }
@@ -67,10 +74,7 @@ public sealed class PdfDeliveryGuardTests
     [Fact(Timeout = 600000)]
     public void The_Pdf_Codec_References_No_Third_Party_Runtime_Dependency()
     {
-        string root = FindRepositoryRoot();
-        string project = File.ReadAllText(Path.Combine(
-            root,
-            "Broiler.Documents/Broiler.Documents.Pdf/Broiler.Documents.Pdf.csproj"));
+        string project = File.ReadAllText(PdfProjectPath);
 
         // The base build is deliberately dependency-free: everything it decodes,
         // maps, or measures is implemented in this repository or in the runtime.
@@ -84,10 +88,10 @@ public sealed class PdfDeliveryGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [SkippableFact(Timeout = 600000)]
     public void Only_The_Enabled_Heads_Name_The_Pdf_Codec()
     {
-        string root = FindRepositoryRoot();
+        string root = PdfGuardRoots.RequireAggregate();
 
         string[] violations = NamesPdf(root, "*.cs")
             .Concat(NamesPdf(root, "*.csproj"))
@@ -98,10 +102,11 @@ public sealed class PdfDeliveryGuardTests
         Assert.Empty(violations);
     }
 
-    [Fact(Timeout = 600000)]
+    [SkippableFact(Timeout = 600000)]
     public void The_Shared_Writer_Core_And_The_Mobile_Heads_Cannot_Acquire_Pdf()
     {
-        string root = FindRepositoryRoot();
+        string root = PdfGuardRoots.RequireAggregate();
+
         string[] carriers = NamesPdf(root, "*.cs")
             .Concat(NamesPdf(root, "*.csproj"))
             .Where(path => ProjectsThatMustNotCarryPdf.Any(
@@ -115,10 +120,10 @@ public sealed class PdfDeliveryGuardTests
         Assert.Empty(carriers);
     }
 
-    [Fact(Timeout = 600000)]
+    [SkippableFact(Timeout = 600000)]
     public void No_Head_Registers_The_Pdf_Codec_For_Saving()
     {
-        string root = FindRepositoryRoot();
+        string root = PdfGuardRoots.RequireAggregate();
 
         // The writer exists and passes its own unit tests, but PDF export has its
         // own release gate. Every registration must therefore enable opening only,
@@ -143,7 +148,7 @@ public sealed class PdfDeliveryGuardTests
     /// <summary>Repo-relative paths under <c>src</c> whose text names the PDF codec.</summary>
     private static IEnumerable<string> NamesPdf(string root, string pattern) =>
         Directory.EnumerateFiles(Path.Combine(root, "src"), pattern, SearchOption.AllDirectories)
-            .Where(path => !IsBuildOutput(path))
+            .Where(path => !PdfGuardRoots.IsBuildOutput(path))
             .Where(path =>
             {
                 string source = File.ReadAllText(path);
@@ -155,36 +160,17 @@ public sealed class PdfDeliveryGuardTests
     [Fact(Timeout = 600000)]
     public void No_Pdf_Fixture_Is_Committed_Outside_The_Rights_Aware_Corpus()
     {
-        string root = FindRepositoryRoot();
+        string root = PdfGuardRoots.Component;
 
         // Every PDF the tests use is generated in code. A committed .pdf would need
         // an entry in the corpus manifest with its provenance and rights first.
-        string[] committed = Directory
-            .EnumerateFiles(Path.Combine(root, "Broiler.Documents"), "*.pdf", SearchOption.AllDirectories)
-            .Where(path => !IsBuildOutput(path))
+        string[] committed = new[] { "src", "docs" }
+            .Select(directory => Path.Combine(root, directory))
+            .SelectMany(directory => Directory.EnumerateFiles(directory, "*.pdf", SearchOption.AllDirectories))
+            .Where(path => !PdfGuardRoots.IsBuildOutput(path))
             .Select(path => Path.GetRelativePath(root, path))
             .ToArray();
 
         Assert.Empty(committed);
-    }
-
-    private static bool IsBuildOutput(string path) =>
-        path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            .Any(segment => segment is "bin" or "obj");
-
-    private static string FindRepositoryRoot()
-    {
-        DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")) &&
-                Directory.Exists(Path.Combine(directory.FullName, "Broiler.Documents")) &&
-                Directory.Exists(Path.Combine(directory.FullName, "src")))
-                return directory.FullName;
-
-            directory = directory.Parent;
-        }
-
-        throw new DirectoryNotFoundException("Broiler repository root not found.");
     }
 }

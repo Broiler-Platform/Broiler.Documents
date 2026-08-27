@@ -7,50 +7,81 @@
     <BuildType Name="Debug-Windows" />
     <BuildType Name="Release-Windows" />
   </Configurations>
+  <Folder Name="/solution items/">
+    <File Path="Directory.Build.props" />
+    <File Path="LICENSE" />
+    <File Path="NuGet.config" />
+    <File Path="README.md" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path=".gitmodules" />
+  </Folder>
+  <Folder Name="/solution items/eng/">
+    <File Path="eng/Broiler.Packaging.props" />
+  </Folder>
+  <Folder Name="/solution items/docs/">
+    <File Path="docs/roadmap.md" />
+  </Folder>
+  <!--
+    Every project here is platform-neutral net10.0, so all six configurations
+    build all sixteen. The suffixed configurations exist to line this component
+    up with the rest of the suite, where the Windows and Linux backends are real
+    build targets; they map onto plain Debug / Release here.
+
+    The two external dependencies - Broiler.Graphics (document model) and
+    Broiler.Dom / Broiler.Dom.Html (HTML codec) - come in through the submodules
+    at the repository root as project references. They are deliberately not
+    listed as solution projects: they build transitively and are owned by their
+    own repositories.
+
+    Listed in dependency order.
+  -->
   <Folder Name="/src/">
-    <Project Path="Broiler.Documents/Broiler.Documents.csproj">
+    <Project Path="src/Broiler.Documents.Model/Broiler.Documents.Model.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Model/Broiler.Documents.Model.csproj">
+    <Project Path="src/Broiler.Documents.FormatCodes/Broiler.Documents.FormatCodes.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.FormatCodes/Broiler.Documents.FormatCodes.csproj">
+    <Project Path="src/Broiler.Documents/Broiler.Documents.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Rtf/Broiler.Documents.Rtf.csproj">
+    <Project Path="src/Broiler.Documents.Rtf/Broiler.Documents.Rtf.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Docx/Broiler.Documents.Docx.csproj">
+    <Project Path="src/Broiler.Documents.Docx/Broiler.Documents.Docx.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Html/Broiler.Documents.Html.csproj">
+    <Project Path="src/Broiler.Documents.Html/Broiler.Documents.Html.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Markdown/Broiler.Documents.Markdown.csproj">
+    <Project Path="src/Broiler.Documents.Markdown/Broiler.Documents.Markdown.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Pdf/Broiler.Documents.Pdf.csproj">
+    <!-- In-solution only: IsPackable=false until the PDF delivery gates pass
+         (docs/pdf-support-roadmap.md 4.1). It still builds and tests here. -->
+    <Project Path="src/Broiler.Documents.Pdf/Broiler.Documents.Pdf.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
@@ -58,49 +89,49 @@
     </Project>
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="Broiler.Documents.Tests/Broiler.Documents.Tests.csproj">
+    <Project Path="src/tests/Broiler.Documents.Model.Tests/Broiler.Documents.Model.Tests.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Model.Tests/Broiler.Documents.Model.Tests.csproj">
+    <Project Path="src/tests/Broiler.Documents.FormatCodes.Tests/Broiler.Documents.FormatCodes.Tests.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.FormatCodes.Tests/Broiler.Documents.FormatCodes.Tests.csproj">
+    <Project Path="src/tests/Broiler.Documents.Tests/Broiler.Documents.Tests.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Rtf.Tests/Broiler.Documents.Rtf.Tests.csproj">
+    <Project Path="src/tests/Broiler.Documents.Rtf.Tests/Broiler.Documents.Rtf.Tests.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Docx.Tests/Broiler.Documents.Docx.Tests.csproj">
+    <Project Path="src/tests/Broiler.Documents.Docx.Tests/Broiler.Documents.Docx.Tests.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Html.Tests/Broiler.Documents.Html.Tests.csproj">
+    <Project Path="src/tests/Broiler.Documents.Html.Tests/Broiler.Documents.Html.Tests.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Markdown.Tests/Broiler.Documents.Markdown.Tests.csproj">
+    <Project Path="src/tests/Broiler.Documents.Markdown.Tests/Broiler.Documents.Markdown.Tests.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <Project Path="Broiler.Documents.Pdf.Tests/Broiler.Documents.Pdf.Tests.csproj">
+    <Project Path="src/tests/Broiler.Documents.Pdf.Tests/Broiler.Documents.Pdf.Tests.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />

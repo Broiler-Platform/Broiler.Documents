@@ -16,9 +16,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Broiler.Documents.Rtf\Broiler.Documents.Rtf.csproj" />
-    <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
-    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents.Rtf\Broiler.Documents.Rtf.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents\Broiler.Documents.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
   </ItemGroup>
 
   <ItemGroup>

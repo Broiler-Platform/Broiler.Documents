@@ -13,15 +13,23 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+    <!--
+      Conditional skipping for the PDF guards that read the application heads.
+      Those heads live in the aggregate repository, so in a standalone checkout
+      there is nothing to inspect and the guard must report as skipped rather
+      than pass on an empty check. xUnit 2.x has no built-in runtime skip.
+    -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.5.85" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
-    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents\Broiler.Documents.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />
+
     <Using Include="Broiler.Documents" />
     <Using Include="Broiler.Documents.Model" />
   </ItemGroup>
