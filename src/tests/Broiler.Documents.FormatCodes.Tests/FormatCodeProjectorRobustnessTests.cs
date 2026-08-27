@@ -181,6 +181,11 @@ public sealed class FormatCodeProjectorRobustnessTests
         LinkHref = random.Next(3) == 0 ? null : $"https://example.test/{random.Next(8)}",
     };
 
+    /// <summary>
+    /// Walks up from the test binary to the Formatting Codes project file. The
+    /// component's projects live under <c>src</c>, which resolves the same way
+    /// standalone and inside the aggregate repository.
+    /// </summary>
     private static string ProjectPath()
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
@@ -188,7 +193,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         {
             string candidate = Path.Combine(
                 directory.FullName,
-                "Broiler.Documents",
+                "src",
                 "Broiler.Documents.FormatCodes",
                 "Broiler.Documents.FormatCodes.csproj");
             if (File.Exists(candidate))

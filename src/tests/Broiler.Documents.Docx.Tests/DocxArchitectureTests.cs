@@ -46,7 +46,7 @@ public sealed class DocxArchitectureTests
     }
 
     private static string DocxProjectPath() =>
-        Path.Combine(FindComponentRoot(), "Broiler.Documents.Docx", "Broiler.Documents.Docx.csproj");
+        Path.Combine(FindComponentRoot(), "src", "Broiler.Documents.Docx", "Broiler.Documents.Docx.csproj");
 
     private static string[] ProjectReferences(XDocument project) =>
         project
@@ -57,16 +57,22 @@ public sealed class DocxArchitectureTests
             .OrderBy(reference => reference, StringComparer.Ordinal)
             .ToArray();
 
+    /// <summary>
+    /// The Broiler.Documents repository root: the directory that owns
+    /// <c>Directory.Build.props</c> and holds the component's projects under
+    /// <c>src</c>. Found by walking up from the test binary, so it resolves the
+    /// same way standalone and when this component is checked out inside the
+    /// aggregate repository.
+    /// </summary>
     private static string FindComponentRoot()
     {
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
         while (directory is not null)
         {
-            string candidate = Path.Combine(directory.FullName, "Broiler.Documents");
-            if (Directory.Exists(candidate) &&
-                File.Exists(Path.Combine(directory.FullName, ".gitmodules")) &&
-                File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")))
-                return candidate;
+            if (File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")) &&
+                File.Exists(Path.Combine(
+                    directory.FullName, "src", "Broiler.Documents", "Broiler.Documents.csproj")))
+                return directory.FullName;
 
             directory = directory.Parent;
         }

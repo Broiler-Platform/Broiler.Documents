@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings whatever a contributor's core.autocrlf is
+# set to. Anything under eng/ may run on the Ubuntu CI runner, where CRLF would
+# make the shebang fail with "bad interpreter: /usr/bin/env bash^M".
+*.sh text eol=lf
