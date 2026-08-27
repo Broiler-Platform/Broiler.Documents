@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/pdf-corpus-manifest-1.json",
+  "title": "Broiler PDF corpus manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "updated", "samples"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "updated": { "type": "string", "format": "date" },
+    "samples": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sample" }
+    }
+  },
+  "$defs": {
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "path", "sha256", "source", "rights", "embeddedAssets",
+        "privacySecurity", "features", "expectations", "expectedUse",
+        "modificationHistory", "approval"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "revision", "acquired", "author", "rightsholder", "provenance"],
+          "properties": {
+            "url": { "type": "string", "minLength": 1 },
+            "revision": { "type": "string", "minLength": 1 },
+            "acquired": { "type": "string", "format": "date" },
+            "author": { "type": "string", "minLength": 1 },
+            "rightsholder": { "type": "string", "minLength": 1 },
+            "provenance": { "type": "string", "minLength": 1 }
+          }
+        },
+        "rights": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["license", "attribution", "redistribution", "publicCi", "modification", "fuzzing", "derivatives", "screenshots"],
+          "properties": {
+            "license": { "type": "string", "minLength": 1 },
+            "attribution": { "type": "string" },
+            "redistribution": { "$ref": "#/$defs/permission" },
+            "publicCi": { "$ref": "#/$defs/permission" },
+            "modification": { "$ref": "#/$defs/permission" },
+            "fuzzing": { "$ref": "#/$defs/permission" },
+            "derivatives": { "$ref": "#/$defs/permission" },
+            "screenshots": { "$ref": "#/$defs/permission" }
+          }
+        },
+        "embeddedAssets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "identity", "provenance", "license", "redistribution"],
+            "properties": {
+              "kind": { "enum": ["font", "image", "cmap", "icc-profile", "attachment", "other"] },
+              "identity": { "type": "string", "minLength": 1 },
+              "provenance": { "type": "string", "minLength": 1 },
+              "license": { "type": "string", "minLength": 1 },
+              "redistribution": { "$ref": "#/$defs/permission" }
+            }
+          }
+        },
+        "privacySecurity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["privacy", "malicious", "cve", "quarantine", "retention"],
+          "properties": {
+            "privacy": { "enum": ["cleared", "synthetic", "restricted", "pending"] },
+            "malicious": { "type": "boolean" },
+            "cve": { "type": ["string", "null"] },
+            "quarantine": { "type": "string", "minLength": 1 },
+            "retention": { "type": "string", "minLength": 1 }
+          }
+        },
+        "features": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "expectedUse": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["unit", "interop", "visual", "security", "fuzz-seed", "benchmark"] }
+        },
+        "expectations": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text", "diagnostics", "oracle"],
+          "properties": {
+            "text": { "type": ["string", "null"] },
+            "diagnostics": { "type": "array", "items": { "type": "string" } },
+            "oracle": { "type": "string", "minLength": 1 }
+          }
+        },
+        "modificationHistory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["date", "actor", "description", "sourceSha256"],
+            "properties": {
+              "date": { "type": "string", "format": "date" },
+              "actor": { "type": "string", "minLength": 1 },
+              "description": { "type": "string", "minLength": 1 },
+              "sourceSha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" }
+            }
+          }
+        },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "reviewer", "date"],
+          "properties": {
+            "status": { "enum": ["pending", "approved", "rejected"] },
+            "reviewer": { "type": "string" },
+            "date": { "type": ["string", "null"], "format": "date" },
+            "notes": { "type": "string" }
+          }
+        }
+      }
+    },
+    "permission": {
+      "enum": ["allowed", "internal-only", "prohibited", "pending"]
+    }
+  }
+}

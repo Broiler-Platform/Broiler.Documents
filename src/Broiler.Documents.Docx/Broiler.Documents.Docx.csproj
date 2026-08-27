@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Docx</RootNamespace>
+    <AssemblyName>Broiler.Documents.Docx</AssemblyName>
+    <PackageId>Broiler.Documents.Docx</PackageId>
+    <Description>DOCX document codec for Broiler.Documents over Open XML WordprocessingML packages.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Documents.Docx.Tests" />
+  </ItemGroup>
+
+</Project>

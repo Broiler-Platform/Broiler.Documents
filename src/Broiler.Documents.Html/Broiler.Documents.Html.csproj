@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Html</RootNamespace>
+    <AssemblyName>Broiler.Documents.Html</AssemblyName>
+    <PackageId>Broiler.Documents.Html</PackageId>
+    <Description>HTML document codec for Broiler.Documents over the canonical Broiler DOM and HTML parser.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom\Broiler.Dom.csproj" />
+    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom.Html\Broiler.Dom.Html.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Documents.Html.Tests" />
+  </ItemGroup>
+
+</Project>

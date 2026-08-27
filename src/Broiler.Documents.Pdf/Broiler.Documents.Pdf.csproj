@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Pdf</RootNamespace>
+    <AssemblyName>Broiler.Documents.Pdf</AssemblyName>
+    <PackageId>Broiler.Documents.Pdf</PackageId>
+    <Description>Base-PDF document codec: ISO 32000-1 syntax, object store, patent-free filter set, logical text import, and a deterministic PDF 1.7 writer.</Description>
+    <!--
+      Delivery gate (pdf-support-roadmap.md §4.1): the PDF codec is an in-solution
+      component only. It is not packed, not registered in any application catalog,
+      and not part of a release artifact until the read-preview and write-preview
+      gates pass on a composed candidate.
+    -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    ADR 0001/0007: the codec references the codec framework and the document model
+    and nothing else. No Broiler.UI, DOM, Layout, platform, or third-party runtime
+    dependency; every optional capability (extra stream filters, image decoders,
+    embedded-font readers, security handlers) is composed by the caller through
+    PdfCodecServices rather than discovered through statics.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Documents.Pdf.Tests" />
+  </ItemGroup>
+
+</Project>

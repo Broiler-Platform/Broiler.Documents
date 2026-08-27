@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents</RootNamespace>
+    <AssemblyName>Broiler.Documents</AssemblyName>
+    <PackageId>Broiler.Documents</PackageId>
+    <Description>Document-format codec contract, catalog, and signature probe over the Broiler rich-text document model (ADR 0003).</Description>
+  </PropertyGroup>
+
+  <!--
+    ADR 0001/0003: the codec framework references only the document model. No
+    Broiler.UI, DOM, input, or platform dependency; codecs are registered
+    explicitly into a DocumentCodecCatalog with no hidden global registration.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Documents.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Model</RootNamespace>
+    <AssemblyName>Broiler.Documents.Model</AssemblyName>
+    <PackageId>Broiler.Documents.Model</PackageId>
+    <Description>Platform-neutral Broiler rich-text document model (promoted from Broiler.UI.RichEdit per ADR 0002).</Description>
+  </PropertyGroup>
+
+  <!--
+    Dependency graph approved by Broiler.Documents ADR 0001/0002: the document
+    model references only Broiler.Graphics (for value types such as BColor). No
+    Broiler.UI, DOM, input, or platform dependency, so document-format codecs and
+    other headless consumers can use the model without the UI stack.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Broiler.Graphics\Broiler.Graphics\Broiler.Graphics.csproj" />
+  </ItemGroup>
+
+  <!--
+    The opaque indexing behind RichTextPosition (internal ctor, ParagraphIndex,
+    Offset) stays internal to external consumers (ADR 0014). The RichEdit control
+    and its standard renderer legitimately need it for caret geometry, layout, and
+    hit-testing; document-format codecs build documents through the public API and
+    do not appear here. Positions stay opaque outside this allowlist.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.UI.RichEdit" />
+    <InternalsVisibleTo Include="Broiler.UI.RichEdit.Standard" />
+    <InternalsVisibleTo Include="Broiler.UI.RichEdit.Tests" />
+    <InternalsVisibleTo Include="Broiler.UI.RichEdit.Standard.Tests" />
+    <InternalsVisibleTo Include="Broiler.Documents.Model.Tests" />
+    <InternalsVisibleTo Include="Broiler.Documents.FormatCodes" />
+  </ItemGroup>
+
+</Project>
