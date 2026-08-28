@@ -27,9 +27,11 @@ jobs:
       matrix:
         include:
           # Every project in this component is platform-neutral net10.0, so both
-          # legs build the same sixteen projects. They run anyway because the
+          # legs build the same eighteen projects. They run anyway because the
           # codecs touch encodings, newlines, and path handling, and those are
-          # exactly the places where the two hosts disagree.
+          # exactly the places where the two hosts disagree - and because the CLI
+          # renders text through whatever fonts the host happens to have, which
+          # is the one place the two legs are expected to look different.
           - os: ubuntu-latest
             configuration: Release-Linux
           - os: windows-latest
@@ -66,8 +68,9 @@ jobs:
 
       # Proves the seven packages still build from this commit. Every project is
       # platform-neutral, so one host covers the whole set and one configuration
-      # produces it. Broiler.Documents.Pdf is IsPackable=false and is absent by
-      # design. Publishing is a separate, deliberate action - see publish.yml.
+      # produces it. Broiler.Documents.Pdf and Broiler.Documents.Cli are both
+      # IsPackable=false and are absent by design. Publishing is a separate,
+      # deliberate action - see publish.yml.
       - name: Pack
         if: matrix.os == 'ubuntu-latest'
         run: |

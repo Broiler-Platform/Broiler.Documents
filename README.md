@@ -98,6 +98,38 @@ Broiler.Documents.Pdf      -> Broiler.Documents -> Broiler.Documents.Model   (no
 repositories and appear as package dependencies at the same suite version, so they
 must be on the feed a consumer restores from.
 
+## Command line
+
+`src/Broiler.Documents.Cli` is an application head over these codecs: it creates,
+edits, converts, renders, and compares documents. It is built to be driven by an
+automated test system as much as by a person — every command has a `--json` form,
+and the exit code is a documented contract.
+
+```bash
+dotnet run --project src/Broiler.Documents.Cli -- --help
+```
+
+The two commands the rest of it exists to support are `roundtrip`, which writes a
+document out and reads it straight back and reports what did not survive, and
+`compare`, which puts two documents or two rendered pages side by side and says
+precisely how they differ. Both are aimed at the same question — where are the
+gaps in these codecs — and both answer it structurally first and in pixels only
+when that is what you actually need to know.
+
+```bash
+broilerdoc roundtrip report.docx --via docx --via rtf --via html --via markdown
+```
+
+```bash
+broilerdoc compare a.docx b.docx --render --continuous --diff diff.png --tolerance 2
+```
+
+The head does **not** compose `Broiler.Documents.Pdf`: that package is gated, and
+a CLI that registered it would ship the capability the gates exist to hold back.
+It is itself `IsPackable=false`, so the package table above is unchanged. See the
+[CLI guide](docs/cli.md) for the full command reference, the exit codes, the edit
+language, and what makes a render reproducible across machines.
+
 ## Component Constraints
 
 - Target .NET 10 only.
@@ -110,6 +142,12 @@ must be on the feed a consumer restores from.
   `Broiler.UI`, `Broiler.DOM`, `Broiler.Input`, or any `*.Windows` assembly.
 - Format codecs may depend on their format engines: the HTML codec references
   `Broiler.Dom` and `Broiler.Dom.Html`; RTF and DOCX have no DOM/UI dependency.
+- `Broiler.Documents.Cli` is an application head, not an abstraction assembly, so
+  the trimming and AOT rules above do not bind it. It composes its catalog in one
+  readable place and takes the rendering dependencies — `Broiler.Graphics` for the
+  software renderer and font faces, `Broiler.Media.Image.Managed` for the PNG
+  encoder — that no library here may take. It still adds no third-party
+  dependency.
 
 Architecture tests in each test project enforce these constraints against the
 project files themselves, so a stray reference fails the build rather than the
@@ -119,6 +157,7 @@ review.
 
 ```text
 src/                     runtime assemblies, one directory per package
+src/Broiler.Documents.Cli/  the broilerdoc command line; an application head, not a package
 src/tests/               one xUnit test project per assembly
 eng/                     vendored packaging metadata and package icon
 docs/                    roadmap, conformance documents, ADRs, PDF registers
@@ -154,7 +193,7 @@ git -C Broiler.Graphics submodule update --init --depth 1 Broiler.Media
 ```
 
 The solution defines six configurations. Every project here is platform-neutral
-`net10.0`, so all six build the same sixteen projects; the `-Windows` and `-Linux`
+`net10.0`, so all six build the same eighteen projects; the `-Windows` and `-Linux`
 variants exist to line this component up with the rest of the suite and map onto
 plain `Debug`/`Release`.
 
@@ -179,7 +218,10 @@ Every project is platform-neutral, so one run produces the whole set:
 dotnet pack Broiler.Documents.slnx -c Release -o ./artifacts
 ```
 
-Test projects and `Broiler.Documents.Pdf` never pack. `eng/Broiler.Packaging.props`
+Test projects, `Broiler.Documents.Pdf`, and `Broiler.Documents.Cli` never pack.
+The CLI is wired to pack as a .NET tool and is held at `IsPackable=false` so that
+adding a command line does not silently change what a `v*` tag pushes to
+nuget.org; [the CLI guide](docs/cli.md) says how to turn it on. `eng/Broiler.Packaging.props`
 is a vendored copy of the suite-wide packaging metadata and holds the version,
 which stays in lockstep across Broiler components during preview — edit the
 canonical file and re-run the sync script rather than editing the copy.
@@ -213,6 +255,7 @@ repository secret; GitHub Packages uses the built-in `GITHUB_TOKEN`.
 
 ## Records
 
+- [Command-line guide](docs/cli.md)
 - [Current roadmap](docs/roadmap.md)
 - [PDF Phase 0 status](docs/pdf-phase0-status.md)
 - [PDF IP and licensing register](docs/pdf-ip-licensing-register.md)
