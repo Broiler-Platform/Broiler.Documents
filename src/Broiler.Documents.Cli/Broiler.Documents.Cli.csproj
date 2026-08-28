@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Cli</RootNamespace>
+    <AssemblyName>broilerdoc</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RollForward>LatestMinor</RollForward>
+  </PropertyGroup>
+
+  <!--
+    An application head, not a published capability. The component's package set
+    is the seven libraries the README lists; adding an eighth would change what a
+    `v*` tag pushes to nuget.org, so this stays unpacked until someone decides to
+    ship the tool deliberately. Everything needed to ship it is below: set
+    IsPackable to true and `dotnet pack` produces the `broilerdoc` tool.
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>broilerdoc</ToolCommandName>
+    <PackageId>Broiler.Documents.Cli</PackageId>
+    <Description>Command-line tool over the Broiler.Documents codecs: create, edit, convert, render, and compare rich-text documents.</Description>
+  </PropertyGroup>
+
+  <!--
+    The codecs this head composes. A catalog is built explicitly in
+    CodecComposition (ADR 0001/0003) - nothing here registers itself.
+
+    Broiler.Documents.Pdf is deliberately absent. It is IsPackable=false and
+    stays out of every application catalog until the read-preview and
+    write-preview gates in docs/pdf-support-roadmap.md 4.1 pass; a CLI that
+    registered it would be shipping the capability those gates exist to hold.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.FormatCodes\Broiler.Documents.FormatCodes.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Rtf\Broiler.Documents.Rtf.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Docx\Broiler.Documents.Docx.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Html\Broiler.Documents.Html.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Markdown\Broiler.Documents.Markdown.csproj" />
+  </ItemGroup>
+
+  <!--
+    Rasterization. Broiler.Graphics supplies the software renderer and the font
+    faces; Broiler.Media.Image.Managed supplies the PNG/JPEG/BMP encoders that
+    BBitmap.Save needs. Both are registered explicitly at startup - the graphics
+    core carries no default codec catalog.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Broiler.Graphics\src\Broiler.Graphics\Broiler.Graphics.csproj" />
+    <ProjectReference Include="..\..\Broiler.Graphics\Broiler.Media\src\Broiler.Media.Image.Managed\Broiler.Media.Image.Managed.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Documents.Cli.Tests" />
+  </ItemGroup>
+
+</Project>

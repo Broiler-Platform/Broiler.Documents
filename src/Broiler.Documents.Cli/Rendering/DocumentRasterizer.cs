@@ -1,0 +1,189 @@
+using System;
+using System.Collections.Generic;
+using Broiler.Documents.Cli.Composition;
+using Broiler.Graphics;
+
+namespace Broiler.Documents.Cli.Rendering;
+
+/// <summary>
+/// Draws laid-out pages into bitmaps through the Broiler.Graphics software
+/// renderer.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Everything is expressed as a <see cref="BRenderList"/> in layout points and
+/// replayed once per page at a surface scale of DPI/72, so the same layout
+/// rasterizes at any resolution without a second measuring pass and without the
+/// rounding that a per-command scale would introduce.
+/// </para>
+/// <para>
+/// Underlines, strikethroughs, and highlights are drawn here rather than asked
+/// for, because <see cref="BRenderCommand.DrawText"/> draws glyphs and nothing
+/// else - <see cref="BFontStyle"/> carries a family, a size, a weight, and a
+/// slant, and has no notion of a decoration. Drawing them as rectangles under
+/// this tool's control also means their thickness and offset are stated here,
+/// where a comparison can hold them constant.
+/// </para>
+/// </remarks>
+public sealed class DocumentRasterizer : IDisposable
+{
+    private readonly ImageStore _images;
+    private readonly LayoutSettings _settings;
+    private readonly BImageRenderer _renderer = new();
+    private bool _disposed;
+
+    public DocumentRasterizer(LayoutSettings settings, ImageStore images)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _images = images ?? throw new ArgumentNullException(nameof(images));
+        CodecComposition.RegisterImageCodecs();
+    }
+
+    /// <summary>Renders one page. The caller owns and disposes the bitmap.</summary>
+    public BBitmap Render(LayoutPage page, PageSetup setup)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(page);
+        ArgumentNullException.ThrowIfNull(setup);
+
+        var list = new BRenderList();
+
+        if (_settings.ShowContentBox)
+        {
+            list.StrokeRect(
+                new BRect(
+                    setup.ContentLeftPoints,
+                    setup.ContentTopPoints,
+                    setup.ContentWidthPoints,
+                    setup.ContentHeightPoints),
+                new BColor(0xC0, 0xC0, 0xC0),
+                0.5);
+        }
+
+        foreach (LayoutLine line in page.Lines)
+            DrawLine(list, line);
+
+        var descriptor = new BSurfaceDescriptor(
+            new BSize(page.WidthPoints, page.HeightPoints),
+            setup.DpiScale);
+
+        return _renderer.RenderToImage(
+            list,
+            descriptor,
+            new BFrameContext(setup.Background, page.Number, BRenderOptions.Default));
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        _renderer.Dispose();
+    }
+
+    private void DrawLine(BRenderList list, LayoutLine line)
+    {
+        double baseline = line.Top + line.Baseline;
+
+        foreach (LayoutPiece piece in line.Pieces)
+        {
+            if (piece.Width <= 0)
+                continue;
+
+            if (!piece.Highlight.IsEmpty && piece.Highlight.A > 0)
+            {
+                list.FillRect(
+                    new BRect(piece.X, baseline - piece.Ascent, piece.Width, piece.Ascent + piece.Descent),
+                    piece.Highlight);
+            }
+
+            if (piece.IsImage)
+            {
+                DrawImage(list, piece, baseline);
+                continue;
+            }
+
+            if (piece.Text.Length == 0)
+                continue;
+
+            // The renderer puts the baseline at origin.Y + size * 0.8, and the
+            // layout used the same 0.8 for the piece's ascent. Subtracting it
+            // back out is what keeps a 24pt run and an 8pt run on one baseline.
+            double originY = baseline - (piece.Font.SizeInPixels * 0.8);
+            var run = new BTextRun(piece.Text, piece.Font, piece.Color);
+
+            if (piece.Oblique)
+            {
+                // A horizontal shear about the baseline: a point at height h above
+                // it moves right by slant * h, and a point on it does not move.
+                // Written directly because BMatrix3x2 offers translation and scale
+                // and nothing else.
+                double slant = _settings.ObliqueSlant;
+                list.PushTransform(new BMatrix3x2(1, 0, -slant, 1, slant * baseline, 0));
+                list.DrawText(run, new BPoint(piece.X, originY));
+                list.PopTransform();
+            }
+            else
+            {
+                list.DrawText(run, new BPoint(piece.X, originY));
+            }
+
+            double thickness = Math.Max(0.5, piece.Font.SizeInPixels * 0.055);
+
+            if (piece.Underline)
+            {
+                list.FillRect(
+                    new BRect(piece.X, baseline + (piece.Font.SizeInPixels * 0.10), piece.Width, thickness),
+                    piece.Color);
+            }
+
+            if (piece.Strikethrough)
+            {
+                list.FillRect(
+                    new BRect(piece.X, baseline - (piece.Font.SizeInPixels * 0.26), piece.Width, thickness),
+                    piece.Color);
+            }
+        }
+    }
+
+    private void DrawImage(BRenderList list, LayoutPiece piece, double baseline)
+    {
+        var destination = new BRect(piece.X, baseline - piece.Ascent, piece.Width, piece.Ascent);
+        BImageHandle? handle = _images.Handle(_renderer, piece.Image!);
+
+        if (handle is not BImageHandle image)
+        {
+            // The image did not decode. Draw the box it would have occupied with
+            // a cross through it: the page then shows where content is missing
+            // instead of quietly closing up around the hole, which is exactly the
+            // kind of gap this tool exists to surface.
+            var missing = new BColor(0xB0, 0xB0, 0xB0);
+            list.StrokeRect(destination, missing, 1.0);
+            list.FillRect(new BRect(destination.X, destination.Y + (destination.Height / 2), destination.Width, 1), missing);
+            return;
+        }
+
+        list.DrawImage(
+            image,
+            new BRect(0, 0, image.PixelSize.Width, image.PixelSize.Height),
+            destination);
+    }
+
+    /// <summary>Encodes a bitmap as PNG bytes.</summary>
+    public static byte[] EncodePng(BBitmap bitmap)
+    {
+        ArgumentNullException.ThrowIfNull(bitmap);
+        return bitmap.Encode(Broiler.Media.Image.ImageEncodeFormat.Png);
+    }
+
+    /// <summary>The names the <c>--format</c> option accepts, and the encoder each selects.</summary>
+    public static IReadOnlyDictionary<string, Broiler.Media.Image.ImageEncodeFormat> ImageFormats { get; } =
+        new Dictionary<string, Broiler.Media.Image.ImageEncodeFormat>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["png"] = Broiler.Media.Image.ImageEncodeFormat.Png,
+            ["jpeg"] = Broiler.Media.Image.ImageEncodeFormat.Jpeg,
+            ["jpg"] = Broiler.Media.Image.ImageEncodeFormat.Jpeg,
+            ["bmp"] = Broiler.Media.Image.ImageEncodeFormat.Bmp,
+        };
+}
