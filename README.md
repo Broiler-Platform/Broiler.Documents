@@ -14,8 +14,8 @@ approximated constructs. There is no hidden global codec registration.
 
 > **Preview release.** `0.1.0-preview.1` is the first published preview. Public
 > APIs and behaviour are not frozen and may change before `1.0`. The codecs parse
-> untrusted input — RTF control words, Open XML packages, HTML, and PDF object
-> graphs — and must be treated as security-sensitive; no fuzzing campaign,
+> untrusted input — RTF control words, Open XML and OpenDocument packages, HTML,
+> and PDF object graphs — and must be treated as security-sensitive; no fuzzing campaign,
 > dependency scan, or independent security audit is recorded for this revision.
 > See the [roadmap](docs/roadmap.md) for what is still open.
 
@@ -60,7 +60,7 @@ In GitHub Actions use `secrets.GITHUB_TOKEN` rather than a personal token.
 
 ## Packages
 
-Seven packages ship. All target `net10.0`, ship XML documentation and a `.snupkg`
+Eight packages ship. All target `net10.0`, ship XML documentation and a `.snupkg`
 symbol package, and are built deterministically with SourceLink.
 
 | Package | Role |
@@ -70,6 +70,7 @@ symbol package, and are built deterministically with SourceLink.
 | `Broiler.Documents` | Codec contract, catalog, descriptors, source hints, read/write options, limits, diagnostics, and probe results. |
 | `Broiler.Documents.Rtf` | RTF reader/writer for the documented first-release subset. |
 | `Broiler.Documents.Docx` | DOCX reader/writer for a safe Open XML WordprocessingML subset. |
+| `Broiler.Documents.Odt` | ODT reader/writer for a safe OASIS OpenDocument text subset. |
 | `Broiler.Documents.Html` | HTML document/fragment codec over `Broiler.Dom` and `Broiler.Dom.Html`. |
 | `Broiler.Documents.Markdown` | Markdown codec for a safe CommonMark-oriented subset. |
 
@@ -87,6 +88,7 @@ the [PDF support roadmap](docs/pdf-support-roadmap.md) §4.1 and the
 ```text
 Broiler.Documents.Rtf      -> Broiler.Documents -> Broiler.Documents.Model -> Broiler.Graphics
 Broiler.Documents.Docx     -> Broiler.Documents -> Broiler.Documents.Model
+Broiler.Documents.Odt      -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Markdown -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Html     -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Html     -> Broiler.Dom, Broiler.Dom.Html
@@ -117,7 +119,7 @@ gaps in these codecs — and both answer it structurally first and in pixels onl
 when that is what you actually need to know.
 
 ```bash
-broilerdoc roundtrip report.docx --via docx --via rtf --via html --via markdown
+broilerdoc roundtrip report.docx --via docx --via odt --via rtf --via html --via markdown
 ```
 
 ```bash
@@ -193,7 +195,7 @@ git -C Broiler.Graphics submodule update --init --depth 1 Broiler.Media
 ```
 
 The solution defines six configurations. Every project here is platform-neutral
-`net10.0`, so all six build the same eighteen projects; the `-Windows` and `-Linux`
+`net10.0`, so all six build the same twenty projects; the `-Windows` and `-Linux`
 variants exist to line this component up with the rest of the suite and map onto
 plain `Debug`/`Release`.
 
@@ -244,6 +246,7 @@ repository secret; GitHub Packages uses the built-in `GITHUB_TOKEN`.
 
 - [RTF conformance](docs/rtf-conformance.md)
 - [DOCX conformance](docs/docx-conformance.md)
+- [ODT conformance](docs/odt-conformance.md)
 - [HTML conformance](docs/html-conformance.md)
 - [Markdown conformance](docs/markdown-conformance.md)
 - [PDF feature matrix](docs/pdf-feature-matrix.md) - the authority for what the

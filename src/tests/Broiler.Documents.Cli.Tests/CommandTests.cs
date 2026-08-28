@@ -43,7 +43,7 @@ public sealed class CommandTests : IDisposable
     }
 
     [Fact]
-    public void Formats_Reports_The_Four_Composed_Codecs_And_No_Pdf()
+    public void Formats_Reports_The_Five_Composed_Codecs_And_No_Pdf()
     {
         CliRun run = _cli.RunExpecting(ExitCode.Ok, "formats", "--json");
         JsonObject json = run.Json();
@@ -52,7 +52,7 @@ public sealed class CommandTests : IDisposable
             .Select(entry => entry!["name"]!.GetValue<string>())
             .ToArray();
 
-        Assert.Equal(new[] { "DOCX", "RTF", "HTML", "Markdown" }, names);
+        Assert.Equal(new[] { "DOCX", "ODT", "RTF", "HTML", "Markdown" }, names);
 
         // The PDF codec is gated by docs/pdf-support-roadmap.md 4.1 and must not
         // reach an application catalog. This is the assertion that keeps a future
@@ -75,6 +75,7 @@ public sealed class CommandTests : IDisposable
 
     [Theory]
     [InlineData("docx")]
+    [InlineData("odt")]
     [InlineData("rtf")]
     [InlineData("html")]
     [InlineData("md")]
@@ -96,7 +97,7 @@ public sealed class CommandTests : IDisposable
         JsonObject json = _cli.RunExpecting(ExitCode.Ok, "probe", path, "--json").Json();
 
         Assert.Equal("DOCX", json["selected"]!.GetValue<string>());
-        Assert.Equal(4, json["probes"]!.AsArray().Count);
+        Assert.Equal(5, json["probes"]!.AsArray().Count);
     }
 
     [Fact]

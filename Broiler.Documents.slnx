@@ -25,7 +25,7 @@
   </Folder>
   <!--
     Every project here is platform-neutral net10.0, so all six configurations
-    build all eighteen. The suffixed configurations exist to line this component
+    build all twenty. The suffixed configurations exist to line this component
     up with the rest of the suite, where the Windows and Linux backends are real
     build targets; they map onto plain Debug / Release here.
 
@@ -68,6 +68,12 @@
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
+    <Project Path="src/Broiler.Documents.Odt/Broiler.Documents.Odt.csproj">
+      <BuildType Project="Debug" Solution="Debug-Linux|*" />
+      <BuildType Project="Release" Solution="Release-Linux|*" />
+      <BuildType Project="Debug" Solution="Debug-Windows|*" />
+      <BuildType Project="Release" Solution="Release-Windows|*" />
+    </Project>
     <Project Path="src/Broiler.Documents.Html/Broiler.Documents.Html.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
@@ -89,7 +95,7 @@
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
     <!-- Application head, not a published capability. IsPackable=false keeps the
-         component's package set at the seven libraries the README lists; see the
+         component's package set at the eight libraries the README lists; see the
          project file for how to ship it as a dotnet tool. -->
     <Project Path="src/Broiler.Documents.Cli/Broiler.Documents.Cli.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
@@ -124,6 +130,12 @@
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
     <Project Path="src/tests/Broiler.Documents.Docx.Tests/Broiler.Documents.Docx.Tests.csproj">
+      <BuildType Project="Debug" Solution="Debug-Linux|*" />
+      <BuildType Project="Release" Solution="Release-Linux|*" />
+      <BuildType Project="Debug" Solution="Debug-Windows|*" />
+      <BuildType Project="Release" Solution="Release-Windows|*" />
+    </Project>
+    <Project Path="src/tests/Broiler.Documents.Odt.Tests/Broiler.Documents.Odt.Tests.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />

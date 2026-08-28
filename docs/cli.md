@@ -99,7 +99,7 @@ The shortest path from a corpus to a list of gaps, and it needs no reference
 implementation: the document that went in *is* the reference.
 
 ```bash
-broilerdoc roundtrip report.docx --via docx --via rtf --via html --via markdown
+broilerdoc roundtrip report.docx --via docx --via odt --via rtf --via html --via markdown
 ```
 
 ```text
@@ -305,8 +305,8 @@ appears, every counter resets at the first non-list paragraph.
 
 The project is set up to pack as a .NET tool (`PackAsTool`, command name
 `broilerdoc`) but has `IsPackable=false`, so `dotnet pack` on the solution still
-produces exactly the seven library packages the [README](../README.md) lists.
-That is deliberate: adding an eighth package would change what a `v*` tag pushes
+produces exactly the eight library packages the [README](../README.md) lists.
+That is deliberate: adding a ninth package would change what a `v*` tag pushes
 to nuget.org, and that should be a decision someone makes rather than a side
 effect of adding a CLI.
 

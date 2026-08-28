@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Odt</RootNamespace>
+    <AssemblyName>Broiler.Documents.Odt</AssemblyName>
+    <PackageId>Broiler.Documents.Odt</PackageId>
+    <Description>ODT document codec for Broiler.Documents over OASIS OpenDocument text packages.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Documents.Odt.Tests" />
+  </ItemGroup>
+
+</Project>

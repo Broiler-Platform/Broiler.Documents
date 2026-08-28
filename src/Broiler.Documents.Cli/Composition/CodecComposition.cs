@@ -4,6 +4,7 @@ using System.Linq;
 using Broiler.Documents.Docx;
 using Broiler.Documents.Html;
 using Broiler.Documents.Markdown;
+using Broiler.Documents.Odt;
 using Broiler.Documents.Rtf;
 using Broiler.Graphics;
 using Broiler.Media;
@@ -39,6 +40,7 @@ public static class CodecComposition
         new(new DocumentCodec[]
         {
             new DocxDocumentCodec(),
+            new OdtDocumentCodec(),
             new RtfDocumentCodec(),
             new HtmlDocumentCodec(),
             new MarkdownDocumentCodec(),
@@ -89,6 +91,8 @@ public static class CodecComposition
             "word" => ".docx",
             "openxml" => ".docx",
             "commonmark" => ".md",
+            "odf" => ".odt",
+            "opendocument" => ".odt",
             _ => string.Empty,
         };
 

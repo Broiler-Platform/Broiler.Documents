@@ -27,7 +27,7 @@ jobs:
       matrix:
         include:
           # Every project in this component is platform-neutral net10.0, so both
-          # legs build the same eighteen projects. They run anyway because the
+          # legs build the same twenty projects. They run anyway because the
           # codecs touch encodings, newlines, and path handling, and those are
           # exactly the places where the two hosts disagree - and because the CLI
           # renders text through whatever fonts the host happens to have, which
@@ -66,7 +66,7 @@ jobs:
       - name: Test
         run: dotnet test Broiler.Documents.slnx -c ${{ matrix.configuration }} --no-build --nologo
 
-      # Proves the seven packages still build from this commit. Every project is
+      # Proves the eight packages still build from this commit. Every project is
       # platform-neutral, so one host covers the whole set and one configuration
       # produces it. Broiler.Documents.Pdf and Broiler.Documents.Cli are both
       # IsPackable=false and are absent by design. Publishing is a separate,
