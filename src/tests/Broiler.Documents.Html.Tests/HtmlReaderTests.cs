@@ -90,6 +90,31 @@ public sealed class HtmlReaderTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.skip.external");
     }
 
+    [Theory(Timeout = 600000)]
+    [InlineData("pre")]
+    [InlineData("pre-wrap")]
+    [InlineData("PRE-WRAP")]
+    [InlineData("break-spaces")]
+    public void A_White_Space_Declaration_That_Keeps_Tabs_Is_Honoured(string value)
+    {
+        RichTextDocument document = Read($"<p style=\"white-space: {value}\">Name\tRole</p>");
+
+        Assert.Equal("Name\tRole", document.PlainText);
+    }
+
+    [Theory(Timeout = 600000)]
+    [InlineData("normal")]
+    [InlineData("nowrap")]
+    [InlineData("pre-line")]
+    public void A_White_Space_Declaration_That_Collapses_Tabs_Is_Left_Alone(string value)
+    {
+        // pre-line keeps line breaks and collapses everything else, tabs included,
+        // so honouring it here would keep a tab a browser would not show.
+        RichTextDocument document = Read($"<p style=\"white-space: {value}\">Name\tRole</p>");
+
+        Assert.Equal("Name Role", document.PlainText);
+    }
+
     private static RichTextDocument Read(string html) => ReadResult(html).Document;
 
     private static DocumentReadResult ReadResult(string html)

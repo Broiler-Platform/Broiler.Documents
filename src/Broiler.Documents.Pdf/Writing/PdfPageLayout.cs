@@ -85,6 +85,16 @@ internal sealed class PdfLayoutPage
 /// </remarks>
 internal sealed class PdfPageLayout
 {
+    /// <summary>The width of one indent level, in points.</summary>
+    private const double IndentWidth = 24d;
+
+    /// <summary>
+    /// The distance between the default tab stops, in points, measured from where
+    /// the paragraph's text starts. It is the tab stop the RichEdit control lays
+    /// out with, so a tabbed paragraph prints where it sits on screen.
+    /// </summary>
+    private const double TabStopWidth = 48d;
+
     private readonly PdfWriteOptions _options;
     private readonly IPdfFontMetricsProvider _metrics;
     private readonly PdfUriPolicy _uriPolicy;
@@ -132,7 +142,7 @@ internal sealed class PdfPageLayout
 
             y -= style.SpacingBefore;
 
-            double indent = style.IndentLevel * 24d;
+            double indent = style.IndentLevel * IndentWidth;
             double left = setup.MarginLeft + indent;
             double available = setup.Width - setup.MarginRight - left;
             if (available <= 0)
@@ -245,9 +255,15 @@ internal sealed class PdfPageLayout
         var current = new LayoutLine();
         double used = 0;
 
-        foreach (Word word in EnumerateWords(paragraph, marker))
+        foreach (Word enumerated in EnumerateWords(paragraph, marker))
         {
             _cancellationToken.ThrowIfCancellationRequested();
+
+            // What a tab is worth is the distance to the stop it lands on, so it
+            // can only be measured here, where the line's used width is known.
+            Word word = enumerated.IsTab
+                ? enumerated.WithText(string.Empty, NextTabStop(used) - used)
+                : enumerated;
 
             double wordWidth = word.Width;
             bool fits = used + wordWidth <= available || current.Pieces.Count == 0;
@@ -297,7 +313,11 @@ internal sealed class PdfPageLayout
     private static void Append(LayoutLine line, Word word)
     {
         LayoutPiece? last = line.Pieces.Count > 0 ? line.Pieces[^1] : null;
-        if (last is not null && last.SameStyleAs(word))
+
+        // A tab is a gap, not glyphs, so it stays its own piece: merging it into
+        // its neighbours would fold its width into a run the viewer sets from the
+        // font's own advances, and the text after it would close the gap up.
+        if (last is not null && !last.IsTab && !word.IsTab && last.SameStyleAs(word))
         {
             line.Pieces[^1] = last.Extend(word.Text, word.Width);
         }
@@ -317,6 +337,13 @@ internal sealed class PdfPageLayout
         while (line.Pieces.Count > 0)
         {
             LayoutPiece last = line.Pieces[^1];
+            if (last.IsTab)
+            {
+                line.Width -= last.Width;
+                line.Pieces.RemoveAt(line.Pieces.Count - 1);
+                continue;
+            }
+
             if (last.Text.Length == 0 || !IsBreakSpace(last.Text[^1]))
                 return;
 
@@ -398,13 +425,23 @@ internal sealed class PdfPageLayout
         int index = 0;
         while (index < text.Length)
         {
+            // A tab is its own word: its width is the distance to the tab stop it
+            // reaches, so it can be neither absorbed into the word in front of it
+            // nor measured from the font.
+            if (text[index] == '\t')
+            {
+                index++;
+                yield return Word.Tab(style);
+                continue;
+            }
+
             int start = index;
             while (index < text.Length && !IsBreakSpace(text[index]))
                 index++;
 
             // Absorb the run of spaces that follows the word.
             int wordEnd = index;
-            while (index < text.Length && IsBreakSpace(text[index]))
+            while (index < text.Length && text[index] == ' ')
                 index++;
 
             if (index == start)
@@ -421,6 +458,14 @@ internal sealed class PdfPageLayout
     // A non-breaking space is deliberately not a break opportunity: it is the one
     // space a document uses to say "do not wrap here".
     private static bool IsBreakSpace(char c) => c is ' ' or '\t';
+
+    /// <summary>
+    /// The width a line has used once the tab reaching <paramref name="used"/> has
+    /// landed: the first tab stop strictly past it, so a tab always moves the text
+    /// along even when it starts exactly on a stop.
+    /// </summary>
+    private static double NextTabStop(double used) =>
+        (Math.Floor(Math.Max(0, used) / TabStopWidth) + 1) * TabStopWidth;
 
     private Word MakeWord(string text, RunStyle style, bool isSpace)
     {
@@ -570,13 +615,20 @@ internal sealed class PdfPageLayout
 
     private readonly struct Word
     {
-        public Word(string text, double width, RunStyle style, bool isSpace)
+        public Word(string text, double width, RunStyle style, bool isSpace, bool isTab = false)
         {
             Text = text;
             Width = width;
             Style = style;
             IsSpace = isSpace;
+            IsTab = isTab;
         }
+
+        /// <summary>
+        /// A tab, carrying its style and no width yet: the line it lands on is what
+        /// decides how far it reaches.
+        /// </summary>
+        public static Word Tab(RunStyle style) => new(string.Empty, 0, style, isSpace: true, isTab: true);
 
         public string Text { get; }
 
@@ -587,25 +639,32 @@ internal sealed class PdfPageLayout
         /// <summary>True when the word is only whitespace.</summary>
         public bool IsSpace { get; }
 
+        /// <summary>True for a tab: a gap of measured width that draws no glyphs.</summary>
+        public bool IsTab { get; }
+
         public PdfStandardFont Font => Style.Font;
 
         public double FontSize => Style.FontSize;
 
-        public Word WithText(string text, double width) => new(text, width, Style, IsSpace);
+        public Word WithText(string text, double width) => new(text, width, Style, IsSpace, IsTab);
 
-        public LayoutPiece ToPiece() => new(Text, Width, Style);
+        public LayoutPiece ToPiece() => new(Text, Width, Style, IsTab);
     }
 
     private sealed class LayoutPiece
     {
-        public LayoutPiece(string text, double width, RunStyle style)
+        public LayoutPiece(string text, double width, RunStyle style, bool isTab = false)
         {
             Text = text;
             Width = width;
             Style = style;
+            IsTab = isTab;
         }
 
         public string Text { get; }
+
+        /// <summary>True for a tab: a gap of measured width that draws no glyphs.</summary>
+        public bool IsTab { get; }
 
         public double Width { get; }
 

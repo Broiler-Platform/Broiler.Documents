@@ -131,6 +131,35 @@ public sealed class RtfRoundTripTests
     }
 
     [Fact(Timeout = 600000)]
+    public void Tabs_In_Running_Text_And_In_An_Indented_Paragraph()
+    {
+        var indented = ParagraphStyle.Default with { IndentLevel = 1 };
+        RichTextDocument document = Doc(
+            Para(("Name\tValue", InlineStyle.Default)),
+            Para(indented, ("item\tdetail", InlineStyle.Default)),
+            Para(("\tleading", InlineStyle.Default)));
+
+        RichTextDocument round = RoundTrip(document);
+
+        Assert.Equal("Name\tValue", round.Paragraphs[0].Text);
+        Assert.Equal("item\tdetail", round.Paragraphs[1].Text);
+        Assert.Equal("\tleading", round.Paragraphs[2].Text);
+        AssertEquivalent(document, round);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Tab_Keeps_The_Style_Of_The_Run_It_Sits_In()
+    {
+        var bold = new InlineStyle { Bold = true };
+        RichTextDocument document = Doc(Para(("a\tb", bold)));
+
+        RichTextDocument round = RoundTrip(document);
+
+        Assert.True(round.Paragraphs[0].StyleAt(1).Bold);
+        AssertEquivalent(document, round);
+    }
+
+    [Fact(Timeout = 600000)]
     public void Trailing_Empty_Paragraph_Is_Preserved()
     {
         RichTextDocument document = Doc(Para(("A", InlineStyle.Default)), RichTextParagraph.Empty);

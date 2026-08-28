@@ -30,8 +30,10 @@ public sealed class LayoutPiece
         double width,
         double ascent,
         double descent,
-        bool oblique = false)
+        bool oblique = false,
+        bool isTab = false)
     {
+        IsTab = isTab;
         Text = text;
         Font = font;
         Color = color;
@@ -66,8 +68,14 @@ public sealed class LayoutPiece
 
     public bool IsImage => Image is not null;
 
+    /// <summary>
+    /// True for a tab: a gap of measured width that draws no glyphs. Its width is
+    /// only known once wrapping knows how far along its line it starts.
+    /// </summary>
+    public bool IsTab { get; }
+
     /// <summary>Horizontal advance in points.</summary>
-    public double Width { get; }
+    public double Width { get; internal set; }
 
     /// <summary>Height above the baseline in points.</summary>
     public double Ascent { get; }
@@ -184,6 +192,14 @@ public sealed class LayoutSettings
 
     /// <summary>Width of one <c>IndentLevel</c>, in points. 18pt is a quarter inch.</summary>
     public double IndentStepPoints { get; init; } = 18.0;
+
+    /// <summary>
+    /// Distance between the default tab stops, in points, measured from where the
+    /// paragraph's text starts. 36pt is the half inch a word processor starts a
+    /// document with, and twice <see cref="IndentStepPoints"/> so tabs and indent
+    /// levels share a grid.
+    /// </summary>
+    public double TabStopPoints { get; init; } = 36.0;
 
     /// <summary>Gap between a list marker and the text it introduces, in points.</summary>
     public double ListMarkerGapPoints { get; init; } = 6.0;

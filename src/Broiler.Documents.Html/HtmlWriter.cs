@@ -12,6 +12,14 @@ namespace Broiler.Documents.Html;
 /// <summary>Serializes the rich-text document model to deterministic UTF-8 HTML.</summary>
 public static class HtmlWriter
 {
+    /// <summary>
+    /// What a paragraph holding a tab declares so the tab survives HTML's
+    /// whitespace collapsing. <see cref="HtmlReader"/> reads the same declaration
+    /// back, so the tab returns as a tab rather than as the space a browser would
+    /// otherwise show.
+    /// </summary>
+    internal const string PreserveWhitespaceDeclaration = "white-space: pre-wrap";
+
     public static DocumentWriteResult Write(
         RichTextDocument document,
         Stream destination,
@@ -57,6 +65,17 @@ public static class HtmlWriter
         {
             DomElement p = document.CreateElement("p");
             string paragraphStyle = FormatParagraphStyle(paragraph.Style, diagnostics);
+
+            // HTML collapses a tab to a space unless the paragraph asks it not to,
+            // so a paragraph that holds one carries the declaration that keeps it.
+            // pre-wrap rather than pre: the paragraph must still wrap at the window.
+            if (paragraph.Text.Contains('\t', StringComparison.Ordinal))
+            {
+                paragraphStyle = paragraphStyle.Length > 0
+                    ? paragraphStyle + "; " + PreserveWhitespaceDeclaration
+                    : PreserveWhitespaceDeclaration;
+            }
+
             if (paragraphStyle.Length > 0)
                 p.SetAttribute("style", paragraphStyle);
 
