@@ -112,6 +112,7 @@ public sealed class RenderPipeline
             "Pin a font family to a file. Add :bold, :italic, or :bolditalic to the family for one face."),
         OptionSpec.Many("font-dir", "path", "Scan a directory and map every font file it finds by filename."),
         OptionSpec.Value("indent-step", "points", "Width of one indent level.", "18"),
+        OptionSpec.Value("tab-stop", "points", "Distance between the default tab stops.", "36"),
         OptionSpec.Value("max-pages", "n", "Stop after this many pages.", "200"),
         OptionSpec.Value("pages", "ranges", "Render only these pages, for example 1-3,7."),
         OptionSpec.Value("image-format", "name", "png, jpeg, or bmp.", "png"),
@@ -145,6 +146,10 @@ public sealed class RenderPipeline
         if (indentStep < 0)
             throw new UsageException("--indent-step cannot be negative.");
 
+        double tabStop = line.GetDouble("tab-stop", 36);
+        if (tabStop <= 0)
+            throw new UsageException("--tab-stop must be greater than zero.");
+
         int maxPages = line.GetInt32("max-pages", 200);
         if (maxPages <= 0)
             throw new UsageException("--max-pages must be greater than zero.");
@@ -155,6 +160,7 @@ public sealed class RenderPipeline
             DefaultFontSizePoints = fontSize,
             DefaultForeground = ColorText.Parse(line.Get("text-color", "#000000")!, "--text-color"),
             IndentStepPoints = indentStep,
+            TabStopPoints = tabStop,
             MaxPages = maxPages,
             ShowContentBox = line.Has("show-content-box"),
             DecorateLinks = !line.Has("no-link-style"),
@@ -288,6 +294,7 @@ public sealed class RenderPipeline
                 ["fontSizePoints"] = Round(_settings.DefaultFontSizePoints),
                 ["foreground"] = ColorText.Format(_settings.DefaultForeground),
                 ["indentStepPoints"] = Round(_settings.IndentStepPoints),
+                ["tabStopPoints"] = Round(_settings.TabStopPoints),
                 ["decorateLinks"] = _settings.DecorateLinks,
                 ["synthesizeItalic"] = _settings.SynthesizeItalic,
             },

@@ -113,7 +113,10 @@ internal static class HtmlReader
 
         InlineStyle childInline = ApplyInlineElement(element, inlineStyle, builder.Diagnostics);
         ParagraphStyle childParagraph = ApplyParagraphElement(element, paragraphStyle);
-        bool childPreserveWhitespace = preserveWhitespace || tag.Equals("pre", StringComparison.OrdinalIgnoreCase);
+        bool childPreserveWhitespace =
+            preserveWhitespace ||
+            tag.Equals("pre", StringComparison.OrdinalIgnoreCase) ||
+            PreservesWhitespace(element);
 
         if (tag.Equals("ul", StringComparison.OrdinalIgnoreCase) ||
             tag.Equals("ol", StringComparison.OrdinalIgnoreCase))
@@ -326,6 +329,20 @@ internal static class HtmlReader
         if (lower.Contains("line-through", StringComparison.Ordinal))
             style = style with { Strikethrough = true };
         return style;
+    }
+
+    /// <summary>
+    /// Whether an element's own <c>white-space</c> declaration keeps the tabs and
+    /// runs of spaces inside it, the way <c>pre</c> does. It is how a browser is
+    /// told to show a tab as a tab, and so how a tab reaches this reader intact.
+    /// <c>pre-line</c> is not one of them: it keeps line breaks and collapses
+    /// everything else, tabs included.
+    /// </summary>
+    private static bool PreservesWhitespace(DomElement element)
+    {
+        IReadOnlyDictionary<string, string> declarations = HtmlCss.ParseDeclarations(element.GetAttribute("style"));
+        return declarations.TryGetValue("white-space", out string? value) &&
+               value.Trim().ToLowerInvariant() is "pre" or "pre-wrap" or "break-spaces";
     }
 
     private static ParagraphStyle ApplyParagraphElement(DomElement element, ParagraphStyle style)

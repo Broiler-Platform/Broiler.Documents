@@ -167,6 +167,17 @@ public sealed class OdtWriterTests
     }
 
     [Fact]
+    public void A_Tab_Round_Trips_As_Its_Own_Element()
+    {
+        // XML collapses a literal tab in a text node, so ODF keeps it as text:tab
+        // and the writer has to emit that or the tab comes back as a space.
+        RichTextDocument document = RichTextDocument.FromPlainText("\tName\tValue");
+
+        Assert.Contains("text:tab", ReadContentRoot(OdtDocumentCodec.WriteToArray(document)).ToString());
+        Assert.Equal("\tName\tValue", RoundTrip(document).Paragraphs[0].Text);
+    }
+
+    [Fact]
     public void Hyperlinks_Round_Trip()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(

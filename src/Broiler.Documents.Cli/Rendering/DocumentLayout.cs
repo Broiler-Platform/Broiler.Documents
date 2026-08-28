@@ -266,9 +266,17 @@ public sealed class DocumentLayout
             {
                 // Leading whitespace on a wrapped line is dropped; whitespace
                 // inside a line is held back until a word arrives to justify it,
-                // so a line never ends with a visible ragged space.
-                if (current.Count == 0)
+                // so a line never ends with a visible ragged space. A tab that
+                // opens the paragraph is not that space — it is the indent the
+                // author typed — so it is the one kind of leading gap that stays.
+                if (current.Count == 0 && !(token.IsTab && rows.Count == 0))
                     continue;
+
+                if (token.IsTab)
+                {
+                    double reached = currentWidth + pendingWidth;
+                    token.ResolveTabWidth(NextTabStop(reached) - reached);
+                }
 
                 pendingSpace.Add(token);
                 pendingWidth += token.Width;
@@ -405,7 +413,7 @@ public sealed class DocumentLayout
             string text = paragraph.Text.Substring(offset, length);
             offset += run.Length;
 
-            foreach ((string fragment, bool whitespace, bool image) in Fragments(text, run.Style))
+            foreach ((string fragment, bool whitespace, bool image, bool tab) in Fragments(text, run.Style))
             {
                 if (image)
                 {
@@ -414,6 +422,18 @@ public sealed class DocumentLayout
                     word.Add(piece);
                     tokens.Add(word);
                     word = null;
+                    continue;
+                }
+
+                if (tab)
+                {
+                    if (word is not null)
+                    {
+                        tokens.Add(word);
+                        word = null;
+                    }
+
+                    tokens.Add(Token.Single(MakeTabPiece(run.Style), isWhitespace: true));
                     continue;
                 }
 
@@ -444,31 +464,37 @@ public sealed class DocumentLayout
         return tokens;
     }
 
-    /// <summary>Splits run text into whitespace runs, image placeholders, and words.</summary>
-    private static IEnumerable<(string Text, bool Whitespace, bool Image)> Fragments(string text, InlineStyle style)
+    /// <summary>Splits run text into whitespace runs, tabs, image placeholders, and words.</summary>
+    private static IEnumerable<Fragment> Fragments(string text, InlineStyle style)
     {
         var builder = new StringBuilder();
         bool? whitespace = null;
 
         foreach (char character in text)
         {
-            if (character == InlineImage.Placeholder && style.IsImage)
+            // A tab is neither a word nor part of a whitespace run: how wide it is
+            // depends on where along its line it falls, so it stands alone, the way
+            // an image placeholder does.
+            bool isTab = character == '\t';
+            if (isTab || (character == InlineImage.Placeholder && style.IsImage))
             {
                 if (builder.Length > 0)
                 {
-                    yield return (builder.ToString(), whitespace ?? false, false);
+                    yield return new Fragment(builder.ToString(), whitespace ?? false, false, false);
                     builder.Clear();
-                    whitespace = null;
                 }
 
-                yield return (string.Empty, false, true);
+                whitespace = null;
+                yield return isTab
+                    ? new Fragment(string.Empty, Whitespace: true, Image: false, Tab: true)
+                    : new Fragment(string.Empty, Whitespace: false, Image: true, Tab: false);
                 continue;
             }
 
             bool isSpace = char.IsWhiteSpace(character);
             if (whitespace is not null && isSpace != whitespace)
             {
-                yield return (builder.ToString(), whitespace.Value, false);
+                yield return new Fragment(builder.ToString(), whitespace.Value, false, false);
                 builder.Clear();
             }
 
@@ -477,8 +503,10 @@ public sealed class DocumentLayout
         }
 
         if (builder.Length > 0)
-            yield return (builder.ToString(), whitespace ?? false, false);
+            yield return new Fragment(builder.ToString(), whitespace ?? false, false, false);
     }
+
+    private readonly record struct Fragment(string Text, bool Whitespace, bool Image, bool Tab);
 
     /// <summary>
     /// The drawable pieces for a fragment. Usually one; small capitals produce
@@ -552,6 +580,43 @@ public sealed class DocumentLayout
             oblique);
     }
 
+    /// <summary>
+    /// A tab: a gap of no width yet, carrying its run's font so the line it lands
+    /// on is as tall as the run and any highlight behind it is the run's colour.
+    /// Wrapping fills the width in once it knows where the tab starts.
+    /// </summary>
+    private LayoutPiece MakeTabPiece(InlineStyle style)
+    {
+        BFontStyle font = FontFor(style);
+        double ascent = font.SizeInPixels * 0.8;
+
+        return new LayoutPiece(
+            string.Empty,
+            font,
+            ColorText.Or(style.Foreground, _settings.DefaultForeground),
+            style.Background,
+            underline: false,
+            strikethrough: false,
+            style.LinkHref,
+            null,
+            0,
+            ascent,
+            Math.Max(0, BTextMeasurer.GetLineHeight(font) - ascent),
+            oblique: false,
+            isTab: true);
+    }
+
+    /// <summary>
+    /// The width a line has used once a tab reaching <paramref name="used"/> has
+    /// landed: the first tab stop strictly past it, so a tab always moves the text
+    /// along even when it starts exactly on a stop.
+    /// </summary>
+    private double NextTabStop(double used)
+    {
+        double stop = _settings.TabStopPoints > 0 ? _settings.TabStopPoints : 36.0;
+        return (Math.Floor(Math.Max(0, used) / stop) + 1) * stop;
+    }
+
     private LayoutPiece MakeImagePiece(InlineStyle style)
     {
         InlineImage image = style.Image!;
@@ -599,7 +664,7 @@ public sealed class DocumentLayout
         public List<LayoutLine> Lines { get; }
     }
 
-    /// <summary>An unbreakable run of pieces: one word, one whitespace gap, or one image.</summary>
+    /// <summary>An unbreakable run of pieces: one word, one whitespace gap, one tab, or one image.</summary>
     private sealed class Token
     {
         private Token(bool isWhitespace) => IsWhitespace = isWhitespace;
@@ -610,11 +675,14 @@ public sealed class DocumentLayout
 
         public double Width { get; private set; }
 
+        /// <summary>True for the single-piece token a tab makes.</summary>
+        public bool IsTab => Pieces.Count == 1 && Pieces[0].IsTab;
+
         public static Token Empty(bool isWhitespace = false) => new(isWhitespace);
 
-        public static Token Single(LayoutPiece piece)
+        public static Token Single(LayoutPiece piece, bool isWhitespace = false)
         {
-            var token = new Token(false);
+            var token = new Token(isWhitespace);
             token.Add(piece);
             return token;
         }
@@ -623,6 +691,16 @@ public sealed class DocumentLayout
         {
             Pieces.Add(piece);
             Width += piece.Width;
+        }
+
+        /// <summary>
+        /// Sets a tab's width once wrapping knows where on its line it starts.
+        /// The piece is the same object the line will place, so both agree.
+        /// </summary>
+        public void ResolveTabWidth(double width)
+        {
+            Pieces[0].Width = width;
+            Width = width;
         }
     }
 

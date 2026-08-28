@@ -351,6 +351,72 @@ public sealed class PdfWriterTests
         Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(text, @"\(1\. ").Count);
     }
 
+    /// <summary>
+    /// Where the run whose text is <paramref name="run"/> was placed, read out of
+    /// the text matrix the writer set in front of it.
+    /// </summary>
+    private static (double X, double Baseline) Placed(string content, string run)
+    {
+        System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(
+            content,
+            @"1 0 0 1 (?<x>[-\d.]+) (?<y>[-\d.]+) Tm\n\(" + System.Text.RegularExpressions.Regex.Escape(run) + @"\) Tj");
+        Assert.True(match.Success, $"no placed run ({run}) in the content stream");
+        return (
+            double.Parse(match.Groups["x"].Value, System.Globalization.CultureInfo.InvariantCulture),
+            double.Parse(match.Groups["y"].Value, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    private static double PlacedX(string content, string run) => Placed(content, run).X;
+
+    [Fact]
+    public void Places_The_Text_After_A_Tab_On_The_Next_Tab_Stop()
+    {
+        RichTextDocument document = RichTextDocument.FromPlainText("a\tone\nbcd\ttwo");
+
+        string text = Latin1(Write(document, new PdfWriteOptions(compressStreams: false)).Bytes);
+
+        // Words of different lengths reach the same stop, and the stop is half an
+        // inch past where the paragraph's text starts.
+        double left = PlacedX(text, "a");
+        Assert.Equal(left + 48, PlacedX(text, "one"), 3);
+        Assert.Equal(PlacedX(text, "one"), PlacedX(text, "two"), 3);
+    }
+
+    [Fact]
+    public void A_Tab_Draws_No_Glyphs_Of_Its_Own()
+    {
+        RichTextDocument document = RichTextDocument.FromPlainText("a\tb");
+
+        (byte[] bytes, PdfWriteResult result) = Write(document, new PdfWriteOptions(compressStreams: false));
+        string text = Latin1(bytes);
+
+        // The tab is a gap, not a character the WinAnsi encoder has to stand in for.
+        Assert.Contains("(a) Tj", text);
+        Assert.Contains("(b) Tj", text);
+        Assert.DoesNotContain("(a\tb) Tj", text);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.WriteCharacterUnsupported);
+    }
+
+    [Fact]
+    public void A_Tab_That_Overflows_The_Line_Wraps_The_Text_After_It()
+    {
+        RichTextDocument document = RichTextDocument.FromPlainText("a\tb");
+        var narrow = new PdfWriteOptions(
+            compressStreams: false,
+            pageSetup: new PdfPageSetup(160, 400));
+
+        string text = Latin1(Write(document, narrow).Bytes);
+
+        // The first tab stop is 48 points along and the line is only 16 wide, so
+        // the tab ends the line instead of running the text off the page.
+        (double firstX, double firstBaseline) = Placed(text, "a");
+        (double secondX, double secondBaseline) = Placed(text, "b");
+        Assert.True(
+            secondBaseline < firstBaseline,
+            $"expected the text after the tab to wrap; both were placed on baseline {firstBaseline}");
+        Assert.Equal(firstX, secondX, 3);
+    }
+
     private sealed class WideMetrics : IPdfFontMetricsProvider
     {
         public bool IsApproximate => false;

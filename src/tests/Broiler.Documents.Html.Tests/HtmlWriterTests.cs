@@ -82,6 +82,32 @@ public sealed class HtmlWriterTests
     }
 
     [Fact(Timeout = 600000)]
+    public void A_Paragraph_Holding_A_Tab_Keeps_It_Through_Html()
+    {
+        // HTML collapses a tab to a space unless the paragraph says otherwise, so
+        // the writer declares it and the reader honours that declaration.
+        RichTextDocument expected = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Create("Name\tRole", InlineStyle.Default)]);
+
+        string html = Write(expected);
+        using var stream = new MemoryStream(HtmlDocumentCodec.WriteToArray(expected));
+        RichTextDocument actual = new HtmlDocumentCodec().Read(stream).Document;
+
+        Assert.Contains("white-space: pre-wrap", html, StringComparison.Ordinal);
+        Assert.Equal("Name\tRole", actual.Paragraphs[0].Text);
+        DocumentAssert.Equivalent(expected, actual);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Paragraph_With_No_Tab_Is_Not_Given_A_Whitespace_Declaration()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Create("Name Role", InlineStyle.Default)]);
+
+        Assert.DoesNotContain("white-space", Write(document), StringComparison.Ordinal);
+    }
+
+    [Fact(Timeout = 600000)]
     public void Writing_ListKind_Reports_A_Predictable_Diagnostic()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(new[]
