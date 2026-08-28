@@ -15,7 +15,7 @@
 
   <!--
     An application head, not a published capability. The component's package set
-    is the seven libraries the README lists; adding an eighth would change what a
+    is the eight libraries the README lists; adding a ninth would change what a
     `v*` tag pushes to nuget.org, so this stays unpacked until someone decides to
     ship the tool deliberately. Everything needed to ship it is below: set
     IsPackable to true and `dotnet pack` produces the `broilerdoc` tool.
@@ -43,6 +43,7 @@
     <ProjectReference Include="..\Broiler.Documents.FormatCodes\Broiler.Documents.FormatCodes.csproj" />
     <ProjectReference Include="..\Broiler.Documents.Rtf\Broiler.Documents.Rtf.csproj" />
     <ProjectReference Include="..\Broiler.Documents.Docx\Broiler.Documents.Docx.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Odt\Broiler.Documents.Odt.csproj" />
     <ProjectReference Include="..\Broiler.Documents.Html\Broiler.Documents.Html.csproj" />
     <ProjectReference Include="..\Broiler.Documents.Markdown\Broiler.Documents.Markdown.csproj" />
   </ItemGroup>

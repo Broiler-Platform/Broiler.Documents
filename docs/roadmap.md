@@ -1,6 +1,6 @@
 # Broiler.Documents Roadmap
 
-**Status:** Active preview. The codec family, RTF/DOCX/HTML/Markdown support,
+**Status:** Active preview. The codec family, RTF/DOCX/ODT/HTML/Markdown support,
 Formatting Codes projection, and package projects are implemented. Only current
 residual work is tracked here.
 
@@ -26,9 +26,24 @@ residual work is tracked here.
   limitations rather than partially supported behavior.
 - Consider HTML list writing and relative-link policy only with conformance
   fixtures and explicit diagnostics.
-- Extend Markdown or DOCX coverage only behind format-specific conformance tests;
-  source-preserving round trips are not a goal for the normalized document
+- Extend Markdown, DOCX, or ODT coverage only behind format-specific conformance
+  tests; source-preserving round trips are not a goal for the normalized document
   model.
+
+## ODT standards and rights
+
+`Broiler.Documents.Odt` is implemented from the published OASIS specification and
+embeds no third-party code, and ODF is standardized royalty-free (OASIS, and
+ISO/IEC 26300) with patent covenants from its principal contributors. None of
+that is a cleared rights position, and this component has no register saying it
+is. Owned here:
+
+- Extend the ADR 0011 claims discipline and the IP/licensing register beyond PDF
+  so ODT has a rights row of its own, and get a legal reading on the ODF
+  covenants rather than inferring one from the standard's licensing mode.
+- Until that lands, the [ODT conformance document](odt-conformance.md) states the
+  provenance and stops short of a rights claim, and no marketing copy may go
+  further than it does.
 
 Intentional limitations in the conformance documents are not release blockers
 unless they are explicitly promoted into this roadmap.

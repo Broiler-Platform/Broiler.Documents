@@ -36,6 +36,6 @@
        rest of the identity come from the vendored file. -->
   <PropertyGroup>
     <PackageProjectUrl>https://github.com/Broiler-Platform/Broiler.Documents</PackageProjectUrl>
-    <PackageTags>broiler;documents;rich-text;codec;rtf;docx;html;markdown</PackageTags>
+    <PackageTags>broiler;documents;rich-text;codec;rtf;docx;odt;opendocument;html;markdown</PackageTags>
   </PropertyGroup>
 </Project>

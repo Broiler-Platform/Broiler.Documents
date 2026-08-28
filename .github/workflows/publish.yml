@@ -1,6 +1,6 @@
 name: Publish
 
-# Publishes the seven Broiler.Documents packages.
+# Publishes the eight Broiler.Documents packages.
 #
 # Every project in this component is platform-neutral net10.0, so one host and
 # one configuration produce the whole set. Broiler.Documents.Pdf is

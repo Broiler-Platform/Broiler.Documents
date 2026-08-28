@@ -1,0 +1,1094 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.IO.Compression;
+using System.Linq;
+using System.Xml;
+using System.Xml.Linq;
+using Broiler.Documents.Model;
+using Broiler.Graphics;
+
+namespace Broiler.Documents.Odt;
+
+internal static class OdtReader
+{
+    public static DocumentReadResult Read(byte[] bytes, DocumentReadOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        ArgumentNullException.ThrowIfNull(options);
+
+        var diagnostics = new List<DocumentDiagnostic>();
+        try
+        {
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+
+            OdtManifest manifest = OdtPackage.ReadManifest(archive, options.Limits, diagnostics);
+            if (manifest.IsEncrypted)
+            {
+                // ODF password protection really encrypts the parts. There is
+                // nothing to read and no key this codec may ask for.
+                diagnostics.Add(DocumentDiagnostic.Error(
+                    "odt.package.encrypted",
+                    "The ODT package is encrypted; this codec does not decrypt packages."));
+                return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
+            }
+
+            ZipArchiveEntry? contentEntry = OdtPackage.FindEntry(archive, OdtNamespaces.ContentPart);
+            if (contentEntry is null)
+            {
+                diagnostics.Add(DocumentDiagnostic.Error(
+                    "odt.package.content",
+                    "The ODT package did not contain a content.xml part."));
+                return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
+            }
+
+            XDocument? content = OdtPackage.LoadEntryXml(
+                contentEntry,
+                options.Limits,
+                diagnostics,
+                "odt.content.xml",
+                LoadOptions.PreserveWhitespace);
+            if (content is null)
+                return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
+
+            OdtStyles styles = OdtStyles.Load(archive, content, options.Limits, diagnostics);
+            var images = new OdtImageLoader(archive, manifest, options.Limits);
+            RichTextDocument document = ReadContent(content, styles, images, options.Limits, diagnostics);
+            return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
+        }
+        catch (InvalidDataException ex)
+        {
+            diagnostics.Add(DocumentDiagnostic.Error(
+                "odt.package.zip",
+                "The ODT ZIP package could not be opened: " + ex.GetType().Name + "."));
+            return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
+        }
+        catch (XmlException ex)
+        {
+            diagnostics.Add(DocumentDiagnostic.Error(
+                "odt.xml",
+                "The ODT XML could not be parsed: " + ex.GetType().Name + "."));
+            return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
+        }
+    }
+
+    private static RichTextDocument ReadContent(
+        XDocument content,
+        OdtStyles styles,
+        OdtImageLoader images,
+        DocumentLimits limits,
+        List<DocumentDiagnostic> diagnostics)
+    {
+        XElement? body = content.Root
+            ?.Element(OdtNamespaces.Office + "body")
+            ?.Element(OdtNamespaces.Office + "text");
+        if (body is null)
+        {
+            diagnostics.Add(DocumentDiagnostic.Error(
+                "odt.document.body",
+                "The ODT content.xml did not contain an office:text body."));
+            return RichTextDocument.Empty;
+        }
+
+        var builder = new OdtDocumentBuilder(limits, diagnostics);
+        var context = new OdtReadContext(styles, images, builder);
+        ReadBlockContent(body.Elements(), context, list: null, depth: 0);
+        builder.ReportReadSummary(
+            body.Elements().Any(IsContentBlock),
+            styles.Count,
+            styles.ListStyleCount,
+            images.ImageCount);
+        return builder.Build();
+    }
+
+    /// <summary>Everything a read needs to turn one element into document content.</summary>
+    private sealed record OdtReadContext(
+        OdtStyles Styles,
+        OdtImageLoader Images,
+        OdtDocumentBuilder Builder);
+
+    /// <summary>
+    /// The list a paragraph is inside: which kind its level draws as, and how
+    /// deep that level is. Null outside a list.
+    /// </summary>
+    private sealed record OdtListContext(ListKind Kind, int Level, string? StyleName);
+
+    /// <summary>
+    /// Walks ODF text block content. Paragraphs are the only shape
+    /// <see cref="RichTextDocument"/> can represent, so lists, tables, sections,
+    /// and indexes are flattened into their paragraphs in document order rather
+    /// than dropped. Anything genuinely not understood raises a diagnostic
+    /// instead of vanishing.
+    /// </summary>
+    private static void ReadBlockContent(
+        IEnumerable<XElement> elements,
+        OdtReadContext context,
+        OdtListContext? list,
+        int depth)
+    {
+        OdtDocumentBuilder builder = context.Builder;
+        if (depth > builder.Limits.MaxGroupDepth)
+        {
+            builder.AddDiagnosticOnce(
+                "odt.limit.depth",
+                "ODT block nesting exceeded MaxGroupDepth; the deepest content was skipped.");
+            return;
+        }
+
+        foreach (XElement element in elements)
+        {
+            XName name = element.Name;
+
+            if (name == OdtNamespaces.Text + "p" || name == OdtNamespaces.Text + "h")
+            {
+                ReadParagraph(element, context, list, depth);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Text + "list")
+            {
+                ReadList(element, context, list, depth + 1);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Table + "table")
+            {
+                ReadTable(element, context, depth + 1);
+                continue;
+            }
+
+            // A section is a named region of ordinary body content; an index is a
+            // generated one whose text:index-body holds real paragraphs. Both are
+            // walked so the words inside them survive.
+            if (name == OdtNamespaces.Text + "section")
+            {
+                ReadBlockContent(element.Elements(), context, list, depth + 1);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Text + "index-body" || IsIndexContainer(name))
+            {
+                ReadBlockContent(element.Elements(), context, list: null, depth + 1);
+                continue;
+            }
+
+            // A frame at block level is a text box, an image floating on the page,
+            // or an embedded object. Only the text box holds body content.
+            if (name == OdtNamespaces.Draw + "frame")
+            {
+                XElement? textBox = element.Element(OdtNamespaces.Draw + "text-box");
+                if (textBox is not null)
+                {
+                    builder.AddDiagnosticOnce(
+                        "odt.frame.textbox",
+                        "An ODT text box was read as body content; its frame position is not represented.");
+                    ReadBlockContent(textBox.Elements(), context, list: null, depth + 1);
+                }
+                else
+                {
+                    builder.AddDiagnosticOnce(
+                        "odt.frame.block",
+                        "A page-anchored ODT frame held no body text and was skipped.");
+                }
+
+                continue;
+            }
+
+            if (name == OdtNamespaces.Office + "annotation" ||
+                name == OdtNamespaces.Office + "annotation-end")
+            {
+                builder.AddDiagnosticOnce("odt.annotation", "ODT comment content is not part of the body and was skipped.");
+                continue;
+            }
+
+            if (name == OdtNamespaces.Text + "tracked-changes")
+            {
+                builder.AddDiagnosticOnce(
+                    "odt.revision.tracked",
+                    "ODT tracked changes were not applied; the document is read as it stands.");
+                continue;
+            }
+
+            if (IsIgnorableBlock(name))
+                continue;
+
+            builder.AddUnsupportedBlock(name);
+        }
+    }
+
+    /// <summary>
+    /// Reads a <c>text:list</c>. ODF nests a sub-list inside the
+    /// <c>text:list-item</c> it belongs to, so the level is the nesting depth and
+    /// a nested list inherits the outer list style when it names none.
+    /// </summary>
+    private static void ReadList(
+        XElement list,
+        OdtReadContext context,
+        OdtListContext? outer,
+        int depth)
+    {
+        OdtDocumentBuilder builder = context.Builder;
+        if (depth > builder.Limits.MaxGroupDepth)
+        {
+            builder.AddDiagnosticOnce(
+                "odt.limit.depth",
+                "ODT block nesting exceeded MaxGroupDepth; the deepest content was skipped.");
+            return;
+        }
+
+        string? styleName = (string?)list.Attribute(OdtNamespaces.Text + "style-name");
+        if (string.IsNullOrEmpty(styleName))
+            styleName = outer?.StyleName;
+
+        int level = (outer?.Level ?? 0) + 1;
+        ListKind kind = context.Styles.KindForList(styleName, level);
+        var inner = new OdtListContext(kind, level, styleName);
+
+        foreach (XElement child in list.Elements())
+        {
+            if (child.Name == OdtNamespaces.Text + "list-item")
+            {
+                ReadBlockContent(child.Elements(), context, inner, depth + 1);
+                continue;
+            }
+
+            // A list header is the unnumbered lead-in paragraph of a list. It
+            // keeps the level's indent but carries no bullet or number.
+            if (child.Name == OdtNamespaces.Text + "list-header")
+            {
+                ReadBlockContent(
+                    child.Elements(),
+                    context,
+                    inner with { Kind = ListKind.None },
+                    depth + 1);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Flattens a table into the paragraphs of its cells, read left-to-right and
+    /// top-to-bottom. <see cref="RichTextDocument"/> has no table shape, so the
+    /// alternative would be losing every word the table holds, which is exactly
+    /// what a CV or letterhead template puts there.
+    /// </summary>
+    private static void ReadTable(XElement table, OdtReadContext context, int depth)
+    {
+        context.Builder.NoteTable();
+        foreach (XElement row in EnumerateRows(table, depth))
+        {
+            foreach (XElement cell in row.Elements())
+            {
+                if (cell.Name == OdtNamespaces.Table + "table-cell")
+                    ReadBlockContent(cell.Elements(), context, list: null, depth + 1);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Yields a table's rows, looking through the row groups ODF wraps them in:
+    /// header rows, row groups, and the row-level equivalents of a column split.
+    /// </summary>
+    private static IEnumerable<XElement> EnumerateRows(XElement parent, int depth)
+    {
+        if (depth > 64)
+            yield break;
+
+        foreach (XElement child in parent.Elements())
+        {
+            if (child.Name == OdtNamespaces.Table + "table-row")
+            {
+                yield return child;
+                continue;
+            }
+
+            if (child.Name == OdtNamespaces.Table + "table-header-rows" ||
+                child.Name == OdtNamespaces.Table + "table-row-group" ||
+                child.Name == OdtNamespaces.Table + "table-rows")
+            {
+                foreach (XElement nested in EnumerateRows(child, depth + 1))
+                    yield return nested;
+            }
+        }
+    }
+
+    private static bool IsIndexContainer(XName name)
+    {
+        if (name.Namespace != OdtNamespaces.Text)
+            return false;
+
+        return name.LocalName is
+            "table-of-content" or
+            "illustration-index" or
+            "table-index" or
+            "object-index" or
+            "user-index" or
+            "alphabetical-index" or
+            "bibliography";
+    }
+
+    /// <summary>Block-level elements that carry no body text and are skipped silently.</summary>
+    private static bool IsIgnorableBlock(XName name)
+    {
+        if (name.Namespace == OdtNamespaces.Table)
+        {
+            return name.LocalName is
+                "table-column" or "table-columns" or "table-column-group" or
+                "table-header-columns" or "calculation-settings" or
+                "named-expressions" or "shapes";
+        }
+
+        if (name.Namespace == OdtNamespaces.Office)
+            return name.LocalName is "forms" or "event-listeners";
+
+        if (name.Namespace != OdtNamespaces.Text)
+            return false;
+
+        return name.LocalName is
+            "sequence-decls" or "variable-decls" or "user-field-decls" or
+            "dde-connection-decls" or "alphabetical-index-auto-mark-file" or
+            "soft-page-break" or "index-title" or "index-title-template" or
+            "index-body-template" or "bookmark" or "bookmark-start" or "bookmark-end" or
+            "change" or "change-start" or "change-end";
+    }
+
+    /// <summary>True when a body child could contribute text, used to tell an empty document from a dropped one.</summary>
+    private static bool IsContentBlock(XElement element) => !IsIgnorableBlock(element.Name);
+
+    private static void ReadParagraph(
+        XElement paragraph,
+        OdtReadContext context,
+        OdtListContext? list,
+        int depth)
+    {
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name");
+
+        ParagraphStyle paragraphStyle = ParagraphStyle.Default;
+        foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
+            paragraphStyle = ApplyParagraphProperties(properties, paragraphStyle, context.Builder);
+
+        // The list wins over whatever indent the paragraph style carried: inside a
+        // list the nesting is the indent, and ODF list paragraph styles routinely
+        // set fo:margin-left to zero precisely because the list supplies it.
+        if (list is not null)
+        {
+            paragraphStyle = paragraphStyle with
+            {
+                ListKind = list.Kind,
+                IndentLevel = Math.Max(list.Level, list.Kind == ListKind.None ? 0 : 1),
+            };
+        }
+
+        InlineStyle inherited = InlineStyle.Default;
+        foreach (XElement properties in context.Styles.TextPropertiesForParagraph(styleName))
+            inherited = ApplyTextProperties(properties, inherited, context.Styles, context.Builder);
+
+        context.Builder.StartParagraph(paragraphStyle);
+        ReadInlineContent(paragraph, context, inherited, depth + 1);
+        context.Builder.FinishParagraph();
+    }
+
+    /// <summary>
+    /// Reads the inline content of a paragraph or span. Text nodes go through the
+    /// ODF white-space rule (a run of white space is one space, and a space at
+    /// the paragraph edge is nothing); everything significant is an element.
+    /// </summary>
+    private static void ReadInlineContent(
+        XElement parent,
+        OdtReadContext context,
+        InlineStyle style,
+        int depth)
+    {
+        OdtDocumentBuilder builder = context.Builder;
+        if (depth > builder.Limits.MaxGroupDepth)
+        {
+            builder.AddDiagnosticOnce(
+                "odt.limit.depth",
+                "ODT inline nesting exceeded MaxGroupDepth; the deepest content was skipped.");
+            return;
+        }
+
+        foreach (XNode node in parent.Nodes())
+        {
+            if (node is XText text)
+            {
+                builder.AppendCollapsed(text.Value, style);
+                continue;
+            }
+
+            if (node is not XElement element)
+                continue;
+
+            XName name = element.Name;
+
+            if (name == OdtNamespaces.Text + "span")
+            {
+                InlineStyle spanStyle = style;
+                string? spanStyleName = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
+                foreach (XElement properties in context.Styles.TextPropertiesForSpan(spanStyleName))
+                    spanStyle = ApplyTextProperties(properties, spanStyle, context.Styles, builder);
+
+                ReadInlineContent(element, context, spanStyle, depth + 1);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Text + "a")
+            {
+                ReadInlineContent(element, context, ApplyAnchorStyle(element, context, style), depth + 1);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Text + "s")
+            {
+                builder.AppendLiteral(new string(' ', ReadSpaceCount(element, builder)), style);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Text + "tab")
+            {
+                builder.AppendLiteral("\t", style);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Text + "line-break")
+            {
+                builder.AppendLiteral(((char)0x2028).ToString(), style);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Draw + "frame")
+            {
+                ReadPicture(element, context, style);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Text + "note")
+            {
+                builder.AddDiagnosticOnce(
+                    "odt.note",
+                    "ODT footnote and endnote bodies are not part of the paragraph and were skipped.");
+                continue;
+            }
+
+            if (name == OdtNamespaces.Office + "annotation" ||
+                name == OdtNamespaces.Office + "annotation-end")
+            {
+                builder.AddDiagnosticOnce("odt.annotation", "ODT comment content is not part of the body and was skipped.");
+                continue;
+            }
+
+            if (name == OdtNamespaces.Text + "ruby")
+            {
+                XElement? rubyBase = element.Element(OdtNamespaces.Text + "ruby-base");
+                if (rubyBase is not null)
+                    ReadInlineContent(rubyBase, context, style, depth + 1);
+                continue;
+            }
+
+            if (IsIgnorableInline(name))
+                continue;
+
+            // Every remaining text: element is a field, a mark, or a wrapper, and
+            // a field carries its last computed value as its text content. Walking
+            // into it is how the date in a letterhead survives; refusing to would
+            // lose the words a reader can plainly see.
+            if (element.HasElements || !string.IsNullOrEmpty(element.Value))
+                ReadInlineContent(element, context, style, depth + 1);
+        }
+    }
+
+    /// <summary>Inline elements that carry no text and are skipped silently.</summary>
+    private static bool IsIgnorableInline(XName name)
+    {
+        // draw:a is not listed: a clickable picture wraps its frame in one, and
+        // skipping it would lose the picture rather than the link.
+        if (name.Namespace == OdtNamespaces.Draw)
+            return name.LocalName is "g" or "custom-shape" or "rect" or "line" or "polyline";
+
+        if (name.Namespace != OdtNamespaces.Text)
+            return true;
+
+        return name.LocalName is
+            "soft-page-break" or
+            "bookmark" or "bookmark-start" or "bookmark-end" or
+            "reference-mark" or "reference-mark-start" or "reference-mark-end" or
+            "toc-mark" or "toc-mark-start" or "toc-mark-end" or
+            "alphabetical-index-mark" or
+            "alphabetical-index-mark-start" or "alphabetical-index-mark-end" or
+            "user-index-mark" or "user-index-mark-start" or "user-index-mark-end" or
+            "change" or "change-start" or "change-end" or
+            "sequence-decls" or "note-citation";
+    }
+
+    /// <summary>
+    /// The number of spaces a <c>text:s</c> stands for. The count is clamped: a
+    /// hostile <c>text:c</c> would otherwise allocate a run of arbitrary length
+    /// from three bytes of markup.
+    /// </summary>
+    private static int ReadSpaceCount(XElement element, OdtDocumentBuilder builder)
+    {
+        string? value = (string?)element.Attribute(OdtNamespaces.Text + "c");
+        if (value is null)
+            return 1;
+
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int count) || count <= 0)
+            return 1;
+
+        if (count > builder.Limits.MaxRunLength)
+        {
+            builder.AddDiagnosticOnce(
+                "odt.limit.spaces",
+                "A text:s run exceeded MaxRunLength and was truncated.");
+            return builder.Limits.MaxRunLength;
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// Appends a picture as one <see cref="InlineImage.Placeholder"/> character
+    /// carrying the image on its style. The run's own character formatting is
+    /// kept on it, so a picture inside a hyperlink stays inside that link.
+    /// </summary>
+    private static void ReadPicture(XElement frame, OdtReadContext context, InlineStyle style)
+    {
+        string? anchor = (string?)frame.Attribute(OdtNamespaces.Text + "anchor-type");
+        if (anchor is not null &&
+            !anchor.Equals("as-char", StringComparison.Ordinal) &&
+            !anchor.Equals("char", StringComparison.Ordinal))
+        {
+            context.Builder.AddDiagnosticOnce(
+                "odt.image.anchored",
+                "A floating ODT picture was placed inline; text wrapping is not represented.");
+        }
+
+        InlineImage? image = context.Images.Read(frame, context.Builder);
+        if (image is null)
+            return;
+
+        context.Builder.AppendLiteral(InlineImage.PlaceholderText, style with { Image = image });
+    }
+
+    /// <summary>
+    /// Resolves a <c>text:a</c> into a link style: the anchor's own character
+    /// style, then its target under the shared URI policy.
+    /// </summary>
+    private static InlineStyle ApplyAnchorStyle(XElement anchor, OdtReadContext context, InlineStyle style)
+    {
+        string? styleName = (string?)anchor.Attribute(OdtNamespaces.Text + "style-name");
+        foreach (XElement properties in context.Styles.TextPropertiesForSpan(styleName))
+            style = ApplyTextProperties(properties, style, context.Styles, context.Builder);
+
+        string? href = (string?)anchor.Attribute(OdtNamespaces.XLink + "href");
+        if (string.IsNullOrWhiteSpace(href))
+            return style;
+
+        href = href.Trim();
+        if (!IsAllowedLink(href))
+        {
+            context.Builder.AddDiagnosticOnce("odt.link", "A hyperlink with a disallowed or relative target was dropped.");
+            return style;
+        }
+
+        return style with { LinkHref = href };
+    }
+
+    private static bool IsAllowedLink(string href)
+    {
+        if (href.StartsWith("#", StringComparison.Ordinal))
+            return href.Length > 1;
+        if (!Uri.TryCreate(href, UriKind.Absolute, out Uri? uri))
+            return false;
+
+        return uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+            uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+            uri.Scheme.Equals(Uri.UriSchemeMailto, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Applies one <c>style:paragraph-properties</c> over an inherited style.
+    /// Called once per link in the style chain, so only the attributes actually
+    /// present override what came before.
+    /// </summary>
+    private static ParagraphStyle ApplyParagraphProperties(
+        XElement? properties,
+        ParagraphStyle style,
+        OdtDocumentBuilder builder)
+    {
+        if (properties is null)
+            return style;
+
+        string? alignment = (string?)properties.Attribute(OdtNamespaces.Fo + "text-align");
+        switch (alignment)
+        {
+            case "center":
+                style = style with { Alignment = TextAlignment.Center };
+                break;
+            case "end":
+            case "right":
+                style = style with { Alignment = TextAlignment.Right };
+                break;
+            case "start":
+            case "left":
+                style = style with { Alignment = TextAlignment.Left };
+                break;
+            case "justify":
+                // The model has three alignments; justification is not one of
+                // them, and reading it as left is what the layout would do anyway.
+                builder.AddDiagnosticOnce(
+                    "odt.align.justify",
+                    "Justified ODT paragraphs were read as left-aligned; the model has no justification.");
+                break;
+        }
+
+        // fo:margin is the shorthand a producer writes to reset all four edges at
+        // once. Only the single-value form is unambiguous without a box model.
+        string? margin = (string?)properties.Attribute(OdtNamespaces.Fo + "margin");
+        if (margin is not null &&
+            !margin.Contains(' ', StringComparison.Ordinal) &&
+            OdtUnits.TryParseLength(margin, out double allEdges))
+        {
+            style = style with
+            {
+                IndentLevel = IndentLevelFor(allEdges),
+                SpacingBefore = (float)allEdges,
+                SpacingAfter = (float)allEdges,
+            };
+        }
+
+        if (OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + "margin-left"), out double left))
+            style = style with { IndentLevel = IndentLevelFor(left) };
+
+        if (OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + "margin-top"), out double top))
+            style = style with { SpacingBefore = (float)Math.Max(0, top) };
+
+        if (OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + "margin-bottom"), out double bottom))
+            style = style with { SpacingAfter = (float)Math.Max(0, bottom) };
+
+        return ApplyLineHeight(properties, style, builder);
+    }
+
+    private static ParagraphStyle ApplyLineHeight(
+        XElement properties,
+        ParagraphStyle style,
+        OdtDocumentBuilder builder)
+    {
+        string? lineHeight = (string?)properties.Attribute(OdtNamespaces.Fo + "line-height");
+        if (lineHeight is not null)
+        {
+            if (lineHeight.Equals("normal", StringComparison.OrdinalIgnoreCase))
+                return style with { LineSpacing = 1f };
+
+            if (OdtUnits.TryParsePercentage(lineHeight, out double multiplier) && multiplier > 0)
+                return style with { LineSpacing = (float)multiplier };
+
+            // A fixed line height is a length, not a multiple of the font size,
+            // and the model stores only the multiple.
+            builder.AddDiagnosticOnce(
+                "odt.linespacing.fixed",
+                "A fixed ODT line height was not represented; the model stores a spacing multiplier.");
+            return style;
+        }
+
+        if (properties.Attribute(OdtNamespaces.Style + "line-height-at-least") is not null ||
+            properties.Attribute(OdtNamespaces.Style + "line-spacing") is not null)
+        {
+            builder.AddDiagnosticOnce(
+                "odt.linespacing.fixed",
+                "A fixed ODT line height was not represented; the model stores a spacing multiplier.");
+        }
+
+        return style;
+    }
+
+    private static int IndentLevelFor(double points) =>
+        Math.Max(0, (int)Math.Round(points / OdtUnits.PointsPerIndentLevel, MidpointRounding.AwayFromZero));
+
+    /// <summary>
+    /// Applies one <c>style:text-properties</c> over an inherited style. Called
+    /// once per link in the style chain and finally for the span's own style, so
+    /// only the attributes actually present override what came before.
+    /// </summary>
+    private static InlineStyle ApplyTextProperties(
+        XElement? properties,
+        InlineStyle style,
+        OdtStyles styles,
+        OdtDocumentBuilder builder)
+    {
+        if (properties is null)
+            return style;
+
+        string? weight = (string?)properties.Attribute(OdtNamespaces.Fo + "font-weight");
+        if (weight is not null)
+            style = style with { Bold = IsBoldWeight(weight) };
+
+        string? slant = (string?)properties.Attribute(OdtNamespaces.Fo + "font-style");
+        if (slant is not null)
+        {
+            style = style with
+            {
+                Italic = slant.Equals("italic", StringComparison.OrdinalIgnoreCase) ||
+                    slant.Equals("oblique", StringComparison.OrdinalIgnoreCase),
+            };
+        }
+
+        style = ApplyLineDecoration(properties, "text-underline", style, static (s, v) => s with { Underline = v });
+        style = ApplyLineDecoration(properties, "text-line-through", style, static (s, v) => s with { Strikethrough = v });
+
+        string? family =
+            styles.ResolveFontName((string?)properties.Attribute(OdtNamespaces.Style + "font-name")) ??
+            NormalizeFontFamily((string?)properties.Attribute(OdtNamespaces.Fo + "font-family"));
+        if (!string.IsNullOrWhiteSpace(family))
+            style = style with { FontFamily = NormalizeFontFamily(family) };
+
+        style = ApplyFontSize(properties, style);
+
+        if (OdtUnits.TryParseColor((string?)properties.Attribute(OdtNamespaces.Fo + "color"), out BColor foreground))
+            style = style with { Foreground = foreground };
+
+        string? background = (string?)properties.Attribute(OdtNamespaces.Fo + "background-color");
+        if (background is not null)
+        {
+            style = OdtUnits.TryParseColor(background, out BColor fill)
+                ? style with { Background = fill }
+                : style with { Background = BColor.Empty };
+        }
+
+        // Small caps first, then the transform: a style that asks for both draws
+        // as all capitals, which is what an ODF consumer does.
+        string? variant = (string?)properties.Attribute(OdtNamespaces.Fo + "font-variant");
+        if (variant is not null)
+        {
+            style = variant.Equals("small-caps", StringComparison.OrdinalIgnoreCase)
+                ? style with { Capitalization = TextCapitalization.SmallCaps }
+                : ClearCapitalization(style, TextCapitalization.SmallCaps);
+        }
+
+        return ApplyTextTransform(properties, style, builder);
+    }
+
+    private static InlineStyle ApplyTextTransform(
+        XElement properties,
+        InlineStyle style,
+        OdtDocumentBuilder builder)
+    {
+        string? transform = (string?)properties.Attribute(OdtNamespaces.Fo + "text-transform");
+        if (transform is null)
+            return style;
+
+        if (transform.Equals("uppercase", StringComparison.OrdinalIgnoreCase))
+            return style with { Capitalization = TextCapitalization.AllCaps };
+
+        if (transform.Equals("lowercase", StringComparison.OrdinalIgnoreCase) ||
+            transform.Equals("capitalize", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.AddDiagnosticOnce(
+                "odt.text.transform",
+                "An ODT lowercase or capitalize text transform was dropped; the model draws upper case only.");
+        }
+
+        return ClearCapitalization(style, TextCapitalization.AllCaps);
+    }
+
+    /// <summary>Turning one kind of capitalization off leaves the other alone.</summary>
+    private static InlineStyle ClearCapitalization(InlineStyle style, TextCapitalization kind) =>
+        style.Capitalization == kind ? style with { Capitalization = TextCapitalization.None } : style;
+
+    private static InlineStyle ApplyFontSize(XElement properties, InlineStyle style)
+    {
+        string? size = (string?)properties.Attribute(OdtNamespaces.Fo + "font-size");
+        if (size is null)
+            return style;
+
+        if (OdtUnits.TryParseLength(size, out double points) && points > 0)
+            return style with { FontSize = (float)points };
+
+        // A percentage is relative to the size this style inherited, which is the
+        // one already resolved into the style being built up.
+        if (OdtUnits.TryParsePercentage(size, out double multiplier) &&
+            multiplier > 0 &&
+            style.FontSize is { } inherited)
+        {
+            return style with { FontSize = (float)(inherited * multiplier) };
+        }
+
+        return style;
+    }
+
+    /// <summary>
+    /// Reads one of the paired line decorations. ODF splits each into a style and
+    /// a type attribute, and either one set to <c>none</c> turns the decoration
+    /// off, so both are consulted.
+    /// </summary>
+    private static InlineStyle ApplyLineDecoration(
+        XElement properties,
+        string prefix,
+        InlineStyle style,
+        Func<InlineStyle, bool, InlineStyle> apply)
+    {
+        string? lineStyle = (string?)properties.Attribute(OdtNamespaces.Style + prefix + "-style");
+        string? lineType = (string?)properties.Attribute(OdtNamespaces.Style + prefix + "-type");
+        if (lineStyle is null && lineType is null)
+            return style;
+
+        bool off =
+            string.Equals(lineStyle, "none", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(lineType, "none", StringComparison.OrdinalIgnoreCase);
+        return apply(style, !off);
+    }
+
+    private static bool IsBoldWeight(string weight)
+    {
+        if (weight.Equals("bold", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (weight.Equals("normal", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // The numeric form: 400 is normal and 700 is bold, so the boundary that
+        // matters is 600, exactly as CSS defines it.
+        return int.TryParse(weight, NumberStyles.Integer, CultureInfo.InvariantCulture, out int numeric) &&
+            numeric >= 600;
+    }
+
+    /// <summary>
+    /// Reduces a CSS-style font family list to one family name: the first entry,
+    /// unquoted. ODF writes <c>fo:font-family</c> in CSS syntax, so a name with a
+    /// space arrives quoted and a fallback list arrives comma-separated.
+    /// </summary>
+    private static string? NormalizeFontFamily(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        string first = value.Split(',', 2)[0].Trim();
+        if (first.Length >= 2 &&
+            ((first[0] == '\'' && first[^1] == '\'') || (first[0] == '"' && first[^1] == '"')))
+        {
+            first = first[1..^1].Trim();
+        }
+
+        return first.Length == 0 ? null : first;
+    }
+
+    private sealed class OdtDocumentBuilder : IOdtImageDiagnostics
+    {
+        private readonly DocumentLimits _limits;
+        private readonly List<DocumentDiagnostic> _diagnostics;
+        private readonly List<RichTextParagraph> _paragraphs = [];
+        private readonly List<Segment> _segments = [];
+        private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
+        private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
+        private bool _pendingSpace;
+        private int _length;
+        private int _tableCount;
+        private int _unsupportedBlockCount;
+
+        public OdtDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
+        {
+            _limits = limits;
+            _diagnostics = diagnostics;
+        }
+
+        public DocumentLimits Limits => _limits;
+
+        public void NoteTable()
+        {
+            _tableCount++;
+            AddDiagnosticOnce(
+                "odt.table.flattened",
+                "ODT tables were flattened into their cell paragraphs, in row order.");
+        }
+
+        /// <summary>
+        /// Records a block-level element the reader does not understand. Keyed by
+        /// element name so each distinct construct is reported once; the name is
+        /// markup structure, never document text (ADR 0004 privacy rule).
+        /// </summary>
+        public void AddUnsupportedBlock(XName name)
+        {
+            _unsupportedBlockCount++;
+            AddDiagnosticOnce(
+                "odt.block.unsupported:" + name.LocalName,
+                "odt.block.unsupported",
+                "An unsupported ODT block-level element was skipped: " + name.LocalName + ".");
+        }
+
+        /// <summary>
+        /// Emits the read summary. The counts make a silent content loss visible:
+        /// a body with block content that yields no paragraphs is a reader bug,
+        /// not an empty file, and it should say so rather than open blank.
+        /// </summary>
+        public void ReportReadSummary(
+            bool bodyHadContentBlocks,
+            int styleCount,
+            int listStyleCount,
+            int imageCount)
+        {
+            if (_paragraphs.Count == 0 && bodyHadContentBlocks)
+            {
+                _diagnostics.Add(DocumentDiagnostic.Warning(
+                    "odt.document.empty",
+                    "The ODT body contained block-level content but produced no paragraphs."));
+            }
+
+            _diagnostics.Add(DocumentDiagnostic.Info(
+                "odt.read.summary",
+                "ODT read produced " + _paragraphs.Count.ToString(CultureInfo.InvariantCulture) +
+                " paragraph(s), flattened " + _tableCount.ToString(CultureInfo.InvariantCulture) +
+                " table(s), loaded " + styleCount.ToString(CultureInfo.InvariantCulture) +
+                " style(s) and " + listStyleCount.ToString(CultureInfo.InvariantCulture) +
+                " list style(s), embedded " + imageCount.ToString(CultureInfo.InvariantCulture) +
+                " image(s), and skipped " + _unsupportedBlockCount.ToString(CultureInfo.InvariantCulture) +
+                " unsupported block(s)."));
+        }
+
+        public void StartParagraph(ParagraphStyle style)
+        {
+            _segments.Clear();
+            _length = 0;
+            _pendingSpace = false;
+            _paragraphStyle = style;
+        }
+
+        /// <summary>
+        /// Appends text from an XML text node under the ODF white-space rule: a
+        /// run of white space is one space, a space at the start of a paragraph is
+        /// nothing, and a space at the end is dropped when the paragraph closes.
+        /// A producer that means several spaces writes <c>text:s</c>, which
+        /// arrives through <see cref="AppendLiteral"/> instead.
+        /// </summary>
+        public void AppendCollapsed(string text, InlineStyle style)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            int start = -1;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (IsCollapsibleWhiteSpace(text[i]))
+                {
+                    if (start >= 0)
+                    {
+                        Append(text[start..i], style);
+                        start = -1;
+                    }
+
+                    _pendingSpace = true;
+                    continue;
+                }
+
+                if (start < 0)
+                    start = i;
+            }
+
+            if (start >= 0)
+                Append(text[start..], style);
+        }
+
+        /// <summary>
+        /// Appends characters that stand for themselves: the spaces of a
+        /// <c>text:s</c>, a tab, a line break, or the placeholder of a picture.
+        /// </summary>
+        public void AppendLiteral(string text, InlineStyle style)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            Append(text, style);
+        }
+
+        private void Append(string text, InlineStyle style)
+        {
+            // A pending space only survives if something precedes it. That single
+            // condition is both halves of the ODF rule: no leading space, and no
+            // doubled space, because the flag is set rather than counted.
+            if (_pendingSpace)
+            {
+                _pendingSpace = false;
+                if (_length > 0)
+                    AppendCore(" ", style);
+            }
+
+            AppendCore(text, style);
+        }
+
+        private void AppendCore(string text, InlineStyle style)
+        {
+            if (_length >= _limits.MaxRunLength)
+            {
+                AddDiagnosticOnce("odt.limit.run", "An ODT paragraph exceeded MaxRunLength and was truncated.");
+                return;
+            }
+
+            if (_length + text.Length > _limits.MaxRunLength)
+            {
+                text = text[..(_limits.MaxRunLength - _length)];
+                AddDiagnosticOnce("odt.limit.run", "An ODT paragraph exceeded MaxRunLength and was truncated.");
+            }
+
+            _length += text.Length;
+            if (_segments.Count > 0 && _segments[^1].Style.Equals(style))
+            {
+                Segment previous = _segments[^1];
+                _segments[^1] = new Segment(previous.Text + text, style);
+                return;
+            }
+
+            _segments.Add(new Segment(text, style));
+        }
+
+        public void FinishParagraph()
+        {
+            // Trailing white space is dropped: the pending space is simply never
+            // flushed.
+            _pendingSpace = false;
+
+            if (_paragraphs.Count >= _limits.MaxParagraphCount)
+            {
+                AddDiagnosticOnce(
+                    "odt.limit.paragraphs",
+                    "ODT input exceeded MaxParagraphCount; remaining paragraphs were dropped.");
+                _segments.Clear();
+                _length = 0;
+                return;
+            }
+
+            RichTextParagraph paragraph = RichTextParagraph.Empty.WithParagraphStyle(_paragraphStyle);
+            int offset = 0;
+            foreach (Segment segment in _segments)
+            {
+                paragraph = paragraph.InsertText(offset, segment.Text, segment.Style);
+                offset += segment.Text.Length;
+            }
+
+            _paragraphs.Add(paragraph);
+            _segments.Clear();
+            _length = 0;
+            _paragraphStyle = ParagraphStyle.Default;
+        }
+
+        public RichTextDocument Build() =>
+            _paragraphs.Count == 0
+                ? RichTextDocument.Empty
+                : RichTextDocument.FromParagraphs(_paragraphs);
+
+        public void AddDiagnosticOnce(string code, string message) =>
+            AddDiagnosticOnce(code, code, message);
+
+        public void AddDiagnosticOnce(string key, string code, string message)
+        {
+            if (_diagnosticOnce.Add(key))
+                _diagnostics.Add(DocumentDiagnostic.Warning(code, message));
+        }
+
+        /// <summary>
+        /// The characters ODF collapses. A non-breaking space is not one of them:
+        /// it is a character the author chose, not layout white space.
+        /// </summary>
+        private static bool IsCollapsibleWhiteSpace(char character) =>
+            character is ' ' or '\t' or '\r' or '\n';
+
+        private readonly record struct Segment(string Text, InlineStyle Style);
+    }
+}
