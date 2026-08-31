@@ -55,8 +55,8 @@
     core carries no default codec catalog.
   -->
   <ItemGroup>
-    <ProjectReference Include="..\..\Broiler.Graphics\src\Broiler.Graphics\Broiler.Graphics.csproj" />
-    <ProjectReference Include="..\..\Broiler.Graphics\Broiler.Media\src\Broiler.Media.Image.Managed\Broiler.Media.Image.Managed.csproj" />
+    <ProjectReference Include="$(BroilerGraphicsRoot)\src\Broiler.Graphics\Broiler.Graphics.csproj" />
+    <ProjectReference Include="$(BroilerGraphicsRoot)\Broiler.Media\src\Broiler.Media.Image.Managed\Broiler.Media.Image.Managed.csproj" />
   </ItemGroup>
 
   <ItemGroup>

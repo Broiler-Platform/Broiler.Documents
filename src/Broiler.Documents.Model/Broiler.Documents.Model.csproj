@@ -19,7 +19,7 @@
     other headless consumers can use the model without the UI stack.
   -->
   <ItemGroup>
-    <ProjectReference Include="..\..\Broiler.Graphics\src\Broiler.Graphics\Broiler.Graphics.csproj" />
+    <ProjectReference Include="$(BroilerGraphicsRoot)\src\Broiler.Graphics\Broiler.Graphics.csproj" />
   </ItemGroup>
 
   <!--

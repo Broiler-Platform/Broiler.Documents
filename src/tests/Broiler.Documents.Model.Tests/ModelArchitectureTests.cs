@@ -10,7 +10,7 @@ public sealed class ModelArchitectureTests
 {
     private static readonly string[] ExpectedReferences =
     [
-        "../../Broiler.Graphics/src/Broiler.Graphics/Broiler.Graphics.csproj",
+        "$(BroilerGraphicsRoot)/src/Broiler.Graphics/Broiler.Graphics.csproj",
     ];
 
     [Fact(Timeout = 600000)]

@@ -8,8 +8,8 @@ public sealed class HtmlArchitectureTests
 {
     private static readonly string[] ExpectedReferences =
     [
-        "../../Broiler.DOM/Broiler.Dom.Html/Broiler.Dom.Html.csproj",
-        "../../Broiler.DOM/Broiler.Dom/Broiler.Dom.csproj",
+        "$(BroilerDomRoot)/Broiler.Dom.Html/Broiler.Dom.Html.csproj",
+        "$(BroilerDomRoot)/Broiler.Dom/Broiler.Dom.csproj",
         "../Broiler.Documents.Model/Broiler.Documents.Model.csproj",
         "../Broiler.Documents/Broiler.Documents.csproj",
     ];
