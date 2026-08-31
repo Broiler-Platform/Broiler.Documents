@@ -1,3 +1,4 @@
+using Broiler.Documents.Model;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -211,6 +212,18 @@ public static class InspectCommands
         {
             if (count.Value > 0)
                 context.Report("  " + count.Key.PadRight(18) + count.Value.ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (loaded.Document.PageGeometry is PageGeometry page)
+        {
+            context.Report(
+                "  page              " +
+                page.Width.ToString("0.#", CultureInfo.InvariantCulture) + " x " +
+                page.Height.ToString("0.#", CultureInfo.InvariantCulture) + " pt, margins l/r/t/b " +
+                page.MarginLeft.ToString("0.#", CultureInfo.InvariantCulture) + "/" +
+                page.MarginRight.ToString("0.#", CultureInfo.InvariantCulture) + "/" +
+                page.MarginTop.ToString("0.#", CultureInfo.InvariantCulture) + "/" +
+                page.MarginBottom.ToString("0.#", CultureInfo.InvariantCulture));
         }
 
         if (statistics.FontFamilies.Count > 0)

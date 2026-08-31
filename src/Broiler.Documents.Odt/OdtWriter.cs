@@ -56,7 +56,7 @@ public static class OdtWriter
                 OdtNamespaces.MimeTypePart,
                 Encoding.ASCII.GetBytes(OdtNamespaces.PackageMediaType));
             AddXmlEntry(archive, OdtNamespaces.ContentPart, content);
-            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(document.RunningContent, context));
+            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(document.RunningContent, document.PageGeometry, context));
             AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta());
             foreach (OdtPicturePart picture in context.Pictures)
                 AddDeflatedEntry(archive, picture.PartPath, picture.Data.Span);
@@ -652,8 +652,43 @@ public static class OdtWriter
         }
     }
 
-    private static XDocument BuildStyles(RunningContent running, OdtWriteContext context)
+    /// <summary>
+    /// The page the document states, or the letter-sized default for one that
+    /// states none. Writing a page a document never asked for is a guess; keeping
+    /// the previous default for documents that carry no geometry keeps that guess
+    /// exactly where it already was.
+    /// </summary>
+    private static XElement BuildPageLayoutProperties(PageGeometry? geometry)
     {
+        PageGeometry page = geometry is not null && geometry.IsUsable
+            ? geometry
+            : new PageGeometry(612, 792, 72, 72, 72, 72);
+
+        return new XElement(
+            OdtNamespaces.Style + "page-layout-properties",
+            new XAttribute(OdtNamespaces.Fo + "page-width", OdtUnits.FormatPoints(page.Width)),
+            new XAttribute(OdtNamespaces.Fo + "page-height", OdtUnits.FormatPoints(page.Height)),
+            new XAttribute(
+                OdtNamespaces.Style + "print-orientation",
+                page.IsLandscape ? "landscape" : "portrait"),
+            new XAttribute(OdtNamespaces.Fo + "margin-top", OdtUnits.FormatPoints(page.MarginTop)),
+            new XAttribute(OdtNamespaces.Fo + "margin-bottom", OdtUnits.FormatPoints(page.MarginBottom)),
+            new XAttribute(OdtNamespaces.Fo + "margin-left", OdtUnits.FormatPoints(page.MarginLeft)),
+            new XAttribute(OdtNamespaces.Fo + "margin-right", OdtUnits.FormatPoints(page.MarginRight)));
+    }
+
+    private static XDocument BuildStyles(
+        RunningContent running,
+        PageGeometry? geometry,
+        OdtWriteContext context)
+    {
+        // Built before the tree, not inside it. BuildRunningParts registers the
+        // automatic styles its paragraphs use, and the automatic-styles element
+        // below is constructed first - so left lazy, it would be written before
+        // those styles existed and the header would name styles this part does
+        // not define.
+        List<XElement> runningParts = BuildRunningParts(running, context).ToList();
+
         var root = new XElement(
             OdtNamespaces.Office + "document-styles",
             new XAttribute(XNamespace.Xmlns + "office", OdtNamespaces.Office.NamespaceName),
@@ -673,22 +708,20 @@ public static class OdtWriter
                 new XElement(
                     OdtNamespaces.Style + "page-layout",
                     new XAttribute(OdtNamespaces.Style + "name", "pm1"),
-                    new XElement(
-                        OdtNamespaces.Style + "page-layout-properties",
-                        new XAttribute(OdtNamespaces.Fo + "page-width", "8.5in"),
-                        new XAttribute(OdtNamespaces.Fo + "page-height", "11in"),
-                        new XAttribute(OdtNamespaces.Style + "print-orientation", "portrait"),
-                        new XAttribute(OdtNamespaces.Fo + "margin-top", "1in"),
-                        new XAttribute(OdtNamespaces.Fo + "margin-bottom", "1in"),
-                        new XAttribute(OdtNamespaces.Fo + "margin-left", "1in"),
-                        new XAttribute(OdtNamespaces.Fo + "margin-right", "1in")))),
+                    BuildPageLayoutProperties(geometry)),
+                // A header lives in this part, and a style reference only resolves
+                // within the part that carries it. Without these the footer's
+                // paragraphs name styles that exist in content.xml alone, and a
+                // reader - ours included - reports them undefined and falls back to
+                // the defaults, losing the alignment and font the footer asked for.
+                context.AutomaticStyles),
             new XElement(
                 OdtNamespaces.Office + "master-styles",
                 new XElement(
                     OdtNamespaces.Style + "master-page",
                     new XAttribute(OdtNamespaces.Style + "name", "Standard"),
                     new XAttribute(OdtNamespaces.Style + "page-layout-name", "pm1"),
-                    BuildRunningParts(running, context))));
+                    runningParts)));
 
         return new XDocument(new XDeclaration("1.0", "UTF-8", null), root);
     }
