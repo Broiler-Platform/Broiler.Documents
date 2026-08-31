@@ -498,10 +498,16 @@ internal static class DocxReader
         if (pPr is null)
             return style;
 
+        // A w:jc names an alignment outright, including the default one. Leaving
+        // "left" to fall through would make it mean "whatever was inherited",
+        // so a paragraph that says left inside a right-aligned style would stay
+        // right-aligned - the one case where direct formatting is ignored. An
+        // absent w:jc, and only an absent one, keeps what the style chain set.
         XElement? jc = pPr.Element(DocxNamespaces.Wordprocessing + "jc");
         string? alignment = WordValue(jc);
         style = alignment switch
         {
+            "left" or "start" => style with { Alignment = TextAlignment.Left },
             "center" => style with { Alignment = TextAlignment.Center },
             "right" or "end" => style with { Alignment = TextAlignment.Right },
             "both" or "distribute" => style with { Alignment = TextAlignment.Justify },
