@@ -83,6 +83,20 @@ internal sealed class OdtStyles
     public IReadOnlyList<XElement> PageLayouts { get; init; } = [];
 
     /// <summary>
+    /// The <c>style:graphic-properties</c> of every graphic style, by name. A
+    /// shape names one, and that is where ODF states how the box is painted.
+    /// </summary>
+    public IReadOnlyDictionary<string, XElement> GraphicProperties { get; init; } =
+        new Dictionary<string, XElement>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The <c>draw:gradient</c> elements by name. A graphic style refers to one
+    /// rather than carrying the stops itself.
+    /// </summary>
+    public IReadOnlyDictionary<string, XElement> Gradients { get; init; } =
+        new Dictionary<string, XElement>(StringComparer.Ordinal);
+
+    /// <summary>
     /// Builds the table from the package. <paramref name="content"/> is harvested
     /// after <c>styles.xml</c> so a content automatic style wins a name
     /// collision: it is the one the body actually refers to.
@@ -97,6 +111,8 @@ internal sealed class OdtStyles
         var defaults = new Dictionary<string, DefaultStyle>(StringComparer.Ordinal);
         var fontFaces = new Dictionary<string, string>(StringComparer.Ordinal);
         var listStyles = new Dictionary<string, ListStyle>(StringComparer.Ordinal);
+        var graphicProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
+        var gradients = new Dictionary<string, XElement>(StringComparer.Ordinal);
         XElement? masterStyles = null;
         List<XElement> pageLayouts = [];
 
@@ -106,7 +122,7 @@ internal sealed class OdtStyles
             XDocument? stylesXml = OdtPackage.LoadEntryXml(stylesEntry, limits, diagnostics, "odt.styles");
             if (stylesXml?.Root is not null)
             {
-                Collect(stylesXml.Root, styles, defaults, fontFaces, listStyles);
+                Collect(stylesXml.Root, styles, defaults, fontFaces, listStyles, graphicProperties, gradients);
                 masterStyles = stylesXml.Root.Element(OdtNamespaces.Office + "master-styles");
                 pageLayouts = stylesXml.Root
                     .Descendants(OdtNamespaces.Style + "page-layout")
@@ -115,12 +131,14 @@ internal sealed class OdtStyles
         }
 
         if (content.Root is not null)
-            Collect(content.Root, styles, defaults, fontFaces, listStyles);
+            Collect(content.Root, styles, defaults, fontFaces, listStyles, graphicProperties, gradients);
 
         return new OdtStyles(styles, defaults, fontFaces, listStyles, limits.MaxGroupDepth, diagnostics)
         {
             MasterStyles = masterStyles,
             PageLayouts = pageLayouts,
+            GraphicProperties = graphicProperties,
+            Gradients = gradients,
         };
     }
 
@@ -134,7 +152,9 @@ internal sealed class OdtStyles
         Dictionary<StyleKey, StyleDefinition> styles,
         Dictionary<string, DefaultStyle> defaults,
         Dictionary<string, string> fontFaces,
-        Dictionary<string, ListStyle> listStyles)
+        Dictionary<string, ListStyle> listStyles,
+        Dictionary<string, XElement> graphicProperties,
+        Dictionary<string, XElement> gradients)
     {
         foreach (XElement fontFace in root.Descendants(OdtNamespaces.Style + "font-face"))
         {
@@ -156,6 +176,17 @@ internal sealed class OdtStyles
                 (string?)style.Attribute(OdtNamespaces.Style + "parent-style-name"),
                 style.Element(OdtNamespaces.Style + "paragraph-properties"),
                 style.Element(OdtNamespaces.Style + "text-properties"));
+
+            XElement? graphic = style.Element(OdtNamespaces.Style + "graphic-properties");
+            if (graphic is not null)
+                graphicProperties[name] = graphic;
+        }
+
+        foreach (XElement gradient in root.Descendants(OdtNamespaces.Draw + "gradient"))
+        {
+            string? name = (string?)gradient.Attribute(OdtNamespaces.Draw + "name");
+            if (!string.IsNullOrWhiteSpace(name))
+                gradients[name] = gradient;
         }
 
         foreach (XElement style in root.Descendants(OdtNamespaces.Style + "default-style"))
