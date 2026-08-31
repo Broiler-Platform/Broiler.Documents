@@ -56,6 +56,12 @@ internal static class DocxNamespaces
     public const string NumberingContentType =
         "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml";
 
+    public const string HeaderContentType =
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
+
+    public const string FooterContentType =
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml";
+
     public const string PackageContentType =
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 }

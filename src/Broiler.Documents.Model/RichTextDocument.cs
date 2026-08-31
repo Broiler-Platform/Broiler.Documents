@@ -14,8 +14,9 @@ public sealed class RichTextDocument
 {
     private readonly RichTextParagraph[] _paragraphs;
 
-    private RichTextDocument(IReadOnlyList<RichTextParagraph> paragraphs)
+    private RichTextDocument(IReadOnlyList<RichTextParagraph> paragraphs, RunningContent? runningContent = null)
     {
+        RunningContent = runningContent ?? RunningContent.Empty;
         if (paragraphs is null || paragraphs.Count == 0)
         {
             _paragraphs = [RichTextParagraph.Empty];
@@ -32,6 +33,17 @@ public sealed class RichTextDocument
     public static RichTextDocument Empty { get; } = new(new[] { RichTextParagraph.Empty });
 
     public IReadOnlyList<RichTextParagraph> Paragraphs => _paragraphs;
+
+    /// <summary>
+    /// The headers and footers that repeat on the page rather than flowing with
+    /// the body. Every edit carries it through unchanged: editing the body is not
+    /// a reason to lose a letterhead.
+    /// </summary>
+    public RunningContent RunningContent { get; }
+
+    /// <summary>This document's body with different running content.</summary>
+    public RichTextDocument WithRunningContent(RunningContent? runningContent) =>
+        new(_paragraphs, runningContent);
 
     public int ParagraphCount => _paragraphs.Length;
 
@@ -232,7 +244,7 @@ public sealed class RichTextDocument
             paragraphs.Add(_paragraphs[i].ApplyInlineStyle(startOffset, endOffset - startOffset, delta));
         }
 
-        return new RichTextDocument(paragraphs);
+        return new RichTextDocument(paragraphs, RunningContent);
     }
 
     public RichTextDocument ApplyParagraphStyle(RichTextRange range, ParagraphStyleDelta delta)
@@ -249,7 +261,7 @@ public sealed class RichTextDocument
                 paragraphs.Add(_paragraphs[i]);
         }
 
-        return new RichTextDocument(paragraphs);
+        return new RichTextDocument(paragraphs, RunningContent);
     }
 
     /// <summary>
@@ -322,7 +334,7 @@ public sealed class RichTextDocument
         var paragraphs = new RichTextParagraph[_paragraphs.Length];
         Array.Copy(_paragraphs, paragraphs, _paragraphs.Length);
         paragraphs[index] = paragraph;
-        return new RichTextDocument(paragraphs);
+        return new RichTextDocument(paragraphs, RunningContent);
     }
 
     private RichTextDocument ReplaceRange(int index, int removeCount, IReadOnlyList<RichTextParagraph> insert)
@@ -334,7 +346,7 @@ public sealed class RichTextDocument
             paragraphs.Add(paragraph);
         for (int i = index + removeCount; i < _paragraphs.Length; i++)
             paragraphs.Add(_paragraphs[i]);
-        return new RichTextDocument(paragraphs);
+        return new RichTextDocument(paragraphs, RunningContent);
     }
 
     private static string NormalizeNewlines(string text) =>

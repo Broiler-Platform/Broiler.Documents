@@ -58,6 +58,7 @@ internal static class DocxReader
                 diagnostics);
 
             var images = new DocxImageLoader(archive, options.Limits);
+            var reported = new HashSet<string>(StringComparer.Ordinal);
             RichTextDocument document = ReadDocumentXml(
                 documentXml,
                 documentRelationships,
@@ -65,8 +66,19 @@ internal static class DocxReader
                 styles,
                 images,
                 options.Limits,
-                diagnostics);
-            ReportUnreadParts(documentRelationships, diagnostics);
+                diagnostics,
+                reported);
+            document = document.WithRunningContent(ReadRunningContent(
+                archive,
+                documentXml,
+                documentRelationships,
+                baseDirectory,
+                numbering,
+                styles,
+                images,
+                options.Limits,
+                diagnostics,
+                reported));
             return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
         }
         catch (InvalidDataException ex)
@@ -92,7 +104,8 @@ internal static class DocxReader
         DocxStyles styles,
         DocxImageLoader images,
         DocumentLimits limits,
-        List<DocumentDiagnostic> diagnostics)
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> reported)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         if (body is null)
@@ -103,7 +116,7 @@ internal static class DocxReader
             return RichTextDocument.Empty;
         }
 
-        var builder = new DocxDocumentBuilder(limits, diagnostics);
+        var builder = new DocxDocumentBuilder(limits, diagnostics, reported);
         var context = new DocxReadContext(relationships, numbering, styles, images, builder);
         ReadBlockContent(body.Elements(), context, depth: 0);
         builder.ReportReadSummary(body.Elements().Any(IsContentBlock), styles.Count, images.ImageCount);
@@ -279,24 +292,125 @@ internal static class DocxReader
     private static bool IsContentBlock(XElement element) =>
         element.Name != DocxNamespaces.Wordprocessing + "sectPr";
 
-    private static void ReportUnreadParts(
-        DocxRelationships relationships,
-        List<DocumentDiagnostic> diagnostics)
+    /// <summary>
+    /// Reads the header and footer parts the body's section properties name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only the body-level <c>w:sectPr</c> is read - the document's final
+    /// section. A document split into sections by a <c>w:sectPr</c> inside a
+    /// paragraph can give each section its own header, and the model has one set,
+    /// so the last section's wins and the rest raise a diagnostic rather than
+    /// being silently preferred or silently lost.
+    /// </para>
+    /// <para>
+    /// Each part carries its own relationships, so a picture in a header resolves
+    /// against <c>word/_rels/header1.xml.rels</c> and not against the document's.
+    /// </para>
+    /// </remarks>
+    private static RunningContent ReadRunningContent(
+        ZipArchive archive,
+        XDocument documentXml,
+        DocxRelationships documentRelationships,
+        string baseDirectory,
+        DocxNumbering numbering,
+        DocxStyles styles,
+        DocxImageLoader images,
+        DocumentLimits limits,
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> reported)
     {
-        bool hasHeader = false;
-        bool hasFooter = false;
-        foreach (DocxRelationship relationship in relationships.All)
-        {
-            hasHeader |= relationship.Type.Equals(DocxNamespaces.HeaderRelationship, StringComparison.Ordinal);
-            hasFooter |= relationship.Type.Equals(DocxNamespaces.FooterRelationship, StringComparison.Ordinal);
-        }
+        XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
+        XElement? sectPr = body?.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault();
+        if (sectPr is null)
+            return RunningContent.Empty;
 
-        if (hasHeader || hasFooter)
+        if (body!.Descendants(DocxNamespaces.Wordprocessing + "pPr")
+                .Any(pPr => pPr.Element(DocxNamespaces.Wordprocessing + "sectPr") is not null))
         {
             diagnostics.Add(DocumentDiagnostic.Info(
-                "docx.part.headerfooter",
-                "DOCX headers and footers are not part of the document body and were not imported."));
+                "docx.section.multiple",
+                "DOCX document has more than one section; the last section's header and footer were read."));
         }
+
+        RunningContent content = RunningContent.Empty;
+        foreach (XElement reference in sectPr.Elements())
+        {
+            bool isHeader = reference.Name == DocxNamespaces.Wordprocessing + "headerReference";
+            bool isFooter = reference.Name == DocxNamespaces.Wordprocessing + "footerReference";
+            if (!isHeader && !isFooter)
+                continue;
+
+            string? relationshipId = (string?)reference.Attribute(DocxNamespaces.Relationships + "id");
+            if (string.IsNullOrWhiteSpace(relationshipId) ||
+                !documentRelationships.TryGet(relationshipId, out DocxRelationship? relationship) ||
+                relationship is null)
+            {
+                diagnostics.Add(DocumentDiagnostic.Warning(
+                    "docx.part.reference",
+                    "A DOCX header or footer named a relationship the package does not define."));
+                continue;
+            }
+
+            IReadOnlyList<RichTextParagraph>? paragraphs = ReadPartParagraphs(
+                archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported);
+            if (paragraphs is null)
+                continue;
+
+            PageSelection selection = SelectionFor((string?)reference.Attribute(DocxNamespaces.Wordprocessing + "type"));
+            content = isHeader
+                ? content.WithHeader(selection, paragraphs)
+                : content.WithFooter(selection, paragraphs);
+        }
+
+        return content;
+    }
+
+    /// <summary>ECMA-376 §17.10.1: the header/footer types, defaulting to the one for every page.</summary>
+    private static PageSelection SelectionFor(string? type) => type switch
+    {
+        "first" => PageSelection.First,
+        "even" => PageSelection.Even,
+        _ => PageSelection.Default,
+    };
+
+    /// <summary>Reads one header or footer part into paragraphs, or null when it holds nothing.</summary>
+    private static IReadOnlyList<RichTextParagraph>? ReadPartParagraphs(
+        ZipArchive archive,
+        string partPath,
+        DocxNumbering numbering,
+        DocxStyles styles,
+        DocxImageLoader images,
+        DocumentLimits limits,
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> reported)
+    {
+        ZipArchiveEntry? entry = DocxPackage.FindEntry(archive, partPath);
+        if (entry is null)
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "docx.part.missing",
+                "A DOCX header or footer part named by the section was not in the package."));
+            return null;
+        }
+
+        XDocument? partXml = DocxPackage.LoadEntryXml(entry, limits, diagnostics, "docx.part.xml");
+        if (partXml?.Root is null)
+            return null;
+
+        DocxRelationships partRelationships = DocxPackage.ReadRelationships(
+            archive,
+            DocxPackage.RelationshipsPartPath(partPath),
+            DocxPackage.BasePartDirectory(partPath),
+            limits,
+            diagnostics);
+
+        var builder = new DocxDocumentBuilder(limits, diagnostics, reported);
+        var context = new DocxReadContext(partRelationships, numbering, styles, images, builder);
+        ReadBlockContent(partXml.Root.Elements(), context, depth: 0);
+
+        IReadOnlyList<RichTextParagraph> paragraphs = builder.Build().Paragraphs;
+        return paragraphs.Count == 0 ? null : paragraphs;
     }
 
     private static void ReadParagraph(XElement paragraph, DocxReadContext context)
@@ -805,15 +919,25 @@ internal static class DocxReader
         private readonly List<DocumentDiagnostic> _diagnostics;
         private readonly List<RichTextParagraph> _paragraphs = [];
         private readonly List<Segment> _segments = [];
-        private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _diagnosticOnce;
         private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
         private int _tableCount;
         private int _unsupportedBlockCount;
 
-        public DocxDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
+        /// <summary>
+        /// A document is read by more than one builder - the body and each header
+        /// or footer part - so the set of already-reported codes is passed in.
+        /// Without it "once" would mean once per part, and a shape in the body and
+        /// a shape in the header would report the same gap twice.
+        /// </summary>
+        public DocxDocumentBuilder(
+            DocumentLimits limits,
+            List<DocumentDiagnostic> diagnostics,
+            HashSet<string>? reported = null)
         {
             _limits = limits;
             _diagnostics = diagnostics;
+            _diagnosticOnce = reported ?? new HashSet<string>(StringComparer.Ordinal);
         }
 
         public DocumentLimits Limits => _limits;
