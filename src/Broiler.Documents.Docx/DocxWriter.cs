@@ -138,8 +138,19 @@ public static class DocxWriter
     private static XDocument BuildDocumentXml(RichTextDocument document, DocxWriteContext context)
     {
         var body = new XElement(DocxNamespaces.Wordprocessing + "body");
-        foreach (RichTextParagraph paragraph in document.Paragraphs)
-            body.Add(BuildParagraph(paragraph, context));
+        for (int i = 0; i < document.Paragraphs.Count; i++)
+        {
+            XElement element = BuildParagraph(document.Paragraphs[i], context);
+            // A shape is anchored to a paragraph, so it rides in a run at the head
+            // of the one it belongs to - which is where Word puts it too.
+            foreach (DocumentShape shape in document.Shapes)
+            {
+                if (shape.ParagraphIndex == i)
+                    element.Add(BuildShapeRun(shape, context));
+            }
+
+            body.Add(element);
+        }
 
         body.Add(BuildSectionProperties(context));
 
@@ -471,6 +482,141 @@ public static class DocxWriter
             DocxNamespaces.Wordprocessing + "t",
             new XAttribute(DocxNamespaces.Xml + "space", "preserve"),
             value);
+
+    /// <summary>
+    /// One anchored shape, as the DrawingML a word processor writes: a wps:wsp
+    /// with its geometry, its fill, and its text box when it holds text.
+    /// </summary>
+    private static XElement BuildShapeRun(DocumentShape shape, DocxWriteContext context)
+    {
+        var properties = new XElement(
+            DocxNamespaces.WordShape + "spPr",
+            new XElement(
+                DocxNamespaces.Drawing + "xfrm",
+                new XElement(
+                    DocxNamespaces.Drawing + "off",
+                    new XAttribute("x", "0"),
+                    new XAttribute("y", "0")),
+                new XElement(
+                    DocxNamespaces.Drawing + "ext",
+                    new XAttribute("cx", PointsToEmu(shape.Width)),
+                    new XAttribute("cy", PointsToEmu(shape.Height)))),
+            new XElement(
+                DocxNamespaces.Drawing + "prstGeom",
+                new XAttribute("prst", "rect"),
+                new XElement(DocxNamespaces.Drawing + "avLst")));
+
+        if (shape.Fill is ShapeFill fill)
+            properties.Add(BuildShapeFill(fill));
+
+        properties.Add(shape.Outline.IsEmpty
+            ? new XElement(DocxNamespaces.Drawing + "ln", new XElement(DocxNamespaces.Drawing + "noFill"))
+            : new XElement(
+                DocxNamespaces.Drawing + "ln",
+                new XElement(
+                    DocxNamespaces.Drawing + "solidFill",
+                    new XElement(
+                        DocxNamespaces.Drawing + "srgbClr",
+                        new XAttribute("val", HexColor(shape.Outline))))));
+
+        var wsp = new XElement(DocxNamespaces.WordShape + "wsp", properties);
+        if (shape.HasText)
+        {
+            var content = new XElement(DocxNamespaces.Wordprocessing + "txbxContent");
+            foreach (RichTextParagraph paragraph in shape.Paragraphs)
+                content.Add(BuildParagraph(paragraph, context));
+
+            wsp.Add(new XElement(DocxNamespaces.WordShape + "txbx", content));
+            wsp.Add(new XElement(DocxNamespaces.WordShape + "bodyPr"));
+        }
+
+        var anchor = new XElement(
+            DocxNamespaces.WordDrawing + "anchor",
+            new XAttribute("distT", "0"),
+            new XAttribute("distB", "0"),
+            new XAttribute("distL", "0"),
+            new XAttribute("distR", "0"),
+            new XAttribute("simplePos", "0"),
+            new XAttribute("relativeHeight", "2"),
+            new XAttribute("behindDoc", "0"),
+            new XAttribute("locked", "0"),
+            new XAttribute("layoutInCell", "1"),
+            new XAttribute("allowOverlap", "1"),
+            new XElement(
+                DocxNamespaces.WordDrawing + "simplePos",
+                new XAttribute("x", "0"),
+                new XAttribute("y", "0")),
+            new XElement(
+                DocxNamespaces.WordDrawing + "positionH",
+                new XAttribute("relativeFrom", "column"),
+                new XElement(DocxNamespaces.WordDrawing + "posOffset", PointsToEmu(shape.OffsetX))),
+            new XElement(
+                DocxNamespaces.WordDrawing + "positionV",
+                new XAttribute("relativeFrom", "paragraph"),
+                new XElement(DocxNamespaces.WordDrawing + "posOffset", PointsToEmu(shape.OffsetY))),
+            new XElement(
+                DocxNamespaces.WordDrawing + "extent",
+                new XAttribute("cx", PointsToEmu(shape.Width)),
+                new XAttribute("cy", PointsToEmu(shape.Height))),
+            new XElement(DocxNamespaces.WordDrawing + "wrapNone"),
+            new XElement(
+                DocxNamespaces.WordDrawing + "docPr",
+                new XAttribute("id", "1"),
+                new XAttribute("name", "Shape")),
+            new XElement(
+                DocxNamespaces.Drawing + "graphic",
+                new XElement(
+                    DocxNamespaces.Drawing + "graphicData",
+                    new XAttribute("uri", DocxNamespaces.WordShape.NamespaceName),
+                    wsp)));
+
+        return new XElement(
+            DocxNamespaces.Wordprocessing + "r",
+            new XElement(DocxNamespaces.Wordprocessing + "drawing", anchor));
+    }
+
+    private static XElement BuildShapeFill(ShapeFill fill)
+    {
+        if (!fill.IsGradient)
+        {
+            return new XElement(
+                DocxNamespaces.Drawing + "solidFill",
+                new XElement(
+                    DocxNamespaces.Drawing + "srgbClr",
+                    new XAttribute("val", HexColor(fill.Start))));
+        }
+
+        return new XElement(
+            DocxNamespaces.Drawing + "gradFill",
+            new XElement(
+                DocxNamespaces.Drawing + "gsLst",
+                new XElement(
+                    DocxNamespaces.Drawing + "gs",
+                    new XAttribute("pos", "0"),
+                    new XElement(
+                        DocxNamespaces.Drawing + "srgbClr",
+                        new XAttribute("val", HexColor(fill.Start)))),
+                new XElement(
+                    DocxNamespaces.Drawing + "gs",
+                    new XAttribute("pos", "100000"),
+                    new XElement(
+                        DocxNamespaces.Drawing + "srgbClr",
+                        new XAttribute("val", HexColor(fill.End))))),
+            new XElement(
+                DocxNamespaces.Drawing + "lin",
+                new XAttribute(
+                    "ang",
+                    ((long)Math.Round(fill.AngleDegrees * 60000)).ToString(CultureInfo.InvariantCulture))));
+    }
+
+    /// <summary>Points to English Metric Units: 12700 to the point.</summary>
+    private static string PointsToEmu(double points) =>
+        ((long)Math.Round(points * 12700)).ToString(CultureInfo.InvariantCulture);
+
+    private static string HexColor(BColor color) =>
+        color.R.ToString("X2", CultureInfo.InvariantCulture) +
+        color.G.ToString("X2", CultureInfo.InvariantCulture) +
+        color.B.ToString("X2", CultureInfo.InvariantCulture);
 
     private static XDocument BuildContentTypes(DocxWriteContext context)
     {

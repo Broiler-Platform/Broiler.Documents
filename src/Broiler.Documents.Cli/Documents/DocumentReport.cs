@@ -184,6 +184,10 @@ public static class DocumentReport
             }
         }
 
+        statistics.Shapes = document.Shapes.Count;
+        foreach (DocumentShape shape in document.Shapes)
+            statistics.ShapeParagraphs += shape.Paragraphs.Count;
+
         statistics.FontFamilies = families.ToArray();
         return statistics;
     }
@@ -222,6 +226,12 @@ public sealed class DocumentStatistics
 
     public int IndentedParagraphs { get; set; }
 
+    /// <summary>Floating shapes anchored beside the body.</summary>
+    public int Shapes { get; set; }
+
+    /// <summary>Shapes holding text of their own, which is text a body-only read would lose.</summary>
+    public int ShapeParagraphs { get; set; }
+
     public IReadOnlyList<string> FontFamilies { get; set; } = Array.Empty<string>();
 
     public JsonObject ToJson()
@@ -247,6 +257,8 @@ public sealed class DocumentStatistics
             ["listParagraphs"] = ListParagraphs,
             ["alignedParagraphs"] = AlignedParagraphs,
             ["indentedParagraphs"] = IndentedParagraphs,
+            ["shapes"] = Shapes,
+            ["shapeParagraphs"] = ShapeParagraphs,
             ["fontFamilies"] = families,
         };
     }
@@ -269,5 +281,7 @@ public sealed class DocumentStatistics
         yield return new KeyValuePair<string, long>("listParagraphs", ListParagraphs);
         yield return new KeyValuePair<string, long>("alignedParagraphs", AlignedParagraphs);
         yield return new KeyValuePair<string, long>("indentedParagraphs", IndentedParagraphs);
+        yield return new KeyValuePair<string, long>("shapes", Shapes);
+        yield return new KeyValuePair<string, long>("shapeParagraphs", ShapeParagraphs);
     }
 }
