@@ -22,7 +22,8 @@ internal sealed class PdfPlacedRun
         BColor background,
         bool underline,
         bool strikethrough,
-        string? linkHref)
+        string? linkHref,
+        double wordSpacing = 0)
     {
         Text = text;
         X = x;
@@ -35,6 +36,7 @@ internal sealed class PdfPlacedRun
         Underline = underline;
         Strikethrough = strikethrough;
         LinkHref = linkHref;
+        WordSpacing = wordSpacing;
     }
 
     public string Text { get; }
@@ -59,6 +61,13 @@ internal sealed class PdfPlacedRun
 
     /// <summary>The admitted link target, or null. Revalidated again at emission.</summary>
     public string? LinkHref { get; }
+
+    /// <summary>
+    /// Extra width given to every space in this run, as PDF's <c>Tw</c>. Non-zero
+    /// only on a justified line, where the slack is spread into the spaces rather
+    /// than left at one end.
+    /// </summary>
+    public double WordSpacing { get; }
 }
 
 /// <summary>One laid-out page.</summary>
@@ -186,7 +195,7 @@ internal sealed class PdfPageLayout
 
                 y -= lineHeight;
                 lastLineHeight = lineHeight;
-                Place(page, line, left, available, y, style.Alignment);
+                Place(page, line, left, available, y, style.Alignment, line == lines[^1]);
             }
 
             y -= SpacingAfter(style, lastLineHeight);
@@ -212,12 +221,40 @@ internal sealed class PdfPageLayout
     private static double SpacingAfter(ParagraphStyle style, double lineHeight) =>
         style.SpacingAfter > 0 ? style.SpacingAfter : lineHeight * 0.55;
 
-    private void Place(PdfLayoutPage page, LayoutLine line, double left, double available, double baseline, TextAlignment alignment)
+    /// <summary>
+    /// Places one laid-out line at <paramref name="baseline"/>. Center and right
+    /// move the whole line by the slack; justification spreads that slack into
+    /// the line's own spaces instead, as PDF word spacing.
+    /// </summary>
+    /// <remarks>
+    /// The last line of a paragraph is never justified: the slack there is
+    /// whatever the text happened to leave, and stretching a two-word closing
+    /// line across the column is the one thing every typesetter agrees is wrong.
+    /// A line with no spaces to stretch — one long word — is left flush too,
+    /// rather than having its glyphs pulled apart.
+    /// </remarks>
+    private void Place(
+        PdfLayoutPage page,
+        LayoutLine line,
+        double left,
+        double available,
+        double baseline,
+        TextAlignment alignment,
+        bool isLastLine)
     {
+        double slack = available - line.Width;
+        double wordSpacing = 0;
+        if (alignment == TextAlignment.Justify && !isLastLine && slack > 0)
+        {
+            int spaces = CountSpaces(line);
+            if (spaces > 0)
+                wordSpacing = slack / spaces;
+        }
+
         double x = alignment switch
         {
-            TextAlignment.Center => left + ((available - line.Width) / 2),
-            TextAlignment.Right => left + available - line.Width,
+            TextAlignment.Center => left + (slack / 2),
+            TextAlignment.Right => left + slack,
             _ => left,
         };
 
@@ -227,24 +264,50 @@ internal sealed class PdfPageLayout
 
         foreach (LayoutPiece piece in line.Pieces)
         {
+            int spacesHere = CountSpaces(piece.Text);
             if (piece.Text.Length > 0)
             {
                 page.Runs.Add(new PdfPlacedRun(
                     piece.Text,
                     x,
                     baseline,
-                    piece.Width,
+                    piece.Width + (spacesHere * wordSpacing),
                     piece.FontSize,
                     piece.Font,
                     piece.Color,
                     piece.Background,
                     piece.Underline,
                     piece.Strikethrough,
-                    piece.LinkHref));
+                    piece.LinkHref,
+                    wordSpacing));
             }
 
-            x += piece.Width;
+            // Each run carries an absolute x, so a run has to start past the extra
+            // width word spacing gave the spaces before it on this line.
+            x += piece.Width + (spacesHere * wordSpacing);
         }
+    }
+
+    /// <summary>The spaces a line can stretch: PDF word spacing applies to the space byte.</summary>
+    private static int CountSpaces(LayoutLine line)
+    {
+        int spaces = 0;
+        foreach (LayoutPiece piece in line.Pieces)
+            spaces += CountSpaces(piece.Text);
+
+        return spaces;
+    }
+
+    private static int CountSpaces(string text)
+    {
+        int spaces = 0;
+        foreach (char c in text)
+        {
+            if (c == ' ')
+                spaces++;
+        }
+
+        return spaces;
     }
 
     // ---- line breaking --------------------------------------------------------
