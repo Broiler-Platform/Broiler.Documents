@@ -42,6 +42,7 @@ public sealed class DocumentLayout
     private readonly LayoutSettings _settings;
     private readonly ImageStore _images;
     private readonly List<string> _notes = new();
+    private RunningContent _running = RunningContent.Empty;
 
     public DocumentLayout(LayoutSettings settings, ImageStore images)
     {
@@ -56,6 +57,10 @@ public sealed class DocumentLayout
         ArgumentNullException.ThrowIfNull(setup);
 
         _notes.Clear();
+        // Continuous mode collapses the document to one tall page, so there are no
+        // pages for a header to repeat on and no bottom margin for a footer to sit
+        // in. Drawing them there would put a page number in the middle of nothing.
+        _running = setup.Continuous ? RunningContent.Empty : document.RunningContent;
 
         // A continuous render has no page break to place, so it lays out against
         // an effectively unbounded column and then shrinks the page to the
@@ -135,8 +140,70 @@ public sealed class DocumentLayout
         return new LayoutResult(pages, finalSetup, _notes, truncated);
     }
 
-    private LayoutPage NewPage(int number, PageSetup setup, List<LayoutLine> lines) =>
-        new(number, setup.WidthPoints, setup.HeightPoints, lines);
+    private LayoutPage NewPage(int number, PageSetup setup, List<LayoutLine> lines)
+    {
+        // Page one takes the first-page selection and even-numbered pages the
+        // even one, each falling back to the default.
+        PageSelection selection = number == 1
+            ? PageSelection.First
+            : number % 2 == 0 ? PageSelection.Even : PageSelection.Default;
+
+        var all = new List<LayoutLine>(lines);
+        all.AddRange(RunningLines(
+            _running.EffectiveHeader(selection),
+            setup,
+            top: 0,
+            band: setup.MarginTopPoints));
+        all.AddRange(RunningLines(
+            _running.EffectiveFooter(selection),
+            setup,
+            top: setup.ContentTopPoints + setup.ContentHeightPoints,
+            band: setup.MarginBottomPoints));
+
+        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all);
+    }
+
+    /// <summary>
+    /// Lays a header or footer out inside the margin band it belongs to, centred
+    /// in it. The model carries no header distance - no reader produces one - so
+    /// this is a convention rather than a setting. A block taller than its band is
+    /// reported instead of being drawn across the body.
+    /// </summary>
+    private List<LayoutLine> RunningLines(
+        IReadOnlyList<RichTextParagraph> paragraphs,
+        PageSetup setup,
+        double top,
+        double band)
+    {
+        var lines = new List<LayoutLine>();
+        if (paragraphs.Count == 0)
+            return lines;
+
+        double height = 0;
+        foreach (RichTextParagraph paragraph in paragraphs)
+        {
+            foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1).Lines)
+            {
+                lines.Add(line);
+                height += line.Height;
+            }
+        }
+
+        if (height > band)
+        {
+            _notes.Add("a header or footer was taller than its page margin and was not drawn.");
+            return new List<LayoutLine>();
+        }
+
+        double y = top + ((band - height) / 2);
+        foreach (LayoutLine line in lines)
+        {
+            line.Top = y;
+            y += line.Height;
+        }
+
+        return lines;
+    }
 
     /// <summary>Wraps one paragraph into lines, without deciding which page they land on.</summary>
     private ParagraphLines ComposeParagraph(
