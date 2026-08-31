@@ -62,9 +62,13 @@ public sealed class DocumentRasterizer : IDisposable
         }
 
         // Shapes first: a letterhead's stripe sits under its text, and the model
-        // has no z-order to say otherwise.
+        // has no z-order to say otherwise. Table cells follow, so a shaded cell
+        // covers the stripe rather than the other way round.
         foreach (LayoutShape shape in page.Shapes)
             DrawShape(list, shape);
+
+        foreach (LayoutCell cell in page.Cells)
+            DrawCell(list, cell);
 
         foreach (LayoutLine line in page.Lines)
             DrawLine(list, line);
@@ -89,7 +93,7 @@ public sealed class DocumentRasterizer : IDisposable
     }
 
     /// <summary>
-    /// Paints one shape: its fill, its outline, then its own text.
+    /// Paints one shape: its fill, its picture, its outline, then its own text.
     /// </summary>
     /// <remarks>
     /// A gradient is drawn as bands of solid colour because the render list has
@@ -135,11 +139,73 @@ public sealed class DocumentRasterizer : IDisposable
             }
         }
 
+        // Over the fill and under the outline: a framed picture keeps its frame.
+        if (shape.Image is InlineImage image)
+            DrawShapeImage(list, image, shape.Bounds);
+
         if (!shape.Outline.IsEmpty && shape.Outline.A > 0)
             list.StrokeRect(shape.Bounds, shape.Outline, 1);
 
         foreach (LayoutLine line in shape.Lines)
             DrawLine(list, line);
+    }
+
+    /// <summary>
+    /// Paints one table cell: its background, then the edges it states. Each edge
+    /// is a filled rectangle rather than a stroked box, because a cell states its
+    /// four sides separately and three of them may be turned off.
+    /// </summary>
+    private static void DrawCell(BRenderList list, LayoutCell cell)
+    {
+        BRect bounds = cell.Bounds;
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+            return;
+
+        if (!cell.Shading.IsEmpty && cell.Shading.A > 0)
+            list.FillRect(bounds, cell.Shading);
+
+        CellBorders borders = cell.Borders;
+        if (borders.Top.IsVisible)
+            list.FillRect(new BRect(bounds.Left, bounds.Top, bounds.Width, borders.Top.Width), borders.Top.Color);
+        if (borders.Bottom.IsVisible)
+        {
+            list.FillRect(
+                new BRect(bounds.Left, bounds.Bottom - borders.Bottom.Width, bounds.Width, borders.Bottom.Width),
+                borders.Bottom.Color);
+        }
+
+        if (borders.Left.IsVisible)
+            list.FillRect(new BRect(bounds.Left, bounds.Top, borders.Left.Width, bounds.Height), borders.Left.Color);
+        if (borders.Right.IsVisible)
+        {
+            list.FillRect(
+                new BRect(bounds.Right - borders.Right.Width, bounds.Top, borders.Right.Width, bounds.Height),
+                borders.Right.Color);
+        }
+    }
+
+    /// <summary>
+    /// Draws a floating picture into its box, or marks the box when the image did
+    /// not decode - the same crossed rectangle an inline picture leaves, for the
+    /// same reason: the page should show where content is missing.
+    /// </summary>
+    private void DrawShapeImage(BRenderList list, InlineImage image, BRect destination)
+    {
+        BImageHandle? handle = _images.Handle(_renderer, image);
+        if (handle is not BImageHandle decoded)
+        {
+            var missing = new BColor(0xB0, 0xB0, 0xB0);
+            list.StrokeRect(destination, missing, 1.0);
+            list.FillRect(
+                new BRect(destination.X, destination.Y + (destination.Height / 2), destination.Width, 1),
+                missing);
+            return;
+        }
+
+        list.DrawImage(
+            decoded,
+            new BRect(0, 0, decoded.PixelSize.Width, decoded.PixelSize.Height),
+            destination);
     }
 
     private static BColor Mix(BColor from, BColor to, double t) =>

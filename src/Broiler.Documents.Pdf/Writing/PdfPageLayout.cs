@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading;
@@ -148,12 +148,34 @@ internal sealed class PdfPageLayout
         ListKind previousList = ListKind.None;
 
         var anchors = new Dictionary<int, (PdfLayoutPage Page, double Top)>();
-        int paragraphIndex = -1;
-        foreach (RichTextParagraph paragraph in document.Paragraphs)
+        for (int paragraphIndex = 0; paragraphIndex < document.ParagraphCount; paragraphIndex++)
         {
             _cancellationToken.ThrowIfCancellationRequested();
-            paragraphIndex++;
 
+            if (DocumentTable.StartingAt(document.Tables, paragraphIndex) is DocumentTable table)
+            {
+                // A row is placed whole: its cells sit beside each other, and
+                // breaking one across a page would mean breaking all of them at
+                // the same line.
+                foreach (CellContent row in ComposeTable(document, table, setup.MarginLeft, setup.ContentWidth))
+                {
+                    if (y - row.Height < bottom && page.Runs.Count > 0)
+                    {
+                        pages.Add(page);
+                        page = new PdfLayoutPage();
+                        y = top;
+                    }
+
+                    row.PlaceOn(page, y, this, anchors);
+                    y -= row.Height;
+                }
+
+                paragraphIndex = table.ParagraphEnd - 1;
+                previousList = ListKind.None;
+                continue;
+            }
+
+            RichTextParagraph paragraph = document.Paragraphs[paragraphIndex];
             ParagraphStyle style = paragraph.Style;
             double lineSpacing = style.LineSpacing > 0 ? style.LineSpacing : 1f;
 
@@ -287,6 +309,352 @@ internal sealed class PdfPageLayout
     }
 
     /// <summary>
+    /// Lays a table out row by row, each row's content measured from the row's
+    /// own top so the caller can place it wherever it lands on the page.
+    /// </summary>
+    /// <remarks>
+    /// Every row is composed before any is placed: a cell that spans rows needs
+    /// the heights of the rows below it before its box can be drawn.
+    /// </remarks>
+    private List<CellContent> ComposeTable(
+        RichTextDocument document,
+        DocumentTable table,
+        double left,
+        double width)
+    {
+        double[] edges = ColumnEdges(table, left, width);
+        var rows = new List<CellContent>(table.Rows.Count);
+        var spans = new List<(int Row, CellBoxDraft Box)>();
+
+        foreach (TableRow row in table.Rows)
+        {
+            var composed = new CellContent();
+            foreach (TableCell cell in row.Cells)
+            {
+                (double cellLeft, double cellWidth) = ColumnSpanBox(edges, cell);
+                double textWidth = Math.Max(1, cellWidth - (table.CellPadding * 2));
+                CellContent content = ComposeBlocks(
+                    document,
+                    cell.Tables,
+                    cell.ParagraphIndex,
+                    cell.ParagraphEnd,
+                    cellLeft + table.CellPadding,
+                    textWidth);
+
+                composed.Absorb(content);
+                composed.Height = Math.Max(composed.Height, content.Height);
+
+                if (cell.IsRowSpanContinuation)
+                    continue;
+
+                var box = new CellBoxDraft(cellLeft, cellWidth, cell);
+                spans.Add((rows.Count, box));
+                composed.Boxes.Add(box);
+            }
+
+            // A row is never shorter than a line, so an empty one is still a row.
+            composed.Height = Math.Max(composed.Height, EmptyLineHeight());
+            foreach (CellBoxDraft box in composed.Boxes)
+                box.RowHeight = composed.Height;
+
+            rows.Add(composed);
+        }
+
+        foreach ((int index, CellBoxDraft box) in spans)
+        {
+            double extra = 0;
+            for (int r = index + 1; r < Math.Min(rows.Count, index + Math.Max(1, box.Cell.RowSpan)); r++)
+                extra += rows[r].Height;
+
+            box.ExtraHeight = extra;
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// Lays out a range of block content inside a box, with every offset measured
+    /// down from the box's top. A table inside it goes through
+    /// <see cref="ComposeTable"/>, which comes back here for its cells.
+    /// </summary>
+    private CellContent ComposeBlocks(
+        RichTextDocument document,
+        IReadOnlyList<DocumentTable> tables,
+        int from,
+        int to,
+        double left,
+        double width)
+    {
+        var content = new CellContent();
+        int listNumber = 1;
+        ListKind previousList = ListKind.None;
+        int index = Math.Max(0, from);
+        int end = Math.Min(to, document.ParagraphCount);
+
+        while (index < end)
+        {
+            if (DocumentTable.StartingAt(tables, index) is DocumentTable nested)
+            {
+                foreach (CellContent row in ComposeTable(document, nested, left, width))
+                {
+                    content.AbsorbAt(row, content.Height);
+                    content.Height += row.Height;
+                }
+
+                index = nested.ParagraphEnd;
+                previousList = ListKind.None;
+                continue;
+            }
+
+            RichTextParagraph paragraph = document.Paragraphs[index];
+            ParagraphStyle style = paragraph.Style;
+            double lineSpacing = style.LineSpacing > 0 ? style.LineSpacing : 1f;
+
+            if (style.ListKind == ListKind.Numbered && previousList == ListKind.Numbered)
+                listNumber++;
+            else if (style.ListKind == ListKind.Numbered)
+                listNumber = 1;
+            previousList = style.ListKind;
+
+            if (content.Height > 0)
+                content.Height += style.SpacingBefore;
+
+            List<LayoutLine> lines = BreakParagraph(
+                paragraph,
+                width,
+                PdfModelProjector.FormatListMarker(style.ListKind, listNumber));
+
+            if (lines.Count == 0)
+            {
+                content.Height += EmptyLineHeight() * lineSpacing;
+                content.Height += SpacingAfter(style, EmptyLineHeight());
+                content.Anchors.Add((index, content.Height));
+                index++;
+                continue;
+            }
+
+            content.Anchors.Add((index, content.Height));
+            double lastLineHeight = 0;
+            foreach (LayoutLine line in lines)
+            {
+                double lineHeight = line.Height * lineSpacing;
+                content.Height += lineHeight;
+                lastLineHeight = lineHeight;
+                content.Lines.Add(new PlacedLine(
+                    line,
+                    left,
+                    width,
+                    content.Height,
+                    style.Alignment,
+                    line == lines[^1]));
+            }
+
+            content.Height += SpacingAfter(style, lastLineHeight);
+            index++;
+        }
+
+        return content;
+    }
+
+    /// <summary>
+    /// The x of every column boundary, left to right. A grid wider than the space
+    /// it has is scaled to fit rather than drawn off the page, and one that states
+    /// no widths divides the space evenly.
+    /// </summary>
+    private static double[] ColumnEdges(DocumentTable table, double left, double width)
+    {
+        int columns = ColumnCount(table);
+        var edges = new double[columns + 1];
+        double total = table.TotalWidth;
+        double scale = total > 0 && total > width ? width / total : 1.0;
+
+        double x = left;
+        edges[0] = x;
+        for (int i = 0; i < columns; i++)
+        {
+            x += i < table.ColumnWidths.Count && table.ColumnWidths[i] > 0
+                ? table.ColumnWidths[i] * scale
+                : width / columns;
+            edges[i + 1] = x;
+        }
+
+        return edges;
+    }
+
+    private static int ColumnCount(DocumentTable table)
+    {
+        int columns = table.ColumnWidths.Count;
+        foreach (TableRow row in table.Rows)
+        {
+            foreach (TableCell cell in row.Cells)
+                columns = Math.Max(columns, cell.ColumnIndex + cell.ColumnSpan);
+        }
+
+        return Math.Max(1, columns);
+    }
+
+    private static (double Left, double Width) ColumnSpanBox(double[] edges, TableCell cell)
+    {
+        int start = Math.Clamp(cell.ColumnIndex, 0, edges.Length - 1);
+        int end = Math.Clamp(cell.ColumnIndex + cell.ColumnSpan, start + 1, edges.Length - 1);
+        return (edges[start], Math.Max(1, edges[end] - edges[start]));
+    }
+
+    /// <summary>One line composed inside a box, at an offset down from its top.</summary>
+    private readonly record struct PlacedLine(
+        LayoutLine Line,
+        double Left,
+        double Available,
+        double Offset,
+        TextAlignment Alignment,
+        bool IsLastLine);
+
+    /// <summary>A cell's box, before the row it belongs to is placed on a page.</summary>
+    private sealed class CellBoxDraft
+    {
+        public CellBoxDraft(double left, double width, TableCell cell, double offset = 0)
+        {
+            Left = left;
+            Width = width;
+            Cell = cell;
+            Offset = offset;
+        }
+
+        public double Left { get; }
+
+        public double Width { get; }
+
+        public TableCell Cell { get; }
+
+        /// <summary>How far below the content's top the box starts.</summary>
+        public double Offset { get; }
+
+        /// <summary>The height of the row the box is in, known once the row is composed.</summary>
+        public double RowHeight { get; set; }
+
+        /// <summary>How much further the box reaches, for a cell that spans rows.</summary>
+        public double ExtraHeight { get; set; }
+
+        public CellBoxDraft WithOffset(double offset) =>
+            new(Left, Width, Cell, Offset + offset)
+            {
+                RowHeight = RowHeight,
+                ExtraHeight = ExtraHeight,
+            };
+
+        /// <summary>
+        /// Paints the box on a page whose content top is at <paramref name="top"/>:
+        /// the shading, then each edge the cell states as a thin filled box. PDF
+        /// measures up from the bottom of the page, so a box's y is its foot.
+        /// </summary>
+        public void Draw(PdfLayoutPage page, double top)
+        {
+            double height = RowHeight + ExtraHeight;
+            if (Width <= 0 || height <= 0)
+                return;
+
+            double boxTop = top - Offset;
+            if (!Cell.Shading.IsEmpty && Cell.Shading.A > 0)
+            {
+                page.Shapes.Add(new PdfPlacedShape(
+                    Left,
+                    boxTop - height,
+                    Width,
+                    height,
+                    ShapeFill.Solid(Cell.Shading),
+                    BColor.Empty));
+            }
+
+            CellBorders borders = Cell.Borders;
+            AddEdge(page, borders.Top, Left, boxTop - borders.Top.Width, Width, borders.Top.Width);
+            AddEdge(page, borders.Bottom, Left, boxTop - height, Width, borders.Bottom.Width);
+            AddEdge(page, borders.Left, Left, boxTop - height, borders.Left.Width, height);
+            AddEdge(
+                page,
+                borders.Right,
+                Left + Width - borders.Right.Width,
+                boxTop - height,
+                borders.Right.Width,
+                height);
+        }
+
+        private static void AddEdge(
+            PdfLayoutPage page,
+            TableBorder border,
+            double x,
+            double y,
+            double width,
+            double height)
+        {
+            if (!border.IsVisible || width <= 0 || height <= 0)
+                return;
+
+            page.Shapes.Add(new PdfPlacedShape(x, y, width, height, ShapeFill.Solid(border.Color), BColor.Empty));
+        }
+    }
+
+    /// <summary>
+    /// Block content composed inside a box: its lines and cell boxes at offsets
+    /// down from the top, and how tall it came out.
+    /// </summary>
+    private sealed class CellContent
+    {
+        public double Height { get; set; }
+
+        public List<PlacedLine> Lines { get; } = [];
+
+        public List<CellBoxDraft> Boxes { get; } = [];
+
+        /// <summary>Where each paragraph started, so a shape can still anchor to it.</summary>
+        public List<(int ParagraphIndex, double Offset)> Anchors { get; } = [];
+
+        /// <summary>Takes another box's content at the same top as this one.</summary>
+        public void Absorb(CellContent other) => AbsorbAt(other, 0);
+
+        /// <summary>Takes another box's content, <paramref name="offset"/> further down.</summary>
+        public void AbsorbAt(CellContent other, double offset)
+        {
+            foreach (PlacedLine line in other.Lines)
+                Lines.Add(line with { Offset = line.Offset + offset });
+
+            foreach (CellBoxDraft box in other.Boxes)
+                Boxes.Add(box.WithOffset(offset));
+
+            foreach ((int paragraphIndex, double anchor) in other.Anchors)
+                Anchors.Add((paragraphIndex, anchor + offset));
+        }
+
+        /// <summary>
+        /// Draws the boxes and places the lines on a page, with the box's top at
+        /// <paramref name="top"/> in PDF's upward user space.
+        /// </summary>
+        public void PlaceOn(
+            PdfLayoutPage page,
+            double top,
+            PdfPageLayout layout,
+            Dictionary<int, (PdfLayoutPage Page, double Top)> anchors)
+        {
+            foreach (CellBoxDraft box in Boxes)
+                box.Draw(page, top);
+
+            foreach ((int paragraphIndex, double offset) in Anchors)
+                anchors[paragraphIndex] = (page, top - offset);
+
+            foreach (PlacedLine line in Lines)
+            {
+                layout.Place(
+                    page,
+                    line.Line,
+                    line.Left,
+                    line.Available,
+                    top - line.Offset,
+                    line.Alignment,
+                    line.IsLastLine);
+            }
+        }
+    }
+
+    /// <summary>
     /// Places the document's floating shapes against the paragraphs they anchor to.
     /// </summary>
     /// <remarks>
@@ -308,6 +676,15 @@ internal sealed class PdfPageLayout
 
             if (shape.Width <= 0 || shape.Height <= 0)
                 continue;
+
+            if (shape.HasImage)
+            {
+                // The box is still placed, so a bordered picture leaves its frame
+                // on the page rather than nothing at all.
+                _diagnostics.Skipped(
+                    PdfDiagnosticCodes.WriteImageNotComposed,
+                    "A floating image was dropped. This build composes no image emitter, so images are omitted rather than rasterized or transcoded.");
+            }
 
             double left = setup.MarginLeft + shape.OffsetX;
             double top = anchor.Top - shape.OffsetY;

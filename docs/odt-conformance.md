@@ -1,4 +1,4 @@
-# ODT Conformance
+﻿# ODT Conformance
 
 `Broiler.Documents.Odt` reads and writes a dependency-free ODT subset over OASIS
 OpenDocument text packages (ODF 1.0 through 1.3, published as ISO/IEC 26300). It
@@ -17,10 +17,18 @@ toolkit behind it.
   than dropped: lists (`text:list`, including nested lists and `text:list-header`),
   tables (`table:table`, including the header-row and row-group wrappers),
   sections (`text:section`), the `text:index-body` of a generated index or table
-  of contents, and the body of a `draw:text-box` frame. Tables are flattened into
-  their cell paragraphs in row-major order with an `odt.table.flattened`
-  diagnostic — `RichTextDocument` has no table shape, and a layout table is how
-  a CV or letterhead template holds its entire text.
+  of contents, and the body of a `draw:text-box` frame. A container's paragraphs
+  are read in document order, which for a table is row-major.
+- Tables, as a `DocumentTable` over the paragraphs of their cells: column widths
+  from each `table:table-column`'s style, `table:number-columns-spanned` and
+  `table:number-rows-spanned`, the background and borders a cell's
+  `style:table-cell-properties` state, header rows, and tables nested in a cell.
+  A `table:covered-table-cell` is what a merge covers, so it holds nothing and is
+  read as the grid position it occupies and nothing more. The cells hold no text
+  of their own: a cell names a range of the document's paragraphs, so a caret, a
+  selection, a style, and every codec's text handling go on working through one
+  flat list. Written back as `table:table`, with a covered cell for every
+  position a span swallowed.
 - White-space processing per ODF 1.3 part 3 §3.17: a run of white space in a text
   node is one space, white space at either edge of a paragraph is nothing, and
   significant spaces arrive as `text:s`. The writer applies the same rule in
@@ -68,6 +76,13 @@ toolkit behind it.
   `svg:title` (falling back to `svg:desc`). A write stores each distinct image
   once under `Pictures`, declares it in the manifest, and anchors the frame
   `as-char`. Raster formats only: PNG, JPEG, GIF, BMP, TIFF, WebP, and ICO.
+- Floating pictures: a frame anchored to anything other than a character is read
+  as a floating shape carrying the image, boxed by its `svg:x`/`svg:y` against
+  the text column and its paragraph and its `svg:width`/`svg:height`, and keeping
+  the fill and outline of its graphic style. It is written back as a
+  paragraph-anchored `draw:frame` at the same box. A frame standing between
+  paragraphs is read this way too, where before it was skipped as holding no body
+  text — which lost the picture.
 - A written package is deterministic: two writes of one document produce
   byte-identical output. Every entry carries a fixed timestamp, `mimetype` is
   first and stored uncompressed per ODF 1.3 part 2 §3.3, and `meta.xml` names the
@@ -83,12 +98,16 @@ toolkit behind it.
   diagnostic.
 - Comments (`office:annotation`), footnotes and endnotes (`text:note`), headers,
   footers, and page geometry are not part of the body and are not imported.
-- Table structure (columns, spans, borders, cell shading) is not represented;
-  only the cell text survives flattening.
-- A picture is content, not layout: a frame anchored to a page, a paragraph, or a
-  character is read as an inline picture and its wrapping, position, and z-order
-  are not represented. Crops, rotation, borders, and frame effects are dropped;
-  the image is written back as a plain `as-char` frame at its display size.
+- Table styles beyond a cell's own background and borders are not applied, and
+  row heights, cell vertical alignment, and a table's own alignment and indent
+  are not represented; a table starts at the left margin and is as tall as its
+  rows. A cell's paragraphs are a range, so an edit that spans out of a cell and
+  into the body does not keep the grid over what it merged.
+- A floating picture keeps its position, not its wrapping: text does not flow
+  around it, and z-order is not represented — a shape draws under the text. A
+  page-anchored frame is placed against its paragraph, since that is the only
+  anchor the model has, and a frame that states no box stays in the text. Crops,
+  rotation, and frame effects are dropped.
 - SVG, EMF, and WMF — what a producer stores for charts, formulas, and object
   replacement images — are not carried, because they cannot be decoded to pixels
   here. They are reported as `odt.image.format` rather than kept as a picture
@@ -129,7 +148,7 @@ toolkit behind it.
 ## Read Diagnostics
 
 Every read ends with an `odt.read.summary` info diagnostic carrying the
-paragraph, flattened-table, style, list-style, image, and skipped-block counts. It
+paragraph, table, style, list-style, image, and skipped-block counts. It
 exists so a document that opens blank can be told apart from a document that *is*
 blank:
 
@@ -143,10 +162,9 @@ blank:
 | `odt.document.body` | Error | `content.xml` has no `office:text` body. |
 | `odt.limit.bytes` | Error | Input exceeded `MaxDocumentBytes` and was not parsed. |
 | `odt.content.xml` / `odt.styles` / `odt.manifest` | Error | A part could not be parsed, or exceeded `MaxBinBytes` (`.limit` suffix). |
-| `odt.table.flattened` | Warning | At least one table was flattened into its cell paragraphs. |
 | `odt.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
 | `odt.frame.textbox` | Warning | A text box was read as body content; its frame position is not represented. |
-| `odt.frame.block` | Warning | A page-anchored frame held no body text and was skipped. |
+| `odt.frame.block` | Warning | A page-anchored frame held neither body text nor a picture and was skipped. |
 | `odt.annotation` | Warning | Comment content is not part of the body and was skipped. |
 | `odt.note` | Warning | Footnote and endnote bodies are not part of the paragraph and were skipped. |
 | `odt.revision.tracked` | Warning | Tracked changes were not applied. |
@@ -164,7 +182,7 @@ blank:
 | `odt.image.limit` | Warning | A picture exceeded `MaxBinBytes` and was skipped. |
 | `odt.image.binary` | Warning | An inline picture payload was not valid base64. |
 | `odt.image.shape` | Warning | A frame held no embedded picture. |
-| `odt.image.anchored` | Warning | A floating picture was placed inline; wrapping is not represented. |
+| `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph; wrapping and z-order are not represented. |
 | `odt.limit.depth` | Warning | Block or inline nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `odt.limit.run` | Warning | A paragraph hit `MaxRunLength` and was truncated. |
 | `odt.limit.spaces` | Warning | A `text:s` count exceeded `MaxRunLength` and was clamped. |

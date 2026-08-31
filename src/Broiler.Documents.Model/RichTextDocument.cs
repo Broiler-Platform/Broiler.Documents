@@ -18,11 +18,13 @@ public sealed class RichTextDocument
         IReadOnlyList<RichTextParagraph> paragraphs,
         RunningContent? runningContent = null,
         IReadOnlyList<DocumentShape>? shapes = null,
-        PageGeometry? pageGeometry = null)
+        PageGeometry? pageGeometry = null,
+        IReadOnlyList<DocumentTable>? tables = null)
     {
         RunningContent = runningContent ?? RunningContent.Empty;
         PageGeometry = pageGeometry;
         Shapes = shapes is null || shapes.Count == 0 ? [] : [.. shapes];
+        Tables = tables is null || tables.Count == 0 ? [] : [.. tables];
         if (paragraphs is null || paragraphs.Count == 0)
         {
             _paragraphs = [RichTextParagraph.Empty];
@@ -61,17 +63,40 @@ public sealed class RichTextDocument
     /// </summary>
     public PageGeometry? PageGeometry { get; }
 
+    /// <summary>
+    /// The tables the body's paragraphs are arranged in, in the order they start.
+    /// A table names the paragraphs of its cells rather than holding them, so the
+    /// paragraph list still reads a table's text in row-major order whether or
+    /// not anything looks at the grid. A table inside a cell is held by that cell
+    /// (<see cref="TableCell.Tables"/>) and is not listed here.
+    /// </summary>
+    public IReadOnlyList<DocumentTable> Tables { get; }
+
     /// <summary>This document's body with different running content.</summary>
     public RichTextDocument WithRunningContent(RunningContent? runningContent) =>
-        new(_paragraphs, runningContent, Shapes, PageGeometry);
+        new(_paragraphs, runningContent, Shapes, PageGeometry, Tables);
 
     /// <summary>This document's body with different floating shapes.</summary>
     public RichTextDocument WithShapes(IReadOnlyList<DocumentShape>? shapes) =>
-        new(_paragraphs, RunningContent, shapes, PageGeometry);
+        new(_paragraphs, RunningContent, shapes, PageGeometry, Tables);
 
     /// <summary>This document's body on a different page.</summary>
     public RichTextDocument WithPageGeometry(PageGeometry? pageGeometry) =>
-        new(_paragraphs, RunningContent, Shapes, pageGeometry);
+        new(_paragraphs, RunningContent, Shapes, pageGeometry, Tables);
+
+    /// <summary>This document's body arranged in different tables.</summary>
+    public RichTextDocument WithTables(IReadOnlyList<DocumentTable>? tables) =>
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, tables);
+
+    /// <summary>
+    /// The body table starting at <paramref name="paragraphIndex"/>, or null when
+    /// none does. A renderer walking the body asks at each paragraph: the answer
+    /// says whether to lay out a paragraph or a grid. Inside a cell it asks the
+    /// same of <see cref="TableCell.Tables"/>, through
+    /// <see cref="DocumentTable.StartingAt"/>.
+    /// </summary>
+    public DocumentTable? TableStartingAt(int paragraphIndex) =>
+        DocumentTable.StartingAt(Tables, paragraphIndex);
 
     public int ParagraphCount => _paragraphs.Length;
 
@@ -272,7 +297,7 @@ public sealed class RichTextDocument
             paragraphs.Add(_paragraphs[i].ApplyInlineStyle(startOffset, endOffset - startOffset, delta));
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables);
     }
 
     public RichTextDocument ApplyParagraphStyle(RichTextRange range, ParagraphStyleDelta delta)
@@ -289,7 +314,7 @@ public sealed class RichTextDocument
                 paragraphs.Add(_paragraphs[i]);
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables);
     }
 
     /// <summary>
@@ -362,9 +387,16 @@ public sealed class RichTextDocument
         var paragraphs = new RichTextParagraph[_paragraphs.Length];
         Array.Copy(_paragraphs, paragraphs, _paragraphs.Length);
         paragraphs[index] = paragraph;
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables);
     }
 
+    /// <summary>
+    /// Replaces a run of paragraphs. This is the one place a paragraph count
+    /// changes, which is why it is the one place a table's ranges are moved to
+    /// follow: typing in a cell, splitting its paragraph, and deleting inside it
+    /// all arrive here, and the grid comes out the other side still around the
+    /// paragraphs it was around.
+    /// </summary>
     private RichTextDocument ReplaceRange(int index, int removeCount, IReadOnlyList<RichTextParagraph> insert)
     {
         var paragraphs = new List<RichTextParagraph>(_paragraphs.Length - removeCount + insert.Count);
@@ -374,7 +406,29 @@ public sealed class RichTextDocument
             paragraphs.Add(paragraph);
         for (int i = index + removeCount; i < _paragraphs.Length; i++)
             paragraphs.Add(_paragraphs[i]);
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry);
+
+        return new RichTextDocument(
+            paragraphs,
+            RunningContent,
+            Shapes,
+            PageGeometry,
+            ShiftTables(index, removeCount, insert.Count));
+    }
+
+    /// <summary>This document's tables, moved for an edit at <paramref name="at"/>.</summary>
+    private IReadOnlyList<DocumentTable> ShiftTables(int at, int removed, int inserted)
+    {
+        if (Tables.Count == 0 || removed == inserted)
+            return Tables;
+
+        var tables = new List<DocumentTable>(Tables.Count);
+        foreach (DocumentTable table in Tables)
+        {
+            if (table.Shifted(at, removed, inserted) is DocumentTable shifted)
+                tables.Add(shifted);
+        }
+
+        return tables;
     }
 
     private static string NormalizeNewlines(string text) =>

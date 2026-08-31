@@ -124,16 +124,22 @@ public sealed class LayoutLine
 /// <summary>One rendered page.</summary>
 /// <summary>
 /// A floating shape placed on a page: its box in page points, how it is painted,
-/// and any text it carries.
+/// and any text or picture it carries.
 /// </summary>
 public sealed class LayoutShape
 {
-    internal LayoutShape(BRect bounds, ShapeFill? fill, BColor outline, IReadOnlyList<LayoutLine> lines)
+    internal LayoutShape(
+        BRect bounds,
+        ShapeFill? fill,
+        BColor outline,
+        IReadOnlyList<LayoutLine> lines,
+        InlineImage? image = null)
     {
         Bounds = bounds;
         Fill = fill;
         Outline = outline;
         Lines = lines;
+        Image = image;
     }
 
     public BRect Bounds { get; }
@@ -142,31 +148,62 @@ public sealed class LayoutShape
 
     public BColor Outline { get; }
 
+    /// <summary>The picture the box draws, filling <see cref="Bounds"/>, or null.</summary>
+    public InlineImage? Image { get; }
+
     /// <summary>The shape's own text, already positioned inside its box.</summary>
     public IReadOnlyList<LayoutLine> Lines { get; }
+}
+
+/// <summary>
+/// One table cell placed on a page: the box it occupies, how it is painted, and
+/// the edges drawn around it. The text inside it is in the page's ordinary
+/// lines - a cell is a box behind them, not a container of them.
+/// </summary>
+public sealed class LayoutCell
+{
+    internal LayoutCell(BRect bounds, BColor shading, CellBorders borders)
+    {
+        Bounds = bounds;
+        Shading = shading;
+        Borders = borders;
+    }
+
+    public BRect Bounds { get; }
+
+    /// <summary>The cell's background, or <see cref="BColor.Empty"/> for none.</summary>
+    public BColor Shading { get; }
+
+    public CellBorders Borders { get; }
 }
 
 public sealed class LayoutPage
 {
     private readonly List<LayoutLine> _lines;
     private readonly List<LayoutShape> _shapes;
+    private readonly List<LayoutCell> _cells;
 
     internal LayoutPage(
         int number,
         double widthPoints,
         double heightPoints,
         List<LayoutLine> lines,
-        List<LayoutShape>? shapes = null)
+        List<LayoutShape>? shapes = null,
+        List<LayoutCell>? cells = null)
     {
         Number = number;
         WidthPoints = widthPoints;
         HeightPoints = heightPoints;
         _lines = lines;
         _shapes = shapes ?? [];
+        _cells = cells ?? [];
     }
 
     /// <summary>The floating shapes on this page, drawn under its text.</summary>
     public IReadOnlyList<LayoutShape> Shapes => _shapes;
+
+    /// <summary>The table cells on this page, drawn under its text.</summary>
+    public IReadOnlyList<LayoutCell> Cells => _cells;
 
     /// <summary>One-based page number.</summary>
     public int Number { get; }

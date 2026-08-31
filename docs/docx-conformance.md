@@ -1,4 +1,4 @@
-# DOCX Conformance
+﻿# DOCX Conformance
 
 `Broiler.Documents.Docx` reads and writes a dependency-free DOCX subset using
 Open XML WordprocessingML package parts.
@@ -12,10 +12,16 @@ Open XML WordprocessingML package parts.
   than dropped: tables (`w:tbl`/`w:tr`/`w:tc`, including nested tables),
   structured document tags (`w:sdt`), accepted revisions (`w:ins`, `w:moveTo`),
   `w:customXml`/`w:smartTag` wrappers, and `mc:AlternateContent` (first
-  `mc:Choice`, else `mc:Fallback`). Tables are flattened into their cell
-  paragraphs in row-major order, with a `docx.table.flattened` diagnostic —
-  `RichTextDocument` has no table shape, and layout tables are how CV and
-  letterhead templates hold their entire text.
+  `mc:Choice`, else `mc:Fallback`). A container's paragraphs are read in
+  document order, which for a table is row-major.
+- Tables, as a `DocumentTable` over the paragraphs of their cells: the
+  `w:tblGrid` column widths, `w:gridSpan` and `w:vMerge` spans, per-cell and
+  per-table borders (`w:tcBorders`, `w:tblBorders`, including the `insideH` and
+  `insideV` edges), cell shading (`w:shd`), the `w:tblCellMar` left margin as the
+  cell padding, header rows (`w:tblHeader`), and tables nested in a cell. The
+  cells hold no text of their own: a cell names a range of the document's
+  paragraphs, so a caret, a selection, a style, and every codec's text handling
+  go on working through one flat list. Written back as `w:tbl`.
 - Direct inline formatting: bold, italic, underline, strikethrough, font
   family, font size, foreground color, and background shading.
 - Capitalization: `w:caps` and `w:smallCaps`, read and written as a style
@@ -45,16 +51,27 @@ Open XML WordprocessingML package parts.
   each distinct image once under `word/media`, with its relationship and a
   content-type default for its extension. Raster formats only: PNG, JPEG, GIF,
   BMP, TIFF, WebP, and ICO.
+- Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
+  shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
+  `wp:positionV` against the text column and its paragraph — the same box a
+  `wps:wsp` shape gets, because it is the same anchor. It is written back as an
+  anchored picture. A logo hung over a letterhead therefore stays over it rather
+  than being pushed into the first line, which moved the whole letter down by the
+  height of the picture.
 
 ## Intentional Limits
 
 - Tracked deletions, embedded objects, fields, comments, headers, footers,
-  footnotes, table geometry, and section layout are skipped or approximated with
-  diagnostics where applicable.
-- A picture is content, not layout: an anchored (floating) picture is read as an
-  inline one and its text wrapping, position, and z-order are not represented.
-  Crops, rotation, borders, and picture effects are dropped; the image is written
-  back as a plain inline frame at its display size.
+  footnotes, and section layout are skipped or approximated with diagnostics
+  where applicable.
+- A floating picture keeps its position, not its wrapping: text does not flow
+  around it, and `behindDoc` is not honoured — a shape draws under the text
+  wherever it is anchored. `relativeFrom` is not read either, so a picture
+  positioned against the page or the margin is placed against the text column
+  instead. A picture whose anchor states no `wp:extent` has no box to float at
+  and stays in the text. Crops, rotation, and picture effects are dropped.
+- An anchored picture in a header or footer is anchored to the start of the body,
+  like any other shape read from a header, with `docx.shape.fromheader`.
 - EMF/WMF metafiles — what Word embeds for charts, SmartArt, and shape fallbacks
   — are not carried, because they cannot be decoded to pixels here. They are
   reported as `docx.image.format` rather than kept as a picture that would draw
@@ -66,8 +83,17 @@ Open XML WordprocessingML package parts.
   overrides, conditional table formatting — are ignored, as are theme colors
   (`w:themeColor`); Word writes the computed RGB into `w:val` alongside them,
   which is what the reader uses.
-- Table structure (grid, spans, borders, cell shading) is not represented; only
-  the cell text survives flattening.
+- Table styles are not applied. A `w:tblStyle` names formatting held in the
+  styles part — banding, conditional first-row and first-column formatting, and
+  the borders a style states — and only what the table and its cells state
+  directly is read, with `docx.table.style`. Row heights, cell vertical
+  alignment, text direction, and table indent and alignment are not represented
+  either; a table starts at the left margin and is as tall as its rows.
+- A table's cells are paragraph ranges, so an edit that adds or removes
+  paragraphs moves them and one that spans out of a cell into the body does not
+  keep the grid over what it merged. The ranges are moved through the one place
+  paragraph counts change, so typing in a cell, splitting its paragraph, and
+  deleting inside it all keep the table around the text.
 - Block nesting deeper than `DocumentLimits.MaxGroupDepth` is abandoned with a
   `docx.limit.depth` diagnostic.
 - DOCX packages above `DocumentLimits.MaxDocumentBytes` are not parsed.
@@ -78,14 +104,15 @@ Open XML WordprocessingML package parts.
 ## Read Diagnostics
 
 Every read ends with a `docx.read.summary` info diagnostic carrying the
-paragraph, flattened-table, style, image, and skipped-block counts. It exists so
+paragraph, table, style, image, and skipped-block counts. It exists so
 a document that opens blank can be told apart from a document that *is* blank:
 
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | `docx.read.summary` | Info | Paragraph, table, style, image, and skipped-block counts for the read. |
+| `docx.shape.fromheader` | Info | A shape in a header or footer was anchored to the start of the body. |
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
-| `docx.table.flattened` | Warning | At least one table was flattened into its cell paragraphs. |
+| `docx.table.style` | Warning | A table named a table style; banding and conditional formatting are not applied. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
 | `docx.limit.depth` | Warning | Block nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `docx.styles.missing` | Warning | Content named styles but the package has no styles part. Reported once. |
@@ -99,7 +126,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.format` | Warning | A picture used an image format this codec does not carry (EMF/WMF and the like). |
 | `docx.image.limit` | Warning | An image part exceeded `MaxBinBytes` and was skipped. |
 | `docx.image.shape` | Warning | A drawing held no embedded picture. |
-| `docx.image.anchored` | Warning | A floating picture was placed inline; wrapping is not represented. |
+| `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph; wrapping and z-order are not represented. |
 
 `Broiler.Cli --convert-doc <in> --output <out>` prints all of them, which is the
 quickest way to see what a problem document lost. In the Writer, set

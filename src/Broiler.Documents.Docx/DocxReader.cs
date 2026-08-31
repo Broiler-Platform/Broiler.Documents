@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -141,10 +141,9 @@ internal static class DocxReader
 
     /// <summary>
     /// Walks WordprocessingML block-level content — the <c>EG_BlockLevelElts</c>
-    /// group. Paragraphs are the only shape <see cref="RichTextDocument"/> can
-    /// represent, so tables and other block containers are flattened into their
-    /// paragraphs in document order rather than dropped. Anything genuinely not
-    /// understood raises a diagnostic instead of vanishing.
+    /// group. Every container contributes its paragraphs in document order rather
+    /// than being dropped; a table also records the grid they are arranged in.
+    /// Anything genuinely not understood raises a diagnostic instead of vanishing.
     /// </summary>
     private static void ReadBlockContent(
         IEnumerable<XElement> elements,
@@ -218,19 +217,334 @@ internal static class DocxReader
     }
 
     /// <summary>
-    /// Flattens a table into the paragraphs of its cells, read left-to-right and
-    /// top-to-bottom. <see cref="RichTextDocument"/> has no table shape, so the
-    /// alternative would be losing every word the table holds — which is exactly
-    /// what a CV or letterhead template puts there.
+    /// Reads a table: its cells' paragraphs into the body, left-to-right and
+    /// top-to-bottom, and the grid they are arranged in into a
+    /// <see cref="DocumentTable"/> over the range they occupy.
     /// </summary>
+    /// <remarks>
+    /// The paragraphs go where they always went. What is new is that the reader
+    /// now also records which of them each cell holds, so the grid, the spans,
+    /// the borders, and the shading survive instead of the text arriving as an
+    /// undifferentiated run of paragraphs in row order.
+    /// </remarks>
     private static void ReadTable(XElement table, DocxReadContext context, int depth)
     {
-        context.Builder.NoteTable();
+        int start = context.Builder.CurrentParagraphIndex;
+        XElement? properties = table.Element(DocxNamespaces.Wordprocessing + "tblPr");
+        CellBorders tableBorders = ReadTableBorders(properties);
+        var rows = new List<List<CellDraft>>();
+
         foreach (XElement row in EnumerateTableChildren(table, "tr"))
         {
+            var cells = new List<CellDraft>();
+            int column = 0;
             foreach (XElement cell in EnumerateTableChildren(row, "tc"))
+            {
+                XElement? cellProperties = cell.Element(DocxNamespaces.Wordprocessing + "tcPr");
+                int span = Math.Max(1, WordInt(cellProperties, "gridSpan", 1));
+                int cellStart = context.Builder.CurrentParagraphIndex;
+
+                // Tables the cell's content opens belong to the cell, so they are
+                // collected here rather than landing beside this one in the body.
+                var nested = new List<DocumentTable>();
+                context.Builder.PushTableSink(nested);
                 ReadBlockContent(cell.Elements(), context, depth + 1);
+                context.Builder.PopTableSink();
+
+                cells.Add(new CellDraft
+                {
+                    ParagraphIndex = cellStart,
+                    ParagraphCount = context.Builder.CurrentParagraphIndex - cellStart,
+                    ColumnIndex = column,
+                    ColumnSpan = span,
+                    Merge = ReadVerticalMerge(cellProperties),
+                    Shading = ReadCellShading(cellProperties),
+                    Borders = ReadCellBorders(cellProperties, tableBorders),
+                    Tables = nested,
+                });
+                column += span;
+            }
+
+            rows.Add(cells);
+            if (rows.Count >= context.Builder.Limits.MaxParagraphCount)
+                break;
         }
+
+        ResolveRowSpans(rows);
+        context.Builder.AddTable(new DocumentTable(
+            start,
+            context.Builder.CurrentParagraphIndex - start,
+            [.. rows.Select(BuildRow)],
+            ReadTableGrid(table),
+            ReadCellPadding(properties)));
+
+        context.Builder.NoteTable();
+        if (properties?.Element(DocxNamespaces.Wordprocessing + "tblStyle") is not null)
+        {
+            context.Builder.AddDiagnosticOnce(
+                "docx.table.style",
+                "A DOCX table named a table style; banding, conditional formatting, " +
+                "and the borders a style states are not applied.");
+        }
+    }
+
+    /// <summary>What a cell's <c>w:vMerge</c> says about the merge it is part of.</summary>
+    private enum VerticalMerge
+    {
+        /// <summary>No <c>w:vMerge</c>: an ordinary cell.</summary>
+        None,
+
+        /// <summary><c>w:val="restart"</c>: the cell a merge runs down from.</summary>
+        Start,
+
+        /// <summary>A cell the merge above it covers.</summary>
+        Continue,
+    }
+
+    /// <summary>A cell being read, before its row span is known.</summary>
+    private sealed class CellDraft
+    {
+        public int ParagraphIndex;
+        public int ParagraphCount;
+        public int ColumnIndex;
+        public int ColumnSpan = 1;
+        public int RowSpan = 1;
+        public VerticalMerge Merge;
+        public BColor Shading;
+        public CellBorders Borders;
+        public List<DocumentTable> Tables = [];
+    }
+
+    private static TableRow BuildRow(List<CellDraft> cells) =>
+        new([.. cells.Select(cell => new TableCell(
+            cell.ParagraphIndex,
+            cell.ParagraphCount,
+            cell.ColumnIndex,
+            cell.ColumnSpan,
+            cell.RowSpan,
+            cell.Shading,
+            cell.Borders,
+            cell.Merge == VerticalMerge.Continue,
+            cell.Tables))]);
+
+    /// <summary>
+    /// Turns <c>w:vMerge</c> continuations into a row span on the cell that
+    /// started the merge: the format writes the merge as a run of cells and the
+    /// model holds it as one cell that is taller than its row.
+    /// </summary>
+    private static void ResolveRowSpans(List<List<CellDraft>> rows)
+    {
+        for (int r = 1; r < rows.Count; r++)
+        {
+            foreach (CellDraft cell in rows[r])
+            {
+                if (cell.Merge != VerticalMerge.Continue)
+                    continue;
+
+                CellDraft? origin = FindMergeOrigin(rows, r, cell.ColumnIndex);
+                if (origin is null)
+                {
+                    // A continuation with no merge above it continues nothing.
+                    // ECMA-376 §17.4.85 starts a merge at the first preceding
+                    // restart, and a document with none said something it did not
+                    // mean; the cell is read as the cell it is.
+                    cell.Merge = VerticalMerge.None;
+                    continue;
+                }
+
+                origin.RowSpan++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The cell a merge continuation continues: walking up its column, the first
+    /// one that is not itself a continuation - and then only if it opened a
+    /// merge. A column that stops before then has no merge to join.
+    /// </summary>
+    private static CellDraft? FindMergeOrigin(List<List<CellDraft>> rows, int row, int columnIndex)
+    {
+        for (int r = row - 1; r >= 0; r--)
+        {
+            CellDraft? candidate = null;
+            foreach (CellDraft above in rows[r])
+            {
+                if (above.ColumnIndex == columnIndex)
+                {
+                    candidate = above;
+                    break;
+                }
+            }
+
+            if (candidate is null)
+                return null;
+
+            if (candidate.Merge != VerticalMerge.Continue)
+                return candidate.Merge == VerticalMerge.Start ? candidate : null;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The grid's column widths in points, from <c>w:tblGrid</c>. Widths are in
+    /// twentieths of a point, which is what the rest of the format measures in.
+    /// </summary>
+    private static IReadOnlyList<double> ReadTableGrid(XElement table)
+    {
+        XElement? grid = table.Element(DocxNamespaces.Wordprocessing + "tblGrid");
+        if (grid is null)
+            return [];
+
+        var widths = new List<double>();
+        foreach (XElement column in grid.Elements(DocxNamespaces.Wordprocessing + "gridCol"))
+        {
+            widths.Add(TryReadInt(column.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) && twips > 0
+                ? twips / 20.0
+                : 0);
+        }
+
+        return widths;
+    }
+
+    /// <summary>
+    /// The space between a cell's edge and its text, from <c>w:tblCellMar</c>.
+    /// Word states each side; this model has one padding, so the left margin is
+    /// the one it takes - it is the one that moves the text.
+    /// </summary>
+    private static double ReadCellPadding(XElement? properties)
+    {
+        XElement? margins = properties?.Element(DocxNamespaces.Wordprocessing + "tblCellMar");
+        XElement? left = margins?.Element(DocxNamespaces.Wordprocessing + "left") ??
+            margins?.Element(DocxNamespaces.Wordprocessing + "start");
+        if (left is null ||
+            !TryReadInt(left.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) ||
+            twips < 0)
+        {
+            return DocumentTable.DefaultCellPadding;
+        }
+
+        return twips / 20.0;
+    }
+
+    /// <summary>
+    /// What a cell's <c>w:vMerge</c> says: <c>w:val="restart"</c> opens a merge,
+    /// and anything else, including no value at all, continues the one above.
+    /// </summary>
+    private static VerticalMerge ReadVerticalMerge(XElement? properties)
+    {
+        XElement? merge = properties?.Element(DocxNamespaces.Wordprocessing + "vMerge");
+        if (merge is null)
+            return VerticalMerge.None;
+
+        return string.Equals(WordValue(merge), "restart", StringComparison.OrdinalIgnoreCase)
+            ? VerticalMerge.Start
+            : VerticalMerge.Continue;
+    }
+
+    /// <summary>A cell's background, from <c>w:shd</c>; empty when it states none.</summary>
+    private static BColor ReadCellShading(XElement? properties)
+    {
+        XElement? shading = properties?.Element(DocxNamespaces.Wordprocessing + "shd");
+        if (shading is null)
+            return BColor.Empty;
+
+        string? fill = (string?)shading.Attribute(DocxNamespaces.Wordprocessing + "fill");
+        return TryParseHexColor(fill, out BColor color) ? color : BColor.Empty;
+    }
+
+    /// <summary>The four edges a table states in <c>w:tblBorders</c>, for its cells to inherit.</summary>
+    private static CellBorders ReadTableBorders(XElement? properties)
+    {
+        XElement? borders = properties?.Element(DocxNamespaces.Wordprocessing + "tblBorders");
+        if (borders is null)
+            return default;
+
+        // insideH/insideV are the edges between cells. A cell takes them for the
+        // sides that face another cell, which the outer edges then override on
+        // the cells that sit against the table's own boundary.
+        TableBorder? inside = ReadBorderEdge(borders, "insideH");
+        TableBorder? insideVertical = ReadBorderEdge(borders, "insideV");
+        return new CellBorders(
+            FirstStated(ReadBorderEdge(borders, "left"), ReadBorderEdge(borders, "start"), insideVertical),
+            FirstStated(ReadBorderEdge(borders, "top"), inside),
+            FirstStated(ReadBorderEdge(borders, "right"), ReadBorderEdge(borders, "end"), insideVertical),
+            FirstStated(ReadBorderEdge(borders, "bottom"), inside));
+    }
+
+    /// <summary>
+    /// A cell's own borders, falling back to what the table states. A cell that
+    /// states an edge wins outright, including when what it states is no border
+    /// at all - turning one off is a decision, not a gap to fill in from above.
+    /// </summary>
+    private static CellBorders ReadCellBorders(XElement? properties, CellBorders table)
+    {
+        XElement? borders = properties?.Element(DocxNamespaces.Wordprocessing + "tcBorders");
+        if (borders is null)
+            return table;
+
+        return new CellBorders(
+            FirstStated(ReadBorderEdge(borders, "left"), ReadBorderEdge(borders, "start"), table.Left),
+            FirstStated(ReadBorderEdge(borders, "top"), table.Top),
+            FirstStated(ReadBorderEdge(borders, "right"), ReadBorderEdge(borders, "end"), table.Right),
+            FirstStated(ReadBorderEdge(borders, "bottom"), table.Bottom));
+    }
+
+    /// <summary>
+    /// One border edge: its colour and its width, or null when the document does
+    /// not state that edge at all. <c>w:sz</c> is in eighths of a point, and
+    /// <c>w:val="none"</c> or <c>"nil"</c> is a border turned off - which is
+    /// stated, and so is not the same as saying nothing.
+    /// </summary>
+    private static TableBorder? ReadBorderEdge(XElement borders, string edge)
+    {
+        XElement? element = borders.Element(DocxNamespaces.Wordprocessing + edge);
+        if (element is null)
+            return null;
+
+        string? kind = WordValue(element);
+        if (string.Equals(kind, "none", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(kind, "nil", StringComparison.OrdinalIgnoreCase))
+        {
+            return TableBorder.None;
+        }
+
+        double width = TryReadInt(element.Attribute(DocxNamespaces.Wordprocessing + "sz"), out int eighths) && eighths > 0
+            ? Math.Min(eighths / 8.0, MaxBorderWidth)
+            : DefaultBorderWidth;
+
+        string? color = (string?)element.Attribute(DocxNamespaces.Wordprocessing + "color");
+        // "auto" is the format's way of saying the reader chooses; Word draws black.
+        return new TableBorder(
+            TryParseHexColor(color, out BColor parsed) ? parsed : BColor.Black,
+            width);
+    }
+
+    /// <summary>The first edge that was stated at all, else no border.</summary>
+    private static TableBorder FirstStated(params TableBorder?[] candidates)
+    {
+        foreach (TableBorder? candidate in candidates)
+        {
+            if (candidate is TableBorder stated)
+                return stated;
+        }
+
+        return TableBorder.None;
+    }
+
+    /// <summary>A border thicker than this is a rule, not a border, and would swallow the cell.</summary>
+    private const double MaxBorderWidth = 6.0;
+
+    /// <summary>What Word draws for a border that states no width: a hairline.</summary>
+    private const double DefaultBorderWidth = 0.5;
+
+    /// <summary>An integer attribute of a child element, or <paramref name="fallback"/>.</summary>
+    private static int WordInt(XElement? properties, string localName, int fallback)
+    {
+        XElement? element = properties?.Element(DocxNamespaces.Wordprocessing + localName);
+        return TryReadInt(element?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int value)
+            ? value
+            : fallback;
     }
 
     /// <summary>
@@ -649,7 +963,8 @@ internal static class DocxReader
     /// <summary>
     /// Appends a picture as one <see cref="InlineImage.Placeholder"/> character
     /// carrying the image on its style. The run's own character formatting is
-    /// kept on it, so a picture inside a hyperlink stays inside that link.
+    /// kept on it, so a picture inside a hyperlink stays inside that link. An
+    /// anchored picture goes to <see cref="ReadFloatingPicture"/> instead.
     /// </summary>
     private static void ReadPicture(XElement picture, DocxReadContext context, InlineStyle style)
     {
@@ -663,7 +978,49 @@ internal static class DocxReader
         if (image is null)
             return;
 
+        XElement? anchor = picture.Element(DocxNamespaces.WordDrawing + "anchor");
+        if (anchor is not null && ReadFloatingPicture(anchor, image, context))
+            return;
+
         context.Builder.AppendText(InlineImage.PlaceholderText, style with { Image = image });
+    }
+
+    /// <summary>
+    /// Reads an anchored picture as a floating shape rather than a character in
+    /// the text: the logo a letterhead hangs over its stripe belongs beside the
+    /// letter, not in its first line, where it pushed every paragraph down by its
+    /// own height.
+    /// </summary>
+    /// <remarks>
+    /// The box comes from <c>wp:extent</c>, which is also where the image's size
+    /// was read from. A picture that states no box has nothing to float at, so it
+    /// is left in the text and drawn at whatever size the renderer decodes - the
+    /// answer this reader gave every anchored picture before floats existed.
+    /// Returns false in that case, and the caller appends it inline.
+    /// </remarks>
+    private static bool ReadFloatingPicture(XElement anchor, InlineImage image, DocxReadContext context)
+    {
+        // Said whether it floats or not: wrapping and z-order are the parts of an
+        // anchor the model has no room for either way.
+        context.Builder.AddDiagnosticOnce(
+            "docx.image.anchored",
+            "A floating DOCX picture was anchored to its paragraph; " +
+            "text wrapping and z-order are not represented.");
+
+        if (!image.HasExplicitSize)
+            return false;
+
+        context.Builder.AddShape(new DocumentShape(
+            context.Builder.CurrentParagraphIndex,
+            EmuToPoints(PositionOffset(anchor, "positionH")),
+            EmuToPoints(PositionOffset(anchor, "positionV")),
+            image.Width,
+            image.Height,
+            fill: null,
+            outline: default,
+            paragraphs: null,
+            image: image));
+        return true;
     }
 
     /// <summary>
@@ -1133,6 +1490,8 @@ internal static class DocxReader
         private readonly List<Segment> _segments = [];
         private readonly HashSet<string> _diagnosticOnce;
         private readonly List<DocumentShape> _shapes = [];
+        private readonly List<DocumentTable> _tables = [];
+        private readonly Stack<List<DocumentTable>> _tableSinks = new();
         private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
         private int _tableCount;
         private int _unsupportedBlockCount;
@@ -1161,12 +1520,29 @@ internal static class DocxReader
         /// <summary>The codes already reported, so once means once per document.</summary>
         public HashSet<string> Reported => _diagnosticOnce;
 
-        public void NoteTable()
+        /// <summary>Counts a table for the read summary.</summary>
+        public void NoteTable() => _tableCount++;
+
+        /// <summary>
+        /// Records a table. It lands in the cell being read, when one is - which
+        /// is what makes a table inside a cell the cell's rather than the body's,
+        /// without the block walk having to know where it is.
+        /// </summary>
+        public void AddTable(DocumentTable table)
         {
-            _tableCount++;
-            AddDiagnosticOnce(
-                "docx.table.flattened",
-                "DOCX tables were flattened into their cell paragraphs, in row order.");
+            if (table.ParagraphCount <= 0 || table.Rows.Count == 0)
+                return;
+
+            (_tableSinks.Count > 0 ? _tableSinks.Peek() : _tables).Add(table);
+        }
+
+        /// <summary>Collects the tables read from here until the matching pop.</summary>
+        public void PushTableSink(List<DocumentTable> sink) => _tableSinks.Push(sink);
+
+        public void PopTableSink()
+        {
+            if (_tableSinks.Count > 0)
+                _tableSinks.Pop();
         }
 
         /// <summary>
@@ -1200,7 +1576,7 @@ internal static class DocxReader
             _diagnostics.Add(DocumentDiagnostic.Info(
                 "docx.read.summary",
                 "DOCX read produced " + _paragraphs.Count.ToString(CultureInfo.InvariantCulture) +
-                " paragraph(s), flattened " + _tableCount.ToString(CultureInfo.InvariantCulture) +
+                " paragraph(s), read " + _tableCount.ToString(CultureInfo.InvariantCulture) +
                 " table(s), loaded " + styleCount.ToString(CultureInfo.InvariantCulture) +
                 " style(s), embedded " + imageCount.ToString(CultureInfo.InvariantCulture) +
                 " image(s), and skipped " + _unsupportedBlockCount.ToString(CultureInfo.InvariantCulture) +
@@ -1267,7 +1643,10 @@ internal static class DocxReader
                 ? RichTextDocument.Empty
                 : RichTextDocument.FromParagraphs(_paragraphs);
 
-            return _shapes.Count == 0 ? document : document.WithShapes(_shapes);
+            if (_shapes.Count > 0)
+                document = document.WithShapes(_shapes);
+
+            return _tables.Count == 0 ? document : document.WithTables(_tables);
         }
 
         public void AddDiagnosticOnce(string code, string message) =>
