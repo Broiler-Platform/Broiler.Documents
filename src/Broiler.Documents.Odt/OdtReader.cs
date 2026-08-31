@@ -56,6 +56,8 @@ internal static class OdtReader
             OdtStyles styles = OdtStyles.Load(archive, content, options.Limits, diagnostics);
             var images = new OdtImageLoader(archive, manifest, options.Limits);
             RichTextDocument document = ReadContent(content, styles, images, options.Limits, diagnostics);
+            document = document.WithRunningContent(
+                ReadRunningContent(styles, images, options.Limits, diagnostics));
             return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
         }
         catch (InvalidDataException ex)
@@ -101,6 +103,73 @@ internal static class OdtReader
             styles.ListStyleCount,
             images.ImageCount);
         return builder.Build();
+    }
+
+    /// <summary>
+    /// Reads the headers and footers hanging off the first master page.
+    /// </summary>
+    /// <remarks>
+    /// ODF keeps them in <c>styles.xml</c> under <c>office:master-styles</c>, one
+    /// set per master page, and a document can define several. The model has one
+    /// set, so the first master page is read - which is the one the default body
+    /// style points at in every document a word processor writes.
+    /// </remarks>
+    private static RunningContent ReadRunningContent(
+        OdtStyles styles,
+        OdtImageLoader images,
+        DocumentLimits limits,
+        List<DocumentDiagnostic> diagnostics)
+    {
+        XElement? master = styles.MasterStyles
+            ?.Elements(OdtNamespaces.Style + "master-page")
+            .FirstOrDefault();
+        if (master is null)
+            return RunningContent.Empty;
+
+        RunningContent content = RunningContent.Empty;
+        foreach ((string element, bool isHeader, PageSelection selection) in RunningParts)
+        {
+            XElement? part = master.Element(OdtNamespaces.Style + element);
+            if (part is null)
+                continue;
+
+            IReadOnlyList<RichTextParagraph>? paragraphs =
+                ReadPartParagraphs(part, styles, images, limits, diagnostics);
+            if (paragraphs is null)
+                continue;
+
+            content = isHeader
+                ? content.WithHeader(selection, paragraphs)
+                : content.WithFooter(selection, paragraphs);
+        }
+
+        return content;
+    }
+
+    /// <summary>ODF §16.10: a master page's header and footer elements, left being the even page.</summary>
+    private static readonly (string Element, bool IsHeader, PageSelection Selection)[] RunningParts =
+    [
+        ("header", true, PageSelection.Default),
+        ("header-first", true, PageSelection.First),
+        ("header-left", true, PageSelection.Even),
+        ("footer", false, PageSelection.Default),
+        ("footer-first", false, PageSelection.First),
+        ("footer-left", false, PageSelection.Even),
+    ];
+
+    private static IReadOnlyList<RichTextParagraph>? ReadPartParagraphs(
+        XElement part,
+        OdtStyles styles,
+        OdtImageLoader images,
+        DocumentLimits limits,
+        List<DocumentDiagnostic> diagnostics)
+    {
+        var builder = new OdtDocumentBuilder(limits, diagnostics);
+        var context = new OdtReadContext(styles, images, builder);
+        ReadBlockContent(part.Elements(), context, list: null, depth: 0);
+
+        IReadOnlyList<RichTextParagraph> paragraphs = builder.Build().Paragraphs;
+        return paragraphs.Count == 0 ? null : paragraphs;
     }
 
     /// <summary>Everything a read needs to turn one element into document content.</summary>

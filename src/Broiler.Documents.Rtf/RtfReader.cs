@@ -39,6 +39,8 @@ public static class RtfReader
         private readonly RtfFontTable _fonts = new();
         private readonly Stack<State> _stack = new();
         private readonly Accumulator _builder;
+        private readonly Dictionary<RtfDestination, Accumulator> _running = new();
+        private int _maxParagraphs;
 
         // Buffered same-style body text (flushed when the style changes or the paragraph ends).
         private readonly StringBuilder _pending = new();
@@ -67,6 +69,7 @@ public static class RtfReader
             _diagnostics.AddRange(tokenizerDiagnostics);
             _embeddedDecodingRequested = options.DecodeEmbeddedObjects;
             _builder = new Accumulator(options.Limits.MaxParagraphCount);
+            _maxParagraphs = options.Limits.MaxParagraphCount;
             _state = new State
             {
                 Char = InlineStyle.Default,
@@ -85,6 +88,11 @@ public static class RtfReader
                 {
                     case RtfTokenType.GroupStart:
                         _sawStar = false;
+                        // Pending text belongs to the destination that produced it.
+                        // Flushing lazily was fine while everything landed in one
+                        // accumulator; now a header's text would be attributed to
+                        // whatever destination happened to be current at flush time.
+                        FlushPending();
                         _stack.Push(_state);
                         break;
                     case RtfTokenType.GroupEnd:
@@ -106,7 +114,7 @@ public static class RtfReader
             }
 
             FlushPending();
-            RichTextDocument document = _builder.Build(_state.Para);
+            RichTextDocument document = _builder.Build(_state.Para).WithRunningContent(BuildRunningContent());
             if (_builder.LimitHit)
                 _diagnostics.Add(DocumentDiagnostic.Warning("rtf.paragraphs", "Document exceeded MaxParagraphCount; extra paragraphs were dropped."));
 
@@ -125,6 +133,7 @@ public static class RtfReader
             else if (closing.Dest == RtfDestination.Field)
                 _fieldLink = null;
 
+            FlushPending();
             if (_stack.Count > 0)
                 _state = _stack.Pop();
         }
@@ -179,10 +188,19 @@ public static class RtfReader
                     }
 
                     return;
+                case "header": _state.Dest = RtfDestination.Header; return;
+                case "headerf": _state.Dest = RtfDestination.HeaderFirst; return;
+                case "headerl": _state.Dest = RtfDestination.HeaderEven; return;
+                // \headerr is the right-hand, odd page - which is the one every
+                // page gets in a document that does not distinguish them.
+                case "headerr": _state.Dest = RtfDestination.Header; return;
+                case "footer": _state.Dest = RtfDestination.Footer; return;
+                case "footerf": _state.Dest = RtfDestination.FooterFirst; return;
+                case "footerl": _state.Dest = RtfDestination.FooterEven; return;
+                case "footerr": _state.Dest = RtfDestination.Footer; return;
+
                 case "info":
                 case "stylesheet":
-                case "header":
-                case "footer":
                 case "footnote":
                 case "annotation":
                 case "colorschememapping":
@@ -344,7 +362,13 @@ public static class RtfReader
                 case RtfDestination.ColorTable: HandleColorTableText(text); break;
                 case RtfDestination.FieldInstruction: _fieldInstruction.Append(text); break;
                 case RtfDestination.Normal:
-                case RtfDestination.FieldResult: HandleBodyText(text); break;
+                case RtfDestination.FieldResult:
+                case RtfDestination.Header:
+                case RtfDestination.HeaderFirst:
+                case RtfDestination.HeaderEven:
+                case RtfDestination.Footer:
+                case RtfDestination.FooterFirst:
+                case RtfDestination.FooterEven: HandleBodyText(text); break;
                 default: break; // Skip / Field container: drop.
             }
         }
@@ -463,10 +487,64 @@ public static class RtfReader
             _colorSeen = false;
         }
 
+        /// <summary>
+        /// The accumulator the current destination writes into. Chosen per call
+        /// rather than swapped on group entry: a destination is part of the state
+        /// RTF pushes and pops with its braces, so reading it each time gets the
+        /// nesting right without tracking where a group began.
+        /// </summary>
+        private Accumulator Active
+        {
+            get
+            {
+                if (_state.Dest is RtfDestination.Normal or RtfDestination.FieldResult)
+                    return _builder;
+
+                if (!IsRunning(_state.Dest))
+                    return _builder;
+
+                if (!_running.TryGetValue(_state.Dest, out Accumulator? accumulator))
+                {
+                    accumulator = new Accumulator(_maxParagraphs);
+                    _running[_state.Dest] = accumulator;
+                }
+
+                return accumulator;
+            }
+        }
+
+        private static bool IsRunning(RtfDestination destination) => destination is
+            RtfDestination.Header or RtfDestination.HeaderFirst or RtfDestination.HeaderEven or
+            RtfDestination.Footer or RtfDestination.FooterFirst or RtfDestination.FooterEven;
+
+        /// <summary>The headers and footers the document's running destinations collected.</summary>
+        private RunningContent BuildRunningContent()
+        {
+            RunningContent content = RunningContent.Empty;
+            foreach ((RtfDestination destination, Accumulator accumulator) in _running)
+            {
+                IReadOnlyList<RichTextParagraph> paragraphs = accumulator.Build(ParagraphStyle.Default).Paragraphs;
+                if (paragraphs.Count == 0)
+                    continue;
+
+                content = destination switch
+                {
+                    RtfDestination.Header => content.WithHeader(PageSelection.Default, paragraphs),
+                    RtfDestination.HeaderFirst => content.WithHeader(PageSelection.First, paragraphs),
+                    RtfDestination.HeaderEven => content.WithHeader(PageSelection.Even, paragraphs),
+                    RtfDestination.Footer => content.WithFooter(PageSelection.Default, paragraphs),
+                    RtfDestination.FooterFirst => content.WithFooter(PageSelection.First, paragraphs),
+                    _ => content.WithFooter(PageSelection.Even, paragraphs),
+                };
+            }
+
+            return content;
+        }
+
         private void EndParagraph()
         {
             FlushPending();
-            _builder.EndParagraph(_state.Para);
+            Active.EndParagraph(_state.Para);
         }
 
         private void AppendChar(int code) => AppendBody(((char)code).ToString());
@@ -491,7 +569,7 @@ public static class RtfReader
         private void FlushPending()
         {
             if (_hasPending && _pending.Length > 0)
-                _builder.Append(_pending.ToString(), _pendingStyle);
+                Active.Append(_pending.ToString(), _pendingStyle);
 
             _pending.Clear();
             _hasPending = false;

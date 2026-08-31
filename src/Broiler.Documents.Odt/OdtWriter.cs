@@ -56,7 +56,7 @@ public static class OdtWriter
                 OdtNamespaces.MimeTypePart,
                 Encoding.ASCII.GetBytes(OdtNamespaces.PackageMediaType));
             AddXmlEntry(archive, OdtNamespaces.ContentPart, content);
-            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles());
+            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(document.RunningContent, context));
             AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta());
             foreach (OdtPicturePart picture in context.Pictures)
                 AddDeflatedEntry(archive, picture.PartPath, picture.Data.Span);
@@ -616,7 +616,43 @@ public static class OdtWriter
     /// document out at all; everything the model can express is an automatic
     /// style in <c>content.xml</c> instead.
     /// </summary>
-    private static XDocument BuildStyles()
+    /// <summary>ODF §16.10: a master page's header and footer elements, left being the even page.</summary>
+    private static readonly (string Element, bool IsHeader, PageSelection Selection)[] RunningParts =
+    [
+        ("header", true, PageSelection.Default),
+        ("header-first", true, PageSelection.First),
+        ("header-left", true, PageSelection.Even),
+        ("footer", false, PageSelection.Default),
+        ("footer-first", false, PageSelection.First),
+        ("footer-left", false, PageSelection.Even),
+    ];
+
+    /// <summary>
+    /// The header and footer elements for the master page, in the order ODF
+    /// declares them. An unset selection contributes nothing, so a document with
+    /// one header everywhere writes one element.
+    /// </summary>
+    private static IEnumerable<XElement> BuildRunningParts(RunningContent running, OdtWriteContext context)
+    {
+        if (running is null || running.IsEmpty)
+            yield break;
+
+        foreach ((string element, bool isHeader, PageSelection selection) in RunningParts)
+        {
+            IReadOnlyList<RichTextParagraph> paragraphs =
+                isHeader ? running.Header(selection) : running.Footer(selection);
+            if (paragraphs.Count == 0)
+                continue;
+
+            var part = new XElement(OdtNamespaces.Style + element);
+            foreach (RichTextParagraph paragraph in paragraphs)
+                part.Add(BuildParagraph(paragraph, context, inList: false));
+
+            yield return part;
+        }
+    }
+
+    private static XDocument BuildStyles(RunningContent running, OdtWriteContext context)
     {
         var root = new XElement(
             OdtNamespaces.Office + "document-styles",
@@ -651,7 +687,8 @@ public static class OdtWriter
                 new XElement(
                     OdtNamespaces.Style + "master-page",
                     new XAttribute(OdtNamespaces.Style + "name", "Standard"),
-                    new XAttribute(OdtNamespaces.Style + "page-layout-name", "pm1"))));
+                    new XAttribute(OdtNamespaces.Style + "page-layout-name", "pm1"),
+                    BuildRunningParts(running, context))));
 
         return new XDocument(new XDeclaration("1.0", "UTF-8", null), root);
     }

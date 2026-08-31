@@ -55,12 +55,20 @@ public sealed class RtfConformanceTests
     [Theory]
     [InlineData("{\\info{\\author Me}}")]
     [InlineData("{\\stylesheet{\\s0 Normal;}}")]
-    [InlineData("{\\header a header}")]
-    [InlineData("{\\footer a footer}")]
     [InlineData("{\\*\\generator App;}")]
     [InlineData("{\\*\\somethingunknown data}")]
     public void Skipped_Destinations_Contribute_No_Text(string destination)
     {
+        Assert.Equal("Body", Read("{\\rtf1 " + destination + "Body}").PlainText);
+    }
+
+    [Theory]
+    [InlineData("{\\header a header}")]
+    [InlineData("{\\footer a footer}")]
+    public void A_Header_Or_Footer_Contributes_No_Body_Text(string destination)
+    {
+        // These are read now rather than skipped, but they belong to the page
+        // rather than to the flow: none of their text may reach the body.
         Assert.Equal("Body", Read("{\\rtf1 " + destination + "Body}").PlainText);
     }
 
