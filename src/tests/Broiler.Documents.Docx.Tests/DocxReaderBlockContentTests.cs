@@ -278,7 +278,7 @@ public sealed class DocxReaderBlockContentTests
     }
 
     [Fact(Timeout = 600000)]
-    public void Notes_Headers_And_Footers_That_Were_Not_Imported()
+    public void An_Unreferenced_Header_Part_Is_Not_Read()
     {
         var extraParts = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -298,8 +298,12 @@ public sealed class DocxReaderBlockContentTests
         using var stream = new MemoryStream(bytes, writable: false);
         DocumentReadResult result = new DocxDocumentCodec().Read(stream);
 
+        // The package holds a header part and a relationship to it, but no
+        // section names it. Headers are reached through w:sectPr, so an orphaned
+        // part is not content: it stays out of the body and out of the running
+        // content alike.
         Assert.Equal("body", Assert.Single(result.Document.Paragraphs).Text);
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.part.headerfooter");
+        Assert.True(result.Document.RunningContent.IsEmpty);
     }
 
     /// <summary>A DOCX Broiler wrote must still round-trip through the block walker.</summary>

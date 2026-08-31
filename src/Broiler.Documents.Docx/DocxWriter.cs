@@ -31,6 +31,7 @@ public static class DocxWriter
         _ = options;
 
         var context = new DocxWriteContext(document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None));
+        BuildRunningParts(document.RunningContent, context);
         XDocument documentXml = BuildDocumentXml(document, context);
 
         using var package = new MemoryStream();
@@ -43,6 +44,8 @@ public static class DocxWriter
                 AddXmlEntry(archive, "word/_rels/document.xml.rels", BuildDocumentRelationships(context));
             if (context.HasNumbering)
                 AddXmlEntry(archive, "word/numbering.xml", BuildNumbering());
+            foreach (DocxRunningPart part in context.RunningParts)
+                AddXmlEntry(archive, part.PartPath, part.Xml);
             foreach (DocxImagePart image in context.Images)
                 AddBinaryEntry(archive, image.PartPath, image.Data.Span);
         }
@@ -59,13 +62,86 @@ public static class DocxWriter
         return stream.ToArray();
     }
 
+    /// <summary>
+    /// Turns the document's running content into header and footer parts. Each
+    /// part is a <c>w:hdr</c> or <c>w:ftr</c> holding the same paragraphs the body
+    /// writer produces, so a header keeps its alignment, spacing and runs.
+    /// </summary>
+    private static void BuildRunningParts(RunningContent running, DocxWriteContext context)
+    {
+        if (running is null || running.IsEmpty)
+            return;
+
+        foreach (PageSelection selection in new[] { PageSelection.Default, PageSelection.First, PageSelection.Even })
+        {
+            AddRunningPart(running.Header(selection), isHeader: true, selection, context);
+            AddRunningPart(running.Footer(selection), isHeader: false, selection, context);
+        }
+    }
+
+    private static void AddRunningPart(
+        IReadOnlyList<RichTextParagraph> paragraphs,
+        bool isHeader,
+        PageSelection selection,
+        DocxWriteContext context)
+    {
+        if (paragraphs.Count == 0)
+            return;
+
+        var root = new XElement(
+            DocxNamespaces.Wordprocessing + (isHeader ? "hdr" : "ftr"),
+            new XAttribute(XNamespace.Xmlns + "w", DocxNamespaces.Wordprocessing.NamespaceName),
+            new XAttribute(XNamespace.Xmlns + "r", DocxNamespaces.Relationships.NamespaceName));
+
+        foreach (RichTextParagraph paragraph in paragraphs)
+            root.Add(BuildParagraph(paragraph, context));
+
+        context.AddRunningPart(isHeader, selection, new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root));
+    }
+
+    /// <summary>
+    /// The body's section properties: a reference per header and footer part.
+    /// </summary>
+    /// <remarks>
+    /// A first-page header only takes effect when the section also says it wants a
+    /// distinct one, so <c>w:titlePg</c> is written whenever a First part exists.
+    /// Without it Word reads the part and then draws the default over it.
+    /// </remarks>
+    private static XElement BuildSectionProperties(DocxWriteContext context)
+    {
+        var sectPr = new XElement(DocxNamespaces.Wordprocessing + "sectPr");
+        bool hasFirst = false;
+
+        foreach (DocxRunningPart part in context.RunningParts)
+        {
+            hasFirst |= part.Selection == PageSelection.First;
+            var reference = new XElement(
+                DocxNamespaces.Wordprocessing + (part.IsHeader ? "headerReference" : "footerReference"),
+                new XAttribute(DocxNamespaces.Relationships + "id", part.RelationshipId));
+
+            string? type = part.Selection switch
+            {
+                PageSelection.First => "first",
+                PageSelection.Even => "even",
+                _ => "default",
+            };
+            reference.Add(WordAttribute("type", type));
+            sectPr.Add(reference);
+        }
+
+        if (hasFirst)
+            sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "titlePg"));
+
+        return sectPr;
+    }
+
     private static XDocument BuildDocumentXml(RichTextDocument document, DocxWriteContext context)
     {
         var body = new XElement(DocxNamespaces.Wordprocessing + "body");
         foreach (RichTextParagraph paragraph in document.Paragraphs)
             body.Add(BuildParagraph(paragraph, context));
 
-        body.Add(new XElement(DocxNamespaces.Wordprocessing + "sectPr"));
+        body.Add(BuildSectionProperties(context));
 
         var root = new XElement(
             DocxNamespaces.Wordprocessing + "document",
@@ -400,7 +476,6 @@ public static class DocxWriter
     {
         var types = new XElement(
             DocxNamespaces.ContentTypes + "Types",
-            new XAttribute(XNamespace.Xmlns + "ct", DocxNamespaces.ContentTypes.NamespaceName),
             new XElement(
                 DocxNamespaces.ContentTypes + "Default",
                 new XAttribute("Extension", "rels"),
@@ -422,6 +497,16 @@ public static class DocxWriter
                 new XAttribute("ContentType", DocxNamespaces.NumberingContentType)));
         }
 
+        foreach (DocxRunningPart part in context.RunningParts)
+        {
+            types.Add(new XElement(
+                DocxNamespaces.ContentTypes + "Override",
+                new XAttribute("PartName", "/" + part.PartPath),
+                new XAttribute(
+                    "ContentType",
+                    part.IsHeader ? DocxNamespaces.HeaderContentType : DocxNamespaces.FooterContentType)));
+        }
+
         // One Default per distinct media extension, which is how OPC types the
         // binary parts under word/media.
         foreach (KeyValuePair<string, string> media in context.MediaContentTypes)
@@ -440,7 +525,6 @@ public static class DocxWriter
             new XDeclaration("1.0", "utf-8", "yes"),
             new XElement(
                 DocxNamespaces.PackageRelationships + "Relationships",
-                new XAttribute(XNamespace.Xmlns + "rel", DocxNamespaces.PackageRelationships.NamespaceName),
                 new XElement(
                     DocxNamespaces.PackageRelationships + "Relationship",
                     new XAttribute("Id", "rId1"),
@@ -449,9 +533,7 @@ public static class DocxWriter
 
     private static XDocument BuildDocumentRelationships(DocxWriteContext context)
     {
-        var root = new XElement(
-            DocxNamespaces.PackageRelationships + "Relationships",
-            new XAttribute(XNamespace.Xmlns + "rel", DocxNamespaces.PackageRelationships.NamespaceName));
+        var root = new XElement(DocxNamespaces.PackageRelationships + "Relationships");
 
         if (context.HasNumbering)
         {
@@ -470,6 +552,17 @@ public static class DocxWriter
                 new XAttribute("Type", DocxNamespaces.HyperlinkRelationship),
                 new XAttribute("Target", relationship.Key),
                 new XAttribute("TargetMode", "External")));
+        }
+
+        foreach (DocxRunningPart part in context.RunningParts)
+        {
+            root.Add(new XElement(
+                DocxNamespaces.PackageRelationships + "Relationship",
+                new XAttribute("Id", part.RelationshipId),
+                new XAttribute(
+                    "Type",
+                    part.IsHeader ? DocxNamespaces.HeaderRelationship : DocxNamespaces.FooterRelationship),
+                new XAttribute("Target", part.RelativeTarget)));
         }
 
         foreach (DocxImagePart image in context.Images)
@@ -585,6 +678,7 @@ public static class DocxWriter
         private readonly Dictionary<string, string> _mediaContentTypes = new(StringComparer.Ordinal);
         private readonly List<DocumentDiagnostic> _diagnostics = [];
         private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
+        private readonly List<DocxRunningPart> _runningParts = [];
         private int _nextRelationshipId;
 
         public DocxWriteContext(bool hasNumbering)
@@ -595,11 +689,31 @@ public static class DocxWriter
 
         public bool HasNumbering { get; }
 
-        public bool HasDocumentRelationships => HasNumbering || _hyperlinks.Count > 0 || _imageOrder.Count > 0;
+        public bool HasDocumentRelationships =>
+            HasNumbering || _hyperlinks.Count > 0 || _imageOrder.Count > 0 || _runningParts.Count > 0;
 
         public string NumberingRelationshipId => "rId1";
 
         public IReadOnlyDictionary<string, string> HyperlinkRelationships => _hyperlinks;
+
+        /// <summary>The header and footer parts to write, in the order they were declared.</summary>
+        public IReadOnlyList<DocxRunningPart> RunningParts => _runningParts;
+
+        /// <summary>
+        /// Registers one header or footer part and returns the relationship the
+        /// section properties refer to it by.
+        /// </summary>
+        public DocxRunningPart AddRunningPart(bool isHeader, PageSelection selection, XDocument xml)
+        {
+            string id = "rId" + _nextRelationshipId.ToString(CultureInfo.InvariantCulture);
+            _nextRelationshipId++;
+
+            int ordinal = _runningParts.Count(part => part.IsHeader == isHeader) + 1;
+            string name = (isHeader ? "header" : "footer") + ordinal.ToString(CultureInfo.InvariantCulture) + ".xml";
+            var part = new DocxRunningPart(id, "word/" + name, name, isHeader, selection, xml);
+            _runningParts.Add(part);
+            return part;
+        }
 
         /// <summary>The media parts to write, in the order they were first used.</summary>
         public IReadOnlyList<DocxImagePart> Images => _imageOrder;
@@ -660,4 +774,13 @@ public static class DocxWriter
         string PartPath,
         string RelativeTarget,
         ReadOnlyMemory<byte> Data);
+
+    /// <summary>One header or footer part: its own XML, plus how the section refers to it.</summary>
+    private sealed record DocxRunningPart(
+        string RelationshipId,
+        string PartPath,
+        string RelativeTarget,
+        bool IsHeader,
+        PageSelection Selection,
+        XDocument Xml);
 }
