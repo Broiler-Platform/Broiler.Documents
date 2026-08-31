@@ -202,7 +202,112 @@ internal sealed class PdfPageLayout
         }
 
         pages.Add(page);
+        PlaceRunningContent(pages, document.RunningContent, setup);
         return pages;
+    }
+
+    /// <summary>
+    /// Draws the header and footer on every page, once the body has decided how
+    /// many pages there are.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The model carries no header distance - no reader produces one - so this
+    /// picks a convention rather than inventing a setting: the block sits in the
+    /// middle of the margin it belongs to. A header taller than its margin would
+    /// run into the body, so it is reported rather than drawn over the text.
+    /// </para>
+    /// <para>
+    /// Page one takes the first-page selection and even-numbered pages the even
+    /// one, each falling back to the default, which is what
+    /// <see cref="RunningContent.EffectiveHeader"/> resolves.
+    /// </para>
+    /// </remarks>
+    private void PlaceRunningContent(List<PdfLayoutPage> pages, RunningContent running, PdfPageSetup setup)
+    {
+        if (running is null || running.IsEmpty)
+            return;
+
+        double left = setup.MarginLeft;
+        double available = setup.ContentWidth;
+
+        for (int i = 0; i < pages.Count; i++)
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            PageSelection selection = SelectionForPage(i);
+
+            PlaceRunningBlock(
+                pages[i],
+                running.EffectiveHeader(selection),
+                left,
+                available,
+                setup.Height - (setup.MarginTop / 2),
+                setup.MarginTop,
+                isHeader: true);
+
+            PlaceRunningBlock(
+                pages[i],
+                running.EffectiveFooter(selection),
+                left,
+                available,
+                setup.MarginBottom / 2,
+                setup.MarginBottom,
+                isHeader: false);
+        }
+    }
+
+    /// <summary>Page one is the first page; pages two, four, six are the even ones.</summary>
+    private static PageSelection SelectionForPage(int index) => index switch
+    {
+        0 => PageSelection.First,
+        _ => (index + 1) % 2 == 0 ? PageSelection.Even : PageSelection.Default,
+    };
+
+    private void PlaceRunningBlock(
+        PdfLayoutPage page,
+        IReadOnlyList<RichTextParagraph> paragraphs,
+        double left,
+        double available,
+        double firstBaseline,
+        double margin,
+        bool isHeader)
+    {
+        if (paragraphs.Count == 0)
+            return;
+
+        var lines = new List<(LayoutLine Line, ParagraphStyle Style, bool IsLast)>();
+        double height = 0;
+        foreach (RichTextParagraph paragraph in paragraphs)
+        {
+            List<LayoutLine> broken = BreakParagraph(paragraph, available, marker: string.Empty);
+            double spacing = paragraph.Style.LineSpacing > 0 ? paragraph.Style.LineSpacing : 1f;
+            for (int i = 0; i < broken.Count; i++)
+            {
+                lines.Add((broken[i], paragraph.Style, i == broken.Count - 1));
+                height += broken[i].Height * spacing;
+            }
+
+            if (broken.Count == 0)
+                height += EmptyLineHeight() * spacing;
+        }
+
+        if (height > margin)
+        {
+            _diagnostics.Warning(
+                PdfDiagnosticCodes.WriteOverflow,
+                isHeader
+                    ? "A DOCX header was taller than the page's top margin and was not drawn."
+                    : "A DOCX footer was taller than the page's bottom margin and was not drawn.");
+            return;
+        }
+
+        double y = firstBaseline + (height / 2);
+        foreach ((LayoutLine line, ParagraphStyle style, bool isLast) in lines)
+        {
+            double spacing = style.LineSpacing > 0 ? style.LineSpacing : 1f;
+            y -= line.Height * spacing;
+            Place(page, line, left, available, y, style.Alignment, isLast);
+        }
     }
 
     private double EmptyLineHeight() => _options.DefaultFontSize * 1.2;
