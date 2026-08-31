@@ -15,8 +15,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
     <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
-    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom\Broiler.Dom.csproj" />
-    <ProjectReference Include="..\..\Broiler.DOM\Broiler.Dom.Html\Broiler.Dom.Html.csproj" />
+    <ProjectReference Include="$(BroilerDomRoot)\Broiler.Dom\Broiler.Dom.csproj" />
+    <ProjectReference Include="$(BroilerDomRoot)\Broiler.Dom.Html\Broiler.Dom.Html.csproj" />
   </ItemGroup>
 
   <ItemGroup>

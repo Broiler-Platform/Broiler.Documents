@@ -8,6 +8,22 @@
   </PropertyGroup>
   <Import Project="$(BroilerParentBuildProps)" Condition="'$(BroilerParentBuildProps)' != ''" />
 
+  <!-- Where the Broiler.Graphics projects live. It defaults to the vendored
+       submodule so this repo builds on its own; a consumer with its own copy
+       sets it in the Directory.Build.props above, which is imported first, and
+       then one assembly of each name is built instead of several. -->
+  <PropertyGroup Condition="'$(BroilerGraphicsRoot)' == ''">
+    <BroilerGraphicsRoot>$(MSBuildThisFileDirectory)Broiler.Graphics</BroilerGraphicsRoot>
+  </PropertyGroup>
+
+  <!-- Where the Broiler.DOM projects live. It defaults to the vendored
+       submodule so this repo builds on its own; a consumer with its own copy
+       sets it in the Directory.Build.props above, which is imported first, and
+       then one assembly of each name is built instead of several. -->
+  <PropertyGroup Condition="'$(BroilerDomRoot)' == ''">
+    <BroilerDomRoot>$(MSBuildThisFileDirectory)Broiler.DOM</BroilerDomRoot>
+  </PropertyGroup>
+
   <!-- Broiler NuGet packaging metadata (vendored; do not edit by hand). -->
   <Import Project="$(MSBuildThisFileDirectory)eng\Broiler.Packaging.props" />
 
