@@ -41,4 +41,19 @@ internal enum RtfDestination
 
     /// <summary>The <c>\footerl</c> destination.</summary>
     FooterEven,
+
+    /// <summary>A <c>\shp</c> drawing: its geometry and its properties.</summary>
+    Shape,
+
+    /// <summary>One <c>\sp</c> property pair inside a shape.</summary>
+    ShapeProperty,
+
+    /// <summary>A property's name, from <c>\sn</c>.</summary>
+    ShapePropertyName,
+
+    /// <summary>A property's value, from <c>\sv</c>.</summary>
+    ShapePropertyValue,
+
+    /// <summary>A shape's own text, from <c>\shptxt</c>.</summary>
+    ShapeText,
 }
