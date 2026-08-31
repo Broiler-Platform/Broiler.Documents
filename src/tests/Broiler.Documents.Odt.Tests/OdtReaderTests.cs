@@ -157,15 +157,18 @@ public sealed class OdtReaderTests
     }
 
     [Fact]
-    public void Flattens_A_Table_Into_Its_Cell_Paragraphs_In_Row_Order()
+    public void Reads_A_Tables_Cell_Paragraphs_In_Row_Order()
     {
         DocumentReadResult result = OdtTestPackage.ReadBody(
             OdtTestPackage.Table(
                 [OdtTestPackage.Paragraph("a"), OdtTestPackage.Paragraph("b")],
                 [OdtTestPackage.Paragraph("c"), OdtTestPackage.Paragraph("d")]));
 
+        // The paragraphs read the same way they always did; what is new is the
+        // grid over them, so the note about having thrown it away is gone.
         Assert.Equal(["a", "b", "c", "d"], result.Document.Paragraphs.Select(p => p.Text));
-        Assert.Contains(result.Diagnostics, d => d.Code == "odt.table.flattened");
+        Assert.Equal(2, Assert.Single(result.Document.Tables).Rows.Count);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.table.flattened");
     }
 
     [Fact]

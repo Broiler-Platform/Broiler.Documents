@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -161,6 +161,8 @@ public static class OdtWriter
             automaticStyles.Add(style);
         foreach (XElement style in context.ShapeStyles)
             automaticStyles.Add(style);
+        foreach (XElement style in context.TableStyles)
+            automaticStyles.Add(style);
         foreach (XElement gradient in context.Gradients)
             automaticStyles.Add(gradient);
         foreach (XElement listStyle in BuildListStyles(context))
@@ -176,6 +178,7 @@ public static class OdtWriter
             new XAttribute(XNamespace.Xmlns + "fo", OdtNamespaces.Fo.NamespaceName),
             new XAttribute(XNamespace.Xmlns + "svg", OdtNamespaces.Svg.NamespaceName),
             new XAttribute(XNamespace.Xmlns + "draw", OdtNamespaces.Draw.NamespaceName),
+            new XAttribute(XNamespace.Xmlns + "table", OdtNamespaces.Table.NamespaceName),
             new XAttribute(XNamespace.Xmlns + "xlink", OdtNamespaces.XLink.NamespaceName),
             new XAttribute(OdtNamespaces.Office + "version", OdtNamespaces.WrittenVersion),
             automaticStyles,
@@ -187,11 +190,37 @@ public static class OdtWriter
     private static XElement BuildBody(RichTextDocument document, OdtWriteContext context)
     {
         var text = new XElement(OdtNamespaces.Office + "text");
-        IReadOnlyList<RichTextParagraph> paragraphs = document.Paragraphs;
+        foreach (XElement block in BuildBlocks(document, document.Tables, 0, document.ParagraphCount, context))
+            text.Add(block);
 
-        int index = 0;
-        while (index < paragraphs.Count)
+        return text;
+    }
+
+    /// <summary>
+    /// The block-level content of a paragraph range: lists, paragraphs, and a
+    /// table wherever one starts. A cell's content goes through here too, so a
+    /// table inside a cell is written by the walk that wrote the one around it.
+    /// </summary>
+    private static IEnumerable<XElement> BuildBlocks(
+        RichTextDocument document,
+        IReadOnlyList<DocumentTable> tables,
+        int from,
+        int to,
+        OdtWriteContext context)
+    {
+        IReadOnlyList<RichTextParagraph> paragraphs = document.Paragraphs;
+        int index = Math.Max(0, from);
+        int end = Math.Min(to, paragraphs.Count);
+
+        while (index < end)
         {
+            if (DocumentTable.StartingAt(tables, index) is DocumentTable table)
+            {
+                yield return BuildTable(document, table, context);
+                index = table.ParagraphEnd;
+                continue;
+            }
+
             ListKind kind = paragraphs[index].Style.ListKind;
             if (kind == ListKind.None)
             {
@@ -201,22 +230,126 @@ public static class OdtWriter
                 foreach (DocumentShape shape in ShapesAnchoredTo(document, index))
                     element.AddFirst(BuildShape(shape, context));
 
-                text.Add(element);
+                yield return element;
                 index++;
                 continue;
             }
 
             // One text:list per maximal run of same-kind list paragraphs. Starting
             // a fresh list for every item would restart the numbering at each one.
-            int end = index;
-            while (end < paragraphs.Count && paragraphs[end].Style.ListKind == kind)
-                end++;
+            int listEnd = index;
+            while (listEnd < end && paragraphs[listEnd].Style.ListKind == kind)
+                listEnd++;
 
-            text.Add(BuildList(paragraphs, index, end, kind, context));
-            index = end;
+            yield return BuildList(paragraphs, index, listEnd, kind, context);
+            index = listEnd;
+        }
+    }
+
+    /// <summary>
+    /// One table, as the <c>table:table</c> ODF writes: a column per column, then
+    /// a row per row holding a cell per cell.
+    /// </summary>
+    /// <remarks>
+    /// A merge is stated on the cell that opens it, and every grid position it
+    /// covers is written as a <c>table:covered-table-cell</c> - which is what ODF
+    /// requires, and what keeps every row the same number of columns wide.
+    /// </remarks>
+    private static XElement BuildTable(RichTextDocument document, DocumentTable table, OdtWriteContext context)
+    {
+        var element = new XElement(
+            OdtNamespaces.Table + "table",
+            new XAttribute(OdtNamespaces.Table + "name", context.NextTableName()));
+
+        int columns = ColumnCount(table);
+        for (int i = 0; i < columns; i++)
+        {
+            double width = i < table.ColumnWidths.Count ? table.ColumnWidths[i] : 0;
+            var column = new XElement(OdtNamespaces.Table + "table-column");
+            if (width > 0)
+                column.Add(new XAttribute(OdtNamespaces.Table + "style-name", context.GetColumnStyleName(width)));
+
+            element.Add(column);
         }
 
-        return text;
+        foreach (TableRow row in table.Rows)
+        {
+            var tr = new XElement(OdtNamespaces.Table + "table-row");
+            int column = 0;
+            foreach (TableCell cell in row.Cells)
+            {
+                // The cells a merge above covers are written as covered ones, so
+                // an empty placeholder from another format is not written twice.
+                if (cell.IsRowSpanContinuation)
+                {
+                    tr.Add(new XElement(OdtNamespaces.Table + "covered-table-cell"));
+                    column += cell.ColumnSpan;
+                    continue;
+                }
+
+                tr.Add(BuildTableCell(document, cell, context));
+                column += cell.ColumnSpan;
+
+                // ODF wants a covered cell for every position a span swallowed.
+                for (int i = 1; i < cell.ColumnSpan; i++)
+                    tr.Add(new XElement(OdtNamespaces.Table + "covered-table-cell"));
+            }
+
+            for (; column < columns; column++)
+                tr.Add(new XElement(OdtNamespaces.Table + "table-cell"));
+
+            element.Add(tr);
+        }
+
+        return element;
+    }
+
+    private static XElement BuildTableCell(RichTextDocument document, TableCell cell, OdtWriteContext context)
+    {
+        var element = new XElement(OdtNamespaces.Table + "table-cell");
+        if (context.GetCellStyleName(cell) is string styleName)
+            element.Add(new XAttribute(OdtNamespaces.Table + "style-name", styleName));
+
+        if (cell.ColumnSpan > 1)
+        {
+            element.Add(new XAttribute(
+                OdtNamespaces.Table + "number-columns-spanned",
+                cell.ColumnSpan.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (cell.RowSpan > 1)
+        {
+            element.Add(new XAttribute(
+                OdtNamespaces.Table + "number-rows-spanned",
+                cell.RowSpan.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        bool empty = true;
+        foreach (XElement block in BuildBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, context))
+        {
+            element.Add(block);
+            empty = false;
+        }
+
+        // A cell that holds nothing is written with an empty paragraph, which is
+        // what every producer writes and what keeps the row's height.
+        if (empty)
+            element.Add(new XElement(OdtNamespaces.Text + "p"));
+
+        return element;
+    }
+
+    /// <summary>How many columns the grid has: what it states, or what its widest row uses.</summary>
+    private static int ColumnCount(DocumentTable table)
+    {
+        int columns = table.ColumnWidths.Count;
+        foreach (TableRow row in table.Rows)
+        {
+            foreach (TableCell cell in row.Cells)
+                columns = Math.Max(columns, cell.ColumnIndex + cell.ColumnSpan);
+        }
+
+        return Math.Max(1, columns);
     }
 
     /// <summary>
@@ -940,6 +1073,10 @@ public static class OdtWriter
         private readonly List<DocumentDiagnostic> _diagnostics = [];
         private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
         private readonly List<XElement> _shapeStyles = [];
+        private readonly List<XElement> _tableStyles = [];
+        private readonly Dictionary<string, string> _columnStyleNames = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _cellStyleNames = new(StringComparer.Ordinal);
+        private int _tableCount;
         private readonly List<XElement> _gradients = [];
 
         /// <summary>The graphic styles the document's shapes are painted by.</summary>
@@ -1005,6 +1142,90 @@ public static class OdtWriter
                 new XAttribute(OdtNamespaces.Style + "family", "graphic"),
                 properties));
             return name;
+        }
+
+        /// <summary>The styles a table's columns and cells are written with.</summary>
+        public IReadOnlyList<XElement> TableStyles => _tableStyles;
+
+        /// <summary>A name per table, which ODF requires and uses as its identity.</summary>
+        public string NextTableName() =>
+            "Table" + (++_tableCount).ToString(CultureInfo.InvariantCulture);
+
+        /// <summary>
+        /// The column style for one width, created on first use. ODF puts a
+        /// column's width in a named style rather than on the column.
+        /// </summary>
+        public string GetColumnStyleName(double width)
+        {
+            string key = OdtUnits.FormatPoints(width);
+            if (_columnStyleNames.TryGetValue(key, out string? existing))
+                return existing;
+
+            string name = "co" + (_columnStyleNames.Count + 1).ToString(CultureInfo.InvariantCulture);
+            _tableStyles.Add(new XElement(
+                OdtNamespaces.Style + "style",
+                new XAttribute(OdtNamespaces.Style + "name", name),
+                new XAttribute(OdtNamespaces.Style + "family", "table-column"),
+                new XElement(
+                    OdtNamespaces.Style + "table-column-properties",
+                    new XAttribute(OdtNamespaces.Style + "column-width", key))));
+
+            _columnStyleNames[key] = name;
+            return name;
+        }
+
+        /// <summary>
+        /// The cell style for one cell's paint, created on first use, or null when
+        /// the cell states neither a background nor a border and needs no style.
+        /// </summary>
+        public string? GetCellStyleName(TableCell cell)
+        {
+            var properties = new XElement(OdtNamespaces.Style + "table-cell-properties");
+            if (!cell.Shading.IsEmpty && cell.Shading.A > 0)
+            {
+                properties.Add(new XAttribute(
+                    OdtNamespaces.Fo + "background-color",
+                    OdtUnits.FormatColor(cell.Shading)));
+            }
+
+            AddBorder(properties, "border-left", cell.Borders.Left);
+            AddBorder(properties, "border-top", cell.Borders.Top);
+            AddBorder(properties, "border-right", cell.Borders.Right);
+            AddBorder(properties, "border-bottom", cell.Borders.Bottom);
+
+            if (!properties.HasAttributes)
+                return null;
+
+            string key = string.Join(
+                "",
+                properties.Attributes().Select(attribute => attribute.Name + "=" + attribute.Value));
+            if (_cellStyleNames.TryGetValue(key, out string? existing))
+                return existing;
+
+            string name = "ce" + (_cellStyleNames.Count + 1).ToString(CultureInfo.InvariantCulture);
+            _tableStyles.Add(new XElement(
+                OdtNamespaces.Style + "style",
+                new XAttribute(OdtNamespaces.Style + "name", name),
+                new XAttribute(OdtNamespaces.Style + "family", "table-cell"),
+                properties));
+
+            _cellStyleNames[key] = name;
+            return name;
+        }
+
+        /// <summary>
+        /// One border edge, as the CSS shorthand ODF states it in: a width, a
+        /// style, and a colour. An edge that draws nothing is written as
+        /// <c>none</c>, so a cell that turns a border off keeps it off.
+        /// </summary>
+        private static void AddBorder(XElement properties, string attribute, TableBorder border)
+        {
+            if (!border.IsVisible)
+                return;
+
+            properties.Add(new XAttribute(
+                OdtNamespaces.Fo + attribute,
+                OdtUnits.FormatPoints(border.Width) + " solid " + OdtUnits.FormatColor(border.Color)));
         }
 
         /// <summary>The <c>style:style</c> elements to declare, in the order they were first needed.</summary>

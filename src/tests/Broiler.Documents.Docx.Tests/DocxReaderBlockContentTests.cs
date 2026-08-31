@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 
 namespace Broiler.Documents.Docx.Tests;
 
@@ -240,13 +240,16 @@ public sealed class DocxReaderBlockContentTests
     }
 
     [Fact(Timeout = 600000)]
-    public void Reports_Flattened_Tables_Once()
+    public void Reads_Two_Tables_As_Two_Tables()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
             DocxTestPackage.Table([[DocxTestPackage.Paragraph("a")]]) +
             DocxTestPackage.Table([[DocxTestPackage.Paragraph("b")]]));
 
-        Assert.Single(result.Diagnostics, diagnostic => diagnostic.Code == "docx.table.flattened");
+        // They used to arrive as two paragraphs and one note saying the shape
+        // they were in had been thrown away.
+        Assert.Equal(2, result.Document.Tables.Count);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.table.flattened");
     }
 
     [Fact(Timeout = 600000)]

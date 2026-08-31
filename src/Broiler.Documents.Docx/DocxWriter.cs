@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -155,19 +155,8 @@ public static class DocxWriter
     private static XDocument BuildDocumentXml(RichTextDocument document, DocxWriteContext context)
     {
         var body = new XElement(DocxNamespaces.Wordprocessing + "body");
-        for (int i = 0; i < document.Paragraphs.Count; i++)
-        {
-            XElement element = BuildParagraph(document.Paragraphs[i], context);
-            // A shape is anchored to a paragraph, so it rides in a run at the head
-            // of the one it belongs to - which is where Word puts it too.
-            foreach (DocumentShape shape in document.Shapes)
-            {
-                if (shape.ParagraphIndex == i)
-                    element.Add(BuildShapeRun(shape, context));
-            }
-
-            body.Add(element);
-        }
+        foreach (XElement block in BuildBlocks(document, document.Tables, 0, document.ParagraphCount, context))
+            body.Add(block);
 
         body.Add(BuildSectionProperties(context, document.PageGeometry));
 
@@ -188,6 +177,225 @@ public static class DocxWriter
 
         root.Add(body);
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root);
+    }
+
+    /// <summary>
+    /// The block-level content of a paragraph range: paragraphs, and a table
+    /// wherever one starts. A cell's content goes through here too, so a table
+    /// inside a cell is written by the same walk that wrote the one around it.
+    /// </summary>
+    private static IEnumerable<XElement> BuildBlocks(
+        RichTextDocument document,
+        IReadOnlyList<DocumentTable> tables,
+        int from,
+        int to,
+        DocxWriteContext context)
+    {
+        int index = from;
+        while (index < to)
+        {
+            if (DocumentTable.StartingAt(tables, index) is DocumentTable table)
+            {
+                yield return BuildTable(document, table, context);
+                index = table.ParagraphEnd;
+                continue;
+            }
+
+            yield return BuildBodyParagraph(document, index, context);
+            index++;
+        }
+    }
+
+    /// <summary>One body paragraph, carrying any shapes anchored to it.</summary>
+    private static XElement BuildBodyParagraph(RichTextDocument document, int index, DocxWriteContext context)
+    {
+        XElement element = BuildParagraph(document.Paragraphs[index], context);
+
+        // A shape is anchored to a paragraph, so it rides in a run at the head
+        // of the one it belongs to - which is where Word puts it too.
+        foreach (DocumentShape shape in document.Shapes)
+        {
+            if (shape.ParagraphIndex == index)
+                element.Add(BuildShapeRun(shape, context));
+        }
+
+        return element;
+    }
+
+    /// <summary>
+    /// One table, as the <c>w:tbl</c> Word writes: its properties, its grid, and
+    /// a row per row holding a cell per cell.
+    /// </summary>
+    private static XElement BuildTable(RichTextDocument document, DocumentTable table, DocxWriteContext context)
+    {
+        var element = new XElement(
+            DocxNamespaces.Wordprocessing + "tbl",
+            BuildTableProperties(table),
+            BuildTableGrid(table));
+
+        foreach (TableRow row in table.Rows)
+        {
+            var tr = new XElement(DocxNamespaces.Wordprocessing + "tr");
+            if (row.IsHeader)
+            {
+                tr.Add(new XElement(
+                    DocxNamespaces.Wordprocessing + "trPr",
+                    new XElement(DocxNamespaces.Wordprocessing + "tblHeader")));
+            }
+
+            foreach (TableCell cell in row.Cells)
+                tr.Add(BuildTableCell(document, table, cell, context));
+
+            element.Add(tr);
+        }
+
+        return element;
+    }
+
+    private static XElement BuildTableProperties(DocumentTable table)
+    {
+        double total = table.TotalWidth;
+        var properties = new XElement(
+            DocxNamespaces.Wordprocessing + "tblPr",
+            new XElement(
+                DocxNamespaces.Wordprocessing + "tblW",
+                WordAttribute("w", total > 0 ? Twips(total) : "0"),
+                WordAttribute("type", total > 0 ? "dxa" : "auto")));
+
+        string padding = Twips(table.CellPadding);
+        properties.Add(new XElement(
+            DocxNamespaces.Wordprocessing + "tblCellMar",
+            CellMargin("top", "0"),
+            CellMargin("left", padding),
+            CellMargin("bottom", "0"),
+            CellMargin("right", padding)));
+
+        return properties;
+    }
+
+    private static XElement CellMargin(string edge, string twips) =>
+        new(
+            DocxNamespaces.Wordprocessing + edge,
+            WordAttribute("w", twips),
+            WordAttribute("type", "dxa"));
+
+    private static XElement BuildTableGrid(DocumentTable table)
+    {
+        var grid = new XElement(DocxNamespaces.Wordprocessing + "tblGrid");
+        foreach (double width in table.ColumnWidths)
+            grid.Add(new XElement(DocxNamespaces.Wordprocessing + "gridCol", WordAttribute("w", Twips(width))));
+
+        return grid;
+    }
+
+    /// <summary>
+    /// One cell: what the grid says about it, then its paragraphs. A cell with no
+    /// paragraphs of its own is written with an empty one, because a
+    /// <c>w:tc</c> that holds no block content is a document Word will not open.
+    /// </summary>
+    private static XElement BuildTableCell(
+        RichTextDocument document,
+        DocumentTable table,
+        TableCell cell,
+        DocxWriteContext context)
+    {
+        var element = new XElement(
+            DocxNamespaces.Wordprocessing + "tc",
+            BuildCellProperties(table, cell));
+
+        bool empty = true;
+        foreach (XElement block in BuildBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, context))
+        {
+            element.Add(block);
+            empty = false;
+        }
+
+        // A table may not end on a table either: Word requires a paragraph after
+        // a nested one, and after the last block of every cell.
+        if (empty || element.Elements(DocxNamespaces.Wordprocessing + "tbl").Any(IsLastBlock))
+            element.Add(new XElement(DocxNamespaces.Wordprocessing + "p"));
+
+        return element;
+    }
+
+    private static bool IsLastBlock(XElement element) => element.NextNode is null;
+
+    private static XElement BuildCellProperties(DocumentTable table, TableCell cell)
+    {
+        var properties = new XElement(DocxNamespaces.Wordprocessing + "tcPr");
+
+        double width = CellWidth(table, cell);
+        properties.Add(new XElement(
+            DocxNamespaces.Wordprocessing + "tcW",
+            WordAttribute("w", width > 0 ? Twips(width) : "0"),
+            WordAttribute("type", width > 0 ? "dxa" : "auto")));
+
+        if (cell.ColumnSpan > 1)
+        {
+            properties.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "gridSpan",
+                WordAttribute("val", cell.ColumnSpan.ToString(CultureInfo.InvariantCulture))));
+        }
+
+        // The merge is written the way the format holds it: the cell that starts
+        // it says "restart", and the cells it covers say nothing at all.
+        if (cell.IsRowSpanContinuation)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "vMerge"));
+        else if (cell.RowSpan > 1)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "vMerge", WordAttribute("val", "restart")));
+
+        if (!cell.Shading.IsEmpty && cell.Shading.A > 0)
+        {
+            properties.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "shd",
+                WordAttribute("val", "clear"),
+                WordAttribute("color", "auto"),
+                WordAttribute("fill", HexColor(cell.Shading))));
+        }
+
+        if (cell.Borders.IsVisible)
+            properties.Add(BuildCellBorders(cell.Borders));
+
+        return properties;
+    }
+
+    /// <summary>The width a cell covers: the columns it spans, added up.</summary>
+    private static double CellWidth(DocumentTable table, TableCell cell)
+    {
+        double width = 0;
+        for (int column = cell.ColumnIndex; column < cell.ColumnIndex + cell.ColumnSpan; column++)
+        {
+            if (column < table.ColumnWidths.Count)
+                width += Math.Max(0, table.ColumnWidths[column]);
+        }
+
+        return width;
+    }
+
+    private static XElement BuildCellBorders(CellBorders borders) =>
+        new(
+            DocxNamespaces.Wordprocessing + "tcBorders",
+            BuildBorderEdge("top", borders.Top),
+            BuildBorderEdge("left", borders.Left),
+            BuildBorderEdge("bottom", borders.Bottom),
+            BuildBorderEdge("right", borders.Right));
+
+    /// <summary>
+    /// One border edge. <c>w:sz</c> is in eighths of a point, and an edge that
+    /// draws nothing is written as <c>none</c> rather than left out, so a cell
+    /// that turns a border off keeps it off through a round trip.
+    /// </summary>
+    private static XElement BuildBorderEdge(string edge, TableBorder border)
+    {
+        if (!border.IsVisible)
+            return new XElement(DocxNamespaces.Wordprocessing + edge, WordAttribute("val", "none"));
+
+        return new XElement(
+            DocxNamespaces.Wordprocessing + edge,
+            WordAttribute("val", "single"),
+            WordAttribute("sz", Math.Max(1, (int)Math.Round(border.Width * 8)).ToString(CultureInfo.InvariantCulture)),
+            WordAttribute("space", "0"),
+            WordAttribute("color", HexColor(border.Color)));
     }
 
     private static XElement BuildParagraph(RichTextParagraph paragraph, DocxWriteContext context)

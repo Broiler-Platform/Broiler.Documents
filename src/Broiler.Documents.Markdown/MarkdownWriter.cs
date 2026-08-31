@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -19,6 +19,17 @@ public static class MarkdownWriter
         _ = options;
 
         var diagnostics = new List<DocumentDiagnostic>();
+        if (document.Tables.Count > 0)
+        {
+            // Markdown has a table syntax, but not one that carries spans,
+            // borders, or shading - and a grid written without them would say
+            // the document had less in it than it does.
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "markdown.table.flattened",
+                "A table was written as its cell paragraphs, in row order; " +
+                "Markdown output carries no grid."));
+        }
+
         var builder = new StringBuilder();
         for (int i = 0; i < document.ParagraphCount; i++)
         {

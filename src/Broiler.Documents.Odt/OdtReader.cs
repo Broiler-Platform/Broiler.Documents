@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -529,22 +529,217 @@ internal static class OdtReader
     }
 
     /// <summary>
-    /// Flattens a table into the paragraphs of its cells, read left-to-right and
-    /// top-to-bottom. <see cref="RichTextDocument"/> has no table shape, so the
-    /// alternative would be losing every word the table holds, which is exactly
-    /// what a CV or letterhead template puts there.
+    /// Reads a table: its cells' paragraphs into the body, left-to-right and
+    /// top-to-bottom, and the grid they are arranged in into a
+    /// <see cref="DocumentTable"/> over the range they occupy.
     /// </summary>
+    /// <remarks>
+    /// ODF states a merge on the cell that opens it and writes a
+    /// <c>table:covered-table-cell</c> for every grid position it covers. Those
+    /// hold nothing and are drawn by nobody, so they are counted for the column
+    /// they occupy and otherwise passed over - the span on the opening cell is
+    /// the whole of what the model needs.
+    /// </remarks>
     private static void ReadTable(XElement table, OdtReadContext context, int depth)
     {
-        context.Builder.NoteTable();
+        int start = context.Builder.CurrentParagraphIndex;
+        var rows = new List<TableRow>();
+
         foreach (XElement row in EnumerateRows(table, depth))
         {
+            var cells = new List<TableCell>();
+            int column = 0;
+
+            // Columns a span in this row has already claimed. The covered cells
+            // that follow it stand for those, so they take no column of their
+            // own; a covered cell with none pending is the lower half of a merge
+            // from the row above, and does take one.
+            int claimed = 0;
             foreach (XElement cell in row.Elements())
             {
-                if (cell.Name == OdtNamespaces.Table + "table-cell")
+                bool covered = cell.Name == OdtNamespaces.Table + "covered-table-cell";
+                if (!covered && cell.Name != OdtNamespaces.Table + "table-cell")
+                    continue;
+
+                int repeat = Math.Clamp(TableInt(cell, "number-columns-repeated", 1), 1, MaxColumnRepeat);
+                if (covered)
+                {
+                    for (int i = 0; i < repeat; i++)
+                    {
+                        if (claimed > 0)
+                            claimed--;
+                        else
+                            column++;
+                    }
+
+                    continue;
+                }
+
+                int span = Math.Max(1, TableInt(cell, "number-columns-spanned", 1));
+                claimed = span - 1;
+                int rowSpan = Math.Max(1, TableInt(cell, "number-rows-spanned", 1));
+                XElement? properties = CellProperties(cell, context.Styles);
+
+                for (int i = 0; i < repeat; i++)
+                {
+                    int cellStart = context.Builder.CurrentParagraphIndex;
+                    var nested = new List<DocumentTable>();
+                    context.Builder.PushTableSink(nested);
                     ReadBlockContent(cell.Elements(), context, list: null, depth + 1);
+                    context.Builder.PopTableSink();
+
+                    cells.Add(new TableCell(
+                        cellStart,
+                        context.Builder.CurrentParagraphIndex - cellStart,
+                        column,
+                        span,
+                        rowSpan,
+                        ReadCellShading(properties),
+                        ReadCellBorders(properties),
+                        isRowSpanContinuation: false,
+                        tables: nested));
+                    column += span;
+                }
+            }
+
+            rows.Add(new TableRow(
+                cells,
+                row.Parent?.Name == OdtNamespaces.Table + "table-header-rows"));
+        }
+
+        context.Builder.AddTable(new DocumentTable(
+            start,
+            context.Builder.CurrentParagraphIndex - start,
+            rows,
+            ReadColumnWidths(table, context.Styles, depth),
+            DocumentTable.DefaultCellPadding));
+
+        context.Builder.NoteTable();
+    }
+
+    /// <summary>A repeat count beyond this is a spreadsheet's empty tail, not a table.</summary>
+    private const int MaxColumnRepeat = 64;
+
+    private static int TableInt(XElement element, string attribute, int fallback) =>
+        int.TryParse(
+            (string?)element.Attribute(OdtNamespaces.Table + attribute),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out int value)
+            ? value
+            : fallback;
+
+    /// <summary>
+    /// The grid's column widths in points, from each <c>table:table-column</c>'s
+    /// style. A column that states none contributes zero, which a renderer reads
+    /// as "share what is left".
+    /// </summary>
+    private static IReadOnlyList<double> ReadColumnWidths(XElement table, OdtStyles styles, int depth)
+    {
+        var widths = new List<double>();
+        foreach (XElement column in EnumerateColumns(table, depth))
+        {
+            int repeat = Math.Clamp(TableInt(column, "number-columns-repeated", 1), 1, MaxColumnRepeat);
+            string? styleName = (string?)column.Attribute(OdtNamespaces.Table + "style-name");
+            double width = 0;
+            if (styleName is not null &&
+                styles.TableColumnProperties.TryGetValue(styleName, out XElement? properties) &&
+                OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Style + "column-width"), out double points))
+            {
+                width = points;
+            }
+
+            for (int i = 0; i < repeat; i++)
+                widths.Add(width);
+        }
+
+        return widths;
+    }
+
+    /// <summary>A table's columns, looking through the groups ODF wraps them in.</summary>
+    private static IEnumerable<XElement> EnumerateColumns(XElement parent, int depth)
+    {
+        if (depth > MaxColumnRepeat)
+            yield break;
+
+        foreach (XElement child in parent.Elements())
+        {
+            if (child.Name == OdtNamespaces.Table + "table-column")
+            {
+                yield return child;
+                continue;
+            }
+
+            if (child.Name == OdtNamespaces.Table + "table-columns" ||
+                child.Name == OdtNamespaces.Table + "table-column-group" ||
+                child.Name == OdtNamespaces.Table + "table-header-columns")
+            {
+                foreach (XElement nested in EnumerateColumns(child, depth + 1))
+                    yield return nested;
             }
         }
+    }
+
+    private static XElement? CellProperties(XElement cell, OdtStyles styles)
+    {
+        string? styleName = (string?)cell.Attribute(OdtNamespaces.Table + "style-name");
+        return styleName is not null && styles.TableCellProperties.TryGetValue(styleName, out XElement? properties)
+            ? properties
+            : null;
+    }
+
+    private static BColor ReadCellShading(XElement? properties)
+    {
+        string? color = (string?)properties?.Attribute(OdtNamespaces.Fo + "background-color");
+        if (color is null || color.Equals("transparent", StringComparison.OrdinalIgnoreCase))
+            return BColor.Empty;
+
+        return OdtUnits.TryParseColor(color, out BColor parsed) ? parsed : BColor.Empty;
+    }
+
+    /// <summary>
+    /// A cell's four edges. ODF writes them as CSS shorthand - a width, a style,
+    /// and a colour - either once for all four or once per side, with the side
+    /// winning where both are stated.
+    /// </summary>
+    private static CellBorders ReadCellBorders(XElement? properties)
+    {
+        if (properties is null)
+            return default;
+
+        TableBorder all = ReadBorderEdge(properties, "border");
+        return new CellBorders(
+            FirstStated(ReadBorderEdge(properties, "border-left"), all),
+            FirstStated(ReadBorderEdge(properties, "border-top"), all),
+            FirstStated(ReadBorderEdge(properties, "border-right"), all),
+            FirstStated(ReadBorderEdge(properties, "border-bottom"), all));
+    }
+
+    private static TableBorder FirstStated(TableBorder edge, TableBorder fallback) =>
+        edge.Width > 0 || edge.Color.A > 0 ? edge : fallback;
+
+    /// <summary>
+    /// One <c>fo:border</c> value: <c>0.5pt solid #000000</c>. The keyword
+    /// <c>none</c> is a border turned off, and anything unparseable is left off
+    /// rather than guessed at.
+    /// </summary>
+    private static TableBorder ReadBorderEdge(XElement properties, string attribute)
+    {
+        string? value = (string?)properties.Attribute(OdtNamespaces.Fo + attribute);
+        if (string.IsNullOrWhiteSpace(value) || value.Equals("none", StringComparison.OrdinalIgnoreCase))
+            return TableBorder.None;
+
+        double width = 0;
+        BColor color = BColor.Black;
+        foreach (string part in value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (OdtUnits.TryParseLength(part, out double points))
+                width = points;
+            else if (OdtUnits.TryParseColor(part, out BColor parsed))
+                color = parsed;
+        }
+
+        return width > 0 ? new TableBorder(color, width) : TableBorder.None;
     }
 
     /// <summary>
@@ -1206,6 +1401,8 @@ internal static class OdtReader
         private readonly List<Segment> _segments = [];
         private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
         private readonly List<DocumentShape> _shapes = [];
+        private readonly List<DocumentTable> _tables = [];
+        private readonly Stack<List<DocumentTable>> _tableSinks = new();
         private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
         private bool _pendingSpace;
         private int _length;
@@ -1218,13 +1415,25 @@ internal static class OdtReader
             _diagnostics = diagnostics;
         }
 
-        public void NoteTable()
+        public void AddTable(DocumentTable table)
         {
-            _tableCount++;
-            AddDiagnosticOnce(
-                "odt.table.flattened",
-                "ODT tables were flattened into their cell paragraphs, in row order.");
+            if (table.ParagraphCount <= 0 || table.Rows.Count == 0)
+                return;
+
+            (_tableSinks.Count > 0 ? _tableSinks.Peek() : _tables).Add(table);
         }
+
+        /// <summary>Collects the tables read from here until the matching pop.</summary>
+        public void PushTableSink(List<DocumentTable> sink) => _tableSinks.Push(sink);
+
+        public void PopTableSink()
+        {
+            if (_tableSinks.Count > 0)
+                _tableSinks.Pop();
+        }
+
+        /// <summary>Counts a table for the read summary.</summary>
+        public void NoteTable() => _tableCount++;
 
         /// <summary>
         /// Records a block-level element the reader does not understand. Keyed by
@@ -1410,7 +1619,10 @@ internal static class OdtReader
                 ? RichTextDocument.Empty
                 : RichTextDocument.FromParagraphs(_paragraphs);
 
-            return _shapes.Count == 0 ? document : document.WithShapes(_shapes);
+            if (_shapes.Count > 0)
+                document = document.WithShapes(_shapes);
+
+            return _tables.Count == 0 ? document : document.WithTables(_tables);
         }
 
         public void AddDiagnosticOnce(string code, string message) =>

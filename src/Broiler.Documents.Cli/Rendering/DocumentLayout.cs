@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -14,18 +14,19 @@ namespace Broiler.Documents.Cli.Rendering;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>What this is.</b> A deterministic, single-column paragraph layout: word
-/// wrapping, alignment, indents, list markers, line and paragraph spacing,
-/// inline images, and pagination. It measures through
-/// <see cref="BTextMeasurer"/>, which is the same path the renderer advances its
-/// pen along, so what was measured is what gets drawn.
+/// <b>What this is.</b> A deterministic paragraph layout: word wrapping,
+/// alignment, indents, list markers, line and paragraph spacing, inline images,
+/// tables, and pagination. It measures through <see cref="BTextMeasurer"/>,
+/// which is the same path the renderer advances its pen along, so what was
+/// measured is what gets drawn.
 /// </para>
 /// <para>
 /// <b>What this is not.</b> It is not a word processor's layout engine and does
-/// not try to be one. There are no tables, columns, floats, footnotes, headers,
-/// footers, hyphenation, kerning pairs, or bidirectional reordering here -
-/// mostly because the document model has no way to express them, so there is
-/// nothing to lay out. The shared paginator the PDF roadmap tracks as
+/// not try to be one. There are no columns, floats, footnotes, hyphenation,
+/// kerning pairs, or bidirectional reordering here - mostly because the document
+/// model has no way to express them, so there is nothing to lay out. Tables
+/// break between rows and never inside one. The shared paginator the PDF roadmap
+/// tracks as
 /// <c>Broiler.Documents.Pagination</c> is where a component-level version of
 /// this belongs; until it exists this is an application head's own layout, and
 /// its numbers are this tool's, not the component's.
@@ -75,14 +76,48 @@ public sealed class DocumentLayout
 
         var pages = new List<LayoutPage>();
         var currentLines = new List<LayoutLine>();
+        var currentCells = new List<LayoutCell>();
         double y = setup.ContentTopPoints;
         double contentBottom = setup.ContentTopPoints + columnHeight;
         bool truncated = false;
 
         var numbering = new ListNumbering();
 
-        for (int paragraphIndex = 0; paragraphIndex < document.ParagraphCount && !truncated; paragraphIndex++)
+        void BreakPage()
         {
+            pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
+            currentLines = new List<LayoutLine>();
+            currentCells = new List<LayoutCell>();
+            y = setup.ContentTopPoints;
+            if (pages.Count >= _settings.MaxPages)
+                truncated = true;
+        }
+
+        int paragraphIndex = 0;
+        while (paragraphIndex < document.ParagraphCount && !truncated)
+        {
+            if (DocumentTable.StartingAt(document.Tables, paragraphIndex) is DocumentTable table)
+            {
+                // A row is placed whole. Its cells are laid out beside each other,
+                // so a row broken across a page would have to break every cell at
+                // the same place - which is a table layout, and this is not one.
+                foreach (RowBox row in ComposeTable(table, document, setup, setup.ContentLeftPoints, setup.ContentWidthPoints))
+                {
+                    if (y + row.Height > contentBottom && currentLines.Count > 0)
+                    {
+                        BreakPage();
+                        if (truncated)
+                            break;
+                    }
+
+                    row.PlaceAt(y, currentLines, currentCells, _paragraphTops);
+                    y += row.Height;
+                }
+
+                paragraphIndex = table.ParagraphEnd;
+                continue;
+            }
+
             RichTextParagraph paragraph = document.Paragraphs[paragraphIndex];
             ParagraphStyle style = paragraph.Style;
             string? marker = numbering.Advance(style);
@@ -99,15 +134,9 @@ public sealed class DocumentLayout
             {
                 if (y + line.Height > contentBottom && currentLines.Count > 0)
                 {
-                    pages.Add(NewPage(pages.Count + 1, setup, currentLines));
-                    currentLines = new List<LayoutLine>();
-                    y = setup.ContentTopPoints;
-
-                    if (pages.Count >= _settings.MaxPages)
-                    {
-                        truncated = true;
+                    BreakPage();
+                    if (truncated)
                         break;
-                    }
                 }
 
                 line.Top = y;
@@ -116,10 +145,11 @@ public sealed class DocumentLayout
             }
 
             y += Math.Max(0, style.SpacingAfter);
+            paragraphIndex++;
         }
 
-        if (currentLines.Count > 0 || pages.Count == 0)
-            pages.Add(NewPage(pages.Count + 1, setup, currentLines));
+        if (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0)
+            pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
 
         if (truncated)
         {
@@ -138,14 +168,20 @@ public sealed class DocumentLayout
             finalSetup = setup.WithHeight(used + setup.MarginBottomPoints);
             pages = new List<LayoutPage>
             {
-                new(1, finalSetup.WidthPoints, finalSetup.HeightPoints, pages[0].Lines.ToList()),
+                new(
+                    1,
+                    finalSetup.WidthPoints,
+                    finalSetup.HeightPoints,
+                    pages[0].Lines.ToList(),
+                    pages[0].Shapes.ToList(),
+                    pages[0].Cells.ToList()),
             };
         }
 
         return new LayoutResult(pages, finalSetup, _notes, truncated);
     }
 
-    private LayoutPage NewPage(int number, PageSetup setup, List<LayoutLine> lines)
+    private LayoutPage NewPage(int number, PageSetup setup, List<LayoutLine> lines, List<LayoutCell> cells)
     {
         // Page one takes the first-page selection and even-numbered pages the
         // even one, each falling back to the default.
@@ -165,7 +201,7 @@ public sealed class DocumentLayout
             top: setup.ContentTopPoints + setup.ContentHeightPoints,
             band: setup.MarginBottomPoints));
 
-        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, PlaceShapes(setup));
+        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, PlaceShapes(setup), cells);
     }
 
     /// <summary>
@@ -205,6 +241,255 @@ public sealed class DocumentLayout
         }
 
         return placed;
+    }
+
+    /// <summary>
+    /// Lays a table out row by row, each row's lines and cell boxes positioned
+    /// relative to the row's own top so the caller can place it wherever it lands
+    /// on the page.
+    /// </summary>
+    /// <remarks>
+    /// Every row is composed before any is placed, because a cell that spans rows
+    /// needs the heights of the rows below it before its box can be drawn.
+    /// </remarks>
+    private List<RowBox> ComposeTable(
+        DocumentTable table,
+        RichTextDocument document,
+        PageSetup setup,
+        double left,
+        double width)
+    {
+        double[] edges = ColumnEdges(table, left, width);
+        var boxes = new List<RowBox>(table.Rows.Count);
+
+        foreach (TableRow row in table.Rows)
+        {
+            var box = new RowBox();
+            foreach (TableCell cell in row.Cells)
+            {
+                (double cellLeft, double cellWidth) = ColumnSpanBox(edges, cell);
+                double textWidth = Math.Max(1.0, cellWidth - (table.CellPadding * 2));
+                (List<LayoutLine> lines, List<LayoutCell> nested, double height) = ComposeBlocks(
+                    document,
+                    cell.Tables,
+                    cell.ParagraphIndex,
+                    cell.ParagraphEnd,
+                    setup,
+                    cellLeft + table.CellPadding,
+                    textWidth);
+
+                box.Lines.AddRange(lines);
+                box.Cells.AddRange(nested);
+                box.Height = Math.Max(box.Height, height);
+
+                // A cell the merge above it covers is drawn by no one: the cell
+                // that opened the merge draws the whole of it.
+                if (!cell.IsRowSpanContinuation)
+                    box.Boxes.Add(new CellBox(cellLeft, cellWidth, cell));
+            }
+
+            boxes.Add(box);
+        }
+
+        ExtendRowSpans(boxes);
+        return boxes;
+    }
+
+    /// <summary>
+    /// Grows a spanning cell's box down over the rows it covers, now that their
+    /// heights are known.
+    /// </summary>
+    private static void ExtendRowSpans(List<RowBox> rows)
+    {
+        for (int r = 0; r < rows.Count; r++)
+        {
+            foreach (CellBox box in rows[r].Boxes)
+            {
+                if (box.Cell.RowSpan <= 1)
+                    continue;
+
+                double extra = 0;
+                int last = Math.Min(rows.Count, r + box.Cell.RowSpan);
+                for (int below = r + 1; below < last; below++)
+                    extra += rows[below].Height;
+
+                box.ExtraHeight = extra;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The x of every column boundary, left to right. A grid wider than the space
+    /// it has is scaled to fit rather than drawn off the page, and a table that
+    /// states no grid divides what it has evenly - which is what a word processor
+    /// does with one.
+    /// </summary>
+    private static double[] ColumnEdges(DocumentTable table, double left, double width)
+    {
+        int columns = ColumnCount(table);
+        var edges = new double[columns + 1];
+        double total = table.TotalWidth;
+        double scale = total > 0 && total > width ? width / total : 1.0;
+
+        double x = left;
+        edges[0] = x;
+        for (int i = 0; i < columns; i++)
+        {
+            double column = i < table.ColumnWidths.Count && table.ColumnWidths[i] > 0
+                ? table.ColumnWidths[i] * scale
+                : width / columns;
+            x += column;
+            edges[i + 1] = x;
+        }
+
+        return edges;
+    }
+
+    /// <summary>How many columns the grid has: what it states, or what its widest row uses.</summary>
+    private static int ColumnCount(DocumentTable table)
+    {
+        int columns = table.ColumnWidths.Count;
+        foreach (TableRow row in table.Rows)
+        {
+            foreach (TableCell cell in row.Cells)
+                columns = Math.Max(columns, cell.ColumnIndex + cell.ColumnSpan);
+        }
+
+        return Math.Max(1, columns);
+    }
+
+    private static (double Left, double Width) ColumnSpanBox(double[] edges, TableCell cell)
+    {
+        int start = Math.Clamp(cell.ColumnIndex, 0, edges.Length - 1);
+        int end = Math.Clamp(cell.ColumnIndex + cell.ColumnSpan, start + 1, edges.Length - 1);
+        return (edges[start], Math.Max(1.0, edges[end] - edges[start]));
+    }
+
+    /// <summary>
+    /// Lays out a range of block content inside a box, with every top measured
+    /// from the box rather than from the page. A table inside it goes through
+    /// <see cref="ComposeTable"/>, which comes back here for its cells - so
+    /// nesting costs nothing beyond the recursion.
+    /// </summary>
+    private (List<LayoutLine> Lines, List<LayoutCell> Cells, double Height) ComposeBlocks(
+        RichTextDocument document,
+        IReadOnlyList<DocumentTable> tables,
+        int from,
+        int to,
+        PageSetup setup,
+        double left,
+        double width)
+    {
+        var lines = new List<LayoutLine>();
+        var cells = new List<LayoutCell>();
+        var numbering = new ListNumbering();
+        double y = 0;
+
+        int index = Math.Max(0, from);
+        while (index < Math.Min(to, document.ParagraphCount))
+        {
+            if (DocumentTable.StartingAt(tables, index) is DocumentTable nested)
+            {
+                foreach (RowBox row in ComposeTable(nested, document, setup, left, width))
+                {
+                    row.PlaceAt(y, lines, cells, _paragraphTops);
+                    y += row.Height;
+                }
+
+                index = nested.ParagraphEnd;
+                continue;
+            }
+
+            RichTextParagraph paragraph = document.Paragraphs[index];
+            ParagraphLines composed = ComposeParagraph(
+                paragraph,
+                numbering.Advance(paragraph.Style),
+                setup,
+                index,
+                left,
+                width);
+
+            if (lines.Count > 0)
+                y += Math.Max(0, paragraph.Style.SpacingBefore);
+
+            foreach (LayoutLine line in composed.Lines)
+            {
+                line.Top = y;
+                lines.Add(line);
+                y += line.Height;
+            }
+
+            y += Math.Max(0, paragraph.Style.SpacingAfter);
+            index++;
+        }
+
+        return (lines, cells, y);
+    }
+
+    /// <summary>A cell's box within its row, before the row is placed on a page.</summary>
+    private sealed class CellBox
+    {
+        public CellBox(double left, double width, TableCell cell)
+        {
+            Left = left;
+            Width = width;
+            Cell = cell;
+        }
+
+        public double Left { get; }
+
+        public double Width { get; }
+
+        public TableCell Cell { get; }
+
+        /// <summary>How far past its own row the box reaches, for a cell that spans rows.</summary>
+        public double ExtraHeight { get; set; }
+    }
+
+    /// <summary>
+    /// One composed table row: its lines and any nested cell boxes, positioned
+    /// relative to the row's top, and the cells whose boxes this row draws.
+    /// </summary>
+    private sealed class RowBox
+    {
+        public double Height { get; set; }
+
+        public List<LayoutLine> Lines { get; } = [];
+
+        public List<LayoutCell> Cells { get; } = [];
+
+        public List<CellBox> Boxes { get; } = [];
+
+        /// <summary>Moves the row to <paramref name="top"/> and hands it to the page.</summary>
+        public void PlaceAt(
+            double top,
+            List<LayoutLine> lines,
+            List<LayoutCell> cells,
+            Dictionary<int, double> paragraphTops)
+        {
+            foreach (CellBox box in Boxes)
+            {
+                cells.Add(new LayoutCell(
+                    new BRect(box.Left, top, box.Width, Height + box.ExtraHeight),
+                    box.Cell.Shading,
+                    box.Cell.Borders));
+            }
+
+            foreach (LayoutCell cell in Cells)
+            {
+                cells.Add(new LayoutCell(
+                    new BRect(cell.Bounds.Left, cell.Bounds.Top + top, cell.Bounds.Width, cell.Bounds.Height),
+                    cell.Shading,
+                    cell.Borders));
+            }
+
+            foreach (LayoutLine line in Lines)
+            {
+                line.Top += top;
+                lines.Add(line);
+                paragraphTops.TryAdd(line.ParagraphIndex, line.Top);
+            }
+        }
     }
 
     /// <summary>A shape's own text, laid out inside its box.</summary>

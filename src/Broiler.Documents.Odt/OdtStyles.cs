@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
@@ -90,6 +90,21 @@ internal sealed class OdtStyles
         new Dictionary<string, XElement>(StringComparer.Ordinal);
 
     /// <summary>
+    /// The <c>style:table-cell-properties</c> of every style that has them, by
+    /// name. A cell names one, and that is where ODF states its background and
+    /// its borders.
+    /// </summary>
+    public IReadOnlyDictionary<string, XElement> TableCellProperties { get; init; } =
+        new Dictionary<string, XElement>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The <c>style:table-column-properties</c> by name, which is where a column
+    /// states its width.
+    /// </summary>
+    public IReadOnlyDictionary<string, XElement> TableColumnProperties { get; init; } =
+        new Dictionary<string, XElement>(StringComparer.Ordinal);
+
+    /// <summary>
     /// The <c>draw:gradient</c> elements by name. A graphic style refers to one
     /// rather than carrying the stops itself.
     /// </summary>
@@ -112,6 +127,8 @@ internal sealed class OdtStyles
         var fontFaces = new Dictionary<string, string>(StringComparer.Ordinal);
         var listStyles = new Dictionary<string, ListStyle>(StringComparer.Ordinal);
         var graphicProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
+        var cellProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
+        var columnProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var gradients = new Dictionary<string, XElement>(StringComparer.Ordinal);
         XElement? masterStyles = null;
         List<XElement> pageLayouts = [];
@@ -122,7 +139,16 @@ internal sealed class OdtStyles
             XDocument? stylesXml = OdtPackage.LoadEntryXml(stylesEntry, limits, diagnostics, "odt.styles");
             if (stylesXml?.Root is not null)
             {
-                Collect(stylesXml.Root, styles, defaults, fontFaces, listStyles, graphicProperties, gradients);
+                Collect(
+                    stylesXml.Root,
+                    styles,
+                    defaults,
+                    fontFaces,
+                    listStyles,
+                    graphicProperties,
+                    cellProperties,
+                    columnProperties,
+                    gradients);
                 masterStyles = stylesXml.Root.Element(OdtNamespaces.Office + "master-styles");
                 pageLayouts = stylesXml.Root
                     .Descendants(OdtNamespaces.Style + "page-layout")
@@ -131,13 +157,26 @@ internal sealed class OdtStyles
         }
 
         if (content.Root is not null)
-            Collect(content.Root, styles, defaults, fontFaces, listStyles, graphicProperties, gradients);
+        {
+            Collect(
+                content.Root,
+                styles,
+                defaults,
+                fontFaces,
+                listStyles,
+                graphicProperties,
+                cellProperties,
+                columnProperties,
+                gradients);
+        }
 
         return new OdtStyles(styles, defaults, fontFaces, listStyles, limits.MaxGroupDepth, diagnostics)
         {
             MasterStyles = masterStyles,
             PageLayouts = pageLayouts,
             GraphicProperties = graphicProperties,
+            TableCellProperties = cellProperties,
+            TableColumnProperties = columnProperties,
             Gradients = gradients,
         };
     }
@@ -154,6 +193,8 @@ internal sealed class OdtStyles
         Dictionary<string, string> fontFaces,
         Dictionary<string, ListStyle> listStyles,
         Dictionary<string, XElement> graphicProperties,
+        Dictionary<string, XElement> cellProperties,
+        Dictionary<string, XElement> columnProperties,
         Dictionary<string, XElement> gradients)
     {
         foreach (XElement fontFace in root.Descendants(OdtNamespaces.Style + "font-face"))
@@ -180,6 +221,14 @@ internal sealed class OdtStyles
             XElement? graphic = style.Element(OdtNamespaces.Style + "graphic-properties");
             if (graphic is not null)
                 graphicProperties[name] = graphic;
+
+            XElement? cell = style.Element(OdtNamespaces.Style + "table-cell-properties");
+            if (cell is not null)
+                cellProperties[name] = cell;
+
+            XElement? column = style.Element(OdtNamespaces.Style + "table-column-properties");
+            if (column is not null)
+                columnProperties[name] = column;
         }
 
         foreach (XElement gradient in root.Descendants(OdtNamespaces.Draw + "gradient"))

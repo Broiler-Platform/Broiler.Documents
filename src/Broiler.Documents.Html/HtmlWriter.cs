@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -30,6 +30,14 @@ public static class HtmlWriter
         _ = options;
 
         var diagnostics = new List<DocumentDiagnostic>();
+        if (document.Tables.Count > 0)
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "html.table.flattened",
+                "A table was written as its cell paragraphs, in row order; " +
+                "this writer emits no table markup."));
+        }
+
         DomDocument dom = BuildDom(document, diagnostics);
         string html = HtmlSerializer.Serialize(
             dom.DocumentElement!,

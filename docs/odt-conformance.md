@@ -1,4 +1,4 @@
-# ODT Conformance
+﻿# ODT Conformance
 
 `Broiler.Documents.Odt` reads and writes a dependency-free ODT subset over OASIS
 OpenDocument text packages (ODF 1.0 through 1.3, published as ISO/IEC 26300). It
@@ -17,10 +17,18 @@ toolkit behind it.
   than dropped: lists (`text:list`, including nested lists and `text:list-header`),
   tables (`table:table`, including the header-row and row-group wrappers),
   sections (`text:section`), the `text:index-body` of a generated index or table
-  of contents, and the body of a `draw:text-box` frame. Tables are flattened into
-  their cell paragraphs in row-major order with an `odt.table.flattened`
-  diagnostic — `RichTextDocument` has no table shape, and a layout table is how
-  a CV or letterhead template holds its entire text.
+  of contents, and the body of a `draw:text-box` frame. A container's paragraphs
+  are read in document order, which for a table is row-major.
+- Tables, as a `DocumentTable` over the paragraphs of their cells: column widths
+  from each `table:table-column`'s style, `table:number-columns-spanned` and
+  `table:number-rows-spanned`, the background and borders a cell's
+  `style:table-cell-properties` state, header rows, and tables nested in a cell.
+  A `table:covered-table-cell` is what a merge covers, so it holds nothing and is
+  read as the grid position it occupies and nothing more. The cells hold no text
+  of their own: a cell names a range of the document's paragraphs, so a caret, a
+  selection, a style, and every codec's text handling go on working through one
+  flat list. Written back as `table:table`, with a covered cell for every
+  position a span swallowed.
 - White-space processing per ODF 1.3 part 3 §3.17: a run of white space in a text
   node is one space, white space at either edge of a paragraph is nothing, and
   significant spaces arrive as `text:s`. The writer applies the same rule in
@@ -90,8 +98,11 @@ toolkit behind it.
   diagnostic.
 - Comments (`office:annotation`), footnotes and endnotes (`text:note`), headers,
   footers, and page geometry are not part of the body and are not imported.
-- Table structure (columns, spans, borders, cell shading) is not represented;
-  only the cell text survives flattening.
+- Table styles beyond a cell's own background and borders are not applied, and
+  row heights, cell vertical alignment, and a table's own alignment and indent
+  are not represented; a table starts at the left margin and is as tall as its
+  rows. A cell's paragraphs are a range, so an edit that spans out of a cell and
+  into the body does not keep the grid over what it merged.
 - A floating picture keeps its position, not its wrapping: text does not flow
   around it, and z-order is not represented — a shape draws under the text. A
   page-anchored frame is placed against its paragraph, since that is the only
@@ -137,7 +148,7 @@ toolkit behind it.
 ## Read Diagnostics
 
 Every read ends with an `odt.read.summary` info diagnostic carrying the
-paragraph, flattened-table, style, list-style, image, and skipped-block counts. It
+paragraph, table, style, list-style, image, and skipped-block counts. It
 exists so a document that opens blank can be told apart from a document that *is*
 blank:
 
@@ -151,7 +162,6 @@ blank:
 | `odt.document.body` | Error | `content.xml` has no `office:text` body. |
 | `odt.limit.bytes` | Error | Input exceeded `MaxDocumentBytes` and was not parsed. |
 | `odt.content.xml` / `odt.styles` / `odt.manifest` | Error | A part could not be parsed, or exceeded `MaxBinBytes` (`.limit` suffix). |
-| `odt.table.flattened` | Warning | At least one table was flattened into its cell paragraphs. |
 | `odt.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
 | `odt.frame.textbox` | Warning | A text box was read as body content; its frame position is not represented. |
 | `odt.frame.block` | Warning | A page-anchored frame held neither body text nor a picture and was skipped. |

@@ -50,6 +50,19 @@ public static class RtfWriter
         WritePageGeometry(sb, document.PageGeometry);
         WriteRunningContent(sb, document.RunningContent, fonts, colors, diagnostics, reported);
 
+        if (document.Tables.Count > 0)
+        {
+            // RTF states a table as \trowd and \cellx runs. This codec's reader
+            // knows neither, so a table written that way would not survive its
+            // own round trip - and the text is worth more than the grid.
+            AddOnce(
+                diagnostics,
+                reported,
+                "rtf.table.flattened",
+                "A table was written as its cell paragraphs, in row order; " +
+                "this codec carries no table structure.");
+        }
+
         for (int i = 0; i < document.Paragraphs.Count; i++)
         {
             RichTextParagraph paragraph = document.Paragraphs[i];
