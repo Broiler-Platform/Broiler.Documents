@@ -70,9 +70,20 @@ internal sealed class PdfPlacedRun
     public double WordSpacing { get; }
 }
 
+/// <summary>A floating shape's painted box, in PDF user space.</summary>
+internal sealed record PdfPlacedShape(
+    double X,
+    double Y,
+    double Width,
+    double Height,
+    ShapeFill? Fill,
+    BColor Outline);
+
 /// <summary>One laid-out page.</summary>
 internal sealed class PdfLayoutPage
 {
+    /// <summary>The boxes painted under this page's text.</summary>
+    public List<PdfPlacedShape> Shapes { get; } = [];
     public List<PdfPlacedRun> Runs { get; } = [];
 }
 
@@ -136,9 +147,12 @@ internal sealed class PdfPageLayout
         int listNumber = 1;
         ListKind previousList = ListKind.None;
 
+        var anchors = new Dictionary<int, (PdfLayoutPage Page, double Top)>();
+        int paragraphIndex = -1;
         foreach (RichTextParagraph paragraph in document.Paragraphs)
         {
             _cancellationToken.ThrowIfCancellationRequested();
+            paragraphIndex++;
 
             ParagraphStyle style = paragraph.Style;
             double lineSpacing = style.LineSpacing > 0 ? style.LineSpacing : 1f;
@@ -165,6 +179,7 @@ internal sealed class PdfPageLayout
 
             string marker = PdfModelProjector.FormatListMarker(style.ListKind, listNumber);
             List<LayoutLine> lines = BreakParagraph(paragraph, available, marker);
+            anchors[paragraphIndex] = (page, y);
 
             if (lines.Count == 0)
             {
@@ -202,6 +217,7 @@ internal sealed class PdfPageLayout
         }
 
         pages.Add(page);
+        PlaceShapes(document.Shapes, anchors, setup);
         PlaceRunningContent(pages, document.RunningContent, setup);
         return pages;
     }
@@ -253,6 +269,44 @@ internal sealed class PdfPageLayout
                 setup.MarginBottom / 2,
                 setup.MarginBottom,
                 isHeader: false);
+        }
+    }
+
+    /// <summary>
+    /// Places the document's floating shapes against the paragraphs they anchor to.
+    /// </summary>
+    /// <remarks>
+    /// A shape's x is measured from the text column's left edge, so a letterhead's
+    /// stripe sits in the margin without any page geometry; its y runs down from
+    /// the top of its paragraph, which in PDF's upward user space is a subtraction.
+    /// The shape's own text becomes ordinary placed runs, so it draws through the
+    /// same path as everything else and lands above the box.
+    /// </remarks>
+    private void PlaceShapes(
+        IReadOnlyList<DocumentShape> shapes,
+        Dictionary<int, (PdfLayoutPage Page, double Top)> anchors,
+        PdfPageSetup setup)
+    {
+        foreach (DocumentShape shape in shapes)
+        {
+            if (!anchors.TryGetValue(shape.ParagraphIndex, out (PdfLayoutPage Page, double Top) anchor))
+                continue;
+
+            if (shape.Width <= 0 || shape.Height <= 0)
+                continue;
+
+            double left = setup.MarginLeft + shape.OffsetX;
+            double top = anchor.Top - shape.OffsetY;
+            anchor.Page.Shapes.Add(new PdfPlacedShape(
+                left,
+                top - shape.Height,
+                shape.Width,
+                shape.Height,
+                shape.Fill,
+                shape.Outline));
+
+            if (shape.HasText)
+                PlaceRunningBlock(anchor.Page, shape.Paragraphs, left, shape.Width, top, shape.Height, isHeader: true);
         }
     }
 

@@ -43,6 +43,8 @@ public sealed class DocumentLayout
     private readonly ImageStore _images;
     private readonly List<string> _notes = new();
     private RunningContent _running = RunningContent.Empty;
+    private IReadOnlyList<DocumentShape> _documentShapes = [];
+    private readonly Dictionary<int, double> _paragraphTops = [];
 
     public DocumentLayout(LayoutSettings settings, ImageStore images)
     {
@@ -61,6 +63,8 @@ public sealed class DocumentLayout
         // pages for a header to repeat on and no bottom margin for a footer to sit
         // in. Drawing them there would put a page number in the middle of nothing.
         _running = setup.Continuous ? RunningContent.Empty : document.RunningContent;
+        _documentShapes = document.Shapes;
+        _paragraphTops.Clear();
 
         // A continuous render has no page break to place, so it lays out against
         // an effectively unbounded column and then shrinks the page to the
@@ -84,6 +88,7 @@ public sealed class DocumentLayout
             string? marker = numbering.Advance(style);
 
             ParagraphLines composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex);
+            _paragraphTops.TryAdd(paragraphIndex, y);
 
             // Space before never opens a page: a paragraph that starts a page
             // starts at the top margin, the way every page-based renderer does it.
@@ -160,7 +165,70 @@ public sealed class DocumentLayout
             top: setup.ContentTopPoints + setup.ContentHeightPoints,
             band: setup.MarginBottomPoints));
 
-        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all);
+        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, PlaceShapes(setup));
+    }
+
+    /// <summary>
+    /// Places the document's floating shapes for a page.
+    /// </summary>
+    /// <remarks>
+    /// A shape's x is measured from the text column's left edge - which is how a
+    /// letterhead's stripe sits in the margin without any page geometry - and its
+    /// y from the top of the paragraph it is anchored to. A shape whose paragraph
+    /// has not been laid out on this page is not drawn on it.
+    /// </remarks>
+    private List<LayoutShape> PlaceShapes(PageSetup setup)
+    {
+        var placed = new List<LayoutShape>();
+        if (_documentShapes.Count == 0)
+            return placed;
+
+        foreach (DocumentShape shape in _documentShapes)
+        {
+            if (!_paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchorTop))
+                continue;
+
+            var bounds = new BRect(
+                setup.ContentLeftPoints + shape.OffsetX,
+                anchorTop + shape.OffsetY,
+                Math.Max(0, shape.Width),
+                Math.Max(0, shape.Height));
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                continue;
+
+            placed.Add(new LayoutShape(bounds, shape.Fill, shape.Outline, PlaceShapeText(shape, bounds, setup)));
+        }
+
+        return placed;
+    }
+
+    /// <summary>A shape's own text, laid out inside its box.</summary>
+    private List<LayoutLine> PlaceShapeText(DocumentShape shape, BRect bounds, PageSetup setup)
+    {
+        var lines = new List<LayoutLine>();
+        if (!shape.HasText || bounds.Width <= 0)
+            return lines;
+
+        double y = bounds.Top;
+        foreach (RichTextParagraph paragraph in shape.Paragraphs)
+        {
+            ParagraphLines composed = ComposeParagraph(
+                paragraph, marker: null, setup, -1, bounds.Left, bounds.Width);
+
+            foreach (LayoutLine line in composed.Lines)
+            {
+                // Text that overflows its box is clipped rather than spilling
+                // across the letter it sits beside.
+                if (y + line.Height > bounds.Bottom)
+                    break;
+
+                line.Top = y;
+                lines.Add(line);
+                y += line.Height;
+            }
+        }
+
+        return lines;
     }
 
     /// <summary>
@@ -210,12 +278,18 @@ public sealed class DocumentLayout
         RichTextParagraph paragraph,
         string? marker,
         PageSetup setup,
-        int paragraphIndex)
+        int paragraphIndex,
+        double? columnLeftOverride = null,
+        double? columnWidthOverride = null)
     {
         ParagraphStyle style = paragraph.Style;
         double indent = Math.Max(0, style.IndentLevel) * _settings.IndentStepPoints;
-        double columnLeft = setup.ContentLeftPoints + indent;
-        double columnWidth = Math.Max(1.0, setup.ContentWidthPoints - indent);
+        // A shape's text is laid out inside the shape, not inside the page's text
+        // column: a centred line in a logo box belongs on the box's midpoint.
+        double columnLeft = (columnLeftOverride ?? setup.ContentLeftPoints) + indent;
+        double columnWidth = Math.Max(
+            1.0,
+            (columnWidthOverride ?? setup.ContentWidthPoints) - indent);
 
         BFontStyle defaultFont = FontFor(InlineStyle.Default);
         LayoutPiece? markerPiece = null;
