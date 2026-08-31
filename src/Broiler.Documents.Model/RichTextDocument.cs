@@ -14,9 +14,13 @@ public sealed class RichTextDocument
 {
     private readonly RichTextParagraph[] _paragraphs;
 
-    private RichTextDocument(IReadOnlyList<RichTextParagraph> paragraphs, RunningContent? runningContent = null)
+    private RichTextDocument(
+        IReadOnlyList<RichTextParagraph> paragraphs,
+        RunningContent? runningContent = null,
+        IReadOnlyList<DocumentShape>? shapes = null)
     {
         RunningContent = runningContent ?? RunningContent.Empty;
+        Shapes = shapes is null || shapes.Count == 0 ? [] : [.. shapes];
         if (paragraphs is null || paragraphs.Count == 0)
         {
             _paragraphs = [RichTextParagraph.Empty];
@@ -41,9 +45,20 @@ public sealed class RichTextDocument
     /// </summary>
     public RunningContent RunningContent { get; }
 
+    /// <summary>
+    /// The floating shapes anchored beside the body: a letterhead's stripe, a
+    /// logo box. They are not in the paragraph flow, so reading or editing the
+    /// text never moves through them.
+    /// </summary>
+    public IReadOnlyList<DocumentShape> Shapes { get; }
+
     /// <summary>This document's body with different running content.</summary>
     public RichTextDocument WithRunningContent(RunningContent? runningContent) =>
-        new(_paragraphs, runningContent);
+        new(_paragraphs, runningContent, Shapes);
+
+    /// <summary>This document's body with different floating shapes.</summary>
+    public RichTextDocument WithShapes(IReadOnlyList<DocumentShape>? shapes) =>
+        new(_paragraphs, RunningContent, shapes);
 
     public int ParagraphCount => _paragraphs.Length;
 
@@ -244,7 +259,7 @@ public sealed class RichTextDocument
             paragraphs.Add(_paragraphs[i].ApplyInlineStyle(startOffset, endOffset - startOffset, delta));
         }
 
-        return new RichTextDocument(paragraphs, RunningContent);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes);
     }
 
     public RichTextDocument ApplyParagraphStyle(RichTextRange range, ParagraphStyleDelta delta)
@@ -261,7 +276,7 @@ public sealed class RichTextDocument
                 paragraphs.Add(_paragraphs[i]);
         }
 
-        return new RichTextDocument(paragraphs, RunningContent);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes);
     }
 
     /// <summary>
@@ -334,7 +349,7 @@ public sealed class RichTextDocument
         var paragraphs = new RichTextParagraph[_paragraphs.Length];
         Array.Copy(_paragraphs, paragraphs, _paragraphs.Length);
         paragraphs[index] = paragraph;
-        return new RichTextDocument(paragraphs, RunningContent);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes);
     }
 
     private RichTextDocument ReplaceRange(int index, int removeCount, IReadOnlyList<RichTextParagraph> insert)
@@ -346,7 +361,7 @@ public sealed class RichTextDocument
             paragraphs.Add(paragraph);
         for (int i = index + removeCount; i < _paragraphs.Length; i++)
             paragraphs.Add(_paragraphs[i]);
-        return new RichTextDocument(paragraphs, RunningContent);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes);
     }
 
     private static string NormalizeNewlines(string text) =>

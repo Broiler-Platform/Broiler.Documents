@@ -68,6 +68,7 @@ internal static class DocxReader
                 options.Limits,
                 diagnostics,
                 reported);
+            var partShapes = new List<DocumentShape>();
             document = document.WithRunningContent(ReadRunningContent(
                 archive,
                 documentXml,
@@ -78,7 +79,10 @@ internal static class DocxReader
                 images,
                 options.Limits,
                 diagnostics,
-                reported));
+                reported,
+                partShapes));
+            if (partShapes.Count > 0)
+                document = document.WithShapes([.. document.Shapes, .. partShapes]);
             return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
         }
         catch (InvalidDataException ex)
@@ -318,7 +322,8 @@ internal static class DocxReader
         DocxImageLoader images,
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics,
-        HashSet<string> reported)
+        HashSet<string> reported,
+        List<DocumentShape> partShapes)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         XElement? sectPr = body?.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault();
@@ -353,7 +358,7 @@ internal static class DocxReader
             }
 
             IReadOnlyList<RichTextParagraph>? paragraphs = ReadPartParagraphs(
-                archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported);
+                archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported, partShapes);
             if (paragraphs is null)
                 continue;
 
@@ -383,7 +388,8 @@ internal static class DocxReader
         DocxImageLoader images,
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics,
-        HashSet<string> reported)
+        HashSet<string> reported,
+        List<DocumentShape> partShapes)
     {
         ZipArchiveEntry? entry = DocxPackage.FindEntry(archive, partPath);
         if (entry is null)
@@ -409,7 +415,21 @@ internal static class DocxReader
         var context = new DocxReadContext(partRelationships, numbering, styles, images, builder);
         ReadBlockContent(partXml.Root.Elements(), context, depth: 0);
 
-        IReadOnlyList<RichTextParagraph> paragraphs = builder.Build().Paragraphs;
+        RichTextDocument part = builder.Build();
+        // A letterhead keeps its coloured stripe in the header, so a header's
+        // shapes are the ones most worth having. RunningContent holds paragraphs
+        // only, so they are handed back to the body to anchor - which is an
+        // approximation the reader says out loud rather than making quietly.
+        foreach (DocumentShape shape in part.Shapes)
+        {
+            partShapes.Add(shape);
+            diagnostics.Add(DocumentDiagnostic.Info(
+                "docx.shape.fromheader",
+                "A shape in a DOCX header or footer was anchored to the start of the body; " +
+                "the model places a shape against a paragraph, not against the page."));
+        }
+
+        IReadOnlyList<RichTextParagraph> paragraphs = part.Paragraphs;
         return paragraphs.Count == 0 ? null : paragraphs;
     }
 
@@ -579,11 +599,149 @@ internal static class DocxReader
     /// </summary>
     private static void ReadPicture(XElement picture, DocxReadContext context, InlineStyle style)
     {
+        // A w:drawing is either a picture or a shape. A shape reports nothing when
+        // it does not match, so a drawing that is neither still reaches the picture
+        // path and raises its diagnostic.
+        if (ReadShape(picture, context))
+            return;
+
         InlineImage? image = context.Images.Read(picture, context.Relationships, context.Builder);
         if (image is null)
             return;
 
         context.Builder.AppendText(InlineImage.PlaceholderText, style with { Image = image });
+    }
+
+    /// <summary>
+    /// Reads a <c>wps:wsp</c> shape - the coloured box and the text box a
+    /// letterhead template is built from - into a floating shape beside the body.
+    /// </summary>
+    /// <remarks>
+    /// The anchor offsets are relative to the text column, which is what the model
+    /// records, so a stripe in the left margin needs only a negative offset rather
+    /// than any page geometry. A shape holding neither paint nor text is left for
+    /// the picture path to report.
+    /// </remarks>
+    private static bool ReadShape(XElement drawing, DocxReadContext context)
+    {
+        XElement? wsp = drawing.Descendants(DocxNamespaces.WordShape + "wsp").FirstOrDefault();
+        if (wsp is null)
+            return false;
+
+        XElement? anchor =
+            drawing.Element(DocxNamespaces.WordDrawing + "anchor") ??
+            drawing.Element(DocxNamespaces.WordDrawing + "inline");
+        if (anchor is null)
+            return false;
+
+        XElement? extent = anchor.Element(DocxNamespaces.WordDrawing + "extent");
+        double width = EmuToPoints((string?)extent?.Attribute("cx"));
+        double height = EmuToPoints((string?)extent?.Attribute("cy"));
+        if (width <= 0 || height <= 0)
+            return false;
+
+        XElement? spPr = wsp.Element(DocxNamespaces.WordShape + "spPr");
+        ShapeFill? fill = ReadFill(spPr, context.Builder);
+        IReadOnlyList<RichTextParagraph> paragraphs = ReadShapeText(wsp, context);
+        if (fill is null && paragraphs.Count == 0)
+            return false;
+
+        context.Builder.AddShape(new DocumentShape(
+            context.Builder.CurrentParagraphIndex,
+            EmuToPoints(PositionOffset(anchor, "positionH")),
+            EmuToPoints(PositionOffset(anchor, "positionV")),
+            width,
+            height,
+            fill,
+            ReadOutline(spPr),
+            paragraphs));
+        return true;
+    }
+
+    private static string? PositionOffset(XElement anchor, string axis) =>
+        (string?)anchor.Element(DocxNamespaces.WordDrawing + axis)
+            ?.Element(DocxNamespaces.WordDrawing + "posOffset");
+
+    /// <summary>English Metric Units to points: 12700 EMU to the point.</summary>
+    private static double EmuToPoints(string? value) =>
+        long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long emu)
+            ? emu / 12700d
+            : 0;
+
+    private static ShapeFill? ReadFill(XElement? spPr, DocxDocumentBuilder builder)
+    {
+        if (spPr is null)
+            return null;
+
+        XElement? gradient = spPr.Element(DocxNamespaces.Drawing + "gradFill");
+        if (gradient is not null)
+        {
+            List<XElement> stops = gradient
+                .Elements(DocxNamespaces.Drawing + "gsLst")
+                .Elements(DocxNamespaces.Drawing + "gs")
+                .ToList();
+            if (stops.Count > 2)
+            {
+                builder.AddDiagnosticOnce(
+                    "docx.shape.gradient",
+                    "A DOCX shape gradient had more than two stops; the first and last were kept.");
+            }
+
+            if (stops.Count >= 2 &&
+                TryReadShapeColor(stops[0], out BColor start) &&
+                TryReadShapeColor(stops[^1], out BColor end))
+            {
+                double angle = long.TryParse(
+                    (string?)gradient.Element(DocxNamespaces.Drawing + "lin")?.Attribute("ang"),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out long ang)
+                    ? ang / 60000d
+                    : 0;
+                return new ShapeFill(start, end, angle);
+            }
+        }
+
+        XElement? solid = spPr.Element(DocxNamespaces.Drawing + "solidFill");
+        return solid is not null && TryReadShapeColor(solid, out BColor color)
+            ? ShapeFill.Solid(color)
+            : null;
+    }
+
+    private static BColor ReadOutline(XElement? spPr)
+    {
+        XElement? line = spPr?.Element(DocxNamespaces.Drawing + "ln");
+        if (line is null || line.Element(DocxNamespaces.Drawing + "noFill") is not null)
+            return BColor.Empty;
+
+        XElement? solid = line.Element(DocxNamespaces.Drawing + "solidFill");
+        return solid is not null && TryReadShapeColor(solid, out BColor color) ? color : BColor.Empty;
+    }
+
+    private static bool TryReadShapeColor(XElement parent, out BColor color) =>
+        TryParseHexColor(
+            (string?)parent.Element(DocxNamespaces.Drawing + "srgbClr")?.Attribute("val"),
+            out color);
+
+    /// <summary>A text box paragraphs, read with the same walker the body uses.</summary>
+    private static IReadOnlyList<RichTextParagraph> ReadShapeText(XElement wsp, DocxReadContext context)
+    {
+        XElement? content = wsp
+            .Descendants(DocxNamespaces.Wordprocessing + "txbxContent")
+            .FirstOrDefault();
+        if (content is null)
+            return [];
+
+        var builder = new DocxDocumentBuilder(
+            context.Builder.Limits,
+            context.Builder.Diagnostics,
+            context.Builder.Reported);
+        var nested = new DocxReadContext(
+            context.Relationships, context.Numbering, context.Styles, context.Images, builder);
+        ReadBlockContent(content.Elements(), nested, depth: 0);
+
+        IReadOnlyList<RichTextParagraph> paragraphs = builder.Build().Paragraphs;
+        return paragraphs.Count == 1 && paragraphs[0].Length == 0 ? [] : paragraphs;
     }
 
     /// <summary>
@@ -920,6 +1078,7 @@ internal static class DocxReader
         private readonly List<RichTextParagraph> _paragraphs = [];
         private readonly List<Segment> _segments = [];
         private readonly HashSet<string> _diagnosticOnce;
+        private readonly List<DocumentShape> _shapes = [];
         private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
         private int _tableCount;
         private int _unsupportedBlockCount;
@@ -941,6 +1100,12 @@ internal static class DocxReader
         }
 
         public DocumentLimits Limits => _limits;
+
+        /// <summary>Shared with the builders a nested part or shape is read with.</summary>
+        public List<DocumentDiagnostic> Diagnostics => _diagnostics;
+
+        /// <summary>The codes already reported, so once means once per document.</summary>
+        public HashSet<string> Reported => _diagnosticOnce;
 
         public void NoteTable()
         {
@@ -1037,10 +1202,19 @@ internal static class DocxReader
             _paragraphStyle = ParagraphStyle.Default;
         }
 
-        public RichTextDocument Build() =>
-            _paragraphs.Count == 0
+        /// <summary>The paragraph a shape met right now would be anchored to.</summary>
+        public int CurrentParagraphIndex => _paragraphs.Count;
+
+        public void AddShape(DocumentShape shape) => _shapes.Add(shape);
+
+        public RichTextDocument Build()
+        {
+            RichTextDocument document = _paragraphs.Count == 0
                 ? RichTextDocument.Empty
                 : RichTextDocument.FromParagraphs(_paragraphs);
+
+            return _shapes.Count == 0 ? document : document.WithShapes(_shapes);
+        }
 
         public void AddDiagnosticOnce(string code, string message) =>
             AddDiagnosticOnce(code, code, message);

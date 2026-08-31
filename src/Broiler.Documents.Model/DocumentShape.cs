@@ -1,0 +1,78 @@
+using System.Collections.Generic;
+using Broiler.Graphics;
+
+namespace Broiler.Documents.Model;
+
+/// <summary>
+/// A floating shape: a positioned box that sits outside the text flow, and may
+/// hold text of its own.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Outside the flow is the point. A letterhead's coloured stripe and its logo box
+/// are anchored beside the text rather than in it, and reading them as body
+/// content would drop a green rectangle into the middle of the letter.
+/// </para>
+/// <para>
+/// <see cref="OffsetX"/> is measured from the text column's left edge, which is
+/// what the formats anchor to and what both renderers already know - so a shape
+/// in the left margin needs no page geometry to place, only a negative offset.
+/// <see cref="OffsetY"/> is measured from the top of the paragraph the shape is
+/// anchored to.
+/// </para>
+/// <para>
+/// The anchor is a paragraph index, so an edit that inserts or removes
+/// paragraphs above a shape moves the text out from under it. That is the same
+/// trade every word processor makes with paragraph-anchored objects, and it is
+/// better than the alternative this replaces, which was to drop the shape.
+/// </para>
+/// </remarks>
+public sealed class DocumentShape
+{
+    public DocumentShape(
+        int paragraphIndex,
+        double offsetX,
+        double offsetY,
+        double width,
+        double height,
+        ShapeFill? fill = null,
+        BColor outline = default,
+        IReadOnlyList<RichTextParagraph>? paragraphs = null)
+    {
+        ParagraphIndex = paragraphIndex;
+        OffsetX = offsetX;
+        OffsetY = offsetY;
+        Width = width;
+        Height = height;
+        Fill = fill;
+        Outline = outline;
+        Paragraphs = paragraphs is null || paragraphs.Count == 0
+            ? []
+            : [.. paragraphs];
+    }
+
+    /// <summary>The paragraph the shape is anchored to.</summary>
+    public int ParagraphIndex { get; }
+
+    /// <summary>Points from the text column's left edge; negative puts the shape in the margin.</summary>
+    public double OffsetX { get; }
+
+    /// <summary>Points from the top of the anchoring paragraph.</summary>
+    public double OffsetY { get; }
+
+    public double Width { get; }
+
+    public double Height { get; }
+
+    /// <summary>How the box is painted, or null when it is not filled.</summary>
+    public ShapeFill? Fill { get; }
+
+    /// <summary>The outline colour; <see cref="BColor.Empty"/> for no outline.</summary>
+    public BColor Outline { get; }
+
+    /// <summary>The shape's own text, empty when it holds none.</summary>
+    public IReadOnlyList<RichTextParagraph> Paragraphs { get; }
+
+    /// <summary>True when the shape holds text rather than only paint.</summary>
+    public bool HasText => Paragraphs.Count > 0;
+}

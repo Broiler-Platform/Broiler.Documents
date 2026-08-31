@@ -26,6 +26,10 @@ internal static class DocxNamespaces
     /// <summary>VML, used by the legacy <c>w:pict</c> image shape.</summary>
     public static readonly XNamespace Vml = "urn:schemas-microsoft-com:vml";
 
+    /// <summary>The shape namespace Word writes a text box or a drawn box in.</summary>
+    public static readonly XNamespace WordShape =
+        "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
+
     public const string OfficeDocumentRelationship =
         "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
 
