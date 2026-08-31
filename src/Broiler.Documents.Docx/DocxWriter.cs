@@ -107,7 +107,7 @@ public static class DocxWriter
     /// distinct one, so <c>w:titlePg</c> is written whenever a First part exists.
     /// Without it Word reads the part and then draws the default over it.
     /// </remarks>
-    private static XElement BuildSectionProperties(DocxWriteContext context)
+    private static XElement BuildSectionProperties(DocxWriteContext context, PageGeometry? geometry)
     {
         var sectPr = new XElement(DocxNamespaces.Wordprocessing + "sectPr");
         bool hasFirst = false;
@@ -132,6 +132,23 @@ public static class DocxWriter
         if (hasFirst)
             sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "titlePg"));
 
+        if (geometry is not null && geometry.IsUsable)
+        {
+            sectPr.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "pgSz",
+                WordAttribute("w", Twips(geometry.Width)),
+                WordAttribute("h", Twips(geometry.Height))));
+            sectPr.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "pgMar",
+                WordAttribute("left", Twips(geometry.MarginLeft)),
+                WordAttribute("right", Twips(geometry.MarginRight)),
+                WordAttribute("top", Twips(geometry.MarginTop)),
+                WordAttribute("bottom", Twips(geometry.MarginBottom)),
+                WordAttribute("header", Twips(geometry.HeaderDistance)),
+                WordAttribute("footer", Twips(geometry.FooterDistance)),
+                WordAttribute("gutter", "0")));
+        }
+
         return sectPr;
     }
 
@@ -152,7 +169,7 @@ public static class DocxWriter
             body.Add(element);
         }
 
-        body.Add(BuildSectionProperties(context));
+        body.Add(BuildSectionProperties(context, document.PageGeometry));
 
         var root = new XElement(
             DocxNamespaces.Wordprocessing + "document",
@@ -608,6 +625,10 @@ public static class DocxWriter
                     "ang",
                     ((long)Math.Round(fill.AngleDegrees * 60000)).ToString(CultureInfo.InvariantCulture))));
     }
+
+    /// <summary>Points to twips: 20 to the point, which is what a section states.</summary>
+    private static string Twips(double points) =>
+        ((long)Math.Round(points * 20)).ToString(CultureInfo.InvariantCulture);
 
     /// <summary>Points to English Metric Units: 12700 to the point.</summary>
     private static string PointsToEmu(double points) =>
