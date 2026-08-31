@@ -85,6 +85,11 @@ public static class OdtWriter
     /// </summary>
     private static XElement BuildShape(DocumentShape shape, OdtWriteContext context)
     {
+        // A floating picture is a frame, not a custom shape: draw:image belongs to
+        // draw:frame, and the box it is given is the box it draws in.
+        if (shape.Image is InlineImage image)
+            return BuildShapeFrame(shape, image, context);
+
         var element = new XElement(
             OdtNamespaces.Draw + "custom-shape",
             new XAttribute(OdtNamespaces.Text + "anchor-type", "paragraph"),
@@ -115,6 +120,38 @@ public static class OdtWriter
                 "M 0 0 L 21600 0 21600 21600 0 21600 Z N")));
 
         return element;
+    }
+
+    /// <summary>
+    /// One floating picture, as a paragraph-anchored frame at the shape's own
+    /// box. It keeps the shape's graphic style, so a bordered picture is written
+    /// with its border rather than losing it on the way out.
+    /// </summary>
+    private static XElement BuildShapeFrame(DocumentShape shape, InlineImage image, OdtWriteContext context)
+    {
+        OdtPicturePart part = context.GetPicturePart(image);
+        var frame = new XElement(
+            OdtNamespaces.Draw + "frame",
+            new XAttribute(OdtNamespaces.Draw + "style-name", context.GetShapeStyleName(shape)),
+            new XAttribute(
+                OdtNamespaces.Draw + "name",
+                "Image" + part.Index.ToString(CultureInfo.InvariantCulture)),
+            new XAttribute(OdtNamespaces.Text + "anchor-type", "paragraph"),
+            new XAttribute(OdtNamespaces.Svg + "x", OdtUnits.FormatPoints(shape.OffsetX)),
+            new XAttribute(OdtNamespaces.Svg + "y", OdtUnits.FormatPoints(shape.OffsetY)),
+            new XAttribute(OdtNamespaces.Svg + "width", OdtUnits.FormatPoints(shape.Width)),
+            new XAttribute(OdtNamespaces.Svg + "height", OdtUnits.FormatPoints(shape.Height)),
+            new XElement(
+                OdtNamespaces.Draw + "image",
+                new XAttribute(OdtNamespaces.XLink + "href", part.PartPath),
+                new XAttribute(OdtNamespaces.XLink + "type", "simple"),
+                new XAttribute(OdtNamespaces.XLink + "show", "embed"),
+                new XAttribute(OdtNamespaces.XLink + "actuate", "onLoad")));
+
+        if (image.AltText.Length > 0)
+            frame.Add(new XElement(OdtNamespaces.Svg + "title", image.AltText));
+
+        return frame;
     }
 
     private static XDocument BuildContent(XElement body, OdtWriteContext context)

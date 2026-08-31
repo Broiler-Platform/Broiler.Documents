@@ -186,7 +186,13 @@ public static class DocumentReport
 
         statistics.Shapes = document.Shapes.Count;
         foreach (DocumentShape shape in document.Shapes)
+        {
             statistics.ShapeParagraphs += shape.Paragraphs.Count;
+            // A floating picture is a picture: counting only the inline ones would
+            // report a letterhead's logo as no image at all.
+            if (shape.HasImage)
+                statistics.Images++;
+        }
 
         statistics.FontFamilies = families.ToArray();
         return statistics;

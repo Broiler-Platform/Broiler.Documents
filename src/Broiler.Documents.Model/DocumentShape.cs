@@ -5,13 +5,18 @@ namespace Broiler.Documents.Model;
 
 /// <summary>
 /// A floating shape: a positioned box that sits outside the text flow, and may
-/// hold text of its own.
+/// hold text or a picture of its own.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Outside the flow is the point. A letterhead's coloured stripe and its logo box
 /// are anchored beside the text rather than in it, and reading them as body
 /// content would drop a green rectangle into the middle of the letter.
+/// </para>
+/// <para>
+/// A floating picture is the same box with an <see cref="Image"/> on it. The
+/// alternative was the one this replaces: place it in the text, where a logo
+/// anchored over the letterhead pushed the whole letter down by its height.
 /// </para>
 /// <para>
 /// <see cref="OffsetX"/> is measured from the text column's left edge, which is
@@ -37,7 +42,8 @@ public sealed class DocumentShape
         double height,
         ShapeFill? fill = null,
         BColor outline = default,
-        IReadOnlyList<RichTextParagraph>? paragraphs = null)
+        IReadOnlyList<RichTextParagraph>? paragraphs = null,
+        InlineImage? image = null)
     {
         ParagraphIndex = paragraphIndex;
         OffsetX = offsetX;
@@ -46,6 +52,7 @@ public sealed class DocumentShape
         Height = height;
         Fill = fill;
         Outline = outline;
+        Image = image;
         Paragraphs = paragraphs is null || paragraphs.Count == 0
             ? []
             : [.. paragraphs];
@@ -70,9 +77,20 @@ public sealed class DocumentShape
     /// <summary>The outline colour; <see cref="BColor.Empty"/> for no outline.</summary>
     public BColor Outline { get; }
 
+    /// <summary>
+    /// The picture the box draws, or null when it draws only paint and text. It
+    /// fills <see cref="Width"/> by <see cref="Height"/>: the box is the picture's
+    /// frame, so the size the document stated for the frame is the size it draws
+    /// at, and <see cref="InlineImage.Width"/> is not consulted again.
+    /// </summary>
+    public InlineImage? Image { get; }
+
     /// <summary>The shape's own text, empty when it holds none.</summary>
     public IReadOnlyList<RichTextParagraph> Paragraphs { get; }
 
     /// <summary>True when the shape holds text rather than only paint.</summary>
     public bool HasText => Paragraphs.Count > 0;
+
+    /// <summary>True when the shape is a floating picture.</summary>
+    public bool HasImage => Image is not null;
 }

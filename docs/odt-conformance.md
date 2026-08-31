@@ -68,6 +68,13 @@ toolkit behind it.
   `svg:title` (falling back to `svg:desc`). A write stores each distinct image
   once under `Pictures`, declares it in the manifest, and anchors the frame
   `as-char`. Raster formats only: PNG, JPEG, GIF, BMP, TIFF, WebP, and ICO.
+- Floating pictures: a frame anchored to anything other than a character is read
+  as a floating shape carrying the image, boxed by its `svg:x`/`svg:y` against
+  the text column and its paragraph and its `svg:width`/`svg:height`, and keeping
+  the fill and outline of its graphic style. It is written back as a
+  paragraph-anchored `draw:frame` at the same box. A frame standing between
+  paragraphs is read this way too, where before it was skipped as holding no body
+  text — which lost the picture.
 - A written package is deterministic: two writes of one document produce
   byte-identical output. Every entry carries a fixed timestamp, `mimetype` is
   first and stored uncompressed per ODF 1.3 part 2 §3.3, and `meta.xml` names the
@@ -85,10 +92,11 @@ toolkit behind it.
   footers, and page geometry are not part of the body and are not imported.
 - Table structure (columns, spans, borders, cell shading) is not represented;
   only the cell text survives flattening.
-- A picture is content, not layout: a frame anchored to a page, a paragraph, or a
-  character is read as an inline picture and its wrapping, position, and z-order
-  are not represented. Crops, rotation, borders, and frame effects are dropped;
-  the image is written back as a plain `as-char` frame at its display size.
+- A floating picture keeps its position, not its wrapping: text does not flow
+  around it, and z-order is not represented — a shape draws under the text. A
+  page-anchored frame is placed against its paragraph, since that is the only
+  anchor the model has, and a frame that states no box stays in the text. Crops,
+  rotation, and frame effects are dropped.
 - SVG, EMF, and WMF — what a producer stores for charts, formulas, and object
   replacement images — are not carried, because they cannot be decoded to pixels
   here. They are reported as `odt.image.format` rather than kept as a picture
@@ -146,7 +154,7 @@ blank:
 | `odt.table.flattened` | Warning | At least one table was flattened into its cell paragraphs. |
 | `odt.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
 | `odt.frame.textbox` | Warning | A text box was read as body content; its frame position is not represented. |
-| `odt.frame.block` | Warning | A page-anchored frame held no body text and was skipped. |
+| `odt.frame.block` | Warning | A page-anchored frame held neither body text nor a picture and was skipped. |
 | `odt.annotation` | Warning | Comment content is not part of the body and was skipped. |
 | `odt.note` | Warning | Footnote and endnote bodies are not part of the paragraph and were skipped. |
 | `odt.revision.tracked` | Warning | Tracked changes were not applied. |
@@ -164,7 +172,7 @@ blank:
 | `odt.image.limit` | Warning | A picture exceeded `MaxBinBytes` and was skipped. |
 | `odt.image.binary` | Warning | An inline picture payload was not valid base64. |
 | `odt.image.shape` | Warning | A frame held no embedded picture. |
-| `odt.image.anchored` | Warning | A floating picture was placed inline; wrapping is not represented. |
+| `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph; wrapping and z-order are not represented. |
 | `odt.limit.depth` | Warning | Block or inline nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `odt.limit.run` | Warning | A paragraph hit `MaxRunLength` and was truncated. |
 | `odt.limit.spaces` | Warning | A `text:s` count exceeded `MaxRunLength` and was clamped. |

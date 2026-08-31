@@ -1,0 +1,176 @@
+using System.IO.Compression;
+
+namespace Broiler.Documents.Docx.Tests;
+
+/// <summary>
+/// Covers anchored (floating) pictures: the logo a letterhead hangs over its
+/// stripe. Every one of them used to be placed in the text, which pushed the
+/// whole letter down by the height of the picture; they are floating shapes
+/// carrying the image now, at the box the anchor states.
+/// </summary>
+public sealed class DocxFloatingPictureTests
+{
+    /// <summary>914400 EMUs per inch.</summary>
+    private const long OneInchEmus = 914400;
+
+    private static Dictionary<string, byte[]> Media() =>
+        new(StringComparer.Ordinal) { ["word/media/image1.png"] = DocxTestPackage.OnePixelPng };
+
+    private static DocumentReadResult Read(string runXml) =>
+        DocxTestPackage.ReadWithMedia(
+            "<w:p>" + runXml + "<w:r><w:t>body</w:t></w:r></w:p>",
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            Media());
+
+    private static string Anchored(
+        long offsetXEmus = -OneInchEmus,
+        long offsetYEmus = OneInchEmus / 2,
+        bool withExtent = true,
+        string? altText = null) =>
+        DocxTestPackage.AnchoredDrawingRun(
+            "rId7",
+            OneInchEmus,
+            OneInchEmus / 2,
+            offsetXEmus,
+            offsetYEmus,
+            withExtent,
+            altText);
+
+    [Fact(Timeout = 600000)]
+    public void Reads_An_Anchored_Picture_As_A_Floating_Shape()
+    {
+        DocumentShape shape = Assert.Single(Read(Anchored()).Document.Shapes);
+
+        InlineImage image = Assert.IsType<InlineImage>(shape.Image);
+        Assert.True(shape.HasImage);
+        Assert.Equal("image/png", image.ContentType);
+        Assert.Equal(DocxTestPackage.OnePixelPng, image.Data.ToArray());
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Places_A_Floating_Picture_In_Points_From_The_Text_Column()
+    {
+        DocumentShape shape = Assert.Single(Read(Anchored()).Document.Shapes);
+
+        // 12700 EMU to the point, and a negative offset puts it in the margin.
+        Assert.Equal(-72, shape.OffsetX, 3);
+        Assert.Equal(36, shape.OffsetY, 3);
+        Assert.Equal(72, shape.Width, 3);
+        Assert.Equal(36, shape.Height, 3);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Keeps_A_Floating_Picture_Out_Of_The_Text()
+    {
+        RichTextDocument document = Read(Anchored()).Document;
+
+        // The letter reads as the letter: no object replacement character, and no
+        // line whose height is the height of the logo.
+        Assert.Equal("body", document.PlainText);
+        Assert.DoesNotContain(
+            Assert.Single(document.Paragraphs).Runs,
+            run => run.Style.Image is not null);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Anchors_A_Floating_Picture_To_The_Paragraph_It_Sits_In()
+    {
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            DocxTestPackage.Paragraph("first") + "<w:p>" + Anchored() + "</w:p>",
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            Media());
+
+        Assert.Equal(1, Assert.Single(result.Document.Shapes).ParagraphIndex);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Says_That_Wrapping_And_Z_Order_Were_Not_Kept()
+    {
+        DocumentDiagnostic note = Assert.Single(
+            Read(Anchored()).Diagnostics.Where(d => d.Code == "docx.image.anchored"));
+
+        // The anchor asked for square wrapping and for the picture to sit behind
+        // the text. It gets neither, and the note is where that is said.
+        Assert.Equal(DocumentDiagnosticSeverity.Warning, note.Severity);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Counts_A_Floating_Picture_As_An_Image()
+    {
+        DocumentDiagnostic summary = Assert.Single(
+            Read(Anchored()).Diagnostics.Where(d => d.Code == "docx.read.summary"));
+
+        Assert.Contains("embedded 1 image(s)", summary.Message, StringComparison.Ordinal);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Keeps_Alternative_Text_On_A_Floating_Picture()
+    {
+        DocumentShape shape = Assert.Single(Read(Anchored(altText: "the logo")).Document.Shapes);
+
+        Assert.Equal("the logo", shape.Image!.AltText);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Leaves_An_Inline_Picture_In_The_Text()
+    {
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            "<w:p>" + DocxTestPackage.DrawingRun("rId7", OneInchEmus, OneInchEmus) + "</w:p>",
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            Media());
+
+        Assert.Empty(result.Document.Shapes);
+        Assert.NotNull(Assert.Single(Assert.Single(result.Document.Paragraphs).Runs).Style.Image);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.image.anchored");
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Keeps_An_Anchored_Picture_In_The_Text_When_It_States_No_Box()
+    {
+        // wp:extent is where the box comes from. Without one there is nothing to
+        // float the picture at, so it stays where it always was - and the note is
+        // still reported, because the wrapping is still gone.
+        DocumentReadResult result = Read(Anchored(withExtent: false));
+
+        Assert.Empty(result.Document.Shapes);
+        Assert.Contains(InlineImage.PlaceholderText, result.Document.PlainText, StringComparison.Ordinal);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.anchored");
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Floating_Picture_Survives_A_Round_Trip()
+    {
+        RichTextDocument source = Read(Anchored(altText: "the logo")).Document;
+
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false);
+        RichTextDocument actual = new DocxDocumentCodec().Read(stream).Document;
+
+        DocumentShape shape = Assert.Single(actual.Shapes);
+        Assert.Equal(-72, shape.OffsetX, 3);
+        Assert.Equal(36, shape.OffsetY, 3);
+        Assert.Equal(72, shape.Width, 3);
+        Assert.Equal(36, shape.Height, 3);
+        Assert.Equal("the logo", shape.Image!.AltText);
+        Assert.Equal(DocxTestPackage.OnePixelPng, shape.Image.Data.ToArray());
+        Assert.Equal("body", actual.PlainText);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Writes_A_Floating_Picture_As_An_Anchored_Picture()
+    {
+        RichTextDocument source = Read(Anchored()).Document;
+
+        using var package = new ZipArchive(
+            new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false),
+            ZipArchiveMode.Read);
+        using var reader = new StreamReader(package.GetEntry("word/document.xml")!.Open());
+        string documentXml = reader.ReadToEnd();
+
+        // A picture, not a shape filled with one: Word writes pic:pic under an
+        // anchor, and a wps:wsp here would be a construct it does not.
+        Assert.Contains("wp:anchor", documentXml, StringComparison.Ordinal);
+        Assert.Contains("pic:pic", documentXml, StringComparison.Ordinal);
+        Assert.DoesNotContain("wsp", documentXml, StringComparison.Ordinal);
+        Assert.NotNull(package.GetEntry("word/media/image1.png"));
+    }
+}

@@ -309,6 +309,15 @@ internal sealed class PdfPageLayout
             if (shape.Width <= 0 || shape.Height <= 0)
                 continue;
 
+            if (shape.HasImage)
+            {
+                // The box is still placed, so a bordered picture leaves its frame
+                // on the page rather than nothing at all.
+                _diagnostics.Skipped(
+                    PdfDiagnosticCodes.WriteImageNotComposed,
+                    "A floating image was dropped. This build composes no image emitter, so images are omitted rather than rasterized or transcoded.");
+            }
+
             double left = setup.MarginLeft + shape.OffsetX;
             double top = anchor.Top - shape.OffsetY;
             anchor.Page.Shapes.Add(new PdfPlacedShape(

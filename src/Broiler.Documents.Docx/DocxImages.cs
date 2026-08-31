@@ -59,9 +59,9 @@ internal sealed class DocxImageLoader
 
     /// <summary>
     /// Reads the DrawingML shape: <c>wp:inline</c> or <c>wp:anchor</c>, then the
-    /// <c>pic:pic</c> under its graphic data. Anchored (floating) pictures are
-    /// read as inline ones — the model has no float, and dropping them would lose
-    /// the logo at the top of most letterhead templates.
+    /// <c>pic:pic</c> under its graphic data. Both wrappers yield the same image;
+    /// where an anchored one is placed — floating beside the text, or in it — is
+    /// the reader's decision, not this loader's.
     /// </summary>
     private InlineImage? ReadDrawing(
         XElement drawing,
@@ -70,16 +70,10 @@ internal sealed class DocxImageLoader
     {
         foreach (XElement wrapper in drawing.Elements())
         {
-            bool isInline = wrapper.Name == DocxNamespaces.WordDrawing + "inline";
-            bool isAnchor = wrapper.Name == DocxNamespaces.WordDrawing + "anchor";
-            if (!isInline && !isAnchor)
-                continue;
-
-            if (isAnchor)
+            if (wrapper.Name != DocxNamespaces.WordDrawing + "inline" &&
+                wrapper.Name != DocxNamespaces.WordDrawing + "anchor")
             {
-                diagnostics.AddDiagnosticOnce(
-                    "docx.image.anchored",
-                    "A floating DOCX picture was placed inline; text wrapping is not represented.");
+                continue;
             }
 
             XElement? blip = FindDescendant(wrapper, DocxNamespaces.Drawing + "blip");

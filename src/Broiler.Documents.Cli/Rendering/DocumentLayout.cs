@@ -196,7 +196,12 @@ public sealed class DocumentLayout
             if (bounds.Width <= 0 || bounds.Height <= 0)
                 continue;
 
-            placed.Add(new LayoutShape(bounds, shape.Fill, shape.Outline, PlaceShapeText(shape, bounds, setup)));
+            placed.Add(new LayoutShape(
+                bounds,
+                shape.Fill,
+                shape.Outline,
+                PlaceShapeText(shape, bounds, setup),
+                shape.Image));
         }
 
         return placed;

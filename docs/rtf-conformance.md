@@ -81,7 +81,11 @@ or `\jpegblip`, sized with `\picwgoal`/`\pichgoal` — so a picture survives int
 Word and WordPad; any other image format is dropped with `rtf.image.format`.
 Because `\pict` is a skipped destination on the read side, an image does **not**
 survive a model → RTF → model round-trip; DOCX is the format that round-trips
-pictures. Round-trip is otherwise lossless for any document the reader can
+pictures. A floating picture is written into the paragraph it is anchored to,
+with `rtf.image.anchored`: a picture inside a shape is a `pib` shape property,
+and this reader knows only the fill and line properties — so a shape written that
+way would come back with no picture and no paint, which is a shape it drops. The
+image is worth more than the position. Round-trip is otherwise lossless for any document the reader can
 produce, with two further documented exceptions: line spacing and list kind
 are not written (they are not read either, so they stay at their defaults); and a
 **non-ASCII font-family name** is escaped as `\uN` on write, which the font-table

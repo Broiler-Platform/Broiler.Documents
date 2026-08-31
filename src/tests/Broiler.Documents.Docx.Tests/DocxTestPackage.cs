@@ -116,6 +116,42 @@ internal static class DocxTestPackage
         "</pic:pic></a:graphicData></a:graphic>" +
         "</wp:inline></w:drawing></w:r>";
 
+    /// <summary>
+    /// A run holding one anchored (floating) DrawingML picture: the same
+    /// <c>pic:pic</c> an inline one carries, under a <c>wp:anchor</c> that states
+    /// where it hangs.
+    /// </summary>
+    public static string AnchoredDrawingRun(
+        string relationshipId,
+        long widthEmus,
+        long heightEmus,
+        long offsetXEmus = 0,
+        long offsetYEmus = 0,
+        bool withExtent = true,
+        string? altText = null) =>
+        "<w:r><w:drawing>" +
+        "<wp:anchor xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" " +
+        "behindDoc=\"1\" simplePos=\"0\" relativeHeight=\"2\">" +
+        "<wp:positionH relativeFrom=\"column\"><wp:posOffset>" + offsetXEmus +
+        "</wp:posOffset></wp:positionH>" +
+        "<wp:positionV relativeFrom=\"paragraph\"><wp:posOffset>" + offsetYEmus +
+        "</wp:posOffset></wp:positionV>" +
+        (withExtent
+            ? "<wp:extent cx=\"" + widthEmus + "\" cy=\"" + heightEmus + "\"/>"
+            : string.Empty) +
+        "<wp:wrapSquare wrapText=\"bothSides\"/>" +
+        "<wp:docPr id=\"1\" name=\"Picture 1\"" +
+        (altText is null ? string.Empty : " descr=\"" + Escape(altText) + "\"") + "/>" +
+        "<a:graphic xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\">" +
+        "<a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">" +
+        "<pic:pic xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">" +
+        "<pic:nvPicPr><pic:cNvPr id=\"1\" name=\"Picture 1\"/><pic:cNvPicPr/></pic:nvPicPr>" +
+        "<pic:blipFill><a:blip r:embed=\"" + relationshipId + "\"/>" +
+        "<a:stretch><a:fillRect/></a:stretch></pic:blipFill>" +
+        "<pic:spPr><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr>" +
+        "</pic:pic></a:graphicData></a:graphic>" +
+        "</wp:anchor></w:drawing></w:r>";
+
     /// <summary>A run holding the legacy VML picture shape, sized by CSS.</summary>
     public static string VmlPictureRun(string relationshipId, string style) =>
         "<w:r><w:pict>" +

@@ -412,7 +412,6 @@ public static class DocxWriter
             return;
         }
 
-        DocxImagePart part = context.GetImagePart(image);
         long widthEmus = Emus(image.Width > 0 ? image.Width : DefaultImagePoints);
         long heightEmus = Emus(image.Height > 0 ? image.Height : DefaultImagePoints);
         if (!image.HasExplicitSize)
@@ -422,25 +421,7 @@ public static class DocxWriter
                 "An image carried no display size and was written one inch square.");
         }
 
-        string name = "Picture " + part.Index.ToString(CultureInfo.InvariantCulture);
-        var pictureProperties = new XElement(
-            DocxNamespaces.Picture + "cNvPr",
-            new XAttribute("id", part.Index.ToString(CultureInfo.InvariantCulture)),
-            new XAttribute("name", name));
-        var frameProperties = new XElement(
-            DocxNamespaces.WordDrawing + "docPr",
-            new XAttribute("id", part.Index.ToString(CultureInfo.InvariantCulture)),
-            new XAttribute("name", name));
-        if (image.AltText.Length > 0)
-        {
-            pictureProperties.Add(new XAttribute("descr", image.AltText));
-            frameProperties.Add(new XAttribute("descr", image.AltText));
-        }
-
-        var extent = new XElement(
-            DocxNamespaces.Drawing + "ext",
-            new XAttribute("cx", widthEmus.ToString(CultureInfo.InvariantCulture)),
-            new XAttribute("cy", heightEmus.ToString(CultureInfo.InvariantCulture)));
+        (XElement graphic, XElement frameProperties) = BuildPicture(image, widthEmus, heightEmus, context);
 
         run.Add(new XElement(
             DocxNamespaces.Wordprocessing + "drawing",
@@ -460,38 +441,75 @@ public static class DocxWriter
                     new XElement(
                         DocxNamespaces.Drawing + "graphicFrameLocks",
                         new XAttribute("noChangeAspect", "1"))),
+                graphic)));
+    }
+
+    /// <summary>
+    /// The <c>a:graphic</c> holding one picture, and the <c>wp:docPr</c> that
+    /// names it. Both the inline frame and the anchored one wrap the same pair,
+    /// so a picture writes the same whether it sits in the text or floats beside
+    /// it — only the wrapper differs.
+    /// </summary>
+    private static (XElement Graphic, XElement FrameProperties) BuildPicture(
+        InlineImage image,
+        long widthEmus,
+        long heightEmus,
+        DocxWriteContext context)
+    {
+        DocxImagePart part = context.GetImagePart(image);
+        string index = part.Index.ToString(CultureInfo.InvariantCulture);
+        string name = "Picture " + index;
+        var pictureProperties = new XElement(
+            DocxNamespaces.Picture + "cNvPr",
+            new XAttribute("id", index),
+            new XAttribute("name", name));
+        var frameProperties = new XElement(
+            DocxNamespaces.WordDrawing + "docPr",
+            new XAttribute("id", index),
+            new XAttribute("name", name));
+        if (image.AltText.Length > 0)
+        {
+            pictureProperties.Add(new XAttribute("descr", image.AltText));
+            frameProperties.Add(new XAttribute("descr", image.AltText));
+        }
+
+        var graphic = new XElement(
+            DocxNamespaces.Drawing + "graphic",
+            new XElement(
+                DocxNamespaces.Drawing + "graphicData",
+                new XAttribute("uri", DocxNamespaces.Picture.NamespaceName),
                 new XElement(
-                    DocxNamespaces.Drawing + "graphic",
+                    DocxNamespaces.Picture + "pic",
                     new XElement(
-                        DocxNamespaces.Drawing + "graphicData",
-                        new XAttribute("uri", DocxNamespaces.Picture.NamespaceName),
+                        DocxNamespaces.Picture + "nvPicPr",
+                        pictureProperties,
+                        new XElement(DocxNamespaces.Picture + "cNvPicPr")),
+                    new XElement(
+                        DocxNamespaces.Picture + "blipFill",
                         new XElement(
-                            DocxNamespaces.Picture + "pic",
+                            DocxNamespaces.Drawing + "blip",
+                            new XAttribute(DocxNamespaces.Relationships + "embed", part.RelationshipId)),
+                        new XElement(
+                            DocxNamespaces.Drawing + "stretch",
+                            new XElement(DocxNamespaces.Drawing + "fillRect"))),
+                    new XElement(
+                        DocxNamespaces.Picture + "spPr",
+                        new XElement(
+                            DocxNamespaces.Drawing + "xfrm",
                             new XElement(
-                                DocxNamespaces.Picture + "nvPicPr",
-                                pictureProperties,
-                                new XElement(DocxNamespaces.Picture + "cNvPicPr")),
+                                DocxNamespaces.Drawing + "off",
+                                new XAttribute("x", "0"),
+                                new XAttribute("y", "0")),
                             new XElement(
-                                DocxNamespaces.Picture + "blipFill",
-                                new XElement(
-                                    DocxNamespaces.Drawing + "blip",
-                                    new XAttribute(DocxNamespaces.Relationships + "embed", part.RelationshipId)),
-                                new XElement(
-                                    DocxNamespaces.Drawing + "stretch",
-                                    new XElement(DocxNamespaces.Drawing + "fillRect"))),
-                            new XElement(
-                                DocxNamespaces.Picture + "spPr",
-                                new XElement(
-                                    DocxNamespaces.Drawing + "xfrm",
-                                    new XElement(
-                                        DocxNamespaces.Drawing + "off",
-                                        new XAttribute("x", "0"),
-                                        new XAttribute("y", "0")),
-                                    extent),
-                                new XElement(
-                                    DocxNamespaces.Drawing + "prstGeom",
-                                    new XAttribute("prst", "rect"),
-                                    new XElement(DocxNamespaces.Drawing + "avLst")))))))));
+                                DocxNamespaces.Drawing + "ext",
+                                new XAttribute("cx", widthEmus.ToString(CultureInfo.InvariantCulture)),
+                                new XAttribute("cy", heightEmus.ToString(CultureInfo.InvariantCulture)))),
+                        new XElement(
+                            DocxNamespaces.Drawing + "prstGeom",
+                            new XAttribute("prst", "rect"),
+                            new XElement(DocxNamespaces.Drawing + "avLst"))))));
+
+        return (graphic, frameProperties);
     }
 
     private static XElement TextElement(string value) =>
@@ -501,11 +519,27 @@ public static class DocxWriter
             value);
 
     /// <summary>
-    /// One anchored shape, as the DrawingML a word processor writes: a wps:wsp
-    /// with its geometry, its fill, and its text box when it holds text.
+    /// One anchored shape, as the DrawingML a word processor writes: a picture
+    /// when the shape carries one, else a wps:wsp with its geometry, its fill,
+    /// and its text box when it holds text.
     /// </summary>
+    /// <remarks>
+    /// The wrapper is the same <c>wp:anchor</c> either way, so a floating picture
+    /// goes back out as the anchored picture it was read from rather than as a
+    /// shape filled with an image, which is a construct Word does not write.
+    /// </remarks>
     private static XElement BuildShapeRun(DocumentShape shape, DocxWriteContext context)
     {
+        if (shape.Image is InlineImage image)
+        {
+            (XElement pictureGraphic, XElement pictureFrame) = BuildPicture(
+                image,
+                Emus(shape.Width),
+                Emus(shape.Height),
+                context);
+            return BuildAnchorRun(shape, pictureFrame, pictureGraphic);
+        }
+
         var properties = new XElement(
             DocxNamespaces.WordShape + "spPr",
             new XElement(
@@ -547,6 +581,26 @@ public static class DocxWriter
             wsp.Add(new XElement(DocxNamespaces.WordShape + "bodyPr"));
         }
 
+        return BuildAnchorRun(
+            shape,
+            new XElement(
+                DocxNamespaces.WordDrawing + "docPr",
+                new XAttribute("id", "1"),
+                new XAttribute("name", "Shape")),
+            new XElement(
+                DocxNamespaces.Drawing + "graphic",
+                new XElement(
+                    DocxNamespaces.Drawing + "graphicData",
+                    new XAttribute("uri", DocxNamespaces.WordShape.NamespaceName),
+                    wsp)));
+    }
+
+    /// <summary>
+    /// The run holding one <c>wp:anchor</c>: the shape's box against the column
+    /// and its paragraph, wrapped around whichever graphic it carries.
+    /// </summary>
+    private static XElement BuildAnchorRun(DocumentShape shape, XElement frameProperties, XElement graphic)
+    {
         var anchor = new XElement(
             DocxNamespaces.WordDrawing + "anchor",
             new XAttribute("distT", "0"),
@@ -576,16 +630,8 @@ public static class DocxWriter
                 new XAttribute("cx", PointsToEmu(shape.Width)),
                 new XAttribute("cy", PointsToEmu(shape.Height))),
             new XElement(DocxNamespaces.WordDrawing + "wrapNone"),
-            new XElement(
-                DocxNamespaces.WordDrawing + "docPr",
-                new XAttribute("id", "1"),
-                new XAttribute("name", "Shape")),
-            new XElement(
-                DocxNamespaces.Drawing + "graphic",
-                new XElement(
-                    DocxNamespaces.Drawing + "graphicData",
-                    new XAttribute("uri", DocxNamespaces.WordShape.NamespaceName),
-                    wsp)));
+            frameProperties,
+            graphic);
 
         return new XElement(
             DocxNamespaces.Wordprocessing + "r",

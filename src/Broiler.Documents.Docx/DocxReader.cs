@@ -649,7 +649,8 @@ internal static class DocxReader
     /// <summary>
     /// Appends a picture as one <see cref="InlineImage.Placeholder"/> character
     /// carrying the image on its style. The run's own character formatting is
-    /// kept on it, so a picture inside a hyperlink stays inside that link.
+    /// kept on it, so a picture inside a hyperlink stays inside that link. An
+    /// anchored picture goes to <see cref="ReadFloatingPicture"/> instead.
     /// </summary>
     private static void ReadPicture(XElement picture, DocxReadContext context, InlineStyle style)
     {
@@ -663,7 +664,49 @@ internal static class DocxReader
         if (image is null)
             return;
 
+        XElement? anchor = picture.Element(DocxNamespaces.WordDrawing + "anchor");
+        if (anchor is not null && ReadFloatingPicture(anchor, image, context))
+            return;
+
         context.Builder.AppendText(InlineImage.PlaceholderText, style with { Image = image });
+    }
+
+    /// <summary>
+    /// Reads an anchored picture as a floating shape rather than a character in
+    /// the text: the logo a letterhead hangs over its stripe belongs beside the
+    /// letter, not in its first line, where it pushed every paragraph down by its
+    /// own height.
+    /// </summary>
+    /// <remarks>
+    /// The box comes from <c>wp:extent</c>, which is also where the image's size
+    /// was read from. A picture that states no box has nothing to float at, so it
+    /// is left in the text and drawn at whatever size the renderer decodes - the
+    /// answer this reader gave every anchored picture before floats existed.
+    /// Returns false in that case, and the caller appends it inline.
+    /// </remarks>
+    private static bool ReadFloatingPicture(XElement anchor, InlineImage image, DocxReadContext context)
+    {
+        // Said whether it floats or not: wrapping and z-order are the parts of an
+        // anchor the model has no room for either way.
+        context.Builder.AddDiagnosticOnce(
+            "docx.image.anchored",
+            "A floating DOCX picture was anchored to its paragraph; " +
+            "text wrapping and z-order are not represented.");
+
+        if (!image.HasExplicitSize)
+            return false;
+
+        context.Builder.AddShape(new DocumentShape(
+            context.Builder.CurrentParagraphIndex,
+            EmuToPoints(PositionOffset(anchor, "positionH")),
+            EmuToPoints(PositionOffset(anchor, "positionV")),
+            image.Width,
+            image.Height,
+            fill: null,
+            outline: default,
+            paragraphs: null,
+            image: image));
+        return true;
     }
 
     /// <summary>

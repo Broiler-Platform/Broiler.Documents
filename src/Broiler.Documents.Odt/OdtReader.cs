@@ -447,7 +447,7 @@ internal static class OdtReader
                         "An ODT text box was read as body content; its frame position is not represented.");
                     ReadBlockContent(textBox.Elements(), context, list: null, depth + 1);
                 }
-                else
+                else if (!ReadFloatingPicture(element, context))
                 {
                     builder.AddDiagnosticOnce(
                         "odt.frame.block",
@@ -829,14 +829,15 @@ internal static class OdtReader
     /// </summary>
     private static void ReadPicture(XElement frame, OdtReadContext context, InlineStyle style)
     {
-        string? anchor = (string?)frame.Attribute(OdtNamespaces.Text + "anchor-type");
-        if (anchor is not null &&
-            !anchor.Equals("as-char", StringComparison.Ordinal) &&
-            !anchor.Equals("char", StringComparison.Ordinal))
+        if (!IsAnchoredInText(frame))
         {
             context.Builder.AddDiagnosticOnce(
                 "odt.image.anchored",
-                "A floating ODT picture was placed inline; text wrapping is not represented.");
+                "A floating ODT picture was anchored to its paragraph; " +
+                "text wrapping and z-order are not represented.");
+
+            if (ReadFloatingPicture(frame, context))
+                return;
         }
 
         InlineImage? image = context.Images.Read(frame, context.Builder);
@@ -844,6 +845,60 @@ internal static class OdtReader
             return;
 
         context.Builder.AppendLiteral(InlineImage.PlaceholderText, style with { Image = image });
+    }
+
+    /// <summary>True for the two anchors that put a frame in the text rather than beside it.</summary>
+    private static bool IsAnchoredInText(XElement frame)
+    {
+        string? anchor = (string?)frame.Attribute(OdtNamespaces.Text + "anchor-type");
+        return anchor is null ||
+            anchor.Equals("as-char", StringComparison.Ordinal) ||
+            anchor.Equals("char", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Reads a frame that stands beside the text as a floating picture, the way
+    /// <see cref="ReadShape"/> reads one that carries paint or words.
+    /// </summary>
+    /// <remarks>
+    /// The box is read first and the picture only after it: a frame with no box
+    /// has nothing to float at, and the caller then places the picture in the
+    /// text - so nothing is loaded, or counted, twice over.
+    /// </remarks>
+    private static bool ReadFloatingPicture(XElement frame, OdtReadContext context)
+    {
+        if (!OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "width"), out double width) ||
+            !OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "height"), out double height) ||
+            width <= 0 || height <= 0)
+        {
+            return false;
+        }
+
+        InlineImage? image = context.Images.Read(frame, context.Builder);
+        if (image is null)
+            return false;
+
+        string? styleName = (string?)frame.Attribute(OdtNamespaces.Draw + "style-name");
+        (ShapeFill? fill, BColor outline) = ReadShapeStyle(styleName, context.Styles);
+
+        double x = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "x"), out double left)
+            ? left
+            : 0;
+        double y = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "y"), out double top)
+            ? top
+            : 0;
+
+        context.Builder.AddShape(new DocumentShape(
+            context.Builder.CurrentParagraphIndex,
+            x,
+            y,
+            width,
+            height,
+            fill,
+            outline,
+            paragraphs: null,
+            image: image));
+        return true;
     }
 
     /// <summary>

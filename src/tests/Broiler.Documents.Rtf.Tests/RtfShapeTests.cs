@@ -111,4 +111,37 @@ public sealed class RtfShapeTests
     {
         Assert.DoesNotContain("shpinst", Ascii(RichTextDocument.FromPlainText("body")), StringComparison.Ordinal);
     }
+
+    [Fact(Timeout = 600000)]
+    public void A_Floating_Picture_Is_Written_Into_Its_Paragraph()
+    {
+        // A picture inside a shape is a pib property this reader does not know,
+        // and a shape with neither paint nor text is one it drops - so the
+        // picture would be lost to keep a position that would be lost anyway.
+        RichTextDocument document = WithShapes(new DocumentShape(
+            0, -40, 0, 40, 20,
+            image: new InlineImage(new byte[] { 0xDE, 0xAD }, "image/png", 72, 72)));
+
+        string rtf = Ascii(document);
+
+        Assert.Contains("{\\pict\\pngblip", rtf, StringComparison.Ordinal);
+        Assert.DoesNotContain("shpinst", rtf, StringComparison.Ordinal);
+
+        // The box the shape states is the size it draws at, not the image's own.
+        Assert.Contains("\\picwgoal800", rtf, StringComparison.Ordinal);
+        Assert.Contains("\\pichgoal400", rtf, StringComparison.Ordinal);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Floating_Picture_Says_Its_Position_Was_Not_Kept()
+    {
+        RichTextDocument document = WithShapes(new DocumentShape(
+            0, -40, 0, 40, 20,
+            image: new InlineImage(new byte[] { 0xDE, 0xAD }, "image/png", 72, 72)));
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult result = RtfWriter.Write(document, stream);
+
+        Assert.Contains(result.Diagnostics, d => d.Code == "rtf.image.anchored");
+    }
 }

@@ -118,6 +118,12 @@ public static class RtfWriter
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
+        if (shape.Image is InlineImage image)
+        {
+            WriteFloatingPicture(sb, shape, image, diagnostics, reported);
+            return;
+        }
+
         sb.Append("{\\shp{\\*\\shpinst");
         AppendTwips(sb, "shpleft", shape.OffsetX);
         AppendTwips(sb, "shptop", shape.OffsetY);
@@ -400,6 +406,46 @@ public static class RtfWriter
 
         if (start < text.Length)
             WriteStyledText(sb, text[start..], style, fonts, colors);
+    }
+
+    /// <summary>
+    /// Writes a floating picture at the head of the paragraph it is anchored to,
+    /// in the text rather than beside it.
+    /// </summary>
+    /// <remarks>
+    /// A picture inside a shape is a <c>pib</c> shape property, and this codec's
+    /// reader knows fill and line properties only - so a shape written that way
+    /// would come back with no picture and no paint, which is a shape it drops.
+    /// The image is worth more than the position, so the position is what gives
+    /// way, and the note says which.
+    /// </remarks>
+    private static void WriteFloatingPicture(
+        StringBuilder sb,
+        DocumentShape shape,
+        InlineImage image,
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> reported)
+    {
+        string? blip = PictureControlWord(image.ContentType);
+        if (blip is null)
+        {
+            AddOnce(
+                diagnostics,
+                reported,
+                "rtf.image.format",
+                "RTF carries only PNG and JPEG pictures; an image in another format was dropped.");
+            return;
+        }
+
+        AddOnce(
+            diagnostics,
+            reported,
+            "rtf.image.anchored",
+            "A floating picture was written into its paragraph; its position beside the text was not kept.");
+
+        // The frame's box is the size it draws at, which is what the shape holds
+        // rather than the image.
+        WritePicture(sb, image.WithSize(shape.Width, shape.Height), blip);
     }
 
     private static void WritePicture(StringBuilder sb, InlineImage image, string blip)

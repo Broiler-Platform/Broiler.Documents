@@ -124,16 +124,22 @@ public sealed class LayoutLine
 /// <summary>One rendered page.</summary>
 /// <summary>
 /// A floating shape placed on a page: its box in page points, how it is painted,
-/// and any text it carries.
+/// and any text or picture it carries.
 /// </summary>
 public sealed class LayoutShape
 {
-    internal LayoutShape(BRect bounds, ShapeFill? fill, BColor outline, IReadOnlyList<LayoutLine> lines)
+    internal LayoutShape(
+        BRect bounds,
+        ShapeFill? fill,
+        BColor outline,
+        IReadOnlyList<LayoutLine> lines,
+        InlineImage? image = null)
     {
         Bounds = bounds;
         Fill = fill;
         Outline = outline;
         Lines = lines;
+        Image = image;
     }
 
     public BRect Bounds { get; }
@@ -141,6 +147,9 @@ public sealed class LayoutShape
     public ShapeFill? Fill { get; }
 
     public BColor Outline { get; }
+
+    /// <summary>The picture the box draws, filling <see cref="Bounds"/>, or null.</summary>
+    public InlineImage? Image { get; }
 
     /// <summary>The shape's own text, already positioned inside its box.</summary>
     public IReadOnlyList<LayoutLine> Lines { get; }

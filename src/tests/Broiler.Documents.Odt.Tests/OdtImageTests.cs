@@ -110,14 +110,17 @@ public sealed class OdtImageTests
     }
 
     [Fact]
-    public void Reports_A_Floating_Picture_Placed_Inline()
+    public void Loads_A_Floating_Picture_The_Same_Way_As_An_Inline_One()
     {
         DocumentReadResult result = OdtTestPackage.ReadWithPictures(
             "<text:p><draw:frame text:anchor-type=\"paragraph\" svg:width=\"1in\" svg:height=\"1in\">" +
             "<draw:image xlink:href=\"Pictures/logo.png\"/></draw:frame></text:p>",
             new Dictionary<string, byte[]> { ["Pictures/logo.png"] = OdtTestPackage.OnePixelPng });
 
-        Assert.NotNull(result.Document.Paragraphs[0].StyleAt(0).Image);
+        // Where it is placed belongs to OdtFloatingPictureTests; that its bytes
+        // are loaded at all belongs here.
+        InlineImage image = Assert.IsType<InlineImage>(Assert.Single(result.Document.Shapes).Image);
+        Assert.Equal(OdtTestPackage.OnePixelPng, image.Data.ToArray());
         Assert.Contains(result.Diagnostics, d => d.Code == "odt.image.anchored");
     }
 
