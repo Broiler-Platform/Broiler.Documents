@@ -317,6 +317,7 @@ internal sealed class PdfWriter
             PdfStandardFont? currentFont = null;
             double currentSize = double.NaN;
             BColor currentColor = BColor.Empty;
+            double currentWordSpacing = 0;
 
             foreach (PdfPlacedRun run in page.Runs)
             {
@@ -331,6 +332,15 @@ internal sealed class PdfWriter
                 {
                     AppendAscii(content, FillColor(run.Color));
                     currentColor = run.Color;
+                }
+
+                // Tw is graphics state, so it persists until it is set again. A
+                // justified line sets it; the next unjustified run has to put it
+                // back, or it would inherit a stretch that is not its own.
+                if (!currentWordSpacing.Equals(run.WordSpacing))
+                {
+                    AppendAscii(content, $"{Number(run.WordSpacing)} Tw\n");
+                    currentWordSpacing = run.WordSpacing;
                 }
 
                 AppendAscii(content, $"1 0 0 1 {Number(run.X)} {Number(run.Baseline)} Tm\n");

@@ -181,10 +181,40 @@ public sealed class DocumentLayout
                 pieces.Insert(0, markerPiece);
             }
 
-            lines.Add(PlaceLine(pieces, i == 0 && markerPiece is not null, textLeft, textWidth, style, defaultFont, paragraphIndex));
+            lines.Add(PlaceLine(
+                pieces,
+                i == 0 && markerPiece is not null,
+                textLeft,
+                textWidth,
+                style,
+                defaultFont,
+                paragraphIndex,
+                i == rows.Count - 1));
         }
 
         return new ParagraphLines(lines);
+    }
+
+    /// <summary>The spaces a justified line can spend its slack on.</summary>
+    private static int CountSpaces(List<LayoutPiece> pieces, int first)
+    {
+        int spaces = 0;
+        for (int i = first; i < pieces.Count; i++)
+            spaces += CountSpaces(pieces[i].Text);
+
+        return spaces;
+    }
+
+    private static int CountSpaces(string text)
+    {
+        int spaces = 0;
+        foreach (char c in text)
+        {
+            if (c == ' ')
+                spaces++;
+        }
+
+        return spaces;
     }
 
     /// <summary>
@@ -197,7 +227,8 @@ public sealed class DocumentLayout
         double textWidth,
         ParagraphStyle style,
         BFontStyle defaultFont,
-        int paragraphIndex)
+        int paragraphIndex,
+        bool isLastLine)
     {
         double ascent = BTextMeasurer.Measure(string.Empty, defaultFont).Baseline;
         double descent = Math.Max(0, BTextMeasurer.GetLineHeight(defaultFont) - ascent);
@@ -222,11 +253,26 @@ public sealed class DocumentLayout
             _ => 0,
         };
 
+        // Justification spends the slack on the line's own spaces instead of
+        // moving the line. The last line of a paragraph keeps its slack: it ends
+        // where the text ended, and stretching it would pull a short closing line
+        // across the whole column. A line with nothing to stretch stays flush.
+        double wordSpacing = 0;
+        if (style.Alignment == TextAlignment.Justify && !isLastLine)
+        {
+            double slack = textWidth - used;
+            int spaces = CountSpaces(pieces, first);
+            if (slack > 0 && spaces > 0)
+                wordSpacing = slack / spaces;
+        }
+
         double x = textLeft + offset;
         for (int i = first; i < pieces.Count; i++)
         {
             pieces[i].X = x;
-            x += pieces[i].Width;
+            // Widening the gap means starting the next piece further right; the
+            // space glyph before it is drawn at its own width either way.
+            x += pieces[i].Width + (CountSpaces(pieces[i].Text) * wordSpacing);
         }
 
         double natural = ascent + descent;
