@@ -23,4 +23,22 @@ internal enum RtfDestination
 
     /// <summary>A field's <c>\fldrslt</c> (result/display) destination.</summary>
     FieldResult,
+
+    /// <summary>The <c>\header</c> destination: the header for every page.</summary>
+    Header,
+
+    /// <summary>The <c>\headerf</c> destination: the first page's header.</summary>
+    HeaderFirst,
+
+    /// <summary>The <c>\headerl</c> destination: the header for left, i.e. even, pages.</summary>
+    HeaderEven,
+
+    /// <summary>The <c>\footer</c> destination.</summary>
+    Footer,
+
+    /// <summary>The <c>\footerf</c> destination.</summary>
+    FooterFirst,
+
+    /// <summary>The <c>\footerl</c> destination.</summary>
+    FooterEven,
 }

@@ -47,6 +47,7 @@ public static class RtfWriter
         sb.Append("{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1");
         WriteFontTable(sb, fonts);
         WriteColorTable(sb, colors);
+        WriteRunningContent(sb, document.RunningContent, fonts, colors, diagnostics, reported);
 
         foreach (RichTextParagraph paragraph in document.Paragraphs)
         {
@@ -91,6 +92,57 @@ public static class RtfWriter
             }
         }
     }
+
+    /// <summary>
+    /// Writes the header and footer destinations, before the body.
+    /// </summary>
+    /// <remarks>
+    /// RTF puts them in the section they belong to, and a reader takes them as
+    /// section properties, so they precede the first paragraph. \\headerl is the
+    /// left - even - page and \\headerf the first; a document that wants one header
+    /// everywhere writes \\header alone.
+    /// </remarks>
+    private static void WriteRunningContent(
+        StringBuilder sb,
+        RunningContent running,
+        ResourceTable<string> fonts,
+        ResourceTable<BColor> colors,
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> reported)
+    {
+        if (running is null || running.IsEmpty)
+            return;
+
+        foreach ((string word, bool isHeader, PageSelection selection) in RunningDestinations)
+        {
+            IReadOnlyList<RichTextParagraph> paragraphs =
+                isHeader ? running.Header(selection) : running.Footer(selection);
+            if (paragraphs.Count == 0)
+                continue;
+
+            sb.Append('{').Append('\\').Append(word);
+            foreach (RichTextParagraph paragraph in paragraphs)
+            {
+                sb.Append("\\pard\\plain");
+                WriteParagraphProperties(sb, paragraph.Style);
+                sb.Append(' ');
+                WriteRuns(sb, paragraph, fonts, colors, diagnostics, reported);
+                sb.Append("\\par");
+            }
+
+            sb.Append('}');
+        }
+    }
+
+    private static readonly (string Word, bool IsHeader, PageSelection Selection)[] RunningDestinations =
+    [
+        ("header", true, PageSelection.Default),
+        ("headerf", true, PageSelection.First),
+        ("headerl", true, PageSelection.Even),
+        ("footer", false, PageSelection.Default),
+        ("footerf", false, PageSelection.First),
+        ("footerl", false, PageSelection.Even),
+    ];
 
     private static void WriteFontTable(StringBuilder sb, ResourceTable<string> fonts)
     {

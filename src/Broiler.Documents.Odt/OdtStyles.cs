@@ -69,6 +69,14 @@ internal sealed class OdtStyles
     public int ListStyleCount => _listStyles.Count;
 
     /// <summary>
+    /// The <c>office:master-styles</c> element from <c>styles.xml</c>, where ODF
+    /// keeps headers and footers - they hang off a master page rather than living
+    /// in the content, so the reader needs the element itself rather than the
+    /// style properties collected from it.
+    /// </summary>
+    public XElement? MasterStyles { get; init; }
+
+    /// <summary>
     /// Builds the table from the package. <paramref name="content"/> is harvested
     /// after <c>styles.xml</c> so a content automatic style wins a name
     /// collision: it is the one the body actually refers to.
@@ -83,19 +91,26 @@ internal sealed class OdtStyles
         var defaults = new Dictionary<string, DefaultStyle>(StringComparer.Ordinal);
         var fontFaces = new Dictionary<string, string>(StringComparer.Ordinal);
         var listStyles = new Dictionary<string, ListStyle>(StringComparer.Ordinal);
+        XElement? masterStyles = null;
 
         ZipArchiveEntry? stylesEntry = OdtPackage.FindEntry(archive, OdtNamespaces.StylesPart);
         if (stylesEntry is not null)
         {
             XDocument? stylesXml = OdtPackage.LoadEntryXml(stylesEntry, limits, diagnostics, "odt.styles");
             if (stylesXml?.Root is not null)
+            {
                 Collect(stylesXml.Root, styles, defaults, fontFaces, listStyles);
+                masterStyles = stylesXml.Root.Element(OdtNamespaces.Office + "master-styles");
+            }
         }
 
         if (content.Root is not null)
             Collect(content.Root, styles, defaults, fontFaces, listStyles);
 
-        return new OdtStyles(styles, defaults, fontFaces, listStyles, limits.MaxGroupDepth, diagnostics);
+        return new OdtStyles(styles, defaults, fontFaces, listStyles, limits.MaxGroupDepth, diagnostics)
+        {
+            MasterStyles = masterStyles,
+        };
     }
 
     /// <summary>
