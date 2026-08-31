@@ -40,6 +40,14 @@ public static class RtfReader
         private readonly Stack<State> _stack = new();
         private readonly Accumulator _builder;
         private readonly Dictionary<RtfDestination, Accumulator> _running = new();
+        private int _paperWidth;
+        private int _paperHeight;
+        private int _marginLeft;
+        private int _marginRight;
+        private int _marginTop;
+        private int _marginBottom;
+        private int _headerDistance;
+        private int _footerDistance;
         private int _maxParagraphs;
 
         // Buffered same-style body text (flushed when the style changes or the paragraph ends).
@@ -114,7 +122,9 @@ public static class RtfReader
             }
 
             FlushPending();
-            RichTextDocument document = _builder.Build(_state.Para).WithRunningContent(BuildRunningContent());
+            RichTextDocument document = _builder.Build(_state.Para)
+                .WithRunningContent(BuildRunningContent())
+                .WithPageGeometry(BuildPageGeometry());
             if (_builder.LimitHit)
                 _diagnostics.Add(DocumentDiagnostic.Warning("rtf.paragraphs", "Document exceeded MaxParagraphCount; extra paragraphs were dropped."));
 
@@ -266,6 +276,18 @@ public static class RtfReader
                 case "ansicpg": if (has) _state.CodePage = p; break;
                 case "uc": _state.UnicodeSkip = has ? Math.Max(0, p) : 1; break;
                 case "u": HandleUnicode(p); break;
+
+                // Section geometry, in twips. Held aside and turned into a page
+                // at the end, because a page needs all of it and RTF states it
+                // one control word at a time.
+                case "paperw": if (has) _paperWidth = p; return;
+                case "paperh": if (has) _paperHeight = p; return;
+                case "margl": if (has) _marginLeft = p; return;
+                case "margr": if (has) _marginRight = p; return;
+                case "margt": if (has) _marginTop = p; return;
+                case "margb": if (has) _marginBottom = p; return;
+                case "headery": if (has) _headerDistance = p; return;
+                case "footery": if (has) _footerDistance = p; return;
 
                 case "pard": _state.Para = ParagraphStyle.Default; break;
                 case "ql": _state.Para = _state.Para with { Alignment = TextAlignment.Left }; break;
@@ -516,6 +538,34 @@ public static class RtfReader
         private static bool IsRunning(RtfDestination destination) => destination is
             RtfDestination.Header or RtfDestination.HeaderFirst or RtfDestination.HeaderEven or
             RtfDestination.Footer or RtfDestination.FooterFirst or RtfDestination.FooterEven;
+
+        /// <summary>
+        /// The page the section control words describe, or null when the document
+        /// gave no paper size. Twips throughout, 20 to the point.
+        /// </summary>
+        private PageGeometry? BuildPageGeometry()
+        {
+            if (_paperWidth <= 0 || _paperHeight <= 0)
+                return null;
+
+            var geometry = new PageGeometry(
+                _paperWidth / 20d,
+                _paperHeight / 20d,
+                _marginLeft / 20d,
+                _marginRight / 20d,
+                _marginTop / 20d,
+                _marginBottom / 20d,
+                _headerDistance / 20d,
+                _footerDistance / 20d);
+
+            if (geometry.IsUsable)
+                return geometry;
+
+            _diagnostics.Add(DocumentDiagnostic.Warning(
+                "rtf.page.geometry",
+                "RTF section properties gave a page with no room to write on; the page was not read."));
+            return null;
+        }
 
         /// <summary>The headers and footers the document's running destinations collected.</summary>
         private RunningContent BuildRunningContent()

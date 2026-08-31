@@ -58,6 +58,7 @@ internal static class OdtReader
             RichTextDocument document = ReadContent(content, styles, images, options.Limits, diagnostics);
             document = document.WithRunningContent(
                 ReadRunningContent(styles, images, options.Limits, diagnostics));
+            document = document.WithPageGeometry(ReadPageGeometry(styles, diagnostics));
             return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
         }
         catch (InvalidDataException ex)
@@ -145,6 +146,69 @@ internal static class OdtReader
 
         return content;
     }
+
+    /// <summary>
+    /// Reads the page the first master page is laid out on.
+    /// </summary>
+    /// <remarks>
+    /// ODF keeps the paper in a style:page-layout and has the master page name it,
+    /// so this follows that reference rather than guessing at the first layout -
+    /// a document can define several, and only the named one is the page.
+    /// A layout that leaves no column to write on is dropped and reported.
+    /// </remarks>
+    private static PageGeometry? ReadPageGeometry(OdtStyles styles, List<DocumentDiagnostic> diagnostics)
+    {
+        XElement? master = styles.MasterStyles
+            ?.Elements(OdtNamespaces.Style + "master-page")
+            .FirstOrDefault();
+        string? layoutName = (string?)master?.Attribute(OdtNamespaces.Style + "page-layout-name");
+        if (string.IsNullOrWhiteSpace(layoutName))
+            return null;
+
+        XElement? layout = null;
+        foreach (XElement candidate in styles.PageLayouts)
+        {
+            if (string.Equals(
+                    (string?)candidate.Attribute(OdtNamespaces.Style + "name"),
+                    layoutName,
+                    StringComparison.Ordinal))
+            {
+                layout = candidate;
+                break;
+            }
+        }
+
+        XElement? properties = layout?.Element(OdtNamespaces.Style + "page-layout-properties");
+        if (properties is null)
+            return null;
+
+        if (!OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + "page-width"), out double width) ||
+            !OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + "page-height"), out double height))
+        {
+            return null;
+        }
+
+        var geometry = new PageGeometry(
+            width,
+            height,
+            Length(properties, "margin-left"),
+            Length(properties, "margin-right"),
+            Length(properties, "margin-top"),
+            Length(properties, "margin-bottom"));
+
+        if (geometry.IsUsable)
+            return geometry;
+
+        diagnostics.Add(DocumentDiagnostic.Warning(
+            "odt.page.geometry",
+            "An ODT page layout gave a page with no room to write on; the page was not read."));
+        return null;
+    }
+
+    private static double Length(XElement properties, string name) =>
+        OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + name), out double points)
+            ? points
+            : 0;
 
     /// <summary>ODF §16.10: a master page's header and footer elements, left being the even page.</summary>
     private static readonly (string Element, bool IsHeader, PageSelection Selection)[] RunningParts =

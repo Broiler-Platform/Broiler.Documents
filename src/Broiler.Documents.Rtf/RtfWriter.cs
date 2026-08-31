@@ -47,6 +47,7 @@ public static class RtfWriter
         sb.Append("{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1");
         WriteFontTable(sb, fonts);
         WriteColorTable(sb, colors);
+        WritePageGeometry(sb, document.PageGeometry);
         WriteRunningContent(sb, document.RunningContent, fonts, colors, diagnostics, reported);
 
         foreach (RichTextParagraph paragraph in document.Paragraphs)
@@ -92,6 +93,33 @@ public static class RtfWriter
             }
         }
     }
+
+    /// <summary>
+    /// Writes the page the document states, in twips, before anything that
+    /// belongs to a section. A document that states no page writes none rather
+    /// than inventing one.
+    /// </summary>
+    private static void WritePageGeometry(StringBuilder sb, PageGeometry? geometry)
+    {
+        if (geometry is null || !geometry.IsUsable)
+            return;
+
+        Append(sb, "paperw", geometry.Width);
+        Append(sb, "paperh", geometry.Height);
+        Append(sb, "margl", geometry.MarginLeft);
+        Append(sb, "margr", geometry.MarginRight);
+        Append(sb, "margt", geometry.MarginTop);
+        Append(sb, "margb", geometry.MarginBottom);
+        if (geometry.HeaderDistance > 0)
+            Append(sb, "headery", geometry.HeaderDistance);
+        if (geometry.FooterDistance > 0)
+            Append(sb, "footery", geometry.FooterDistance);
+    }
+
+    /// <summary>One control word carrying a length, converted from points to twips.</summary>
+    private static void Append(StringBuilder sb, string word, double points) =>
+        sb.Append('\\').Append(word)
+            .Append(((long)Math.Round(points * 20)).ToString(CultureInfo.InvariantCulture));
 
     /// <summary>
     /// Writes the header and footer destinations, before the body.

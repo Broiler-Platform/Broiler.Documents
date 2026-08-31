@@ -77,6 +77,12 @@ internal sealed class OdtStyles
     public XElement? MasterStyles { get; init; }
 
     /// <summary>
+    /// The <c>style:page-layout</c> elements from <c>styles.xml</c>. A master page
+    /// names one, and that is where ODF states the paper size and its margins.
+    /// </summary>
+    public IReadOnlyList<XElement> PageLayouts { get; init; } = [];
+
+    /// <summary>
     /// Builds the table from the package. <paramref name="content"/> is harvested
     /// after <c>styles.xml</c> so a content automatic style wins a name
     /// collision: it is the one the body actually refers to.
@@ -92,6 +98,7 @@ internal sealed class OdtStyles
         var fontFaces = new Dictionary<string, string>(StringComparer.Ordinal);
         var listStyles = new Dictionary<string, ListStyle>(StringComparer.Ordinal);
         XElement? masterStyles = null;
+        List<XElement> pageLayouts = [];
 
         ZipArchiveEntry? stylesEntry = OdtPackage.FindEntry(archive, OdtNamespaces.StylesPart);
         if (stylesEntry is not null)
@@ -101,6 +108,9 @@ internal sealed class OdtStyles
             {
                 Collect(stylesXml.Root, styles, defaults, fontFaces, listStyles);
                 masterStyles = stylesXml.Root.Element(OdtNamespaces.Office + "master-styles");
+                pageLayouts = stylesXml.Root
+                    .Descendants(OdtNamespaces.Style + "page-layout")
+                    .ToList();
             }
         }
 
@@ -110,6 +120,7 @@ internal sealed class OdtStyles
         return new OdtStyles(styles, defaults, fontFaces, listStyles, limits.MaxGroupDepth, diagnostics)
         {
             MasterStyles = masterStyles,
+            PageLayouts = pageLayouts,
         };
     }
 
