@@ -400,7 +400,6 @@ public static class DocxWriter
     {
         var types = new XElement(
             DocxNamespaces.ContentTypes + "Types",
-            new XAttribute(XNamespace.Xmlns + "ct", DocxNamespaces.ContentTypes.NamespaceName),
             new XElement(
                 DocxNamespaces.ContentTypes + "Default",
                 new XAttribute("Extension", "rels"),
@@ -440,7 +439,6 @@ public static class DocxWriter
             new XDeclaration("1.0", "utf-8", "yes"),
             new XElement(
                 DocxNamespaces.PackageRelationships + "Relationships",
-                new XAttribute(XNamespace.Xmlns + "rel", DocxNamespaces.PackageRelationships.NamespaceName),
                 new XElement(
                     DocxNamespaces.PackageRelationships + "Relationship",
                     new XAttribute("Id", "rId1"),
@@ -449,9 +447,7 @@ public static class DocxWriter
 
     private static XDocument BuildDocumentRelationships(DocxWriteContext context)
     {
-        var root = new XElement(
-            DocxNamespaces.PackageRelationships + "Relationships",
-            new XAttribute(XNamespace.Xmlns + "rel", DocxNamespaces.PackageRelationships.NamespaceName));
+        var root = new XElement(DocxNamespaces.PackageRelationships + "Relationships");
 
         if (context.HasNumbering)
         {
