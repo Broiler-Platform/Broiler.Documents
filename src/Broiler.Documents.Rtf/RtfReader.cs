@@ -1,3 +1,4 @@
+using System.Globalization;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -48,6 +49,21 @@ public static class RtfReader
         private int _marginBottom;
         private int _headerDistance;
         private int _footerDistance;
+        private readonly StringBuilder _shapePropertyName = new();
+        private readonly StringBuilder _shapePropertyValue = new();
+        private readonly List<DocumentShape> _shapes = [];
+        private Accumulator? _shapeText;
+        private int _shapeLeft;
+        private int _shapeTop;
+        private int _shapeRight;
+        private int _shapeBottom;
+        private BColor _shapeFillStart = BColor.Empty;
+        private BColor _shapeFillEnd = BColor.Empty;
+        private BColor _shapeLineColor = BColor.Empty;
+        private double _shapeFillAngle;
+        private bool _shapeHasFill;
+        private bool _shapeGradient;
+        private bool _shapeHasLine = true;
         private int _maxParagraphs;
 
         // Buffered same-style body text (flushed when the style changes or the paragraph ends).
@@ -125,6 +141,8 @@ public static class RtfReader
             RichTextDocument document = _builder.Build(_state.Para)
                 .WithRunningContent(BuildRunningContent())
                 .WithPageGeometry(BuildPageGeometry());
+            if (_shapes.Count > 0)
+                document = document.WithShapes(_shapes);
             if (_builder.LimitHit)
                 _diagnostics.Add(DocumentDiagnostic.Warning("rtf.paragraphs", "Document exceeded MaxParagraphCount; extra paragraphs were dropped."));
 
@@ -144,6 +162,11 @@ public static class RtfReader
                 _fieldLink = null;
 
             FlushPending();
+            if (closing.Dest == RtfDestination.ShapeProperty)
+                ApplyShapeProperty();
+            else if (closing.Dest == RtfDestination.Shape)
+                FinishShape();
+
             if (_stack.Count > 0)
                 _state = _stack.Pop();
         }
@@ -227,7 +250,11 @@ public static class RtfReader
             }
 
             // An unknown ignorable destination (\*\something) is skipped safely.
-            if (star)
+            // \* says to ignore what the reader does not understand, so a
+            // destination it does understand has to be let through - a shape
+            // arrives as {\*\shpinst ...} and would otherwise be dropped here,
+            // several hundred lines before the case that handles it.
+            if (star && kw is not "shpinst")
             {
                 _state.Dest = RtfDestination.Skip;
                 return;
@@ -288,6 +315,24 @@ public static class RtfReader
                 case "margb": if (has) _marginBottom = p; return;
                 case "headery": if (has) _headerDistance = p; return;
                 case "footery": if (has) _footerDistance = p; return;
+
+                // A drawing. Its geometry rides on the control words here and
+                // its paint arrives as {\sp{\sn name}{\sv value}} pairs, so the
+                // shape is assembled as the group is walked and finished when
+                // the group closes.
+                // \shp opens the shape but does not own the destination: \shpinst
+                // does, and only one group may close as the shape or it would be
+                // finished twice - once for the inner group and once for the outer.
+                case "shp": BeginShape(); return;
+                case "shpinst": _state.Dest = RtfDestination.Shape; return;
+                case "shpleft": if (has) _shapeLeft = p; return;
+                case "shptop": if (has) _shapeTop = p; return;
+                case "shpright": if (has) _shapeRight = p; return;
+                case "shpbottom": if (has) _shapeBottom = p; return;
+                case "sp": _state.Dest = RtfDestination.ShapeProperty; BeginShapeProperty(); return;
+                case "sn": _state.Dest = RtfDestination.ShapePropertyName; return;
+                case "sv": _state.Dest = RtfDestination.ShapePropertyValue; return;
+                case "shptxt": _state.Dest = RtfDestination.ShapeText; return;
 
                 case "pard": _state.Para = ParagraphStyle.Default; break;
                 case "ql": _state.Para = _state.Para with { Alignment = TextAlignment.Left }; break;
@@ -390,7 +435,10 @@ public static class RtfReader
                 case RtfDestination.HeaderEven:
                 case RtfDestination.Footer:
                 case RtfDestination.FooterFirst:
-                case RtfDestination.FooterEven: HandleBodyText(text); break;
+                case RtfDestination.FooterEven:
+                case RtfDestination.ShapeText: HandleBodyText(text); break;
+                case RtfDestination.ShapePropertyName: _shapePropertyName.Append(text); break;
+                case RtfDestination.ShapePropertyValue: _shapePropertyValue.Append(text); break;
                 default: break; // Skip / Field container: drop.
             }
         }
@@ -522,6 +570,9 @@ public static class RtfReader
                 if (_state.Dest is RtfDestination.Normal or RtfDestination.FieldResult)
                     return _builder;
 
+                if (_state.Dest == RtfDestination.ShapeText)
+                    return _shapeText ??= new Accumulator(_maxParagraphs);
+
                 if (!IsRunning(_state.Dest))
                     return _builder;
 
@@ -565,6 +616,113 @@ public static class RtfReader
                 "rtf.page.geometry",
                 "RTF section properties gave a page with no room to write on; the page was not read."));
             return null;
+        }
+
+        private void BeginShape()
+        {
+            _shapeLeft = 0;
+            _shapeTop = 0;
+            _shapeRight = 0;
+            _shapeBottom = 0;
+            _shapeFillStart = BColor.Empty;
+            _shapeFillEnd = BColor.Empty;
+            _shapeLineColor = BColor.Empty;
+            _shapeFillAngle = 0;
+            _shapeHasFill = false;
+            _shapeGradient = false;
+            _shapeHasLine = true;
+            _shapeText = null;
+        }
+
+        private void BeginShapeProperty()
+        {
+            _shapePropertyName.Clear();
+            _shapePropertyValue.Clear();
+        }
+
+        /// <summary>
+        /// Applies one shape property pair.
+        /// </summary>
+        /// <remarks>
+        /// RTF states a shape colour as one integer holding blue, green and red in
+        /// that order, which is the reverse of how everything else here writes a
+        /// colour and the easiest thing in the format to get backwards.
+        /// </remarks>
+        private void ApplyShapeProperty()
+        {
+            string name = _shapePropertyName.ToString().Trim();
+            string value = _shapePropertyValue.ToString().Trim();
+            if (name.Length == 0 || !long.TryParse(
+                    value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long number))
+            {
+                return;
+            }
+
+            switch (name)
+            {
+                case "fillColor":
+                    _shapeFillStart = ShapeColor(number);
+                    _shapeHasFill = true;
+                    break;
+                case "fillBackColor":
+                    _shapeFillEnd = ShapeColor(number);
+                    break;
+                case "fillType":
+                    _shapeGradient = number != 0;
+                    break;
+                case "fillAngle":
+                    // Word states it in 65536ths of a degree.
+                    _shapeFillAngle = number / 65536d;
+                    break;
+                case "fFilled":
+                    _shapeHasFill = number != 0;
+                    break;
+                case "lineColor":
+                    _shapeLineColor = ShapeColor(number);
+                    break;
+                case "fLine":
+                    _shapeHasLine = number != 0;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        private static BColor ShapeColor(long value) =>
+            new((byte)(value & 0xFF), (byte)((value >> 8) & 0xFF), (byte)((value >> 16) & 0xFF));
+
+        /// <summary>Turns the walked group into a shape, when it described one.</summary>
+        private void FinishShape()
+        {
+            double width = (_shapeRight - _shapeLeft) / 20d;
+            double height = (_shapeBottom - _shapeTop) / 20d;
+            IReadOnlyList<RichTextParagraph> paragraphs = _shapeText is null
+                ? []
+                : _shapeText.Build(ParagraphStyle.Default).Paragraphs;
+            if (paragraphs.Count == 1 && paragraphs[0].Length == 0)
+                paragraphs = [];
+
+            ShapeFill? fill = null;
+            if (_shapeHasFill && !_shapeFillStart.IsEmpty)
+            {
+                fill = _shapeGradient && !_shapeFillEnd.IsEmpty
+                    ? new ShapeFill(_shapeFillStart, _shapeFillEnd, _shapeFillAngle)
+                    : ShapeFill.Solid(_shapeFillStart);
+            }
+
+            _shapeText = null;
+            if (width <= 0 || height <= 0 || (fill is null && paragraphs.Count == 0))
+                return;
+
+            _shapes.Add(new DocumentShape(
+                _builder.ParagraphCount,
+                _shapeLeft / 20d,
+                _shapeTop / 20d,
+                width,
+                height,
+                fill,
+                _shapeHasLine ? _shapeLineColor : BColor.Empty,
+                paragraphs));
         }
 
         /// <summary>The headers and footers the document's running destinations collected.</summary>
@@ -672,6 +830,9 @@ public static class RtfReader
     private sealed class Accumulator
     {
         private readonly List<RichTextParagraph> _paragraphs = [];
+
+        /// <summary>The paragraph a shape met right now would be anchored to.</summary>
+        public int ParagraphCount => _paragraphs.Count;
         private readonly int _maxParagraphs;
         private RichTextParagraph _current = RichTextParagraph.Create(string.Empty, InlineStyle.Default, ParagraphStyle.Default);
 

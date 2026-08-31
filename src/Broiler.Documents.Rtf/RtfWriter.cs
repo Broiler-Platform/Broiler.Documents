@@ -50,11 +50,18 @@ public static class RtfWriter
         WritePageGeometry(sb, document.PageGeometry);
         WriteRunningContent(sb, document.RunningContent, fonts, colors, diagnostics, reported);
 
-        foreach (RichTextParagraph paragraph in document.Paragraphs)
+        for (int i = 0; i < document.Paragraphs.Count; i++)
         {
+            RichTextParagraph paragraph = document.Paragraphs[i];
             sb.Append("\\pard\\plain");
             WriteParagraphProperties(sb, paragraph.Style);
             sb.Append(' ');
+            foreach (DocumentShape shape in document.Shapes)
+            {
+                if (shape.ParagraphIndex == i)
+                    WriteShape(sb, shape, fonts, colors, diagnostics, reported);
+            }
+
             WriteRuns(sb, paragraph, fonts, colors, diagnostics, reported);
             sb.Append("\\par\n");
         }
@@ -93,6 +100,93 @@ public static class RtfWriter
             }
         }
     }
+
+    /// <summary>
+    /// Writes one anchored shape.
+    /// </summary>
+    /// <remarks>
+    /// RTF states a shape's box in twips against the column and the paragraph,
+    /// and everything about how it is painted as {\sp{\sn name}{\sv value}}
+    /// pairs. A colour there is one integer holding blue, green and red in that
+    /// order - the reverse of how the rest of the format writes one.
+    /// </remarks>
+    private static void WriteShape(
+        StringBuilder sb,
+        DocumentShape shape,
+        ResourceTable<string> fonts,
+        ResourceTable<BColor> colors,
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> reported)
+    {
+        sb.Append("{\\shp{\\*\\shpinst");
+        AppendTwips(sb, "shpleft", shape.OffsetX);
+        AppendTwips(sb, "shptop", shape.OffsetY);
+        AppendTwips(sb, "shpright", shape.OffsetX + shape.Width);
+        AppendTwips(sb, "shpbottom", shape.OffsetY + shape.Height);
+        // Against the column and the paragraph, which is what the offsets mean.
+        sb.Append("\\shpbxcolumn\\shpbypara\\shpwr3");
+
+        if (shape.Fill is ShapeFill fill)
+        {
+            AppendShapeProperty(sb, "fFilled", "1");
+            AppendShapeProperty(sb, "fillColor", ShapeColor(fill.Start));
+            if (fill.IsGradient)
+            {
+                AppendShapeProperty(sb, "fillBackColor", ShapeColor(fill.End));
+                AppendShapeProperty(sb, "fillType", "1");
+                AppendShapeProperty(
+                    sb,
+                    "fillAngle",
+                    ((long)Math.Round(fill.AngleDegrees * 65536)).ToString(CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                AppendShapeProperty(sb, "fillType", "0");
+            }
+        }
+        else
+        {
+            AppendShapeProperty(sb, "fFilled", "0");
+        }
+
+        if (shape.Outline.IsEmpty)
+        {
+            AppendShapeProperty(sb, "fLine", "0");
+        }
+        else
+        {
+            AppendShapeProperty(sb, "fLine", "1");
+            AppendShapeProperty(sb, "lineColor", ShapeColor(shape.Outline));
+        }
+
+        if (shape.HasText)
+        {
+            sb.Append("{\\shptxt ");
+            foreach (RichTextParagraph paragraph in shape.Paragraphs)
+            {
+                sb.Append("\\pard\\plain");
+                WriteParagraphProperties(sb, paragraph.Style);
+                sb.Append(' ');
+                WriteRuns(sb, paragraph, fonts, colors, diagnostics, reported);
+                sb.Append("\\par");
+            }
+
+            sb.Append('}');
+        }
+
+        sb.Append("}}");
+    }
+
+    private static void AppendShapeProperty(StringBuilder sb, string name, string value) =>
+        sb.Append("{\\sp{\\sn ").Append(name).Append("}{\\sv ").Append(value).Append("}}");
+
+    /// <summary>A shape colour: blue, green and red packed in that order.</summary>
+    private static string ShapeColor(BColor color) =>
+        (color.R | (color.G << 8) | (color.B << 16)).ToString(CultureInfo.InvariantCulture);
+
+    private static void AppendTwips(StringBuilder sb, string word, double points) =>
+        sb.Append('\\').Append(word)
+            .Append(((long)Math.Round(points * 20)).ToString(CultureInfo.InvariantCulture));
 
     /// <summary>
     /// Writes the page the document states, in twips, before anything that
