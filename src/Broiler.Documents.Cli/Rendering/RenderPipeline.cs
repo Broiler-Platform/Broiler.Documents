@@ -61,6 +61,7 @@ public sealed class RenderOutcome : IDisposable
 public sealed class RenderPipeline
 {
     private readonly PageSetup _setup;
+    private readonly bool _pageWasAskedFor;
     private readonly LayoutSettings _settings;
     private readonly FontResolution _fonts;
     private readonly ImageEncodeFormat _format;
@@ -69,6 +70,7 @@ public sealed class RenderPipeline
 
     private RenderPipeline(
         PageSetup setup,
+        bool pageWasAskedFor,
         LayoutSettings settings,
         FontResolution fonts,
         ImageEncodeFormat format,
@@ -76,6 +78,7 @@ public sealed class RenderPipeline
         IReadOnlyList<(int First, int Last)>? pageRanges)
     {
         _setup = setup;
+        _pageWasAskedFor = pageWasAskedFor;
         _settings = settings;
         _fonts = fonts;
         _format = format;
@@ -135,6 +138,10 @@ public sealed class RenderPipeline
         CodecComposition.RegisterImageCodecs();
 
         PageSetup setup = PageSetup.FromCommandLine(line);
+        // A document that states its own page wins, unless the caller asked for a
+        // particular one. Rendering an A4 letter on US Letter because nobody said
+        // otherwise is the renderer overruling the author.
+        bool pageWasAskedFor = line.Has("page-size") || line.Has("margin") || line.Has("landscape");
         FontResolution fonts = FontResolution.FromCommandLine(line);
         fonts.Install();
 
@@ -180,7 +187,8 @@ public sealed class RenderPipeline
         if (quality is < 1 or > 100)
             throw new UsageException("--quality must be between 1 and 100.");
 
-        return new RenderPipeline(setup, settings, fonts, format, quality, ParsePages(line.Get("pages")));
+        return new RenderPipeline(
+            setup, pageWasAskedFor, settings, fonts, format, quality, ParsePages(line.Get("pages")));
     }
 
     /// <summary>Lays a document out and rasterizes the selected pages.</summary>
@@ -190,7 +198,11 @@ public sealed class RenderPipeline
 
         using var images = new ImageStore();
         var layout = new DocumentLayout(_settings, images);
-        LayoutResult result = layout.Layout(document, _setup);
+        PageSetup setup = _setup;
+        if (!_pageWasAskedFor && document.PageGeometry is PageGeometry geometry && geometry.IsUsable)
+            setup = _setup.WithGeometry(geometry);
+
+        LayoutResult result = layout.Layout(document, setup);
 
         var pages = new List<BBitmap>();
         using (var rasterizer = new DocumentRasterizer(_settings, images))

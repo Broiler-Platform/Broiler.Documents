@@ -81,6 +81,7 @@ internal static class DocxReader
                 diagnostics,
                 reported,
                 partShapes));
+            document = document.WithPageGeometry(ReadPageGeometry(documentXml, diagnostics));
             if (partShapes.Count > 0)
                 // A header shape is page decoration, so it belongs behind the
                 // shapes the body anchors - a stripe painted over a logo box
@@ -373,6 +374,56 @@ internal static class DocxReader
 
         return content;
     }
+
+    /// <summary>
+    /// Reads the page the document says it is written for from its section
+    /// properties.
+    /// </summary>
+    /// <remarks>
+    /// The body-level w:sectPr is the document's final section. A document split
+    /// into several can give each its own page, and the model holds one, so the
+    /// last one wins - the same choice the header and footer reader makes, and
+    /// for the same reason: it is the section the running content belongs to.
+    /// Geometry a producer states nonsensically is dropped rather than honoured.
+    /// </remarks>
+    private static PageGeometry? ReadPageGeometry(
+        XDocument documentXml,
+        List<DocumentDiagnostic> diagnostics)
+    {
+        XElement? sectPr = documentXml.Root
+            ?.Element(DocxNamespaces.Wordprocessing + "body")
+            ?.Elements(DocxNamespaces.Wordprocessing + "sectPr")
+            .LastOrDefault();
+
+        XElement? size = sectPr?.Element(DocxNamespaces.Wordprocessing + "pgSz");
+        if (size is null)
+            return null;
+
+        XElement? margin = sectPr!.Element(DocxNamespaces.Wordprocessing + "pgMar");
+        var geometry = new PageGeometry(
+            Twips(size, "w"),
+            Twips(size, "h"),
+            Twips(margin, "left"),
+            Twips(margin, "right"),
+            Twips(margin, "top"),
+            Twips(margin, "bottom"),
+            Twips(margin, "header"),
+            Twips(margin, "footer"));
+
+        if (geometry.IsUsable)
+            return geometry;
+
+        diagnostics.Add(DocumentDiagnostic.Warning(
+            "docx.section.geometry",
+            "DOCX section properties gave a page with no room to write on; the page was not read."));
+        return null;
+    }
+
+    /// <summary>A twip attribute in points: 20 twips to the point.</summary>
+    private static double Twips(XElement? element, string name) =>
+        TryReadInt(element?.Attribute(DocxNamespaces.Wordprocessing + name), out int twips)
+            ? twips / 20d
+            : 0;
 
     /// <summary>ECMA-376 §17.10.1: the header/footer types, defaulting to the one for every page.</summary>
     private static PageSelection SelectionFor(string? type) => type switch

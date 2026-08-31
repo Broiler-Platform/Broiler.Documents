@@ -139,7 +139,7 @@ internal sealed class PdfPageLayout
     {
         var pages = new List<PdfLayoutPage>();
         var page = new PdfLayoutPage();
-        PdfPageSetup setup = _options.PageSetup;
+        PdfPageSetup setup = SetupFor(document);
 
         double top = setup.Height - setup.MarginTop;
         double bottom = setup.MarginBottom;
@@ -218,7 +218,7 @@ internal sealed class PdfPageLayout
 
         pages.Add(page);
         PlaceShapes(document.Shapes, anchors, setup);
-        PlaceRunningContent(pages, document.RunningContent, setup);
+        PlaceRunningContent(pages, document.RunningContent, setup, document.PageGeometry);
         return pages;
     }
 
@@ -239,13 +239,27 @@ internal sealed class PdfPageLayout
     /// <see cref="RunningContent.EffectiveHeader"/> resolves.
     /// </para>
     /// </remarks>
-    private void PlaceRunningContent(List<PdfLayoutPage> pages, RunningContent running, PdfPageSetup setup)
+    private void PlaceRunningContent(
+        List<PdfLayoutPage> pages,
+        RunningContent running,
+        PdfPageSetup setup,
+        PageGeometry? geometry)
     {
         if (running is null || running.IsEmpty)
             return;
 
         double left = setup.MarginLeft;
         double available = setup.ContentWidth;
+
+        // A document that states how far its header sits from the edge gets that;
+        // one that states nothing keeps the old convention of halfway up the
+        // margin, which is the best guess available without a number.
+        double headerBaseline = geometry is not null && geometry.HeaderDistance > 0
+            ? setup.Height - geometry.HeaderDistance
+            : setup.Height - (setup.MarginTop / 2);
+        double footerBaseline = geometry is not null && geometry.FooterDistance > 0
+            ? geometry.FooterDistance
+            : setup.MarginBottom / 2;
 
         for (int i = 0; i < pages.Count; i++)
         {
@@ -257,7 +271,7 @@ internal sealed class PdfPageLayout
                 running.EffectiveHeader(selection),
                 left,
                 available,
-                setup.Height - (setup.MarginTop / 2),
+                headerBaseline,
                 setup.MarginTop,
                 isHeader: true);
 
@@ -266,7 +280,7 @@ internal sealed class PdfPageLayout
                 running.EffectiveFooter(selection),
                 left,
                 available,
-                setup.MarginBottom / 2,
+                footerBaseline,
                 setup.MarginBottom,
                 isHeader: false);
         }
@@ -362,6 +376,30 @@ internal sealed class PdfPageLayout
             y -= line.Height * spacing;
             Place(page, line, left, available, y, style.Alignment, isLast);
         }
+    }
+
+    /// <summary>
+    /// The page to lay out on: the one the document states, else the one the
+    /// caller asked for.
+    /// </summary>
+    /// <remarks>
+    /// The document wins because printing an A4 letter on US Letter, when the
+    /// letter says A4 and nobody said otherwise, is the writer overruling the
+    /// author. A document that states nothing, or states nonsense, still gets the
+    /// caller's page.
+    /// </remarks>
+    internal PdfPageSetup SetupFor(RichTextDocument document)
+    {
+        if (document.PageGeometry is not PageGeometry geometry || !geometry.IsUsable)
+            return _options.PageSetup;
+
+        return new PdfPageSetup(
+            geometry.Width,
+            geometry.Height,
+            geometry.MarginLeft,
+            geometry.MarginRight,
+            geometry.MarginTop,
+            geometry.MarginBottom);
     }
 
     private double EmptyLineHeight() => _options.DefaultFontSize * 1.2;

@@ -17,9 +17,11 @@ public sealed class RichTextDocument
     private RichTextDocument(
         IReadOnlyList<RichTextParagraph> paragraphs,
         RunningContent? runningContent = null,
-        IReadOnlyList<DocumentShape>? shapes = null)
+        IReadOnlyList<DocumentShape>? shapes = null,
+        PageGeometry? pageGeometry = null)
     {
         RunningContent = runningContent ?? RunningContent.Empty;
+        PageGeometry = pageGeometry;
         Shapes = shapes is null || shapes.Count == 0 ? [] : [.. shapes];
         if (paragraphs is null || paragraphs.Count == 0)
         {
@@ -52,13 +54,24 @@ public sealed class RichTextDocument
     /// </summary>
     public IReadOnlyList<DocumentShape> Shapes { get; }
 
+    /// <summary>
+    /// The page this document says it is written for, or null when it says
+    /// nothing. A renderer that has one can place the page the author chose
+    /// rather than one of its own.
+    /// </summary>
+    public PageGeometry? PageGeometry { get; }
+
     /// <summary>This document's body with different running content.</summary>
     public RichTextDocument WithRunningContent(RunningContent? runningContent) =>
-        new(_paragraphs, runningContent, Shapes);
+        new(_paragraphs, runningContent, Shapes, PageGeometry);
 
     /// <summary>This document's body with different floating shapes.</summary>
     public RichTextDocument WithShapes(IReadOnlyList<DocumentShape>? shapes) =>
-        new(_paragraphs, RunningContent, shapes);
+        new(_paragraphs, RunningContent, shapes, PageGeometry);
+
+    /// <summary>This document's body on a different page.</summary>
+    public RichTextDocument WithPageGeometry(PageGeometry? pageGeometry) =>
+        new(_paragraphs, RunningContent, Shapes, pageGeometry);
 
     public int ParagraphCount => _paragraphs.Length;
 
@@ -259,7 +272,7 @@ public sealed class RichTextDocument
             paragraphs.Add(_paragraphs[i].ApplyInlineStyle(startOffset, endOffset - startOffset, delta));
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry);
     }
 
     public RichTextDocument ApplyParagraphStyle(RichTextRange range, ParagraphStyleDelta delta)
@@ -276,7 +289,7 @@ public sealed class RichTextDocument
                 paragraphs.Add(_paragraphs[i]);
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry);
     }
 
     /// <summary>
@@ -349,7 +362,7 @@ public sealed class RichTextDocument
         var paragraphs = new RichTextParagraph[_paragraphs.Length];
         Array.Copy(_paragraphs, paragraphs, _paragraphs.Length);
         paragraphs[index] = paragraph;
-        return new RichTextDocument(paragraphs, RunningContent, Shapes);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry);
     }
 
     private RichTextDocument ReplaceRange(int index, int removeCount, IReadOnlyList<RichTextParagraph> insert)
@@ -361,7 +374,7 @@ public sealed class RichTextDocument
             paragraphs.Add(paragraph);
         for (int i = index + removeCount; i < _paragraphs.Length; i++)
             paragraphs.Add(_paragraphs[i]);
-        return new RichTextDocument(paragraphs, RunningContent, Shapes);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry);
     }
 
     private static string NormalizeNewlines(string text) =>

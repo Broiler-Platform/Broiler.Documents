@@ -46,6 +46,9 @@ internal sealed class PdfWriter
     private readonly MemoryStream _buffer = new();
     private readonly CancellationToken _cancellationToken;
 
+    /// <summary>The page the layout used, which the MediaBox has to agree with.</summary>
+    private PdfPageSetup _pageSetup = PdfPageSetup.Letter;
+
     private PdfWriter(
         PdfWriteOptions options,
         PdfCodecServices services,
@@ -127,6 +130,9 @@ internal sealed class PdfWriter
 
         var layout = new PdfPageLayout(_options, metrics, policy, _diagnostics, _cancellationToken);
         List<PdfLayoutPage> pages = layout.Build(document);
+        // The MediaBox has to be the page the layout actually used, which is the
+        // document's when it states one.
+        _pageSetup = layout.SetupFor(document);
 
         if (pages.Count > _options.PdfLimits.MaxPageCount)
             throw PdfWorkBudget.Exceeded(nameof(PdfLimits.MaxPageCount), _options.PdfLimits.MaxPageCount);
@@ -231,7 +237,7 @@ internal sealed class PdfWriter
         Dictionary<PdfStandardFont, int> fontObjects,
         PdfUriPolicy policy)
     {
-        PdfPageSetup setup = _options.PageSetup;
+        PdfPageSetup setup = _pageSetup;
 
         BeginObject(objects.PageObject);
         var builder = new StringBuilder();

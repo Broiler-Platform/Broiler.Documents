@@ -1,3 +1,4 @@
+using Broiler.Documents.Model;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -141,6 +142,26 @@ public sealed class PageSetup
             throw new UsageException("--margin leaves no vertical room on the page.");
 
         return new PageSetup(width, height, top, right, bottom, left, dpi, background, line.Has("continuous"));
+    }
+
+    /// <summary>
+    /// This box resized to the page a document states, keeping the settings that
+    /// are the caller's rather than the document's: the resolution to render at,
+    /// the background to paint, and whether to paginate at all.
+    /// </summary>
+    public PageSetup WithGeometry(PageGeometry geometry)
+    {
+        ArgumentNullException.ThrowIfNull(geometry);
+        return new PageSetup(
+            geometry.Width,
+            geometry.Height,
+            geometry.MarginTop,
+            geometry.MarginRight,
+            geometry.MarginBottom,
+            geometry.MarginLeft,
+            Dpi,
+            Background,
+            Continuous);
     }
 
     /// <summary>The same box with a different height, for the continuous single-page form.</summary>
