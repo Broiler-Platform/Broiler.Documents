@@ -78,11 +78,54 @@ public static class OdtWriter
         return stream.ToArray();
     }
 
+    /// <summary>
+    /// One anchored shape, as ODF draws it: a custom-shape carrying its box, with
+    /// the paint in a graphic style it names and, for a gradient, a name beyond
+    /// that.
+    /// </summary>
+    private static XElement BuildShape(DocumentShape shape, OdtWriteContext context)
+    {
+        var element = new XElement(
+            OdtNamespaces.Draw + "custom-shape",
+            new XAttribute(OdtNamespaces.Text + "anchor-type", "paragraph"),
+            new XAttribute(OdtNamespaces.Draw + "style-name", context.GetShapeStyleName(shape)),
+            new XAttribute(OdtNamespaces.Svg + "x", OdtUnits.FormatPoints(shape.OffsetX)),
+            new XAttribute(OdtNamespaces.Svg + "y", OdtUnits.FormatPoints(shape.OffsetY)),
+            new XAttribute(OdtNamespaces.Svg + "width", OdtUnits.FormatPoints(shape.Width)),
+            new XAttribute(OdtNamespaces.Svg + "height", OdtUnits.FormatPoints(shape.Height)));
+
+        // A custom shape carries its paragraphs directly. draw:text-box belongs to
+        // draw:frame, and putting one here is a shape a reader cannot parse -
+        // LibreOffice refuses the whole document rather than just the shape.
+        if (shape.HasText)
+        {
+            foreach (RichTextParagraph paragraph in shape.Paragraphs)
+                element.Add(BuildParagraph(paragraph, context, inList: false));
+        }
+
+        // ODF says what a custom shape is with an enhanced geometry, and a reader
+        // that finds none has been given a shape with no form. LibreOffice keeps
+        // the box and drops the text it holds, which is the worse half to lose.
+        element.Add(new XElement(
+            OdtNamespaces.Draw + "enhanced-geometry",
+            new XAttribute(OdtNamespaces.Draw + "type", "rectangle"),
+            new XAttribute(OdtNamespaces.Svg + "viewBox", "0 0 21600 21600"),
+            new XAttribute(
+                OdtNamespaces.Draw + "enhanced-path",
+                "M 0 0 L 21600 0 21600 21600 0 21600 Z N")));
+
+        return element;
+    }
+
     private static XDocument BuildContent(XElement body, OdtWriteContext context)
     {
         var automaticStyles = new XElement(OdtNamespaces.Office + "automatic-styles");
         foreach (XElement style in context.AutomaticStyles)
             automaticStyles.Add(style);
+        foreach (XElement style in context.ShapeStyles)
+            automaticStyles.Add(style);
+        foreach (XElement gradient in context.Gradients)
+            automaticStyles.Add(gradient);
         foreach (XElement listStyle in BuildListStyles(context))
             automaticStyles.Add(listStyle);
         if (context.Pictures.Count > 0)
@@ -115,7 +158,13 @@ public static class OdtWriter
             ListKind kind = paragraphs[index].Style.ListKind;
             if (kind == ListKind.None)
             {
-                text.Add(BuildParagraph(paragraphs[index], context, inList: false));
+                XElement element = BuildParagraph(paragraphs[index], context, inList: false);
+                // ODF anchors a shape to a paragraph by putting it inside one, so
+                // it goes first and the text follows it.
+                foreach (DocumentShape shape in ShapesAnchoredTo(document, index))
+                    element.AddFirst(BuildShape(shape, context));
+
+                text.Add(element);
                 index++;
                 continue;
             }
@@ -131,6 +180,20 @@ public static class OdtWriter
         }
 
         return text;
+    }
+
+    /// <summary>
+    /// The shapes anchored to one paragraph. A shape whose anchor is out of range
+    /// - a document edited after it was read - is dropped rather than moved onto
+    /// a paragraph it does not belong to.
+    /// </summary>
+    private static IEnumerable<DocumentShape> ShapesAnchoredTo(RichTextDocument document, int paragraphIndex)
+    {
+        foreach (DocumentShape shape in document.Shapes)
+        {
+            if (shape.ParagraphIndex == paragraphIndex)
+                yield return shape;
+        }
     }
 
     /// <summary>
@@ -839,6 +902,73 @@ public static class OdtWriter
         private readonly List<ListKind> _listKinds = [];
         private readonly List<DocumentDiagnostic> _diagnostics = [];
         private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
+        private readonly List<XElement> _shapeStyles = [];
+        private readonly List<XElement> _gradients = [];
+
+        /// <summary>The graphic styles the document's shapes are painted by.</summary>
+        public IReadOnlyList<XElement> ShapeStyles => _shapeStyles;
+
+        /// <summary>The named gradients those graphic styles refer to.</summary>
+        public IReadOnlyList<XElement> Gradients => _gradients;
+
+        /// <summary>
+        /// The graphic style for one shape, created on first use. ODF puts the
+        /// paint in a named style rather than on the drawing, and a gradient in a
+        /// name beyond that, so a shape needs one or two declarations behind it.
+        /// </summary>
+        public string GetShapeStyleName(DocumentShape shape)
+        {
+            string name = "gr" + (_shapeStyles.Count + 1).ToString(CultureInfo.InvariantCulture);
+            var properties = new XElement(OdtNamespaces.Style + "graphic-properties");
+
+            if (shape.Fill is ShapeFill fill && fill.IsGradient)
+            {
+                string gradientName = "gradient" +
+                    (_gradients.Count + 1).ToString(CultureInfo.InvariantCulture);
+                _gradients.Add(new XElement(
+                    OdtNamespaces.Draw + "gradient",
+                    new XAttribute(OdtNamespaces.Draw + "name", gradientName),
+                    new XAttribute(OdtNamespaces.Draw + "style", "linear"),
+                    new XAttribute(OdtNamespaces.Draw + "start-color", OdtUnits.FormatColor(fill.Start)),
+                    new XAttribute(OdtNamespaces.Draw + "end-color", OdtUnits.FormatColor(fill.End)),
+                    new XAttribute(
+                        OdtNamespaces.Draw + "angle",
+                        ((long)Math.Round(fill.AngleDegrees * 10)).ToString(CultureInfo.InvariantCulture))));
+
+                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "gradient"));
+                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill-gradient-name", gradientName));
+            }
+            else if (shape.Fill is ShapeFill solid)
+            {
+                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "solid"));
+                properties.Add(new XAttribute(
+                    OdtNamespaces.Draw + "fill-color",
+                    OdtUnits.FormatColor(solid.Start)));
+            }
+            else
+            {
+                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "none"));
+            }
+
+            if (shape.Outline.IsEmpty)
+            {
+                properties.Add(new XAttribute(OdtNamespaces.Draw + "stroke", "none"));
+            }
+            else
+            {
+                properties.Add(new XAttribute(OdtNamespaces.Draw + "stroke", "solid"));
+                properties.Add(new XAttribute(
+                    OdtNamespaces.Svg + "stroke-color",
+                    OdtUnits.FormatColor(shape.Outline)));
+            }
+
+            _shapeStyles.Add(new XElement(
+                OdtNamespaces.Style + "style",
+                new XAttribute(OdtNamespaces.Style + "name", name),
+                new XAttribute(OdtNamespaces.Style + "family", "graphic"),
+                properties));
+            return name;
+        }
 
         /// <summary>The <c>style:style</c> elements to declare, in the order they were first needed.</summary>
         public IReadOnlyList<XElement> AutomaticStyles => _automaticStyles;

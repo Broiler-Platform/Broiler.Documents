@@ -210,6 +210,122 @@ internal static class OdtReader
             ? points
             : 0;
 
+    /// <summary>
+    /// Reads a drawing into a floating shape: its box, how it is painted, and any
+    /// text it carries.
+    /// </summary>
+    /// <remarks>
+    /// ODF puts the box on the drawing and the paint in a graphic style it names,
+    /// with a gradient named once more beyond that. A drawing with neither paint
+    /// nor text is left to the caller, which is what keeps a picture frame going
+    /// down the picture path rather than becoming an empty box.
+    /// </remarks>
+    private static bool ReadShape(XElement drawing, OdtReadContext context, int depth)
+    {
+        if (!OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "width"), out double width) ||
+            !OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "height"), out double height) ||
+            width <= 0 || height <= 0)
+        {
+            return false;
+        }
+
+        string? styleName = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
+        (ShapeFill? fill, BColor outline) = ReadShapeStyle(styleName, context.Styles);
+
+        // A frame keeps its text in a draw:text-box; a custom shape carries the
+        // paragraphs itself.
+        XElement textSource = drawing.Element(OdtNamespaces.Draw + "text-box") ?? drawing;
+        IReadOnlyList<RichTextParagraph> paragraphs = ReadShapeParagraphs(textSource, context, depth);
+
+        if (fill is null && paragraphs.Count == 0)
+            return false;
+
+        double x = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "x"), out double left)
+            ? left
+            : 0;
+        double y = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "y"), out double top)
+            ? top
+            : 0;
+
+        context.Builder.AddShape(new DocumentShape(
+            context.Builder.CurrentParagraphIndex,
+            x,
+            y,
+            width,
+            height,
+            fill,
+            outline,
+            paragraphs));
+        return true;
+    }
+
+    /// <summary>The fill and outline a graphic style states, resolving a named gradient.</summary>
+    private static (ShapeFill? Fill, BColor Outline) ReadShapeStyle(string? styleName, OdtStyles styles)
+    {
+        if (string.IsNullOrWhiteSpace(styleName) ||
+            !styles.GraphicProperties.TryGetValue(styleName, out XElement? properties))
+        {
+            return (null, BColor.Empty);
+        }
+
+        ShapeFill? fill = null;
+        string? kind = (string?)properties.Attribute(OdtNamespaces.Draw + "fill");
+        if (string.Equals(kind, "gradient", StringComparison.Ordinal))
+        {
+            string? gradientName = (string?)properties.Attribute(OdtNamespaces.Draw + "fill-gradient-name");
+            if (!string.IsNullOrWhiteSpace(gradientName) &&
+                styles.Gradients.TryGetValue(gradientName, out XElement? gradient) &&
+                TryColor((string?)gradient.Attribute(OdtNamespaces.Draw + "start-color"), out BColor start) &&
+                TryColor((string?)gradient.Attribute(OdtNamespaces.Draw + "end-color"), out BColor end))
+            {
+                double angle = double.TryParse(
+                    (string?)gradient.Attribute(OdtNamespaces.Draw + "angle"),
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out double tenths)
+                    ? tenths / 10d
+                    : 0;
+                fill = new ShapeFill(start, end, angle);
+            }
+        }
+        else if (string.Equals(kind, "solid", StringComparison.Ordinal) &&
+                 TryColor((string?)properties.Attribute(OdtNamespaces.Draw + "fill-color"), out BColor solid))
+        {
+            fill = ShapeFill.Solid(solid);
+        }
+
+        BColor outline = BColor.Empty;
+        string? stroke = (string?)properties.Attribute(OdtNamespaces.Draw + "stroke");
+        if (!string.Equals(stroke, "none", StringComparison.Ordinal))
+            TryColor((string?)properties.Attribute(OdtNamespaces.Svg + "stroke-color"), out outline);
+
+        return (fill, outline);
+    }
+
+    private static bool TryColor(string? value, out BColor color) =>
+        OdtUnits.TryParseColor(value, out color);
+
+    /// <summary>A shape's own paragraphs, read with the same walker the body uses.</summary>
+    private static IReadOnlyList<RichTextParagraph> ReadShapeParagraphs(
+        XElement textBox,
+        OdtReadContext context,
+        int depth)
+    {
+        var builder = new OdtDocumentBuilder(context.Builder.Limits, context.Builder.Diagnostics);
+        var nested = new OdtReadContext(context.Styles, context.Images, builder);
+        // A custom shape holds its geometry alongside its text. The geometry is
+        // the shape's form, not content, and walking it as a block reports an
+        // unsupported element for something the reader is deliberately not using.
+        ReadBlockContent(
+            textBox.Elements().Where(child => child.Name.Namespace == OdtNamespaces.Text),
+            nested,
+            list: null,
+            depth + 1);
+
+        IReadOnlyList<RichTextParagraph> paragraphs = builder.Build().Paragraphs;
+        return paragraphs.Count == 1 && paragraphs[0].Length == 0 ? [] : paragraphs;
+    }
+
     /// <summary>ODF §16.10: a master page's header and footer elements, left being the even page.</summary>
     private static readonly (string Element, bool IsHeader, PageSelection Selection)[] RunningParts =
     [
@@ -307,6 +423,15 @@ internal static class OdtReader
                 continue;
             }
 
+            // A drawing that carries paint or text of its own is a floating shape
+            // beside the body, not body content.
+            if (name == OdtNamespaces.Draw + "custom-shape" ||
+                name == OdtNamespaces.Draw + "rect")
+            {
+                if (ReadShape(element, context, depth))
+                    continue;
+            }
+
             // A frame at block level is a text box, an image floating on the page,
             // or an embedded object. Only the text box holds body content.
             if (name == OdtNamespaces.Draw + "frame")
@@ -314,6 +439,9 @@ internal static class OdtReader
                 XElement? textBox = element.Element(OdtNamespaces.Draw + "text-box");
                 if (textBox is not null)
                 {
+                    if (ReadShape(element, context, depth))
+                        continue;
+
                     builder.AddDiagnosticOnce(
                         "odt.frame.textbox",
                         "An ODT text box was read as body content; its frame position is not represented.");
@@ -590,8 +718,23 @@ internal static class OdtReader
                 continue;
             }
 
+            if (name == OdtNamespaces.Draw + "custom-shape" ||
+                name == OdtNamespaces.Draw + "rect")
+            {
+                ReadShape(element, context, depth: 0);
+                continue;
+            }
+
             if (name == OdtNamespaces.Draw + "frame")
             {
+                // A frame holding a text box is a shape; one holding an image is
+                // a picture. Try the shape first and fall through when it is not.
+                if (element.Element(OdtNamespaces.Draw + "text-box") is not null &&
+                    ReadShape(element, context, depth: 0))
+                {
+                    continue;
+                }
+
                 ReadPicture(element, context, style);
                 continue;
             }
@@ -1007,6 +1150,7 @@ internal static class OdtReader
         private readonly List<RichTextParagraph> _paragraphs = [];
         private readonly List<Segment> _segments = [];
         private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
+        private readonly List<DocumentShape> _shapes = [];
         private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
         private bool _pendingSpace;
         private int _length;
@@ -1018,8 +1162,6 @@ internal static class OdtReader
             _limits = limits;
             _diagnostics = diagnostics;
         }
-
-        public DocumentLimits Limits => _limits;
 
         public void NoteTable()
         {
@@ -1197,10 +1339,24 @@ internal static class OdtReader
             _paragraphStyle = ParagraphStyle.Default;
         }
 
-        public RichTextDocument Build() =>
-            _paragraphs.Count == 0
+        /// <summary>The paragraph a shape met right now would be anchored to.</summary>
+        public int CurrentParagraphIndex => _paragraphs.Count;
+
+        public DocumentLimits Limits => _limits;
+
+        /// <summary>Shared with the builder a shape's own text is read with.</summary>
+        public List<DocumentDiagnostic> Diagnostics => _diagnostics;
+
+        public void AddShape(DocumentShape shape) => _shapes.Add(shape);
+
+        public RichTextDocument Build()
+        {
+            RichTextDocument document = _paragraphs.Count == 0
                 ? RichTextDocument.Empty
                 : RichTextDocument.FromParagraphs(_paragraphs);
+
+            return _shapes.Count == 0 ? document : document.WithShapes(_shapes);
+        }
 
         public void AddDiagnosticOnce(string code, string message) =>
             AddDiagnosticOnce(code, code, message);
