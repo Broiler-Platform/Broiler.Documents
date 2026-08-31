@@ -525,8 +525,8 @@ internal static class DocxReader
         }
 
         XElement? ind = pPr.Element(DocxNamespaces.Wordprocessing + "ind");
-        if (ind is not null && TryReadInt(ind.Attribute(DocxNamespaces.Wordprocessing + "left"), out int leftTwips))
-            style = style with { IndentLevel = Math.Max(style.IndentLevel, (int)Math.Round(leftTwips / 360f)) };
+        if (ind is not null && TryReadStartIndent(ind, out int startTwips))
+            style = style with { IndentLevel = Math.Max(style.IndentLevel, (int)Math.Round(startTwips / 360f)) };
 
         XElement? numPr = pPr.Element(DocxNamespaces.Wordprocessing + "numPr");
         if (numPr is not null)
@@ -723,6 +723,21 @@ internal static class DocxReader
 
     private static bool TryReadInt(XAttribute? attribute, out int value) =>
         int.TryParse((string?)attribute, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+
+    /// <summary>
+    /// Reads a <c>w:ind</c>'s leading indent under either of its legal names.
+    /// <c>w:start</c> is the writing-direction name ISO 29500 strict gave
+    /// <c>w:left</c>, and the transitional schema every .docx uses allows both.
+    /// Which name a file carries is a property of the filter that wrote it, not
+    /// of its content: LibreOffice writes <c>w:start</c> through its "Office
+    /// Open XML Text" export and <c>w:left</c> through "Word 2007-365", and
+    /// Word writes <c>w:start</c> only in strict mode. Reading one name alone
+    /// silently flattens every indent the other wrote. When a file carries
+    /// both, the newer name wins.
+    /// </summary>
+    private static bool TryReadStartIndent(XElement ind, out int twips) =>
+        TryReadInt(ind.Attribute(DocxNamespaces.Wordprocessing + "start"), out twips) ||
+        TryReadInt(ind.Attribute(DocxNamespaces.Wordprocessing + "left"), out twips);
 
     private static bool TryReadTwips(XAttribute? attribute, out float points)
     {
