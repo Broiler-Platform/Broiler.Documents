@@ -245,6 +245,8 @@ public static class HtmlWriter
             declarations.Add("text-align: center");
         else if (style.Alignment == TextAlignment.Right)
             declarations.Add("text-align: right");
+        else if (style.Alignment == TextAlignment.Justify)
+            declarations.Add("text-align: justify");
 
         if (Math.Abs(style.LineSpacing - 1f) > 0.001f)
             declarations.Add("line-height: " + style.LineSpacing.ToString("0.###", CultureInfo.InvariantCulture));

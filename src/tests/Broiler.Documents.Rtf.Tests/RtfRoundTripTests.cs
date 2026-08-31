@@ -185,4 +185,16 @@ public sealed class RtfRoundTripTests
 
         AssertEquivalent(first, second);
     }
+
+    [Fact(Timeout = 600000)]
+    public void A_Justified_Paragraph_Round_Trips_As_Justified()
+    {
+        RichTextDocument document = Doc(Para(
+            ParagraphStyle.Default with { Alignment = TextAlignment.Justify },
+            ("both edges flush", InlineStyle.Default)));
+
+        Assert.Contains("\\qj", Encoding.ASCII.GetString(RtfWriter.WriteToArray(document)));
+        AssertEquivalent(document, RoundTrip(document));
+    }
+
 }

@@ -122,6 +122,8 @@ public static class DocxWriter
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "center")));
         else if (style.Alignment == TextAlignment.Right)
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "right")));
+        else if (style.Alignment == TextAlignment.Justify)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "both")));
 
         if (Math.Abs(style.LineSpacing - 1f) > 0.001f ||
             Math.Abs(style.SpacingBefore) > 0.001f ||

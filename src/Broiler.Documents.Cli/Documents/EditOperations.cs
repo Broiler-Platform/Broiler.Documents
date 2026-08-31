@@ -60,7 +60,7 @@ public static class EditOperations
         "               color, highlight (#RRGGBB, #RRGGBBAA, CSS name, or default);",
         "               font (family name or default); size (points or default);",
         "               link (URL or off).",
-        "  para keys    align (left|center|right); list (none|bullet|numbered);",
+        "  para keys    align (left|center|right|justify); list (none|bullet|numbered);",
         "               indent (level); linespacing (multiplier); before, after (points).",
         "  image keys   file (path, required); width, height (points, default the encoded",
         "               pixel size read as CSS pixels); alt; name. This field runs to the",
@@ -574,7 +574,9 @@ public static class EditOperations
         "left" or "start" => TextAlignment.Left,
         "center" or "centre" => TextAlignment.Center,
         "right" or "end" => TextAlignment.Right,
-        _ => throw new UsageException("align expects left, center, or right, not \"" + value + "\"."),
+        "justify" or "both" => TextAlignment.Justify,
+        _ => throw new UsageException(
+            "align expects left, center, right, or justify, not \"" + value + "\"."),
     };
 
     private static ListKind List(string value) => value.ToLowerInvariant() switch

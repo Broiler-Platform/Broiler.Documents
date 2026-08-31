@@ -84,6 +84,7 @@ public enum FormatCodePaletteEntry
     AlignLeft,
     AlignCenter,
     AlignRight,
+    AlignJustify,
     BulletList,
     NumberedList,
     Indent,
@@ -194,7 +195,8 @@ public static class FormatCodeEditValidator
     private static FormatCodeEditValidationResult ValidateParagraph(ParagraphStyleDelta delta)
     {
         if (delta.Alignment is TextAlignment alignment &&
-            alignment is not TextAlignment.Left and not TextAlignment.Center and not TextAlignment.Right)
+            alignment is not TextAlignment.Left and not TextAlignment.Center and
+            not TextAlignment.Right and not TextAlignment.Justify)
         {
             return FormatCodeEditValidationResult.Invalid("FCEDIT034");
         }
@@ -328,6 +330,8 @@ public static class FormatCodeInsertPalette
             new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Center)),
         FormatCodePaletteEntry.AlignRight =>
             new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Right)),
+        FormatCodePaletteEntry.AlignJustify =>
+            new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Justify)),
         FormatCodePaletteEntry.BulletList =>
             new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithListKind(ListKind.Bullet)),
         FormatCodePaletteEntry.NumberedList =>

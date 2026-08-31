@@ -126,6 +126,7 @@ public static class RtfWriter
         {
             case TextAlignment.Center: sb.Append("\\qc"); break;
             case TextAlignment.Right: sb.Append("\\qr"); break;
+            case TextAlignment.Justify: sb.Append("\\qj"); break;
             default: break; // Left is the \pard default.
         }
 

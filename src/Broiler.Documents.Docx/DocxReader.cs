@@ -504,6 +504,7 @@ internal static class DocxReader
         {
             "center" => style with { Alignment = TextAlignment.Center },
             "right" or "end" => style with { Alignment = TextAlignment.Right },
+            "both" or "distribute" => style with { Alignment = TextAlignment.Justify },
             _ => style,
         };
 

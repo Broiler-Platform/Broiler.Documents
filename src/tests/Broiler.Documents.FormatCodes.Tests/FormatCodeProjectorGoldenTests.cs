@@ -167,4 +167,19 @@ public sealed class FormatCodeProjectorGoldenTests
         Assert.Equal(projection.Text, string.Concat(projection.Tokens.Select(token => token.DisplayText)));
         Assert.All(projection.Tokens, token => Assert.Equal(token.DisplayText.Length, token.ProjectedLength));
     }
+
+    [Fact(Timeout = 600000)]
+    public void Projects_Justification_As_Its_Own_Code_Without_A_Diagnostic()
+    {
+        FormatCodeProjection projection = _projector.Project(
+            RichTextDocument.FromParagraphs(
+                [RichTextParagraph.Create(
+                    string.Empty,
+                    InlineStyle.Default,
+                    ParagraphStyle.Default with { Alignment = TextAlignment.Justify })]));
+
+        Assert.Equal("[Align JUSTIFY][Empty Paragraph]", projection.Text);
+        Assert.DoesNotContain(projection.Diagnostics, d => d.Code == "FC1001");
+    }
+
 }
