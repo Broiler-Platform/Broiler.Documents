@@ -182,14 +182,14 @@ public sealed class OdtReaderStyleTests
     }
 
     [Fact]
-    public void Reports_A_Justified_Paragraph_Rather_Than_Inventing_An_Alignment()
+    public void Reads_A_Justified_Paragraph_As_Justified()
     {
         DocumentReadResult result = OdtTestPackage.ReadBody(
             OdtTestPackage.StyledParagraph("P1", "x"),
             OdtTestPackage.Style("P1", "<style:paragraph-properties fo:text-align=\"justify\"/>"));
 
-        Assert.Equal(TextAlignment.Left, result.Document.Paragraphs[0].Style.Alignment);
-        Assert.Contains(result.Diagnostics, d => d.Code == "odt.align.justify");
+        Assert.Equal(TextAlignment.Justify, result.Document.Paragraphs[0].Style.Alignment);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.align.justify");
     }
 
     [Fact]

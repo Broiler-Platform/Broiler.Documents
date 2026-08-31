@@ -634,11 +634,7 @@ internal static class OdtReader
                 style = style with { Alignment = TextAlignment.Left };
                 break;
             case "justify":
-                // The model has three alignments; justification is not one of
-                // them, and reading it as left is what the layout would do anyway.
-                builder.AddDiagnosticOnce(
-                    "odt.align.justify",
-                    "Justified ODT paragraphs were read as left-aligned; the model has no justification.");
+                style = style with { Alignment = TextAlignment.Justify };
                 break;
         }
 

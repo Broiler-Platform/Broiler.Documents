@@ -119,6 +119,7 @@ public sealed class FormatCodeProjector
             {
                 TextAlignment.Center => "CENTER",
                 TextAlignment.Right => "RIGHT",
+                TextAlignment.Justify => "JUSTIFY",
                 _ => $"UNKNOWN {((int)style.Alignment).ToString(CultureInfo.InvariantCulture)}",
             };
             builder.AddToken(
@@ -130,7 +131,8 @@ public sealed class FormatCodeProjector
                 FormatCodeMappingMode.Boundary,
                 ParagraphDescriptor(FormatCodeProperty.Alignment, paragraphRange,
                     ParagraphStyleDelta.WithAlignment(TextAlignment.Left)));
-            if (style.Alignment is not TextAlignment.Center and not TextAlignment.Right)
+            if (style.Alignment is not TextAlignment.Center and
+                not TextAlignment.Right and not TextAlignment.Justify)
                 builder.AddDiagnostic("FC1001", "Unknown text-alignment value was projected numerically.", paragraphRange);
         }
 

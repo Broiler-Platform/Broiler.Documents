@@ -452,6 +452,8 @@ public static class OdtWriter
             properties.Add(new XAttribute(OdtNamespaces.Fo + "text-align", "center"));
         else if (style.Alignment == TextAlignment.Right)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "text-align", "end"));
+        else if (style.Alignment == TextAlignment.Justify)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "text-align", "justify"));
 
         if (Math.Abs(style.SpacingBefore) > 0.001f)
         {

@@ -393,6 +393,7 @@ internal static class HtmlReader
         {
             "center" => style with { Alignment = TextAlignment.Center },
             "right" or "end" => style with { Alignment = TextAlignment.Right },
+            "justify" => style with { Alignment = TextAlignment.Justify },
             _ => style with { Alignment = TextAlignment.Left },
         };
     }

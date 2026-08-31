@@ -68,7 +68,7 @@ public sealed class RtfConformanceTests
     [InlineData("\\qc", TextAlignment.Center)]
     [InlineData("\\qr", TextAlignment.Right)]
     [InlineData("\\ql", TextAlignment.Left)]
-    [InlineData("\\qj", TextAlignment.Left)] // justify approximated to left
+    [InlineData("\\qj", TextAlignment.Justify)]
     public void Alignment_Control_Words_Map_As_Documented(string word, TextAlignment expected)
     {
         RichTextDocument document = Read("{\\rtf1\\pard" + word + " text\\par}");

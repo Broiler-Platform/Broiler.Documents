@@ -286,4 +286,17 @@ public sealed class OdtWriterTests
         using var reader = new StreamReader(stream, Encoding.UTF8);
         return reader.ReadToEnd();
     }
+
+    [Fact]
+    public void A_Justified_Paragraph_Round_Trips_As_Justified()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Create(
+                "body",
+                InlineStyle.Default,
+                ParagraphStyle.Default with { Alignment = TextAlignment.Justify })]);
+
+        DocumentAssert.Equivalent(document, RoundTrip(document));
+    }
+
 }

@@ -158,4 +158,25 @@ public sealed class HtmlWriterTests
 
         return paragraph;
     }
+
+    [Fact(Timeout = 600000)]
+    public void A_Justified_Paragraph_Keeps_Its_Alignment_Through_Html()
+    {
+        RichTextDocument expected = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Create(
+                "flush",
+                InlineStyle.Default,
+                ParagraphStyle.Default with { Alignment = TextAlignment.Justify })]);
+
+        Assert.Contains("text-align: justify", Write(expected));
+
+        byte[] bytes = HtmlDocumentCodec.WriteToArray(expected);
+        using var stream = new MemoryStream(bytes);
+        RichTextDocument actual = new HtmlDocumentCodec().Read(stream).Document;
+
+        Assert.Equal(
+            TextAlignment.Justify,
+            Assert.Single(actual.Paragraphs).Style.Alignment);
+    }
+
 }
