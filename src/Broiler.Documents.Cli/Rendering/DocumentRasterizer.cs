@@ -1,3 +1,4 @@
+using Broiler.Documents.Model;
 using System;
 using System.Collections.Generic;
 using Broiler.Documents.Cli.Composition;
@@ -60,6 +61,11 @@ public sealed class DocumentRasterizer : IDisposable
                 0.5);
         }
 
+        // Shapes first: a letterhead's stripe sits under its text, and the model
+        // has no z-order to say otherwise.
+        foreach (LayoutShape shape in page.Shapes)
+            DrawShape(list, shape);
+
         foreach (LayoutLine line in page.Lines)
             DrawLine(list, line);
 
@@ -81,6 +87,67 @@ public sealed class DocumentRasterizer : IDisposable
         _disposed = true;
         _renderer.Dispose();
     }
+
+    /// <summary>
+    /// Paints one shape: its fill, its outline, then its own text.
+    /// </summary>
+    /// <remarks>
+    /// A gradient is drawn as bands of solid colour because the render list has
+    /// no gradient primitive. The band count is the extent in points, capped, so
+    /// a band is about a point tall and the seams fall below what the eye picks
+    /// out at any sensible DPI.
+    /// </remarks>
+    private void DrawShape(BRenderList list, LayoutShape shape)
+    {
+        if (shape.Bounds.Width <= 0 || shape.Bounds.Height <= 0)
+            return;
+
+        if (shape.Fill is ShapeFill fill)
+        {
+            if (!fill.IsGradient)
+            {
+                list.FillRect(shape.Bounds, fill.Start);
+            }
+            else
+            {
+                // DrawingML measures the angle clockwise from the x axis. The
+                // render list fills rectangles, so the gradient is banded along
+                // whichever axis it runs closer to; a diagonal is approximated by
+                // the axis it is nearer.
+                double radians = fill.AngleDegrees * Math.PI / 180.0;
+                bool vertical = Math.Abs(Math.Sin(radians)) >= Math.Abs(Math.Cos(radians));
+                double extent = vertical ? shape.Bounds.Height : shape.Bounds.Width;
+                int bands = (int)Math.Clamp(Math.Round(extent), 2, 512);
+
+                for (int i = 0; i < bands; i++)
+                {
+                    double t = bands == 1 ? 0 : (double)i / (bands - 1);
+                    BColor color = Mix(fill.Start, fill.End, t);
+                    double start = extent * i / bands;
+                    double size = (extent / bands) + 0.5; // overlap, so no seam shows
+
+                    list.FillRect(
+                        vertical
+                            ? new BRect(shape.Bounds.Left, shape.Bounds.Top + start, shape.Bounds.Width, size)
+                            : new BRect(shape.Bounds.Left + start, shape.Bounds.Top, size, shape.Bounds.Height),
+                        color);
+                }
+            }
+        }
+
+        if (!shape.Outline.IsEmpty && shape.Outline.A > 0)
+            list.StrokeRect(shape.Bounds, shape.Outline, 1);
+
+        foreach (LayoutLine line in shape.Lines)
+            DrawLine(list, line);
+    }
+
+    private static BColor Mix(BColor from, BColor to, double t) =>
+        new(
+            (byte)Math.Round(from.R + ((to.R - from.R) * t)),
+            (byte)Math.Round(from.G + ((to.G - from.G) * t)),
+            (byte)Math.Round(from.B + ((to.B - from.B) * t)),
+            (byte)Math.Round(from.A + ((to.A - from.A) * t)));
 
     private void DrawLine(BRenderList list, LayoutLine line)
     {

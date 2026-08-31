@@ -82,7 +82,10 @@ internal static class DocxReader
                 reported,
                 partShapes));
             if (partShapes.Count > 0)
-                document = document.WithShapes([.. document.Shapes, .. partShapes]);
+                // A header shape is page decoration, so it belongs behind the
+                // shapes the body anchors - a stripe painted over a logo box
+                // would hide it.
+                document = document.WithShapes([.. partShapes, .. document.Shapes]);
             return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
         }
         catch (InvalidDataException ex)

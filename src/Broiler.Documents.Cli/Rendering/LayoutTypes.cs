@@ -122,17 +122,51 @@ public sealed class LayoutLine
 }
 
 /// <summary>One rendered page.</summary>
+/// <summary>
+/// A floating shape placed on a page: its box in page points, how it is painted,
+/// and any text it carries.
+/// </summary>
+public sealed class LayoutShape
+{
+    internal LayoutShape(BRect bounds, ShapeFill? fill, BColor outline, IReadOnlyList<LayoutLine> lines)
+    {
+        Bounds = bounds;
+        Fill = fill;
+        Outline = outline;
+        Lines = lines;
+    }
+
+    public BRect Bounds { get; }
+
+    public ShapeFill? Fill { get; }
+
+    public BColor Outline { get; }
+
+    /// <summary>The shape's own text, already positioned inside its box.</summary>
+    public IReadOnlyList<LayoutLine> Lines { get; }
+}
+
 public sealed class LayoutPage
 {
     private readonly List<LayoutLine> _lines;
+    private readonly List<LayoutShape> _shapes;
 
-    internal LayoutPage(int number, double widthPoints, double heightPoints, List<LayoutLine> lines)
+    internal LayoutPage(
+        int number,
+        double widthPoints,
+        double heightPoints,
+        List<LayoutLine> lines,
+        List<LayoutShape>? shapes = null)
     {
         Number = number;
         WidthPoints = widthPoints;
         HeightPoints = heightPoints;
         _lines = lines;
+        _shapes = shapes ?? [];
     }
+
+    /// <summary>The floating shapes on this page, drawn under its text.</summary>
+    public IReadOnlyList<LayoutShape> Shapes => _shapes;
 
     /// <summary>One-based page number.</summary>
     public int Number { get; }
