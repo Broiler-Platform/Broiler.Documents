@@ -230,7 +230,7 @@ internal static class OdtReader
         }
 
         string? styleName = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
-        (ShapeFill? fill, BColor outline) = ReadShapeStyle(styleName, context.Styles);
+        (ShapeFill? fill, BColor outline, bool behindText) = ReadShapeStyle(styleName, context.Styles);
 
         // A frame keeps its text in a draw:text-box; a custom shape carries the
         // paragraphs itself.
@@ -255,17 +255,29 @@ internal static class OdtReader
             height,
             fill,
             outline,
-            paragraphs));
+            paragraphs,
+            image: null,
+            behindText: behindText));
         return true;
     }
 
-    /// <summary>The fill and outline a graphic style states, resolving a named gradient.</summary>
-    private static (ShapeFill? Fill, BColor Outline) ReadShapeStyle(string? styleName, OdtStyles styles)
+    /// <summary>
+    /// The fill, outline, and stacking a graphic style states, resolving a named
+    /// gradient.
+    /// </summary>
+    /// <remarks>
+    /// A drawing that names no style, or names one the document does not define,
+    /// is unpainted and behind the text - the same answer an absent
+    /// <c>style:run-through</c> gets, and for the same reason.
+    /// </remarks>
+    private static (ShapeFill? Fill, BColor Outline, bool BehindText) ReadShapeStyle(
+        string? styleName,
+        OdtStyles styles)
     {
         if (string.IsNullOrWhiteSpace(styleName) ||
             !styles.GraphicProperties.TryGetValue(styleName, out XElement? properties))
         {
-            return (null, BColor.Empty);
+            return (null, BColor.Empty, true);
         }
 
         ShapeFill? fill = null;
@@ -299,8 +311,28 @@ internal static class OdtReader
         if (!string.Equals(stroke, "none", StringComparison.Ordinal))
             TryColor((string?)properties.Attribute(OdtNamespaces.Svg + "stroke-color"), out outline);
 
-        return (fill, outline);
+        return (fill, outline, BehindText(properties));
     }
+
+    /// <summary>
+    /// ODF's <c>style:run-through</c>: whether the drawing is painted under the
+    /// text (<c>background</c>) or over it (<c>foreground</c>). It is all of the
+    /// stacking the model keeps, and the difference between a letterhead's stripe
+    /// and a stamp over the letter.
+    /// </summary>
+    /// <remarks>
+    /// A style that states nothing reads as behind. That is not ODF's own default,
+    /// which puts a drawing in front; it is the answer this reader has always
+    /// given, and the safe half of the choice - a box wrongly in front hides the
+    /// text under it, while one wrongly behind leaves the document readable. The
+    /// writer states the attribute either way, so a round trip does not lean on it.
+    /// </remarks>
+    private static bool BehindText(XElement graphicProperties) =>
+        (string?)graphicProperties.Attribute(OdtNamespaces.Style + "run-through") switch
+        {
+            "foreground" => false,
+            _ => true,
+        };
 
     private static bool TryColor(string? value, out BColor color) =>
         OdtUnits.TryParseColor(value, out color);
@@ -1029,7 +1061,7 @@ internal static class OdtReader
             context.Builder.AddDiagnosticOnce(
                 "odt.image.anchored",
                 "A floating ODT picture was anchored to its paragraph; " +
-                "text wrapping and z-order are not represented.");
+                "text wrapping is not represented.");
 
             if (ReadFloatingPicture(frame, context))
                 return;
@@ -1074,7 +1106,7 @@ internal static class OdtReader
             return false;
 
         string? styleName = (string?)frame.Attribute(OdtNamespaces.Draw + "style-name");
-        (ShapeFill? fill, BColor outline) = ReadShapeStyle(styleName, context.Styles);
+        (ShapeFill? fill, BColor outline, bool behindText) = ReadShapeStyle(styleName, context.Styles);
 
         double x = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "x"), out double left)
             ? left
@@ -1092,7 +1124,8 @@ internal static class OdtReader
             fill,
             outline,
             paragraphs: null,
-            image: image));
+            image: image,
+            behindText: behindText));
         return true;
     }
 

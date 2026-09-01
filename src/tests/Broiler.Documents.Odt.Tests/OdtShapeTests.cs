@@ -125,6 +125,31 @@ public sealed class OdtShapeTests
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.block.unsupported");
     }
 
+    [Theory]
+    [InlineData(true, "background")]
+    [InlineData(false, "foreground")]
+    public void A_Shape_States_Which_Side_Of_The_Text_It_Sits_On(bool behindText, string expected)
+    {
+        string content = ContentOf(OdtDocumentCodec.WriteToArray(
+            WithShapes(new DocumentShape(0, -40, 0, 30, 200, Green, behindText: behindText))));
+
+        Assert.Contains(
+            "style:run-through=\"" + expected + "\"",
+            content,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_Shape_Round_Trips_The_Side_Of_The_Text_It_Sits_On(bool behindText)
+    {
+        RichTextDocument source = WithShapes(
+            new DocumentShape(0, -40, 0, 30, 200, Green, behindText: behindText));
+
+        Assert.Equal(behindText, Assert.Single(RoundTrip(source).Shapes).BehindText);
+    }
+
     [Fact]
     public void A_Document_Without_Shapes_Writes_None()
     {

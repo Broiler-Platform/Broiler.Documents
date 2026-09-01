@@ -1090,10 +1090,21 @@ public static class OdtWriter
         /// paint in a named style rather than on the drawing, and a gradient in a
         /// name beyond that, so a shape needs one or two declarations behind it.
         /// </summary>
+        /// <remarks>
+        /// <c>style:run-through</c> is stated either way rather than left off the
+        /// shapes that sit behind the text. The reader treats an absent one as
+        /// behind, which is not what ODF says, so writing it is what keeps a round
+        /// trip from resting on that reading - and what tells a consumer which
+        /// side of the text the shape was authored on.
+        /// </remarks>
         public string GetShapeStyleName(DocumentShape shape)
         {
             string name = "gr" + (_shapeStyles.Count + 1).ToString(CultureInfo.InvariantCulture);
-            var properties = new XElement(OdtNamespaces.Style + "graphic-properties");
+            var properties = new XElement(
+                OdtNamespaces.Style + "graphic-properties",
+                new XAttribute(
+                    OdtNamespaces.Style + "run-through",
+                    shape.BehindText ? "background" : "foreground"));
 
             if (shape.Fill is ShapeFill fill && fill.IsGradient)
             {
