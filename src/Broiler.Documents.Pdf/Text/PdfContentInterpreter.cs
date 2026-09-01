@@ -717,15 +717,19 @@ internal sealed class PdfContentInterpreter
             DescribeFilters(filter),
             IsInline: false);
 
-        // With a decoder composed, the dictionary stops being the last word. It
-        // is what the document claims; the decode is what is true, and the two
-        // disagreeing is worth knowing.
-        if (ComposedImageFilter(filter) is not null)
+        // With every filter in the chain composed, the dictionary stops being the
+        // last word. It is what the document claims; the decode is what is true,
+        // and the two disagreeing is worth knowing. A chain of byte-stream
+        // filters — or no filter at all — qualifies exactly as a composed image
+        // codec does: Flate samples are as reachable as JPEG ones, and treating
+        // them otherwise told the caller this build had no decoder for an image
+        // whose decoder it had composed all along.
+        if (CanDecode(filter) && DecodeToDescribe(stream) is PdfStreamDecodeResult decoded)
         {
-            PdfStreamDecodeResult decoded = _store.Filters.DecodeImage(stream, _store.Resolve, _store.Budget);
             if (decoded.Succeeded)
             {
-                _store.Features.NoteDecodedImage(shape, decoded.Data!.LongLength, _store.CurrentPage);
+                _store.Features.NoteDecodedImage(
+                    shape, decoded.Data!.LongLength, _store.CurrentPage, HasImageFilter(filter));
                 return;
             }
 
@@ -741,18 +745,81 @@ internal sealed class PdfContentInterpreter
     }
 
     /// <summary>
-    /// The image filter in this chain that a decoder is composed for, or null
-    /// when there is none — which is the default build.
+    /// True when this chain ends in an image codec rather than in byte-stream
+    /// filters, which decides what a successful decode's samples look like.
     /// </summary>
-    private string? ComposedImageFilter(PdfObject? filter)
+    private bool HasImageFilter(PdfObject? filter)
     {
         foreach (string name in FilterNames(filter))
         {
-            if (PdfFilterNames.IsImageFilter(name) && _store.Filters.IsComposed(name))
-                return name;
+            if (PdfFilterNames.IsImageFilter(name))
+                return true;
         }
 
-        return null;
+        return false;
+    }
+
+    /// <summary>
+    /// True when every filter in this chain has a composed implementation, so a
+    /// decode would describe the image rather than fail for want of a decoder.
+    /// An empty chain qualifies: raw samples need no decoder at all.
+    /// </summary>
+    private bool CanDecode(PdfObject? filter)
+    {
+        foreach (string name in FilterNames(filter))
+        {
+            if (!_store.Filters.IsComposed(name))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Decodes an image for the sole purpose of describing it, or returns null
+    /// when the budget declined the attempt and the dictionary stays the only
+    /// account of it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Nothing decoded here reaches the model, because the model carries no
+    /// images (PDF roadmap §6.2). The decode buys a true sentence and an honest
+    /// byte count, so it spends like the diagnostic work it is: one image may
+    /// spend up to <see cref="PdfLimits.MaxDescribedImageBytes"/> of encoded
+    /// input, and descriptions stop entirely once half the read's decoded-byte
+    /// allowance is gone. Describing images can therefore never be the reason a
+    /// document's own content runs out of budget.
+    /// </para>
+    /// <para>
+    /// A declined attempt reports the image from its dictionary, under the same
+    /// code and the same sentence an image this build cannot reach would use. It
+    /// does not say a budget stopped it: how much allowance was left when a given
+    /// image was reached is a fact about the read, not about the document, and a
+    /// diagnostic names constructs.
+    /// </para>
+    /// </remarks>
+    private PdfStreamDecodeResult? DecodeToDescribe(PdfStream stream)
+    {
+        PdfWorkBudget budget = _store.Budget;
+        if (stream.RawData.LongLength > budget.Limits.MaxDescribedImageBytes ||
+            budget.RemainingDecodedBytes <= budget.Limits.MaxDecodedStreamBytes / 2)
+        {
+            return null;
+        }
+
+        try
+        {
+            return _store.Filters.DecodeImage(stream, _store.Resolve, budget);
+        }
+        catch (PdfLimitExceededException)
+        {
+            // Describing a construct that is being skipped must not be able to
+            // fail the document — the same rule the inline-image parameter read
+            // follows. A charge that lands past a limit ends this image's
+            // description and nothing else; the next charge for work the
+            // document actually needs raises it again.
+            return null;
+        }
     }
 
     /// <summary>

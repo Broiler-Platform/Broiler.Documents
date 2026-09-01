@@ -77,7 +77,7 @@ still reads; the affected construct is reported rather than guessed at.
 | Any other named filter | `pdf.filter.not-composed` | — |
 | Embedded font programs | `pdf.font.program-not-composed` | IP-012 (**approved** for inspection; see §4.4) |
 | Type 3 fonts | `pdf.font.type3-unsupported` | — |
-| Raster images generally | `pdf.image.not-composed` | IP-005 |
+| Inline images, and images naming a filter with no composed implementation | `pdf.image.not-composed` | IP-005 |
 | Encrypted documents | `pdf.encryption.unsupported` (rejection) | IP-015 |
 | Signatures | `pdf.signature.not-validated` | IP-016 |
 

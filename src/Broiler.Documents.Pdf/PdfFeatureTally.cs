@@ -160,8 +160,13 @@ internal sealed class PdfFeatureTally
     /// document's worth of decoded pixels to describe them would cost more than
     /// the decode did.
     /// </summary>
-    public void NoteDecodedImage(in PdfImageShape declared, long sampleBytes, int? page) =>
-        _decodedImages.Add(declared, sampleBytes, page);
+    /// <param name="codec">
+    /// True when an image codec produced the samples, false when a byte-stream
+    /// chain did. The two produce different sample layouts, and only the
+    /// declaration's own arithmetic can say whether either matches it.
+    /// </param>
+    public void NoteDecodedImage(in PdfImageShape declared, long sampleBytes, int? page, bool codec) =>
+        _decodedImages.Add(declared, sampleBytes, page, codec);
 
     /// <summary>Records one embedded font program that was detected and not opened.</summary>
     public void NoteFontProgram(in PdfFontProgram program)
@@ -233,7 +238,7 @@ internal sealed class PdfFeatureTally
         codes.Sort(StringComparer.Ordinal);
 
         foreach (string code in codes)
-            diagnostics.Skipped(code, _images[code].Describe());
+            diagnostics.Skipped(code, _images[code].Describe(code));
     }
 
     private void ReportDecodedImages(PdfDiagnosticSink diagnostics)
@@ -376,12 +381,27 @@ internal sealed class PdfFeatureTally
             _variants[variant] = 1;
         }
 
-        public string Describe()
+        /// <summary>
+        /// Describes the group under the code it was filed against.
+        /// </summary>
+        /// <remarks>
+        /// The code decides the reason, because the codes mean different things.
+        /// A tuple code — <c>DCTDecode</c> and its relatives — was filed because
+        /// this build composes no decoder for that filter, which is the sentence
+        /// it has always carried. The generic code is what an image reports when
+        /// a decoder was never the obstacle: an inline image, which is read from
+        /// its declaration by design, or a stream this build could decode and has
+        /// nowhere to put. Telling that second group it wanted a decoder named a
+        /// gap the build did not have and hid the one it did.
+        /// </remarks>
+        public string Describe(string code)
         {
             var text = new StringBuilder();
             text.Append(_reasons.Count > 0
                 ? "The page draws a raster image that the composed image decoder would not decode. "
-                : "The page draws a raster image. This build composes no image decoder, so the image was detected and skipped. ");
+                : code == PdfDiagnosticCodes.ImageNotComposed
+                    ? "The page draws a raster image. The logical model carries no images, so the image was detected and skipped. "
+                    : "The page draws a raster image. This build composes no image decoder, so the image was detected and skipped. ");
             text.Append(CultureInfo.InvariantCulture, $"{_total} image{S(_total)}");
             if (_inline == _total)
                 text.Append(", all inline,");
@@ -441,17 +461,15 @@ internal sealed class PdfFeatureTally
 
         public int Total { get; private set; }
 
-        public void Add(in PdfImageShape declared, long sampleBytes, int? page)
+        public void Add(in PdfImageShape declared, long sampleBytes, int? page, bool codec)
         {
             Total++;
             _pages.Add(page);
             _sampleBytes += sampleBytes;
 
-            // The filter produces 8-bit RGBA, so the sample count fixes the pixel
-            // count without the pipeline having to carry dimensions back.
-            if (declared.Width > 0 && declared.Height > 0)
+            if (ExpectedSampleBytes(declared, codec) is long expected)
             {
-                if ((long)declared.Width * declared.Height * 4 == sampleBytes)
+                if (expected == sampleBytes)
                     _agreed++;
                 else
                     _disagreed++;
@@ -473,9 +491,52 @@ internal sealed class PdfFeatureTally
             _variants[variant] = 1;
         }
 
+        /// <summary>
+        /// The sample bytes a decode of this image should have produced, or null
+        /// where the declaration does not fix one and a mismatch would be an
+        /// arithmetic artefact rather than a disagreement.
+        /// </summary>
+        /// <remarks>
+        /// A composed image codec normalizes to 8-bit RGBA, so a pixel count
+        /// fixes a byte count. A byte-stream chain — Flate, LZW, or no filter at
+        /// all — yields the image's own samples instead, packed at the declared
+        /// depth and padded to a byte boundary at the end of each row. The two
+        /// are different arithmetic, and holding raw samples to the codec's
+        /// would report every stencil mask as disagreeing with its own
+        /// dictionary.
+        /// </remarks>
+        private static long? ExpectedSampleBytes(in PdfImageShape declared, bool codec)
+        {
+            if (declared.Width <= 0 || declared.Height <= 0)
+                return null;
+
+            if (codec)
+                return (long)declared.Width * declared.Height * 4;
+
+            // Only the device spaces fix a component count from the family name.
+            // Indexed, ICCBased, Separation and the rest carry theirs elsewhere,
+            // and guessing one would invent a disagreement.
+            int components = declared.ColorSpace switch
+            {
+                "ImageMask" or "DeviceGray" => 1,
+                "DeviceRGB" => 3,
+                "DeviceCMYK" => 4,
+                _ => 0,
+            };
+
+            // A stencil mask is one bit per sample by definition, whether or not
+            // the dictionary bothered to say so.
+            int bits = declared.ColorSpace == "ImageMask" ? 1 : declared.BitsPerComponent;
+            if (components == 0 || bits <= 0)
+                return null;
+
+            long rowBytes = ((long)declared.Width * components * bits + 7) / 8;
+            return rowBytes * declared.Height;
+        }
+
         public string Describe()
         {
-            var text = new StringBuilder("A composed image decoder read the page's raster images. ");
+            var text = new StringBuilder("The page draws raster images this build can decode. ");
             text.Append(CultureInfo.InvariantCulture,
                 $"{Total} image{S(Total)} {Were(Total)} decoded to {_sampleBytes} bytes of samples and then dropped: ");
             text.Append("this release's logical model carries no images, so nothing was projected into the result.");
