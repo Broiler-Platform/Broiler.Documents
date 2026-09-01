@@ -53,8 +53,12 @@ Open XML WordprocessingML package parts.
   BMP, TIFF, WebP, and ICO.
 - Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
   shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
-  `wp:positionV` against the text column and its paragraph — the same box a
-  `wps:wsp` shape gets, because it is the same anchor. Its `behindDoc` is read
+  `wp:positionV`, converted from whichever frame the anchor names into the text
+  column and its paragraph — the same box a `wps:wsp` shape gets, because it is
+  the same anchor. Horizontally every frame converts exactly: a stripe stated at
+  nothing from the left margin and one stated at minus the margin from the
+  column are the same stripe, and only the second used to arrive in the right
+  place. Its `behindDoc` is read
   and written back, so a stripe the letter is written on top of and a stamp
   meant to cover it each stay on the side of the text they were authored on.
   The picture is written back as an anchored picture. A logo hung over a
@@ -69,11 +73,16 @@ Open XML WordprocessingML package parts.
 - A floating picture keeps its position and its layer, not its wrapping: text
   does not flow around it. `behindDoc` is the whole of the stacking that is
   represented — order *among* shapes on the same side of the text is not, and
-  they draw in the order they were read. `relativeFrom` is not read either, so a
-  picture positioned against the page or the margin is placed against the text
-  column instead. A picture whose anchor states no `wp:extent` has no box to
-  float at and stays in the text. Crops, rotation, and picture effects are
-  dropped.
+  they draw in the order they were read. A picture whose anchor states no
+  `wp:extent` has no box to float at and stays in the text. Crops, rotation, and
+  picture effects are dropped.
+- A vertical `relativeFrom` other than `paragraph` or `line` is not converted.
+  Those frames measure from the page, and where a paragraph sits on a page is a
+  layout result the reader does not have — a shape on the fortieth paragraph
+  could land on any page. The offset is kept as stated and measured from the
+  anchoring paragraph instead, with `docx.anchor.relativefrom`. `insideMargin`
+  and `outsideMargin` name a side that depends on the page's parity, so
+  horizontally they are read as an odd page's, reported with the same code.
 - An anchored picture in a header or footer is anchored to the body's first
   paragraph, like any other shape read from a header, with
   `docx.shape.fromheader`. The index it held in the header part is dropped
@@ -136,6 +145,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.limit` | Warning | An image part exceeded `MaxBinBytes` and was skipped. |
 | `docx.image.shape` | Warning | A drawing held no embedded picture. |
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph; wrapping is not represented. |
+| `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's, or a page-relative vertical offset kept as stated. |
 
 `Broiler.Cli --convert-doc <in> --output <out>` prints all of them, which is the
 quickest way to see what a problem document lost. In the Writer, set
