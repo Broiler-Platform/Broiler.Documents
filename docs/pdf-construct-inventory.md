@@ -2,7 +2,7 @@
 
 - **Status:** Active; regenerated whenever the codec's behavior changes
 - **Component:** `Broiler.Documents.Pdf`
-- **Updated:** 2026-08-25
+- **Updated:** 2026-09-01 (IP-001 approved)
 - **Purpose:** to scope the IP-001 qualified review by stating exactly which PDF
   constructs the implementation reads, writes, recognizes without interpreting,
   and rejects
@@ -19,6 +19,13 @@ definite subject. It now does, and this inventory is that subject written down.
 A reviewer should be able to work from this document alone to answer "what does
 this implementation actually do with the format?" without reading the code, and
 to spot-check any row against the named source file when they want to.
+
+Where a row's behavior is "recognized and skipped", the codec also reports what
+it met — how many, of which declared variants, on which pages. That inventory is
+specified in
+[PDF extension points §3.1](pdf-extension-points.md#31-what-a-skip-report-carries),
+and it is the evidence a reviewer scoping IP-005 or IP-012 would otherwise have
+to gather by hand. It changes no behavior and decodes nothing.
 
 **This is not a conformance claim.** It states behavior, not compliance. No entry
 here promotes anything in the [feature matrix](pdf-feature-matrix.md), which
@@ -58,7 +65,7 @@ IP-001 determination has to cover on the reading side.
 | `ASCIIHexDecode` | 7.4.2 | Decoded | `Filters/BuiltInFilters.cs` |
 | `ASCII85Decode` | 7.4.3 | Decoded | `Filters/BuiltInFilters.cs` |
 | `FlateDecode` | 7.4.4 | Decoded via the .NET runtime's DEFLATE (IP-023) | `Filters/BuiltInFilters.cs` |
-| PNG and TIFF predictors | 7.4.4.4 | Reversed | `Filters/PdfPredictor.cs` |
+| PNG and TIFF predictors | 7.4.4.4 | Reversed. TIFF predictor 2 at 1, 2, 4, 8, and 16 bits per component; the PNG predictors None, Sub, Up, Average, and Paeth, each row honoured by its own tag | `Filters/PdfPredictor.cs` |
 | `RunLengthDecode` | 7.4.5 | Decoded | `Filters/BuiltInFilters.cs` |
 | Chained filters and `DecodeParms` | 7.4.1 | Applied in order, per-stage and aggregate budgets | `Filters/PdfFilterPipeline.cs` |
 | File header, including a header not at byte zero | 7.5.2 | Located; version parsed | `Structure/PdfObjectStore.cs` |
@@ -108,33 +115,55 @@ distinction that matters for the register rows they belong to.
 
 | Construct | Clause (provisional) | Diagnostic | Register row |
 |---|---|---|---|
-| `LZWDecode` | 7.4.4 | `pdf.filter.lzw.unsupported` | IP-010 |
-| `CCITTFaxDecode` | 7.4.6 | `pdf.filter.ccitt.unsupported` | IP-009 |
-| `JBIG2Decode` | 7.4.7 | `pdf.filter.jbig2.unsupported` | IP-008 |
-| `DCTDecode` | 7.4.8 | `pdf.image.dct.tuple-unsupported` | IP-005, IP-006 |
-| `JPXDecode` | 7.4.9 | `pdf.filter.jpx.unsupported` | IP-007 |
+| `LZWDecode` | 7.4.4 | Implemented in the base build, `EarlyChange` honoured, output bounded while produced | IP-010 approved and retired |
+| `CCITTFaxDecode` | 7.4.6 | MH, MR, and MMR decode when `CcittFaxStreamFilter` is composed, honouring `K`, `Columns`, `Rows`, `BlackIs1`, `EncodedByteAlign`, and `EndOfLine`; nothing is composed by default, and an uncomposed build reports `pdf.filter.ccitt.unsupported` | IP-009 approved on patents; code tables pending SRC-017 |
+| `JBIG2Decode` | 7.4.7 | Reported with `pdf.filter.jbig2.unsupported`. Where `Jbig2StreamFilter` is composed the segment structure and any `JBIG2Globals` are read, generic regions coded with MMR decode and composite onto the page, and a page holding any other region type is refused whole with its segment inventory named | IP-008 approved; arithmetic decoder unwritten |
+| `DCTDecode` | 7.4.8 | Baseline sequential DCT, Huffman, 8-bit, 1 or 3 components decodes when `JpegStreamFilter` is composed, with the colour transform resolved from the Adobe `APP14` marker, the `/ColorTransform` entry, or the format default. Progressive reports `pdf.image.dct.progressive-unsupported`; contradictory colour declarations report `pdf.image.dct.color-transform-uncertain`; every other tuple, including transform 0 on three components and YCCK, reports `pdf.image.dct.tuple-unsupported`. Nothing is composed by default | IP-005, IP-006 approved |
+| `JPXDecode` | 7.4.9 | Reported with `pdf.filter.jpx.unsupported`. Where `JpxStreamFilter` is composed the JP2 boxes and the SIZ/COD markers are read, so the note carries the real tuple — size, components, depth, decomposition levels, wavelet — and a Part 2 codestream is refused by `Rsiz` as outside the row. No entropy decoding | IP-007 approved for Part 1; decoder unwritten |
 | `Crypt` filter | 7.4.10 | `pdf.filter.crypt.unsupported` | IP-015 |
-| Image XObjects and inline images (`BI`/`ID`/`EI`) | 8.9 | `pdf.image.not-composed` | IP-005 |
-| Embedded font programs (`/FontFile`, `/FontFile2`, `/FontFile3`) | 9.8 | `pdf.font.program-not-composed` | IP-012 |
+| Image XObjects and inline images (`BI`/`ID`/`EI`) | 8.9 | Reported from the image dictionary with `pdf.image.not-composed`. An image XObject whose filter has a composed decoder is decoded and reported with `pdf.image.decoded-not-projected`: the samples exist, and the logical model carries no images. Inline images are never decoded | IP-005 |
+| Embedded font programs (`/FontFile`, `/FontFile2`, `/FontFile3`) | 9.8 | Reported with `pdf.font.program-not-composed`. Where a reader is composed, an sfnt program (`FontFile2`, `FontFile3` `/OpenType`) on a composite identity-encoded font is read for glyph-to-text and supplies the text `ToUnicode` did not; Type 1 and bare CFF stay unread. No program is ever embedded, subsetted, or re-emitted | IP-012 approved for inspection |
 | Type 3 fonts | 9.6.4 | `pdf.font.type3-unsupported` | — |
-| `MacExpertEncoding` and symbolic built-in encodings | Annex D | `pdf.text.mapping-missing-or-uncertain` | IP-013 |
+| Symbol's built-in encoding | Annex D | Mapped from an authored table; a font merely flagged symbolic gets no table, because the encoding belongs to that font name and not to the flag | IP-013, IP-021 |
+| `MacExpertEncoding` and ZapfDingbats' built-in encoding | Annex D | `pdf.text.mapping-missing-or-uncertain`; ZapfDingbats is recognized specifically so the Latin fallback cannot claim its ornaments are letters | IP-013 |
 | Predefined CMaps other than the Identity pair | 9.7.5 | `pdf.text.mapping-missing-or-uncertain` | IP-013 |
-| Metadata streams (XMP) | 14.3.2 | `document.metadata.raw-dropped` | IP-004 |
-| Path painting and shading operators | 8.5, 8.7 | `pdf.import.vector-artwork-dropped` | — |
+| Metadata streams (XMP) | 14.3.2 | Decoded through the ordinary filter pipeline and parsed into the normalized allowlist under the pinned ISO 16684-1:2019 subset; XMP wins per field, `Info` fills the rest, disagreement emits `pdf.metadata.conflict`, an unusable packet emits `pdf.metadata.xmp-unusable` and falls back to `Info`, and the raw packet is dropped with `document.metadata.raw-dropped` | IP-004 approved |
+| Path painting and shading operators | 8.5, 8.7 | `pdf.import.vector-artwork-dropped`, counted by shape class; path construction operators are followed for classification only and nothing is retained | — |
 | JavaScript, Launch, GoToR, SubmitForm, ImportData actions | 12.6.4 | `pdf.active-content.removed` | — |
 | Embedded files, screen, movie, rich media, 3D annotations | 12.5.6, 7.11 | `pdf.active-content.removed` | — |
 | AcroForm `/SigFlags`, signature fields | 12.7, 12.8 | `pdf.signature.not-validated` | IP-016 |
-| Structure tree (`/StructTreeRoot`), tagged PDF | 14.7, 14.8 | Reported; structure not consumed | IP-017 |
+| Structure tree (`/StructTreeRoot`), tagged PDF | 14.7, 14.8 | Described and not consumed: the note reports the root's top-level element count, `/MarkInfo /Marked`, whether a `/ParentTree` exists, and the role-map size, under `pdf.import.reading-order-heuristic` | IP-017 |
 | Optional content, artifacts, invisible and clipping render modes | 8.11, 9.3.6 | `pdf.text.visibility-uncertain`; extracted without a visibility claim | — |
 | Unapplied `/Redact` annotations | 12.5.6 | `pdf.redaction.not-applied` (error severity) | — |
 | PDF 2.x version declarations | 7.5.2, 7.7.2 | `pdf.version.tolerated-not-supported` | IP-002 |
 | Developer extension declarations | 7.12 | `pdf.extension.unsupported` | IP-003 |
+
+### 4.1 Damage and limits the reader survives
+
+Not every construct that is not interpreted is a feature. These are conditions in
+the input, or ceilings in this build, that the reader continues past and reports
+rather than failing on. They are inventoried because a reviewer asking what the
+implementation does with a given file needs them as much as the feature rows.
+
+| Condition | Clause (provisional) | Behavior |
+|---|---|---|
+| An object that does not parse | 7.3 | Treated as null and reported with `pdf.object.malformed`; the surrounding structure is still read |
+| An indirect reference that resolves to nothing | 7.3.10 | Reported with `pdf.object.missing` and treated as null |
+| A reference cycle | 7.3.10 | Cut to keep resolution terminating, and reported with `pdf.object.cycle` |
+| Cross-reference data that cannot be used | 7.5.4, 7.5.8 | Rebuilt by scanning for objects, reported with `pdf.xref.recovered`; individual faults report `pdf.xref.malformed` |
+| A page with no extractable text | 9.4 | Reported with `pdf.text.ocr-required`; OCR is outside this release |
+| An image whose colour space or sample layout is outside the supported subset | 8.9.5 | Reported with `pdf.image.unsupported` |
+| More diagnostics than the cap retains | — | The remainder is summarized with `pdf.diagnostics.truncated`; no diagnostic is silently dropped |
+| Cancellation at a checkpoint | — | Reported with `pdf.operation.cancelled` |
 
 ## 5. Reader — constructs that reject the document
 
 | Construct | Clause (provisional) | Behavior |
 |---|---|---|
 | `/Encrypt` in any effective trailer or cross-reference stream dictionary | 7.6 | The document is rejected with `pdf.encryption.unsupported` **before any object stream, catalog, metadata, font, image, annotation, or content is resolved**. No decrypt-dependent object is ever interpreted, and no password or document content reaches a diagnostic. |
+| Input that does not begin with a usable `%PDF-` header | 7.5.2 | Rejected with `pdf.header.missing`; nothing is parsed |
+| A missing or unusable catalog or page tree | 7.7.2, 7.7.3 | Rejected with `pdf.structure.malformed` |
+| Any PDF-specific limit reached | — | Rejected with `pdf.limit.exceeded`. A limit never silently downgrades into a truncated document |
 
 ## 6. Writer — constructs emitted
 
@@ -165,13 +194,24 @@ identifiers, or raw metadata forward.
 `FlateDecode`, encryption, incremental updates, linearization, `/Alt`, a
 structure tree, tagged semantics, XMP, or any profile conformance identifier.
 
+### 6.1 What the writer reports
+
+| Condition | Behavior |
+|---|---|
+| A model feature with no representation in the emitted subset | `pdf.write.feature-unsupported`; the feature is dropped, never approximated |
+| An inline image in the model | `pdf.write.image-not-composed`; no image emitter is composed, so the image is dropped |
+| A character outside the writer's encoding | `pdf.write.character-unsupported`; substituted and reported, never silently lost |
+| Content that overflows the page box | `pdf.write.overflow`; clipped to the next page or dropped, and reported either way |
+| Line breaking measured with the built-in proportions | `pdf.write.metrics-approximate`; stops once a real metrics provider is composed |
+| Output stopped after bytes reached a caller-owned stream | `pdf.write.partial-destination`; the caller is told its stream holds a partial file |
+
 ## 7. Inputs relied on that are not ISO 32000-1
 
 | Dependency | Use | Register row |
 |---|---|---|
-| The .NET runtime's DEFLATE/zlib implementation | `FlateDecode` and content-stream compression | IP-023, under IP-011 |
-| Unicode character identities | The authored encoding tables and glyph-name repertoire | IP-013, IP-021 |
-| RFC 3986 URI grammar | Link admission on read and write; no copied test vectors | IP-014 |
+| The .NET runtime's DEFLATE/zlib implementation | `FlateDecode` and content-stream compression | IP-023, confirmed under IP-011 |
+| Unicode character identities | The authored encoding tables, the Symbol table, and the glyph-name repertoire | IP-013 approved, IP-021 pending |
+| The .NET runtime's `System.Uri` | The only URI parsing in the codec; link admission wraps it with a scheme allow-list and a length ceiling, and adds no grammar of its own | SRC-011, IP-014 approved |
 | Broiler-authored letterform proportions | Writer line breaking; not any vendor's metrics | IP-022 |
 
 ## 8. Questions this inventory puts to the reviewer

@@ -36,6 +36,8 @@ public sealed class PdfLimits
     public const int DefaultMaxDiagnostics = 512;
     public const long DefaultMaxWorkUnits = 400_000_000;
     public const long DefaultMaxOutputBytes = 128L * 1024 * 1024;
+    public const long DefaultMaxXmpBytes = 2L * 1024 * 1024;
+    public const long DefaultMaxFontProgramBytes = 16L * 1024 * 1024;
 
     public static PdfLimits Default { get; } = new();
 
@@ -60,7 +62,9 @@ public sealed class PdfLimits
         int maxAnnotationCount = DefaultMaxAnnotationCount,
         int maxDiagnostics = DefaultMaxDiagnostics,
         long maxWorkUnits = DefaultMaxWorkUnits,
-        long maxOutputBytes = DefaultMaxOutputBytes)
+        long maxOutputBytes = DefaultMaxOutputBytes,
+        long maxXmpBytes = DefaultMaxXmpBytes,
+        long maxFontProgramBytes = DefaultMaxFontProgramBytes)
     {
         MaxInputBytes = Positive(maxInputBytes, nameof(maxInputBytes));
         MaxTokenLength = Positive(maxTokenLength, nameof(maxTokenLength));
@@ -83,6 +87,8 @@ public sealed class PdfLimits
         MaxDiagnostics = Positive(maxDiagnostics, nameof(maxDiagnostics));
         MaxWorkUnits = Positive(maxWorkUnits, nameof(maxWorkUnits));
         MaxOutputBytes = Positive(maxOutputBytes, nameof(maxOutputBytes));
+        MaxXmpBytes = Positive(maxXmpBytes, nameof(maxXmpBytes));
+        MaxFontProgramBytes = Positive(maxFontProgramBytes, nameof(maxFontProgramBytes));
     }
 
     /// <summary>Maximum bytes of input the reader will materialize.</summary>
@@ -147,6 +153,20 @@ public sealed class PdfLimits
 
     /// <summary>Maximum bytes a single write may emit.</summary>
     public long MaxOutputBytes { get; }
+
+    /// <summary>
+    /// Maximum decoded bytes of an XMP packet the metadata reader will parse.
+    /// Well past any packet a producer writes, and far below the point where XML
+    /// parsing one becomes the most expensive thing a read does.
+    /// </summary>
+    public long MaxXmpBytes { get; }
+
+    /// <summary>
+    /// Maximum decoded bytes of an embedded font program a composed reader will
+    /// be handed. Large enough for a full CJK OpenType face, small enough that a
+    /// document cannot make font inspection the most expensive thing a read does.
+    /// </summary>
+    public long MaxFontProgramBytes { get; }
 
     private static int Positive(int value, string name) =>
         value > 0 ? value : throw new ArgumentOutOfRangeException(name, value, "A PDF limit must be positive; zero never means unlimited.");

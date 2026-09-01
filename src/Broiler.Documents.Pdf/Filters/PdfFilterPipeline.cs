@@ -89,7 +89,31 @@ internal sealed class PdfFilterPipeline
     /// Decodes a stream. <paramref name="resolve"/> follows indirect references,
     /// because <c>/Filter</c> and <c>/DecodeParms</c> are both legally indirect.
     /// </summary>
-    public PdfStreamDecodeResult Decode(PdfStream stream, Func<PdfObject?, PdfObject?> resolve, PdfWorkBudget budget)
+    public PdfStreamDecodeResult Decode(PdfStream stream, Func<PdfObject?, PdfObject?> resolve, PdfWorkBudget budget) =>
+        DecodeCore(stream, resolve, budget, wantSamples: false, expandStreamParameters: true);
+
+    /// <summary>
+    /// Decodes a stream whose chain ends in an image filter, returning that
+    /// filter's samples.
+    /// </summary>
+    /// <remarks>
+    /// The same pipeline and the same budgets as <see cref="Decode"/>; the only
+    /// difference is what the caller is entitled to receive. The object layer
+    /// asks for bytes and must never be handed pixels, so it uses
+    /// <see cref="Decode"/> and an image filter ends the chain in a refusal. An
+    /// image service asks for samples and gets them. Splitting the two keeps
+    /// "pixels are not PDF syntax" a property of the type system rather than a
+    /// rule every caller has to remember.
+    /// </remarks>
+    public PdfStreamDecodeResult DecodeImage(PdfStream stream, Func<PdfObject?, PdfObject?> resolve, PdfWorkBudget budget) =>
+        DecodeCore(stream, resolve, budget, wantSamples: true, expandStreamParameters: true);
+
+    private PdfStreamDecodeResult DecodeCore(
+        PdfStream stream,
+        Func<PdfObject?, PdfObject?> resolve,
+        PdfWorkBudget budget,
+        bool wantSamples,
+        bool expandStreamParameters)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(resolve);
@@ -120,15 +144,28 @@ internal sealed class PdfFilterPipeline
                 return PdfStreamDecodeResult.Failed(code, reason, name, PdfFilterNames.IsImageFilter(name));
             }
 
-            if (!filter.ProducesByteStream)
+            bool imageStage = !filter.ProducesByteStream;
+            if (imageStage)
             {
                 // An image codec is the end of the chain by definition. Its output
-                // belongs to an image service, so the pipeline stops here and says so.
-                return PdfStreamDecodeResult.Failed(
-                    PdfDiagnosticCodes.ImageNotComposed,
-                    $"The stream ends in the image filter {name}; its samples are not a byte stream.",
-                    name,
-                    imageData: true);
+                // belongs to an image service, so a caller after bytes stops here.
+                if (!wantSamples)
+                {
+                    return PdfStreamDecodeResult.Failed(
+                        PdfDiagnosticCodes.ImageNotComposed,
+                        $"The stream ends in the image filter {name}; its samples are not a byte stream.",
+                        name,
+                        imageData: true);
+                }
+
+                if (stage != filterNames.Count - 1)
+                {
+                    return PdfStreamDecodeResult.Failed(
+                        PdfDiagnosticCodes.FilterMalformed,
+                        $"The image filter {name} is followed by further filters; samples cannot be filtered again.",
+                        name,
+                        imageData: true);
+                }
             }
 
             long ceiling = Math.Min(budget.Limits.MaxSingleStreamBytes, budget.RemainingDecodedBytes);
@@ -139,7 +176,7 @@ internal sealed class PdfFilterPipeline
             PdfFilterParameters typed = PdfFilterParameters.Empty;
             PdfDictionary? parms = parameters.Count > stage ? parameters[stage] : null;
             if (parms is not null)
-                typed = ToParameters(parms, resolve);
+                typed = ToParameters(parms, resolve, budget, expandStreamParameters);
 
             PdfFilterResult result = filter.Decode(data, typed, context);
             if (!result.Succeeded)
@@ -147,11 +184,18 @@ internal sealed class PdfFilterPipeline
                 return PdfStreamDecodeResult.Failed(
                     result.DiagnosticCode ?? PdfDiagnosticCodes.FilterMalformed,
                     result.Message ?? $"The {name} filter could not decode the stream.",
-                    name);
+                    name,
+                    imageData: imageStage);
             }
 
             data = result.Data!;
             budget.ChargeDecodedBytes(data.Length);
+
+            // Samples are the result, not an input to a predictor: a predictor
+            // reconstructs byte rows, and there are no byte rows left to
+            // reconstruct once a codec has produced pixels.
+            if (imageStage)
+                return PdfStreamDecodeResult.Success(data);
 
             if (parms is not null && !TryApplyPredictor(ref data, parms, resolve, out string? predictorError))
                 return PdfStreamDecodeResult.Failed(PdfDiagnosticCodes.FilterMalformed, predictorError!, name);
@@ -238,7 +282,22 @@ internal sealed class PdfFilterPipeline
     // Projects a DecodeParms dictionary into the public parameter view. Only the
     // scalar kinds an extension can act on cross the boundary; nested objects stay
     // internal so no extension point ever sees a PdfObject.
-    private static PdfFilterParameters ToParameters(PdfDictionary dictionary, Func<PdfObject?, PdfObject?> resolve)
+    /// <summary>
+    /// Resolves a <c>DecodeParms</c> dictionary into the typed values a filter
+    /// sees. A stream-valued entry is decoded here rather than handed over raw,
+    /// so an extension is never asked to run the pipeline itself.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="expandStreams"/> is false for the nested decode of a
+    /// stream parameter, which bounds the recursion at one level. A parameter of
+    /// a parameter is not a case the format has, and allowing it would turn a
+    /// hostile dictionary into unbounded work.
+    /// </remarks>
+    private PdfFilterParameters ToParameters(
+        PdfDictionary dictionary,
+        Func<PdfObject?, PdfObject?> resolve,
+        PdfWorkBudget budget,
+        bool expandStreams)
     {
         var values = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (KeyValuePair<string, PdfObject> entry in dictionary)
@@ -254,6 +313,14 @@ internal sealed class PdfFilterPipeline
                 case PdfName name:
                     values[entry.Key] = name.Value;
                     break;
+                case PdfStream nested when expandStreams:
+                {
+                    PdfStreamDecodeResult inner = DecodeCore(
+                        nested, resolve, budget, wantSamples: false, expandStreamParameters: false);
+                    if (inner.Succeeded)
+                        values[entry.Key] = inner.Data;
+                    break;
+                }
             }
         }
 

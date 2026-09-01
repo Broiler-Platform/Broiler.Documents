@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Pdf.Fonts</RootNamespace>
+    <AssemblyName>Broiler.Documents.Pdf.Fonts</AssemblyName>
+    <PackageId>Broiler.Documents.Pdf.Fonts</PackageId>
+    <Description>Composable PDF font-program reader. Adapts the Broiler.Graphics font parser to the Broiler.Documents.Pdf font extension point; nothing here is composed by default.</Description>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    The same boundary as Broiler.Documents.Pdf.Images, for the same reason. A
+    font-program parser is the other of the two largest attack surfaces a PDF
+    reader has (PDF extension points §1), and the codec's own dependency rule —
+    enforced by PdfDeliveryGuardTests — keeps it out of Broiler.Documents.Pdf so
+    that a host composing no font reader links no font parser.
+
+    The parser stays in Broiler.Graphics per extension points §5 step 3; this
+    assembly owns only the PDF descriptor, budget, and glyph-mapping semantics
+    around it.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.Documents.Pdf\Broiler.Documents.Pdf.csproj" />
+    <ProjectReference Include="$(BroilerGraphicsRoot)\src\Broiler.Graphics\Broiler.Graphics.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Documents.Pdf.Fonts.Tests" />
+  </ItemGroup>
+
+</Project>

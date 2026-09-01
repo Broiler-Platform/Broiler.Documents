@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Threading;
 using Broiler.Documents.Model;
 using Broiler.Documents.Pdf.Filters;
@@ -70,6 +72,8 @@ internal static class PdfReader
 
         var pipeline = new PdfFilterPipeline(services.StreamFilters, cancellationToken);
         PdfObjectStore? store = PdfObjectStore.Load(data, budget, diagnostics, pipeline);
+        if (store is not null)
+            store.FontProgramReader = services.FontProgramReader;
         if (store is null)
         {
             diagnostics.Error(PdfDiagnosticCodes.HeaderMissing, "The input does not begin with a PDF header.");
@@ -109,7 +113,7 @@ internal static class PdfReader
             return Rejected(diagnostics);
         }
 
-        NoteDocumentLevelFeatures(store, catalog, diagnostics);
+        string? structureTree = NoteDocumentLevelFeatures(store, catalog, diagnostics);
 
         PdfUriPolicy policy = options.UriPolicy ?? services.UriPolicy;
         var interpreter = new PdfContentInterpreter(store);
@@ -120,6 +124,10 @@ internal static class PdfReader
         {
             budget.ThrowIfCancelled();
             PdfPage page = pages[i];
+
+            // Everything raised from here down - a skipped image, an unreadable
+            // font program, a dropped path - belongs to this page, and says so.
+            diagnostics.CurrentPage = i + 1;
 
             IReadOnlyList<PdfTextFragment> fragments = interpreter.Run(page);
             if (!options.IncludeInvisibleText)
@@ -138,6 +146,13 @@ internal static class PdfReader
             paragraphs.AddRange(PdfModelProjector.Project(lines, pageBreak, options.Limits.MaxParagraphCount));
         }
 
+        // Back to document scope, and the one point where the constructs the
+        // pages recognized but did not implement become diagnostics. Draining
+        // here, before the status is decided below, keeps a skipped construct
+        // making the read Partial exactly as an immediate report did.
+        diagnostics.CurrentPage = null;
+        store.Features.Report(diagnostics);
+
         if (emptyPages > 0)
         {
             diagnostics.Skipped(
@@ -145,11 +160,27 @@ internal static class PdfReader
                 $"{emptyPages} of {pages.Count} pages carried no extractable text. A scanned page needs OCR, which is outside this release's scope.");
         }
 
-        if (paragraphs.Count > 0)
+        if (paragraphs.Count > 0 || structureTree is not null)
         {
-            diagnostics.Info(
-                PdfDiagnosticCodes.ReadingOrderHeuristic,
-                "Reading order was inferred from page geometry. PDF states where glyphs are drawn, not what order they are read in, so paragraph and column grouping is a documented heuristic.");
+            var order = new StringBuilder();
+            if (paragraphs.Count > 0)
+            {
+                order.Append(
+                    "Reading order was inferred from page geometry. PDF states where glyphs are drawn, not what order they are read in, so paragraph and column grouping is a documented heuristic.");
+            }
+
+            // One code, one note. The structure tree is the reason the heuristic
+            // was still needed on a file that could have said better, so it reads
+            // as a clause of that sentence rather than as a second diagnostic the
+            // sink would collapse into a count.
+            if (structureTree is not null)
+            {
+                if (order.Length > 0)
+                    order.Append(' ');
+                order.Append(structureTree);
+            }
+
+            diagnostics.Info(PdfDiagnosticCodes.ReadingOrderHeuristic, order.ToString());
         }
 
         RichTextDocument document = paragraphs.Count == 0
@@ -202,8 +233,10 @@ internal static class PdfReader
     /// <summary>
     /// Inventories the document-level features this release deliberately does not
     /// act on, so their absence from the result is stated rather than silent.
+    /// Returns the structure-tree description, if there is one, for the reading-order
+    /// note to carry.
     /// </summary>
-    private static void NoteDocumentLevelFeatures(PdfObjectStore store, PdfDictionary catalog, PdfDiagnosticSink diagnostics)
+    private static string? NoteDocumentLevelFeatures(PdfObjectStore store, PdfDictionary catalog, PdfDiagnosticSink diagnostics)
     {
         if (store.Resolve(catalog["Names"]) is PdfDictionary names)
         {
@@ -232,12 +265,48 @@ internal static class PdfReader
             }
         }
 
-        if (store.Resolve(catalog["StructTreeRoot"]) is not null)
+        return store.Resolve(catalog["StructTreeRoot"]) is PdfDictionary structureTree
+            ? DescribeStructureTree(store, structureTree, catalog)
+            : null;
+    }
+
+    /// <summary>
+    /// Describes a structure tree that was found and not consumed.
+    /// </summary>
+    /// <remarks>
+    /// Whether tagged structure would have helped is not a yes-or-no question. A
+    /// file marked <c>/Marked true</c> with a populated <c>/K</c> and a
+    /// <c>/ParentTree</c> carries a reading order an implementation could trust;
+    /// one with an empty root is a conformance gesture that would have told a
+    /// reader nothing it did not already infer. Saying which of the two is in
+    /// front of it turns this note from a standing reminder into evidence for the
+    /// IP-017 decision.
+    /// </remarks>
+    private static string DescribeStructureTree(PdfObjectStore store, PdfDictionary root, PdfDictionary catalog)
+    {
+        var text = new StringBuilder(
+            "The document carries a structure tree, which this release does not consume: its root holds ");
+
+        int topLevel = store.Resolve(root["K"]) switch
         {
-            diagnostics.Info(
-                PdfDiagnosticCodes.ReadingOrderHeuristic,
-                "The document carries a structure tree. This release does not consume tagged-PDF structure, so reading order was still inferred from geometry.");
-        }
+            PdfArray kids => kids.Count,
+            PdfDictionary => 1,
+            _ => 0,
+        };
+
+        bool marked = store.Resolve(catalog["MarkInfo"]) is PdfDictionary markInfo &&
+            store.Resolve(markInfo["Marked"]) is PdfBoolean flag && flag.Value;
+
+        text.Append(CultureInfo.InvariantCulture, $"{topLevel} top-level element{(topLevel == 1 ? string.Empty : "s")}, the catalog ");
+        text.Append(marked ? "marks the document as tagged" : "does not mark the document as tagged");
+        text.Append(store.Resolve(root["ParentTree"]) is not null
+            ? ", and a ParentTree maps marked content back to it."
+            : ", and there is no ParentTree, so marked content could not be mapped back to the tree even by a reader that consumed it.");
+
+        if (store.Resolve(root["RoleMap"]) is PdfDictionary roleMap && roleMap.Count > 0)
+            text.Append(CultureInfo.InvariantCulture, $" A role map remaps {roleMap.Count} custom type{(roleMap.Count == 1 ? string.Empty : "s")} onto the standard set.");
+
+        return text.ToString();
     }
 
     private static PdfReadResult Rejected(PdfDiagnosticSink diagnostics) =>

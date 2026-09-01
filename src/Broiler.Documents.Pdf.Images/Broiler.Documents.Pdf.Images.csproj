@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Pdf.Images</RootNamespace>
+    <AssemblyName>Broiler.Documents.Pdf.Images</AssemblyName>
+    <PackageId>Broiler.Documents.Pdf.Images</PackageId>
+    <Description>Composable PDF image-filter implementations. Adapts the Broiler.Media managed image codecs to the Broiler.Documents.Pdf filter extension point; nothing here is composed by default.</Description>
+    <!--
+      Delivery gate, as for the codec itself (pdf-support-roadmap.md §4.1). This
+      assembly is additionally gated on the IP/licensing register: it may only
+      implement a filter whose row is approved, which today is DCTDecode under
+      IP-005.
+    -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    This project exists so that Broiler.Documents.Pdf does not have to.
+
+    The codec's own dependency rule (ADR 0001/0007, enforced by
+    PdfDeliveryGuardTests) is that it references the codec framework and the
+    document model and nothing else, so that a host composing no image decoder
+    links no image decoder. An image codec is one of the two largest attack
+    surfaces in a PDF reader (PDF extension points §1), and keeping it on the
+    far side of a project boundary is what makes "not composed" mean "not
+    present" rather than "present but unused".
+
+    So the decoder stays in Broiler.Media, this assembly owns only the PDF
+    dictionary, filter-parameter, and budget semantics around it, and a caller
+    opts in by putting the filter into PdfCodecServices.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.Documents.Pdf\Broiler.Documents.Pdf.csproj" />
+    <ProjectReference Include="$(BroilerMediaRoot)\src\Broiler.Media.Image.Managed\Broiler.Media.Image.Managed.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Documents.Pdf.Images.Tests" />
+  </ItemGroup>
+
+</Project>

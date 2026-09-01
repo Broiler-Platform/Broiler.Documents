@@ -18,8 +18,8 @@ namespace Broiler.Documents.Pdf.Text;
 /// font-data asset (approved-sources record SRC-007).
 /// </para>
 /// <para>
-/// <c>MacExpertEncoding</c> and the symbolic built-in encodings of Symbol and
-/// ZapfDingbats are deliberately absent: mapping them needs font-specific data
+/// <c>MacExpertEncoding</c> and the built-in encoding of ZapfDingbats are
+/// deliberately absent: mapping them needs font-specific data
 /// this release does not carry, so a font using one reports
 /// <see cref="PdfDiagnosticCodes.TextMappingMissing"/> instead of guessing.
 /// </para>
@@ -32,9 +32,16 @@ internal static class PdfEncodings
     public const string PdfDoc = "PDFDocEncoding";
     public const string MacExpert = "MacExpertEncoding";
 
+    /// <summary>The base font name whose built-in encoding this build carries.</summary>
+    public const string SymbolFont = "Symbol";
+
+    /// <summary>The standard-14 font whose built-in encoding this build does not carry.</summary>
+    public const string ZapfDingbatsFont = "ZapfDingbats";
+
     private static readonly char[] StandardTable = BuildStandard();
     private static readonly char[] WinAnsiTable = BuildWinAnsi();
     private static readonly char[] MacRomanTable = BuildMacRoman();
+    private static readonly char[] SymbolTable = BuildSymbol();
 
     /// <summary>
     /// Returns the named encoding's table, or null when the name is unknown or
@@ -56,6 +63,42 @@ internal static class PdfEncodings
     public static char[] Default => StandardTable;
 
     public static char[] WinAnsiEncoding => WinAnsiTable;
+
+    /// <summary>
+    /// The built-in encoding of a standard-14 font, or null for one whose
+    /// encoding this build does not carry.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only <c>Symbol</c> resolves. Its encoding is a property of that named font
+    /// rather than of the format, which is why it is reached by font name and not
+    /// through <see cref="ForName"/>: a font that merely sets the symbolic flag
+    /// has its own encoding inside its own program, and applying Symbol's table to
+    /// it would invent Greek letters for arbitrary glyphs.
+    /// </para>
+    /// <para>
+    /// <c>ZapfDingbats</c> stays absent deliberately. Its code assignments run
+    /// through non-sequential ranges and private-use slots that only the font's
+    /// own data resolves safely, and its glyphs are ornaments rather than text —
+    /// so the cost of guessing is high and the value of guessing right is low.
+    /// </para>
+    /// </remarks>
+    public static char[]? ForStandardFont(string? family) =>
+        string.Equals(family, SymbolFont, StringComparison.Ordinal) ? SymbolTable : null;
+
+    /// <summary>
+    /// True for a standard-14 font whose built-in encoding is not Latin, whether
+    /// or not this build carries its table.
+    /// </summary>
+    /// <remarks>
+    /// The distinction matters for the one this build does <em>not</em> carry.
+    /// A ZapfDingbats font that reaches the Latin fallback yields "ab" for two
+    /// ornaments — text the document does not contain, produced confidently. It
+    /// has to be recognized in order to be refused.
+    /// </remarks>
+    public static bool HasNonLatinBuiltInEncoding(string? family) =>
+        string.Equals(family, SymbolFont, StringComparison.Ordinal) ||
+        string.Equals(family, ZapfDingbatsFont, StringComparison.Ordinal);
 
     // ---- glyph names ----------------------------------------------------------
 
@@ -156,6 +199,43 @@ internal static class PdfEncodings
         table[241] = 'æ';
         table[245] = 'ı';
         Assign(table, 248, "łøœß");
+        return table;
+    }
+
+    /// <summary>
+    /// The Symbol font's built-in encoding, authored from the character each slot
+    /// denotes rather than transcribed from a glyph-list file (IP-021's position,
+    /// applied to the data IP-013 covers).
+    /// </summary>
+    /// <remarks>
+    /// The slots left unmapped are the ones that are not characters: Symbol
+    /// reserves a run of private-use codes for the pieces large brackets,
+    /// parentheses, braces, and integral signs are assembled from. A piece of a
+    /// glyph has no text to extract, so those stay empty rather than resolving to
+    /// something plausible.
+    /// </remarks>
+    private static char[] BuildSymbol()
+    {
+        var table = new char[256];
+
+        // ASCII slots Symbol keeps, and the mathematics it puts in the rest.
+        Assign(table, 32, " !∀#∃%&∋()∗+,−./0123456789:;<=>?");
+        Assign(table, 64, "≅ΑΒΧΔΕΦΓΗΙϑΚΛΜΝΟ");
+        Assign(table, 80, "ΠΘΡΣΤΥςΩΞΨΖ[∴]⊥_");
+        Assign(table, 97, "αβχδεφγηιϕκλμνο");
+        Assign(table, 112, "πθρστυϖωξψζ{|}∼");
+
+        Assign(table, 160, "€ϒ′≤⁄∞ƒ♣♦♥♠↔←↑→↓");
+        Assign(table, 176, "°±″≥×∝∂•÷≠≡≈…");
+        table[191] = '↵';
+        Assign(table, 192, "ℵℑℜ℘⊗⊕∅∩∪⊃⊇⊄⊂⊆∈∉");
+        Assign(table, 208, "∠∇®©™∏√⋅¬∧∨⇔⇐⇑⇒⇓");
+        Assign(table, 224, "◊〈®©™∑");
+        table[241] = '〉';
+        table[242] = '∫';
+        table[243] = '⌠';
+        table[245] = '⌡';
+
         return table;
     }
 

@@ -64,7 +64,10 @@ Explicitly exclude from V1:
 - AcroForm editing, signature validation, PDF/A, or PDF/UA claims;
 - tagged-PDF input reconstruction or output, accessibility/PDF-UA claims, Type 3
   fidelity, PDF 2.0-only constructs,
-  JPX/JBIG2/CCITT support, four-component CMYK/YCCK JPEG conversion, and
+  JPX/JBIG2/CCITT support in the base build — their rows have all cleared, but
+  they arrive only as composed extensions, JPX reports rather than decodes, and
+  JBIG2 decodes only its MMR generic regions — four-component CMYK/YCCK JPEG
+  conversion, and
   arithmetic-coded, lossless, hierarchical, JPEG-LS, or JPEG XR decoding;
 - PDF-writer use or extension of the existing managed JPEG encoder; and
 - HTML/CSS print-to-PDF.
@@ -152,8 +155,9 @@ is authoritative for that boundary.
   object stream, Catalog, metadata, font, image, annotation, or content service is
   invoked; Catalog, page tree, inherited attributes, boxes, rotation and
   `UserUnit`; effective version resolution with `/Extensions` inventoried as
-  diagnostics only; `Info` parsed into the normalized allowlist with XMP detected
-  and dropped.
+  diagnostics only; `Info` and the XMP packet parsed into the normalized
+  allowlist, XMP winning per field with `Info` as the fallback and disagreement
+  reported by field name, and the raw packet dropped.
 - Phase 4 for text: the graphics and text state, all show-text operators, `Do`
   for Form XObjects under bounded recursion with a visited set, length-bounded
   inline-image consumption, marked-content `ActualText`, simple-font encodings
@@ -173,11 +177,44 @@ is authoritative for that boundary.
 
 **Deliberately not implemented, and why.**
 
-- Every filter and codec with an open register row — `LZWDecode` (IP-010),
-  `DCTDecode` (IP-005/IP-006), `CCITTFaxDecode` (IP-009), `JPXDecode` (IP-007),
-  `JBIG2Decode` (IP-008) — plus embedded font programs (IP-012), image extraction
-  into the model, and encryption (IP-015). Each is detected and skipped, or in
-  encryption's case rejects the document.
+- Image extraction into the model and encryption (IP-015). **No filter or codec
+  row is open any longer**: `JBIG2Decode` was the last, and IP-008 cleared it on
+  2026-09-01. A composed filter reads the segment structure and decodes generic
+  regions coded with MMR through the T.6 decoder cleared under IP-009; the
+  arithmetic decoder, and the symbol, text, halftone, and refinement regions that
+  need it, are outstanding work rather than a pending approval — which matters,
+  because that is what almost every JBIG2 image in a scanned document actually
+  uses. `JPXDecode` half-left this list on 2026-09-01: IP-007
+  cleared the JPEG 2000 Part 1 core coding system, and a composed reader now
+  reports a codestream's real tuple, but no entropy decoder is written — the
+  arithmetic coder, EBCOT, and the wavelet transforms are scoped work, not a
+  pending approval. `CCITTFaxDecode` left this list on 2026-09-01: IP-009
+  cleared and retired its patent position, and all three fax schemes decode
+  through a composed filter — though the code tables it needs are the one
+  transcribed normative constant in this repository, and SRC-017 carries that
+  question separately. `LZWDecode` left this list outright on 2026-09-01: IP-010
+  cleared and retired, and the filter is built in beside Flate rather than
+  composed, because once the row was clear there was no outside component to
+  compose and no image-codec-scale surface to keep out of the default build.
+  Embedded font programs left this list on 2026-09-01:
+  IP-012 cleared inspection, and a caller composes `Broiler.Documents.Pdf.Fonts`
+  to recover the text of a composite font that supplied no `ToUnicode` map. Type 1
+  and bare CFF are still unread, for want of parser surface rather than approval,
+  and no font is embedded, subsetted, or re-emitted by anything.
+  `DCTDecode` has left this list only partly: IP-005 and
+  IP-006 cleared baseline sequential JPEG and its colour declaration on
+  2026-09-01, and a caller composes `Broiler.Documents.Pdf.Images` to decode it.
+  The base build still composes no image decoder; progressive DCT, four-component
+  YCCK, and a declared transform of 0 on three components are still refused, the
+  last of those because the composed decoder cannot skip its colour conversion
+  rather than because a row is open; and a decoded image still reaches no model,
+  because extraction into the model waits on the resource policy of §6.2 rather
+  than on a patent row. Each is detected and skipped, or in
+  encryption's case rejects the document. A skip reports an inventory of what it
+  met — counts, pages, and the declared variants — without decoding anything to
+  produce it; see
+  [PDF extension points §3.1](pdf-extension-points.md#31-what-a-skip-report-carries).
+  Tagged structure (IP-017) is described the same way and remains unconsumed.
 - The shared work the roadmap places in other owners: `Broiler.Documents`
   request/result envelopes, `DocumentInput`, the conversion/resource context,
   `Broiler.Documents.Pagination`, the Graphics font inspector and export
@@ -190,7 +227,10 @@ only through the Windows and Linux Writer composition roots, for opening, as the
 §10.1 read-preview candidate; every other catalog and composition root is still
 closed to it, and tests fail the build if any of that changes. Phase 5 and Phase 7
 remain the publication boundaries, and no feature-matrix entry may reach
-`Supported` while its register row is pending.
+`Supported` while its register row is pending. As of 2026-09-01 every filter,
+codec, and construct row is decided, IP-001 included; the rows still open are
+provenance and wording ones, listed in the register's
+[what still blocks a support claim](pdf-ip-licensing-register.md#what-still-blocks-a-support-claim).
 
 ## 3. Component ownership
 
@@ -1029,8 +1069,11 @@ fixed-layout objects remain prohibited.
   and disagreement emits
   `pdf.metadata.conflict` naming only the field. Malformed XMP does not suppress
   valid Info. Unknown keys/namespaces are skipped rather than opaquely carried
-  forward. Until the XMP register entry is approved, XMP remains bounded
-  detection/skipping, not `supported` parsing or preservation.
+  forward. **Done** as of 2026-09-01: IP-004 approved the ISO 16684-1:2019 read
+  subset, and `XmpReader` implements it. Preservation stays out of scope, and the
+  matrix entry stays `Candidate`: IP-001 has since cleared too, and what holds
+  every entry short of `Supported` is now the provenance and wording rows rather
+  than any construct question.
 - Inventory annotations, outlines, forms, actions, embedded files, and
   signatures after the encryption rejection point.
 - Treat URI/action values as inert source-labelled data and never fetch them.
@@ -1051,7 +1094,9 @@ fixed-layout objects remain prohibited.
   and Catalog versions plus known/unknown extension declarations. No declaration
   bypasses the approved feature matrix.
 - Flate, LZW, and eligible DCT modes have approved entries in the IP/licensing
-  register before their behavior state becomes `supported`.
+  register before their behavior state becomes `supported`. **Met as of
+  2026-09-01**: IP-011 (with IP-023 confirmed), IP-010, and IP-005/IP-006 are all
+  approved. The rule stands for anything added later.
 - The JPEG corpus crosses SOF family, precision, component count, tables,
   sampling, APP14, PDF `ColorTransform`, PDF ColorSpace, `/Decode`, marker
   lengths, scan/restart counts, and truncation. Every accepted tuple has

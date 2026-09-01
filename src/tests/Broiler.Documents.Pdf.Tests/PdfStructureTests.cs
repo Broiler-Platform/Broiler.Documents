@@ -273,7 +273,7 @@ public sealed class PdfStructureTests
         int pages = builder.Reserve();
         int page = builder.Reserve();
         int font = builder.AddObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
-        int content = builder.AddStream(string.Empty, "not really lzw data", filter: "LZWDecode");
+        int content = builder.AddStream(string.Empty, "not really fax data", filter: "CCITTFaxDecode");
 
         builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
         builder.SetObject(pages, $"<< /Type /Pages /Kids [{page} 0 R] /Count 1 >>");
@@ -281,7 +281,7 @@ public sealed class PdfStructureTests
 
         PdfReadResult result = Read(builder.Build(catalog));
 
-        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FilterLzwUnsupported);
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FilterCcittUnsupported);
         Assert.Equal(DocumentResultStatus.Partial, result.Status);
     }
 

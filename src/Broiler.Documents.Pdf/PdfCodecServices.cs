@@ -21,11 +21,11 @@ namespace Broiler.Documents.Pdf;
 /// <para>
 /// That is what makes the step-by-step plan work. <see cref="Base"/> composes
 /// only what this repository implements itself and can therefore ship without a
-/// third-party review: the Flate, ASCIIHex, ASCII85, and RunLength filters, and
-/// the approximate metric model. Each further technology — LZW, DCT/JPEG,
-/// CCITT, JPX, JBIG2, embedded font programs, encryption — becomes available by
-/// adding a reviewed implementation to this graph, with no change to the parser,
-/// the interpreter, or the writer.
+/// third-party review: the Flate, LZW, ASCIIHex, ASCII85, and RunLength filters,
+/// and the approximate metric model. Each further technology — DCT/JPEG, CCITT,
+/// JPX, JBIG2, embedded font programs, encryption — becomes available by adding
+/// a reviewed implementation to this graph, with no change to the parser, the
+/// interpreter, or the writer.
 /// </para>
 /// </remarks>
 public sealed class PdfCodecServices
@@ -39,11 +39,14 @@ public sealed class PdfCodecServices
     public PdfCodecServices(
         IEnumerable<IPdfStreamFilter>? streamFilters = null,
         IPdfFontMetricsProvider? fontMetrics = null,
-        PdfUriPolicy? uriPolicy = null)
+        PdfUriPolicy? uriPolicy = null,
+        IPdfFontProgramReader? fontProgramReader = null)
     {
+        FontProgramReader = fontProgramReader;
         var filters = new List<IPdfStreamFilter>
         {
             new FlateDecodeFilter(),
+            new LzwDecodeFilter(),
             new AsciiHexDecodeFilter(),
             new Ascii85DecodeFilter(),
             new RunLengthDecodeFilter(),
@@ -85,19 +88,32 @@ public sealed class PdfCodecServices
     public PdfUriPolicy UriPolicy { get; }
 
     /// <summary>
+    /// The reader that inspects embedded font programs, or null — the default —
+    /// when none is composed and an embedded program is reported rather than read.
+    /// </summary>
+    public IPdfFontProgramReader? FontProgramReader { get; }
+
+    /// <summary>
     /// Returns a copy of this graph with additional or replacing filters. Use it
     /// to add a reviewed decoder without restating the base composition.
     /// </summary>
     public PdfCodecServices WithStreamFilters(params IPdfStreamFilter[] filters) =>
-        new(filters, FontMetrics, UriPolicy);
+        new(filters, FontMetrics, UriPolicy, FontProgramReader);
 
     /// <summary>Returns a copy of this graph with a different metrics provider.</summary>
     public PdfCodecServices WithFontMetrics(IPdfFontMetricsProvider metrics) =>
-        new(CallerSuppliedFilters(), metrics ?? throw new ArgumentNullException(nameof(metrics)), UriPolicy);
+        new(CallerSuppliedFilters(), metrics ?? throw new ArgumentNullException(nameof(metrics)), UriPolicy, FontProgramReader);
 
     /// <summary>Returns a copy of this graph with a different URI policy.</summary>
     public PdfCodecServices WithUriPolicy(PdfUriPolicy policy) =>
-        new(CallerSuppliedFilters(), FontMetrics, policy ?? throw new ArgumentNullException(nameof(policy)));
+        new(CallerSuppliedFilters(), FontMetrics, policy ?? throw new ArgumentNullException(nameof(policy)), FontProgramReader);
+
+    /// <summary>
+    /// Returns a copy of this graph that inspects embedded font programs with
+    /// <paramref name="reader"/>.
+    /// </summary>
+    public PdfCodecServices WithFontProgramReader(IPdfFontProgramReader reader) =>
+        new(CallerSuppliedFilters(), FontMetrics, UriPolicy, reader ?? throw new ArgumentNullException(nameof(reader)));
 
     /// <summary>True when a decoder for <paramref name="filterName"/> is composed.</summary>
     public bool SupportsFilter(string filterName)

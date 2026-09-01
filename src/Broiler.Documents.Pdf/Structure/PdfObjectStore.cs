@@ -59,6 +59,7 @@ internal sealed class PdfObjectStore
     private readonly PdfWorkBudget _budget;
     private readonly PdfDiagnosticSink _diagnostics;
     private readonly PdfFilterPipeline _pipeline;
+    private readonly PdfFeatureTally _features = new();
     private readonly Dictionary<int, PdfXrefEntry> _entries = new();
     private readonly Dictionary<int, PdfObject> _cache = new();
     private readonly HashSet<int> _resolving = [];
@@ -101,6 +102,28 @@ internal sealed class PdfObjectStore
     public PdfWorkBudget Budget => _budget;
 
     public PdfDiagnosticSink Diagnostics => _diagnostics;
+
+    /// <summary>
+    /// The inventory of constructs this build recognizes but does not implement,
+    /// drained into diagnostics once by the reader.
+    /// </summary>
+    public PdfFeatureTally Features => _features;
+
+    /// <summary>
+    /// The one-based page being interpreted, or null outside the page loop. The
+    /// diagnostic sink owns it and stamps it onto every diagnostic; it is
+    /// surfaced here so the content interpreter and the font loader can label a
+    /// tally entry with it too.
+    /// </summary>
+    public int? CurrentPage => _diagnostics.CurrentPage;
+
+    /// <summary>
+    /// The composed embedded-font-program reader, or null when none is composed.
+    /// Set once by the reader after the store is loaded, for the same reason the
+    /// filter pipeline is handed in: the font loader is reached through the store
+    /// and has no other route to the service graph.
+    /// </summary>
+    public Text.IPdfFontProgramReader? FontProgramReader { get; set; }
 
     /// <summary>
     /// Loads the cross-reference data. Returns null only when the input has no

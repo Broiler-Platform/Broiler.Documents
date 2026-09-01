@@ -9,7 +9,7 @@
     <RootNamespace>Broiler.Documents.Pdf</RootNamespace>
     <AssemblyName>Broiler.Documents.Pdf</AssemblyName>
     <PackageId>Broiler.Documents.Pdf</PackageId>
-    <Description>Base-PDF document codec: ISO 32000-1 syntax, object store, patent-free filter set, logical text import, and a deterministic PDF 1.7 writer.</Description>
+    <Description>PDF 1.7 (ISO 32000-1) document codec: syntax, object store, the stream filters this repository implements, logical text import, and a deterministic writer over the standard font names.</Description>
     <!--
       Delivery gate (pdf-support-roadmap.md §4.1): the PDF codec is an in-solution
       component only. It is not packed, not registered in any application catalog,

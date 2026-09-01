@@ -25,7 +25,7 @@
   </Folder>
   <!--
     Every project here is platform-neutral net10.0, so all six configurations
-    build all twenty. The suffixed configurations exist to line this component
+    build all twenty-four. The suffixed configurations exist to line this component
     up with the rest of the suite, where the Windows and Linux backends are real
     build targets; they map onto plain Debug / Release here.
 
@@ -94,6 +94,21 @@
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
+    <!-- Composable PDF image filters. Separate from the codec so that a host
+         composing no image decoder links no image decoder; gated on the
+         IP/licensing register per filter (docs/pdf-ip-licensing-register.md). -->
+    <Project Path="src/Broiler.Documents.Pdf.Images/Broiler.Documents.Pdf.Images.csproj">
+      <BuildType Project="Debug" Solution="Debug-Linux|*" />
+      <BuildType Project="Release" Solution="Release-Linux|*" />
+      <BuildType Project="Debug" Solution="Debug-Windows|*" />
+      <BuildType Project="Release" Solution="Release-Windows|*" />
+    </Project>
+    <Project Path="src/Broiler.Documents.Pdf.Fonts/Broiler.Documents.Pdf.Fonts.csproj">
+      <BuildType Project="Debug" Solution="Debug-Linux|*" />
+      <BuildType Project="Release" Solution="Release-Linux|*" />
+      <BuildType Project="Debug" Solution="Debug-Windows|*" />
+      <BuildType Project="Release" Solution="Release-Windows|*" />
+    </Project>
     <!-- Application head, not a published capability. IsPackable=false keeps the
          component's package set at the eight libraries the README lists; see the
          project file for how to ship it as a dotnet tool. -->
@@ -154,6 +169,18 @@
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
     <Project Path="src/tests/Broiler.Documents.Pdf.Tests/Broiler.Documents.Pdf.Tests.csproj">
+      <BuildType Project="Debug" Solution="Debug-Linux|*" />
+      <BuildType Project="Release" Solution="Release-Linux|*" />
+      <BuildType Project="Debug" Solution="Debug-Windows|*" />
+      <BuildType Project="Release" Solution="Release-Windows|*" />
+    </Project>
+    <Project Path="src/tests/Broiler.Documents.Pdf.Images.Tests/Broiler.Documents.Pdf.Images.Tests.csproj">
+      <BuildType Project="Debug" Solution="Debug-Linux|*" />
+      <BuildType Project="Release" Solution="Release-Linux|*" />
+      <BuildType Project="Debug" Solution="Debug-Windows|*" />
+      <BuildType Project="Release" Solution="Release-Windows|*" />
+    </Project>
+    <Project Path="src/tests/Broiler.Documents.Pdf.Fonts.Tests/Broiler.Documents.Pdf.Fonts.Tests.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />

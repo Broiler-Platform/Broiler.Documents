@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Broiler.Documents.Pdf.Images.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <!--
+    The composed half of the boundary (PDF extension points §5.6). The base
+    codec's own test project deliberately does not reference this one: its
+    not-composed assertions are only worth anything while no image decoder can
+    reach it.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Broiler.Documents.Pdf.Images\Broiler.Documents.Pdf.Images.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents.Pdf\Broiler.Documents.Pdf.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents\Broiler.Documents.csproj" />
+    <ProjectReference Include="..\..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+    <ProjectReference Include="$(BroilerMediaRoot)\src\Broiler.Media.Image.Managed\Broiler.Media.Image.Managed.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="Broiler.Documents" />
+    <Using Include="Broiler.Documents.Pdf" />
+    <Using Include="Broiler.Documents.Pdf.Filters" />
+    <Using Include="Broiler.Documents.Pdf.Images" />
+    <Using Include="Broiler.Documents.Model" />
+  </ItemGroup>
+
+</Project>

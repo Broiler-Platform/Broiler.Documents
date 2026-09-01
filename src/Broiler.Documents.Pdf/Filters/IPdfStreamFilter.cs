@@ -106,6 +106,22 @@ public sealed class PdfFilterParameters
         _values = values ?? throw new ArgumentNullException(nameof(values));
     }
 
+    /// <summary>
+    /// Builds a parameter set from already-resolved values, for a caller
+    /// composing or testing a filter of their own.
+    /// </summary>
+    /// <remarks>
+    /// Public because the extension point is not usable without it. An author
+    /// implementing <see cref="IPdfStreamFilter"/> outside this assembly has to
+    /// be able to exercise their filter against the parameters it will really
+    /// receive, and <see cref="Empty"/> only covers the case where there are
+    /// none. Values are the resolved forms the codec itself passes:
+    /// <see cref="long"/>, <see cref="double"/>, <see cref="bool"/>, or a
+    /// <see cref="string"/> for a name.
+    /// </remarks>
+    public static PdfFilterParameters From(IReadOnlyDictionary<string, object?> values) =>
+        new(values ?? throw new ArgumentNullException(nameof(values)));
+
     public bool ContainsKey(string key) => _values.ContainsKey(key);
 
     public int GetInt32(string key, int fallback)
@@ -126,6 +142,20 @@ public sealed class PdfFilterParameters
 
     public string? GetName(string key) =>
         _values.TryGetValue(key, out object? value) ? value as string : null;
+
+    /// <summary>
+    /// A stream-valued parameter's decoded bytes, or null when the entry is
+    /// absent or is not a stream.
+    /// </summary>
+    /// <remarks>
+    /// One standard parameter is a stream rather than a scalar:
+    /// <c>JBIG2Globals</c>, which carries the segments a page's own data refers
+    /// to. It is decoded through the same pipeline and charged against the same
+    /// budget as any other stream before it reaches a filter, so an extension
+    /// never sees an undecoded one and never has to decode one itself.
+    /// </remarks>
+    public ReadOnlyMemory<byte>? GetBytes(string key) =>
+        _values.TryGetValue(key, out object? value) && value is byte[] bytes ? bytes : null;
 }
 
 /// <summary>The outcome of one filter stage.</summary>

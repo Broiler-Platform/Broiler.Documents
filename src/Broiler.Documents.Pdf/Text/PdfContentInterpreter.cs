@@ -29,6 +29,35 @@ namespace Broiler.Documents.Pdf.Text;
 /// </remarks>
 internal sealed class PdfContentInterpreter
 {
+    /// <summary>
+    /// How thin an axis-aligned shape has to be, in points, before it reads as a
+    /// rule rather than a filled area. Three points is about the heaviest
+    /// underline or table border a text document draws; past that a shape is
+    /// wide enough to be a panel, and calling it a rule would say the document
+    /// had structure it does not.
+    /// </summary>
+    private const double RuleThickness = 3.0;
+
+    /// <summary>
+    /// How long a thin shape has to run before it is a rule at all, rather than
+    /// a tick, a dot leader's dot, or a checkbox edge.
+    /// </summary>
+    private const double MinimumRuleLength = 6.0;
+
+    /// <summary>
+    /// How far off an axis a segment may drift and still count as along it. A
+    /// hairline that misses by a hundredth of a point is a rule; anything looser
+    /// would start calling shallow diagonals horizontal.
+    /// </summary>
+    private const double AxisTolerance = 0.01;
+
+    /// <summary>
+    /// How many parameters an inline image's abbreviated dictionary is read for.
+    /// The dictionary is a description of a construct that is being skipped, so
+    /// it is bounded well below anything a real one uses.
+    /// </summary>
+    private const int MaxInlineImageParameters = 32;
+
     private readonly PdfObjectStore _store;
     private readonly List<PdfTextFragment> _fragments = [];
     private readonly Dictionary<PdfDictionary, PdfFont> _fontCache = new();
@@ -39,6 +68,19 @@ internal sealed class PdfContentInterpreter
     private PdfMatrix _textMatrix = PdfMatrix.Identity;
     private PdfMatrix _lineMatrix = PdfMatrix.Identity;
     private string? _pendingActualText;
+
+    // Path construction state. The geometry is never rendered — it is tracked
+    // only so that a paint operator can say what shape it dropped.
+    private double _pathMinX;
+    private double _pathMinY;
+    private double _pathMaxX;
+    private double _pathMaxY;
+    private double _pathX;
+    private double _pathY;
+    private double _pathStartX;
+    private double _pathStartY;
+    private bool _pathOpen;
+    private bool _pathIrregular;
 
     // The run being accumulated; flushed when style, baseline, or spacing breaks.
     private readonly StringBuilder _runText = new();
@@ -62,6 +104,7 @@ internal sealed class PdfContentInterpreter
         _fragments.Clear();
         _state = GraphicsState.Initial;
         _stack.Clear();
+        ResetPath();
 
         byte[]? content = ReadPageContent(page);
         if (content is null || content.Length == 0)
@@ -259,10 +302,42 @@ internal sealed class PdfContentInterpreter
                     SkipInlineImage(lexer);
                     break;
 
+                // Path construction. Nothing here is drawn or kept; the points
+                // are followed only far enough to tell a rule from a picture
+                // when the painting operator arrives.
+                case "m":
+                    MoveTo(Number(operands, 0), Number(operands, 1));
+                    break;
+                case "l":
+                    LineTo(Number(operands, 0), Number(operands, 1));
+                    break;
+                case "c":
+                    CurveTo(Number(operands, 4), Number(operands, 5));
+                    break;
+                case "v":
+                case "y":
+                    CurveTo(Number(operands, 2), Number(operands, 3));
+                    break;
+                case "re":
+                    AddRectangle(Number(operands, 0), Number(operands, 1), Number(operands, 2), Number(operands, 3));
+                    break;
+                case "h":
+                    ClosePath();
+                    break;
+
                 // Path painting. Vector artwork has no logical representation, so
-                // it is reported once and dropped rather than approximated.
-                case "S" or "s" or "f" or "F" or "f*" or "B" or "B*" or "b" or "b*" or "sh":
-                    NoteVectorArtwork();
+                // it is classified, counted, and dropped rather than approximated.
+                case "S" or "s" or "f" or "F" or "f*" or "B" or "B*" or "b" or "b*":
+                    NoteVectorArtwork(ClassifyPath());
+                    ResetPath();
+                    break;
+                case "sh":
+                    // A shading paints without a path of its own.
+                    NoteVectorArtwork(PdfArtworkKind.Shading);
+                    break;
+                case "n":
+                    // A path used only to clip paints nothing, so it drops nothing.
+                    ResetPath();
                     break;
             }
 
@@ -455,7 +530,10 @@ internal sealed class PdfContentInterpreter
             _runState.Color,
             _runState.RenderMode));
 
-        if (_runState.RenderMode is 3 or 7 && !_store.Diagnostics.Contains(PdfDiagnosticCodes.TextVisibilityUncertain))
+        // Reported per run rather than once per document: the sink keeps a single
+        // entry either way, and letting it count tells a reader whether one
+        // watermark was invisible or the whole page was.
+        if (_runState.RenderMode is 3 or 7)
         {
             _store.Diagnostics.Skipped(
                 PdfDiagnosticCodes.TextVisibilityUncertain,
@@ -575,13 +653,17 @@ internal sealed class PdfContentInterpreter
     private void SkipInlineImage(PdfLexer lexer)
     {
         byte[] data = lexer.Data;
-        int position = lexer.Position;
+        int parametersStart = lexer.Position;
+        int position = parametersStart;
+        int parametersEnd = lexer.End;
 
-        // Skip the parameter dictionary up to ID.
+        // Skip the parameter dictionary up to ID, remembering where it ended so
+        // the image can be described from its own declaration.
         while (position < lexer.End)
         {
             if (data[position] == (byte)'I' && position + 1 < lexer.End && data[position + 1] == (byte)'D')
             {
+                parametersEnd = position;
                 position += 2;
                 break;
             }
@@ -607,46 +689,369 @@ internal sealed class PdfContentInterpreter
         }
 
         lexer.Position = Math.Min(position, lexer.End);
-        NoteInlineImage();
+        NoteInlineImage(data, parametersStart, parametersEnd);
     }
 
     // ---- diagnostics ----------------------------------------------------------
 
+    /// <summary>
+    /// Records a skipped image XObject and what its dictionary declared about it.
+    /// </summary>
+    /// <remarks>
+    /// The dictionary is read; the samples never are. Reporting the size, depth,
+    /// colour space, and filter chain costs nothing a skip did not already pay
+    /// for, and it is the difference between "an image was skipped" and a
+    /// statement of exactly which decoder tuples this document would need — the
+    /// question IP-005 has to answer before <c>DCTDecode</c> can be composed.
+    /// </remarks>
     private void NoteImage(PdfStream stream)
     {
-        string filter = (_store.Resolve(stream.Dictionary["Filter"]) as PdfName)?.Value ?? string.Empty;
-        string code = filter.Length > 0 && PdfFilterNames.IsImageFilter(filter)
-            ? PdfFilterNames.UnsupportedDiagnosticFor(filter)
-            : PdfDiagnosticCodes.ImageNotComposed;
+        PdfDictionary dictionary = stream.Dictionary;
+        PdfObject? filter = dictionary["Filter"];
 
-        _store.Diagnostics.Skipped(
-            code,
-            "The page draws a raster image. This build composes no image decoder, so the image was detected and skipped.");
+        var shape = new PdfImageShape(
+            Integer(dictionary, "Width", "W"),
+            Integer(dictionary, "Height", "H"),
+            Integer(dictionary, "BitsPerComponent", "BPC"),
+            DescribeColorSpace(dictionary["ColorSpace"], dictionary["ImageMask"], inline: false),
+            DescribeFilters(filter),
+            IsInline: false);
+
+        // With a decoder composed, the dictionary stops being the last word. It
+        // is what the document claims; the decode is what is true, and the two
+        // disagreeing is worth knowing.
+        if (ComposedImageFilter(filter) is not null)
+        {
+            PdfStreamDecodeResult decoded = _store.Filters.DecodeImage(stream, _store.Resolve, _store.Budget);
+            if (decoded.Succeeded)
+            {
+                _store.Features.NoteDecodedImage(shape, decoded.Data!.LongLength, _store.CurrentPage);
+                return;
+            }
+
+            _store.Features.NoteImage(
+                decoded.DiagnosticCode ?? ImageDiagnosticFor(filter),
+                shape,
+                _store.CurrentPage,
+                decoded.Message);
+            return;
+        }
+
+        _store.Features.NoteImage(ImageDiagnosticFor(filter), shape, _store.CurrentPage);
     }
 
-    private void NoteInlineImage() =>
-        _store.Diagnostics.Skipped(
-            PdfDiagnosticCodes.ImageNotComposed,
-            "The page draws an inline image. This build composes no image decoder, so the image was detected and skipped.");
-
-    private void NoteVectorArtwork()
+    /// <summary>
+    /// The image filter in this chain that a decoder is composed for, or null
+    /// when there is none — which is the default build.
+    /// </summary>
+    private string? ComposedImageFilter(PdfObject? filter)
     {
-        if (!_store.Diagnostics.Contains(PdfDiagnosticCodes.VectorArtworkDropped))
+        foreach (string name in FilterNames(filter))
         {
-            _store.Diagnostics.Skipped(
-                PdfDiagnosticCodes.VectorArtworkDropped,
-                "The page draws vector artwork, which a logical rich-text document cannot represent. It was dropped.");
+            if (PdfFilterNames.IsImageFilter(name) && _store.Filters.IsComposed(name))
+                return name;
         }
+
+        return null;
     }
 
-    private void NoteUnmappedGlyph()
+    /// <summary>
+    /// Records a skipped inline image, described from the abbreviated parameter
+    /// dictionary the <c>ID</c> scan already delimited.
+    /// </summary>
+    private void NoteInlineImage(byte[] data, int start, int end)
     {
-        if (!_store.Diagnostics.Contains(PdfDiagnosticCodes.TextMappingMissing))
+        // An inline image's samples sit in the content stream rather than in a
+        // stream object, so there is nothing for the filter pipeline to decode
+        // here. It is reported from its declaration whether a decoder is
+        // composed or not.
+        PdfDictionary parameters = ReadInlineImageParameters(data, start, end);
+        PdfObject? filter = parameters["F"] ?? parameters["Filter"];
+
+        _store.Features.NoteImage(
+            ImageDiagnosticFor(filter),
+            new PdfImageShape(
+                Integer(parameters, "W", "Width"),
+                Integer(parameters, "H", "Height"),
+                Integer(parameters, "BPC", "BitsPerComponent"),
+                DescribeColorSpace(parameters["CS"] ?? parameters["ColorSpace"], parameters["IM"] ?? parameters["ImageMask"], inline: true),
+                DescribeFilters(filter),
+                IsInline: true),
+            _store.CurrentPage);
+    }
+
+    private void NoteVectorArtwork(PdfArtworkKind kind) =>
+        _store.Features.NoteArtwork(kind, _store.CurrentPage);
+
+    /// <summary>
+    /// Reports one character code that could not be mapped. Every one is
+    /// reported, not just the first: the sink collapses them into a single entry,
+    /// and the count it keeps is the difference between a document that lost one
+    /// glyph and one that lost a language.
+    /// </summary>
+    private void NoteUnmappedGlyph() =>
+        _store.Diagnostics.Skipped(
+            PdfDiagnosticCodes.TextMappingMissing,
+            "Some character codes had no reliable Unicode mapping and were omitted rather than guessed.");
+
+    // ---- describing what was skipped ------------------------------------------
+
+    /// <summary>
+    /// Parses the abbreviated key/value pairs between <c>BI</c> and <c>ID</c>.
+    /// The range is the one the <c>ID</c> scan already bounded, so this reads
+    /// parameters and can never wander into sample data.
+    /// </summary>
+    private PdfDictionary ReadInlineImageParameters(byte[] data, int start, int end)
+    {
+        var parameters = new PdfDictionary();
+        if (end <= start)
+            return parameters;
+
+        try
         {
-            _store.Diagnostics.Skipped(
-                PdfDiagnosticCodes.TextMappingMissing,
-                "Some character codes had no reliable Unicode mapping and were omitted rather than guessed.");
+            var lexer = new PdfLexer(data, _store.Budget.Limits, start, end);
+            var parser = new PdfObjectParser(lexer, _store.Budget);
+
+            while (parameters.Count < MaxInlineImageParameters)
+            {
+                // End of the range, or anything that is not a key, ends the read.
+                if (parser.ParseObject() is not PdfName key)
+                    break;
+
+                parameters[key.Value] = parser.ParseObject();
+            }
         }
+        catch (PdfLimitExceededException)
+        {
+            // Describing a construct that is being skipped must not be able to
+            // fail the document. Whatever was parsed before the budget bound is
+            // still worth reporting; the next real charge will raise this again.
+        }
+
+        return parameters;
+    }
+
+    /// <summary>
+    /// The diagnostic an undecoded image reports: the code belonging to the first
+    /// image filter in its chain, so a JPEG says JPEG and names its own register
+    /// row, and the generic not-composed code when the chain holds none.
+    /// </summary>
+    private string ImageDiagnosticFor(PdfObject? filter)
+    {
+        foreach (string name in FilterNames(filter))
+        {
+            if (PdfFilterNames.IsImageFilter(name))
+                return PdfFilterNames.UnsupportedDiagnosticFor(name);
+        }
+
+        return PdfDiagnosticCodes.ImageNotComposed;
+    }
+
+    /// <summary>The filter chain as canonical names, in the order it is applied.</summary>
+    private List<string> FilterNames(PdfObject? filter)
+    {
+        var names = new List<string>(2);
+
+        switch (_store.Resolve(filter))
+        {
+            case PdfName single:
+                names.Add(PdfFilterNames.Canonicalize(single.Value));
+                break;
+            case PdfArray array:
+                foreach (PdfObject entry in array)
+                {
+                    if (_store.Resolve(entry) is PdfName name)
+                        names.Add(PdfFilterNames.Canonicalize(name.Value));
+                }
+
+                break;
+        }
+
+        return names;
+    }
+
+    private string DescribeFilters(PdfObject? filter) => string.Join("+", FilterNames(filter));
+
+    /// <summary>
+    /// The colour space as its family name only: a named space by name, an array
+    /// by its family, and a stencil mask as a mask. A family name is a construct
+    /// the format defines, not a value out of the document, so it stays reportable
+    /// under the privacy rule even where the space is a named or separation one.
+    /// </summary>
+    private string DescribeColorSpace(PdfObject? colorSpace, PdfObject? imageMask, bool inline)
+    {
+        if (_store.Resolve(imageMask) is PdfBoolean mask && mask.Value)
+            return "ImageMask";
+
+        return _store.Resolve(colorSpace) switch
+        {
+            PdfName name => ExpandColorSpace(name.Value, inline),
+            PdfArray array when array.Count > 0 && _store.Resolve(array[0]) is PdfName family => ExpandColorSpace(family.Value, inline),
+            PdfArray => "colour-space array",
+            _ => string.Empty,
+        };
+    }
+
+    /// <summary>
+    /// Expands the abbreviated colour-space names an inline image is allowed to
+    /// use, so one document's images are inventoried under one set of names
+    /// whether they were drawn inline or as XObjects.
+    /// </summary>
+    /// <remarks>
+    /// The expansion applies only inline, where the format reserves these four
+    /// spellings. A resource dictionary may name a colour space anything it
+    /// likes, and rewriting a space genuinely called <c>/G</c> would report a
+    /// construct the document does not contain.
+    /// </remarks>
+    private static string ExpandColorSpace(string name, bool inline) =>
+        inline
+            ? name switch
+            {
+                "G" => "DeviceGray",
+                "RGB" => "DeviceRGB",
+                "CMYK" => "DeviceCMYK",
+                "I" => "Indexed",
+                _ => name,
+            }
+            : name;
+
+    /// <summary>
+    /// A non-negative integer entry, under either its full or its abbreviated
+    /// inline-image key, or zero when the entry is absent or unusable.
+    /// </summary>
+    private int Integer(PdfDictionary dictionary, string key, string alternate)
+    {
+        PdfObject? value = _store.Resolve(dictionary[key]) ?? _store.Resolve(dictionary[alternate]);
+        return value is PdfNumber number && double.IsFinite(number.Value) && number.Value is >= 0 and <= int.MaxValue
+            ? (int)number.Value
+            : 0;
+    }
+
+    // ---- path tracking --------------------------------------------------------
+
+    /// <summary>
+    /// What the path just painted looked like. Only two questions decide it: was
+    /// the path built from axis-aligned straight lines, and if so, is its box thin
+    /// enough to be a rule. Everything else is a picture.
+    /// </summary>
+    private PdfArtworkKind ClassifyPath()
+    {
+        if (!_pathOpen || _pathIrregular)
+            return PdfArtworkKind.Path;
+
+        double across = Math.Min(_pathMaxX - _pathMinX, _pathMaxY - _pathMinY);
+        double along = Math.Max(_pathMaxX - _pathMinX, _pathMaxY - _pathMinY);
+
+        return across <= RuleThickness && along >= MinimumRuleLength
+            ? PdfArtworkKind.Rule
+            : PdfArtworkKind.Block;
+    }
+
+    private void ResetPath()
+    {
+        _pathOpen = false;
+        _pathIrregular = false;
+    }
+
+    private void MoveTo(double x, double y)
+    {
+        (double deviceX, double deviceY) = _state.Matrix.Transform(x, y);
+        _pathStartX = deviceX;
+        _pathStartY = deviceY;
+        _pathX = deviceX;
+        _pathY = deviceY;
+        Extend(deviceX, deviceY);
+    }
+
+    private void LineTo(double x, double y)
+    {
+        (double deviceX, double deviceY) = _state.Matrix.Transform(x, y);
+        NoteSegment(deviceX, deviceY);
+        _pathX = deviceX;
+        _pathY = deviceY;
+        Extend(deviceX, deviceY);
+    }
+
+    /// <summary>
+    /// Follows a Bézier to its endpoint. Only the endpoint is tracked: the
+    /// control points can push the true curve outside this box, which would
+    /// matter to a renderer, and does not matter to a classifier that has already
+    /// called the path a picture.
+    /// </summary>
+    private void CurveTo(double x, double y)
+    {
+        _pathIrregular = true;
+        (double deviceX, double deviceY) = _state.Matrix.Transform(x, y);
+        _pathX = deviceX;
+        _pathY = deviceY;
+        Extend(deviceX, deviceY);
+    }
+
+    private void ClosePath()
+    {
+        if (_pathOpen)
+            NoteSegment(_pathStartX, _pathStartY);
+
+        _pathX = _pathStartX;
+        _pathY = _pathStartY;
+    }
+
+    private void AddRectangle(double x, double y, double width, double height)
+    {
+        (double x0, double y0) = _state.Matrix.Transform(x, y);
+        (double x1, double y1) = _state.Matrix.Transform(x + width, y);
+        (double x2, double y2) = _state.Matrix.Transform(x + width, y + height);
+        (double x3, double y3) = _state.Matrix.Transform(x, y + height);
+
+        // A rectangle in user space is only a rectangle in device space while the
+        // transform keeps it one; under a rotation it is as diagonal as any other
+        // path, and saying otherwise would report rules a reader never saw.
+        if (!IsAxisAligned(x1 - x0, y1 - y0) || !IsAxisAligned(x3 - x0, y3 - y0))
+            _pathIrregular = true;
+
+        Extend(x0, y0);
+        Extend(x1, y1);
+        Extend(x2, y2);
+        Extend(x3, y3);
+
+        _pathStartX = x0;
+        _pathStartY = y0;
+        _pathX = x0;
+        _pathY = y0;
+    }
+
+    private void NoteSegment(double x, double y)
+    {
+        if (!IsAxisAligned(x - _pathX, y - _pathY))
+            _pathIrregular = true;
+    }
+
+    private static bool IsAxisAligned(double dx, double dy) =>
+        Math.Abs(dx) <= AxisTolerance || Math.Abs(dy) <= AxisTolerance;
+
+    /// <summary>Grows the path's bounding box, in device space, to hold a point.</summary>
+    private void Extend(double x, double y)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y))
+        {
+            // A point that is not a number makes the box meaningless. The path
+            // still painted something, so it is reported — just not as a rule.
+            _pathIrregular = true;
+            return;
+        }
+
+        if (!_pathOpen)
+        {
+            _pathOpen = true;
+            _pathMinX = _pathMaxX = x;
+            _pathMinY = _pathMaxY = y;
+            return;
+        }
+
+        _pathMinX = Math.Min(_pathMinX, x);
+        _pathMaxX = Math.Max(_pathMaxX, x);
+        _pathMinY = Math.Min(_pathMinY, y);
+        _pathMaxY = Math.Max(_pathMaxY, y);
     }
 
     // ---- operand helpers ------------------------------------------------------
