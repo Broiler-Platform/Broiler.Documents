@@ -109,25 +109,4 @@ public sealed class DocumentShape
 
     /// <summary>True when the shape is a floating picture.</summary>
     public bool HasImage => Image is not null;
-
-    /// <summary>The same shape anchored to a different paragraph.</summary>
-    /// <remarks>
-    /// A shape read from a part with paragraphs of its own - a header - is
-    /// re-anchored this way when it is handed to the body, because the index it
-    /// had in that part counts a different flow and means nothing here.
-    /// </remarks>
-    public DocumentShape WithParagraphIndex(int paragraphIndex) =>
-        paragraphIndex == ParagraphIndex
-            ? this
-            : new DocumentShape(
-                paragraphIndex,
-                OffsetX,
-                OffsetY,
-                Width,
-                Height,
-                Fill,
-                Outline,
-                Paragraphs,
-                Image,
-                BehindText);
 }

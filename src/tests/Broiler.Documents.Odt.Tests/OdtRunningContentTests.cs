@@ -1,3 +1,5 @@
+using Broiler.Graphics;
+
 namespace Broiler.Documents.Odt.Tests;
 
 /// <summary>
@@ -33,6 +35,40 @@ public sealed class OdtRunningContentTests
 
         Assert.Equal("letterhead", TextOf(running.Header(PageSelection.Default)));
         Assert.Equal("pagefooter", TextOf(running.Footer(PageSelection.First)));
+    }
+
+    [Fact]
+    public void A_Header_Shape_Round_Trips_Through_The_Master_Page()
+    {
+        // The reader built the part and kept only its paragraphs, so a master
+        // page whose header is a coloured stripe lost the stripe outright.
+        RichTextDocument source = RichTextDocument.FromPlainText("body").WithRunningContent(
+            RunningContent.Empty.WithHeader(
+                PageSelection.Default,
+                [RichTextParagraph.Plain("letterhead")],
+                [new DocumentShape(0, 0, 20, 120, 8, ShapeFill.Solid(BColor.Black))]));
+
+        RunningContent running = RoundTrip(source).RunningContent;
+
+        DocumentShape shape = Assert.Single(running.HeaderShapes(PageSelection.Default));
+        Assert.Equal(20, shape.OffsetY, 1);
+        Assert.Equal(120, shape.Width, 1);
+        Assert.Equal("letterhead", TextOf(running.Header(PageSelection.Default)));
+    }
+
+    [Fact]
+    public void A_Header_That_Holds_Only_A_Shape_Is_Still_A_Header()
+    {
+        RichTextDocument source = RichTextDocument.FromPlainText("body").WithRunningContent(
+            RunningContent.Empty.WithHeader(
+                PageSelection.Default,
+                paragraphs: null,
+                [new DocumentShape(0, 0, 20, 120, 8, ShapeFill.Solid(BColor.Black))]));
+
+        RunningContent running = RoundTrip(source).RunningContent;
+
+        Assert.False(running.IsEmpty);
+        Assert.Single(running.HeaderShapes(PageSelection.Default));
     }
 
     [Fact]

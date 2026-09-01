@@ -76,6 +76,15 @@ toolkit behind it.
   `svg:title` (falling back to `svg:desc`). A write stores each distinct image
   once under `Pictures`, declares it in the manifest, and anchors the frame
   `as-char`. Raster formats only: PNG, JPEG, GIF, BMP, TIFF, WebP, and ICO.
+- A master page's header and footer shapes, read onto the running content and
+  written back into the master page. They are placed against the page rather
+  than a paragraph, so a header's `svg:y` is read from the top of the page. Their
+  graphic styles are written into `styles.xml` alongside the master page as well
+  as into `content.xml`, because a style reference resolves only within the part
+  that carries it — without that a stripe arrived unpainted, and an unpainted
+  shape holding no text is not read as a shape at all. The reader used to build
+  the part and keep only its paragraphs, so a header that was a coloured stripe
+  and nothing else arrived as no header.
 - Floating pictures: a frame anchored to anything other than a character is read
   as a floating shape carrying the image, boxed by its `svg:x`/`svg:y` against
   the text column and its paragraph and its `svg:width`/`svg:height`, and keeping
@@ -98,8 +107,8 @@ toolkit behind it.
 - Tracked changes are not applied. The document is read as it stands, and
   `text:tracked-changes` — where the deleted text lives — is skipped with a
   diagnostic.
-- Comments (`office:annotation`), footnotes and endnotes (`text:note`), headers,
-  footers, and page geometry are not part of the body and are not imported.
+- Comments (`office:annotation`), footnotes and endnotes (`text:note`) are not
+  part of the body and are not imported.
 - Table styles beyond a cell's own background and borders are not applied, and
   row heights, cell vertical alignment, and a table's own alignment and indent
   are not represented; a table starts at the left margin and is as tall as its

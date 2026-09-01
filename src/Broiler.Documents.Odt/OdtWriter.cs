@@ -874,10 +874,19 @@ public static class OdtWriter
         {
             IReadOnlyList<RichTextParagraph> paragraphs =
                 isHeader ? running.Header(selection) : running.Footer(selection);
-            if (paragraphs.Count == 0)
+            IReadOnlyList<DocumentShape> shapes =
+                isHeader ? running.HeaderShapes(selection) : running.FooterShapes(selection);
+            if (paragraphs.Count == 0 && shapes.Count == 0)
                 continue;
 
             var part = new XElement(OdtNamespaces.Style + element);
+
+            // The drawings first: ODF puts a header's shapes in the part beside
+            // its paragraphs, and a part that carries only a stripe is still a
+            // part rather than nothing.
+            foreach (DocumentShape shape in shapes)
+                part.Add(BuildShape(shape, context));
+
             foreach (RichTextParagraph paragraph in paragraphs)
                 part.Add(BuildParagraph(paragraph, context, inList: false));
 
@@ -920,7 +929,21 @@ public static class OdtWriter
         // below is constructed first - so left lazy, it would be written before
         // those styles existed and the header would name styles this part does
         // not define.
+        //
+        // A shape's paint is in a graphic style and its gradient in a name beyond
+        // that, and those go to content.xml. Only the ones a running part
+        // registered are copied here, so a header's stripe resolves in the part
+        // that carries it rather than arriving unpainted - which, since an
+        // unpainted shape holding no text is not read as a shape at all, dropped
+        // it outright.
+        int shapesBefore = context.ShapeStyles.Count;
+        int gradientsBefore = context.Gradients.Count;
         List<XElement> runningParts = BuildRunningParts(running, context).ToList();
+        var runningStyles = new List<XElement>();
+        for (int i = shapesBefore; i < context.ShapeStyles.Count; i++)
+            runningStyles.Add(context.ShapeStyles[i]);
+        for (int i = gradientsBefore; i < context.Gradients.Count; i++)
+            runningStyles.Add(context.Gradients[i]);
 
         var root = new XElement(
             OdtNamespaces.Office + "document-styles",
@@ -947,7 +970,8 @@ public static class OdtWriter
                 // paragraphs name styles that exist in content.xml alone, and a
                 // reader - ours included - reports them undefined and falls back to
                 // the defaults, losing the alignment and font the footer asked for.
-                context.AutomaticStyles),
+                context.AutomaticStyles,
+                runningStyles),
             new XElement(
                 OdtNamespaces.Office + "master-styles",
                 new XElement(
