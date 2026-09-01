@@ -74,8 +74,13 @@ Open XML WordprocessingML package parts.
   column instead. A picture whose anchor states no `wp:extent` has no box to
   float at and stays in the text. Crops, rotation, and picture effects are
   dropped.
-- An anchored picture in a header or footer is anchored to the start of the body,
-  like any other shape read from a header, with `docx.shape.fromheader`.
+- An anchored picture in a header or footer is anchored to the body's first
+  paragraph, like any other shape read from a header, with
+  `docx.shape.fromheader`. The index it held in the header part is dropped
+  rather than carried over: those paragraphs are their own flow, so a shape on
+  the header's third one has nothing to do with the body's third one, and a body
+  shorter than the header would leave it anchored past the end where nothing
+  draws it.
 - EMF/WMF metafiles — what Word embeds for charts, SmartArt, and shape fallbacks
   — are not carried, because they cannot be decoded to pixels here. They are
   reported as `docx.image.format` rather than kept as a picture that would draw
@@ -114,7 +119,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | `docx.read.summary` | Info | Paragraph, table, style, image, and skipped-block counts for the read. |
-| `docx.shape.fromheader` | Info | A shape in a header or footer was anchored to the start of the body. |
+| `docx.shape.fromheader` | Info | A shape in a header or footer was anchored to the start of the body. Reported once. |
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
 | `docx.table.style` | Warning | A table named a table style; banding and conditional formatting are not applied. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
