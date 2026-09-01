@@ -201,7 +201,41 @@ public sealed class DocumentLayout
             top: setup.ContentTopPoints + setup.ContentHeightPoints,
             band: setup.MarginBottomPoints));
 
-        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, PlaceShapes(setup), cells);
+        List<LayoutShape> shapes = PlaceShapes(setup);
+        shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup));
+        shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
+
+        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells);
+    }
+
+    /// <summary>
+    /// Places a running band's shapes on every page it applies to. There is no
+    /// paragraph to hang one from - a header repeats - so the offset is measured
+    /// from the top of the page.
+    /// </summary>
+    private List<LayoutShape> PlaceRunningShapes(IReadOnlyList<DocumentShape> shapes, PageSetup setup)
+    {
+        var placed = new List<LayoutShape>();
+        foreach (DocumentShape shape in shapes)
+        {
+            var bounds = new BRect(
+                setup.ContentLeftPoints + shape.OffsetX,
+                shape.OffsetY,
+                Math.Max(0, shape.Width),
+                Math.Max(0, shape.Height));
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                continue;
+
+            placed.Add(new LayoutShape(
+                bounds,
+                shape.Fill,
+                shape.Outline,
+                PlaceShapeText(shape, bounds, setup),
+                shape.Image,
+                shape.BehindText));
+        }
+
+        return placed;
     }
 
     /// <summary>

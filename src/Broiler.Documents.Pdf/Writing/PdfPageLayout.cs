@@ -305,6 +305,46 @@ internal sealed class PdfPageLayout
                 footerBaseline,
                 setup.MarginBottom,
                 isHeader: false);
+
+            PlaceRunningShapes(pages[i], running.EffectiveHeaderShapes(selection), setup);
+            PlaceRunningShapes(pages[i], running.EffectiveFooterShapes(selection), setup);
+        }
+    }
+
+    /// <summary>
+    /// Places a running band's shapes on one page. Unlike a body shape there is
+    /// no paragraph to hang from: the offset is measured from the top of the page,
+    /// which in PDF's upward user space is a subtraction from its height.
+    /// </summary>
+    private void PlaceRunningShapes(
+        PdfLayoutPage page,
+        IReadOnlyList<DocumentShape> shapes,
+        PdfPageSetup setup)
+    {
+        foreach (DocumentShape shape in shapes)
+        {
+            if (shape.Width <= 0 || shape.Height <= 0)
+                continue;
+
+            if (shape.HasImage)
+            {
+                _diagnostics.Skipped(
+                    PdfDiagnosticCodes.WriteImageNotComposed,
+                    "A floating image was dropped. This build composes no image emitter, so images are omitted rather than rasterized or transcoded.");
+            }
+
+            double left = setup.MarginLeft + shape.OffsetX;
+            double top = setup.Height - shape.OffsetY;
+            page.Shapes.Add(new PdfPlacedShape(
+                left,
+                top - shape.Height,
+                shape.Width,
+                shape.Height,
+                shape.Fill,
+                shape.Outline));
+
+            if (shape.HasText)
+                PlaceRunningBlock(page, shape.Paragraphs, left, shape.Width, top, shape.Height, isHeader: true);
         }
     }
 

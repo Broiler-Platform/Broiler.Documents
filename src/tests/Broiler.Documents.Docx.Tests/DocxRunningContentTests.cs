@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 
 namespace Broiler.Documents.Docx.Tests;
 
@@ -129,59 +129,56 @@ public sealed class DocxRunningContentTests
     }
 
     [Fact(Timeout = 600000)]
-    public void Anchors_A_Header_Shape_To_The_Start_Of_The_Body()
+    public void Reads_A_Header_Shape_Onto_The_Running_Content()
     {
-        // The shape sits on the header's second paragraph. It used to keep that
-        // index and land on the body's second paragraph, which the note it is
-        // reported with never claimed and which counts a different flow.
+        // It used to be handed to the body and anchored to a paragraph there,
+        // which is what docx.shape.fromheader reported. A header repeats on every
+        // page, so it belongs to the header rather than to a line of the letter.
         DocumentReadResult result = Read(
             HeaderRef,
-            headerInnerXml:
-                "<w:p><w:r><w:t>letterhead</w:t></w:r></w:p>" +
-                "<w:p>" + ShapeRun("AECF00") + "</w:p>",
-            body: DocxTestPackage.Paragraph("first") + DocxTestPackage.Paragraph("second"));
+            headerInnerXml: "<w:p>" + ShapeRun("AECF00") + "</w:p>");
 
-        Assert.Equal(0, Assert.Single(result.Document.Shapes).ParagraphIndex);
+        Assert.Empty(result.Document.Shapes);
+        DocumentShape shape = Assert.Single(
+            result.Document.RunningContent.HeaderShapes(PageSelection.Default));
+        Assert.NotNull(shape.Fill);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.shape.fromheader");
     }
 
     [Fact(Timeout = 600000)]
-    public void Keeps_A_Header_Shape_A_Short_Body_Cannot_Reach()
+    public void Reads_A_Header_That_Holds_Only_A_Shape()
     {
-        // Three header paragraphs, one body paragraph. The shape used to anchor
-        // at index 2, past the end of the body, where a renderer looking for that
-        // paragraph finds none and draws nothing at all.
+        // A part with no words used to report nothing at all, so a letterhead
+        // that is only a stripe arrived as no header.
         DocumentReadResult result = Read(
             HeaderRef,
-            headerInnerXml:
-                "<w:p><w:r><w:t>one</w:t></w:r></w:p>" +
-                "<w:p><w:r><w:t>two</w:t></w:r></w:p>" +
-                "<w:p>" + ShapeRun("AECF00") + "</w:p>",
-            body: DocxTestPackage.Paragraph("only"));
+            headerInnerXml: "<w:p>" + ShapeRun("AECF00") + "</w:p>");
 
-        DocumentShape shape = Assert.Single(result.Document.Shapes);
-        Assert.Equal(0, shape.ParagraphIndex);
-        Assert.InRange(shape.ParagraphIndex, 0, result.Document.Paragraphs.Count - 1);
+        RunningContent running = result.Document.RunningContent;
+        Assert.False(running.IsEmpty);
+        Assert.Empty(running.Header(PageSelection.Default));
+        Assert.Single(running.HeaderShapes(PageSelection.Default));
     }
 
     [Fact(Timeout = 600000)]
-    public void Reports_Two_Shapes_In_One_Header_Once()
+    public void Keeps_A_Header_And_Its_Shapes_On_The_Same_Selection()
     {
-        // Two shapes raised two identical notes, unlike every other repeated
-        // diagnostic this reader emits.
+        // The fallback is resolved once for the whole part. Resolving shapes and
+        // paragraphs apart would let a first page with a header of its own borrow
+        // the default's stripe.
         DocumentReadResult result = Read(
-            HeaderRef,
-            headerInnerXml: "<w:p>" + ShapeRun("AECF00") + ShapeRun("FF0000") + "</w:p>");
+            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/></w:sectPr>",
+            headerInnerXml: "<w:p>" + ShapeRun("AECF00") + "<w:r><w:t>first page</w:t></w:r></w:p>");
 
-        Assert.Equal(2, result.Document.Shapes.Count);
-        Assert.Single(result.Diagnostics.Where(d => d.Code == "docx.shape.fromheader"));
+        RunningContent running = result.Document.RunningContent;
+        Assert.Single(running.EffectiveHeaderShapes(PageSelection.First));
+        Assert.Equal("first page", TextOf(running.EffectiveHeader(PageSelection.First)));
+        Assert.Empty(running.EffectiveHeaderShapes(PageSelection.Default));
     }
 
     [Fact(Timeout = 600000)]
-    public void Reports_Shapes_From_Two_Different_Parts_Once()
+    public void Keeps_A_Header_And_A_Footer_Shape_Apart()
     {
-        // Each part is read with a builder of its own, so counting per part is
-        // not enough: the note is held against the whole read, the way every
-        // other once-only diagnostic here is.
         var parts = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["word/_rels/document.xml.rels"] =
@@ -198,11 +195,26 @@ public sealed class DocxRunningContentTests
                 "<w:footerReference r:id=\"rF\" w:type=\"default\"/></w:sectPr>",
                 parts),
             writable: false);
-        DocumentReadResult result = new DocxDocumentCodec().Read(stream);
+        RichTextDocument document = new DocxDocumentCodec().Read(stream).Document;
 
-        Assert.Equal(2, result.Document.Shapes.Count);
-        Assert.All(result.Document.Shapes, shape => Assert.Equal(0, shape.ParagraphIndex));
-        Assert.Single(result.Diagnostics.Where(d => d.Code == "docx.shape.fromheader"));
+        Assert.Empty(document.Shapes);
+        Assert.Single(document.RunningContent.HeaderShapes(PageSelection.Default));
+        Assert.Single(document.RunningContent.FooterShapes(PageSelection.Default));
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Header_Shape_Survives_A_Round_Trip()
+    {
+        RichTextDocument source = Read(
+            HeaderRef,
+            headerInnerXml: "<w:p>" + ShapeRun("AECF00") + "<w:r><w:t>letterhead</w:t></w:r></w:p>").Document;
+
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false);
+        RichTextDocument actual = new DocxDocumentCodec().Read(stream).Document;
+
+        Assert.Empty(actual.Shapes);
+        Assert.Single(actual.RunningContent.HeaderShapes(PageSelection.Default));
+        Assert.Equal("letterhead", TextOf(actual.RunningContent.Header(PageSelection.Default)));
     }
 
     [Fact(Timeout = 600000)]

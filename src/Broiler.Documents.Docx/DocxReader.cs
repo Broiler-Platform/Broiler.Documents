@@ -73,7 +73,6 @@ internal static class DocxReader
                 diagnostics,
                 reported,
                 page);
-            var partShapes = new List<DocumentShape>();
             document = document.WithRunningContent(ReadRunningContent(
                 archive,
                 documentXml,
@@ -85,14 +84,8 @@ internal static class DocxReader
                 options.Limits,
                 diagnostics,
                 reported,
-                partShapes,
                 page));
             document = document.WithPageGeometry(page);
-            if (partShapes.Count > 0)
-                // A header shape is page decoration, so it belongs behind the
-                // shapes the body anchors - a stripe painted over a logo box
-                // would hide it.
-                document = document.WithShapes([.. partShapes, .. document.Shapes]);
             return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
         }
         catch (InvalidDataException ex)
@@ -138,6 +131,14 @@ internal static class DocxReader
         return builder.Build();
     }
 
+    /// <summary>Which running band a part is being read for, or the body.</summary>
+    private enum RunningBand
+    {
+        Body,
+        Header,
+        Footer,
+    }
+
     /// <summary>Everything a read needs to turn one element into document content.</summary>
     private sealed record DocxReadContext(
         DocxRelationships Relationships,
@@ -145,7 +146,8 @@ internal static class DocxReader
         DocxStyles Styles,
         DocxImageLoader Images,
         DocxDocumentBuilder Builder,
-        PageGeometry? Page = null);
+        PageGeometry? Page = null,
+        RunningBand Band = RunningBand.Body);
 
     /// <summary>
     /// Walks WordprocessingML block-level content — the <c>EG_BlockLevelElts</c>
@@ -649,7 +651,6 @@ internal static class DocxReader
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported,
-        List<DocumentShape> partShapes,
         PageGeometry? page)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
@@ -684,16 +685,17 @@ internal static class DocxReader
                 continue;
             }
 
-            IReadOnlyList<RichTextParagraph>? paragraphs = ReadPartParagraphs(
-                archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported, partShapes,
+            var part = ReadPart(
+                archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported,
+                isHeader ? RunningBand.Header : RunningBand.Footer,
                 page);
-            if (paragraphs is null)
+            if (part is not var (paragraphs, shapes) || (paragraphs.Count == 0 && shapes.Count == 0))
                 continue;
 
             PageSelection selection = SelectionFor((string?)reference.Attribute(DocxNamespaces.Wordprocessing + "type"));
             content = isHeader
-                ? content.WithHeader(selection, paragraphs)
-                : content.WithFooter(selection, paragraphs);
+                ? content.WithHeader(selection, paragraphs, shapes)
+                : content.WithFooter(selection, paragraphs, shapes);
         }
 
         return content;
@@ -757,8 +759,16 @@ internal static class DocxReader
         _ => PageSelection.Default,
     };
 
-    /// <summary>Reads one header or footer part into paragraphs, or null when it holds nothing.</summary>
-    private static IReadOnlyList<RichTextParagraph>? ReadPartParagraphs(
+    /// <summary>
+    /// Reads one header or footer part into the paragraphs and the shapes it
+    /// holds, or null when the part is missing or unreadable.
+    /// </summary>
+    /// <remarks>
+    /// A part that holds only a stripe and no words is still a part, so the
+    /// shapes come back beside the paragraphs rather than being reported through
+    /// an empty paragraph list.
+    /// </remarks>
+    private static (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes)? ReadPart(
         ZipArchive archive,
         string partPath,
         DocxNumbering numbering,
@@ -767,7 +777,7 @@ internal static class DocxReader
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported,
-        List<DocumentShape> partShapes,
+        RunningBand band,
         PageGeometry? page)
     {
         ZipArchiveEntry? entry = DocxPackage.FindEntry(archive, partPath);
@@ -791,32 +801,20 @@ internal static class DocxReader
             diagnostics);
 
         var builder = new DocxDocumentBuilder(limits, diagnostics, reported);
-        var context = new DocxReadContext(partRelationships, numbering, styles, images, builder, page);
+        var context = new DocxReadContext(
+            partRelationships, numbering, styles, images, builder, page, band);
         ReadBlockContent(partXml.Root.Elements(), context, depth: 0);
 
         RichTextDocument part = builder.Build();
-        // A letterhead keeps its coloured stripe in the header, so a header's
-        // shapes are the ones most worth having. RunningContent holds paragraphs
-        // only, so they are handed back to the body to anchor - which is an
-        // approximation the reader says out loud rather than making quietly.
-        if (part.Shapes.Count > 0 && reported.Add("docx.shape.fromheader"))
-        {
-            diagnostics.Add(DocumentDiagnostic.Info(
-                "docx.shape.fromheader",
-                "A shape in a DOCX header or footer was anchored to the start of the body; " +
-                "the model places a shape against a paragraph, not against the page."));
-        }
+        IReadOnlyList<RichTextParagraph> partParagraphs = part.Paragraphs;
 
-        // The body's first paragraph, not the index the shape held in the header.
-        // A header's paragraphs are their own flow, so a stripe on its third one
-        // has nothing to do with the body's third one - and a body shorter than
-        // the header left the shape anchored past the end, where a renderer finds
-        // no paragraph to place it against and quietly draws nothing.
-        foreach (DocumentShape shape in part.Shapes)
-            partShapes.Add(shape.WithParagraphIndex(0));
+        // A single empty paragraph is what an empty part builds, and it is not
+        // content: a header that holds only a stripe should not report a blank
+        // line beside it.
+        if (partParagraphs.Count == 1 && partParagraphs[0].Length == 0)
+            partParagraphs = [];
 
-        IReadOnlyList<RichTextParagraph> paragraphs = part.Paragraphs;
-        return paragraphs.Count == 0 ? null : paragraphs;
+        return (partParagraphs, part.Shapes);
     }
 
     private static void ReadParagraph(XElement paragraph, DocxReadContext context)
@@ -1190,7 +1188,31 @@ internal static class DocxReader
     private static double VerticalOffset(XElement anchor, DocxReadContext context)
     {
         double offset = EmuToPoints(PositionOffset(anchor, "positionV"));
-        switch (RelativeFrom(anchor, "positionV"))
+        string? from = RelativeFrom(anchor, "positionV");
+
+        // A header's shapes are placed against the page, which is the one place
+        // every vertical frame does convert: the page's top is a number the
+        // geometry states rather than a layout result. The band the running
+        // content occupies is where its own paragraphs are drawn, so an offset
+        // stated against those lands with them.
+        if (context.Band != RunningBand.Body)
+        {
+            if (context.Page is not PageGeometry running)
+                return offset;
+
+            return from switch
+            {
+                "margin" => offset + running.MarginTop,
+                "bottomMargin" => offset + running.Height - running.MarginBottom,
+                _ when context.Band == RunningBand.Footer && from is null or "paragraph" or "line" =>
+                    offset + running.Height - running.MarginBottom,
+                // "page" and "topMargin" both measure from the page's top edge,
+                // and a header's own band starts there too.
+                _ => offset,
+            };
+        }
+
+        switch (from)
         {
             case null:
             case "paragraph":
@@ -1283,7 +1305,8 @@ internal static class DocxReader
             context.Builder.Diagnostics,
             context.Builder.Reported);
         var nested = new DocxReadContext(
-            context.Relationships, context.Numbering, context.Styles, context.Images, builder, context.Page);
+            context.Relationships, context.Numbering, context.Styles, context.Images, builder,
+            context.Page, context.Band);
         ReadBlockContent(content.Elements(), nested, depth: 0);
 
         IReadOnlyList<RichTextParagraph> paragraphs = builder.Build().Paragraphs;

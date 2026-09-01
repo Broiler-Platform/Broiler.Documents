@@ -74,18 +74,29 @@ public static class DocxWriter
 
         foreach (PageSelection selection in new[] { PageSelection.Default, PageSelection.First, PageSelection.Even })
         {
-            AddRunningPart(running.Header(selection), isHeader: true, selection, context);
-            AddRunningPart(running.Footer(selection), isHeader: false, selection, context);
+            AddRunningPart(
+                running.Header(selection), running.HeaderShapes(selection),
+                isHeader: true, selection, context);
+            AddRunningPart(
+                running.Footer(selection), running.FooterShapes(selection),
+                isHeader: false, selection, context);
         }
     }
 
+    /// <remarks>
+    /// A shape rides in a run at the head of the part's first paragraph, which is
+    /// where an anchor has to live - a w:hdr holds paragraphs, not drawings. A
+    /// part that carries only a stripe therefore gets an empty paragraph to hang
+    /// it from; without one there is nowhere in the part to put it.
+    /// </remarks>
     private static void AddRunningPart(
         IReadOnlyList<RichTextParagraph> paragraphs,
+        IReadOnlyList<DocumentShape> shapes,
         bool isHeader,
         PageSelection selection,
         DocxWriteContext context)
     {
-        if (paragraphs.Count == 0)
+        if (paragraphs.Count == 0 && shapes.Count == 0)
             return;
 
         var root = new XElement(
@@ -95,6 +106,15 @@ public static class DocxWriter
 
         foreach (RichTextParagraph paragraph in paragraphs)
             root.Add(BuildParagraph(paragraph, context));
+
+        if (root.Elements().FirstOrDefault() is not XElement first)
+        {
+            first = new XElement(DocxNamespaces.Wordprocessing + "p");
+            root.Add(first);
+        }
+
+        foreach (DocumentShape shape in shapes)
+            first.AddFirst(BuildShapeRun(shape, context, pageAnchored: true));
 
         context.AddRunningPart(isHeader, selection, new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root));
     }
@@ -736,7 +756,10 @@ public static class DocxWriter
     /// goes back out as the anchored picture it was read from rather than as a
     /// shape filled with an image, which is a construct Word does not write.
     /// </remarks>
-    private static XElement BuildShapeRun(DocumentShape shape, DocxWriteContext context)
+    private static XElement BuildShapeRun(
+        DocumentShape shape,
+        DocxWriteContext context,
+        bool pageAnchored = false)
     {
         if (shape.Image is InlineImage image)
         {
@@ -745,7 +768,7 @@ public static class DocxWriter
                 Emus(shape.Width),
                 Emus(shape.Height),
                 context);
-            return BuildAnchorRun(shape, pictureFrame, pictureGraphic);
+            return BuildAnchorRun(shape, pictureFrame, pictureGraphic, pageAnchored);
         }
 
         var properties = new XElement(
@@ -800,7 +823,8 @@ public static class DocxWriter
                 new XElement(
                     DocxNamespaces.Drawing + "graphicData",
                     new XAttribute("uri", DocxNamespaces.WordShape.NamespaceName),
-                    wsp)));
+                    wsp)),
+            pageAnchored);
     }
 
     /// <summary>
@@ -813,8 +837,19 @@ public static class DocxWriter
     /// come back from Word painted over the letter. <c>relativeHeight</c> follows
     /// it so the two layers do not interleave - order within a layer is not
     /// modelled, and one value per layer is as much as can honestly be written.
+    /// </para>
+    /// <para>
+    /// A running shape's vertical offset is measured from the top of the page
+    /// rather than from a paragraph, so its <c>positionV</c> says <c>page</c>.
+    /// Writing <c>paragraph</c> there would hand the header's own paragraph an
+    /// offset that was never measured from it.
+    /// </para>
     /// </remarks>
-    private static XElement BuildAnchorRun(DocumentShape shape, XElement frameProperties, XElement graphic)
+    private static XElement BuildAnchorRun(
+        DocumentShape shape,
+        XElement frameProperties,
+        XElement graphic,
+        bool pageAnchored = false)
     {
         var anchor = new XElement(
             DocxNamespaces.WordDrawing + "anchor",
@@ -838,7 +873,7 @@ public static class DocxWriter
                 new XElement(DocxNamespaces.WordDrawing + "posOffset", PointsToEmu(shape.OffsetX))),
             new XElement(
                 DocxNamespaces.WordDrawing + "positionV",
-                new XAttribute("relativeFrom", "paragraph"),
+                new XAttribute("relativeFrom", pageAnchored ? "page" : "paragraph"),
                 new XElement(DocxNamespaces.WordDrawing + "posOffset", PointsToEmu(shape.OffsetY))),
             new XElement(
                 DocxNamespaces.WordDrawing + "extent",

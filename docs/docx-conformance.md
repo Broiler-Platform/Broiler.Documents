@@ -51,6 +51,17 @@ Open XML WordprocessingML package parts.
   each distinct image once under `word/media`, with its relationship and a
   content-type default for its extension. Raster formats only: PNG, JPEG, GIF,
   BMP, TIFF, WebP, and ICO.
+- A header's and a footer's shapes, read onto the running content rather than
+  into the body. They are placed against the page: `svg`-style horizontal offsets
+  stay measured from the text column, while the vertical one is measured from the
+  top of the page, because running content repeats and has no paragraph of the
+  body to hang from. Every vertical `relativeFrom` therefore converts for these —
+  `page` and `topMargin` from the page's top edge, `margin` and `bottomMargin`
+  through the geometry — and they are written back into the header part with
+  `positionV relativeFrom="page"`. A part that holds only a stripe and no words
+  is still a part. They were anchored to a body paragraph before, which put a
+  letterhead on page one only and dropped it entirely when the body was shorter
+  than its header.
 - Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
   shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
   `wp:positionV`, converted from whichever frame the anchor names into the text
@@ -83,13 +94,6 @@ Open XML WordprocessingML package parts.
   anchoring paragraph instead, with `docx.anchor.relativefrom`. `insideMargin`
   and `outsideMargin` name a side that depends on the page's parity, so
   horizontally they are read as an odd page's, reported with the same code.
-- An anchored picture in a header or footer is anchored to the body's first
-  paragraph, like any other shape read from a header, with
-  `docx.shape.fromheader`. The index it held in the header part is dropped
-  rather than carried over: those paragraphs are their own flow, so a shape on
-  the header's third one has nothing to do with the body's third one, and a body
-  shorter than the header would leave it anchored past the end where nothing
-  draws it.
 - EMF/WMF metafiles — what Word embeds for charts, SmartArt, and shape fallbacks
   — are not carried, because they cannot be decoded to pixels here. They are
   reported as `docx.image.format` rather than kept as a picture that would draw
@@ -128,7 +132,6 @@ a document that opens blank can be told apart from a document that *is* blank:
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | `docx.read.summary` | Info | Paragraph, table, style, image, and skipped-block counts for the read. |
-| `docx.shape.fromheader` | Info | A shape in a header or footer was anchored to the start of the body. Reported once. |
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
 | `docx.table.style` | Warning | A table named a table style; banding and conditional formatting are not applied. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |

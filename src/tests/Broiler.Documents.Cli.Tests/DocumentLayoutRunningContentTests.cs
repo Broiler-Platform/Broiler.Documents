@@ -1,4 +1,5 @@
 using Broiler.Documents.Cli.Commands;
+using Broiler.Graphics;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Cli.Rendering;
 
@@ -11,16 +12,30 @@ namespace Broiler.Documents.Cli.Tests;
 /// </summary>
 public sealed class DocumentLayoutRunningContentTests
 {
-    private static RichTextDocument WithRunning(string body, string? header, string? footer)
+    private static RichTextDocument WithRunning(
+        string body,
+        string? header,
+        string? footer,
+        DocumentShape? headerShape = null)
     {
         RichTextDocument document = RichTextDocument.FromPlainText(body);
         RunningContent running = RunningContent.Empty;
-        if (header is not null)
-            running = running.WithHeader(PageSelection.Default, [RichTextParagraph.Plain(header)]);
+        if (header is not null || headerShape is not null)
+        {
+            running = running.WithHeader(
+                PageSelection.Default,
+                header is null ? null : [RichTextParagraph.Plain(header)],
+                headerShape is null ? null : [headerShape]);
+        }
+
         if (footer is not null)
             running = running.WithFooter(PageSelection.Default, [RichTextParagraph.Plain(footer)]);
         return document.WithRunningContent(running);
     }
+
+    /// <summary>A stripe 20 points down the page, in the top margin.</summary>
+    private static DocumentShape Stripe() =>
+        new(0, 0, 20, 120, 8, ShapeFill.Solid(BColor.FromArgb(0xFF, 0xAE, 0xCF, 0x00)));
 
     private static LayoutResult Layout(RichTextDocument document, PageSetup? setup = null)
     {
@@ -36,6 +51,31 @@ public sealed class DocumentLayoutRunningContentTests
             .FirstOrDefault(line =>
                 string.Concat(line.Pieces.Select(piece => piece.Text))
                     .Contains(text, StringComparison.Ordinal));
+
+    [Fact]
+    public void A_Header_Shape_Is_Drawn_On_The_Page_It_Belongs_To()
+    {
+        // It used to be anchored to a body paragraph and drawn wherever that
+        // paragraph happened to land, which on page two was nowhere.
+        LayoutResult result = Layout(WithRunning("body", "letterhead", null, Stripe()));
+
+        LayoutShape stripe = Assert.Single(Assert.Single(result.Pages).Shapes);
+        Assert.Equal(20, stripe.Bounds.Top, 1);
+        Assert.Equal(120, stripe.Bounds.Width, 1);
+    }
+
+    [Fact]
+    public void A_Header_Shape_Repeats_On_Every_Page()
+    {
+        // (char)10 rather than an escape: a newline is what separates paragraphs here.
+        string body = string.Join((char)10, Enumerable.Range(0, 400).Select(i => "line " + i));
+        LayoutResult result = Layout(WithRunning(body, null, null, Stripe()));
+
+        Assert.True(result.Pages.Count > 1, "the body did not run to a second page");
+        Assert.All(result.Pages, page => Assert.Single(page.Shapes));
+        // Measured from the top of each page, so every copy lands in the same place.
+        Assert.All(result.Pages, page => Assert.Equal(20, page.Shapes[0].Bounds.Top, 1));
+    }
 
     [Fact]
     public void A_Header_Sits_Above_The_Body_In_The_Top_Margin()

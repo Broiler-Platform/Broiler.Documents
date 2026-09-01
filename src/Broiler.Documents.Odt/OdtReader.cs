@@ -134,14 +134,13 @@ internal static class OdtReader
             if (part is null)
                 continue;
 
-            IReadOnlyList<RichTextParagraph>? paragraphs =
-                ReadPartParagraphs(part, styles, images, limits, diagnostics);
-            if (paragraphs is null)
+            var (paragraphs, shapes) = ReadPart(part, styles, images, limits, diagnostics);
+            if (paragraphs.Count == 0 && shapes.Count == 0)
                 continue;
 
             content = isHeader
-                ? content.WithHeader(selection, paragraphs)
-                : content.WithFooter(selection, paragraphs);
+                ? content.WithHeader(selection, paragraphs, shapes)
+                : content.WithFooter(selection, paragraphs, shapes);
         }
 
         return content;
@@ -369,7 +368,15 @@ internal static class OdtReader
         ("footer-left", false, PageSelection.Even),
     ];
 
-    private static IReadOnlyList<RichTextParagraph>? ReadPartParagraphs(
+    /// <remarks>
+    /// The shapes come back beside the paragraphs rather than being dropped with
+    /// the rest of the built document, which is what used to happen: a master
+    /// page whose header is a coloured stripe and nothing else arrived as no
+    /// header at all. They are placed against the page, so a header's
+    /// <c>svg:y</c> is read from the top of the page - the same reading the DOCX
+    /// side gives a header's own band.
+    /// </remarks>
+    private static (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes) ReadPart(
         XElement part,
         OdtStyles styles,
         OdtImageLoader images,
@@ -380,8 +387,12 @@ internal static class OdtReader
         var context = new OdtReadContext(styles, images, builder);
         ReadBlockContent(part.Elements(), context, list: null, depth: 0);
 
-        IReadOnlyList<RichTextParagraph> paragraphs = builder.Build().Paragraphs;
-        return paragraphs.Count == 0 ? null : paragraphs;
+        RichTextDocument built = builder.Build();
+        IReadOnlyList<RichTextParagraph> paragraphs = built.Paragraphs;
+        if (paragraphs.Count == 1 && paragraphs[0].Length == 0)
+            paragraphs = [];
+
+        return (paragraphs, built.Shapes);
     }
 
     /// <summary>Everything a read needs to turn one element into document content.</summary>
