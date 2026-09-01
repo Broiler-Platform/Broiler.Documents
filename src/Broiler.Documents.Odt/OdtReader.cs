@@ -229,7 +229,8 @@ internal static class OdtReader
         }
 
         string? styleName = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
-        (ShapeFill? fill, BColor outline, bool behindText) = ReadShapeStyle(styleName, context.Styles);
+        (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) =
+            ReadShapeStyle(styleName, context.Styles);
 
         // A frame keeps its text in a draw:text-box; a custom shape carries the
         // paragraphs itself.
@@ -256,7 +257,9 @@ internal static class OdtReader
             outline,
             paragraphs,
             image: null,
-            behindText: behindText));
+            behindText: behindText,
+            wrap: wrap,
+            wrapSide: wrapSide));
         return true;
     }
 
@@ -269,14 +272,13 @@ internal static class OdtReader
     /// is unpainted and behind the text - the same answer an absent
     /// <c>style:run-through</c> gets, and for the same reason.
     /// </remarks>
-    private static (ShapeFill? Fill, BColor Outline, bool BehindText) ReadShapeStyle(
-        string? styleName,
-        OdtStyles styles)
+    private static (ShapeFill? Fill, BColor Outline, bool BehindText, ShapeWrap Wrap, WrapSide Side)
+        ReadShapeStyle(string? styleName, OdtStyles styles)
     {
         if (string.IsNullOrWhiteSpace(styleName) ||
             !styles.GraphicProperties.TryGetValue(styleName, out XElement? properties))
         {
-            return (null, BColor.Empty, true);
+            return (null, BColor.Empty, true, ShapeWrap.None, WrapSide.Largest);
         }
 
         ShapeFill? fill = null;
@@ -310,7 +312,8 @@ internal static class OdtReader
         if (!string.Equals(stroke, "none", StringComparison.Ordinal))
             TryColor((string?)properties.Attribute(OdtNamespaces.Svg + "stroke-color"), out outline);
 
-        return (fill, outline, BehindText(properties));
+        (ShapeWrap wrap, WrapSide side) = ReadWrap(properties);
+        return (fill, outline, BehindText(properties), wrap, side);
     }
 
     /// <summary>
@@ -326,6 +329,27 @@ internal static class OdtReader
     /// text under it, while one wrongly behind leaves the document readable. The
     /// writer states the attribute either way, so a round trip does not lean on it.
     /// </remarks>
+    /// <summary>
+    /// ODF's <c>style:wrap</c>, as the three modes layout distinguishes.
+    /// </summary>
+    /// <remarks>
+    /// The two values that read backwards are the whole reason this is its own
+    /// method. <c>run-through</c> is the one where text ignores the shape and
+    /// runs through it - our no-wrap - while <c>none</c> means no text alongside
+    /// it at all, which pushes the text below and is top-and-bottom. Reading
+    /// <c>none</c> as no wrap would put the text straight back through the
+    /// picture the document asked it to clear.
+    /// </remarks>
+    private static (ShapeWrap Wrap, WrapSide Side) ReadWrap(XElement graphicProperties) =>
+        (string?)graphicProperties.Attribute(OdtNamespaces.Style + "wrap") switch
+        {
+            "none" => (ShapeWrap.TopAndBottom, WrapSide.Largest),
+            "left" => (ShapeWrap.Square, WrapSide.Left),
+            "right" => (ShapeWrap.Square, WrapSide.Right),
+            "parallel" or "dynamic" or "biggest" => (ShapeWrap.Square, WrapSide.Largest),
+            _ => (ShapeWrap.None, WrapSide.Largest),
+        };
+
     private static bool BehindText(XElement graphicProperties) =>
         (string?)graphicProperties.Attribute(OdtNamespaces.Style + "run-through") switch
         {
@@ -1071,8 +1095,8 @@ internal static class OdtReader
         {
             context.Builder.AddDiagnosticOnce(
                 "odt.image.anchored",
-                "A floating ODT picture was anchored to its paragraph; " +
-                "text wrapping is not represented.");
+                "A floating ODT picture was anchored to its paragraph; text wraps " +
+                "around the box it states rather than around the picture's outline.");
 
             if (ReadFloatingPicture(frame, context))
                 return;
@@ -1117,7 +1141,8 @@ internal static class OdtReader
             return false;
 
         string? styleName = (string?)frame.Attribute(OdtNamespaces.Draw + "style-name");
-        (ShapeFill? fill, BColor outline, bool behindText) = ReadShapeStyle(styleName, context.Styles);
+        (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) =
+            ReadShapeStyle(styleName, context.Styles);
 
         double x = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "x"), out double left)
             ? left
@@ -1136,7 +1161,9 @@ internal static class OdtReader
             outline,
             paragraphs: null,
             image: image,
-            behindText: behindText));
+            behindText: behindText,
+            wrap: wrap,
+            wrapSide: wrapSide));
         return true;
     }
 

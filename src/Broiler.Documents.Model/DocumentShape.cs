@@ -51,7 +51,10 @@ public sealed class DocumentShape
         BColor outline = default,
         IReadOnlyList<RichTextParagraph>? paragraphs = null,
         InlineImage? image = null,
-        bool behindText = true)
+        bool behindText = true,
+        ShapeWrap wrap = ShapeWrap.None,
+        WrapSide wrapSide = WrapSide.Largest,
+        double wrapDistance = 0)
     {
         ParagraphIndex = paragraphIndex;
         OffsetX = offsetX;
@@ -62,6 +65,9 @@ public sealed class DocumentShape
         Outline = outline;
         Image = image;
         BehindText = behindText;
+        Wrap = wrap;
+        WrapSide = wrapSide;
+        WrapDistance = double.IsFinite(wrapDistance) && wrapDistance > 0 ? wrapDistance : 0;
         Paragraphs = paragraphs is null || paragraphs.Count == 0
             ? []
             : [.. paragraphs];
@@ -100,6 +106,25 @@ public sealed class DocumentShape
     /// letterhead case, and painting it over the letter would hide the letter.
     /// </summary>
     public bool BehindText { get; }
+
+    /// <summary>
+    /// How the body text behaves around the shape. Defaults to
+    /// <see cref="ShapeWrap.None"/>: text ignores it, which is what every shape
+    /// did before any of them said otherwise.
+    /// </summary>
+    public ShapeWrap Wrap { get; }
+
+    /// <summary>Which side the text runs down when the shape wraps.</summary>
+    public WrapSide WrapSide { get; }
+
+    /// <summary>
+    /// Points of clearance the text keeps around a wrapping shape, so a line does
+    /// not touch the picture it flows beside.
+    /// </summary>
+    public double WrapDistance { get; }
+
+    /// <summary>True when the body text has to keep clear of this shape.</summary>
+    public bool Wraps => Wrap != ShapeWrap.None;
 
     /// <summary>The shape's own text, empty when it holds none.</summary>
     public IReadOnlyList<RichTextParagraph> Paragraphs { get; }

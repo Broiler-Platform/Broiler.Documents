@@ -114,9 +114,12 @@ toolkit behind it.
   are not represented; a table starts at the left margin and is as tall as its
   rows. A cell's paragraphs are a range, so an edit that spans out of a cell and
   into the body does not keep the grid over what it merged.
-- A floating picture keeps its position and its layer, not its wrapping: text
-  does not flow around it. `style:run-through` is the whole of the stacking that
-  is represented — order *among* shapes on the same side of the text is not, and
+- A floating picture keeps its position, its layer and its wrapping.
+  `style:wrap` is read, and its two names that read backwards are read the way
+  ODF means them: `run-through` is text through the shape, and `none` is no text
+  beside it at all. A wrapped line keeps one span, running down whichever side
+  has more room, so `parallel` gets the larger side rather than text down both.
+  `style:run-through` is the whole of the stacking that is represented — order *among* shapes on the same side of the text is not, and
   they draw in the order they were read. A style that states no run-through is
   read as `background`, which is not ODF's own default; it is what this reader
   has always done, and a box wrongly in front would hide the text under it. A
@@ -197,7 +200,7 @@ blank:
 | `odt.image.limit` | Warning | A picture exceeded `MaxBinBytes` and was skipped. |
 | `odt.image.binary` | Warning | An inline picture payload was not valid base64. |
 | `odt.image.shape` | Warning | A frame held no embedded picture. |
-| `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph; wrapping is not represented. |
+| `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `odt.limit.depth` | Warning | Block or inline nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `odt.limit.run` | Warning | A paragraph hit `MaxRunLength` and was truncated. |
 | `odt.limit.spaces` | Warning | A `text:s` count exceeded `MaxRunLength` and was clamped. |

@@ -150,6 +150,24 @@ public sealed class OdtShapeTests
         Assert.Equal(behindText, Assert.Single(RoundTrip(source).Shapes).BehindText);
     }
 
+    [Theory]
+    // ODF's names read backwards: run-through is text through the shape, and
+    // none is no text beside it at all.
+    [InlineData(ShapeWrap.None, "run-through")]
+    [InlineData(ShapeWrap.Square, "parallel")]
+    [InlineData(ShapeWrap.TopAndBottom, "none")]
+    public void A_Wrap_Round_Trips_Through_The_Graphic_Style(ShapeWrap wrap, string expected)
+    {
+        RichTextDocument source = WithShapes(
+            new DocumentShape(0, -40, 0, 30, 200, Green, wrap: wrap));
+
+        Assert.Contains(
+            "style:wrap=\"" + expected + "\"",
+            ContentOf(OdtDocumentCodec.WriteToArray(source)),
+            StringComparison.Ordinal);
+        Assert.Equal(wrap, Assert.Single(RoundTrip(source).Shapes).Wrap);
+    }
+
     [Fact]
     public void A_Document_Without_Shapes_Writes_None()
     {

@@ -112,6 +112,17 @@ public sealed class LayoutLine
     /// <summary>Distance from the page's top edge to the line box, in points.</summary>
     public double Top { get; internal set; }
 
+    /// <summary>
+    /// Blank space the line leaves above itself, because a wrapping shape left no
+    /// room beside it and it had to move past.
+    /// </summary>
+    /// <remarks>
+    /// Carried on the line rather than folded into <see cref="Top"/>: the caller
+    /// flows lines onto pages, so it has to see the skip to decide whether the
+    /// line still fits on this one.
+    /// </remarks>
+    public double LeadingSkip { get; internal set; }
+
     public double Height { get; }
 
     /// <summary>Distance from <see cref="Top"/> down to the baseline, in points.</summary>

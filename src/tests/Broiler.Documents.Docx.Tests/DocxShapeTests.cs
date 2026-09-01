@@ -169,6 +169,49 @@ public sealed class DocxShapeTests
         Assert.False(Assert.Single(actual.Shapes).BehindText);
     }
 
+    [Theory(Timeout = 600000)]
+    [InlineData("<wp:wrapSquare wrapText=\"bothSides\"/>", ShapeWrap.Square, WrapSide.Largest)]
+    [InlineData("<wp:wrapSquare wrapText=\"left\"/>", ShapeWrap.Square, WrapSide.Left)]
+    [InlineData("<wp:wrapSquare wrapText=\"right\"/>", ShapeWrap.Square, WrapSide.Right)]
+    // Both follow the picture's outline; the model follows its box.
+    [InlineData("<wp:wrapTight/>", ShapeWrap.Square, WrapSide.Largest)]
+    [InlineData("<wp:wrapThrough/>", ShapeWrap.Square, WrapSide.Largest)]
+    [InlineData("<wp:wrapTopAndBottom/>", ShapeWrap.TopAndBottom, WrapSide.Largest)]
+    [InlineData("<wp:wrapNone/>", ShapeWrap.None, WrapSide.Largest)]
+    [InlineData("", ShapeWrap.None, WrapSide.Largest)]
+    public void Reads_The_Wrap_An_Anchor_States(string wrapXml, ShapeWrap expected, WrapSide side)
+    {
+        DocumentShape shape = Assert.Single(Read(
+            GradientShape.Replace("<wp:extent", wrapXml + "<wp:extent", StringComparison.Ordinal)).Shapes);
+
+        Assert.Equal(expected, shape.Wrap);
+        Assert.Equal(side, shape.WrapSide);
+    }
+
+    [Theory(Timeout = 600000)]
+    [InlineData("<wp:wrapSquare wrapText=\"left\"/>", "wrapSquare")]
+    [InlineData("<wp:wrapTopAndBottom/>", "wrapTopAndBottom")]
+    public void A_Wrap_Survives_A_Round_Trip(string wrapXml, string expectedElement)
+    {
+        // The writer stated wrapNone whatever it was given, so a picture read
+        // with text flowing around it was saved as one the text runs under - the
+        // arrangement lost on every save.
+        RichTextDocument source = Read(
+            GradientShape.Replace("<wp:extent", wrapXml + "<wp:extent", StringComparison.Ordinal));
+
+        byte[] bytes = DocxDocumentCodec.WriteToArray(source);
+        using var package = new System.IO.Compression.ZipArchive(
+            new MemoryStream(bytes), System.IO.Compression.ZipArchiveMode.Read);
+        using var reader = new StreamReader(package.GetEntry("word/document.xml")!.Open());
+        Assert.Contains(expectedElement, reader.ReadToEnd(), StringComparison.Ordinal);
+
+        using var stream = new MemoryStream(bytes, writable: false);
+        RichTextDocument actual = new DocxDocumentCodec().Read(stream).Document;
+        Assert.Equal(
+            Assert.Single(source.Shapes).Wrap,
+            Assert.Single(actual.Shapes).Wrap);
+    }
+
     [Fact(Timeout = 600000)]
     public void Editing_The_Body_Keeps_The_Shapes()
     {

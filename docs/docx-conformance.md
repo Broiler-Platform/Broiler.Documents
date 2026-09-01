@@ -81,10 +81,18 @@ Open XML WordprocessingML package parts.
 - Tracked deletions, embedded objects, fields, comments, headers, footers,
   footnotes, and section layout are skipped or approximated with diagnostics
   where applicable.
-- A floating picture keeps its position and its layer, not its wrapping: text
-  does not flow around it. `behindDoc` is the whole of the stacking that is
-  represented — order *among* shapes on the same side of the text is not, and
-  they draw in the order they were read. A picture whose anchor states no
+- A floating picture keeps its position, its layer and its wrapping. `behindDoc`
+  is the whole of the stacking that is represented — order *among* shapes on the
+  same side of the text is not, and they draw in the order they were read.
+  `wrapSquare`, `wrapTight` and `wrapThrough` all wrap around the shape's box:
+  the outline the last two follow is not, so text clears the frame rather than
+  the picture inside it. A wrapped line keeps one span — it runs down whichever
+  side has more room, which is `wrapText="largest"` — so `bothSides` gets the
+  larger side rather than text down both. `distL` and `distR` become one
+  clearance, applied on both sides. A shape anchored to a later paragraph does
+  not narrow a line above it, and an indented paragraph's band is measured from
+  its own left edge rather than the column's, so a shape overlapping one is out
+  by the indent. A picture whose anchor states no
   `wp:extent` has no box to float at and stays in the text. Crops, rotation, and
   picture effects are dropped.
 - A vertical `relativeFrom` other than `paragraph` or `line` is not converted.
@@ -147,7 +155,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.format` | Warning | A picture used an image format this codec does not carry (EMF/WMF and the like). |
 | `docx.image.limit` | Warning | An image part exceeded `MaxBinBytes` and was skipped. |
 | `docx.image.shape` | Warning | A drawing held no embedded picture. |
-| `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph; wrapping is not represented. |
+| `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's, or a page-relative vertical offset kept as stated. |
 
 `Broiler.Cli --convert-doc <in> --output <out>` prints all of them, which is the

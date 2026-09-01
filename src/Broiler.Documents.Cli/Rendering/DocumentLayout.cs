@@ -45,6 +45,7 @@ public sealed class DocumentLayout
     private readonly List<string> _notes = new();
     private RunningContent _running = RunningContent.Empty;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
+    private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
 
     public DocumentLayout(LayoutSettings settings, ImageStore images)
@@ -66,6 +67,7 @@ public sealed class DocumentLayout
         _running = setup.Continuous ? RunningContent.Empty : document.RunningContent;
         _documentShapes = document.Shapes;
         _paragraphTops.Clear();
+        _wrap = new TextWrapExclusions();
 
         // A continuous render has no page break to place, so it lays out against
         // an effectively unbounded column and then shrinks the page to the
@@ -122,16 +124,28 @@ public sealed class DocumentLayout
             ParagraphStyle style = paragraph.Style;
             string? marker = numbering.Advance(style);
 
-            ParagraphLines composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex);
             _paragraphTops.TryAdd(paragraphIndex, y);
+
+            // A shape's box is known once the paragraph it hangs from has a top,
+            // so this paragraph's shapes join the exclusions before its own lines
+            // are wrapped. One anchored further down cannot narrow a line above
+            // it, which is what a single forward pass can honestly say.
+            foreach (DocumentShape shape in _documentShapes)
+            {
+                if (shape.Wraps && shape.ParagraphIndex == paragraphIndex)
+                    _wrap.Add(shape, y + shape.OffsetY);
+            }
 
             // Space before never opens a page: a paragraph that starts a page
             // starts at the top margin, the way every page-based renderer does it.
-            if (currentLines.Count > 0)
-                y += Math.Max(0, style.SpacingBefore);
+            double spacingBefore = currentLines.Count > 0 ? Math.Max(0, style.SpacingBefore) : 0;
+            ParagraphLines composed = ComposeParagraph(
+                paragraph, marker, setup, paragraphIndex, wrapTop: y + spacingBefore);
+            y += spacingBefore;
 
             foreach (LayoutLine line in composed.Lines)
             {
+                y += line.LeadingSkip;
                 if (y + line.Height > contentBottom && currentLines.Count > 0)
                 {
                     BreakPage();
@@ -605,7 +619,8 @@ public sealed class DocumentLayout
         PageSetup setup,
         int paragraphIndex,
         double? columnLeftOverride = null,
-        double? columnWidthOverride = null)
+        double? columnWidthOverride = null,
+        double? wrapTop = null)
     {
         ParagraphStyle style = paragraph.Style;
         double indent = Math.Max(0, style.IndentLevel) * _settings.IndentStepPoints;
@@ -631,34 +646,81 @@ public sealed class DocumentLayout
         double textWidth = Math.Max(1.0, columnWidth - hang);
 
         List<Token> tokens = Tokenize(paragraph);
-        List<List<LayoutPiece>> rows = Wrap(tokens, textWidth);
+        var bands = new List<TextBand>();
+        var skips = new List<double>();
+        List<List<LayoutPiece>> rows;
+
+        if (wrapTop is double top && !_wrap.IsEmpty)
+        {
+            // Each row is measured where it lands. The y is advanced by the
+            // default line height rather than the row's own, which is not known
+            // until the row has been wrapped to a width - so a row of unusually
+            // tall text can reach a little into a shape it only just cleared.
+            double lineY = top;
+            double estimate = BTextMeasurer.GetLineHeight(defaultFont);
+            rows = Wrap(
+                tokens,
+                _ =>
+                {
+                    double skip = 0;
+                    TextBand row = BandFor(ref lineY, estimate, textWidth, ref skip);
+                    skips.Add(skip);
+                    lineY += estimate;
+                    return row;
+                },
+                bands);
+        }
+        else
+        {
+            rows = Wrap(tokens, textWidth);
+        }
 
         var lines = new List<LayoutLine>(rows.Count);
         for (int i = 0; i < rows.Count; i++)
         {
             List<LayoutPiece> pieces = rows[i];
+            TextBand band = i < bands.Count ? bands[i] : new TextBand(0, textWidth);
 
             // The marker belongs to the first line only, and sits in the hanging
             // indent rather than in the text column, so wrapped lines align under
             // the text and not under the bullet.
             if (i == 0 && markerPiece is not null)
             {
-                markerPiece.X = columnLeft;
+                markerPiece.X = columnLeft + band.Left;
                 pieces.Insert(0, markerPiece);
             }
 
-            lines.Add(PlaceLine(
+            LayoutLine line = PlaceLine(
                 pieces,
                 i == 0 && markerPiece is not null,
-                textLeft,
-                textWidth,
+                textLeft + band.Left,
+                Math.Max(1, band.Width),
                 style,
                 defaultFont,
                 paragraphIndex,
-                i == rows.Count - 1));
+                i == rows.Count - 1);
+            line.LeadingSkip = i < skips.Count ? skips[i] : 0;
+            lines.Add(line);
         }
 
         return new ParagraphLines(lines);
+    }
+
+    /// <summary>
+    /// The band a line has at <paramref name="y"/>, moved below anything that
+    /// leaves it no room, with how far it had to move recorded.
+    /// </summary>
+    /// <remarks>
+    /// Bounded rather than repeated until it settles: clearing one shape can move
+    /// a line into the next, and shapes covering the column would push a line
+    /// down forever. After the last try the line takes the full column and draws
+    /// through, which is visible and finite where a hang is neither.
+    /// </remarks>
+    private TextBand BandFor(ref double y, double height, double width, ref double skip)
+    {
+        TextBand band = _wrap.Resolve(ref y, height, width, out double moved);
+        skip += moved;
+        return band;
     }
 
     /// <summary>The spaces a justified line can spend its slack on.</summary>
@@ -755,13 +817,29 @@ public sealed class DocumentLayout
     /// single token wider than the column is split by character so that one long
     /// URL cannot push a page off its own right edge.
     /// </summary>
-    private List<List<LayoutPiece>> Wrap(List<Token> tokens, double maxWidth)
+    private List<List<LayoutPiece>> Wrap(List<Token> tokens, double maxWidth) =>
+        Wrap(tokens, _ => new TextBand(0, maxWidth), bands: null);
+
+    /// <remarks>
+    /// The width is asked for per row rather than given once, because a wrapping
+    /// shape leaves each line a different amount of room depending on where the
+    /// line lands. <paramref name="bands"/> collects what each row was given, so
+    /// the caller can place it at the left edge it was wrapped to.
+    /// </remarks>
+    private List<List<LayoutPiece>> Wrap(
+        List<Token> tokens,
+        Func<int, TextBand> bandFor,
+        List<TextBand>? bands)
     {
         var rows = new List<List<LayoutPiece>>();
         var current = new List<LayoutPiece>();
         var pendingSpace = new List<Token>();
         double currentWidth = 0;
         double pendingWidth = 0;
+
+        TextBand band = bandFor(0);
+        bands?.Add(band);
+        double maxWidth = Math.Max(1, band.Width);
 
         void Flush()
         {
@@ -770,6 +848,10 @@ public sealed class DocumentLayout
             currentWidth = 0;
             pendingSpace.Clear();
             pendingWidth = 0;
+
+            band = bandFor(rows.Count);
+            bands?.Add(band);
+            maxWidth = Math.Max(1, band.Width);
         }
 
         foreach (Token token in tokens)

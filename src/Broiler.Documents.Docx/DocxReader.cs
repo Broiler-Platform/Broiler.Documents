@@ -1016,16 +1016,18 @@ internal static class DocxReader
     /// </remarks>
     private static bool ReadFloatingPicture(XElement anchor, InlineImage image, DocxReadContext context)
     {
-        // Said whether it floats or not: wrapping is the part of an anchor the
-        // model has no room for either way. Stacking it does keep - see BehindDoc.
+        // Said whether it floats or not. Position, stacking and wrapping are all
+        // kept now, so the note names what is still approximate rather than
+        // claiming the arrangement was lost.
         context.Builder.AddDiagnosticOnce(
             "docx.image.anchored",
-            "A floating DOCX picture was anchored to its paragraph; " +
-            "text wrapping is not represented.");
+            "A floating DOCX picture was anchored to its paragraph; text wraps " +
+            "around the box it states rather than around the picture's outline.");
 
         if (!image.HasExplicitSize)
             return false;
 
+        (ShapeWrap Wrap, WrapSide Side, double Distance) wrap = ReadWrap(anchor);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
             HorizontalOffset(anchor, context),
@@ -1036,7 +1038,10 @@ internal static class DocxReader
             outline: default,
             paragraphs: null,
             image: image,
-            behindText: BehindDoc(anchor)));
+            behindText: BehindDoc(anchor),
+            wrap: wrap.Wrap,
+            wrapSide: wrap.Side,
+            wrapDistance: wrap.Distance));
         return true;
     }
 
@@ -1074,6 +1079,7 @@ internal static class DocxReader
         if (fill is null && paragraphs.Count == 0)
             return false;
 
+        (ShapeWrap Wrap, WrapSide Side, double Distance) shapeWrap = ReadWrap(anchor);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
             HorizontalOffset(anchor, context),
@@ -1084,7 +1090,10 @@ internal static class DocxReader
             ReadOutline(spPr),
             paragraphs,
             image: null,
-            behindText: BehindDoc(anchor)));
+            behindText: BehindDoc(anchor),
+            wrap: shapeWrap.Wrap,
+            wrapSide: shapeWrap.Side,
+            wrapDistance: shapeWrap.Distance));
         return true;
     }
 
@@ -1109,6 +1118,56 @@ internal static class DocxReader
     private static string? PositionOffset(XElement anchor, string axis) =>
         (string?)anchor.Element(DocxNamespaces.WordDrawing + axis)
             ?.Element(DocxNamespaces.WordDrawing + "posOffset");
+
+    /// <summary>
+    /// The wrap an anchor states, as the three modes layout distinguishes.
+    /// </summary>
+    /// <remarks>
+    /// <c>wrapTight</c> and <c>wrapThrough</c> follow the picture's own outline;
+    /// they are read as square, which follows its box instead. The element is
+    /// required on a <c>wp:anchor</c>, so one that states none is a producer
+    /// leaving it out and reads as no wrap, which is what every anchor got before
+    /// any of them were read.
+    /// </remarks>
+    private static (ShapeWrap Wrap, WrapSide Side, double Distance) ReadWrap(XElement anchor)
+    {
+        foreach (XElement child in anchor.Elements())
+        {
+            if (child.Name.Namespace != DocxNamespaces.WordDrawing)
+                continue;
+
+            ShapeWrap wrap = child.Name.LocalName switch
+            {
+                "wrapSquare" or "wrapTight" or "wrapThrough" => ShapeWrap.Square,
+                "wrapTopAndBottom" => ShapeWrap.TopAndBottom,
+                _ => ShapeWrap.None,
+            };
+
+            if (wrap == ShapeWrap.None)
+                continue;
+
+            WrapSide side = (string?)child.Attribute("wrapText") switch
+            {
+                "left" => WrapSide.Left,
+                "right" => WrapSide.Right,
+                // "bothSides" asks for text down both sides of the shape. A line
+                // here is one span, so it gets the side with more room instead.
+                _ => WrapSide.Largest,
+            };
+
+            return (wrap, side, WrapDistance(anchor));
+        }
+
+        return (ShapeWrap.None, WrapSide.Largest, 0);
+    }
+
+    /// <summary>
+    /// The clearance the text keeps beside a wrapping shape, as the wider of the
+    /// two horizontal distances the anchor states.
+    /// </summary>
+    private static double WrapDistance(XElement anchor) => Math.Max(
+        EmuToPoints((string?)anchor.Attribute("distL")),
+        EmuToPoints((string?)anchor.Attribute("distR")));
 
     /// <summary>The frame an axis states its offset against, or null for none.</summary>
     private static string? RelativeFrom(XElement anchor, string axis) =>

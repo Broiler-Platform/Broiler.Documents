@@ -855,8 +855,8 @@ public static class DocxWriter
             DocxNamespaces.WordDrawing + "anchor",
             new XAttribute("distT", "0"),
             new XAttribute("distB", "0"),
-            new XAttribute("distL", "0"),
-            new XAttribute("distR", "0"),
+            new XAttribute("distL", PointsToEmu(shape.WrapDistance)),
+            new XAttribute("distR", PointsToEmu(shape.WrapDistance)),
             new XAttribute("simplePos", "0"),
             new XAttribute("relativeHeight", shape.BehindText ? "1" : "2"),
             new XAttribute("behindDoc", shape.BehindText ? "1" : "0"),
@@ -879,7 +879,7 @@ public static class DocxWriter
                 DocxNamespaces.WordDrawing + "extent",
                 new XAttribute("cx", PointsToEmu(shape.Width)),
                 new XAttribute("cy", PointsToEmu(shape.Height))),
-            new XElement(DocxNamespaces.WordDrawing + "wrapNone"),
+            BuildWrap(shape),
             frameProperties,
             graphic);
 
@@ -887,6 +887,32 @@ public static class DocxWriter
             DocxNamespaces.Wordprocessing + "r",
             new XElement(DocxNamespaces.Wordprocessing + "drawing", anchor));
     }
+
+    /// <summary>
+    /// The wrap element, which <c>wp:anchor</c> requires exactly one of. It was
+    /// fixed at <c>wrapNone</c> whatever the shape said, so a picture read with
+    /// text flowing around it was saved as one the text runs under - the same
+    /// arrangement lost on every save.
+    /// </summary>
+    /// <remarks>
+    /// <c>wrapTight</c> and <c>wrapThrough</c> are read as square and written
+    /// back as square, because the model follows the shape's box rather than its
+    /// outline and writing back a mode that promises the outline would claim
+    /// more than the document now holds.
+    /// </remarks>
+    private static XElement BuildWrap(DocumentShape shape) => shape.Wrap switch
+    {
+        ShapeWrap.Square => new XElement(
+            DocxNamespaces.WordDrawing + "wrapSquare",
+            new XAttribute("wrapText", shape.WrapSide switch
+            {
+                WrapSide.Left => "left",
+                WrapSide.Right => "right",
+                _ => "bothSides",
+            })),
+        ShapeWrap.TopAndBottom => new XElement(DocxNamespaces.WordDrawing + "wrapTopAndBottom"),
+        _ => new XElement(DocxNamespaces.WordDrawing + "wrapNone"),
+    };
 
     private static XElement BuildShapeFill(ShapeFill fill)
     {
