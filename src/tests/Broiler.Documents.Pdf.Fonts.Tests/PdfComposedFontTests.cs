@@ -98,8 +98,52 @@ public sealed class PdfComposedFontTests
         DocumentDiagnostic note = Assert.Single(
             result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
 
-        Assert.Contains("does not inspect", note.Message, StringComparison.Ordinal);
+        // Offered and refused. The reader is composed, so the note must not claim
+        // the build has none: the limit here is the parser's surface, and a
+        // caller who read "this build does not inspect" would compose a reader
+        // they already have.
+        Assert.DoesNotContain("this build does not inspect", note.Message, StringComparison.Ordinal);
+        Assert.Contains("the composed reader did not read", note.Message, StringComparison.Ordinal);
+        Assert.Contains("recovered nothing from it", note.Message, StringComparison.Ordinal);
         Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TextMappingMissing);
+    }
+
+    [Fact]
+    public void A_ToUnicode_Map_Winning_Does_Not_Report_The_Build_As_Uncomposed()
+    {
+        // The regression this pair of assertions exists for. Every font in the
+        // document carries a ToUnicode map, so the composed reader is never
+        // offered a program — and the note used to key its opening sentence on
+        // "nothing was inspected", which reads as "no reader is composed" and was
+        // false in exactly this case.
+        PdfReadResult result = Read(
+            Document("ABC", Glyphs(1, 2, 3), toUnicode: ToUnicodeMappingToXyz),
+            composed: true);
+
+        DocumentDiagnostic note = Assert.Single(
+            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+
+        Assert.DoesNotContain("this build does not inspect", note.Message, StringComparison.Ordinal);
+        Assert.Contains("the composed reader did not read", note.Message, StringComparison.Ordinal);
+
+        // Never offered is not offered and refused, so the refusal sentence stays
+        // off a note where nothing was refused.
+        Assert.DoesNotContain("recovered nothing", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Without_A_Reader_The_Same_Document_Reports_The_Build()
+    {
+        // The other side of the same sentence: with no reader composed, naming
+        // the build is the accurate answer and stays.
+        PdfReadResult result = Read(
+            Document("ABC", Glyphs(1, 2, 3), toUnicode: ToUnicodeMappingToXyz),
+            composed: false);
+
+        DocumentDiagnostic note = Assert.Single(
+            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+
+        Assert.Contains("this build does not inspect", note.Message, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -97,8 +97,24 @@ public sealed class PdfCodecServices
     /// Returns a copy of this graph with additional or replacing filters. Use it
     /// to add a reviewed decoder without restating the base composition.
     /// </summary>
-    public PdfCodecServices WithStreamFilters(params IPdfStreamFilter[] filters) =>
-        new(filters, FontMetrics, UriPolicy, FontProgramReader);
+    /// <remarks>
+    /// Additional means additional to this graph, not to <see cref="Base"/>: a
+    /// filter composed by an earlier call is carried over, so composing two
+    /// reviewed decoders in two calls composes both. A filter supplied here
+    /// still replaces one of the same name, whether the name belongs to a
+    /// built-in or to something an earlier call composed.
+    /// </remarks>
+    public PdfCodecServices WithStreamFilters(params IPdfStreamFilter[] filters)
+    {
+        ArgumentNullException.ThrowIfNull(filters);
+
+        // Carried first, supplied second: the constructor lets a later entry
+        // replace an earlier one of the same name, which is what makes this call
+        // replacing rather than merely additive.
+        List<IPdfStreamFilter> composed = CallerSuppliedFilters();
+        composed.AddRange(filters);
+        return new(composed, FontMetrics, UriPolicy, FontProgramReader);
+    }
 
     /// <summary>Returns a copy of this graph with a different metrics provider.</summary>
     public PdfCodecServices WithFontMetrics(IPdfFontMetricsProvider metrics) =>
@@ -130,14 +146,19 @@ public sealed class PdfCodecServices
     }
 
     // The constructor re-adds the built-ins, so only the extras are carried over
-    // when a With* method rebuilds the graph.
+    // when a With* method rebuilds the graph. The test is the concrete type and
+    // not the filter name, because a caller who replaced a built-in with a filter
+    // of the same name supplied that one and must keep it.
     private List<IPdfStreamFilter> CallerSuppliedFilters()
     {
         var extras = new List<IPdfStreamFilter>();
         foreach (IPdfStreamFilter filter in StreamFilters)
         {
-            if (filter is not FlateDecodeFilter and not AsciiHexDecodeFilter and not Ascii85DecodeFilter and not RunLengthDecodeFilter)
+            if (filter is not FlateDecodeFilter and not LzwDecodeFilter and not AsciiHexDecodeFilter
+                and not Ascii85DecodeFilter and not RunLengthDecodeFilter)
+            {
                 extras.Add(filter);
+            }
         }
 
         return extras;

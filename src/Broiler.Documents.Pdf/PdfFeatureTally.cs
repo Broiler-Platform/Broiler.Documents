@@ -70,7 +70,42 @@ internal readonly record struct PdfImageShape(
 }
 
 /// <summary>
-/// The PDF-side description of an embedded font program this build did not open.
+/// What became of an embedded font program, and why.
+/// </summary>
+/// <remarks>
+/// The distinction the report needs is not "read or not read" but which of three
+/// different things stopped it, because they call for three different responses.
+/// A build with no reader composed can compose one. A build whose reader was
+/// never asked lost nothing — the font already said what its codes mean. A build
+/// whose reader was asked and recovered nothing has met the limit of the parser's
+/// surface, and composing more changes nothing.
+/// </remarks>
+internal enum PdfFontProgramInspection
+{
+    /// <summary>No font-program reader is composed, so nothing could open it.</summary>
+    NotComposed,
+
+    /// <summary>
+    /// A reader is composed and this program was never offered to it: the font
+    /// supplied a <c>ToUnicode</c> map, which outranks anything recovered from a
+    /// program, or the font is a simple one, whose program this codec never
+    /// recovers text from by design.
+    /// </summary>
+    NotOffered,
+
+    /// <summary>
+    /// A composed reader was offered the program and recovered nothing — a format
+    /// past its parser surface, a program past its byte ceiling, or one that
+    /// faulted.
+    /// </summary>
+    Unread,
+
+    /// <summary>A composed reader read the program and its glyph map supplied text.</summary>
+    Read,
+}
+
+/// <summary>
+/// The PDF-side description of an embedded font program this build detected.
 /// </summary>
 /// <remarks>
 /// <see cref="Format"/> is the descriptor key, and the subtype where the key
@@ -83,7 +118,7 @@ internal readonly record struct PdfFontProgram(
     bool Composite,
     bool Symbolic,
     bool HasToUnicode,
-    bool Inspected);
+    PdfFontProgramInspection Inspection);
 
 /// <summary>
 /// Accumulates the constructs this build recognizes but does not implement, so
@@ -168,7 +203,11 @@ internal sealed class PdfFeatureTally
     public void NoteDecodedImage(in PdfImageShape declared, long sampleBytes, int? page, bool codec) =>
         _decodedImages.Add(declared, sampleBytes, page, codec);
 
-    /// <summary>Records one embedded font program that was detected and not opened.</summary>
+    /// <summary>
+    /// Records one embedded font program that was detected, and what became of
+    /// it — including the one case where a composed reader did open it, so the
+    /// report can say the build inspected rather than skipped.
+    /// </summary>
     public void NoteFontProgram(in PdfFontProgram program)
     {
         if (_fontPrograms.Count >= MaxRecordedFontPrograms)
@@ -257,6 +296,8 @@ internal sealed class PdfFeatureTally
         int withoutToUnicode = 0;
         int composite = 0;
         int inspected = 0;
+        int unread = 0;
+        int notComposed = 0;
 
         foreach (PdfFontProgram program in _fontPrograms)
         {
@@ -268,15 +309,33 @@ internal sealed class PdfFeatureTally
                 withoutToUnicode++;
             if (program.Composite)
                 composite++;
-            if (program.Inspected)
-                inspected++;
+
+            switch (program.Inspection)
+            {
+                case PdfFontProgramInspection.Read:
+                    inspected++;
+                    break;
+                case PdfFontProgramInspection.Unread:
+                    unread++;
+                    break;
+                case PdfFontProgramInspection.NotComposed:
+                    notComposed++;
+                    break;
+            }
         }
 
         int total = _fontPrograms.Count + _fontProgramOverflow;
         var text = new StringBuilder();
+
+        // Whether a reader is composed is a fact about the build, so it is the
+        // same for every program a read classified. Saying "this build does not
+        // inspect" where one is composed named a gap the build did not have, and
+        // hid the real reason the program went unread.
         text.Append(inspected > 0
             ? "A font embeds a program a composed reader inspected for the text its glyphs stand for. "
-            : "A font embeds a program this build does not inspect; text was mapped from ToUnicode and the declared encoding only. ");
+            : notComposed == _fontPrograms.Count
+                ? "A font embeds a program this build does not inspect; text was mapped from ToUnicode and the declared encoding only. "
+                : "A font embeds a program the composed reader did not read; text was mapped from ToUnicode and the declared encoding only. ");
         text.Append(CultureInfo.InvariantCulture, $"{total} embedded font program{S(total)} {Were(total)} detected");
         if (composite > 0)
             text.Append(CultureInfo.InvariantCulture, $", {composite} of them on a composite font");
@@ -289,6 +348,16 @@ internal sealed class PdfFeatureTally
         {
             text.Append(CultureInfo.InvariantCulture,
                 $" {inspected} of them {Were(inspected)} read for a glyph-to-text map, which is where the text of those fonts came from.");
+        }
+
+        // Offered and refused is not the same as never offered, and only this
+        // sentence separates them: it says the composition was not the obstacle,
+        // so a caller reading the note knows the next move is a reader that
+        // covers the format rather than any reader at all.
+        if (unread > 0)
+        {
+            text.Append(CultureInfo.InvariantCulture,
+                $" {unread} {Were(unread)} offered to the composed reader, which recovered nothing from {(unread == 1 ? "it" : "them")}.");
         }
 
         // The combination that actually costs text: no program to read glyph

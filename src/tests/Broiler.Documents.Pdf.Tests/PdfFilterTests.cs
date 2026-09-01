@@ -216,6 +216,62 @@ public sealed class PdfFilterCompositionTests
         Assert.True(services.SupportsFilter(PdfFilterNames.Flate));
     }
 
+    [Fact]
+    public void Adding_A_Second_Reviewed_Filter_Keeps_The_First()
+    {
+        // "Additional" is additional to this graph, not to Base. Composing two
+        // reviewed decoders in two calls used to compose only the second.
+        PdfCodecServices services = PdfCodecServices.Base
+            .WithStreamFilters(new StubFilter(PdfFilterNames.Dct))
+            .WithStreamFilters(new StubFilter(PdfFilterNames.CcittFax));
+
+        Assert.True(services.SupportsFilter(PdfFilterNames.Dct));
+        Assert.True(services.SupportsFilter(PdfFilterNames.CcittFax));
+        Assert.True(services.SupportsFilter(PdfFilterNames.Flate));
+    }
+
+    [Fact]
+    public void Another_With_Method_Keeps_A_Composed_Filter()
+    {
+        PdfCodecServices services = PdfCodecServices.Base
+            .WithStreamFilters(new StubFilter(PdfFilterNames.Dct))
+            .WithUriPolicy(PdfUriPolicy.Default);
+
+        Assert.True(services.SupportsFilter(PdfFilterNames.Dct));
+    }
+
+    [Fact]
+    public void A_Replacement_For_A_Built_In_Survives_A_Rebuild()
+    {
+        // LZW is a built-in, and a caller may replace it with one that declines
+        // (IP-010). The rebuild carries the replacement rather than restoring
+        // the built-in over it, which is why the carry-over test is by concrete
+        // type and not by filter name.
+        PdfCodecServices services = PdfCodecServices.Base
+            .WithStreamFilters(new StubFilter(PdfFilterNames.Lzw))
+            .WithUriPolicy(PdfUriPolicy.Default);
+
+        IPdfStreamFilter lzw = Assert.Single(services.StreamFilters.Where(filter =>
+            PdfFilterNames.Canonicalize(filter.Name) == PdfFilterNames.Lzw));
+
+        Assert.IsType<StubFilter>(lzw);
+    }
+
+    [Fact]
+    public void A_Rebuild_Does_Not_Duplicate_A_Built_In()
+    {
+        PdfCodecServices services = PdfCodecServices.Base
+            .WithStreamFilters(new StubFilter(PdfFilterNames.Dct))
+            .WithUriPolicy(PdfUriPolicy.Default);
+
+        Assert.Equal(
+            services.StreamFilters.Count,
+            services.StreamFilters
+                .Select(filter => PdfFilterNames.Canonicalize(filter.Name))
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
     private sealed class StubFilter : IPdfStreamFilter
     {
         public StubFilter(string name) => Name = name;

@@ -234,13 +234,18 @@ internal sealed class PdfFont
             // Deliberately not inspected. A simple font's code reaches a glyph
             // through the program's own cmap under rules that depend on which
             // subtable it selected, and recovering text from it would be a guess
-            // where the composite path is a lookup (IP-012 notes).
+            // where the composite path is a lookup (IP-012 notes). A composed
+            // reader is therefore never offered this program — which is a
+            // different thing from having no reader to offer it to, and the two
+            // are reported apart.
             store.Features.NoteFontProgram(new PdfFontProgram(
                 program,
                 Composite: false,
                 symbolic,
                 HasToUnicode: toUnicode is not null,
-                Inspected: false));
+                store.FontProgramReader is null
+                    ? PdfFontProgramInspection.NotComposed
+                    : PdfFontProgramInspection.NotOffered));
         }
 
         return new PdfFont(
@@ -294,12 +299,21 @@ internal sealed class PdfFont
 
         if (program is not null)
         {
+            // Four outcomes, and the note has to keep them apart: no reader to
+            // ask, a reader not asked because ToUnicode already answered, a
+            // reader asked that recovered nothing, and a reader that read it.
+            PdfFontProgramInspection inspection =
+                store.FontProgramReader is null ? PdfFontProgramInspection.NotComposed
+                : toUnicode is not null ? PdfFontProgramInspection.NotOffered
+                : recovered ? PdfFontProgramInspection.Read
+                : PdfFontProgramInspection.Unread;
+
             store.Features.NoteFontProgram(new PdfFontProgram(
                 program,
                 Composite: true,
                 ReadFlag(store, descriptor, bit: 3),
                 HasToUnicode: toUnicode is not null,
-                Inspected: recovered));
+                inspection));
         }
 
         if (toUnicode is null && !recovered)
