@@ -26,7 +26,8 @@ public sealed class DocxFloatingPictureTests
         long offsetXEmus = -OneInchEmus,
         long offsetYEmus = OneInchEmus / 2,
         bool withExtent = true,
-        string? altText = null) =>
+        string? altText = null,
+        string? behindDoc = "1") =>
         DocxTestPackage.AnchoredDrawingRun(
             "rId7",
             OneInchEmus,
@@ -34,7 +35,8 @@ public sealed class DocxFloatingPictureTests
             offsetXEmus,
             offsetYEmus,
             withExtent,
-            altText);
+            altText,
+            behindDoc);
 
     [Fact(Timeout = 600000)]
     public void Reads_An_Anchored_Picture_As_A_Floating_Shape()
@@ -84,14 +86,72 @@ public sealed class DocxFloatingPictureTests
     }
 
     [Fact(Timeout = 600000)]
-    public void Says_That_Wrapping_And_Z_Order_Were_Not_Kept()
+    public void Says_That_Wrapping_Was_Not_Kept()
     {
         DocumentDiagnostic note = Assert.Single(
             Read(Anchored()).Diagnostics.Where(d => d.Code == "docx.image.anchored"));
 
-        // The anchor asked for square wrapping and for the picture to sit behind
-        // the text. It gets neither, and the note is where that is said.
+        // The anchor asked for square wrapping, which it does not get. It also
+        // asked to sit behind the text, which it does get now - so the note says
+        // wrapping and stops claiming the stacking went with it.
         Assert.Equal(DocumentDiagnosticSeverity.Warning, note.Severity);
+        Assert.Contains("wrapping", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("z-order", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Reads_A_Picture_Stacked_Behind_The_Text_As_Behind_It()
+    {
+        Assert.True(Assert.Single(Read(Anchored(behindDoc: "1")).Document.Shapes).BehindText);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Reads_A_Picture_Stacked_In_Front_Of_The_Text_As_In_Front_Of_It()
+    {
+        Assert.False(Assert.Single(Read(Anchored(behindDoc: "0")).Document.Shapes).BehindText);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Reads_An_Anchor_That_States_No_Stacking_As_Behind_The_Text()
+    {
+        // behindDoc is required on wp:anchor, so this is a malformed producer. The
+        // letterhead answer is the safe one: a box over the text hides the text.
+        Assert.True(Assert.Single(Read(Anchored(behindDoc: null)).Document.Shapes).BehindText);
+    }
+
+    [Theory(Timeout = 600000)]
+    [InlineData("1", true)]
+    [InlineData("0", false)]
+    public void Keeps_The_Stacking_Of_A_Floating_Picture_Through_A_Round_Trip(
+        string behindDoc,
+        bool expected)
+    {
+        // The bug this covers: the writer stated behindDoc="0" whatever it was
+        // given, so a letterhead stripe read from behind the text came back from
+        // Word painted over the letter.
+        RichTextDocument source = Read(Anchored(behindDoc: behindDoc)).Document;
+
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false);
+        RichTextDocument actual = new DocxDocumentCodec().Read(stream).Document;
+
+        Assert.Equal(expected, Assert.Single(source.Shapes).BehindText);
+        Assert.Equal(expected, Assert.Single(actual.Shapes).BehindText);
+    }
+
+    [Theory(Timeout = 600000)]
+    [InlineData("1")]
+    [InlineData("0")]
+    public void Writes_The_Stacking_It_Read_Into_The_Anchor(string behindDoc)
+    {
+        RichTextDocument source = Read(Anchored(behindDoc: behindDoc)).Document;
+
+        using var package = new ZipArchive(
+            new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false),
+            ZipArchiveMode.Read);
+        using var reader = new StreamReader(package.GetEntry("word/document.xml")!.Open());
+        string documentXml = reader.ReadToEnd();
+
+        Assert.Contains("behindDoc=\"" + behindDoc + "\"", documentXml, StringComparison.Ordinal);
     }
 
     [Fact(Timeout = 600000)]

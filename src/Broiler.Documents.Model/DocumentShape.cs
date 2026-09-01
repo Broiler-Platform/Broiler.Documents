@@ -26,6 +26,13 @@ namespace Broiler.Documents.Model;
 /// anchored to.
 /// </para>
 /// <para>
+/// <see cref="BehindText"/> is the one piece of stacking the model keeps. It is
+/// what the formats actually record - DOCX's <c>behindDoc</c>, ODT's
+/// <c>style:run-through</c> - and it is the difference between a letterhead's
+/// stripe, which the letter is written on top of, and a stamp meant to cover it.
+/// Order among shapes is not modelled: they draw in the order they were read.
+/// </para>
+/// <para>
 /// The anchor is a paragraph index, so an edit that inserts or removes
 /// paragraphs above a shape moves the text out from under it. That is the same
 /// trade every word processor makes with paragraph-anchored objects, and it is
@@ -43,7 +50,8 @@ public sealed class DocumentShape
         ShapeFill? fill = null,
         BColor outline = default,
         IReadOnlyList<RichTextParagraph>? paragraphs = null,
-        InlineImage? image = null)
+        InlineImage? image = null,
+        bool behindText = true)
     {
         ParagraphIndex = paragraphIndex;
         OffsetX = offsetX;
@@ -53,6 +61,7 @@ public sealed class DocumentShape
         Fill = fill;
         Outline = outline;
         Image = image;
+        BehindText = behindText;
         Paragraphs = paragraphs is null || paragraphs.Count == 0
             ? []
             : [.. paragraphs];
@@ -84,6 +93,13 @@ public sealed class DocumentShape
     /// at, and <see cref="InlineImage.Width"/> is not consulted again.
     /// </summary>
     public InlineImage? Image { get; }
+
+    /// <summary>
+    /// True when the shape draws under the body text, false when it draws over it.
+    /// Defaults to true: a shape whose format says nothing about stacking is the
+    /// letterhead case, and painting it over the letter would hide the letter.
+    /// </summary>
+    public bool BehindText { get; }
 
     /// <summary>The shape's own text, empty when it holds none.</summary>
     public IReadOnlyList<RichTextParagraph> Paragraphs { get; }

@@ -1000,12 +1000,12 @@ internal static class DocxReader
     /// </remarks>
     private static bool ReadFloatingPicture(XElement anchor, InlineImage image, DocxReadContext context)
     {
-        // Said whether it floats or not: wrapping and z-order are the parts of an
-        // anchor the model has no room for either way.
+        // Said whether it floats or not: wrapping is the part of an anchor the
+        // model has no room for either way. Stacking it does keep - see BehindDoc.
         context.Builder.AddDiagnosticOnce(
             "docx.image.anchored",
             "A floating DOCX picture was anchored to its paragraph; " +
-            "text wrapping and z-order are not represented.");
+            "text wrapping is not represented.");
 
         if (!image.HasExplicitSize)
             return false;
@@ -1019,7 +1019,8 @@ internal static class DocxReader
             fill: null,
             outline: default,
             paragraphs: null,
-            image: image));
+            image: image,
+            behindText: BehindDoc(anchor)));
         return true;
     }
 
@@ -1065,9 +1066,29 @@ internal static class DocxReader
             height,
             fill,
             ReadOutline(spPr),
-            paragraphs));
+            paragraphs,
+            image: null,
+            behindText: BehindDoc(anchor)));
         return true;
     }
+
+    /// <summary>
+    /// The <c>wp:anchor</c> attribute saying whether the anchored object is
+    /// displayed behind the document text. It is all of the stacking the model
+    /// keeps, and the difference between a letterhead's stripe and a stamp over
+    /// the letter.
+    /// </summary>
+    /// <remarks>
+    /// Absent - which is what a <c>wp:inline</c> reaching here has, the attribute
+    /// being required only on <c>wp:anchor</c> - reads as behind, so a producer
+    /// that omits it gets the letterhead answer rather than a box over the text.
+    /// </remarks>
+    private static bool BehindDoc(XElement anchor) =>
+        (string?)anchor.Attribute("behindDoc") switch
+        {
+            "0" or "false" => false,
+            _ => true,
+        };
 
     private static string? PositionOffset(XElement anchor, string axis) =>
         (string?)anchor.Element(DocxNamespaces.WordDrawing + axis)

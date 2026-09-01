@@ -61,17 +61,29 @@ public sealed class DocumentRasterizer : IDisposable
                 0.5);
         }
 
-        // Shapes first: a letterhead's stripe sits under its text, and the model
-        // has no z-order to say otherwise. Table cells follow, so a shaded cell
-        // covers the stripe rather than the other way round.
+        // A letterhead's stripe goes down first, under everything it is a
+        // background for. Table cells follow, so a shaded cell covers the stripe
+        // rather than the other way round, then the text.
         foreach (LayoutShape shape in page.Shapes)
-            DrawShape(list, shape);
+        {
+            if (shape.BehindText)
+                DrawShape(list, shape);
+        }
 
         foreach (LayoutCell cell in page.Cells)
             DrawCell(list, cell);
 
         foreach (LayoutLine line in page.Lines)
             DrawLine(list, line);
+
+        // Last: the shapes the document stacks in front of its text. A stamp over
+        // a letter is the case, and drawing it under the text would leave the
+        // letter legible through a mark whose whole purpose is to cover it.
+        foreach (LayoutShape shape in page.Shapes)
+        {
+            if (!shape.BehindText)
+                DrawShape(list, shape);
+        }
 
         var descriptor = new BSurfaceDescriptor(
             new BSize(page.WidthPoints, page.HeightPoints),

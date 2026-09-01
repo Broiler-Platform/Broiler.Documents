@@ -54,22 +54,26 @@ Open XML WordprocessingML package parts.
 - Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
   shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
   `wp:positionV` against the text column and its paragraph — the same box a
-  `wps:wsp` shape gets, because it is the same anchor. It is written back as an
-  anchored picture. A logo hung over a letterhead therefore stays over it rather
-  than being pushed into the first line, which moved the whole letter down by the
-  height of the picture.
+  `wps:wsp` shape gets, because it is the same anchor. Its `behindDoc` is read
+  and written back, so a stripe the letter is written on top of and a stamp
+  meant to cover it each stay on the side of the text they were authored on.
+  The picture is written back as an anchored picture. A logo hung over a
+  letterhead therefore stays over it rather than being pushed into the first
+  line, which moved the whole letter down by the height of the picture.
 
 ## Intentional Limits
 
 - Tracked deletions, embedded objects, fields, comments, headers, footers,
   footnotes, and section layout are skipped or approximated with diagnostics
   where applicable.
-- A floating picture keeps its position, not its wrapping: text does not flow
-  around it, and `behindDoc` is not honoured — a shape draws under the text
-  wherever it is anchored. `relativeFrom` is not read either, so a picture
-  positioned against the page or the margin is placed against the text column
-  instead. A picture whose anchor states no `wp:extent` has no box to float at
-  and stays in the text. Crops, rotation, and picture effects are dropped.
+- A floating picture keeps its position and its layer, not its wrapping: text
+  does not flow around it. `behindDoc` is the whole of the stacking that is
+  represented — order *among* shapes on the same side of the text is not, and
+  they draw in the order they were read. `relativeFrom` is not read either, so a
+  picture positioned against the page or the margin is placed against the text
+  column instead. A picture whose anchor states no `wp:extent` has no box to
+  float at and stays in the text. Crops, rotation, and picture effects are
+  dropped.
 - An anchored picture in a header or footer is anchored to the start of the body,
   like any other shape read from a header, with `docx.shape.fromheader`.
 - EMF/WMF metafiles — what Word embeds for charts, SmartArt, and shape fallbacks
@@ -126,7 +130,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.format` | Warning | A picture used an image format this codec does not carry (EMF/WMF and the like). |
 | `docx.image.limit` | Warning | An image part exceeded `MaxBinBytes` and was skipped. |
 | `docx.image.shape` | Warning | A drawing held no embedded picture. |
-| `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph; wrapping and z-order are not represented. |
+| `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph; wrapping is not represented. |
 
 `Broiler.Cli --convert-doc <in> --output <out>` prints all of them, which is the
 quickest way to see what a problem document lost. In the Writer, set

@@ -237,7 +237,8 @@ public sealed class DocumentLayout
                 shape.Fill,
                 shape.Outline,
                 PlaceShapeText(shape, bounds, setup),
-                shape.Image));
+                shape.Image,
+                shape.BehindText));
         }
 
         return placed;

@@ -126,10 +126,15 @@ internal static class OdtTestPackage
         string bodyXml,
         IReadOnlyDictionary<string, byte[]> pictures,
         string? manifestInnerXml = null,
-        DocumentReadOptions? options = null)
+        DocumentReadOptions? options = null,
+        string automaticStylesXml = "")
     {
         using var stream = new MemoryStream(
-            FromBody(bodyXml, binaryParts: pictures, manifestInnerXml: manifestInnerXml),
+            FromBody(
+                bodyXml,
+                automaticStylesXml,
+                binaryParts: pictures,
+                manifestInnerXml: manifestInnerXml),
             writable: false);
         return new OdtDocumentCodec().Read(stream, options);
     }

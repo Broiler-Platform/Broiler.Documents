@@ -79,10 +79,12 @@ toolkit behind it.
 - Floating pictures: a frame anchored to anything other than a character is read
   as a floating shape carrying the image, boxed by its `svg:x`/`svg:y` against
   the text column and its paragraph and its `svg:width`/`svg:height`, and keeping
-  the fill and outline of its graphic style. It is written back as a
-  paragraph-anchored `draw:frame` at the same box. A frame standing between
-  paragraphs is read this way too, where before it was skipped as holding no body
-  text — which lost the picture.
+  the fill, outline, and `style:run-through` of its graphic style. It is written
+  back as a paragraph-anchored `draw:frame` at the same box, with its run-through
+  stated either way, so a stripe the letter is written on top of and a stamp
+  meant to cover it each stay on the side of the text they were authored on. A
+  frame standing between paragraphs is read this way too, where before it was
+  skipped as holding no body text — which lost the picture.
 - A written package is deterministic: two writes of one document produce
   byte-identical output. Every entry carries a fixed timestamp, `mimetype` is
   first and stored uncompressed per ODF 1.3 part 2 §3.3, and `meta.xml` names the
@@ -103,8 +105,12 @@ toolkit behind it.
   are not represented; a table starts at the left margin and is as tall as its
   rows. A cell's paragraphs are a range, so an edit that spans out of a cell and
   into the body does not keep the grid over what it merged.
-- A floating picture keeps its position, not its wrapping: text does not flow
-  around it, and z-order is not represented — a shape draws under the text. A
+- A floating picture keeps its position and its layer, not its wrapping: text
+  does not flow around it. `style:run-through` is the whole of the stacking that
+  is represented — order *among* shapes on the same side of the text is not, and
+  they draw in the order they were read. A style that states no run-through is
+  read as `background`, which is not ODF's own default; it is what this reader
+  has always done, and a box wrongly in front would hide the text under it. A
   page-anchored frame is placed against its paragraph, since that is the only
   anchor the model has, and a frame that states no box stays in the text. Crops,
   rotation, and frame effects are dropped.
@@ -182,7 +188,7 @@ blank:
 | `odt.image.limit` | Warning | A picture exceeded `MaxBinBytes` and was skipped. |
 | `odt.image.binary` | Warning | An inline picture payload was not valid base64. |
 | `odt.image.shape` | Warning | A frame held no embedded picture. |
-| `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph; wrapping and z-order are not represented. |
+| `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph; wrapping is not represented. |
 | `odt.limit.depth` | Warning | Block or inline nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `odt.limit.run` | Warning | A paragraph hit `MaxRunLength` and was truncated. |
 | `odt.limit.spaces` | Warning | A `text:s` count exceeded `MaxRunLength` and was clamped. |
