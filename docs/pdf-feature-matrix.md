@@ -1,7 +1,7 @@
 # PDF Support Feature Matrix
 
-**Version:** 0.2 (base implementation landed)  
-**Updated:** 2026-08-25  
+**Version:** 1.6 (IP-021 and SRC-001 closed)  
+**Updated:** 2026-09-01 (IP-021 and SRC-001 closed on inspection)  
 **Authority:** This matrix defines claims; the roadmap defines planned work.
 
 Status values are `Planned`, `Candidate`, `Supported`, `Rejected`, and
@@ -11,10 +11,18 @@ clearance recorded in the IP/licensing register.
 
 `Broiler.Documents.Pdf` now exists and implements the base slice described in
 [roadmap §2.5](pdf-support-roadmap.md#25-current-implementation-state). **No
-entry is `Supported`**, because every applicable register row is still pending
-and the package is neither packed nor registered in any application. Implemented
-behavior is recorded as `Candidate`: it works, it is tested, and it is not a
-product claim.
+entry is `Supported`.** Thirteen register rows are now approved: IP-001, the row
+under every construct this codec implements; every filter and codec row (IP-004
+through IP-010 and IP-012); and the provenance and naming rows IP-011, IP-013,
+IP-014, and IP-018. What remains is listed in the register's
+[what still blocks a support claim](pdf-ip-licensing-register.md#what-still-blocks-a-support-claim):
+SRC-017 — the one genuinely open provenance question, since transcribing ITU-T
+T.4's code tables was unavoidable — and the roadmap's own Phase 5, 7, and 8 exit
+criteria, which are engineering gates that no clearance touches. The package also remains neither packed nor registered in any
+application beyond the read-preview candidate. Implemented behavior is therefore
+recorded as `Candidate`: it works, it is tested, and it is not a product claim.
+How such an entry may be *named*, once one exists, is settled — see
+[approved labels](pdf-ip-licensing-register.md#approved-labels).
 
 The **Behavior today** column states what the code actually does right now, so
 this table can be read as a description of the build as well as a statement of
@@ -30,30 +38,37 @@ is pending.
 
 | Feature / exact subset | Behavior today | V1 read | V1 write | Decode | Encode | Preserve bytes | Transform | Default exposure | Legal row / state | Required diagnostic |
 |---|---|---|---|---|---|---|---|---|---|---|
-| PDF 1.7 syntax, only subsets below | Implemented | Plan | Plan | — | — | No | Yes | In-process codec after gates | IP-001 pending | `pdf.version.unsupported` outside approved subset |
+| PDF 1.7 syntax, only subsets below | Implemented | Candidate | Candidate | — | — | No | Yes | In-process codec after gates | IP-001 approved 2026-09-01 | `pdf.version.unsupported` outside approved subset |
 | PDF 2.x declaration/header tolerance | Detect/skip | Detect/skip | Reject | — | — | No | No | Never a conformance claim | IP-002 pending | `pdf.version.tolerated-not-supported` |
 | Developer extensions | Detect/skip | Detect/skip | Reject | — | — | No | No | None | IP-003 pending | `pdf.extension.unsupported` |
 | Classic xref / cross-reference streams / object streams | Implemented | Plan | Plan | — | — | No | Yes | Bounded parser only | IP-001 pending | `pdf.xref.malformed` / limit code |
 | Effective incremental revision | Implemented | Plan | Reject | — | — | No | Yes | Latest effective revision only | IP-001 pending | `pdf.revisions.history-dropped` |
 | Standard security handler / encryption | Reject | Reject | Reject | No | No | No | No | None | IP-015 blocked V1 | `pdf.encryption.unsupported` |
 | ASCIIHex / ASCII85 / RunLength filters | Implemented | Plan | Plan | Plan | Plan | No | Yes | Bounded filter chain | IP-001 plus source review pending | `pdf.filter.limit` / `pdf.filter.malformed` |
-| FlateDecode, PNG predictors | Implemented (TIFF predictor too) | Plan | Plan | Plan | Plan | No | Yes | Bounded shared budget | IP-011 pending | `pdf.filter.flate.*` |
-| LZWDecode | Detect/skip; Extension | Detect/skip | Reject | Candidate | No | No | No | None until cleared | IP-010 pending | `pdf.filter.lzw.unsupported` |
-| CCITTFaxDecode exact modes not yet selected | Detect/skip; Extension | Detect/skip | Reject | Candidate | No | No | No | None until cleared | IP-009 pending | `pdf.filter.ccitt.unsupported` |
-| DCT: 8-bit baseline sequential, Huffman, 1/3/4 components | Detect/skip; Extension | Detect/skip until tuple approval; then Plan | Candidate | Candidate | No | No by default | Candidate | Caller-composed decoder | IP-005 pending | `pdf.image.dct.tuple-unsupported` |
-| DCT: 8-bit progressive, Huffman, 1/3/4 components | Detect/skip; Extension | Detect/skip | Reject | Candidate | No | No | No | None until separately cleared | IP-005 pending | `pdf.image.dct.progressive-unsupported` |
-| DCT: arithmetic, lossless, 12-bit, or other tuples | Detect/skip | Detect/skip | Reject | No | No | No | No | None | IP-005 pending | `pdf.image.dct.tuple-unsupported` |
-| JPEG APP14 / `ColorTransform` 0, 1, 2, absent, or conflicting | Detect/skip | Detect/skip | Reject | Candidate per case | No | No | Candidate | None until independently approved | IP-006 pending | `pdf.image.dct.color-transform-uncertain` |
-| JPXDecode / JPEG 2000 | Detect/skip; Extension | Detect/skip | Reject | Later | Later | No | No | None | IP-007 blocked V1 | `pdf.filter.jpx.unsupported` |
-| JBIG2Decode | Detect/skip; Extension | Detect/skip | Reject | Later | Later | No | No | None | IP-008 blocked V1 | `pdf.filter.jbig2.unsupported` |
-| Standard 14 font-name/metric handling | Implemented (approximate metrics; Extension for real ones) | Plan | Plan | — | — | No | Yes | Deterministic approved data only | IP-012 pending | `pdf.font.standard14.unavailable` |
-| Embedded Type 1 / TrueType / OpenType / CFF font programs | Detect/skip; Extension | Candidate | Candidate | Candidate | Candidate | No by default | Candidate | Explicit resource permission | IP-012 pending | `document.resource.permission-required` |
-| Type 0/CID fonts and `ToUnicode` CMaps | Implemented for `Identity-H` and `ToUnicode` | Plan | Plan | — | — | No | Yes | Approved CMap/data only | IP-012/IP-013 pending | `pdf.text.mapping-missing-or-uncertain` |
-| Latin, Greek, Cyrillic text export | Implemented for the WinAnsi repertoire | — | Plan | — | — | No | Yes | Caller-supplied approved font | IP-012/IP-013 pending | `document.script.unsupported` |
-| Complex scripts, bidi shaping, vertical writing, emoji sequences | Detect/skip | Detect/skip | Later | — | — | No | No | None | IP-012/IP-013 pending | `document.script.unsupported` |
-| Raw XMP packets | Detect/skip then drop | Detect/skip then drop | Reject | No | No | No | No | None | IP-004 pending | `document.metadata.raw-dropped` |
-| Allowlisted normalized metadata | Implemented | Plan | Plan | — | — | No | Yes | Explicit caller selection on write | IP-004/source review pending | `document.metadata.dropped` |
-| URI/link values | Implemented | Plan as inert values | Plan after policy admission | — | — | No | Yes | Never activated by codec | IP-014 pending | `document.uri.rejected` |
+| FlateDecode, PNG and TIFF predictors | Implemented; every predictor and component size | Candidate | Candidate | Candidate | Candidate | No | Yes | Bounded shared budget | IP-011 approved 2026-09-01; IP-023 confirmed | `pdf.filter.limit` / `pdf.filter.malformed` |
+| LZWDecode, including `EarlyChange` | Implemented | Candidate | Reject | Candidate | No | No | Yes | Base build; bounded filter chain | IP-010 approved and retired 2026-09-01; IP-001 pending | `pdf.filter.limit` / `pdf.filter.malformed` |
+| CCITTFaxDecode: MH, MR, and MMR (ITU-T T.4/T.6) | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-009 approved on patents 2026-09-01; code tables pending SRC-017 | `pdf.image.decoded-not-projected` |
+| DCT: 8-bit baseline sequential, Huffman, 1 or 3 components, YCbCr by declaration or default | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-005 and IP-006 approved 2026-09-01; IP-001 pending | `pdf.image.decoded-not-projected` |
+| DCT: 8-bit progressive, Huffman | Detect/skip | Detect/skip | Reject | Later | No | No | No | None until separately cleared | IP-005 covers baseline only | `pdf.image.dct.progressive-unsupported` |
+| DCT: arithmetic, lossless, hierarchical, differential, 12-bit, 4-component | Detect/skip | Detect/skip | Reject | No | No | No | No | None | Outside IP-005; arithmetic carried the historical RAND terms | `pdf.image.dct.tuple-unsupported` |
+| JPEG APP14 / `ColorTransform` 1, or absent on 3 components | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder | IP-006 approved 2026-09-01 | `pdf.image.decoded-not-projected` |
+| JPEG APP14 / `ColorTransform` 0 on 3 components, 2 (YCCK), or conflicting declarations | Detect/skip | Detect/skip | Reject | No | No | No | No | None | IP-006 approved; refused by decoder capability (0) or V1 scope (YCCK) | `pdf.image.dct.tuple-unsupported`, `pdf.image.dct.color-transform-uncertain` |
+| JPXDecode / JPEG 2000 Part 1: codestream recognized and reported | Implemented as a composed reader | Candidate | Reject | No | No | No | No | Caller-composed reader; never in the default graph | IP-007 approved for Part 1 2026-09-01 | `pdf.filter.jpx.unsupported` with the tuple |
+| JPXDecode / JPEG 2000 Part 1: entropy decoding | Not written | Later | Reject | Later | No | No | No | None | IP-007 approved; the gap is engineering, not clearance | `pdf.filter.jpx.unsupported` |
+| JPXDecode / JPEG 2000 Part 2 extensions | Detect/skip | Detect/skip | Reject | No | No | No | No | None | Outside IP-007; refused by `Rsiz` | `pdf.filter.jpx.unsupported` |
+| JBIG2Decode: segment structure and MMR generic regions | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-008 approved 2026-09-01 | `pdf.image.decoded-not-projected` |
+| JBIG2Decode: symbol, text, halftone, and refinement regions | Detect/skip with the segment inventory named | Detect/skip | Reject | Later | No | No | No | None | IP-008 approved; the gap is engineering, not clearance | `pdf.filter.jbig2.unsupported` |
+| Standard 14 font-name/metric handling | Implemented (approximate metrics; Extension for real ones) | Plan | Plan | — | — | No | Yes | Deterministic approved data only | IP-012 approved for inspection; metric data pending | `pdf.font.standard14.unavailable` |
+| Embedded sfnt font programs, read for glyph-to-text | Implemented as a composed reader | Candidate | Reject | — | — | No | Yes | Caller-composed reader; never in the default graph | IP-012 approved for inspection 2026-09-01 | `pdf.font.program-not-composed` |
+| Embedded Type 1 and bare CFF font programs | Detect/skip | Detect/skip | Reject | — | — | No | No | None | IP-012 approved; declined for want of parser surface | `pdf.font.program-not-composed` |
+| Font embedding and subsetting into output | Rejected | — | Reject | — | — | No | No | None | Outside IP-012; `OS/2` `fsType` obligation attaches here first | `pdf.write.feature-unsupported` |
+| Type 0/CID fonts and `ToUnicode` CMaps | Implemented for `Identity-H` and `ToUnicode`, with a composed reader recovering text where `ToUnicode` is absent | Plan | Plan | — | — | No | Yes | Approved CMap/data only | IP-012 approved for inspection; IP-013 approved | `pdf.text.mapping-missing-or-uncertain` |
+| Latin, Greek, Cyrillic text export | Implemented for the WinAnsi repertoire on write; Symbol's Greek readable on import | — | Plan | — | — | No | Yes | Caller-supplied approved font | IP-012 and IP-013 approved | `document.script.unsupported` |
+| Complex scripts, bidi shaping, vertical writing, emoji sequences | Detect/skip | Detect/skip | Later | — | — | No | No | None | IP-013 approved; unimplemented by scope, not by clearance | `document.script.unsupported` |
+| XMP read into the normalized allowlist (ISO 16684-1:2019, RDF/XML subset, nine `dc`/`xmp`/`pdf` properties) | Implemented | Candidate | — | Yes | No | No | Yes | In-process reader: no I/O, no DTD, no external entity, no schema | IP-004 approved 2026-09-01; IP-001 pending | `document.metadata.raw-dropped`, `pdf.metadata.xmp-unusable` |
+| Raw XMP packet preservation or XMP output | Rejected | Reject | Reject | — | No | No | No | None | Out of V1 scope by design, not by clearance | `document.metadata.raw-dropped` |
+| Allowlisted normalized metadata | Implemented | Plan | Plan | — | — | No | Yes | Explicit caller selection on write | IP-004 approved 2026-09-01; source review pending | `document.metadata.dropped`, `pdf.metadata.conflict` |
+| URI/link values | Implemented | Plan as inert values | Plan after policy admission | — | — | No | Yes | Never activated by codec | IP-014 approved 2026-09-01 | `document.uri.rejected` |
 | Attachments, JavaScript, launch/remote/submit/multimedia actions | Detect/skip | Detect/skip | Reject | No | No | No | No | None | IP-001 and security policy | `pdf.active-content.removed` |
 | Tagged PDF / PDF/UA / PDF/A / PDF/X | Detect/skip | Detect/skip | Later | — | — | No | No | No conformance claim | IP-017 blocked V1 | Profile-specific unsupported code |
 | Digital signatures | Detect/skip | Detect/skip with invalidation warning | Later | No validation | Later | No | No | No trust claim | IP-016 blocked V1 | `pdf.signature.not-validated` |
@@ -90,13 +105,13 @@ is pending.
 | Capability | V1 status | Behavior today | Ownership / gate |
 |---|---|---|---|
 | ASCIIHexDecode / ASCII85Decode / RunLengthDecode | Candidate | Implemented in this repository | PDF syntax layer; IP row and fuzz tests |
-| FlateDecode and PNG predictors | Candidate | Implemented over the runtime's DEFLATE; TIFF predictor too | Neutral compression/media capability where reusable |
-| LZWDecode | Candidate | Detect/skip; extension point | Legal/patent-history review and bounded decoder tests |
-| DCTDecode (JPEG) | Planned | Detect/skip; extension point | `Broiler.Media.Image`; JPEG tuple/APP14 register rows |
-| JPXDecode (JPEG 2000) | Post-V1 | Detect/skip; extension point | Separate standards, patent, decoder, and licensing review |
-| CCITTFaxDecode | Candidate | Detect/skip; extension point | Separate IP review and corpus |
-| JBIG2Decode | Post-V1 | Detect/skip; extension point | Separate high-risk security and patent review |
-| Image masks / soft masks | Candidate | Not reached; images are skipped before colour is considered | Compositing semantics and resource budgets |
+| FlateDecode and the predictors | Candidate | Implemented over the runtime's DEFLATE; TIFF predictor 2 and all five PNG filters | Neutral compression/media capability where reusable |
+| LZWDecode | Candidate | Implemented in the base build; round-tripped against an encoder written in the test suite | Patent history retired; bounded decoder tests |
+| DCTDecode (JPEG) | Candidate | Composed extension: baseline with a resolved colour transform decodes, everything else is refused by name | `Broiler.Media.Image` decoder; IP-005 and IP-006 approved |
+| JPXDecode (JPEG 2000) | Candidate for recognition; Post-V1 for decoding | Composed reader reports the codestream tuple; no entropy decoder | Part 1 cleared; MQ coder, EBCOT, and the wavelets outstanding |
+| CCITTFaxDecode | Candidate | Composed extension: all three schemes decode, round-tripped against an encoder written in the test suite | Patent history retired; the standard's code tables await a source decision |
+| JBIG2Decode | Candidate for MMR generic regions; Post-V1 for the rest | Composed filter decodes MMR generic regions and reports every other segment type | Patent row cleared; the arithmetic decoder is outstanding, and the security review still applies |
+| Image masks / soft masks | Candidate | Not reached; an image is described, and at most decoded, but never projected | Compositing semantics and resource budgets |
 | ICCBased color | Candidate | Not reached | Color-management ownership and profile licensing |
 
 ## Text, fonts, and scripts
@@ -106,7 +121,7 @@ is pending.
 | Standard 14 font-name handling | Candidate | Names recognized on read; emitted on write with no embedded program | No assumption that font programs are installed or redistributable |
 | Standard 14 vendor metric files | Rejected | Not used; a Broiler-authored approximate model stands in | Would require its own source/licence row |
 | Embedded Type 1 / TrueType / OpenType data | Candidate | Detected and skipped; extension point | Embedding rights remain the content provider's responsibility |
-| Type 0 and CID fonts | Candidate | `Identity-H` implemented; other predefined CMaps skipped | Unicode mapping and vertical-writing limits explicit |
+| Type 0 and CID fonts | Candidate | `Identity-H` implemented; other predefined CMaps skipped; a composed font reader recovers text where the file supplies no `ToUnicode` | Unicode mapping and vertical-writing limits explicit |
 | `ToUnicode` CMaps | Candidate | Implemented, including `bfrange` and bounded `usecmap` | Primary semantic extraction route |
 | Fallback character inference without `ToUnicode` | Candidate | Declared encoding and `/Differences` only; never a glyph-index guess | Confidence diagnostic; no silent correctness claim |
 | Latin, Greek, Cyrillic export | Candidate | WinAnsi repertoire only; anything else substituted and reported | Caller-supplied font and deterministic shaping tests |
@@ -130,7 +145,8 @@ is pending.
 | Capability | V1 status | Behavior today | Notes / gate |
 |---|---|---|---|
 | Normalized title/author/subject/keywords/dates | Candidate | Implemented on read and write; nothing else crosses | Allowlist only; privacy tests |
-| Raw XMP preservation | Rejected | Detected and dropped | XMP review is separate; V1 drops raw packets |
+| XMP read into the allowlist | Candidate | Implemented; XMP wins per field, `Info` is the fallback, disagreement is reported by field name | IP-004 approved for the read subset; bounded non-resolving reader |
+| Raw XMP preservation | Rejected | Read for the allowlist, then dropped | Never preserved and never written; excluded by V1 scope rather than by clearance |
 | Links as inert semantic values | Candidate | Implemented; admitted by policy, revalidated before output | Never dereferenced by the codec |
 | Annotations | Candidate | Link annotations only; the rest inventoried | Allowlisted non-active subset only |
 | AcroForm / XFA | Post-V1 | Detected; signature fields reported | No form execution or fidelity claim |

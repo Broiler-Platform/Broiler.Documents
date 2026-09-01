@@ -58,14 +58,20 @@ the decision and evidence controls; it did not revive old parser code or grant
 implementation clearance.
 
 `Broiler.Documents.Pdf` now implements the base slice: PDF syntax and object
-stores, cross-reference tables and streams, object streams, the Flate, ASCIIHex,
-ASCII85 and RunLength filters, logical text import through encodings and
-`ToUnicode` maps, links under the shared URI policy, and a deterministic PDF 1.7
-writer over the standard font names. Every remaining technology — LZW, JPEG,
-CCITT, JPEG 2000, JBIG2, embedded font programs, image extraction, encryption —
-is detected and skipped with its own diagnostic and arrives by composing a
-reviewed implementation into `PdfCodecServices`; see
-[PDF extension points](pdf-extension-points.md).
+stores, cross-reference tables and streams, object streams, the Flate, LZW,
+ASCIIHex, ASCII85 and RunLength filters, logical text import through encodings
+and `ToUnicode` maps, metadata from both `Info` and XMP, links under the shared
+URI policy, and a deterministic PDF 1.7 writer over the standard font names.
+
+Three further technologies are implemented but never composed by default, so a
+build that does not ask for them does not link them: baseline JPEG and CCITT fax
+(`Broiler.Documents.Pdf.Images`) and embedded font-program inspection
+(`Broiler.Documents.Pdf.Fonts`). Two more are cleared and only partly written: JPEG 2000 is
+*reported* rather than decoded, and JBIG2 decodes its MMR generic regions and
+reports the rest. In both cases the remaining work is a decoder, not an approval.
+Everything still outstanding — image extraction into the model, encryption — is
+detected and skipped with its own diagnostic. See [PDF extension points](pdf-extension-points.md) for which
+of the three states a given technology is in and why.
 
 Residual work owned here:
 

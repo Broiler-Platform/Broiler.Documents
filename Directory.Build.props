@@ -16,6 +16,14 @@
     <BroilerGraphicsRoot>$(MSBuildThisFileDirectory)Broiler.Graphics</BroilerGraphicsRoot>
   </PropertyGroup>
 
+  <!-- Where the Broiler.Media projects live. It defaults to the copy vendored
+       under Broiler.Graphics so this repo builds on its own; the aggregate sets
+       it in the Directory.Build.props above, which is imported first, and then
+       one assembly of each name is built instead of several. -->
+  <PropertyGroup Condition="'$(BroilerMediaRoot)' == ''">
+    <BroilerMediaRoot>$(BroilerGraphicsRoot)\Broiler.Media</BroilerMediaRoot>
+  </PropertyGroup>
+
   <!-- Where the Broiler.DOM projects live. It defaults to the vendored
        submodule so this repo builds on its own; a consumer with its own copy
        sets it in the Directory.Build.props above, which is imported first, and

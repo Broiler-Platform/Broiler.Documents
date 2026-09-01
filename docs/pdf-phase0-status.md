@@ -2,7 +2,9 @@
 
 **Status date:** 2026-08-25  
 **Phase state:** Repository-controlled groundwork complete and the base
-implementation slice landed; Phase 0 exit remains blocked on the external legal,
+implementation slice landed and every construct, filter, and codec register row
+is now decided; Phase 0 exit remains blocked on the remaining provenance and
+wording rows and on the external legal,
 standards-access, jurisdiction, history-audit, and approval items below.
 
 This record separates work the repository can prove from approvals that
@@ -71,9 +73,16 @@ row clears.
   license; investigate relevant third-party declarations/claims.
 - [ ] Clear each included filter/codec tuple, including exact JPEG processes,
   entropy modes, component/precision combinations, APP14/`ColorTransform`, and
-  any LZW or fax work.
+  any LZW or fax work. *Partly done 2026-09-01: IP-005 (baseline JPEG), IP-006
+  (APP14/`ColorTransform`), IP-009 (CCITT fax, retired) and IP-010 (LZW, retired)
+  are approved, IP-007 clears JPEG 2000 Part 1 though no decoder for it is
+  written, and IP-008 clears JBIG2 though only its MMR generic regions decode.
+  **Every filter and codec row is decided**; what remains on them is engineering.
+  SRC-017 still carries the one transcribed normative table the fax work needed.*
 - [ ] Clear selected font formats/tables, Unicode data, URI standards, and any
-  generated normative tables.
+  generated normative tables. *Partly done 2026-09-01: IP-012 is approved for
+  font-program inspection, and IP-004 for the XMP read subset. Unicode data
+  (IP-013), the URI standards (IP-014), and font embedding remain open.*
 - [ ] Approve source-use, contributor-provenance, conformance wording, trademark,
   and non-endorsement policies.
 - [ ] Complete the repository-history redistribution audit; document authority or

@@ -168,8 +168,13 @@ public sealed class PdfFilterCompositionTests
         Assert.True(services.SupportsFilter(PdfFilterNames.Ascii85));
         Assert.True(services.SupportsFilter(PdfFilterNames.RunLength));
 
-        // Everything with an open IP-register row stays out of the base build.
-        Assert.False(services.SupportsFilter(PdfFilterNames.Lzw));
+        // LZW joined them when IP-010 cleared. It is written here, depends on
+        // nothing, and is the same shape of bounded byte filter as the other
+        // four, so there was no outside component left to compose.
+        Assert.True(services.SupportsFilter(PdfFilterNames.Lzw));
+
+        // Everything still needing an outside component stays out of the base
+        // build, whether or not its register row has cleared.
         Assert.False(services.SupportsFilter(PdfFilterNames.Dct));
         Assert.False(services.SupportsFilter(PdfFilterNames.CcittFax));
         Assert.False(services.SupportsFilter(PdfFilterNames.Jpx));

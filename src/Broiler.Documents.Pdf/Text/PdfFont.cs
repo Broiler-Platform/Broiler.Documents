@@ -39,16 +39,18 @@ internal readonly struct PdfGlyph
 /// <remarks>
 /// <para>
 /// The mapping is chosen in confidence order — <c>ToUnicode</c> first, then the
-/// declared simple encoding with its <c>/Differences</c>, then nothing. There is
-/// no fourth step that guesses from a glyph index or a font program, because a
-/// guess that looks like text is worse than an honest gap: an unmapped code
-/// yields <see cref="PdfDiagnosticCodes.TextMappingMissing"/> rather than a
-/// plausible wrong character.
+/// embedded program's own character map where a reader is composed and the code
+/// is a glyph index, then the declared simple encoding with its
+/// <c>/Differences</c>, then nothing. No step guesses: an unmapped code yields
+/// <see cref="PdfDiagnosticCodes.TextMappingMissing"/> rather than a plausible
+/// wrong character, and the program map is used only for the composite encodings
+/// where a code <em>is</em> a glyph index by definition rather than by
+/// supposition.
 /// </para>
 /// <para>
-/// An embedded font program is detected and left alone. Parsing one needs the
-/// bounded font inspector that the roadmap places in Graphics, and this release
-/// composes none, so <see cref="HasUnreadableProgram"/> reports the gap instead.
+/// An embedded font program is read only through a composed
+/// <see cref="IPdfFontProgramReader"/>. Without one it is detected and left
+/// alone, and <see cref="HasUnreadableProgram"/> reports the gap.
 /// </para>
 /// </remarks>
 internal sealed class PdfFont
@@ -59,6 +61,7 @@ internal sealed class PdfFont
     private readonly double _defaultWidth;
     private readonly PdfCMap? _toUnicode;
     private readonly PdfCMap? _codeMap;
+    private readonly IReadOnlyDictionary<int, string>? _glyphText;
 
     private PdfFont(
         string baseFont,
@@ -73,7 +76,8 @@ internal sealed class PdfFont
         Dictionary<uint, double> widths,
         double defaultWidth,
         PdfCMap? toUnicode,
-        PdfCMap? codeMap)
+        PdfCMap? codeMap,
+        IReadOnlyDictionary<int, string>? glyphText = null)
     {
         BaseFont = baseFont;
         Family = family;
@@ -88,6 +92,7 @@ internal sealed class PdfFont
         _defaultWidth = defaultWidth;
         _toUnicode = toUnicode;
         _codeMap = codeMap;
+        _glyphText = glyphText;
     }
 
     /// <summary>The raw <c>/BaseFont</c> value, subset prefix included.</summary>
@@ -154,7 +159,17 @@ internal sealed class PdfFont
         if (_toUnicode is not null && _toUnicode.TryMap(code, out text) && text.Length > 0)
             return true;
 
-        // 2. A /Differences entry overrides the base encoding for one code.
+        // 2. The embedded program's own character map. Only ever populated for a
+        //    composite font on an identity encoding, where the code is the glyph
+        //    index by definition — this is a lookup, not an inference.
+        if (_glyphText is not null && code <= int.MaxValue &&
+            _glyphText.TryGetValue((int)code, out string? fromProgram) && fromProgram.Length > 0)
+        {
+            text = fromProgram;
+            return true;
+        }
+
+        // 3. A /Differences entry overrides the base encoding for one code.
         if (_differences is not null && code <= int.MaxValue &&
             _differences.TryGetValue((int)code, out string? difference))
         {
@@ -162,7 +177,7 @@ internal sealed class PdfFont
             return difference.Length > 0;
         }
 
-        // 3. The declared single-byte encoding.
+        // 4. The declared single-byte encoding.
         if (_simpleEncoding is not null && code < (uint)_simpleEncoding.Length)
         {
             char c = _simpleEncoding[code];
@@ -204,19 +219,28 @@ internal sealed class PdfFont
         (bool bold, bool italic) = ReadStyle(store, descriptor, baseFont);
         bool symbolic = ReadFlag(store, descriptor, bit: 3);
 
-        char[]? encoding = ReadSimpleEncoding(store, dictionary, symbolic, out Dictionary<int, string>? differences);
+        char[]? encoding = ReadSimpleEncoding(
+            store, dictionary, symbolic, StripSubsetPrefix(baseFont), out Dictionary<int, string>? differences);
         PdfCMap? toUnicode = ReadToUnicode(store, dictionary);
         Dictionary<uint, double> widths = ReadSimpleWidths(store, dictionary);
         double missingWidth = descriptor is not null && store.Resolve(descriptor["MissingWidth"]) is PdfNumber missing
             ? missing.Value / 1000d
             : 0.5;
 
-        bool unreadableProgram = HasEmbeddedProgram(store, descriptor);
-        if (unreadableProgram)
+        string? program = DescribeEmbeddedProgram(store, descriptor);
+        bool unreadableProgram = program is not null;
+        if (program is not null)
         {
-            store.Diagnostics.Skipped(
-                PdfDiagnosticCodes.FontProgramNotComposed,
-                "A font embeds a program this build does not inspect; text was mapped from ToUnicode and the declared encoding only.");
+            // Deliberately not inspected. A simple font's code reaches a glyph
+            // through the program's own cmap under rules that depend on which
+            // subtable it selected, and recovering text from it would be a guess
+            // where the composite path is a lookup (IP-012 notes).
+            store.Features.NoteFontProgram(new PdfFontProgram(
+                program,
+                Composite: false,
+                symbolic,
+                HasToUnicode: toUnicode is not null,
+                Inspected: false));
         }
 
         return new PdfFont(
@@ -256,15 +280,29 @@ internal sealed class PdfFont
             ? dw.Value / 1000d
             : 1.0;
 
-        bool unreadableProgram = HasEmbeddedProgram(store, descriptor);
-        if (unreadableProgram)
+        string? program = DescribeEmbeddedProgram(store, descriptor);
+
+        // Worth the work only where the document has not already said what its
+        // codes mean. ToUnicode is the producer's own statement and outranks
+        // anything recovered from the program.
+        PdfFontProgramMap? inspected = program is not null && toUnicode is null
+            ? InspectProgram(store, descriptor)
+            : null;
+
+        bool recovered = inspected is { IsEmpty: false };
+        bool unreadableProgram = program is not null && !recovered;
+
+        if (program is not null)
         {
-            store.Diagnostics.Skipped(
-                PdfDiagnosticCodes.FontProgramNotComposed,
-                "A composite font embeds a program this build does not inspect; text was mapped from ToUnicode only.");
+            store.Features.NoteFontProgram(new PdfFontProgram(
+                program,
+                Composite: true,
+                ReadFlag(store, descriptor, bit: 3),
+                HasToUnicode: toUnicode is not null,
+                Inspected: recovered));
         }
 
-        if (toUnicode is null)
+        if (toUnicode is null && !recovered)
         {
             store.Diagnostics.Skipped(
                 PdfDiagnosticCodes.TextMappingMissing,
@@ -284,7 +322,8 @@ internal sealed class PdfFont
             widths,
             defaultWidth,
             toUnicode,
-            codeMap ?? PdfCMap.IdentityTwoByte);
+            codeMap ?? PdfCMap.IdentityTwoByte,
+            recovered ? inspected!.GlyphText : null);
     }
 
     private static PdfCMap? ReadType0Encoding(PdfObjectStore store, PdfDictionary dictionary)
@@ -342,6 +381,7 @@ internal sealed class PdfFont
         PdfObjectStore store,
         PdfDictionary dictionary,
         bool symbolic,
+        string family,
         out Dictionary<int, string>? differences)
     {
         differences = null;
@@ -368,9 +408,26 @@ internal sealed class PdfFont
         if (table is not null)
             return table;
 
-        // A symbolic font's built-in encoding lives in its font program, which this
-        // build does not read. Falling back to StandardEncoding there would invent
-        // Latin text for arbitrary symbols, so nothing is assumed.
+        // One symbolic font's built-in encoding is a property of the format rather
+        // than of an embedded program: a standard-14 Symbol carries no program to
+        // read one from, and the format says what its codes mean.
+        if (PdfEncodings.ForStandardFont(family) is char[] builtIn)
+            return builtIn;
+
+        // The other one is recognized so that it can be refused. Left to the Latin
+        // fallback below, a ZapfDingbats font extracts confident nonsense — "ab"
+        // for two ornaments — which is worse than extracting nothing.
+        if (PdfEncodings.HasNonLatinBuiltInEncoding(family))
+        {
+            store.Diagnostics.Skipped(
+                PdfDiagnosticCodes.TextMappingMissing,
+                $"A font uses {family}'s built-in encoding, whose mapping data this build does not carry.");
+            return null;
+        }
+
+        // Every other symbolic font keeps its encoding inside its own program,
+        // which this build does not read. Falling back to StandardEncoding there
+        // would invent Latin text for arbitrary symbols, so nothing is assumed.
         return symbolic && differences is null ? null : PdfEncodings.Default;
     }
 
@@ -528,13 +585,104 @@ internal sealed class PdfFont
         return (value & (1L << (bit - 1))) != 0;
     }
 
-    private static bool HasEmbeddedProgram(PdfObjectStore store, PdfDictionary? descriptor)
+    /// <summary>
+    /// Reads the descriptor's embedded program through the composed reader.
+    /// Returns null when no reader is composed, the program cannot be decoded or
+    /// is past its ceiling, or the reader does not handle that format.
+    /// </summary>
+    /// <remarks>
+    /// The program goes through the ordinary filter pipeline and the ordinary
+    /// budget, and a reader that faults costs the font rather than the document.
+    /// A font parser meets hostile input by definition, and this is the boundary
+    /// where that stops being the document's problem.
+    /// </remarks>
+    private static PdfFontProgramMap? InspectProgram(PdfObjectStore store, PdfDictionary? descriptor)
+    {
+        if (store.FontProgramReader is not IPdfFontProgramReader programReader || descriptor is null)
+            return null;
+
+        (string key, PdfStream? stream) = FindProgramStream(store, descriptor);
+        if (stream is null)
+            return null;
+
+        PdfStreamDecodeResult decoded = store.Filters.Decode(stream, store.Resolve, store.Budget);
+        if (!decoded.Succeeded || decoded.Data is not byte[] bytes)
+            return null;
+
+        long ceiling = store.Budget.Limits.MaxFontProgramBytes;
+        if (bytes.LongLength > ceiling)
+        {
+            store.Diagnostics.Skipped(
+                PdfDiagnosticCodes.FontProgramNotComposed,
+                $"An embedded font program of {bytes.LongLength} bytes is past the font-program ceiling of {ceiling} and was not inspected.");
+            return null;
+        }
+
+        string? subtype = string.Equals(key, "FontFile3", StringComparison.Ordinal)
+            ? (store.Resolve(stream.Dictionary["Subtype"]) as PdfName)?.Value
+            : null;
+
+        try
+        {
+            return programReader.Read(bytes, key, subtype, new PdfFontProgramContext(ceiling, store.Budget.Cancellation));
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or StackOverflowException or OperationCanceledException))
+        {
+            store.Diagnostics.Skipped(
+                PdfDiagnosticCodes.FontProgramNotComposed,
+                $"The composed font-program reader failed on an embedded program ({ex.GetType().Name}); the font was mapped without it.");
+            return null;
+        }
+    }
+
+    /// <summary>The descriptor's embedded program stream and the key it arrived under.</summary>
+    private static (string Key, PdfStream? Stream) FindProgramStream(PdfObjectStore store, PdfDictionary descriptor)
+    {
+        foreach (string key in ProgramKeys)
+        {
+            if (store.Resolve(descriptor[key]) is PdfStream stream)
+                return (key, stream);
+        }
+
+        return (string.Empty, null);
+    }
+
+    private static readonly string[] ProgramKeys = ["FontFile", "FontFile2", "FontFile3"];
+
+    /// <summary>
+    /// Names the format of the embedded font program, or null when the descriptor
+    /// embeds none.
+    /// </summary>
+    /// <remarks>
+    /// The descriptor key <em>is</em> the format: <c>FontFile</c> is Type 1,
+    /// <c>FontFile2</c> is TrueType, and <c>FontFile3</c> declares its own
+    /// subtype, where <c>Type1C</c> and <c>CIDFontType0C</c> are CFF and
+    /// <c>OpenType</c> is a whole font file. Which one a document uses decides
+    /// which part of IP-012 a font inspector would sit under, so the diagnostic
+    /// names it rather than reporting an anonymous "program". The font's own name
+    /// is deliberately not reported: that is a value, and a diagnostic names
+    /// constructs.
+    /// </remarks>
+    private static string? DescribeEmbeddedProgram(PdfObjectStore store, PdfDictionary? descriptor)
     {
         if (descriptor is null)
-            return false;
-        return store.Resolve(descriptor["FontFile"]) is not null ||
-               store.Resolve(descriptor["FontFile2"]) is not null ||
-               store.Resolve(descriptor["FontFile3"]) is not null;
+            return null;
+
+        if (store.Resolve(descriptor["FontFile"]) is not null)
+            return "FontFile (Type 1)";
+
+        if (store.Resolve(descriptor["FontFile2"]) is not null)
+            return "FontFile2 (TrueType)";
+
+        PdfObject? third = store.Resolve(descriptor["FontFile3"]);
+        if (third is null)
+            return null;
+
+        string subtype = third is PdfStream program
+            ? (store.Resolve(program.Dictionary["Subtype"]) as PdfName)?.Value ?? string.Empty
+            : string.Empty;
+
+        return subtype.Length > 0 ? "FontFile3 /" + subtype : "FontFile3";
     }
 
     /// <summary>

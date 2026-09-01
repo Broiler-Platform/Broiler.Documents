@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading;
 
 namespace Broiler.Documents.Pdf;
@@ -59,6 +60,9 @@ internal sealed class PdfWorkBudget
 
     /// <summary>A cancellation checkpoint; call it at every documented boundary.</summary>
     public void ThrowIfCancelled() => _cancellation.ThrowIfCancellationRequested();
+
+    /// <summary>The token this read was started with, for a composed extension to observe.</summary>
+    public CancellationToken Cancellation => _cancellation;
 
     public void ChargeWork(long units)
     {
@@ -161,10 +165,33 @@ internal sealed class PdfWorkBudget
 /// code so one malformed construct repeated on every page produces one entry
 /// with a count rather than thousands of lines.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The count is part of the entry, not bookkeeping the sink keeps to itself. A
+/// note that a raster image was skipped answers a different question depending
+/// on whether it happened once on the cover or four hundred times throughout,
+/// and a reader that collapses both into the same line has hidden the answer.
+/// The pages a code was seen on are carried the same way, up to
+/// <see cref="MaxNamedPages"/> of them, so a reviewer can open the file at the
+/// right place instead of hunting for it.
+/// </para>
+/// <para>
+/// Aggregation never adds a payload: a count is a count and a page number is a
+/// page number, so the ADR 0009 rule that a diagnostic names the construct and
+/// the reason — never document text, a metadata value, or a path — still holds.
+/// </para>
+/// </remarks>
 internal sealed class PdfDiagnosticSink
 {
-    private readonly List<DocumentDiagnostic> _diagnostics = [];
-    private readonly Dictionary<string, int> _counts = new(StringComparer.Ordinal);
+    /// <summary>
+    /// How many distinct page numbers one entry names before it stops listing
+    /// them. A construct on every page of a thousand-page file is described by
+    /// its count; enumerating the pages adds nothing but length.
+    /// </summary>
+    private const int MaxNamedPages = 6;
+
+    private readonly List<Entry> _entries = [];
+    private readonly Dictionary<string, Entry> _byCode = new(StringComparer.Ordinal);
     private readonly int _maxDiagnostics;
     private int _suppressed;
 
@@ -178,6 +205,14 @@ internal sealed class PdfDiagnosticSink
 
     /// <summary>True when a construct was skipped, making the result at best partial.</summary>
     public bool HasSkips { get; private set; }
+
+    /// <summary>
+    /// The one-based page currently being interpreted, or null outside the page
+    /// loop. The reader sets it so a diagnostic raised deep inside the content
+    /// interpreter or the font loader carries a location without every call site
+    /// having to thread a page number it does not otherwise need.
+    /// </summary>
+    public int? CurrentPage { get; set; }
 
     public void Info(string code, string message) => Add(DocumentDiagnosticSeverity.Info, code, message);
 
@@ -195,18 +230,21 @@ internal sealed class PdfDiagnosticSink
         Add(DocumentDiagnosticSeverity.Warning, code, message);
     }
 
-    public bool Contains(string code) => _counts.ContainsKey(code);
+    public bool Contains(string code) => _byCode.ContainsKey(code);
 
     public IReadOnlyList<DocumentDiagnostic> Build()
     {
-        if (_suppressed == 0)
-            return _diagnostics;
+        var all = new List<DocumentDiagnostic>(_entries.Count + 1);
+        foreach (Entry entry in _entries)
+            all.Add(entry.ToDiagnostic());
 
-        var all = new List<DocumentDiagnostic>(_diagnostics.Count + 1);
-        all.AddRange(_diagnostics);
-        all.Add(DocumentDiagnostic.Info(
-            PdfDiagnosticCodes.DiagnosticsTruncated,
-            $"{_suppressed} further diagnostics were suppressed by the diagnostic limit."));
+        if (_suppressed > 0)
+        {
+            all.Add(DocumentDiagnostic.Info(
+                PdfDiagnosticCodes.DiagnosticsTruncated,
+                $"{_suppressed} further diagnostics were suppressed by the diagnostic limit."));
+        }
+
         return all;
     }
 
@@ -215,20 +253,106 @@ internal sealed class PdfDiagnosticSink
         if (severity == DocumentDiagnosticSeverity.Error)
             HasErrors = true;
 
-        // First occurrence of a code is always kept; repeats only bump the count.
-        if (_counts.TryGetValue(code, out int seen))
+        // First occurrence of a code is always kept; repeats bump its count and
+        // widen the set of pages it names.
+        if (_byCode.TryGetValue(code, out Entry? seen))
         {
-            _counts[code] = seen + 1;
+            seen.Repeat(CurrentPage);
             return;
         }
 
-        if (_diagnostics.Count >= _maxDiagnostics)
+        if (_entries.Count >= _maxDiagnostics)
         {
             _suppressed++;
             return;
         }
 
-        _counts[code] = 1;
-        _diagnostics.Add(new DocumentDiagnostic(severity, code, message));
+        var entry = new Entry(severity, code, message, CurrentPage);
+        _byCode[code] = entry;
+        _entries.Add(entry);
+    }
+
+    /// <summary>
+    /// One code's accumulated occurrences. Held mutable until <see cref="Build"/>
+    /// because the count is only final once the document is done, and a
+    /// <see cref="DocumentDiagnostic"/> is immutable by design.
+    /// </summary>
+    private sealed class Entry
+    {
+        private readonly SortedSet<int> _pages = [];
+        private readonly DocumentDiagnosticSeverity _severity;
+        private readonly string _code;
+        private readonly string _message;
+        private readonly int? _firstPage;
+        private bool _morePages;
+
+        public Entry(DocumentDiagnosticSeverity severity, string code, string message, int? page)
+        {
+            _severity = severity;
+            _code = code;
+            _message = message;
+            _firstPage = page;
+            Count = 1;
+            NotePage(page);
+        }
+
+        public int Count { get; private set; }
+
+        public void Repeat(int? page)
+        {
+            // Saturating rather than checked: a count is a description, and a
+            // hostile file must not turn one into an overflow.
+            if (Count < int.MaxValue)
+                Count++;
+            NotePage(page);
+        }
+
+        public DocumentDiagnostic ToDiagnostic()
+        {
+            string? occurrences = DescribeOccurrences();
+            string message = occurrences is null ? _message : _message + " " + occurrences;
+            DocumentDiagnosticLocation? location = _firstPage is int page
+                ? new DocumentDiagnosticLocation(pageNumber: page)
+                : null;
+            return new DocumentDiagnostic(_severity, _code, message, location);
+        }
+
+        private void NotePage(int? page)
+        {
+            if (page is not int number || _pages.Contains(number))
+                return;
+
+            if (_pages.Count >= MaxNamedPages)
+            {
+                _morePages = true;
+                return;
+            }
+
+            _pages.Add(number);
+        }
+
+        /// <summary>
+        /// The aggregate sentence, or null when there is nothing to aggregate —
+        /// a single occurrence on a single page is fully described by the message
+        /// and the location already.
+        /// </summary>
+        private string? DescribeOccurrences()
+        {
+            if (Count == 1 && _pages.Count <= 1)
+                return null;
+
+            var text = new StringBuilder();
+            text.Append(Count == 1 ? "Seen once" : $"Seen {Count} times");
+
+            if (_pages.Count > 0)
+            {
+                text.Append(_pages.Count == 1 ? ", on page " : ", on pages ");
+                text.Append(string.Join(", ", _pages));
+                if (_morePages)
+                    text.Append(" and others");
+            }
+
+            return text.Append('.').ToString();
+        }
     }
 }

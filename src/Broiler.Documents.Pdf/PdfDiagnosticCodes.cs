@@ -68,6 +68,21 @@ public static class PdfDiagnosticCodes
     /// <summary>JPEG (DCT) data is recognized but no cleared decoder is composed (IP-005).</summary>
     public const string FilterDctUnsupported = "pdf.image.dct.tuple-unsupported";
 
+    /// <summary>
+    /// Progressive DCT was recognized and not decoded. It has its own code
+    /// because it has its own decision: IP-005 clears baseline sequential DCT,
+    /// and progressive waits on evidence covering it specifically.
+    /// </summary>
+    public const string FilterDctProgressiveUnsupported = "pdf.image.dct.progressive-unsupported";
+
+    /// <summary>
+    /// A JPEG's colour transform could not be established: its Adobe APP14 marker
+    /// and its <c>/ColorTransform</c> parameter disagree, or the declared value is
+    /// not one the format defines. Distinct from an unsupported tuple, which is a
+    /// declaration this build understands and will not decode.
+    /// </summary>
+    public const string FilterDctColorTransformUncertain = "pdf.image.dct.color-transform-uncertain";
+
     /// <summary>JPEG 2000 data is recognized but not implemented (IP-007).</summary>
     public const string FilterJpxUnsupported = "pdf.filter.jpx.unsupported";
 
@@ -117,6 +132,14 @@ public static class PdfDiagnosticCodes
     /// <summary>An image's color space or sample layout is outside the supported subset.</summary>
     public const string ImageUnsupported = "pdf.image.unsupported";
 
+    /// <summary>
+    /// A composed filter decoded an image, and the logical model has nowhere to
+    /// put it. The samples are reachable through the filter pipeline; the
+    /// result document does not carry them, because extracting a resource into
+    /// the model awaits the shared resource policy (PDF roadmap §6.2).
+    /// </summary>
+    public const string ImageDecodedNotProjected = "pdf.image.decoded-not-projected";
+
     /// <summary>Vector artwork or a shading was found that the logical model cannot represent.</summary>
     public const string VectorArtworkDropped = "pdf.import.vector-artwork-dropped";
 
@@ -162,6 +185,17 @@ public static class PdfDiagnosticCodes
     /// <summary>Info and XMP disagreed on a normalized field; only the field name is reported.</summary>
     public const string MetadataConflict = "pdf.metadata.conflict";
 
-    /// <summary>A raw XMP packet was detected and dropped; XMP awaits its own review (IP-004).</summary>
+    /// <summary>
+    /// An XMP packet was present but could not be read under the pinned subset —
+    /// undecodable, malformed, or over the byte ceiling — so Info alone supplied
+    /// the normalized metadata.
+    /// </summary>
+    public const string MetadataXmpUnusable = "pdf.metadata.xmp-unusable";
+
+    /// <summary>
+    /// An XMP packet was read for the normalized allowlist and the raw packet was
+    /// then dropped. The packet itself is never preserved and never written back
+    /// (PDF roadmap §6.2), so this reports provenance rather than a failure.
+    /// </summary>
     public const string MetadataRawDropped = "document.metadata.raw-dropped";
 }

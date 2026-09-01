@@ -9,8 +9,14 @@ namespace Broiler.Documents.Pdf.Filters;
 /// </summary>
 /// <remarks>
 /// Predictors are a property of the <em>stream</em>, not of the compression
-/// algorithm, so they live here rather than inside a filter. That is also why a
-/// later LZW implementation gets predictor support for free.
+/// algorithm, so they live here rather than inside a filter. That is why LZW got
+/// predictor support the moment its filter landed, without a line of change here.
+/// </remarks>
+/// <remarks>
+/// The PNG predictors are per-row: an encoder picks a filter for each row and
+/// tags it, which is what "optimum selection" names on the encoding side. A
+/// decoder has nothing to select — it honours whichever tag each row carries, so
+/// all five are implemented and none is a mode this build can be missing.
 /// </remarks>
 internal static class PdfPredictor
 {
@@ -78,6 +84,18 @@ internal static class PdfPredictor
         return TryReversePng(data, (int)rowBytes, Math.Max(1, (int)(bitsPerPixel / 8)), out result, out error);
     }
 
+    /// <summary>
+    /// Undoes TIFF predictor 2, which differences each component against the same
+    /// component of the pixel to its left.
+    /// </summary>
+    /// <remarks>
+    /// Every component size the format allows is handled. One, two, and four bits
+    /// divide eight exactly, so a component of those sizes never straddles a byte
+    /// and the same bit accessor serves them and eight-bit components alike;
+    /// sixteen-bit components are the one case that spans two bytes and has its
+    /// own loop. The arithmetic is modulo the component size in all of them,
+    /// which is what makes the difference reversible.
+    /// </remarks>
     private static bool TryReverseTiff(
         byte[] data,
         int colors,
@@ -90,40 +108,67 @@ internal static class PdfPredictor
         result = data;
         error = null;
 
-        // Sub-byte components would need bit-level accumulation to undo. They are
-        // rare enough that rejecting them beats shipping a path with no fixture.
-        if (bitsPerComponent is not (8 or 16))
-        {
-            error = "A TIFF predictor used a component size outside the supported 8- and 16-bit subset.";
-            return false;
-        }
-
         int rows = data.Length / rowBytes;
         var output = (byte[])data.Clone();
-        int step = colors * (bitsPerComponent / 8);
+        int componentsPerRow = columns * colors;
 
         for (int row = 0; row < rows; row++)
         {
             int rowStart = row * rowBytes;
-            if (bitsPerComponent == 8)
+
+            if (bitsPerComponent == 16)
             {
-                for (int i = step; i < rowBytes; i++)
-                    output[rowStart + i] = (byte)(output[rowStart + i] + output[rowStart + i - step]);
+                int step = colors * 2;
+                for (int i = step; i + 1 < rowBytes; i += 2)
+                {
+                    int previous = (output[rowStart + i - step] << 8) | output[rowStart + i - step + 1];
+                    int current = (output[rowStart + i] << 8) | output[rowStart + i + 1];
+                    int sum = (current + previous) & 0xFFFF;
+                    output[rowStart + i] = (byte)(sum >> 8);
+                    output[rowStart + i + 1] = (byte)sum;
+                }
+
                 continue;
             }
 
-            for (int i = step; i + 1 < rowBytes; i += 2)
+            int mask = (1 << bitsPerComponent) - 1;
+            for (int component = colors; component < componentsPerRow; component++)
             {
-                int previous = (output[rowStart + i - step] << 8) | output[rowStart + i - step + 1];
-                int current = (output[rowStart + i] << 8) | output[rowStart + i + 1];
-                int sum = (current + previous) & 0xFFFF;
-                output[rowStart + i] = (byte)(sum >> 8);
-                output[rowStart + i + 1] = (byte)sum;
+                int previous = ReadComponent(output, rowStart, component - colors, bitsPerComponent, rowBytes);
+                int current = ReadComponent(output, rowStart, component, bitsPerComponent, rowBytes);
+                WriteComponent(output, rowStart, component, bitsPerComponent, (current + previous) & mask, rowBytes);
             }
         }
 
         result = output;
         return true;
+    }
+
+    /// <summary>
+    /// One packed component. Only called for sizes that divide a byte, so the
+    /// value never spans two of them.
+    /// </summary>
+    private static int ReadComponent(byte[] data, int rowStart, int component, int bits, int rowBytes)
+    {
+        int bitOffset = component * bits;
+        int index = rowStart + (bitOffset >> 3);
+        if (index >= data.Length || (bitOffset >> 3) >= rowBytes)
+            return 0;
+
+        int shift = 8 - bits - (bitOffset & 7);
+        return (data[index] >> shift) & ((1 << bits) - 1);
+    }
+
+    private static void WriteComponent(byte[] data, int rowStart, int component, int bits, int value, int rowBytes)
+    {
+        int bitOffset = component * bits;
+        int index = rowStart + (bitOffset >> 3);
+        if (index >= data.Length || (bitOffset >> 3) >= rowBytes)
+            return;
+
+        int shift = 8 - bits - (bitOffset & 7);
+        int mask = ((1 << bits) - 1) << shift;
+        data[index] = (byte)((data[index] & ~mask) | ((value << shift) & mask));
     }
 
     private static bool TryReversePng(
