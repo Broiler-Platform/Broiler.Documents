@@ -145,6 +145,31 @@ public sealed class DocxShapeTests
     }
 
     [Fact(Timeout = 600000)]
+    public void A_Shape_That_States_No_Stacking_Is_Behind_The_Text()
+    {
+        // Neither fixture carries behindDoc, which is the letterhead case: the
+        // stripe and the logo box are what the letter is written on top of.
+        Assert.All(Read(GradientShape + TextBoxShape).Shapes, shape => Assert.True(shape.BehindText));
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Shape_Stacked_In_Front_Of_The_Text_Keeps_That_Through_A_Round_Trip()
+    {
+        RichTextDocument source = Read(
+            GradientShape.Replace(
+                "<wp:anchor xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\">",
+                "<wp:anchor xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" " +
+                "behindDoc=\"0\">",
+                StringComparison.Ordinal));
+
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false);
+        RichTextDocument actual = new DocxDocumentCodec().Read(stream).Document;
+
+        Assert.False(Assert.Single(source.Shapes).BehindText);
+        Assert.False(Assert.Single(actual.Shapes).BehindText);
+    }
+
+    [Fact(Timeout = 600000)]
     public void Editing_The_Body_Keeps_The_Shapes()
     {
         RichTextDocument document = Read(TextBoxShape);

@@ -128,10 +128,12 @@ internal static class DocxTestPackage
         long offsetXEmus = 0,
         long offsetYEmus = 0,
         bool withExtent = true,
-        string? altText = null) =>
+        string? altText = null,
+        string? behindDoc = "1") =>
         "<w:r><w:drawing>" +
         "<wp:anchor xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" " +
-        "behindDoc=\"1\" simplePos=\"0\" relativeHeight=\"2\">" +
+        (behindDoc is null ? string.Empty : "behindDoc=\"" + behindDoc + "\" ") +
+        "simplePos=\"0\" relativeHeight=\"2\">" +
         "<wp:positionH relativeFrom=\"column\"><wp:posOffset>" + offsetXEmus +
         "</wp:posOffset></wp:positionH>" +
         "<wp:positionV relativeFrom=\"paragraph\"><wp:posOffset>" + offsetYEmus +

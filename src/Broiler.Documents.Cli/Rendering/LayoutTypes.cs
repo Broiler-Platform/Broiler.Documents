@@ -133,13 +133,15 @@ public sealed class LayoutShape
         ShapeFill? fill,
         BColor outline,
         IReadOnlyList<LayoutLine> lines,
-        InlineImage? image = null)
+        InlineImage? image = null,
+        bool behindText = true)
     {
         Bounds = bounds;
         Fill = fill;
         Outline = outline;
         Lines = lines;
         Image = image;
+        BehindText = behindText;
     }
 
     public BRect Bounds { get; }
@@ -153,6 +155,9 @@ public sealed class LayoutShape
 
     /// <summary>The shape's own text, already positioned inside its box.</summary>
     public IReadOnlyList<LayoutLine> Lines { get; }
+
+    /// <summary>True when the shape is painted under the page's text rather than over it.</summary>
+    public bool BehindText { get; }
 }
 
 /// <summary>

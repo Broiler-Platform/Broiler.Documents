@@ -807,6 +807,13 @@ public static class DocxWriter
     /// The run holding one <c>wp:anchor</c>: the shape's box against the column
     /// and its paragraph, wrapped around whichever graphic it carries.
     /// </summary>
+    /// <remarks>
+    /// <c>behindDoc</c> is written from the shape rather than fixed, because it is
+    /// read that way: a stripe read from behind the text and saved as "0" would
+    /// come back from Word painted over the letter. <c>relativeHeight</c> follows
+    /// it so the two layers do not interleave - order within a layer is not
+    /// modelled, and one value per layer is as much as can honestly be written.
+    /// </remarks>
     private static XElement BuildAnchorRun(DocumentShape shape, XElement frameProperties, XElement graphic)
     {
         var anchor = new XElement(
@@ -816,8 +823,8 @@ public static class DocxWriter
             new XAttribute("distL", "0"),
             new XAttribute("distR", "0"),
             new XAttribute("simplePos", "0"),
-            new XAttribute("relativeHeight", "2"),
-            new XAttribute("behindDoc", "0"),
+            new XAttribute("relativeHeight", shape.BehindText ? "1" : "2"),
+            new XAttribute("behindDoc", shape.BehindText ? "1" : "0"),
             new XAttribute("locked", "0"),
             new XAttribute("layoutInCell", "1"),
             new XAttribute("allowOverlap", "1"),
