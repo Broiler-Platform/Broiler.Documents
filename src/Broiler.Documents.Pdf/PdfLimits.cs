@@ -38,6 +38,7 @@ public sealed class PdfLimits
     public const long DefaultMaxOutputBytes = 128L * 1024 * 1024;
     public const long DefaultMaxXmpBytes = 2L * 1024 * 1024;
     public const long DefaultMaxFontProgramBytes = 16L * 1024 * 1024;
+    public const long DefaultMaxDescribedImageBytes = 8L * 1024 * 1024;
 
     public static PdfLimits Default { get; } = new();
 
@@ -64,7 +65,8 @@ public sealed class PdfLimits
         long maxWorkUnits = DefaultMaxWorkUnits,
         long maxOutputBytes = DefaultMaxOutputBytes,
         long maxXmpBytes = DefaultMaxXmpBytes,
-        long maxFontProgramBytes = DefaultMaxFontProgramBytes)
+        long maxFontProgramBytes = DefaultMaxFontProgramBytes,
+        long maxDescribedImageBytes = DefaultMaxDescribedImageBytes)
     {
         MaxInputBytes = Positive(maxInputBytes, nameof(maxInputBytes));
         MaxTokenLength = Positive(maxTokenLength, nameof(maxTokenLength));
@@ -89,6 +91,7 @@ public sealed class PdfLimits
         MaxOutputBytes = Positive(maxOutputBytes, nameof(maxOutputBytes));
         MaxXmpBytes = Positive(maxXmpBytes, nameof(maxXmpBytes));
         MaxFontProgramBytes = Positive(maxFontProgramBytes, nameof(maxFontProgramBytes));
+        MaxDescribedImageBytes = Positive(maxDescribedImageBytes, nameof(maxDescribedImageBytes));
     }
 
     /// <summary>Maximum bytes of input the reader will materialize.</summary>
@@ -167,6 +170,15 @@ public sealed class PdfLimits
     /// document cannot make font inspection the most expensive thing a read does.
     /// </summary>
     public long MaxFontProgramBytes { get; }
+
+    /// <summary>
+    /// Maximum encoded bytes of an image stream this build will decode purely to
+    /// describe it. The logical model carries no images, so an image decode is
+    /// diagnostic work: it earns a better sentence and nothing else. This bounds
+    /// what one image may spend on that, and <see cref="MaxDecodedStreamBytes"/>
+    /// still bounds the whole read.
+    /// </summary>
+    public long MaxDescribedImageBytes { get; }
 
     private static int Positive(int value, string name) =>
         value > 0 ? value : throw new ArgumentOutOfRangeException(name, value, "A PDF limit must be positive; zero never means unlimited.");

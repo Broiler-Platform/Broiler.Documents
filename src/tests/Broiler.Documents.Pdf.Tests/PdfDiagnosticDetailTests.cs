@@ -1,3 +1,5 @@
+using System.IO.Compression;
+
 namespace Broiler.Documents.Pdf.Tests;
 
 /// <summary>
@@ -154,6 +156,92 @@ public sealed class PdfDiagnosticDetailTests
 
         Assert.Contains("all inline", image.Message, StringComparison.Ordinal);
         Assert.Contains("8x8 8bpc", image.Message, StringComparison.Ordinal);
+
+        // An inline image is read from its declaration by design, not for want of
+        // a decoder, and the note must not blame one.
+        Assert.DoesNotContain("composes no image decoder", image.Message, StringComparison.Ordinal);
+        Assert.Contains("The logical model carries no images", image.Message, StringComparison.Ordinal);
+    }
+
+    // ---- images this build can decode -----------------------------------------
+
+    [Fact]
+    public void A_Flate_Image_Is_Decoded_Rather_Than_Blamed_On_A_Missing_Decoder()
+    {
+        // The regression this covers: FlateDecode is composed by every build, so
+        // a stencil mask's samples were reachable all along. Reporting it as an
+        // image no decoder could reach named a gap that did not exist and hid the
+        // real one, which is that the model has nowhere to put an image.
+        byte[] samples = Samples(240 / 8 * 240);
+        PdfReadResult result = Read(DocumentWithImage(
+            "/Width 240 /Height 240 /ImageMask true /BitsPerComponent 1",
+            Deflate(samples),
+            filter: "FlateDecode"));
+
+        DocumentDiagnostic decoded = Only(result, PdfDiagnosticCodes.ImageDecodedNotProjected);
+        Assert.Contains("1 image was decoded", decoded.Message, StringComparison.Ordinal);
+        Assert.Contains($"{samples.Length} bytes of samples", decoded.Message, StringComparison.Ordinal);
+        Assert.Contains("240x240 1bpc ImageMask FlateDecode", decoded.Message, StringComparison.Ordinal);
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageNotComposed);
+
+        // 240 × 240 at one bit is exactly 7200 bytes, so the dictionary and the
+        // samples agree. Sizing raw samples as though a codec had normalized them
+        // to RGBA would have called every stencil mask a disagreement.
+        Assert.DoesNotContain("disagree", decoded.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Raw_Image_Whose_Samples_Do_Not_Fill_Its_Declaration_Is_Reported_As_Disagreeing()
+    {
+        // The check still has to earn its keep: a stream carrying half the samples
+        // its dictionary calls for is a real disagreement, and saying so is the
+        // whole reason the decode is worth doing.
+        PdfReadResult result = Read(DocumentWithImage(
+            "/Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            Samples(8 * 4),
+            filter: null));
+
+        DocumentDiagnostic decoded = Only(result, PdfDiagnosticCodes.ImageDecodedNotProjected);
+        Assert.Contains("the dictionary and the image data disagree", decoded.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_Unfiltered_Image_Is_Decoded_From_Its_Raw_Samples()
+    {
+        // No filter at all is the case where "composes no image decoder" was
+        // furthest from true: raw samples need no decoder to be reachable.
+        byte[] samples = Samples(8 * 8);
+        PdfReadResult result = Read(DocumentWithImage(
+            "/Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            samples,
+            filter: null));
+
+        DocumentDiagnostic decoded = Only(result, PdfDiagnosticCodes.ImageDecodedNotProjected);
+        Assert.Contains($"{samples.Length} bytes of samples", decoded.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageNotComposed);
+    }
+
+    [Fact]
+    public void An_Image_Past_The_Description_Ceiling_Is_Reported_From_Its_Dictionary()
+    {
+        // The decode is diagnostic work, so it is bounded, and hitting the bound
+        // costs the sentence rather than the document: the text still arrives and
+        // the image is still described from what it declared.
+        byte[] samples = Samples(240 / 8 * 240);
+        PdfReadResult result = Read(
+            DocumentWithImage(
+                "/Width 240 /Height 240 /ImageMask true /BitsPerComponent 1",
+                Deflate(samples),
+                filter: "FlateDecode"),
+            new PdfReadOptions(pdfLimits: new PdfLimits(maxDescribedImageBytes: 16)));
+
+        DocumentDiagnostic image = Only(result, PdfDiagnosticCodes.ImageNotComposed);
+        Assert.Contains("240x240 1bpc ImageMask FlateDecode", image.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("composes no image decoder", image.Message, StringComparison.Ordinal);
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.Limit);
+        Assert.Equal("Body", Assert.Single(result.Document.Paragraphs).Text);
     }
 
     // ---- vector artwork -------------------------------------------------------
@@ -355,6 +443,48 @@ public sealed class PdfDiagnosticDetailTests
         $"/Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R >>";
 
     /// <summary>A document of <paramref name="pageCount"/> pages, each drawing the same JPEG.</summary>
+    /// <summary>
+    /// One page carrying the word "Body" and a single image XObject built from
+    /// <paramref name="dictionaryBody"/> and <paramref name="data"/>.
+    /// </summary>
+    private static byte[] DocumentWithImage(string dictionaryBody, byte[] data, string? filter)
+    {
+        var builder = new PdfFileBuilder();
+        int catalog = builder.Reserve();
+        int pages = builder.Reserve();
+        int page = builder.Reserve();
+        int font = builder.AddObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        int image = builder.AddStream($"/Type /XObject /Subtype /Image {dictionaryBody}", data, filter);
+        int content = builder.AddStream(string.Empty, "q /Im0 Do Q\n" + PdfFileBuilder.ShowText("Body"));
+
+        builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
+        builder.SetObject(pages, $"<< /Type /Pages /Kids [{page} 0 R] /Count 1 >>");
+        builder.SetObject(
+            page,
+            $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] " +
+            $"/Resources << /Font << /F1 {font} 0 R >> /XObject << /Im0 {image} 0 R >> >> " +
+            $"/Contents {content} 0 R >>");
+
+        return builder.Build(catalog);
+    }
+
+    /// <summary>Sample bytes with enough variety that a round trip proves itself.</summary>
+    private static byte[] Samples(int length)
+    {
+        byte[] samples = new byte[length];
+        for (int i = 0; i < samples.Length; i++)
+            samples[i] = (byte)(i * 7 & 0xFF);
+        return samples;
+    }
+
+    private static byte[] Deflate(byte[] data)
+    {
+        using var output = new MemoryStream();
+        using (var compressor = new ZLibStream(output, CompressionLevel.Optimal, leaveOpen: true))
+            compressor.Write(data, 0, data.Length);
+        return output.ToArray();
+    }
+
     private static byte[] PagesDrawingOneImage(int pageCount)
     {
         var builder = new PdfFileBuilder();
