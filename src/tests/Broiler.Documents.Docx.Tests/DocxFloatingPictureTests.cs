@@ -86,17 +86,28 @@ public sealed class DocxFloatingPictureTests
     }
 
     [Fact(Timeout = 600000)]
-    public void Says_That_Wrapping_Was_Not_Kept()
+    public void Says_Only_What_Is_Still_Approximated()
     {
         DocumentDiagnostic note = Assert.Single(
             Read(Anchored()).Diagnostics.Where(d => d.Code == "docx.image.anchored"));
 
-        // The anchor asked for square wrapping, which it does not get. It also
-        // asked to sit behind the text, which it does get now - so the note says
-        // wrapping and stops claiming the stacking went with it.
+        // The anchor asked for square wrapping and to sit behind the text, and it
+        // gets both now. What it does not get is the picture's outline, so that
+        // is what the note is left saying.
         Assert.Equal(DocumentDiagnosticSeverity.Warning, note.Severity);
-        Assert.Contains("wrapping", note.Message, StringComparison.Ordinal);
+        Assert.Contains("outline", note.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("z-order", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("not represented", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Reads_The_Square_Wrap_The_Anchor_States()
+    {
+        // The fixture's anchor states wrapSquare with wrapText="bothSides".
+        DocumentShape shape = Assert.Single(Read(Anchored()).Document.Shapes);
+
+        Assert.Equal(ShapeWrap.Square, shape.Wrap);
+        Assert.Equal(WrapSide.Largest, shape.WrapSide);
     }
 
     [Fact(Timeout = 600000)]

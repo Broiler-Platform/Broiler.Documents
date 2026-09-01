@@ -136,15 +136,16 @@ public sealed class OdtFloatingPictureTests
     }
 
     [Fact]
-    public void Says_That_Wrapping_Was_Not_Kept()
+    public void Says_Only_What_Is_Still_Approximated()
     {
         DocumentDiagnostic note = Assert.Single(
             ReadInParagraph(Frame()).Diagnostics.Where(d => d.Code == "odt.image.anchored"));
 
-        // The frame does not get text flowed around it, which the note still
-        // says. It does keep its layer now, so the note stops claiming otherwise.
-        Assert.Contains("wrapping", note.Message, StringComparison.Ordinal);
+        // The frame keeps its layer and its wrapping now. What it does not keep
+        // is the picture's outline, so that is what the note is left saying.
+        Assert.Contains("outline", note.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("z-order", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("not represented", note.Message, StringComparison.Ordinal);
     }
 
     [Fact]

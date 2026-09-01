@@ -121,6 +121,9 @@ internal sealed class PdfPageLayout
     private readonly PdfDiagnosticSink _diagnostics;
     private readonly CancellationToken _cancellationToken;
 
+    /// <summary>The boxes wrapping shapes keep this layout's lines out of.</summary>
+    private readonly TextWrapExclusions _wrap = new();
+
     public PdfPageLayout(
         PdfWriteOptions options,
         IPdfFontMetricsProvider metrics,
@@ -199,9 +202,44 @@ internal sealed class PdfPageLayout
                 available = setup.ContentWidth;
             }
 
-            string marker = PdfModelProjector.FormatListMarker(style.ListKind, listNumber);
-            List<LayoutLine> lines = BreakParagraph(paragraph, available, marker);
             anchors[paragraphIndex] = (page, y);
+
+            // A shape's box is known once the paragraph it hangs from has a top.
+            // PDF counts up from the foot of the page and the exclusions count
+            // down from its head, so the y is negated on the way in and back out.
+            foreach (DocumentShape shape in document.Shapes)
+            {
+                if (shape.Wraps && shape.ParagraphIndex == paragraphIndex)
+                    _wrap.Add(shape, -(y - shape.OffsetY));
+            }
+
+            string marker = PdfModelProjector.FormatListMarker(style.ListKind, listNumber);
+            var bands = new List<TextBand>();
+            List<LayoutLine> lines;
+
+            if (_wrap.IsEmpty)
+            {
+                lines = BreakParagraph(paragraph, available, marker);
+            }
+            else
+            {
+                // The y is advanced by an empty line's height rather than each
+                // line's own, which is not known until it has been wrapped to a
+                // width: a line of unusually tall text can reach a little into a
+                // shape it only just cleared.
+                double lineY = y;
+                double estimate = EmptyLineHeight() * lineSpacing;
+                lines = BreakParagraph(
+                    paragraph,
+                    _ =>
+                    {
+                        TextBand row = WrapBand(ref lineY, estimate, available);
+                        lineY -= estimate;
+                        return row;
+                    },
+                    marker,
+                    bands);
+            }
 
             if (lines.Count == 0)
             {
@@ -220,8 +258,10 @@ internal sealed class PdfPageLayout
             }
 
             double lastLineHeight = 0;
-            foreach (LayoutLine line in lines)
+            for (int lineIndex = 0; lineIndex < lines.Count; lineIndex++)
             {
+                LayoutLine line = lines[lineIndex];
+                TextBand band = lineIndex < bands.Count ? bands[lineIndex] : new TextBand(0, available);
                 double lineHeight = line.Height * lineSpacing;
                 if (y - lineHeight < bottom && page.Runs.Count > 0)
                 {
@@ -232,7 +272,14 @@ internal sealed class PdfPageLayout
 
                 y -= lineHeight;
                 lastLineHeight = lineHeight;
-                Place(page, line, left, available, y, style.Alignment, line == lines[^1]);
+                Place(
+                    page,
+                    line,
+                    left + band.Left,
+                    Math.Max(1, band.Width),
+                    y,
+                    style.Alignment,
+                    line == lines[^1]);
             }
 
             y -= SpacingAfter(style, lastLineHeight);
@@ -847,6 +894,21 @@ internal sealed class PdfPageLayout
     /// A line with no spaces to stretch — one long word — is left flush too,
     /// rather than having its glyphs pulled apart.
     /// </remarks>
+    /// <summary>
+    /// The band a line has at <paramref name="y"/>, moved below anything that
+    /// leaves it no room. Bounded rather than repeated until it settles, because
+    /// shapes covering the column would otherwise push a line down forever.
+    /// </summary>
+    private TextBand WrapBand(ref double y, double height, double width)
+    {
+        // The exclusions count down from the head of the page and PDF counts up
+        // from its foot, so the axis is flipped on the way in and back out.
+        double down = -y;
+        TextBand band = _wrap.Resolve(ref down, height, width, out _);
+        y = -down;
+        return band;
+    }
+
     private void Place(
         PdfLayoutPage page,
         LayoutLine line,
@@ -926,11 +988,35 @@ internal sealed class PdfPageLayout
 
     // ---- line breaking --------------------------------------------------------
 
-    private List<LayoutLine> BreakParagraph(RichTextParagraph paragraph, double available, string marker)
+    private List<LayoutLine> BreakParagraph(RichTextParagraph paragraph, double available, string marker) =>
+        BreakParagraph(paragraph, _ => new TextBand(0, available), marker, bands: null);
+
+    /// <remarks>
+    /// The width is asked for per line rather than given once, because a wrapping
+    /// shape leaves each line a different amount of room depending on where it
+    /// lands. <paramref name="bands"/> collects what each line was given, so the
+    /// caller can place it at the edge it was wrapped to.
+    /// </remarks>
+    private List<LayoutLine> BreakParagraph(
+        RichTextParagraph paragraph,
+        Func<int, TextBand> bandFor,
+        string marker,
+        List<TextBand>? bands)
     {
         var lines = new List<LayoutLine>();
         var current = new LayoutLine();
         double used = 0;
+
+        TextBand band = bandFor(0);
+        bands?.Add(band);
+        double available = Math.Max(1, band.Width);
+
+        void StartLine()
+        {
+            band = bandFor(lines.Count);
+            bands?.Add(band);
+            available = Math.Max(1, band.Width);
+        }
 
         foreach (Word enumerated in EnumerateWords(paragraph, marker))
         {
@@ -951,6 +1037,7 @@ internal sealed class PdfPageLayout
                 lines.Add(current);
                 current = new LayoutLine();
                 used = 0;
+                StartLine();
 
                 // A word wider than the whole line is broken by character; the
                 // alternative is a run that overflows the page.
@@ -963,6 +1050,7 @@ internal sealed class PdfPageLayout
                             lines.Add(current);
                             current = new LayoutLine();
                             used = 0;
+                            StartLine();
                         }
 
                         Append(current, part);

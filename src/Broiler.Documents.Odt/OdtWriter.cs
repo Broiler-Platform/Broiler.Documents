@@ -1128,7 +1128,20 @@ public static class OdtWriter
                 OdtNamespaces.Style + "graphic-properties",
                 new XAttribute(
                     OdtNamespaces.Style + "run-through",
-                    shape.BehindText ? "background" : "foreground"));
+                    shape.BehindText ? "background" : "foreground"),
+                // ODF's names read backwards: run-through is text through the
+                // shape, and none is no text beside it at all.
+                new XAttribute(OdtNamespaces.Style + "wrap", shape.Wrap switch
+                {
+                    ShapeWrap.TopAndBottom => "none",
+                    ShapeWrap.Square => shape.WrapSide switch
+                    {
+                        WrapSide.Left => "left",
+                        WrapSide.Right => "right",
+                        _ => "parallel",
+                    },
+                    _ => "run-through",
+                }));
 
             if (shape.Fill is ShapeFill fill && fill.IsGradient)
             {
