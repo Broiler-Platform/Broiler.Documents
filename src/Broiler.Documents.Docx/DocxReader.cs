@@ -59,6 +59,10 @@ internal static class DocxReader
 
             var images = new DocxImageLoader(archive, options.Limits);
             var reported = new HashSet<string>(StringComparer.Ordinal);
+            // Read before the content, not after it: an anchor states which frame
+            // its offsets are measured from, and converting one to the column the
+            // model anchors against needs the margins first.
+            PageGeometry? page = ReadPageGeometry(documentXml, diagnostics);
             RichTextDocument document = ReadDocumentXml(
                 documentXml,
                 documentRelationships,
@@ -67,7 +71,8 @@ internal static class DocxReader
                 images,
                 options.Limits,
                 diagnostics,
-                reported);
+                reported,
+                page);
             var partShapes = new List<DocumentShape>();
             document = document.WithRunningContent(ReadRunningContent(
                 archive,
@@ -80,8 +85,9 @@ internal static class DocxReader
                 options.Limits,
                 diagnostics,
                 reported,
-                partShapes));
-            document = document.WithPageGeometry(ReadPageGeometry(documentXml, diagnostics));
+                partShapes,
+                page));
+            document = document.WithPageGeometry(page);
             if (partShapes.Count > 0)
                 // A header shape is page decoration, so it belongs behind the
                 // shapes the body anchors - a stripe painted over a logo box
@@ -113,7 +119,8 @@ internal static class DocxReader
         DocxImageLoader images,
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics,
-        HashSet<string> reported)
+        HashSet<string> reported,
+        PageGeometry? page)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         if (body is null)
@@ -125,7 +132,7 @@ internal static class DocxReader
         }
 
         var builder = new DocxDocumentBuilder(limits, diagnostics, reported);
-        var context = new DocxReadContext(relationships, numbering, styles, images, builder);
+        var context = new DocxReadContext(relationships, numbering, styles, images, builder, page);
         ReadBlockContent(body.Elements(), context, depth: 0);
         builder.ReportReadSummary(body.Elements().Any(IsContentBlock), styles.Count, images.ImageCount);
         return builder.Build();
@@ -137,7 +144,8 @@ internal static class DocxReader
         DocxNumbering Numbering,
         DocxStyles Styles,
         DocxImageLoader Images,
-        DocxDocumentBuilder Builder);
+        DocxDocumentBuilder Builder,
+        PageGeometry? Page = null);
 
     /// <summary>
     /// Walks WordprocessingML block-level content — the <c>EG_BlockLevelElts</c>
@@ -641,7 +649,8 @@ internal static class DocxReader
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported,
-        List<DocumentShape> partShapes)
+        List<DocumentShape> partShapes,
+        PageGeometry? page)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         XElement? sectPr = body?.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault();
@@ -676,7 +685,8 @@ internal static class DocxReader
             }
 
             IReadOnlyList<RichTextParagraph>? paragraphs = ReadPartParagraphs(
-                archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported, partShapes);
+                archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported, partShapes,
+                page);
             if (paragraphs is null)
                 continue;
 
@@ -757,7 +767,8 @@ internal static class DocxReader
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported,
-        List<DocumentShape> partShapes)
+        List<DocumentShape> partShapes,
+        PageGeometry? page)
     {
         ZipArchiveEntry? entry = DocxPackage.FindEntry(archive, partPath);
         if (entry is null)
@@ -780,7 +791,7 @@ internal static class DocxReader
             diagnostics);
 
         var builder = new DocxDocumentBuilder(limits, diagnostics, reported);
-        var context = new DocxReadContext(partRelationships, numbering, styles, images, builder);
+        var context = new DocxReadContext(partRelationships, numbering, styles, images, builder, page);
         ReadBlockContent(partXml.Root.Elements(), context, depth: 0);
 
         RichTextDocument part = builder.Build();
@@ -1019,8 +1030,8 @@ internal static class DocxReader
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
-            EmuToPoints(PositionOffset(anchor, "positionH")),
-            EmuToPoints(PositionOffset(anchor, "positionV")),
+            HorizontalOffset(anchor, context),
+            VerticalOffset(anchor, context),
             image.Width,
             image.Height,
             fill: null,
@@ -1067,8 +1078,8 @@ internal static class DocxReader
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
-            EmuToPoints(PositionOffset(anchor, "positionH")),
-            EmuToPoints(PositionOffset(anchor, "positionV")),
+            HorizontalOffset(anchor, context),
+            VerticalOffset(anchor, context),
             width,
             height,
             fill,
@@ -1100,6 +1111,102 @@ internal static class DocxReader
     private static string? PositionOffset(XElement anchor, string axis) =>
         (string?)anchor.Element(DocxNamespaces.WordDrawing + axis)
             ?.Element(DocxNamespaces.WordDrawing + "posOffset");
+
+    /// <summary>The frame an axis states its offset against, or null for none.</summary>
+    private static string? RelativeFrom(XElement anchor, string axis) =>
+        (string?)anchor.Element(DocxNamespaces.WordDrawing + axis)?.Attribute("relativeFrom");
+
+    /// <summary>
+    /// The horizontal offset in points from the text column's left edge, which is
+    /// what <see cref="DocumentShape.OffsetX"/> measures, whichever frame the
+    /// anchor stated it against.
+    /// </summary>
+    /// <remarks>
+    /// Every horizontal frame is a fixed distance from the column, so the page
+    /// geometry converts them exactly: a stripe stated 0 from the left margin and
+    /// one stated -MarginLeft from the column are the same stripe, and only one of
+    /// them used to arrive in the right place. A document that states no usable
+    /// page has nothing to convert with, so the offset is taken as column-relative
+    /// - the reading every anchor used to get.
+    /// </remarks>
+    private static double HorizontalOffset(XElement anchor, DocxReadContext context)
+    {
+        double offset = EmuToPoints(PositionOffset(anchor, "positionH"));
+        string? from = RelativeFrom(anchor, "positionH");
+        if (context.Page is not PageGeometry page)
+            return offset;
+
+        switch (from)
+        {
+            // The page's left edge and the left margin's both sit MarginLeft to
+            // the left of the column.
+            case "page":
+            case "leftMargin":
+                return offset - page.MarginLeft;
+
+            // The right margin starts where the column ends.
+            case "rightMargin":
+                return offset + page.Width - page.MarginRight - page.MarginLeft;
+
+            // Which side these name depends on whether the page is odd or even,
+            // and a paragraph-anchored model does not know what page it lands on.
+            // Read as an odd page, which is the one a first page always is.
+            case "insideMargin":
+                context.Builder.AddDiagnosticOnce(
+                    "docx.anchor.relativefrom:h",
+                    "docx.anchor.relativefrom",
+                    "A floating DOCX object was positioned against the inside or outside margin, " +
+                    "which side depends on the page it falls on; it was placed as though on an odd page.");
+                return offset - page.MarginLeft;
+
+            case "outsideMargin":
+                context.Builder.AddDiagnosticOnce(
+                    "docx.anchor.relativefrom:h",
+                    "docx.anchor.relativefrom",
+                    "A floating DOCX object was positioned against the inside or outside margin, " +
+                    "which side depends on the page it falls on; it was placed as though on an odd page.");
+                return offset + page.Width - page.MarginRight - page.MarginLeft;
+
+            // "margin" is the text area, whose left edge is the column's. "column"
+            // is the column. "character" is where the run sits, which is as good
+            // as the column here and the answer this reader always gave.
+            default:
+                return offset;
+        }
+    }
+
+    /// <summary>
+    /// The vertical offset in points from the top of the anchoring paragraph,
+    /// which is what <see cref="DocumentShape.OffsetY"/> measures.
+    /// </summary>
+    /// <remarks>
+    /// Only the frames that are already paragraph-relative convert, because the
+    /// rest are measured from the page and where a paragraph sits on the page is
+    /// a layout result this reader does not have - a shape on the fortieth
+    /// paragraph could be on any page of the document. Those keep the offset they
+    /// stated, which is what every anchor used to get, and say so rather than
+    /// being converted by a guess that is right only at the top of the column.
+    /// </remarks>
+    private static double VerticalOffset(XElement anchor, DocxReadContext context)
+    {
+        double offset = EmuToPoints(PositionOffset(anchor, "positionV"));
+        switch (RelativeFrom(anchor, "positionV"))
+        {
+            case null:
+            case "paragraph":
+            case "line":
+                return offset;
+
+            default:
+                context.Builder.AddDiagnosticOnce(
+                    "docx.anchor.relativefrom:v",
+                    "docx.anchor.relativefrom",
+                    "A floating DOCX object stated its vertical position against the page or a margin. " +
+                    "The model measures one from the paragraph a shape is anchored to, so the offset " +
+                    "was kept as stated and is measured from there instead.");
+                return offset;
+        }
+    }
 
     /// <summary>English Metric Units to points: 12700 EMU to the point.</summary>
     private static double EmuToPoints(string? value) =>
@@ -1176,7 +1283,7 @@ internal static class DocxReader
             context.Builder.Diagnostics,
             context.Builder.Reported);
         var nested = new DocxReadContext(
-            context.Relationships, context.Numbering, context.Styles, context.Images, builder);
+            context.Relationships, context.Numbering, context.Styles, context.Images, builder, context.Page);
         ReadBlockContent(content.Elements(), nested, depth: 0);
 
         IReadOnlyList<RichTextParagraph> paragraphs = builder.Build().Paragraphs;
