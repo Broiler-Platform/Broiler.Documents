@@ -788,14 +788,21 @@ internal static class DocxReader
         // shapes are the ones most worth having. RunningContent holds paragraphs
         // only, so they are handed back to the body to anchor - which is an
         // approximation the reader says out loud rather than making quietly.
-        foreach (DocumentShape shape in part.Shapes)
+        if (part.Shapes.Count > 0 && reported.Add("docx.shape.fromheader"))
         {
-            partShapes.Add(shape);
             diagnostics.Add(DocumentDiagnostic.Info(
                 "docx.shape.fromheader",
                 "A shape in a DOCX header or footer was anchored to the start of the body; " +
                 "the model places a shape against a paragraph, not against the page."));
         }
+
+        // The body's first paragraph, not the index the shape held in the header.
+        // A header's paragraphs are their own flow, so a stripe on its third one
+        // has nothing to do with the body's third one - and a body shorter than
+        // the header left the shape anchored past the end, where a renderer finds
+        // no paragraph to place it against and quietly draws nothing.
+        foreach (DocumentShape shape in part.Shapes)
+            partShapes.Add(shape.WithParagraphIndex(0));
 
         IReadOnlyList<RichTextParagraph> paragraphs = part.Paragraphs;
         return paragraphs.Count == 0 ? null : paragraphs;
