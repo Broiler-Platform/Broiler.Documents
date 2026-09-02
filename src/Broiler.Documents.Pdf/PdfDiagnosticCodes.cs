@@ -69,9 +69,11 @@ public static class PdfDiagnosticCodes
     public const string FilterDctUnsupported = "pdf.image.dct.tuple-unsupported";
 
     /// <summary>
-    /// Progressive DCT was recognized and not decoded. It has its own code
-    /// because it has its own decision: IP-005 clears baseline sequential DCT,
-    /// and progressive waits on evidence covering it specifically.
+    /// Progressive DCT was recognized and not decoded. Retained as API rather
+    /// than emitted: IP-005 was widened to cover progressive on 2026-09-02, so
+    /// the filter shipped here no longer refuses it, and a caller who composes a
+    /// stricter DCT filter of their own keeps a code that says progressive
+    /// specifically instead of collapsing into the general tuple refusal.
     /// </summary>
     public const string FilterDctProgressiveUnsupported = "pdf.image.dct.progressive-unsupported";
 

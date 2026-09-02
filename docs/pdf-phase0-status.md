@@ -73,7 +73,8 @@ row clears.
   license; investigate relevant third-party declarations/claims.
 - [ ] Clear each included filter/codec tuple, including exact JPEG processes,
   entropy modes, component/precision combinations, APP14/`ColorTransform`, and
-  any LZW or fax work. *Partly done 2026-09-01: IP-005 (baseline JPEG), IP-006
+  any LZW or fax work. *Partly done 2026-09-01, extended 2026-09-02: IP-005
+  (baseline JPEG, widened to progressive DCT on 2026-09-02), IP-006
   (APP14/`ColorTransform`), IP-009 (CCITT fax, retired) and IP-010 (LZW, retired)
   are approved, IP-007 clears JPEG 2000 Part 1 though no decoder for it is
   written, and IP-008 clears JBIG2 though only its MMR generic regions decode.

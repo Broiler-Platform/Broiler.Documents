@@ -204,12 +204,15 @@ is authoritative for that boundary.
   `DCTDecode` has left this list only partly: IP-005 and
   IP-006 cleared baseline sequential JPEG and its colour declaration on
   2026-09-01, and a caller composes `Broiler.Documents.Pdf.Images` to decode it.
-  The base build still composes no image decoder; progressive DCT, four-component
-  YCCK, and a declared transform of 0 on three components are still refused, the
-  last of those because the composed decoder cannot skip its colour conversion
-  rather than because a row is open; and a decoded image still reaches no model,
-  because extraction into the model waits on the resource policy of §6.2 rather
-  than on a patent row. Each is detected and skipped, or in
+  IP-005 was then widened to progressive DCT on 2026-09-02 — the first row here
+  widened rather than opened, and a decision rather than a code change, since
+  `Broiler.Media` had decoded SOF2 all along and only the filter's frame-marker
+  gate moved. The base build still composes no image decoder; SOF1 extended
+  sequential, four-component YCCK, and a declared transform of 0 on three
+  components are still refused, the last of those because the composed decoder
+  cannot skip its colour conversion rather than because a row is open; and a
+  decoded image still reaches no model, because extraction into the model waits
+  on the resource policy of §6.2 rather than on a patent row. Each is detected and skipped, or in
   encryption's case rejects the document. A skip reports an inventory of what it
   met — counts, pages, and the declared variants — without decoding anything to
   produce it; see
