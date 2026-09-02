@@ -36,6 +36,7 @@ public sealed class OdtFloatingPictureTests
         OdtTestPackage.ReadWithPictures(
             "<text:p>" + frame + "body</text:p>",
             Pictures(),
+            options: RoundTripReadOptions,
             automaticStylesXml: automaticStylesXml);
 
     [Fact]
@@ -124,12 +125,14 @@ public sealed class OdtFloatingPictureTests
     {
         // The bug this covers on the DOCX side: the writer stated one layer
         // whatever it was given, so a stamp over a letter came back under it.
-        RichTextDocument source = ReadInParagraph(
+        DocumentReadResult read = ReadInParagraph(
             Frame(styleName: "gr1"),
-            RunThroughStyle(runThrough)).Document;
+            RunThroughStyle(runThrough));
+        RichTextDocument source = read.Document;
+        var writeOptions = new DocumentWriteOptions(resources: read.Resources);
 
-        using var stream = new MemoryStream(OdtDocumentCodec.WriteToArray(source), writable: false);
-        RichTextDocument actual = new OdtDocumentCodec().Read(stream).Document;
+        using var stream = new MemoryStream(OdtDocumentCodec.WriteToArray(source, writeOptions), writable: false);
+        RichTextDocument actual = new OdtDocumentCodec().Read(stream, RoundTripReadOptions).Document;
 
         Assert.Equal(expected, Assert.Single(source.Shapes).BehindText);
         Assert.Equal(expected, Assert.Single(actual.Shapes).BehindText);
@@ -151,10 +154,12 @@ public sealed class OdtFloatingPictureTests
     [Fact]
     public void A_Floating_Picture_Round_Trips_As_A_Paragraph_Anchored_Frame()
     {
-        RichTextDocument source = ReadInParagraph(Frame()).Document;
+        DocumentReadResult read = ReadInParagraph(Frame());
+        RichTextDocument source = read.Document;
+        var writeOptions = new DocumentWriteOptions(resources: read.Resources);
 
-        using var stream = new MemoryStream(OdtDocumentCodec.WriteToArray(source), writable: false);
-        RichTextDocument actual = new OdtDocumentCodec().Read(stream).Document;
+        using var stream = new MemoryStream(OdtDocumentCodec.WriteToArray(source, writeOptions), writable: false);
+        RichTextDocument actual = new OdtDocumentCodec().Read(stream, RoundTripReadOptions).Document;
 
         DocumentShape shape = Assert.Single(actual.Shapes);
         Assert.Equal(-72, shape.OffsetX, 1);
@@ -164,4 +169,30 @@ public sealed class OdtFloatingPictureTests
         Assert.Equal(OdtTestPackage.OnePixelPng, shape.Image!.Data.ToArray());
         Assert.Equal("body", actual.PlainText);
     }
+
+    /// <summary>
+    /// Admits <paramref name="image"/> under a policy that permits writing it,
+    /// and returns the image bound to that decision together with the options a
+    /// writer needs.
+    /// </summary>
+    /// <remarks>
+    /// A writer refuses a picture nobody decided on, so a write test has to say
+    /// which decision it is testing under. Reading a document is not that
+    /// decision: it grants extraction into the model and nothing that puts the
+    /// bytes into an output.
+    /// </remarks>
+    private static (InlineImage Image, DocumentWriteOptions Options) Writable(InlineImage image)
+    {
+        var builder = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
+        InlineImage admitted = builder.AdmitImage(
+            image,
+            DocumentResourceProvenance.CallerSupplied,
+            DocumentResourceDisposition.Embedded);
+
+        return (admitted, new DocumentWriteOptions(resources: builder.Build()));
+    }
+
+    /// <summary>Read options that also permit writing what was read back out.</summary>
+    private static DocumentReadOptions RoundTripReadOptions { get; } =
+        new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
 }

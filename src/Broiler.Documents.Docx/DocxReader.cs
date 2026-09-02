@@ -57,7 +57,8 @@ internal static class DocxReader
                 options.Limits,
                 diagnostics);
 
-            var images = new DocxImageLoader(archive, options.Limits);
+            var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
+            var images = new DocxImageLoader(archive, options.Limits, resources);
             var reported = new HashSet<string>(StringComparer.Ordinal);
             // Read before the content, not after it: an anchor states which frame
             // its offsets are measured from, and converting one to the column the
@@ -86,7 +87,11 @@ internal static class DocxReader
                 reported,
                 page));
             document = document.WithPageGeometry(page);
-            return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
+            return new DocumentReadResult(
+                document,
+                diagnostics,
+                DocumentReadResult.StatusFrom(diagnostics),
+                resources.Build());
         }
         catch (InvalidDataException ex)
         {
@@ -1024,7 +1029,9 @@ internal static class DocxReader
             "A floating DOCX picture was anchored to its paragraph; text wraps " +
             "around the box it states rather than around the picture's outline.");
 
-        if (!image.HasExplicitSize)
+        // A floating frame needs a real box, and the resolved size supplies one
+        // whenever the picture states a dimension or its own pixels do.
+        if (!image.TryGetDisplaySize(out double boxWidth, out double boxHeight))
             return false;
 
         (ShapeWrap Wrap, WrapSide Side, double Distance) wrap = ReadWrap(anchor);
@@ -1032,8 +1039,8 @@ internal static class DocxReader
             context.Builder.CurrentParagraphIndex,
             HorizontalOffset(anchor, context),
             VerticalOffset(anchor, context),
-            image.Width,
-            image.Height,
+            boxWidth,
+            boxHeight,
             fill: null,
             outline: default,
             paragraphs: null,

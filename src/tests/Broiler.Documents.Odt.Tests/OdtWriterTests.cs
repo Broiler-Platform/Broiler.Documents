@@ -258,11 +258,15 @@ public sealed class OdtWriterTests
             InlineStyle.Default,
             new ParagraphStyle { LineSpacing = 1f, ListKind = kind, IndentLevel = level });
 
-    internal static RichTextDocument RoundTrip(RichTextDocument document)
+    internal static RichTextDocument RoundTrip(
+        RichTextDocument document,
+        DocumentWriteOptions? writeOptions = null)
     {
-        byte[] package = OdtDocumentCodec.WriteToArray(document);
+        byte[] package = OdtDocumentCodec.WriteToArray(document, writeOptions);
         using var stream = new MemoryStream(package, writable: false);
-        DocumentReadResult result = new OdtDocumentCodec().Read(stream);
+        DocumentReadResult result = new OdtDocumentCodec().Read(
+            stream,
+            new DocumentReadOptions(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments));
         Assert.True(result.IsUsable);
         return result.Document;
     }

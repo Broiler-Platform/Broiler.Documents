@@ -85,9 +85,12 @@ public static class RoundtripCommand
 
         DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
         DocumentReadOptions readOptions = DocumentOptions.ReadOptionsFrom(context.Line);
-        DocumentWriteOptions writeOptions = DocumentOptions.WriteOptionsFrom(context.Line);
-
         LoadedDocument original = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"));
+
+        // The decisions the first read made travel with the document through
+        // every hop, so a picture that may be written once may be written again.
+        DocumentWriteOptions writeOptions =
+            DocumentOptions.WriteOptionsFrom(context.Line, original.Result.Resources);
 
         context.Report("source  " + source + "  (" + original.FormatName + ", " + original.Status + ")");
         DocumentReport.Print(context, original.Diagnostics, "read diagnostics");

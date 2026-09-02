@@ -33,12 +33,33 @@ internal static class PdfModelProjector
 
     public static List<RichTextParagraph> Project(
         IReadOnlyList<PdfTextLine> lines,
+        IReadOnlyList<PdfPlacedImage> images,
         bool insertPageBreak,
         int maxParagraphs)
     {
         var paragraphs = new List<RichTextParagraph>();
-        if (lines.Count == 0)
+        if (lines.Count == 0 && images.Count == 0)
             return paragraphs;
+
+        // Images become paragraphs of their own rather than joining a line of
+        // text. The model has no anchoring for an inline picture at a page
+        // coordinate, and pretending an image belongs to whichever line happens
+        // to be nearest would state a relationship the page never expressed.
+        // Ordering by the top edge puts each one where a reader meets it.
+        var pending = new List<PdfPlacedImage>(images);
+        pending.Sort(static (left, right) => right.Top.CompareTo(left.Top));
+        int nextImage = 0;
+
+        void FlushImagesAbove(double baseline)
+        {
+            while (nextImage < pending.Count &&
+                   pending[nextImage].Top >= baseline &&
+                   paragraphs.Count < maxParagraphs)
+            {
+                paragraphs.Add(ImageParagraph(pending[nextImage]));
+                nextImage++;
+            }
+        }
 
         double blockRight = double.MinValue;
         double blockLeft = double.MaxValue;
@@ -50,7 +71,7 @@ internal static class PdfModelProjector
             blockLeft = Math.Min(blockLeft, line.Left);
         }
 
-        var pending = new List<PdfTextLine>();
+        var pendingLines = new List<PdfTextLine>();
         PdfTextLine? previous = null;
 
         foreach (PdfTextLine line in lines)
@@ -60,15 +81,25 @@ internal static class PdfModelProjector
 
             if (previous is not null && StartsNewParagraph(previous, line, blockLeft, blockRight))
             {
-                Emit(paragraphs, pending, maxParagraphs);
-                pending.Clear();
+                Emit(paragraphs, pendingLines, maxParagraphs);
+                pendingLines.Clear();
             }
 
-            pending.Add(line);
+            // Anything drawn above this line belongs before it, and a paragraph
+            // is only complete once the lines that follow it are known - so the
+            // flush happens at the boundary rather than mid-paragraph.
+            if (pendingLines.Count == 0)
+                FlushImagesAbove(line.Baseline);
+
+            pendingLines.Add(line);
             previous = line;
         }
 
-        Emit(paragraphs, pending, maxParagraphs);
+        Emit(paragraphs, pendingLines, maxParagraphs);
+
+        // Whatever sits below the last line, and every image on a page with no
+        // text at all.
+        FlushImagesAbove(double.NegativeInfinity);
 
         if (insertPageBreak && paragraphs.Count > 0)
         {
@@ -80,6 +111,15 @@ internal static class PdfModelProjector
 
         return paragraphs;
     }
+
+    /// <summary>
+    /// One image as a paragraph: a single object replacement character carrying
+    /// the picture, which is the model's only way to hold one.
+    /// </summary>
+    private static RichTextParagraph ImageParagraph(PdfPlacedImage placed) =>
+        RichTextParagraph.Create(
+            InlineImage.PlaceholderText,
+            InlineStyle.Default with { Image = placed.Image });
 
     private static bool StartsNewParagraph(PdfTextLine previous, PdfTextLine line, double blockLeft, double blockRight)
     {

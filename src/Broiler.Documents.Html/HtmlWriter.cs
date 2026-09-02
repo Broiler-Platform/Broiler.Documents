@@ -27,7 +27,7 @@ public static class HtmlWriter
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(destination);
-        _ = options;
+        DocumentConversionContext resources = (options ?? DocumentWriteOptions.Default).Resources;
 
         var diagnostics = new List<DocumentDiagnostic>();
         if (document.Tables.Count > 0)
@@ -38,7 +38,7 @@ public static class HtmlWriter
                 "this writer emits no table markup."));
         }
 
-        DomDocument dom = BuildDom(document, diagnostics);
+        DomDocument dom = BuildDom(document, resources, diagnostics);
         string html = HtmlSerializer.Serialize(
             dom.DocumentElement!,
             new HtmlSerializationOptions(IncludeHtmlDoctype: true));
@@ -55,7 +55,10 @@ public static class HtmlWriter
         return stream.ToArray();
     }
 
-    private static DomDocument BuildDom(RichTextDocument rich, List<DocumentDiagnostic> diagnostics)
+    private static DomDocument BuildDom(
+        RichTextDocument rich,
+        DocumentConversionContext resources,
+        List<DocumentDiagnostic> diagnostics)
     {
         var document = new DomDocument();
         DomElement html = document.CreateElement("html");
@@ -88,7 +91,7 @@ public static class HtmlWriter
                 p.SetAttribute("style", paragraphStyle);
 
             body.AppendChild(p);
-            AppendRuns(document, p, paragraph, diagnostics);
+            AppendRuns(document, p, paragraph, resources, diagnostics);
         }
 
         return document;
@@ -98,6 +101,7 @@ public static class HtmlWriter
         DomDocument document,
         DomNode parent,
         RichTextParagraph paragraph,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics)
     {
         int offset = 0;
@@ -109,12 +113,12 @@ public static class HtmlWriter
             DomNode target = CreateRunContainer(document, run.Style);
             if (target is DomElement element)
             {
-                AppendRunContent(document, element, text, run.Style, diagnostics);
+                AppendRunContent(document, element, text, run.Style, resources, diagnostics);
                 parent.AppendChild(element);
             }
             else
             {
-                AppendRunContent(document, parent, text, run.Style, diagnostics);
+                AppendRunContent(document, parent, text, run.Style, resources, diagnostics);
             }
         }
     }
@@ -130,6 +134,7 @@ public static class HtmlWriter
         DomNode parent,
         string text,
         InlineStyle style,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics)
     {
         if (style.Image is not InlineImage image)
@@ -147,7 +152,9 @@ public static class HtmlWriter
             if (i > start)
                 AppendTextWithBreaks(document, parent, text[start..i]);
 
-            parent.AppendChild(CreateImageElement(document, image, diagnostics));
+            DomElement? img = CreateImageElement(document, image, resources, diagnostics);
+            if (img is not null)
+                parent.AppendChild(img);
             start = i + 1;
         }
 
@@ -155,19 +162,34 @@ public static class HtmlWriter
             AppendTextWithBreaks(document, parent, text[start..]);
     }
 
-    private static DomElement CreateImageElement(
+    private static DomElement? CreateImageElement(
         DomDocument document,
         InlineImage image,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics)
     {
+        if (!DocumentResourceGate.TryTakeEncodedBytes(
+                image,
+                resources,
+                DocumentResourceOperations.ByteTransfer,
+                out ReadOnlyMemory<byte> data,
+                out string? contentType,
+                out string? denial))
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "html.image.omitted",
+                "An image was left out of the HTML output because " + denial + "."));
+            return null;
+        }
+
         DomElement img = document.CreateElement("img");
-        img.SetAttribute("src", "data:" + image.ContentType + ";base64," + Convert.ToBase64String(image.Data.Span));
+        img.SetAttribute("src", "data:" + contentType + ";base64," + Convert.ToBase64String(data.Span));
         img.SetAttribute("alt", image.AltText);
-        if (image.HasExplicitSize)
+        if (image.TryGetDisplaySize(out double width, out double height))
         {
             img.SetAttribute(
                 "style",
-                "width: " + FormatLength(image.Width) + "; height: " + FormatLength(image.Height));
+                "width: " + FormatLength(width) + "; height: " + FormatLength(height));
         }
 
         diagnostics.Add(DocumentDiagnostic.Info(

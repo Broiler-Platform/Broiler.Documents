@@ -32,8 +32,8 @@ public sealed class DocxImageTests
         Assert.Equal(DocxTestPackage.OnePixelPng, image.Data.ToArray());
 
         // 914400 EMUs is one inch, which is 72 points.
-        Assert.Equal(72, image.Width, 3);
-        Assert.Equal(36, image.Height, 3);
+        Assert.Equal(72, image.Width!.Value, 3);
+        Assert.Equal(36, image.Height!.Value, 3);
     }
 
     [Fact(Timeout = 600000)]
@@ -82,8 +82,8 @@ public sealed class DocxImageTests
 
         StyleRun run = Assert.Single(Assert.Single(result.Document.Paragraphs).Runs);
         InlineImage image = Assert.IsType<InlineImage>(run.Style.Image);
-        Assert.Equal(90, image.Width, 3);
-        Assert.Equal(45, image.Height, 3);
+        Assert.Equal(90, image.Width!.Value, 3);
+        Assert.Equal(45, image.Height!.Value, 3);
     }
 
     [Fact(Timeout = 600000)]
@@ -195,12 +195,13 @@ public sealed class DocxImageTests
     public void Writes_An_Image_As_A_Media_Part_With_Its_Relationship_And_Content_Type()
     {
         var image = new InlineImage(DocxTestPackage.OnePixelPng, "image/png", 72, 36, "a logo");
+        (image, DocumentWriteOptions writeOptions) = Writable(image);
         RichTextDocument document = RichTextDocument.FromParagraphs(
         [
             RichTextParagraph.Create(InlineImage.PlaceholderText, InlineStyle.Default with { Image = image }),
         ]);
 
-        byte[] bytes = DocxDocumentCodec.WriteToArray(document);
+        byte[] bytes = DocxDocumentCodec.WriteToArray(document, writeOptions);
         using var archive = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
 
         ZipArchiveEntry media = Assert.IsType<ZipArchiveEntry>(archive.GetEntry("word/media/image1.png"));
@@ -232,6 +233,7 @@ public sealed class DocxImageTests
     public void Writes_One_Media_Part_For_An_Image_Used_Twice()
     {
         var image = new InlineImage(DocxTestPackage.OnePixelPng, "image/png", 72, 72);
+        (image, DocumentWriteOptions writeOptions) = Writable(image);
         var style = InlineStyle.Default with { Image = image };
         RichTextDocument document = RichTextDocument.FromParagraphs(
         [
@@ -239,7 +241,7 @@ public sealed class DocxImageTests
             RichTextParagraph.Create(InlineImage.PlaceholderText, style),
         ]);
 
-        byte[] bytes = DocxDocumentCodec.WriteToArray(document);
+        byte[] bytes = DocxDocumentCodec.WriteToArray(document, writeOptions);
         using var archive = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
 
         Assert.NotNull(archive.GetEntry("word/media/image1.png"));
@@ -250,6 +252,7 @@ public sealed class DocxImageTests
     public void Round_Trips_An_Image_Through_Write_And_Read()
     {
         var image = new InlineImage(DocxTestPackage.OnePixelPng, "image/png", 120, 60, "a logo");
+        (image, DocumentWriteOptions writeOptions) = Writable(image);
         RichTextDocument document = RichTextDocument.FromParagraphs(
         [
             RichTextParagraph.Create("before", InlineStyle.Default)
@@ -257,9 +260,9 @@ public sealed class DocxImageTests
                 .InsertText(7, "after", InlineStyle.Default),
         ]);
 
-        byte[] bytes = DocxDocumentCodec.WriteToArray(document);
+        byte[] bytes = DocxDocumentCodec.WriteToArray(document, writeOptions);
         using var stream = new MemoryStream(bytes, writable: false);
-        DocumentReadResult result = new DocxDocumentCodec().Read(stream);
+        DocumentReadResult result = new DocxDocumentCodec().Read(stream, RoundTripReadOptions);
 
         RichTextParagraph paragraph = Assert.Single(result.Document.Paragraphs);
         Assert.Equal("before" + InlineImage.PlaceholderText + "after", paragraph.Text);
@@ -267,8 +270,8 @@ public sealed class DocxImageTests
         InlineImage restored = Assert.IsType<InlineImage>(paragraph.Runs[1].Style.Image);
         Assert.Equal(DocxTestPackage.OnePixelPng, restored.Data.ToArray());
         Assert.Equal("image/png", restored.ContentType);
-        Assert.Equal(120, restored.Width, 3);
-        Assert.Equal(60, restored.Height, 3);
+        Assert.Equal(120, restored.Width!.Value, 3);
+        Assert.Equal(60, restored.Height!.Value, 3);
         Assert.Equal("a logo", restored.AltText);
     }
 
@@ -297,4 +300,30 @@ public sealed class DocxImageTests
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
+
+    /// <summary>
+    /// Admits <paramref name="image"/> under a policy that permits writing it,
+    /// and returns the image bound to that decision together with the options a
+    /// writer needs.
+    /// </summary>
+    /// <remarks>
+    /// A writer refuses a picture nobody decided on, so a write test has to say
+    /// which decision it is testing under. Reading a document is not that
+    /// decision: it grants extraction into the model and nothing that puts the
+    /// bytes into an output.
+    /// </remarks>
+    private static (InlineImage Image, DocumentWriteOptions Options) Writable(InlineImage image)
+    {
+        var builder = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
+        InlineImage admitted = builder.AdmitImage(
+            image,
+            DocumentResourceProvenance.CallerSupplied,
+            DocumentResourceDisposition.Embedded);
+
+        return (admitted, new DocumentWriteOptions(resources: builder.Build()));
+    }
+
+    /// <summary>Read options that also permit writing what was read back out.</summary>
+    private static DocumentReadOptions RoundTripReadOptions { get; } =
+        new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
 }

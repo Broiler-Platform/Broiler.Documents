@@ -36,9 +36,8 @@ public static class OdtWriter
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(destination);
-        _ = options;
 
-        var context = new OdtWriteContext();
+        var context = new OdtWriteContext((options ?? DocumentWriteOptions.Default).Resources);
 
         // The body is built first because it is what discovers the automatic
         // styles, and ODF requires those to be declared ahead of it.
@@ -83,7 +82,7 @@ public static class OdtWriter
     /// the paint in a graphic style it names and, for a gradient, a name beyond
     /// that.
     /// </summary>
-    private static XElement BuildShape(DocumentShape shape, OdtWriteContext context)
+    private static XElement? BuildShape(DocumentShape shape, OdtWriteContext context)
     {
         // A floating picture is a frame, not a custom shape: draw:image belongs to
         // draw:frame, and the box it is given is the box it draws in.
@@ -127,9 +126,23 @@ public static class OdtWriter
     /// box. It keeps the shape's graphic style, so a bordered picture is written
     /// with its border rather than losing it on the way out.
     /// </summary>
-    private static XElement BuildShapeFrame(DocumentShape shape, InlineImage image, OdtWriteContext context)
+    private static XElement? BuildShapeFrame(DocumentShape shape, InlineImage image, OdtWriteContext context)
     {
-        OdtPicturePart part = context.GetPicturePart(image);
+        if (!DocumentResourceGate.TryTakeEncodedBytes(
+                image,
+                context.Resources,
+                DocumentResourceOperations.ByteTransfer,
+                out ReadOnlyMemory<byte> data,
+                out string? contentType,
+                out string? denial))
+        {
+            context.AddDiagnosticOnce(
+                "odt.image.omitted",
+                "A floating picture was left out of the ODT output because " + denial + ".");
+            return null;
+        }
+
+        OdtPicturePart part = context.GetPicturePart(image, data, contentType);
         var frame = new XElement(
             OdtNamespaces.Draw + "frame",
             new XAttribute(OdtNamespaces.Draw + "style-name", context.GetShapeStyleName(shape)),
@@ -644,11 +657,25 @@ public static class OdtWriter
             return;
         }
 
-        OdtPicturePart part = context.GetPicturePart(image);
-        double width = image.Width > 0 ? image.Width : DefaultImagePoints;
-        double height = image.Height > 0 ? image.Height : DefaultImagePoints;
-        if (!image.HasExplicitSize)
+        if (!DocumentResourceGate.TryTakeEncodedBytes(
+                image,
+                context.Resources,
+                DocumentResourceOperations.ByteTransfer,
+                out ReadOnlyMemory<byte> data,
+                out string? contentType,
+                out string? denial))
         {
+            context.AddDiagnosticOnce(
+                "odt.image.omitted",
+                "An image was left out of the ODT output because " + denial + ".");
+            return;
+        }
+
+        OdtPicturePart part = context.GetPicturePart(image, data, contentType);
+        if (!image.TryGetDisplaySize(out double width, out double height))
+        {
+            width = DefaultImagePoints;
+            height = DefaultImagePoints;
             context.AddDiagnosticOnce(
                 "odt.image.size",
                 "An image carried no display size and was written one inch square.");
@@ -1103,6 +1130,17 @@ public static class OdtWriter
         private int _tableCount;
         private readonly List<XElement> _gradients = [];
 
+        public OdtWriteContext(DocumentConversionContext resources)
+        {
+            Resources = resources;
+        }
+
+        /// <summary>
+        /// What the caller's policy decided about this document's resources. A
+        /// picture is not written unless this says it may be.
+        /// </summary>
+        public DocumentConversionContext Resources { get; }
+
         /// <summary>The graphic styles the document's shapes are painted by.</summary>
         public IReadOnlyList<XElement> ShapeStyles => _shapeStyles;
 
@@ -1350,19 +1388,19 @@ public static class OdtWriter
         /// Keyed by identity, so a document that shows the same image object in
         /// several places stores its bytes once.
         /// </summary>
-        public OdtPicturePart GetPicturePart(InlineImage image)
+        public OdtPicturePart GetPicturePart(InlineImage image, ReadOnlyMemory<byte> data, string contentType)
         {
             if (_pictures.TryGetValue(image, out OdtPicturePart? existing))
                 return existing;
 
             int index = _pictureOrder.Count + 1;
-            string extension = OdtImageFormats.ExtensionForContentType(image.ContentType);
+            string extension = OdtImageFormats.ExtensionForContentType(contentType);
             var part = new OdtPicturePart(
                 index,
                 OdtNamespaces.PicturesDirectory + "image" +
                     index.ToString(CultureInfo.InvariantCulture) + "." + extension,
-                image.ContentType,
-                image.Data);
+                contentType,
+                data);
             _pictures[image] = part;
             _pictureOrder.Add(part);
             return part;

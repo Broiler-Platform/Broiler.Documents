@@ -44,8 +44,11 @@ public sealed class ImageStore : IDisposable
     {
         ArgumentNullException.ThrowIfNull(image);
 
-        if (image.HasExplicitSize)
-            return (image.Width, image.Height);
+        // The model resolves this without touching the payload whenever the
+        // picture states a size or its resource knows its own pixels, which is
+        // every case but one: an encoded payload nothing could inspect.
+        if (image.TryGetDisplaySize(out double width, out double height))
+            return (width, height);
 
         Entry entry = GetOrDecode(image);
         if (entry.Bitmap is null)

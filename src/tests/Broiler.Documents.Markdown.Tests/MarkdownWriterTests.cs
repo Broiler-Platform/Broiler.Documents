@@ -49,7 +49,7 @@ public sealed class MarkdownWriterTests
 
         byte[] bytes = MarkdownDocumentCodec.WriteToArray(expected);
         using var stream = new MemoryStream(bytes);
-        RichTextDocument actual = new MarkdownDocumentCodec().Read(stream).Document;
+        RichTextDocument actual = new MarkdownDocumentCodec().Read(stream, RoundTripReadOptions).Document;
 
         DocumentAssert.Equivalent(expected, actual);
     }
@@ -75,6 +75,7 @@ public sealed class MarkdownWriterTests
     public void Writes_An_Embedded_Image_As_A_Data_Uri()
     {
         var image = new InlineImage(new byte[] { 1, 2, 3 }, "image/png", 40, 20, "a logo");
+        (image, DocumentWriteOptions writeOptions) = Writable(image);
         RichTextDocument document = RichTextDocument.FromParagraphs(new[]
         {
             MakeParagraph(
@@ -83,14 +84,14 @@ public sealed class MarkdownWriterTests
                 (InlineImage.PlaceholderText, InlineStyle.Default with { Image = image })),
         });
 
-        string markdown = Write(document);
+        string markdown = Write(document, writeOptions);
 
         Assert.Contains("![a logo](data:image/png;base64,AQID)", markdown, StringComparison.Ordinal);
         Assert.DoesNotContain("\uFFFC", markdown, StringComparison.Ordinal);
     }
 
-    private static string Write(RichTextDocument document) =>
-        System.Text.Encoding.UTF8.GetString(MarkdownDocumentCodec.WriteToArray(document));
+    private static string Write(RichTextDocument document, DocumentWriteOptions? options = null) =>
+        System.Text.Encoding.UTF8.GetString(MarkdownDocumentCodec.WriteToArray(document, options));
 
     private static RichTextParagraph MakeParagraph(
         ParagraphStyle paragraphStyle,
@@ -106,4 +107,30 @@ public sealed class MarkdownWriterTests
 
         return paragraph;
     }
+
+    /// <summary>
+    /// Admits <paramref name="image"/> under a policy that permits writing it,
+    /// and returns the image bound to that decision together with the options a
+    /// writer needs.
+    /// </summary>
+    /// <remarks>
+    /// A writer refuses a picture nobody decided on, so a write test has to say
+    /// which decision it is testing under. Reading a document is not that
+    /// decision: it grants extraction into the model and nothing that puts the
+    /// bytes into an output.
+    /// </remarks>
+    private static (InlineImage Image, DocumentWriteOptions Options) Writable(InlineImage image)
+    {
+        var builder = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
+        InlineImage admitted = builder.AdmitImage(
+            image,
+            DocumentResourceProvenance.CallerSupplied,
+            DocumentResourceDisposition.Embedded);
+
+        return (admitted, new DocumentWriteOptions(resources: builder.Build()));
+    }
+
+    /// <summary>Read options that also permit writing what was read back out.</summary>
+    private static DocumentReadOptions RoundTripReadOptions { get; } =
+        new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
 }

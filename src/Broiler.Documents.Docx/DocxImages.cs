@@ -27,13 +27,53 @@ internal sealed class DocxImageLoader
 
     private readonly ZipArchive _archive;
     private readonly DocumentLimits _limits;
+    private readonly DocumentConversionContextBuilder _resources;
     private readonly Dictionary<string, MediaPart?> _parts = new(StringComparer.OrdinalIgnoreCase);
 
-    public DocxImageLoader(ZipArchive archive, DocumentLimits limits)
+    public DocxImageLoader(
+        ZipArchive archive,
+        DocumentLimits limits,
+        DocumentConversionContextBuilder resources)
     {
         _archive = archive;
         _limits = limits;
+        _resources = resources;
     }
+    /// <summary>
+    /// Puts a loaded picture through the caller's resource policy and, when it
+    /// permits extraction, returns the image bound to its context entry.
+    /// </summary>
+    /// <remarks>
+    /// Constructing an <see cref="InlineImage"/> with reachable bytes <em>is</em>
+    /// durable extraction into the result model — a caller who has the model has
+    /// the picture — so the decision happens here, before the object exists,
+    /// rather than after it is already in a document.
+    /// </remarks>
+    private InlineImage? Admit(
+        InlineImage image,
+        DocumentResourceDisposition disposition,
+        IDocxImageDiagnostics diagnostics)
+    {
+        if (!_resources.TryAdmit(
+                new DocumentResourceRequest(
+                    image.Resource,
+                    DocumentResourceProvenance.ReadFromSource,
+                    disposition,
+                    image.Name,
+                    "DOCX"),
+                DocumentResourceOperations.ExtractToModel,
+                out DocumentResourceId id,
+                out string? denial))
+        {
+            diagnostics.AddDiagnosticOnce(
+                "docx.image.denied",
+                "A picture was not read into the document because " + denial + ".");
+            return null;
+        }
+
+        return image.WithResourceId(id);
+    }
+
 
     /// <summary>How many pictures this read turned into inline images.</summary>
     public int ImageCount { get; private set; }
@@ -171,13 +211,16 @@ internal sealed class DocxImageLoader
         if (part is null)
             return null;
 
-        return new InlineImage(
-            part.Data,
-            part.ContentType,
-            width,
-            height,
-            altText,
-            string.IsNullOrWhiteSpace(name) ? Path.GetFileNameWithoutExtension(relationship.Target) : name);
+        return Admit(
+            new InlineImage(
+                part.Data,
+                part.ContentType,
+                width,
+                height,
+                altText,
+                string.IsNullOrWhiteSpace(name) ? Path.GetFileNameWithoutExtension(relationship.Target) : name),
+            DocumentResourceDisposition.Embedded,
+            diagnostics);
     }
 
     /// <summary>

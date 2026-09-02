@@ -76,7 +76,7 @@ public sealed class HtmlWriterTests
 
         byte[] bytes = HtmlDocumentCodec.WriteToArray(expected);
         using var stream = new MemoryStream(bytes);
-        RichTextDocument actual = new HtmlDocumentCodec().Read(stream).Document;
+        RichTextDocument actual = new HtmlDocumentCodec().Read(stream, RoundTripReadOptions).Document;
 
         DocumentAssert.Equivalent(expected, actual);
     }
@@ -91,7 +91,7 @@ public sealed class HtmlWriterTests
 
         string html = Write(expected);
         using var stream = new MemoryStream(HtmlDocumentCodec.WriteToArray(expected));
-        RichTextDocument actual = new HtmlDocumentCodec().Read(stream).Document;
+        RichTextDocument actual = new HtmlDocumentCodec().Read(stream, RoundTripReadOptions).Document;
 
         Assert.Contains("white-space: pre-wrap", html, StringComparison.Ordinal);
         Assert.Equal("Name\tRole", actual.Paragraphs[0].Text);
@@ -125,11 +125,12 @@ public sealed class HtmlWriterTests
     public void Writes_An_Embedded_Image_As_A_Data_Uri()
     {
         var image = new InlineImage(new byte[] { 1, 2, 3 }, "image/png", 40, 20, "a logo");
+        (image, DocumentWriteOptions writeOptions) = Writable(image);
         RichTextDocument document = SingleParagraph(
             ("before", InlineStyle.Default),
             (InlineImage.PlaceholderText, InlineStyle.Default with { Image = image }));
 
-        string html = Write(document);
+        string html = Write(document, writeOptions);
 
         Assert.Contains("<img src=\"data:image/png;base64,AQID\"", html, StringComparison.Ordinal);
         Assert.Contains("alt=\"a logo\"", html, StringComparison.Ordinal);
@@ -138,8 +139,8 @@ public sealed class HtmlWriterTests
         Assert.DoesNotContain("\uFFFC", html, StringComparison.Ordinal);
     }
 
-    private static string Write(RichTextDocument document) =>
-        Encoding.UTF8.GetString(HtmlDocumentCodec.WriteToArray(document));
+    private static string Write(RichTextDocument document, DocumentWriteOptions? options = null) =>
+        Encoding.UTF8.GetString(HtmlDocumentCodec.WriteToArray(document, options));
 
     private static RichTextDocument SingleParagraph(params (string Text, InlineStyle Style)[] segments) =>
         RichTextDocument.FromParagraphs(new[] { MakeParagraph(ParagraphStyle.Default, segments) });
@@ -172,11 +173,37 @@ public sealed class HtmlWriterTests
 
         byte[] bytes = HtmlDocumentCodec.WriteToArray(expected);
         using var stream = new MemoryStream(bytes);
-        RichTextDocument actual = new HtmlDocumentCodec().Read(stream).Document;
+        RichTextDocument actual = new HtmlDocumentCodec().Read(stream, RoundTripReadOptions).Document;
 
         Assert.Equal(
             TextAlignment.Justify,
             Assert.Single(actual.Paragraphs).Style.Alignment);
     }
 
+
+    /// <summary>
+    /// Admits <paramref name="image"/> under a policy that permits writing it,
+    /// and returns the image bound to that decision together with the options a
+    /// writer needs.
+    /// </summary>
+    /// <remarks>
+    /// A writer refuses a picture nobody decided on, so a write test has to say
+    /// which decision it is testing under. Reading a document is not that
+    /// decision: it grants extraction into the model and nothing that puts the
+    /// bytes into an output.
+    /// </remarks>
+    private static (InlineImage Image, DocumentWriteOptions Options) Writable(InlineImage image)
+    {
+        var builder = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
+        InlineImage admitted = builder.AdmitImage(
+            image,
+            DocumentResourceProvenance.CallerSupplied,
+            DocumentResourceDisposition.Embedded);
+
+        return (admitted, new DocumentWriteOptions(resources: builder.Build()));
+    }
+
+    /// <summary>Read options that also permit writing what was read back out.</summary>
+    private static DocumentReadOptions RoundTripReadOptions { get; } =
+        new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
 }

@@ -1,4 +1,6 @@
 using System.Text;
+using Broiler.Documents.Model;
+using Broiler.Graphics;
 
 namespace Broiler.Documents.Pdf.Images.Tests;
 
@@ -16,14 +18,16 @@ namespace Broiler.Documents.Pdf.Images.Tests;
 /// </remarks>
 public sealed class PdfComposedImageTests
 {
-    private static PdfReadResult Read(byte[] pdf, bool composed)
+    private static PdfReadResult Read(byte[] pdf, bool composed, DocumentResourcePolicy? policy = null)
     {
         PdfCodecServices services = composed
             ? PdfCodecServices.Base.WithStreamFilters(new JpegStreamFilter())
             : PdfCodecServices.Base;
 
         using var stream = new MemoryStream(pdf);
-        return new PdfDocumentCodec(services).ReadPdf(stream, null);
+        return new PdfDocumentCodec(services).ReadPdf(
+            stream,
+            policy is null ? null : new PdfReadOptions(resourcePolicy: policy));
     }
 
     private static DocumentDiagnostic Only(PdfReadResult result, string code) =>
@@ -44,28 +48,51 @@ public sealed class PdfComposedImageTests
     {
         PdfReadResult result = Read(DocumentWithJpeg(32, 32), composed: true);
 
-        DocumentDiagnostic decoded = Only(result, PdfDiagnosticCodes.ImageDecodedNotProjected);
-
-        Assert.Contains("1 image was decoded", decoded.Message, StringComparison.Ordinal);
-        Assert.Contains($"{32 * 32 * 4} bytes of samples", decoded.Message, StringComparison.Ordinal);
-        Assert.Contains("32x32 8bpc DeviceRGB DCTDecode", decoded.Message, StringComparison.Ordinal);
+        InlineImage image = Assert.Single(ImagesIn(result));
+        Assert.Equal(BImagePayloadKind.Decoded, image.Resource.Kind);
+        Assert.Equal(32, image.Resource.PixelWidth);
+        Assert.Equal(32, image.Resource.PixelHeight);
 
         // The tuple diagnostic is gone: nothing was refused.
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FilterDctUnsupported);
     }
 
     [Fact]
-    public void The_Decoded_Image_Is_Still_Not_In_The_Document()
+    public void The_Decoded_Image_Reaches_The_Document_Under_A_Policy()
     {
+        // The inverse of what this used to assert. Decoding is still not
+        // extraction — a policy decides that — but the default read policy
+        // permits it, so the samples now arrive in the model instead of stopping
+        // at the filter pipeline.
         PdfReadResult result = Read(DocumentWithJpeg(32, 32), composed: true);
 
-        // Decoding is not extraction. The samples exist and the model has nowhere
-        // to put them, so the read is still Partial and says why.
-        Assert.Equal(DocumentResultStatus.Partial, result.Status);
-        Assert.Contains(
-            "carries no images",
-            Only(result, PdfDiagnosticCodes.ImageDecodedNotProjected).Message,
-            StringComparison.Ordinal);
+        Assert.Single(ImagesIn(result));
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
+
+        // The entry the picture was admitted under is in the result's context,
+        // and it grants reading rather than writing.
+        DocumentResourceEntry entry = Assert.Single(result.Resources.Entries);
+        Assert.True(entry.Allows(DocumentResourceOperations.ExtractToModel));
+        Assert.False(entry.Allows(DocumentResourceOperations.ByteTransfer));
+    }
+
+    [Fact]
+    public void A_Policy_That_Refuses_Extraction_Keeps_The_Image_Out()
+    {
+        PdfReadResult result = Read(
+            DocumentWithJpeg(32, 32),
+            composed: true,
+            policy: DocumentResourcePolicy.DenyAll);
+
+        Assert.Empty(ImagesIn(result));
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageExtractionDenied);
+
+        // A refusal is not the same as this build being unable to carry it.
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
     }
 
     [Fact]
@@ -88,7 +115,12 @@ public sealed class PdfComposedImageTests
             DocumentWithJpeg(32, 32, decodeParms: "<< /ColorTransform 1 >>"),
             composed: true);
 
-        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
+        // What the decode is for: the samples reach the document rather than
+        // stopping at the filter pipeline.
+        Assert.Single(ImagesIn(result));
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
     }
 
     [Fact]
@@ -130,7 +162,12 @@ public sealed class PdfComposedImageTests
             DocumentWithJpeg(32, 32, decodeParms: "<< /ColorTransform 1 >>", jpeg: jpeg),
             composed: true);
 
-        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
+        // What the decode is for: the samples reach the document rather than
+        // stopping at the filter pipeline.
+        Assert.Single(ImagesIn(result));
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
     }
 
     [Fact]
@@ -267,5 +304,23 @@ public sealed class PdfComposedImageTests
         for (int i = 0; i < text.Length; i++)
             bytes[i] = (byte)text[i];
         return bytes;
+    }
+
+    /// <summary>
+    /// The images a read carried into the document, in reading order.
+    /// </summary>
+    private static List<InlineImage> ImagesIn(PdfReadResult result)
+    {
+        var images = new List<InlineImage>();
+        foreach (RichTextParagraph paragraph in result.Document.Paragraphs)
+        {
+            foreach (StyleRun run in paragraph.Runs)
+            {
+                if (run.Style.Image is InlineImage image)
+                    images.Add(image);
+            }
+        }
+
+        return images;
     }
 }

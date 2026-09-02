@@ -34,16 +34,29 @@ public class DocumentReadResult
     public DocumentReadResult(
         RichTextDocument document,
         IEnumerable<DocumentDiagnostic>? diagnostics = null,
-        DocumentResultStatus status = DocumentResultStatus.Success)
+        DocumentResultStatus status = DocumentResultStatus.Success,
+        DocumentConversionContext? resources = null)
     {
         Document = document ?? throw new ArgumentNullException(nameof(document));
         Diagnostics = diagnostics is null
             ? EmptyDiagnostics
             : Array.AsReadOnly(diagnostics.ToArray());
         Status = status;
+        Resources = resources ?? DocumentConversionContext.Empty;
     }
 
     public RichTextDocument Document { get; }
+
+    /// <summary>
+    /// What the read's resource policy decided about each resource it met.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not discarded when a host only wants to display the document.
+    /// The decisions made here are what a later write has to honour, and a host
+    /// that keeps the model but drops this has thrown away the difference between
+    /// a picture it may pass on and one it may only look at.
+    /// </remarks>
+    public DocumentConversionContext Resources { get; }
 
     public IReadOnlyList<DocumentDiagnostic> Diagnostics { get; }
 

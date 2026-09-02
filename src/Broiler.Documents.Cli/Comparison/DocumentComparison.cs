@@ -323,6 +323,21 @@ public sealed class DocumentComparison
         return DescribeImageDifference(left.Image, right.Image);
     }
 
+    /// <summary>
+    /// Compares two possibly-automatic dimensions. Two automatic sizes agree:
+    /// both mean "take it from the picture", and reporting them as a difference
+    /// would flag every unsized image against every other one.
+    /// </summary>
+    private static bool NearOrBothAuto(double? left, double? right) =>
+        (left, right) switch
+        {
+            (null, null) => true,
+            (double l, double r) => Near(l, r),
+            _ => false,
+        };
+
+    private static string Dimension(double? value) => value is double v ? Number(v) : "auto";
+
     private static string? DescribeImageDifference(InlineImage? left, InlineImage? right)
     {
         if (left is null && right is null)
@@ -336,10 +351,10 @@ public sealed class DocumentComparison
             return "image content type " + left.ContentType + " vs " + right.ContentType;
         if (left.Data.Length != right.Data.Length)
             return "image byte length " + left.Data.Length + " vs " + right.Data.Length;
-        if (!Near(left.Width, right.Width) || !Near(left.Height, right.Height))
+        if (!NearOrBothAuto(left.Width, right.Width) || !NearOrBothAuto(left.Height, right.Height))
         {
-            return "image size " + Number(left.Width) + "x" + Number(left.Height) + " vs " +
-                Number(right.Width) + "x" + Number(right.Height);
+            return "image size " + Dimension(left.Width) + "x" + Dimension(left.Height) + " vs " +
+                Dimension(right.Width) + "x" + Dimension(right.Height);
         }
 
         return null;

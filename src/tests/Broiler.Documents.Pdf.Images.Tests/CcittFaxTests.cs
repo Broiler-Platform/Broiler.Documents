@@ -201,7 +201,12 @@ public sealed class CcittFaxTests
     {
         PdfReadResult result = ReadDocument(composed: true);
 
-        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
+        // What the decode is for: the samples reach the document rather than
+        // stopping at the filter pipeline.
+        Assert.Single(ImagesIn(result));
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FilterCcittUnsupported);
     }
 
@@ -322,5 +327,23 @@ public sealed class CcittFaxTests
         }
 
         return row;
+    }
+
+    /// <summary>
+    /// The images a read carried into the document, in reading order.
+    /// </summary>
+    private static List<InlineImage> ImagesIn(PdfReadResult result)
+    {
+        var images = new List<InlineImage>();
+        foreach (RichTextParagraph paragraph in result.Document.Paragraphs)
+        {
+            foreach (StyleRun run in paragraph.Runs)
+            {
+                if (run.Style.Image is InlineImage image)
+                    images.Add(image);
+            }
+        }
+
+        return images;
     }
 }

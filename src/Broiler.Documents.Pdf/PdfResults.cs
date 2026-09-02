@@ -26,8 +26,9 @@ public sealed class PdfReadResult : DocumentReadResult
         PdfVersion declaredVersion,
         int pageCount,
         IReadOnlyList<PdfExtensionDeclaration> extensions,
-        IEnumerable<DocumentDiagnostic>? diagnostics = null)
-        : base(document, diagnostics, status)
+        IEnumerable<DocumentDiagnostic>? diagnostics = null,
+        DocumentConversionContext? resources = null)
+        : base(document, diagnostics, status, resources)
     {
         Metadata = metadata ?? PdfDocumentMetadata.Empty;
         DeclaredVersion = declaredVersion;

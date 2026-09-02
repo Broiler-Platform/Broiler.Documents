@@ -20,7 +20,8 @@ public sealed class DocxFloatingPictureTests
         DocxTestPackage.ReadWithMedia(
             "<w:p>" + runXml + "<w:r><w:t>body</w:t></w:r></w:p>",
             DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
-            Media());
+            Media(),
+            RoundTripReadOptions);
 
     private static string Anchored(
         long offsetXEmus = -OneInchEmus,
@@ -140,10 +141,12 @@ public sealed class DocxFloatingPictureTests
         // The bug this covers: the writer stated behindDoc="0" whatever it was
         // given, so a letterhead stripe read from behind the text came back from
         // Word painted over the letter.
-        RichTextDocument source = Read(Anchored(behindDoc: behindDoc)).Document;
+        DocumentReadResult read = Read(Anchored(behindDoc: behindDoc));
+        RichTextDocument source = read.Document;
+        var writeOptions = new DocumentWriteOptions(resources: read.Resources);
 
-        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false);
-        RichTextDocument actual = new DocxDocumentCodec().Read(stream).Document;
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source, writeOptions), writable: false);
+        RichTextDocument actual = new DocxDocumentCodec().Read(stream, RoundTripReadOptions).Document;
 
         Assert.Equal(expected, Assert.Single(source.Shapes).BehindText);
         Assert.Equal(expected, Assert.Single(actual.Shapes).BehindText);
@@ -154,10 +157,12 @@ public sealed class DocxFloatingPictureTests
     [InlineData("0")]
     public void Writes_The_Stacking_It_Read_Into_The_Anchor(string behindDoc)
     {
-        RichTextDocument source = Read(Anchored(behindDoc: behindDoc)).Document;
+        DocumentReadResult read = Read(Anchored(behindDoc: behindDoc));
+        RichTextDocument source = read.Document;
+        var writeOptions = new DocumentWriteOptions(resources: read.Resources);
 
         using var package = new ZipArchive(
-            new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false),
+            new MemoryStream(DocxDocumentCodec.WriteToArray(source, writeOptions), writable: false),
             ZipArchiveMode.Read);
         using var reader = new StreamReader(package.GetEntry("word/document.xml")!.Open());
         string documentXml = reader.ReadToEnd();
@@ -211,10 +216,12 @@ public sealed class DocxFloatingPictureTests
     [Fact(Timeout = 600000)]
     public void A_Floating_Picture_Survives_A_Round_Trip()
     {
-        RichTextDocument source = Read(Anchored(altText: "the logo")).Document;
+        DocumentReadResult read = Read(Anchored(altText: "the logo"));
+        RichTextDocument source = read.Document;
+        var writeOptions = new DocumentWriteOptions(resources: read.Resources);
 
-        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false);
-        RichTextDocument actual = new DocxDocumentCodec().Read(stream).Document;
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source, writeOptions), writable: false);
+        RichTextDocument actual = new DocxDocumentCodec().Read(stream, RoundTripReadOptions).Document;
 
         DocumentShape shape = Assert.Single(actual.Shapes);
         Assert.Equal(-72, shape.OffsetX, 3);
@@ -229,10 +236,12 @@ public sealed class DocxFloatingPictureTests
     [Fact(Timeout = 600000)]
     public void Writes_A_Floating_Picture_As_An_Anchored_Picture()
     {
-        RichTextDocument source = Read(Anchored()).Document;
+        DocumentReadResult read = Read(Anchored());
+        RichTextDocument source = read.Document;
+        var writeOptions = new DocumentWriteOptions(resources: read.Resources);
 
         using var package = new ZipArchive(
-            new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false),
+            new MemoryStream(DocxDocumentCodec.WriteToArray(source, writeOptions), writable: false),
             ZipArchiveMode.Read);
         using var reader = new StreamReader(package.GetEntry("word/document.xml")!.Open());
         string documentXml = reader.ReadToEnd();
@@ -244,4 +253,30 @@ public sealed class DocxFloatingPictureTests
         Assert.DoesNotContain("wsp", documentXml, StringComparison.Ordinal);
         Assert.NotNull(package.GetEntry("word/media/image1.png"));
     }
+
+    /// <summary>
+    /// Admits <paramref name="image"/> under a policy that permits writing it,
+    /// and returns the image bound to that decision together with the options a
+    /// writer needs.
+    /// </summary>
+    /// <remarks>
+    /// A writer refuses a picture nobody decided on, so a write test has to say
+    /// which decision it is testing under. Reading a document is not that
+    /// decision: it grants extraction into the model and nothing that puts the
+    /// bytes into an output.
+    /// </remarks>
+    private static (InlineImage Image, DocumentWriteOptions Options) Writable(InlineImage image)
+    {
+        var builder = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
+        InlineImage admitted = builder.AdmitImage(
+            image,
+            DocumentResourceProvenance.CallerSupplied,
+            DocumentResourceDisposition.Embedded);
+
+        return (admitted, new DocumentWriteOptions(resources: builder.Build()));
+    }
+
+    /// <summary>Read options that also permit writing what was read back out.</summary>
+    private static DocumentReadOptions RoundTripReadOptions { get; } =
+        new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
 }

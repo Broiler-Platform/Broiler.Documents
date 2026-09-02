@@ -24,7 +24,8 @@ public class DocumentReadOptions
     public DocumentReadOptions(
         DocumentLimits? limits = null,
         int defaultCodePage = Windows1252CodePage,
-        bool decodeEmbeddedObjects = false)
+        bool decodeEmbeddedObjects = false,
+        DocumentResourcePolicy? resourcePolicy = null)
     {
         if (defaultCodePage <= 0)
             throw new ArgumentOutOfRangeException(nameof(defaultCodePage));
@@ -32,6 +33,7 @@ public class DocumentReadOptions
         Limits = limits ?? DocumentLimits.Default;
         DefaultCodePage = defaultCodePage;
         DecodeEmbeddedObjects = decodeEmbeddedObjects;
+        ResourcePolicy = resourcePolicy ?? DocumentResourcePolicy.Default;
     }
 
     public DocumentLimits Limits { get; }
@@ -68,4 +70,28 @@ public class DocumentReadOptions
     /// </para>
     /// </remarks>
     public bool DecodeEmbeddedObjects { get; }
+
+    /// <summary>
+    /// Decides what a codec may do with each resource it finds. Defaults to
+    /// <see cref="DocumentResourcePolicy.Default"/>, which reads resources into
+    /// the model and grants nothing that would put them into an output.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is what <see cref="DecodeEmbeddedObjects"/> should have been. A
+    /// boolean can only ask "may images happen"; the questions that actually
+    /// matter are per-resource and per-operation — this picture may be measured
+    /// but not extracted, that one may be extracted but not written into a file
+    /// someone else receives — and a flag cannot express any of them.
+    /// </para>
+    /// <para>
+    /// The default reads pictures into the model, because a caller who opened a
+    /// document asked to see what is in it. What it withholds is everything that
+    /// would put them into an output: acceptance by a reader is not consent to
+    /// write. The read result carries the decisions back as a
+    /// <see cref="DocumentConversionContext"/>, so a later write honours what
+    /// this policy said rather than guessing again.
+    /// </para>
+    /// </remarks>
+    public DocumentResourcePolicy ResourcePolicy { get; }
 }

@@ -128,10 +128,11 @@ public sealed class OdtImageTests
     public void An_Image_Round_Trips_Through_A_Written_Package()
     {
         var image = new InlineImage(OdtTestPackage.OnePixelPng, "image/png", 72, 36, "the logo", "logo");
+        (image, DocumentWriteOptions writeOptions) = Writable(image);
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create(InlineImage.PlaceholderText, new InlineStyle { Image = image })]);
 
-        RichTextDocument read = OdtWriterTests.RoundTrip(document);
+        RichTextDocument read = OdtWriterTests.RoundTrip(document, writeOptions);
         InlineImage actual = Assert.IsType<InlineImage>(read.Paragraphs[0].StyleAt(0).Image);
 
         Assert.Equal("image/png", actual.ContentType);
@@ -145,10 +146,11 @@ public sealed class OdtImageTests
     public void A_Written_Picture_Is_A_Package_Entry_The_Manifest_Declares()
     {
         var image = new InlineImage(OdtTestPackage.OnePixelPng, "image/png", 72, 72);
+        (image, DocumentWriteOptions writeOptions) = Writable(image);
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create(InlineImage.PlaceholderText, new InlineStyle { Image = image })]);
 
-        byte[] package = OdtDocumentCodec.WriteToArray(document);
+        byte[] package = OdtDocumentCodec.WriteToArray(document, writeOptions);
         using var stream = new MemoryStream(package, writable: false);
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
 
@@ -166,6 +168,7 @@ public sealed class OdtImageTests
     public void One_Image_Object_Shown_Twice_Stores_Its_Bytes_Once()
     {
         var image = new InlineImage(OdtTestPackage.OnePixelPng, "image/png", 72, 72);
+        (image, DocumentWriteOptions writeOptions) = Writable(image);
         var style = new InlineStyle { Image = image };
         RichTextDocument document = RichTextDocument.FromParagraphs(
         [
@@ -173,7 +176,7 @@ public sealed class OdtImageTests
             RichTextParagraph.Create(InlineImage.PlaceholderText, style),
         ]);
 
-        byte[] package = OdtDocumentCodec.WriteToArray(document);
+        byte[] package = OdtDocumentCodec.WriteToArray(document, writeOptions);
         using var stream = new MemoryStream(package, writable: false);
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
 
@@ -194,18 +197,24 @@ public sealed class OdtImageTests
     }
 
     [Fact]
-    public void An_Image_With_No_Stated_Size_Is_Written_One_Inch_Square()
+    public void An_Image_With_No_Size_And_No_Inspector_Is_Written_One_Inch_Square()
     {
+        // The fallback, and what reaches it. An unsized picture normally takes
+        // its intrinsic pixels, but that needs a registered image codec catalog
+        // to inspect the header with, and this test host registers none. So the
+        // size is genuinely unknown here, which is the case the square inch and
+        // its diagnostic exist for.
         var image = new InlineImage(OdtTestPackage.OnePixelPng, "image/png", 0, 0);
+        (image, DocumentWriteOptions writeOptions) = Writable(image);
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create(InlineImage.PlaceholderText, new InlineStyle { Image = image })]);
 
         using var stream = new MemoryStream();
-        DocumentWriteResult result = new OdtDocumentCodec().Write(document, stream);
+        DocumentWriteResult result = new OdtDocumentCodec().Write(document, stream, writeOptions);
 
         Assert.Contains(result.Diagnostics, d => d.Code == "odt.image.size");
         InlineImage read = Assert.IsType<InlineImage>(
-            OdtWriterTests.RoundTrip(document).Paragraphs[0].StyleAt(0).Image);
+            OdtWriterTests.RoundTrip(document, writeOptions).Paragraphs[0].StyleAt(0).Image);
         Assert.Equal(72, read.Width);
         Assert.Equal(72, read.Height);
     }
@@ -216,4 +225,30 @@ public sealed class OdtImageTests
         "<draw:image xlink:href=\"" + href + "\" xlink:type=\"simple\" xlink:show=\"embed\"/>" +
         (title is null ? string.Empty : "<svg:title>" + OdtTestPackage.Escape(title) + "</svg:title>") +
         "</draw:frame>";
+
+    /// <summary>
+    /// Admits <paramref name="image"/> under a policy that permits writing it,
+    /// and returns the image bound to that decision together with the options a
+    /// writer needs.
+    /// </summary>
+    /// <remarks>
+    /// A writer refuses a picture nobody decided on, so a write test has to say
+    /// which decision it is testing under. Reading a document is not that
+    /// decision: it grants extraction into the model and nothing that puts the
+    /// bytes into an output.
+    /// </remarks>
+    private static (InlineImage Image, DocumentWriteOptions Options) Writable(InlineImage image)
+    {
+        var builder = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
+        InlineImage admitted = builder.AdmitImage(
+            image,
+            DocumentResourceProvenance.CallerSupplied,
+            DocumentResourceDisposition.Embedded);
+
+        return (admitted, new DocumentWriteOptions(resources: builder.Build()));
+    }
+
+    /// <summary>Read options that also permit writing what was read back out.</summary>
+    private static DocumentReadOptions RoundTripReadOptions { get; } =
+        new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
 }

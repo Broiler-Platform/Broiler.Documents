@@ -60,13 +60,33 @@ public static class DocumentOptions
             maxParagraphCount: PositiveInt(line, "max-paragraphs", DocumentLimits.DefaultMaxParagraphCount));
 
         int codePage = PositiveInt(line, "code-page", DocumentReadOptions.Windows1252CodePage);
-        return new DocumentReadOptions(limits, codePage, line.Has("decode-embedded"));
+        // The CLI operates on files the user named on their own command line, so
+        // reading their pictures and writing them back out is what was asked for.
+        // A host with a different relationship to its input picks a different
+        // policy; this one is stated rather than inherited.
+        return new DocumentReadOptions(
+            limits,
+            codePage,
+            line.Has("decode-embedded"),
+            DocumentResourcePolicy.AllowOwnDocuments);
     }
 
-    public static DocumentWriteOptions WriteOptionsFrom(CommandLine line)
+    /// <summary>
+    /// The write options for a run, carrying the decisions the read made about
+    /// the document's resources.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="resources"/> is the context the read returned. Passing it
+    /// is what lets a picture reach the output: a write given no context permits
+    /// nothing, which is the documented behaviour for a conversion whose caller
+    /// recorded no origin for what it is about to redistribute.
+    /// </remarks>
+    public static DocumentWriteOptions WriteOptionsFrom(
+        CommandLine line,
+        DocumentConversionContext? resources = null)
     {
         ArgumentNullException.ThrowIfNull(line);
-        return new DocumentWriteOptions(asciiOnly: !line.Has("raw-unicode"));
+        return new DocumentWriteOptions(asciiOnly: !line.Has("raw-unicode"), resources: resources);
     }
 
     /// <summary>

@@ -78,6 +78,7 @@ still reads; the affected construct is reported rather than guessed at.
 | Embedded font programs | `pdf.font.program-not-composed` | IP-012 (**approved** for inspection; see §4.4) |
 | Type 3 fonts | `pdf.font.type3-unsupported` | — |
 | Inline images, and images naming a filter with no composed implementation | `pdf.image.not-composed` | IP-005 |
+| A decoded image the caller's policy refused | `pdf.image.extraction-denied` | — |
 | Encrypted documents | `pdf.encryption.unsupported` (rejection) | IP-015 |
 | Signatures | `pdf.signature.not-validated` | IP-016 |
 

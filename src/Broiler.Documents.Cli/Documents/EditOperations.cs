@@ -97,7 +97,10 @@ public static class EditOperations
     }
 
     /// <summary>Applies every operation in order and returns the resulting document.</summary>
-    public static RichTextDocument Apply(RichTextDocument document, IEnumerable<string> operations)
+    public static RichTextDocument Apply(
+        RichTextDocument document,
+        IEnumerable<string> operations,
+        DocumentConversionContextBuilder? resources = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(operations);
@@ -108,7 +111,7 @@ public static class EditOperations
         {
             try
             {
-                ApplyOne(paragraphs, operation);
+                ApplyOne(paragraphs, operation, resources);
             }
             catch (UsageException exception)
             {
@@ -122,7 +125,10 @@ public static class EditOperations
         return RichTextDocument.FromParagraphs(paragraphs);
     }
 
-    private static void ApplyOne(List<RichTextParagraph> paragraphs, string operation)
+    private static void ApplyOne(
+        List<RichTextParagraph> paragraphs,
+        string operation,
+        DocumentConversionContextBuilder? resources)
     {
         string[] fields = SplitFields(operation);
         string verb = fields[0].Trim().ToLowerInvariant();
@@ -181,7 +187,8 @@ public static class EditOperations
                     paragraphs,
                     ParagraphIndex(paragraphs, Field(fields, 1, "P")),
                     Field(fields, 2, "OFFSET"),
-                    TailFrom(operation, 3, unescape: false));
+                    TailFrom(operation, 3, unescape: false),
+                    resources);
                 return;
 
             case "para":
@@ -314,7 +321,8 @@ public static class EditOperations
         List<RichTextParagraph> paragraphs,
         int index,
         string offsetToken,
-        string properties)
+        string properties,
+        DocumentConversionContextBuilder? resources)
     {
         string? file = null;
         double width = 0;
@@ -359,6 +367,17 @@ public static class EditOperations
             height,
             alt,
             name ?? Path.GetFileNameWithoutExtension(file));
+
+        // A picture the caller named on the command line is theirs, and admitting
+        // it here is what lets a writer emit it later. Without a context the
+        // image still goes into the model, and a write reports dropping it.
+        if (resources is not null)
+        {
+            image = resources.AdmitImage(
+                image,
+                DocumentResourceProvenance.CallerSupplied,
+                DocumentResourceDisposition.Embedded);
+        }
 
         RichTextParagraph paragraph = paragraphs[index];
         int offset = CharacterOffset(paragraph, offsetToken);
