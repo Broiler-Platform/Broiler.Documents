@@ -71,7 +71,7 @@ still reads; the affected construct is reported rather than guessed at.
 
 | Technology | Diagnostic | Register row |
 |---|---|---|
-| `DCTDecode` (JPEG) | `pdf.image.dct.tuple-unsupported`, `pdf.image.dct.progressive-unsupported`, or `pdf.image.dct.color-transform-uncertain` | IP-005 and IP-006 (both **approved**; see §4.1.1) |
+| `DCTDecode` (JPEG) | `pdf.image.dct.tuple-unsupported` or `pdf.image.dct.color-transform-uncertain`. `pdf.image.dct.progressive-unsupported` is retained as API and emitted by nothing here since IP-005 was widened on 2026-09-02 | IP-005 and IP-006 (both **approved**; see §4.1.1) |
 | `JPXDecode` (JPEG 2000) | `pdf.filter.jpx.unsupported`, carrying the codestream's tuple where the reader is composed | IP-007 (**approved** for Part 1; no decoder written) |
 | `JBIG2Decode` | `pdf.filter.jbig2.unsupported`, carrying the stream's segment inventory where the filter is composed | IP-008 (**approved**; MMR generic regions decode, the arithmetic decoder is unwritten) |
 | Any other named filter | `pdf.filter.not-composed` | — |
@@ -222,7 +222,7 @@ What the adapter owns is the PDF half:
   exists and an image's output size is knowable only from its frame header;
 - it resolves the colour transform from the Adobe `APP14` marker, the
   `/ColorTransform` parameter, or the format's default, and refuses every tuple
-  outside the cleared rows by name — progressive under its own code, a
+  outside the cleared rows by name — a
   self-contradicting pair of declarations under its own code, and a declaration
   it understands but cannot honour under the tuple code; and
 - it converts a decoder fault into a skipped image, so a malformed picture costs

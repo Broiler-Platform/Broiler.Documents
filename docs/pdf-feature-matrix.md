@@ -1,7 +1,7 @@
 # PDF Support Feature Matrix
 
-**Version:** 1.6 (IP-021 and SRC-001 closed)  
-**Updated:** 2026-09-01 (IP-021 and SRC-001 closed on inspection)  
+**Version:** 1.7 (IP-005 widened to progressive DCT)  
+**Updated:** 2026-09-02 (IP-005 widened to progressive DCT)  
 **Authority:** This matrix defines claims; the roadmap defines planned work.
 
 Status values are `Planned`, `Candidate`, `Supported`, `Rejected`, and
@@ -48,8 +48,8 @@ is pending.
 | FlateDecode, PNG and TIFF predictors | Implemented; every predictor and component size | Candidate | Candidate | Candidate | Candidate | No | Yes | Bounded shared budget | IP-011 approved 2026-09-01; IP-023 confirmed | `pdf.filter.limit` / `pdf.filter.malformed` |
 | LZWDecode, including `EarlyChange` | Implemented | Candidate | Reject | Candidate | No | No | Yes | Base build; bounded filter chain | IP-010 approved and retired 2026-09-01; IP-001 pending | `pdf.filter.limit` / `pdf.filter.malformed` |
 | CCITTFaxDecode: MH, MR, and MMR (ITU-T T.4/T.6) | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-009 approved on patents 2026-09-01; code tables pending SRC-017 | `pdf.image.decoded-not-projected` |
-| DCT: 8-bit baseline sequential, Huffman, 1 or 3 components, YCbCr by declaration or default | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-005 and IP-006 approved 2026-09-01; IP-001 pending | `pdf.image.decoded-not-projected` |
-| DCT: 8-bit progressive, Huffman | Detect/skip | Detect/skip | Reject | Later | No | No | No | None until separately cleared | IP-005 covers baseline only | `pdf.image.dct.progressive-unsupported` |
+| DCT: 8-bit baseline sequential **and progressive**, Huffman, 1 or 3 components, YCbCr by declaration or default | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-005 widened to progressive 2026-09-02; IP-006 approved 2026-09-01 | `pdf.image.decoded-not-projected` |
+| DCT: 8-bit extended sequential (SOF1), Huffman | Detect/skip | Detect/skip | Reject | Later | No | No | No | None until separately cleared | Outside IP-005; the progressive widening did not name it | `pdf.image.dct.tuple-unsupported` |
 | DCT: arithmetic, lossless, hierarchical, differential, 12-bit, 4-component | Detect/skip | Detect/skip | Reject | No | No | No | No | None | Outside IP-005; arithmetic carried the historical RAND terms | `pdf.image.dct.tuple-unsupported` |
 | JPEG APP14 / `ColorTransform` 1, or absent on 3 components | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder | IP-006 approved 2026-09-01 | `pdf.image.decoded-not-projected` |
 | JPEG APP14 / `ColorTransform` 0 on 3 components, 2 (YCCK), or conflicting declarations | Detect/skip | Detect/skip | Reject | No | No | No | No | None | IP-006 approved; refused by decoder capability (0) or V1 scope (YCCK) | `pdf.image.dct.tuple-unsupported`, `pdf.image.dct.color-transform-uncertain` |
@@ -107,7 +107,7 @@ is pending.
 | ASCIIHexDecode / ASCII85Decode / RunLengthDecode | Candidate | Implemented in this repository | PDF syntax layer; IP row and fuzz tests |
 | FlateDecode and the predictors | Candidate | Implemented over the runtime's DEFLATE; TIFF predictor 2 and all five PNG filters | Neutral compression/media capability where reusable |
 | LZWDecode | Candidate | Implemented in the base build; round-tripped against an encoder written in the test suite | Patent history retired; bounded decoder tests |
-| DCTDecode (JPEG) | Candidate | Composed extension: baseline with a resolved colour transform decodes, everything else is refused by name | `Broiler.Media.Image` decoder; IP-005 and IP-006 approved |
+| DCTDecode (JPEG) | Candidate | Composed extension: baseline and progressive with a resolved colour transform decode, everything else is refused by name | `Broiler.Media.Image` decoder; IP-005 and IP-006 approved |
 | JPXDecode (JPEG 2000) | Candidate for recognition; Post-V1 for decoding | Composed reader reports the codestream tuple; no entropy decoder | Part 1 cleared; MQ coder, EBCOT, and the wavelets outstanding |
 | CCITTFaxDecode | Candidate | Composed extension: all three schemes decode, round-tripped against an encoder written in the test suite | Patent history retired; the standard's code tables await a source decision |
 | JBIG2Decode | Candidate for MMR generic regions; Post-V1 for the rest | Composed filter decodes MMR generic regions and reports every other segment type | Patent row cleared; the arithmetic decoder is outstanding, and the security review still applies |

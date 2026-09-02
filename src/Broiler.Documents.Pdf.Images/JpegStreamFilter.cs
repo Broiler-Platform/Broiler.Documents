@@ -14,14 +14,16 @@ namespace Broiler.Documents.Pdf.Images;
 /// <remarks>
 /// <para>
 /// <strong>The cleared subset.</strong> IP-005 is approved for JPEG-1
-/// (ISO/IEC 10918-1:1994 / ITU-T T.81) <em>baseline sequential</em> DCT, Huffman
-/// entropy coding, 8-bit precision, one or three components. Every other tuple is
-/// recognized and refused by name. Progressive DCT gets its own code, because it
-/// is its own decision rather than a variant of this one: the approval on record
-/// names baseline, and the decoder behind this filter could do progressive the
-/// moment that changes. Arithmetic coding stays out on the same reasoning from
-/// the other direction — it is the part of JPEG-1 that carried the historical
-/// RAND terms.
+/// (ISO/IEC 10918-1:1994 / ITU-T T.81) <em>baseline sequential</em> and
+/// <em>progressive</em> DCT, Huffman entropy coding, 8-bit precision, one or
+/// three components. Every other tuple is recognized and refused by name.
+/// Progressive was widened into the row on 2026-09-02 rather than implemented
+/// then: the decoder behind this filter had done progressive all along, and what
+/// changed is which frame markers this gate admits. Arithmetic coding stays out,
+/// and the two facts are the same fact seen from either side — the row is written
+/// as tuples because the entropy coder is what the historical RAND terms attached
+/// to, so a Huffman process is inside it and an arithmetic one is not, whatever
+/// spectral order either happens to use.
 /// </para>
 /// <para>
 /// <strong>Colour is declared, not assumed.</strong> An Adobe <c>APP14</c> marker
@@ -64,6 +66,12 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
 
     /// <summary>Sample precision this filter accepts, in bits.</summary>
     private const int SupportedPrecision = 8;
+
+    /// <summary>SOF0 — baseline sequential DCT, Huffman coded.</summary>
+    private const byte BaselineSequentialFrame = 0xC0;
+
+    /// <summary>SOF2 — progressive DCT, Huffman coded.</summary>
+    private const byte ProgressiveFrame = 0xC2;
 
     /// <summary>Adobe colour transform 0: the components are already in their output space.</summary>
     private const int NoTransform = 0;
@@ -153,19 +161,11 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
     /// </remarks>
     private static PdfFilterResult? Refuse(in JpegFrameHeader frame, PdfFilterParameters parameters)
     {
-        if (frame.FrameMarker == 0xC2)
-        {
-            return PdfFilterResult.Unsupported(
-                PdfDiagnosticCodes.FilterDctProgressiveUnsupported,
-                $"The image is {frame.Describe()}. IP-005 clears baseline sequential DCT; progressive DCT is a " +
-                "separate decision and is recognized rather than decoded.");
-        }
-
-        if (frame.FrameMarker != 0xC0)
+        if (frame.FrameMarker is not (BaselineSequentialFrame or ProgressiveFrame))
         {
             return Tuple(
-                $"The image is {frame.Describe()}. Only Huffman-coded baseline sequential DCT is cleared (IP-005); " +
-                "arithmetic coding, lossless, hierarchical, and differential processes are not.");
+                $"The image is {frame.Describe()}. Only Huffman-coded baseline sequential and progressive DCT are " +
+                "cleared (IP-005); arithmetic coding, lossless, hierarchical, and differential processes are not.");
         }
 
         if (frame.Precision != SupportedPrecision)

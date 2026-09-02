@@ -33,6 +33,33 @@ public sealed class JpegStreamFilterTests
     }
 
     [Fact]
+    public void A_Progressive_Jpeg_Decodes_To_Its_Declared_Pixel_Count()
+    {
+        // The case widening IP-005 unlocked on 2026-09-02. Nothing about decoding
+        // changed: Broiler.Media has decoded SOF2 all along, and this filter was
+        // refusing it because the approval on record named baseline. So the proof
+        // that matters is that real progressive entropy data now reaches the
+        // decoder and comes back as samples.
+        PdfFilterResult result = Decode(ProgressiveJpeg());
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal(8 * 8 * 4, result.Data!.Length);
+
+        // The file codes one DC-only scan with a non-zero difference, so every
+        // pixel is the same grey and it is not the 128 a block of zero
+        // coefficients would produce. That distinguishes a decode from a decoder
+        // that read the headers and handed back an empty plane.
+        byte grey = result.Data[0];
+        Assert.True(grey > 128, $"Expected the coded DC value to lift the plane above mid-grey; got {grey}.");
+        for (int pixel = 0; pixel < 8 * 8; pixel++)
+        {
+            Assert.Equal(grey, result.Data[pixel * 4]);
+            Assert.Equal(grey, result.Data[(pixel * 4) + 1]);
+            Assert.Equal(grey, result.Data[(pixel * 4) + 2]);
+        }
+    }
+
+    [Fact]
     public void The_Filter_Names_Itself_As_An_Image_Filter()
     {
         var filter = new JpegStreamFilter();
@@ -66,24 +93,33 @@ public sealed class JpegStreamFilterTests
     [InlineData((byte)0xC5)]
     [InlineData((byte)0xC6)]
     [InlineData((byte)0xC7)]
-    public void A_Frame_Process_Outside_Baseline_Is_Refused(byte marker)
+    public void A_Frame_Process_Outside_The_Cleared_Pair_Is_Refused(byte marker)
     {
+        // 0xC6 is differential *progressive*, and it stays out. Widening the row
+        // to progressive widened one axis — the spectral order of a Huffman
+        // process — and not the hierarchical and differential families beside it.
         PdfFilterResult result = Decode(Frame(marker, precision: 8, width: 16, height: 16, components: 3));
 
         Assert.Equal(PdfDiagnosticCodes.FilterDctUnsupported, result.DiagnosticCode);
     }
 
     [Fact]
-    public void Progressive_Dct_Is_Refused_Under_Its_Own_Code()
+    public void A_Progressive_Frame_Still_Faces_Every_Other_Gate()
     {
-        // The decoder behind this filter can do progressive. The filter does not,
-        // because IP-005 was approved for baseline: the separate code is what
-        // makes "we could, and have not been cleared to" legible to a host, and
-        // what a later progressive decision would flip.
-        PdfFilterResult result = Decode(Frame(0xC2, precision: 8, width: 16, height: 16, components: 3));
+        // Proof that the widening moved exactly one axis. Precision and component
+        // count are separate parts of the cleared tuple, and a progressive frame
+        // meets them on the same terms a baseline one does.
+        Assert.Equal(
+            PdfDiagnosticCodes.FilterDctUnsupported,
+            Decode(Frame(0xC2, precision: 12, width: 16, height: 16, components: 3)).DiagnosticCode);
 
-        Assert.Equal(PdfDiagnosticCodes.FilterDctProgressiveUnsupported, result.DiagnosticCode);
-        Assert.Contains("progressive DCT", result.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            PdfDiagnosticCodes.FilterDctUnsupported,
+            Decode(Frame(0xC2, precision: 8, width: 16, height: 16, components: 4)).DiagnosticCode);
+
+        Assert.Equal(
+            PdfDiagnosticCodes.FilterDctColorTransformUncertain,
+            Decode(Frame(0xC2, precision: 8, width: 16, height: 16, components: 3, adobeTransform: 7)).DiagnosticCode);
     }
 
     [Fact]
@@ -237,6 +273,69 @@ public sealed class JpegStreamFilterTests
         }
 
         return new JpegImageCodec().Encode(new ImageBuffer(width, height, rgba), quality: 90);
+    }
+
+    /// <summary>
+    /// A real progressive JPEG: 8x8 greyscale carrying one DC-only scan
+    /// (<c>Ss</c>=<c>Se</c>=0, <c>Ah</c>=<c>Al</c>=0) that codes a non-zero
+    /// difference.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The managed encoder writes baseline only and this repository commits no
+    /// image fixtures, so a progressive decode has to be tested against a file
+    /// written here. This is the smallest one that is genuinely progressive
+    /// rather than merely labelled so: a single block, and a scan whose entropy
+    /// data the decoder must actually read to produce the right samples.
+    /// </para>
+    /// <para>
+    /// The Huffman table carries two codes of length two, which makes symbol 4 —
+    /// DC magnitude category 4 — the bit pair <c>01</c>. Four magnitude bits of
+    /// <c>1111</c> extend to +15, and the scan pads to a byte boundary with ones,
+    /// so the whole entropy segment is the single byte <c>0x7F</c>. Against the
+    /// flat quantization table below that lands the plane at 158, well clear of
+    /// the 128 an all-zero block would give.
+    /// </para>
+    /// </remarks>
+    private static byte[] ProgressiveJpeg()
+    {
+        var bytes = new List<byte> { 0xFF, 0xD8 };
+
+        // DQT: one flat 8-bit table.
+        bytes.AddRange([0xFF, 0xDB]);
+        bytes.AddRange(BigEndian(2 + 1 + 64));
+        bytes.Add(0x00);
+        bytes.AddRange(Enumerable.Repeat((byte)16, 64));
+
+        // SOF2: 8x8, one component, no subsampling, quantization table 0.
+        bytes.AddRange([0xFF, 0xC2]);
+        bytes.AddRange(BigEndian(2 + 6 + 3));
+        bytes.Add(8);
+        bytes.AddRange(BigEndian(8));
+        bytes.AddRange(BigEndian(8));
+        bytes.Add(1);
+        bytes.AddRange([0x01, 0x11, 0x00]);
+
+        // DHT: DC table 0 — no codes of length one, two of length two, for
+        // symbols 0 and 4.
+        bytes.AddRange([0xFF, 0xC4]);
+        bytes.AddRange(BigEndian(2 + 1 + 16 + 2));
+        bytes.Add(0x00);
+        bytes.AddRange([0x00, 0x02]);
+        bytes.AddRange(Enumerable.Repeat((byte)0, 14));
+        bytes.AddRange([0x00, 0x04]);
+
+        // SOS: the DC band alone, first pass, no successive approximation.
+        bytes.AddRange([0xFF, 0xDA]);
+        bytes.AddRange(BigEndian(2 + 1 + 2 + 3));
+        bytes.Add(1);
+        bytes.AddRange([0x01, 0x00]);
+        bytes.AddRange([0x00, 0x00, 0x00]);
+
+        bytes.Add(0x7F);
+
+        bytes.AddRange([0xFF, 0xD9]);
+        return bytes.ToArray();
     }
 
     /// <summary>

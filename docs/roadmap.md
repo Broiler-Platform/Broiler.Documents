@@ -64,7 +64,8 @@ and `ToUnicode` maps, metadata from both `Info` and XMP, links under the shared
 URI policy, and a deterministic PDF 1.7 writer over the standard font names.
 
 Three further technologies are implemented but never composed by default, so a
-build that does not ask for them does not link them: baseline JPEG and CCITT fax
+build that does not ask for them does not link them: JPEG (baseline and
+progressive) and CCITT fax
 (`Broiler.Documents.Pdf.Images`) and embedded font-program inspection
 (`Broiler.Documents.Pdf.Fonts`). Two more are cleared and only partly written: JPEG 2000 is
 *reported* rather than decoded, and JBIG2 decodes its MMR generic regions and
