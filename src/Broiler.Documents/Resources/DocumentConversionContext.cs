@@ -132,11 +132,31 @@ public sealed class DocumentConversionContext
     public bool IsAllowed(DocumentResourceId id, DocumentResourceOperations operations, BImageResource payload)
     {
         ArgumentNullException.ThrowIfNull(payload);
+        return IsAllowed(id, operations, DocumentResourceBinding.ForImage(payload));
+    }
 
+    /// <summary>
+    /// Whether <paramref name="operations"/> may be performed on the font
+    /// <paramref name="id"/> names.
+    /// </summary>
+    /// <remarks>
+    /// The binding includes what the font declared when it was approved, so a
+    /// program swapped for another of the same family — a permissive one for a
+    /// restricted one, say — fails the check rather than inheriting the decision
+    /// made about the original.
+    /// </remarks>
+    public bool IsAllowed(DocumentResourceId id, DocumentResourceOperations operations, DocumentFontResource font)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+        return IsAllowed(id, operations, DocumentResourceBinding.ForFont(font));
+    }
+
+    private bool IsAllowed(DocumentResourceId id, DocumentResourceOperations operations, DocumentResourceBinding binding)
+    {
         if (!TryGetEntry(id, out DocumentResourceEntry? entry) || !entry!.Allows(operations))
             return false;
 
-        return entry.Binding.Equals(DocumentResourceBinding.ForImage(payload));
+        return entry.Binding.Equals(binding);
     }
 
     /// <summary>
@@ -146,7 +166,21 @@ public sealed class DocumentConversionContext
     public string ExplainDenial(DocumentResourceId id, DocumentResourceOperations operations, BImageResource payload)
     {
         ArgumentNullException.ThrowIfNull(payload);
+        return ExplainDenial(id, operations, DocumentResourceBinding.ForImage(payload));
+    }
 
+    /// <summary>Explains a font denial, in terms a diagnostic can carry.</summary>
+    public string ExplainDenial(DocumentResourceId id, DocumentResourceOperations operations, DocumentFontResource font)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+        return ExplainDenial(id, operations, DocumentResourceBinding.ForFont(font));
+    }
+
+    private string ExplainDenial(
+        DocumentResourceId id,
+        DocumentResourceOperations operations,
+        DocumentResourceBinding binding)
+    {
         if (id.IsNone)
             return "the resource carries no context id";
         if (!TryGetEntry(id, out DocumentResourceEntry? entry))
@@ -156,7 +190,7 @@ public sealed class DocumentConversionContext
                 $"no entry for {id} in conversion context '{Namespace}'");
         }
 
-        if (!entry!.Binding.Equals(DocumentResourceBinding.ForImage(payload)))
+        if (!entry!.Binding.Equals(binding))
             return string.Create(CultureInfo.InvariantCulture, $"the payload for {id} is not the one that was approved");
 
         DocumentResourceOperations missing = operations & ~entry.Permitted;

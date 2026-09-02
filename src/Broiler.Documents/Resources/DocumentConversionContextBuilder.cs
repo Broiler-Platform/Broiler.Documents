@@ -107,7 +107,18 @@ public sealed class DocumentConversionContextBuilder
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        DocumentResourceBinding binding = DocumentResourceBinding.ForImage(request.Resource);
+        DocumentResourceBinding binding = request.Kind switch
+        {
+            DocumentResourceKind.Font => DocumentResourceBinding.ForFont(request.Font!),
+            DocumentResourceKind.Image => DocumentResourceBinding.ForImage(request.Resource!),
+
+            // A request that names no kind is one this builder was never taught,
+            // and admitting it would put an entry in the context that nothing can
+            // check a payload against later.
+            _ => throw new ArgumentException(
+                "The resource request names no kind this context understands.",
+                nameof(request)),
+        };
         if (_byPayload.TryGetValue(binding, out DocumentResourceId existing))
             return _entries[existing];
 

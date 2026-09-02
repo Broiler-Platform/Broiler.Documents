@@ -21,14 +21,42 @@ public sealed class DocumentResourceRequest
         string? sourceFormat = null)
     {
         Resource = resource ?? throw new ArgumentNullException(nameof(resource));
+        Kind = DocumentResourceKind.Image;
         Provenance = provenance;
         Disposition = disposition;
         Name = name;
         SourceFormat = sourceFormat;
     }
 
-    /// <summary>The payload, so a policy can decide on size, kind, or format.</summary>
-    public BImageResource Resource { get; }
+    public DocumentResourceRequest(
+        DocumentFontResource font,
+        DocumentResourceProvenance provenance,
+        DocumentResourceDisposition disposition,
+        string? sourceFormat = null)
+    {
+        Font = font ?? throw new ArgumentNullException(nameof(font));
+        Kind = DocumentResourceKind.Font;
+        Provenance = provenance;
+        Disposition = disposition;
+        Name = font.Family;
+        SourceFormat = sourceFormat;
+    }
+
+    /// <summary>Whether this is about a picture or a font program.</summary>
+    public DocumentResourceKind Kind { get; }
+
+    /// <summary>The image payload, or null for a font request.</summary>
+    public BImageResource? Resource { get; }
+
+    /// <summary>
+    /// The font program, or null for an image request.
+    /// </summary>
+    /// <remarks>
+    /// A policy deciding about a font reads its declared rights from here. They
+    /// are one input among several — the font's licence, which this cannot see,
+    /// is the one that governs.
+    /// </remarks>
+    public DocumentFontResource? Font { get; }
 
     public DocumentResourceProvenance Provenance { get; }
 
