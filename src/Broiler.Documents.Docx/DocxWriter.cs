@@ -28,9 +28,9 @@ public static class DocxWriter
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(destination);
-        _ = options;
-
-        var context = new DocxWriteContext(document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None));
+        var context = new DocxWriteContext(
+            document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None),
+            (options ?? DocumentWriteOptions.Default).Resources);
         BuildRunningParts(document.RunningContent, context);
         XDocument documentXml = BuildDocumentXml(document, context);
 
@@ -640,16 +640,36 @@ public static class DocxWriter
             return;
         }
 
-        long widthEmus = Emus(image.Width > 0 ? image.Width : DefaultImagePoints);
-        long heightEmus = Emus(image.Height > 0 ? image.Height : DefaultImagePoints);
-        if (!image.HasExplicitSize)
+        if (!DocumentResourceGate.TryTakeEncodedBytes(
+                image,
+                context.Resources,
+                DocumentResourceOperations.ByteTransfer,
+                out ReadOnlyMemory<byte> data,
+                out string? contentType,
+                out string? denial))
         {
             context.AddDiagnosticOnce(
-                "docx.image.size",
-                "An image carried no display size and was written one inch square.");
+                "docx.image.omitted",
+                "An image was left out of the DOCX output because " + denial + ".");
+            return;
         }
 
-        (XElement graphic, XElement frameProperties) = BuildPicture(image, widthEmus, heightEmus, context);
+        // A size that resolves from the resource's own pixels beats the square
+        // inch this used to invent, and the fallback is now only for a picture
+        // whose intrinsic size nothing established.
+        if (!image.TryGetDisplaySize(out double pointsWide, out double pointsHigh))
+        {
+            pointsWide = DefaultImagePoints;
+            pointsHigh = DefaultImagePoints;
+            context.AddDiagnosticOnce(
+                "docx.image.size",
+                "An image carried no display size and none could be inspected, so it was written one inch square.");
+        }
+
+        long widthEmus = Emus(pointsWide);
+        long heightEmus = Emus(pointsHigh);
+
+        (XElement graphic, XElement frameProperties) = BuildPicture(image, data, contentType, widthEmus, heightEmus, context);
 
         run.Add(new XElement(
             DocxNamespaces.Wordprocessing + "drawing",
@@ -680,11 +700,13 @@ public static class DocxWriter
     /// </summary>
     private static (XElement Graphic, XElement FrameProperties) BuildPicture(
         InlineImage image,
+        ReadOnlyMemory<byte> data,
+        string contentType,
         long widthEmus,
         long heightEmus,
         DocxWriteContext context)
     {
-        DocxImagePart part = context.GetImagePart(image);
+        DocxImagePart part = context.GetImagePart(image, data, contentType);
         string index = part.Index.ToString(CultureInfo.InvariantCulture);
         string name = "Picture " + index;
         var pictureProperties = new XElement(
@@ -756,15 +778,31 @@ public static class DocxWriter
     /// goes back out as the anchored picture it was read from rather than as a
     /// shape filled with an image, which is a construct Word does not write.
     /// </remarks>
-    private static XElement BuildShapeRun(
+    private static XElement? BuildShapeRun(
         DocumentShape shape,
         DocxWriteContext context,
         bool pageAnchored = false)
     {
         if (shape.Image is InlineImage image)
         {
+            if (!DocumentResourceGate.TryTakeEncodedBytes(
+                    image,
+                    context.Resources,
+                    DocumentResourceOperations.ByteTransfer,
+                    out ReadOnlyMemory<byte> data,
+                    out string? contentType,
+                    out string? denial))
+            {
+                context.AddDiagnosticOnce(
+                    "docx.image.omitted",
+                    "A floating picture was left out of the DOCX output because " + denial + ".");
+                return null;
+            }
+
             (XElement pictureGraphic, XElement pictureFrame) = BuildPicture(
                 image,
+                data,
+                contentType,
                 Emus(shape.Width),
                 Emus(shape.Height),
                 context);
@@ -1170,13 +1208,20 @@ public static class DocxWriter
         private readonly List<DocxRunningPart> _runningParts = [];
         private int _nextRelationshipId;
 
-        public DocxWriteContext(bool hasNumbering)
+        public DocxWriteContext(bool hasNumbering, DocumentConversionContext resources)
         {
             HasNumbering = hasNumbering;
+            Resources = resources;
             _nextRelationshipId = hasNumbering ? 2 : 1;
         }
 
         public bool HasNumbering { get; }
+
+        /// <summary>
+        /// What the caller's policy decided about this document's resources. A
+        /// picture is not written unless this says it may be.
+        /// </summary>
+        public DocumentConversionContext Resources { get; }
 
         public bool HasDocumentRelationships =>
             HasNumbering || _hyperlinks.Count > 0 || _imageOrder.Count > 0 || _runningParts.Count > 0;
@@ -1228,24 +1273,24 @@ public static class DocxWriter
         /// Keyed by identity, so a document that shows the same image object in
         /// several places stores its bytes once.
         /// </summary>
-        public DocxImagePart GetImagePart(InlineImage image)
+        public DocxImagePart GetImagePart(InlineImage image, ReadOnlyMemory<byte> data, string contentType)
         {
             if (_images.TryGetValue(image, out DocxImagePart? existing))
                 return existing;
 
             int index = _imageOrder.Count + 1;
-            string extension = DocxImageFormats.ExtensionForContentType(image.ContentType);
+            string extension = DocxImageFormats.ExtensionForContentType(contentType);
             string fileName = "image" + index.ToString(CultureInfo.InvariantCulture) + "." + extension;
             var part = new DocxImagePart(
                 index,
                 "rId" + _nextRelationshipId.ToString(CultureInfo.InvariantCulture),
                 "word/media/" + fileName,
                 "media/" + fileName,
-                image.Data);
+                data);
             _nextRelationshipId++;
             _images[image] = part;
             _imageOrder.Add(part);
-            _mediaContentTypes[extension] = image.ContentType;
+            _mediaContentTypes[extension] = contentType;
             return part;
         }
 

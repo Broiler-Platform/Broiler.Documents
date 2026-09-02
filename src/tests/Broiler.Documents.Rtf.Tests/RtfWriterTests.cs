@@ -9,12 +9,13 @@ public sealed class RtfWriterTests
     public void Writes_An_Embedded_Png_As_A_Pict_Destination()
     {
         var image = new InlineImage(new byte[] { 0xDE, 0xAD }, "image/png", 40, 20);
+        (image, DocumentWriteOptions writeOptions) = Writable(image);
         RichTextDocument document = RichTextDocument.FromParagraphs(new[]
         {
             RichTextParagraph.Create(InlineImage.PlaceholderText, InlineStyle.Default with { Image = image }),
         });
 
-        string rtf = Write(document);
+        string rtf = Write(document, writeOptions);
 
         Assert.Contains("{\\pict\\pngblip", rtf, StringComparison.Ordinal);
         Assert.Contains("\\picwgoal800", rtf, StringComparison.Ordinal);
@@ -26,20 +27,21 @@ public sealed class RtfWriterTests
     public void Drops_An_Image_Format_Rtf_Cannot_Name()
     {
         var image = new InlineImage(new byte[] { 1, 2 }, "image/webp", 40, 20);
+        (image, DocumentWriteOptions writeOptions) = Writable(image);
         RichTextDocument document = RichTextDocument.FromParagraphs(new[]
         {
             RichTextParagraph.Create(InlineImage.PlaceholderText, InlineStyle.Default with { Image = image }),
         });
 
         using var stream = new MemoryStream();
-        DocumentWriteResult result = RtfWriter.Write(document, stream);
+        DocumentWriteResult result = RtfWriter.Write(document, stream, writeOptions);
 
         Assert.DoesNotContain("\\pict", Encoding.ASCII.GetString(stream.ToArray()), StringComparison.Ordinal);
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "rtf.image.format");
     }
 
-    private static string Write(RichTextDocument document) =>
-        Encoding.ASCII.GetString(RtfWriter.WriteToArray(document));
+    private static string Write(RichTextDocument document, DocumentWriteOptions? options = null) =>
+        Encoding.ASCII.GetString(RtfWriter.WriteToArray(document, options));
 
     private static RichTextDocument OneRun(string text, InlineStyle style) =>
         RichTextDocument.FromParagraphs(new[]
@@ -111,4 +113,30 @@ public sealed class RtfWriterTests
 
         Assert.All(bytes, b => Assert.True(b < 0x80));
     }
+
+    /// <summary>
+    /// Admits <paramref name="image"/> under a policy that permits writing it,
+    /// and returns the image bound to that decision together with the options a
+    /// writer needs.
+    /// </summary>
+    /// <remarks>
+    /// A writer refuses a picture nobody decided on, so a write test has to say
+    /// which decision it is testing under. Reading a document is not that
+    /// decision: it grants extraction into the model and nothing that puts the
+    /// bytes into an output.
+    /// </remarks>
+    private static (InlineImage Image, DocumentWriteOptions Options) Writable(InlineImage image)
+    {
+        var builder = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
+        InlineImage admitted = builder.AdmitImage(
+            image,
+            DocumentResourceProvenance.CallerSupplied,
+            DocumentResourceDisposition.Embedded);
+
+        return (admitted, new DocumentWriteOptions(resources: builder.Build()));
+    }
+
+    /// <summary>Read options that also permit writing what was read back out.</summary>
+    private static DocumentReadOptions RoundTripReadOptions { get; } =
+        new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
 }

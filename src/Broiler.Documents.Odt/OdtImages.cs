@@ -25,13 +25,19 @@ internal sealed class OdtImageLoader
     private readonly ZipArchive _archive;
     private readonly OdtManifest _manifest;
     private readonly DocumentLimits _limits;
+    private readonly DocumentConversionContextBuilder _resources;
     private readonly Dictionary<string, PicturePart?> _parts = new(StringComparer.OrdinalIgnoreCase);
 
-    public OdtImageLoader(ZipArchive archive, OdtManifest manifest, DocumentLimits limits)
+    public OdtImageLoader(
+        ZipArchive archive,
+        OdtManifest manifest,
+        DocumentLimits limits,
+        DocumentConversionContextBuilder resources)
     {
         _archive = archive;
         _manifest = manifest;
         _limits = limits;
+        _resources = resources;
     }
 
     /// <summary>How many pictures this read turned into inline images.</summary>
@@ -61,14 +67,35 @@ internal sealed class OdtImageLoader
         if (part is null)
             return null;
 
-        ImageCount++;
-        return new InlineImage(
+        var picture = new InlineImage(
             part.Data,
             part.ContentType,
             width,
             height,
             altText,
             string.IsNullOrWhiteSpace(name) ? part.Name : name);
+
+        // Constructing an image with reachable bytes is extraction into the
+        // model, so the policy decides before the object exists.
+        if (!_resources.TryAdmit(
+                new DocumentResourceRequest(
+                    picture.Resource,
+                    DocumentResourceProvenance.ReadFromSource,
+                    DocumentResourceDisposition.Embedded,
+                    picture.Name,
+                    "ODT"),
+                DocumentResourceOperations.ExtractToModel,
+                out DocumentResourceId id,
+                out string? denial))
+        {
+            diagnostics.AddDiagnosticOnce(
+                "odt.image.denied",
+                "A picture was not read into the document because " + denial + ".");
+            return null;
+        }
+
+        ImageCount++;
+        return picture.WithResourceId(id);
     }
 
     /// <summary>

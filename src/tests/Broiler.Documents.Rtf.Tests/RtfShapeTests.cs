@@ -20,8 +20,8 @@ public sealed class RtfShapeTests
     private static RichTextDocument RoundTrip(RichTextDocument document) =>
         RtfReader.Read(RtfWriter.WriteToArray(document)).Document;
 
-    private static string Ascii(RichTextDocument document) =>
-        Encoding.ASCII.GetString(RtfWriter.WriteToArray(document));
+    private static string Ascii(RichTextDocument document, DocumentWriteOptions? options = null) =>
+        Encoding.ASCII.GetString(RtfWriter.WriteToArray(document, options));
 
     [Fact(Timeout = 600000)]
     public void A_Shape_Round_Trips_With_Its_Box()
@@ -118,11 +118,13 @@ public sealed class RtfShapeTests
         // A picture inside a shape is a pib property this reader does not know,
         // and a shape with neither paint nor text is one it drops - so the
         // picture would be lost to keep a position that would be lost anyway.
+        (InlineImage picture, DocumentWriteOptions writeOptions) =
+            Writable(new InlineImage(new byte[] { 0xDE, 0xAD }, "image/png", 72, 72));
         RichTextDocument document = WithShapes(new DocumentShape(
             0, -40, 0, 40, 20,
-            image: new InlineImage(new byte[] { 0xDE, 0xAD }, "image/png", 72, 72)));
+            image: picture));
 
-        string rtf = Ascii(document);
+        string rtf = Ascii(document, writeOptions);
 
         Assert.Contains("{\\pict\\pngblip", rtf, StringComparison.Ordinal);
         Assert.DoesNotContain("shpinst", rtf, StringComparison.Ordinal);
@@ -135,13 +137,41 @@ public sealed class RtfShapeTests
     [Fact(Timeout = 600000)]
     public void A_Floating_Picture_Says_Its_Position_Was_Not_Kept()
     {
+        (InlineImage picture, DocumentWriteOptions writeOptions) =
+            Writable(new InlineImage(new byte[] { 0xDE, 0xAD }, "image/png", 72, 72));
         RichTextDocument document = WithShapes(new DocumentShape(
             0, -40, 0, 40, 20,
-            image: new InlineImage(new byte[] { 0xDE, 0xAD }, "image/png", 72, 72)));
+            image: picture));
 
         using var stream = new MemoryStream();
-        DocumentWriteResult result = RtfWriter.Write(document, stream);
+        DocumentWriteResult result = RtfWriter.Write(document, stream, writeOptions);
 
         Assert.Contains(result.Diagnostics, d => d.Code == "rtf.image.anchored");
     }
+
+    /// <summary>
+    /// Admits <paramref name="image"/> under a policy that permits writing it,
+    /// and returns the image bound to that decision together with the options a
+    /// writer needs.
+    /// </summary>
+    /// <remarks>
+    /// A writer refuses a picture nobody decided on, so a write test has to say
+    /// which decision it is testing under. Reading a document is not that
+    /// decision: it grants extraction into the model and nothing that puts the
+    /// bytes into an output.
+    /// </remarks>
+    private static (InlineImage Image, DocumentWriteOptions Options) Writable(InlineImage image)
+    {
+        var builder = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
+        InlineImage admitted = builder.AdmitImage(
+            image,
+            DocumentResourceProvenance.CallerSupplied,
+            DocumentResourceDisposition.Embedded);
+
+        return (admitted, new DocumentWriteOptions(resources: builder.Build()));
+    }
+
+    /// <summary>Read options that also permit writing what was read back out.</summary>
+    private static DocumentReadOptions RoundTripReadOptions { get; } =
+        new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
 }

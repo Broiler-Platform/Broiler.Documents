@@ -54,12 +54,17 @@ internal static class OdtReader
                 return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
 
             OdtStyles styles = OdtStyles.Load(archive, content, options.Limits, diagnostics);
-            var images = new OdtImageLoader(archive, manifest, options.Limits);
+            var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
+            var images = new OdtImageLoader(archive, manifest, options.Limits, resources);
             RichTextDocument document = ReadContent(content, styles, images, options.Limits, diagnostics);
             document = document.WithRunningContent(
                 ReadRunningContent(styles, images, options.Limits, diagnostics));
             document = document.WithPageGeometry(ReadPageGeometry(styles, diagnostics));
-            return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
+            return new DocumentReadResult(
+                document,
+                diagnostics,
+                DocumentReadResult.StatusFrom(diagnostics),
+                resources.Build());
         }
         catch (InvalidDataException ex)
         {

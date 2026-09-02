@@ -16,7 +16,7 @@ public static class MarkdownWriter
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(destination);
-        _ = options;
+        DocumentConversionContext resources = (options ?? DocumentWriteOptions.Default).Resources;
 
         var diagnostics = new List<DocumentDiagnostic>();
         if (document.Tables.Count > 0)
@@ -36,7 +36,7 @@ public static class MarkdownWriter
             if (i > 0)
                 builder.Append("\n\n");
 
-            WriteParagraph(builder, document.Paragraphs[i], diagnostics);
+            WriteParagraph(builder, document.Paragraphs[i], resources, diagnostics);
         }
 
         builder.Append('\n');
@@ -55,6 +55,7 @@ public static class MarkdownWriter
     private static void WriteParagraph(
         StringBuilder builder,
         RichTextParagraph paragraph,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics)
     {
         ParagraphStyle style = paragraph.Style;
@@ -81,17 +82,18 @@ public static class MarkdownWriter
         {
             string text = paragraph.Text.Substring(offset, run.Length);
             offset += run.Length;
-            builder.Append(FormatRun(text, run.Style, diagnostics));
+            builder.Append(FormatRun(text, run.Style, resources, diagnostics));
         }
     }
 
     private static string FormatRun(
         string text,
         InlineStyle style,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics)
     {
         if (style.Image is InlineImage image)
-            return FormatImageRun(text, image, style, diagnostics);
+            return FormatImageRun(text, image, style, resources, diagnostics);
 
         string formatted = EscapeText(text);
 
@@ -131,9 +133,24 @@ public static class MarkdownWriter
         string text,
         InlineImage image,
         InlineStyle style,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics)
     {
-        string destination = "data:" + image.ContentType + ";base64," + Convert.ToBase64String(image.Data.Span);
+        if (!DocumentResourceGate.TryTakeEncodedBytes(
+                image,
+                resources,
+                DocumentResourceOperations.ByteTransfer,
+                out ReadOnlyMemory<byte> data,
+                out string? contentType,
+                out string? denial))
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "markdown.image.omitted",
+                "An image was left out of the Markdown output because " + denial + "."));
+            return EscapeText(text.Replace(InlineImage.PlaceholderText, string.Empty, StringComparison.Ordinal));
+        }
+
+        string destination = "data:" + contentType + ";base64," + Convert.ToBase64String(data.Span);
         string alt = image.AltText.Replace("]", "\\]", StringComparison.Ordinal);
         var builder = new StringBuilder();
         foreach (char character in text)

@@ -133,10 +133,11 @@ public static class DocumentCommands
 
         RichTextDocument document = RichTextDocument.FromPlainText(body);
         IReadOnlyList<string> operations = EditOperations.Collect(context.Line);
+        var resources = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
         if (operations.Count > 0)
-            document = EditOperations.Apply(document, operations);
+            document = EditOperations.Apply(document, operations, resources);
 
-        return WriteDocument(context, document, destination, Array.Empty<DocumentDiagnostic>());
+        return WriteDocument(context, document, destination, Array.Empty<DocumentDiagnostic>(), resources.Build());
     }
 
     private static int RunEdit(CommandContext context)
@@ -162,7 +163,13 @@ public static class DocumentCommands
         if (operations.Count == 0)
             throw new UsageException("Give at least one --op or --script.");
 
-        RichTextDocument edited = EditOperations.Apply(loaded.Document, operations);
+        // The edit continues the read's conversion rather than starting a new
+        // one, so pictures that came out of the file keep the ids the model is
+        // already holding and an inserted picture joins them.
+        DocumentConversionContextBuilder resources = DocumentConversionContextBuilder.Continuing(
+            loaded.Result.Resources,
+            DocumentResourcePolicy.AllowOwnDocuments);
+        RichTextDocument edited = EditOperations.Apply(loaded.Document, operations, resources);
 
         context.Report("read " + source + " as " + loaded.FormatName);
         context.Report("applied " + operations.Count.ToString(CultureInfo.InvariantCulture) + " operation(s)");
@@ -175,7 +182,7 @@ public static class DocumentCommands
 
         // --in-place stages the whole output before replacing the file, so an
         // operation that fails half way leaves the original where it was.
-        return WriteDocument(context, edited, destination, loaded.Diagnostics);
+        return WriteDocument(context, edited, destination, loaded.Diagnostics, resources.Build());
     }
 
     private static int RunConvert(CommandContext context)
@@ -196,7 +203,7 @@ public static class DocumentCommands
         context.Result["sourceStatus"] = loaded.Status.ToString().ToLowerInvariant();
         context.Result["readDiagnostics"] = DocumentReport.ToJson(loaded.Diagnostics);
 
-        return WriteDocument(context, loaded.Document, destination, loaded.Diagnostics);
+        return WriteDocument(context, loaded.Document, destination, loaded.Diagnostics, loaded.Result.Resources);
     }
 
     private static int RunDump(CommandContext context)
@@ -265,11 +272,12 @@ public static class DocumentCommands
         CommandContext context,
         RichTextDocument document,
         string destination,
-        IReadOnlyList<DocumentDiagnostic> readDiagnostics)
+        IReadOnlyList<DocumentDiagnostic> readDiagnostics,
+        DocumentConversionContext? resources = null)
     {
         DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
         DocumentCodec codec = DocumentIo.ResolveWriteCodec(catalog, destination, context.Line.Get("to"));
-        DocumentWriteOptions writeOptions = DocumentOptions.WriteOptionsFrom(context.Line);
+        DocumentWriteOptions writeOptions = DocumentOptions.WriteOptionsFrom(context.Line, resources);
 
         DocumentWriteResult result = DocumentIo.Save(document, destination, codec, writeOptions);
 

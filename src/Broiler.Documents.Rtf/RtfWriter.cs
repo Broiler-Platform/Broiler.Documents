@@ -40,6 +40,7 @@ public static class RtfWriter
                 "This writer emits non-ASCII characters as \\uN? escapes only; raw high bytes are not implemented, so AsciiOnly=false was not honoured."));
         }
 
+        DocumentConversionContext resources = (options ?? DocumentWriteOptions.Default).Resources;
         var reported = new HashSet<string>(StringComparer.Ordinal);
         CollectResources(document, fonts, colors);
 
@@ -48,7 +49,7 @@ public static class RtfWriter
         WriteFontTable(sb, fonts);
         WriteColorTable(sb, colors);
         WritePageGeometry(sb, document.PageGeometry);
-        WriteRunningContent(sb, document.RunningContent, fonts, colors, diagnostics, reported);
+        WriteRunningContent(sb, document.RunningContent, fonts, colors, resources, diagnostics, reported);
 
         if (document.Tables.Count > 0)
         {
@@ -72,10 +73,10 @@ public static class RtfWriter
             foreach (DocumentShape shape in document.Shapes)
             {
                 if (shape.ParagraphIndex == i)
-                    WriteShape(sb, shape, fonts, colors, diagnostics, reported);
+                    WriteShape(sb, shape, fonts, colors, resources, diagnostics, reported);
             }
 
-            WriteRuns(sb, paragraph, fonts, colors, diagnostics, reported);
+            WriteRuns(sb, paragraph, fonts, colors, resources, diagnostics, reported);
             sb.Append("\\par\n");
         }
 
@@ -128,12 +129,13 @@ public static class RtfWriter
         DocumentShape shape,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
         if (shape.Image is InlineImage image)
         {
-            WriteFloatingPicture(sb, shape, image, diagnostics, reported);
+            WriteFloatingPicture(sb, shape, image, resources, diagnostics, reported);
             return;
         }
 
@@ -186,7 +188,7 @@ public static class RtfWriter
                 sb.Append("\\pard\\plain");
                 WriteParagraphProperties(sb, paragraph.Style);
                 sb.Append(' ');
-                WriteRuns(sb, paragraph, fonts, colors, diagnostics, reported);
+                WriteRuns(sb, paragraph, fonts, colors, resources, diagnostics, reported);
                 sb.Append("\\par");
             }
 
@@ -248,6 +250,7 @@ public static class RtfWriter
         RunningContent running,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
@@ -267,7 +270,7 @@ public static class RtfWriter
                 sb.Append("\\pard\\plain");
                 WriteParagraphProperties(sb, paragraph.Style);
                 sb.Append(' ');
-                WriteRuns(sb, paragraph, fonts, colors, diagnostics, reported);
+                WriteRuns(sb, paragraph, fonts, colors, resources, diagnostics, reported);
                 sb.Append("\\par");
             }
 
@@ -336,6 +339,7 @@ public static class RtfWriter
         RichTextParagraph paragraph,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
@@ -344,7 +348,7 @@ public static class RtfWriter
         {
             string text = paragraph.Text.Substring(offset, run.Length);
             offset += run.Length;
-            WriteRun(sb, text, run.Style, fonts, colors, diagnostics, reported);
+            WriteRun(sb, text, run.Style, fonts, colors, resources, diagnostics, reported);
         }
     }
 
@@ -354,12 +358,13 @@ public static class RtfWriter
         InlineStyle style,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
         if (style.Image is InlineImage image)
         {
-            WriteImageRun(sb, text, image, style, fonts, colors, diagnostics, reported);
+            WriteImageRun(sb, text, image, style, fonts, colors, resources, diagnostics, reported);
             return;
         }
 
@@ -388,10 +393,28 @@ public static class RtfWriter
         InlineStyle style,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
-        string? blip = PictureControlWord(image.ContentType);
+        if (!DocumentResourceGate.TryTakeEncodedBytes(
+                image,
+                resources,
+                DocumentResourceOperations.ByteTransfer,
+                out ReadOnlyMemory<byte> data,
+                out string? contentType,
+                out string? denial))
+        {
+            AddOnce(
+                diagnostics,
+                reported,
+                "rtf.image.omitted",
+                "A picture was left out of the RTF output because " + denial + ".");
+            WriteStyledText(sb, text.Replace(InlineImage.PlaceholderText, string.Empty, StringComparison.Ordinal), style, fonts, colors);
+            return;
+        }
+
+        string? blip = PictureControlWord(contentType);
         int start = 0;
         for (int i = 0; i < text.Length; i++)
         {
@@ -411,7 +434,7 @@ public static class RtfWriter
             }
             else
             {
-                WritePicture(sb, image, blip);
+                WritePicture(sb, image, data, blip);
             }
 
             start = i + 1;
@@ -436,10 +459,27 @@ public static class RtfWriter
         StringBuilder sb,
         DocumentShape shape,
         InlineImage image,
+        DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
-        string? blip = PictureControlWord(image.ContentType);
+        if (!DocumentResourceGate.TryTakeEncodedBytes(
+                image,
+                resources,
+                DocumentResourceOperations.ByteTransfer,
+                out ReadOnlyMemory<byte> data,
+                out string? contentType,
+                out string? denial))
+        {
+            AddOnce(
+                diagnostics,
+                reported,
+                "rtf.image.omitted",
+                "A picture was left out of the RTF output because " + denial + ".");
+            return;
+        }
+
+        string? blip = PictureControlWord(contentType);
         if (blip is null)
         {
             AddOnce(
@@ -458,20 +498,28 @@ public static class RtfWriter
 
         // The frame's box is the size it draws at, which is what the shape holds
         // rather than the image.
-        WritePicture(sb, image.WithSize(shape.Width, shape.Height), blip);
+        WritePicture(sb, image.WithSize(shape.Width, shape.Height), data, blip);
     }
 
-    private static void WritePicture(StringBuilder sb, InlineImage image, string blip)
+    private static void WritePicture(
+        StringBuilder sb,
+        InlineImage image,
+        ReadOnlyMemory<byte> payload,
+        string blip)
     {
         sb.Append("{\\pict").Append(blip);
-        if (image.HasExplicitSize)
+
+        // A resolved size covers the auto cases too: a picture that states only
+        // one dimension, or neither, still has a size once its intrinsic pixels
+        // are known, and RTF has nowhere to say "work it out yourself".
+        if (image.TryGetDisplaySize(out double width, out double height))
         {
-            sb.Append("\\picwgoal").Append(Twips((float)image.Width));
-            sb.Append("\\pichgoal").Append(Twips((float)image.Height));
+            sb.Append("\\picwgoal").Append(Twips((float)width));
+            sb.Append("\\pichgoal").Append(Twips((float)height));
         }
 
         sb.Append(' ');
-        ReadOnlySpan<byte> data = image.Data.Span;
+        ReadOnlySpan<byte> data = payload.Span;
         foreach (byte value in data)
             sb.Append(HexDigits[value >> 4]).Append(HexDigits[value & 0x0F]);
 

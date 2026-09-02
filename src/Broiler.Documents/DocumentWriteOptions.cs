@@ -13,9 +13,10 @@ public class DocumentWriteOptions
 {
     public static DocumentWriteOptions Default { get; } = new();
 
-    public DocumentWriteOptions(bool asciiOnly = true)
+    public DocumentWriteOptions(bool asciiOnly = true, DocumentConversionContext? resources = null)
     {
         AsciiOnly = asciiOnly;
+        Resources = resources ?? DocumentConversionContext.Empty;
     }
 
     /// <summary>
@@ -29,4 +30,25 @@ public class DocumentWriteOptions
     /// it rather than quietly doing the opposite; see <c>RtfWriteOptions</c>.
     /// </remarks>
     public bool AsciiOnly { get; }
+
+    /// <summary>
+    /// The decisions made about the resources in the document being written.
+    /// Defaults to <see cref="DocumentConversionContext.Empty"/>, which permits
+    /// nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Pass the context a read returned to carry its decisions into the write.
+    /// That is what stops a resource laundering its permissions by changing
+    /// format: a picture read out of a PDF under a policy that allowed extraction
+    /// but not redistribution reaches a DOCX writer with the same entry, rather
+    /// than with whatever the DOCX writer would have assumed.
+    /// </para>
+    /// <para>
+    /// Passing nothing is not an oversight to be forgiven. A write whose caller
+    /// recorded no origin for its pictures cannot say they may be redistributed,
+    /// so the empty context omits them and reports each one.
+    /// </para>
+    /// </remarks>
+    public DocumentConversionContext Resources { get; }
 }
