@@ -18,6 +18,19 @@ public enum DocumentResourceProvenance
     CallerSupplied,
 }
 
+/// <summary>What kind of resource an entry is about.</summary>
+public enum DocumentResourceKind
+{
+    /// <summary>Not stated, which denies like every other unknown here.</summary>
+    Unknown = 0,
+
+    /// <summary>A picture.</summary>
+    Image,
+
+    /// <summary>A font program.</summary>
+    Font,
+}
+
 /// <summary>How the source document held the resource. Unknown denies.</summary>
 public enum DocumentResourceDisposition
 {
@@ -57,18 +70,41 @@ public enum DocumentResourceDisposition
 public sealed class DocumentResourceBinding : IEquatable<DocumentResourceBinding>
 {
     private DocumentResourceBinding(
+        DocumentResourceKind kind,
         string payloadDigest,
         BImagePayloadKind payloadKind,
         string? mediaType,
         int? pixelWidth,
-        int? pixelHeight)
+        int? pixelHeight,
+        string? fontFamily = null,
+        BFontEmbeddingRights declaredRights = default)
     {
+        Kind = kind;
         PayloadDigest = payloadDigest;
         PayloadKind = payloadKind;
         MediaType = mediaType;
         PixelWidth = pixelWidth;
         PixelHeight = pixelHeight;
+        FontFamily = fontFamily;
+        DeclaredRights = declaredRights;
     }
+
+    /// <summary>Whether this describes a picture or a font program.</summary>
+    public DocumentResourceKind Kind { get; }
+
+    /// <summary>The family of a font resource, or null for an image.</summary>
+    public string? FontFamily { get; }
+
+    /// <summary>
+    /// What a font resource's own table declared when the decision was made.
+    /// </summary>
+    /// <remarks>
+    /// Part of the binding rather than beside it, so a font that declared one
+    /// thing when it was approved and another when it is used does not pass the
+    /// check. Swapping a permissively-marked program for a restricted one of the
+    /// same family is exactly the substitution an entry has to survive.
+    /// </remarks>
+    public BFontEmbeddingRights DeclaredRights { get; }
 
     /// <summary>Lowercase hex SHA-256 of the payload.</summary>
     public string PayloadDigest { get; }
@@ -108,11 +144,28 @@ public sealed class DocumentResourceBinding : IEquatable<DocumentResourceBinding
         }
 
         return new DocumentResourceBinding(
+            DocumentResourceKind.Image,
             digest,
             resource.Kind,
             resource.MediaType,
             resource.PixelWidth,
             resource.PixelHeight);
+    }
+
+    /// <summary>Describes <paramref name="font"/> so an entry can be bound to it.</summary>
+    public static DocumentResourceBinding ForFont(DocumentFontResource font)
+    {
+        ArgumentNullException.ThrowIfNull(font);
+
+        return new DocumentResourceBinding(
+            DocumentResourceKind.Font,
+            Digest(font.Program.Span),
+            BImagePayloadKind.Encoded,
+            mediaType: null,
+            pixelWidth: null,
+            pixelHeight: null,
+            font.Family,
+            font.DeclaredRights);
     }
 
     /// <summary>
@@ -123,26 +176,36 @@ public sealed class DocumentResourceBinding : IEquatable<DocumentResourceBinding
     /// </summary>
     public bool Equals(DocumentResourceBinding? other) =>
         other is not null &&
+        Kind == other.Kind &&
         string.Equals(PayloadDigest, other.PayloadDigest, StringComparison.Ordinal) &&
         PayloadKind == other.PayloadKind &&
         string.Equals(MediaType, other.MediaType, StringComparison.Ordinal) &&
         PixelWidth == other.PixelWidth &&
-        PixelHeight == other.PixelHeight;
+        PixelHeight == other.PixelHeight &&
+        string.Equals(FontFamily, other.FontFamily, StringComparison.Ordinal) &&
+        DeclaredRights == other.DeclaredRights;
 
     public override bool Equals(object? obj) => Equals(obj as DocumentResourceBinding);
 
     public override int GetHashCode() =>
         HashCode.Combine(
+            Kind,
             StringComparer.Ordinal.GetHashCode(PayloadDigest),
             PayloadKind,
             MediaType is null ? 0 : StringComparer.Ordinal.GetHashCode(MediaType),
             PixelWidth,
-            PixelHeight);
+            PixelHeight,
+            FontFamily is null ? 0 : StringComparer.Ordinal.GetHashCode(FontFamily),
+            DeclaredRights);
 
     public override string ToString() =>
-        string.Create(
-            CultureInfo.InvariantCulture,
-            $"{PayloadKind} {MediaType ?? "rgba"} {PixelWidth?.ToString(CultureInfo.InvariantCulture) ?? "?"}x{PixelHeight?.ToString(CultureInfo.InvariantCulture) ?? "?"} {PayloadDigest[..12]}");
+        Kind == DocumentResourceKind.Font
+            ? string.Create(
+                CultureInfo.InvariantCulture,
+                $"font {FontFamily} ({DeclaredRights.Describe()}) {PayloadDigest[..12]}")
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"{PayloadKind} {MediaType ?? "rgba"} {PixelWidth?.ToString(CultureInfo.InvariantCulture) ?? "?"}x{PixelHeight?.ToString(CultureInfo.InvariantCulture) ?? "?"} {PayloadDigest[..12]}");
 
     private static string Digest(ReadOnlySpan<byte> payload) =>
         Convert.ToHexStringLower(SHA256.HashData(payload));
