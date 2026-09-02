@@ -1150,7 +1150,7 @@ public sealed class DocumentLayout
         }
 
         double width = BTextMeasurer.MeasureAdvance(text, font);
-        double ascent = font.SizeInPixels * 0.8;
+        double ascent = font.Size * 0.8;
         double descent = Math.Max(0, BTextMeasurer.GetLineHeight(font) - ascent);
 
         // Shearing is a fallback for a family with no designed italic face. It
@@ -1182,7 +1182,7 @@ public sealed class DocumentLayout
     private LayoutPiece MakeTabPiece(InlineStyle style)
     {
         BFontStyle font = FontFor(style);
-        double ascent = font.SizeInPixels * 0.8;
+        double ascent = font.Size * 0.8;
 
         return new LayoutPiece(
             string.Empty,
