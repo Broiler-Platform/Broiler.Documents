@@ -1,7 +1,7 @@
 # PDF Support Feature Matrix
 
-**Version:** 1.8 (progressive DCT; colour transform 0)  
-**Updated:** 2026-09-02 (colour transform 0 honoured)  
+**Version:** 1.9 (the Huffman DCT processes; colour transform 0)  
+**Updated:** 2026-09-02 (IP-005 widened to extended sequential)  
 **Authority:** This matrix defines claims; the roadmap defines planned work.
 
 Status values are `Planned`, `Candidate`, `Supported`, `Rejected`, and
@@ -48,8 +48,7 @@ is pending.
 | FlateDecode, PNG and TIFF predictors | Implemented; every predictor and component size | Candidate | Candidate | Candidate | Candidate | No | Yes | Bounded shared budget | IP-011 approved 2026-09-01; IP-023 confirmed | `pdf.filter.limit` / `pdf.filter.malformed` |
 | LZWDecode, including `EarlyChange` | Implemented | Candidate | Reject | Candidate | No | No | Yes | Base build; bounded filter chain | IP-010 approved and retired 2026-09-01; IP-001 pending | `pdf.filter.limit` / `pdf.filter.malformed` |
 | CCITTFaxDecode: MH, MR, and MMR (ITU-T T.4/T.6) | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-009 approved on patents 2026-09-01; code tables pending SRC-017 | `pdf.image.decoded-not-projected` |
-| DCT: 8-bit baseline sequential **and progressive**, Huffman, 1 or 3 components, YCbCr by declaration or default | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-005 widened to progressive 2026-09-02; IP-006 approved 2026-09-01 | `pdf.image.decoded-not-projected` |
-| DCT: 8-bit extended sequential (SOF1), Huffman | Detect/skip | Detect/skip | Reject | Later | No | No | No | None until separately cleared | Outside IP-005; the progressive widening did not name it | `pdf.image.dct.tuple-unsupported` |
+| DCT: 8-bit **every Huffman-coded process** (baseline, extended sequential, progressive), 1 or 3 components, YCbCr by declaration or default | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-005 widened to progressive and extended sequential 2026-09-02; IP-006 approved 2026-09-01 | `pdf.image.decoded-not-projected` |
 | DCT: arithmetic, lossless, hierarchical, differential, 12-bit, 4-component | Detect/skip | Detect/skip | Reject | No | No | No | No | None | Outside IP-005; arithmetic carried the historical RAND terms | `pdf.image.dct.tuple-unsupported` |
 | JPEG APP14 / `ColorTransform` 1, or absent on 3 components | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder | IP-006 approved 2026-09-01 | `pdf.image.decoded-not-projected` |
 | JPEG APP14 / `ColorTransform` 0 on 3 components | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder | IP-006 approved 2026-09-01; decoder capability added 2026-09-02 | `pdf.image.decoded-not-projected` |

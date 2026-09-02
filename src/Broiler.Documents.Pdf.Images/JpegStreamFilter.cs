@@ -15,11 +15,14 @@ namespace Broiler.Documents.Pdf.Images;
 /// <para>
 /// <strong>The cleared subset.</strong> IP-005 is approved for JPEG-1
 /// (ISO/IEC 10918-1:1994 / ITU-T T.81) <em>baseline sequential</em> and
-/// <em>progressive</em> DCT, Huffman entropy coding, 8-bit precision, one or
-/// three components. Every other tuple is recognized and refused by name.
-/// Progressive was widened into the row on 2026-09-02 rather than implemented
-/// then: the decoder behind this filter had done progressive all along, and what
-/// changed is which frame markers this gate admits. Arithmetic coding stays out,
+/// <em>extended sequential</em>, and <em>progressive</em> DCT, Huffman entropy
+/// coding, 8-bit precision, one or three components. Every other tuple is
+/// recognized and refused by name. Progressive and extended sequential were both
+/// widened into the row rather than implemented: the decoder behind this filter
+/// had done them all along, and what changed is which frame markers this gate
+/// admits. Extended sequential is the plainest case of that — at 8 bits it is
+/// structurally baseline, and the only difference in a file is the marker byte.
+/// Arithmetic coding stays out,
 /// and the two facts are the same fact seen from either side — the row is written
 /// as tuples because the entropy coder is what the historical RAND terms attached
 /// to, so a Huffman process is inside it and an arithmetic one is not, whatever
@@ -69,6 +72,9 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
 
     /// <summary>SOF0 — baseline sequential DCT, Huffman coded.</summary>
     private const byte BaselineSequentialFrame = 0xC0;
+
+    /// <summary>SOF1 — extended sequential DCT, Huffman coded.</summary>
+    private const byte ExtendedSequentialFrame = 0xC1;
 
     /// <summary>SOF2 — progressive DCT, Huffman coded.</summary>
     private const byte ProgressiveFrame = 0xC2;
@@ -161,11 +167,12 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
     /// </remarks>
     private static PdfFilterResult? Refuse(in JpegFrameHeader frame, PdfFilterParameters parameters)
     {
-        if (frame.FrameMarker is not (BaselineSequentialFrame or ProgressiveFrame))
+        if (frame.FrameMarker is not (BaselineSequentialFrame or ExtendedSequentialFrame or ProgressiveFrame))
         {
             return Tuple(
-                $"The image is {frame.Describe()}. Only Huffman-coded baseline sequential and progressive DCT are " +
-                "cleared (IP-005); arithmetic coding, lossless, hierarchical, and differential processes are not.");
+                $"The image is {frame.Describe()}. Only Huffman-coded baseline sequential, extended sequential, and " +
+                "progressive DCT are cleared (IP-005); arithmetic coding, lossless, hierarchical, and differential " +
+                "processes are not.");
         }
 
         if (frame.Precision != SupportedPrecision)

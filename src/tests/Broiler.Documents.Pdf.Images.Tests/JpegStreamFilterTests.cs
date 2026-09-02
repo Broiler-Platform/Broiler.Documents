@@ -60,6 +60,25 @@ public sealed class JpegStreamFilterTests
     }
 
     [Fact]
+    public void An_Extended_Sequential_Jpeg_Decodes_Identically_To_The_Baseline_It_Was()
+    {
+        // At 8 bits, SOF1 and SOF0 are the same frame: same header layout, same
+        // Huffman coding, and the extra freedoms extended sequential allows are
+        // all outside the cleared tuple anyway. So the strongest statement of
+        // that is to take one file, change the marker byte, and require the
+        // pixels to come back unchanged.
+        byte[] baseline = Jpeg(32, 32);
+        byte[] extended = AsExtendedSequential(baseline);
+
+        PdfFilterResult first = Decode(baseline);
+        PdfFilterResult second = Decode(extended);
+
+        Assert.True(first.Succeeded, first.Message);
+        Assert.True(second.Succeeded, second.Message);
+        Assert.Equal(first.Data!, second.Data!);
+    }
+
+    [Fact]
     public void The_Filter_Names_Itself_As_An_Image_Filter()
     {
         var filter = new JpegStreamFilter();
@@ -88,7 +107,6 @@ public sealed class JpegStreamFilterTests
     }
 
     [Theory]
-    [InlineData((byte)0xC1)]
     [InlineData((byte)0xC3)]
     [InlineData((byte)0xC5)]
     [InlineData((byte)0xC6)]
@@ -382,6 +400,35 @@ public sealed class JpegStreamFilterTests
 
         bytes.AddRange([0xFF, 0xD9]);
         return bytes.ToArray();
+    }
+
+    /// <summary>
+    /// The same JPEG relabelled as extended sequential: the SOF0 marker byte
+    /// becomes SOF1 and nothing else changes.
+    /// </summary>
+    /// <remarks>
+    /// Safe to find by scanning, because a frame header precedes the start of
+    /// scan and entropy-coded data — where a stray <c>FF C0</c> could otherwise
+    /// appear — comes after it.
+    /// </remarks>
+    private static byte[] AsExtendedSequential(byte[] jpeg)
+    {
+        byte[] copy = (byte[])jpeg.Clone();
+        for (int i = 0; i + 1 < copy.Length; i++)
+        {
+            if (copy[i] != 0xFF)
+                continue;
+            if (copy[i + 1] == 0xC0)
+            {
+                copy[i + 1] = 0xC1;
+                return copy;
+            }
+
+            if (copy[i + 1] == 0xDA)
+                break;
+        }
+
+        throw new InvalidOperationException("The encoder did not write a baseline frame header to relabel.");
     }
 
     /// <summary>The same JPEG with an Adobe APP14 marker inserted after the SOI.</summary>
