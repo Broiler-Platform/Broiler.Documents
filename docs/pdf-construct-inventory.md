@@ -3,13 +3,13 @@
 - **Status:** Active; regenerated whenever the codec's behavior changes
 - **Component:** `Broiler.Documents.Pdf`
 - **Updated:** 2026-09-01 (IP-001 approved)
-- **Purpose:** to scope the IP-001 qualified review by stating exactly which PDF
+- **Purpose:** to scope the IP-001 acceptance by stating exactly which PDF
   constructs the implementation reads, writes, recognizes without interpreting,
   and rejects
 
 ## 1. What this document is for
 
-The IP/licensing register's IP-001 row asks a qualified reviewer to determine
+The IP/licensing register's IP-001 row asks a reviewer to determine
 whether Broiler's reader and writer fall within Adobe's ISO 32000-1 public
 patent licence — a question about *`Compliant Implementation`* and *`Essential
 Claim`* coverage, and therefore a question about a concrete artifact rather than

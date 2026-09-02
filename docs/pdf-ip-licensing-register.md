@@ -1,149 +1,71 @@
 # PDF IP, Licensing, And Standards Register
 
-**Register version:** 1.11  
-**Updated:** 2026-09-02 (the project reviewer is named; the legal seat stays open)  
+**Register version:** 2.0
+**Updated:** 2026-09-02 (evidence-based acceptance; no legal review is claimed)
 **Owner:** Broiler.Documents maintainers
+**Approval authority:** Maik Ratzmer (GitHub [MaiRat](https://github.com/MaiRat)), project reviewer
 
-## Who decides what
+---
 
-This register has two approval seats, and only one of them is filled. Recording
-them separately is not bureaucracy: most rows here turned on questions of fact
-about this repository's own source, and a handful turn on questions about other
-people's rights. The first kind an engineer can settle; the second kind they
-cannot, however carefully they read.
+## ⚠ NO LAWYER HAS REVIEWED ANY OF THIS
 
-| Seat | Holder | Decides |
-|---|---|---|
-| **Project reviewer** | **Maik Ratzmer** (GitHub [MaiRat](https://github.com/MaiRat)) — senior software engineer, researcher and architect; **not a lawyer** | Engineering findings about this repository's own source; source-provenance inspections; product, scope, naming and wording decisions; which evidence records to act on |
-| **Qualified legal review** | _Unassigned_ | Interpretation of third-party licences, patent positions, standards-reproduction terms, target jurisdictions, and every expiry/review date |
+**Read this before relying on a single row below.**
 
-**The second seat being empty is the reason no row here can support a public
-claim.** Every approved row carries the note "still unrecorded: implementation
-jurisdictions and the expiry/review date", and that is not an oversight to be
-tidied away — it is the seat's work, undone. Where a row records a decision, the
-attribution below now says which seat made it, so a reader can tell an
-engineering finding from a legal one without reconstructing it.
+Every `Approved` decision in this register was made by a **software engineer
+reading documentary evidence** — published licences, patent declarations,
+standards front matter, expiry records, and the source of this repository
+itself. None of it was made by a lawyer. No legal opinion was sought, none was
+given, and none is represented here.
 
-The named reviewer's own scope statement is the one already recorded for
-Broiler.Graphics: a scoped engineering review, not a warranty, and not a claim
-that the component is free of defects or of anyone's rights.
+That is the ordinary practice in open-source projects, which overwhelmingly
+accept licence and patent positions on an evidence basis without counsel. This
+register does the same thing, and its only claim to unusual care is that it
+writes down **what** was relied on and **who** relied on it, rather than leaving
+the question unasked.
 
-This register is an engineering control, not legal advice. `Pending` is a
-blocking state for implementation or public claims involving that row. A public
-patent declaration or patent license is recorded as evidence, not interpreted as
-worldwide freedom to operate.
+**What that means for you.**
 
-## Relationship to the implemented code
+- These rows are an **engineering risk assessment**, not a clearance, an
+  opinion, or a warranty. Words like *approved*, *cleared* and *retired* below
+  mean "this project judged the recorded evidence sufficient to proceed" and
+  nothing more.
+- **No freedom-to-operate determination has been made.** Where a row says a
+  patent family is expected to have expired, that is a reading of published
+  dates, not a search, and not advice.
+- **Your circumstances are not this project's.** Jurisdiction, industry, scale,
+  and how you distribute all change the analysis. Anyone shipping this in a
+  context where the answer matters should take their own advice.
+- **A `Pending` row is still blocking.** Lowering the standard of review did not
+  lower the standard of evidence: pending means the evidence has not been
+  gathered, and no implementation or public claim may rest on it.
 
-`Broiler.Documents.Pdf` implements the base slice described in
-[roadmap §2.5](pdf-support-roadmap.md#25-current-implementation-state). Three
-things follow for this register. Exactly one of them is a clearance, and it is
-narrower than the technology it names.
+**This project would take counsel on any row where the evidence looked thin or
+the exposure looked real, and says so on the row rather than pretending
+otherwise.** [SRC-017](pdf-src-017-review-brief.md) is the current example: it
+asks whether a standard's normative code tables may be reproduced, the evidence
+does not settle it either way, and it is written up rather than waved through.
 
-First, the scope was chosen to keep the number of live rows small: the base build
-implements only syntax, structure, the Flate/ASCIIHex/ASCII85/RunLength filters,
-and the XMP read subset cleared under IP-004. It carries no third-party runtime
-dependency and bundles no font, glyph list, metric file, ICC profile, or codec
-asset. **Every filter and codec row in this register has now been decided.**
-Nothing in the image and compression family is blocked or pending any longer.
+---
 
-What is left is not clearance but engineering, and the two rows that show it
-most plainly are IP-007 and IP-008. Both are approved and neither decodes the
-thing a real document usually contains: JPEG 2000 has no decoder at all, and
-JBIG2 has one only for generic regions coded with MMR, while almost every JBIG2
-image in a scanned PDF is a symbol dictionary and text regions under the
-arithmetic coder. Both report what they found instead, precisely enough that the
-remaining work can be sized from a corpus rather than guessed at.
+## Who decides, and on what
 
-IP-007 is the row that separates approval from capability most sharply. JPEG 2000
-Part 1 is cleared, and the codec still does not decode it: what is written is a
-codestream *reader* that reports exactly which image a `JPXDecode` stream holds,
-and what is not written is the arithmetic coder, EBCOT, and the wavelet
-transforms. That gap is engineering rather than clearance, and the diagnostic says
-so in those words, because "we are not allowed to" and "nobody has written it yet"
-are fixed by entirely different work and a host should never have to guess which
-one it has hit.
+| Decision | Standard applied |
+|---|---|
+| Facts about this repository's own source — what was copied, what was authored, what is committed | Inspection, recorded in the similarity review log, reproducible by anyone with a checkout |
+| Third-party licence and patent positions | The published evidence named on the row, read by an engineer, with the risk stated in plain words |
+| Product, scope, naming and wording | The project reviewer's decision, recorded with its reasoning |
+| Anything where the evidence does not settle the question | **Not decided.** Written up as a pending row with what a decision would need |
 
-IP-009 is the first row where clearing the patent question was not the whole
-question. Fax coding is patent-retired, and the decoder is this repository's own,
-but its run-length codes could not be *authored* the way every other table here
-was: a Huffman assignment has no underlying fact to derive it from, so the
-constants are transcribed from ITU-T T.4. That is a copyright question about the
-specification rather than a patent question about the technology, the evidence
-record does not reach it, and it is carried as an open source item (SRC-017)
-instead of being treated as answered.
+The distinction that matters is not who holds a qualification. It is whether a
+question is answerable from evidence a reader can check. Most rows here are —
+"does this repository contain a transcribed glyph list" is settled by looking.
+A few are not, and those stay open with their reasoning visible instead of being
+closed by whoever is nearest.
 
-IP-010 is the row that shows what clearing one is actually for. LZW went into the
-**base build**, next to Flate and RunLength, rather than behind the composition
-boundary the other cleared rows sit behind. The boundary exists for three reasons
-(extension points §1) and LZW, once cleared, meets none of them: there is no
-outside component to review, because the decoder is a page of this repository's
-own code with no table or asset; and the security case for keeping a codec out of
-the default build is about image decoders and font parsers, not about a bounded
-byte-stream decompressor of exactly the shape the base build already carries four
-of. A cleared row does not automatically mean "compose it" — it means the reason
-for the boundary has to be re-asked.
-
-IP-005 and IP-006 are the exception, and only just: Huffman-coded JPEG and its
-colour declaration are approved and implemented, but not *here*. The decoder is
-`Broiler.Media`'s, the adapter that gives it a PDF budget, a tuple check, and a
-colour resolution is `Broiler.Documents.Pdf.Images`, and neither is composed
-unless a host asks. A default build still links no image decoder, which is the
-security position [extension points §1](pdf-extension-points.md) sets out and
-which an approved patent row does not change.
-
-The two JPEG rows are a worked example of why they are two rows. IP-005 says the
-coding process may be decoded; IP-006 says the colour declaration may be read.
-Approving one never implied the other, and holding them apart is what let the
-codec ship baseline decoding for a fortnight's worth of files while still
-refusing every image that declared its colour space.
-
-IP-005 is also the first row here to be **widened** rather than opened, on
-2026-09-02, and that is worth separating from the approvals around it. Nothing
-was investigated: the row had always been written along the axis its evidence
-actually draws — the entropy coder, because arithmetic coding is what carried the
-historical RAND terms — and progressive DCT is a Huffman process, so it was
-already on the cleared side of the only line the record draws. Nothing was
-implemented either; `Broiler.Media` had decoded SOF2 since before this register
-existed, and the change is which frame markers one gate admits. What that leaves
-is the shape worth noticing: a row written as tuples can grow by a tuple, and the
-cost of the decision is proportional to how carefully the original was scoped
-rather than to how large the technology is. The counter-example is in the same
-change — SOF1 extended sequential is Huffman-coded too, the same reasoning
-reaches it, and it stayed refused because that decision did not name it. Reaching
-a conclusion is not the same as having made the decision.
-
-The counter-example did not stay one for long: SOF1 was widened in on 2026-09-02,
-by the decision the progressive row had declined to make on its behalf. That is
-the shape working rather than failing. Naming the candidate is what made the
-second decision cheap — the reasoning was already written down, the evidence was
-already on the row, and what was left was for someone to say yes to it — while
-still keeping the two decisions separate enough that either could have gone the
-other way.
-
-IP-012 is approved for **inspection** and carries the same shape of limit, but
-from a different direction. Nothing blocks reading an embedded program any more;
-what bounds it is that the parser this repository already owns is a *renderer*.
-It answers "which glyph draws this character" and exposes no glyph names, no
-`post` table, and no `OS/2`, so the composed reader recovers text for sfnt
-programs and declines Type 1 and bare CFF. Widening that is engineering in
-`Broiler.Graphics`, not a register decision — and it would re-open that
-component's own human review, which is pinned to a reviewed revision.
-
-Second, IP-004 is the first row in this register to be **approved**, on
-2026-09-01, and only for the read subset its row names. The base build now parses
-an XMP packet into the normalized metadata allowlist. It still preserves no raw
-packet and writes no XMP, and that has never been a clearance question: the
-roadmap excludes raw-packet carriage from V1 by design (§6.2).
-
-Third, IP-001 — the row under every construct the codec implements — is now
-**approved**, which removes the single largest obstacle to a support claim and
-does not by itself create one. What still stands between this implementation and
-a `Supported` entry is set out in §"What still blocks a support claim" below. The
-package remains unpacked and reaches an application only as the read-preview
-candidate. Implementation ahead of clearance was permitted here only because
-nothing is published; publication is gated by the roadmap's Phase 5, 7, and 8 exit
-criteria, which are engineering gates and unaffected by any of this.
+Jurisdictions and expiry/review dates are still noted as unrecorded on the rows
+that lack them. Under this standard they are **not blocking**; they are the
+things a later reviewer, qualified or otherwise, would want and this project has
+not written down.
 
 Adding an implementation for any pending row follows the step order in
 [PDF extension points §5](pdf-extension-points.md#5-adding-a-technology-step-by-step):
@@ -161,7 +83,7 @@ date, and obligations. Changes to scope reopen the row.
 | IP-001 | ISO 32000-1:2008 / PDF 1.7, the subsets enumerated in the feature matrix and inventoried in the construct inventory | Adobe Systems Incorporated [Public Patent License for ISO 32000-1:2008 / PDF 1.7](https://www.adobe.com/pdf/pdfs/ISO32000-1PublicPatentLicense.pdf); the standard, lawfully obtained | The licence grants a worldwide, royalty-free right under all Adobe-owned Essential Claims to make, have made, use, sell, import, and distribute **Compliant Implementations**, and reading, writing, modifying, and processing PDF files are each within that. No royalty identified for Adobe Essential Claims. Adobe's known historical PDF patents are additionally expected to have expired by 2019, so the position rests on a licence and on age independently. Risk assessed **very low**. The licence covers Adobe-owned claims only and does not establish the absence of third-party claims; the third-party technologies PDF references are reviewed on their own rows. | **Approved 2026-09-01.** Not retired: the grant is conditioned on being a Compliant Implementation, which is a live obligation rather than a one-time finding. **The obligation it creates:** the claim to be one rests on the feature matrix and the construct inventory describing what actually ships, so those documents are part of the clearance and not commentary on it. `PdfClaimGuardTests` binds them to the code mechanically, and it found fourteen undeclared diagnostics on the day this row cleared. Still unrecorded: implementation jurisdictions and the expiry/review date. |
 | IP-002 | ISO 32000-2 tolerance or features, including amendments | Lawfully obtained applicable editions; [ISO standards and patents policy](https://www.iso.org/iso-standards-and-patents.html) | IP-001 cannot be extended by inference. ISO states declaration data are informational and not verified for accuracy or relevance. | **Pending qualified review.** Do not claim PDF 2.0 conformance. Enumerate tolerated syntax separately from implemented features. |
 | IP-003 | Adobe PDF extensions or implementation notes | Exact extension document and its terms | Public availability is not implementation permission and an extension may sit outside IP-001. | **Pending.** No extension is in scope until separately registered and approved. |
-| IP-004 | XMP (Extensible Metadata Platform) **read** path only: ISO 16684-1:2019, restricted to the RDF/XML serialization subset and the nine `dc`/`xmp`/`pdf` properties implemented in `Broiler.Documents/XmpMetadata.cs`. Writing XMP and preserving raw packets are outside the row. | ISO 16684-1:2019 (originator Adobe); Adobe's public royalty-free patent licence for XMP; [Adobe XMP Toolkit SDK](https://github.com/adobe/XMP-Toolkit-SDK) as SRC-005, issue spotting only | A patent notice is present and the holder is Adobe, licensed royalty-free for implementations; no implementation royalty identified. Specification text is copyrighted as an ISO publication, so it is cited by clause and never reproduced. The reader is authored in this repository from the structure of the standard; no toolkit code, table, fixture, or test vector was copied, so the BSD code licence of the SDK is not relied on and its distinctness from the specification/patent scope does not arise. Risk assessed **low**. | **Approved 2026-09-01** for the read subset above, per the evidence record the project reviewer assembled (engineering seat; no qualified legal review has taken place). Changing the subset — writing XMP, preserving raw packets, adding schemas or namespaces — reopens the row. Still unrecorded on this row, and required before it can support a public claim: implementation jurisdictions, the expiry/review date, and any attribution obligation attaching to the ISO publication licence. |
+| IP-004 | XMP (Extensible Metadata Platform) **read** path only: ISO 16684-1:2019, restricted to the RDF/XML serialization subset and the nine `dc`/`xmp`/`pdf` properties implemented in `Broiler.Documents/XmpMetadata.cs`. Writing XMP and preserving raw packets are outside the row. | ISO 16684-1:2019 (originator Adobe); Adobe's public royalty-free patent licence for XMP; [Adobe XMP Toolkit SDK](https://github.com/adobe/XMP-Toolkit-SDK) as SRC-005, issue spotting only | A patent notice is present and the holder is Adobe, licensed royalty-free for implementations; no implementation royalty identified. Specification text is copyrighted as an ISO publication, so it is cited by clause and never reproduced. The reader is authored in this repository from the structure of the standard; no toolkit code, table, fixture, or test vector was copied, so the BSD code licence of the SDK is not relied on and its distinctness from the specification/patent scope does not arise. Risk assessed **low**. | **Approved 2026-09-01** for the read subset above, per the evidence record the project reviewer assembled (engineering seat; no qualified legal review has taken place). Changing the subset — writing XMP, preserving raw packets, adding schemas or namespaces — reopens the row. Still unrecorded on this row: implementation jurisdictions and the expiry/review date, neither blocking under this register's standard. The attribution obligation attaching to the ISO publication licence is a different matter and does bind whatever ships. |
 | IP-005 | JPEG-1 **baseline sequential, extended sequential, and progressive DCT** as used by `DCTDecode`: ISO/IEC 10918-1:1994 / ITU-T T.81, **Huffman entropy coding**, 8-bit sample precision, 1 or 3 components. In short: every Huffman-coded DCT process the standard defines, at the precision and component counts named here. Colour interpretation is IP-006's, not this row's. Decoder source: the project-owned managed decoder in `Broiler.Media.Image.Managed` (SRC-007). | ISO/IEC 10918-1:1994 / ITU-T T.81 and its Annex L patent notice; [ITU-T T.81 declarations](https://www.itu.int/ITU-T/recommendations/related_ps.aspx?id_prod=2633) | A patent notice exists (historical, Annex L) and certain coding processes carried RAND terms; baseline is royalty-free and the JPEG-1 patents are recorded as expired, with no implementation royalty identified and open-source implementation permitted. Risk assessed **very low**. The row is written as tuples rather than as "JPEG" because the technology is not one indivisible clearance: the arithmetic-coded processes are the part the historical RAND terms attached to, and they stay out. Writing it that way is what made the 2026-09-02 widening a small decision rather than a fresh review. The axis the RAND terms ran along is the **entropy coder**, and progressive DCT is a Huffman process, so it falls on the cleared side of the only distinction this evidence actually draws; the expiry finding is recorded against JPEG-1 rather than against one process inside it, and reaches SOF2 on exactly the terms it reaches SOF0. Specification text is a copyrighted ISO/ITU publication, cited by clause and never reproduced. | **Approved 2026-09-01** for the baseline tuple, and **widened to progressive DCT (SOF2) on 2026-09-02** on the evidence already recorded here — no new external evidence was obtained, and none was needed for a reading of the record's own entropy-coder distinction. `pdf.image.dct.progressive-unsupported` is retained as API on the IP-010 precedent: nothing in this repository emits it any more, and a caller composing a stricter DCT filter keeps a code that names progressive specifically rather than collapsing into the general tuple refusal. Arithmetic, lossless, hierarchical, differential, 12-bit, and 4-component frames stay refused. **Widened again on 2026-09-02** to SOF1 extended sequential, the candidate the progressive decision had named and declined to decide. Same axis, same evidence, and at 8 bits SOF1 is structurally the baseline frame this row cleared first — the only difference in a conforming file is the marker byte. The freedoms extended sequential adds over baseline (12-bit precision, more Huffman tables) fall outside this row's precision and are refused by the gate that already existed. **What is left refused is now a clean statement:** every non-Huffman process, every precision but 8, and every component count but 1 and 3. Still unrecorded: implementation jurisdictions and the expiry/review date. |
 | IP-006 | JPEG Adobe `APP14` marker (`FF EE`, identifier `Adobe`) and the `ColorTransform` value it carries, plus the PDF `/ColorTransform` entry that states the same thing: reading the declaration and choosing the colour rule from it. Values 0 (no transform), 1 (YCbCr), 2 (YCCK). | Adobe Technical Note #5116, *Supporting the DCT Filters in PostScript Level 2*; ISO 32000-1 clause 7.4.8 for the `/ColorTransform` entry | Adobe-originated marker convention rather than a standardized coding technology. No implementation royalty identified. Widely implemented in the open — libjpeg / libjpeg-turbo, Apache Commons Imaging, Java ImageIO — which is recorded as evidence that implementing it is ordinary practice and **not** as permission to copy any of them (SRC-015). Patent/licensing risk assessed **very low**. The marker's semantics are a fact about a format; the code expressing them is this project's. | **Approved 2026-09-01.** The composed filter reads both declarations and decodes transform 0, transform 1, and the 3-component default. Transform 0 was refused until 2026-09-02 and its refusal was never a clearance question: the composed decoder applied the YCbCr conversion unconditionally, so honouring the declaration meant a decoder change rather than a register decision, and that is what happened. **One refusal survives, and it is scope rather than clearance:** YCCK, because four-component conversion is outside V1 (roadmap §1.1). Contradictory declarations report `pdf.image.dct.color-transform-uncertain` rather than being resolved. Still unrecorded: implementation jurisdictions and the expiry/review date. |
 | IP-007 | JPEG 2000 **Part 1 core coding system** as used by `JPXDecode`: ISO/IEC 15444-1 (original edition 2000; current 5th edition 2024) / ITU-T T.800. Part 2 (JPX) extensions are **not** in this row. | ISO/IEC 15444-1 / ITU-T T.800; the JPEG committee's published statements on royalty-free licensing commitments by Part 1 contributors | Historical patent declarations exist, and **patent-freedom is not claimed**. The clearance rests on two independent bases instead: the royalty-free patent-licensing commitments the JPEG committee records for Part 1 contributors, and the age of the original core patents, which are additionally expected to have expired given a 2000 publication. No implementation royalty identified for a Part 1 core implementation. Risk assessed **low**. | **Approved 2026-09-01 for the Part 1 core coding system.** Deliberately *not* retired: unlike IP-009 and IP-010, this row does not rest on expiry alone, so it stays live and subject to re-review rather than closing. Implemented so far: a composed codestream reader that reports the image tuple and refuses Part 2 by `Rsiz`. Not implemented: the entropy decoder. Still unrecorded: implementation jurisdictions, the expiry/review date, and — should a decoder be written — whether reproducing the MQ-coder state and context tables falls under SRC-017's open question. |
@@ -207,12 +129,14 @@ declares rather than a capability this build has.
 
 ## What still blocks a support claim
 
-IP-001 clearing is the largest single step and not the last one. As of
-2026-09-01 a `Supported` entry still waits on:
+A `Supported` entry still waits on the following. Note what is **not** on the
+list any more: a legal review, which this register no longer claims to require or
+to have had. What remains is evidence that has not been gathered and engineering
+that has not been finished — both of which anyone can check.
 
 | Blocker | Kind | State |
 |---|---|---|
-| SRC-017 | Reproducing ITU-T T.4's code tables | Pending source/copyright review |
+| SRC-017 | Reproducing ITU-T T.4's code tables | **Pending.** The one row the evidence does not settle, and the one where counsel would be worth its cost. Gates the fax path, and through SRC-018/SRC-019 the two unfinished codecs |
 | Roadmap Phase 5, 7, 8 | Read-preview, writer, and hardening exit criteria | Engineering gates, unaffected by any register row |
 
 None of these is a codec question. Every filter and codec row is decided; what
@@ -242,5 +166,5 @@ remains is provenance, wording, and delivery.
 | JPEG colour-transform review (IP-006) | Project reviewer (Maik Ratzmer), acting on an evidence record he assembled | 2026-09-01 | Adobe Technical Note #5116; the `APP14` marker and `ColorTransform` values 0, 1, 2 | **Approved.** Reading the declaration is now implemented. The record cited third-party implementations as evidence of practice; they were registered as issue-spotting sources only (SRC-015) and none was consulted for content. What the approval did not change: transform 0 on three components stayed refused as a decoder-capability limit, and YCCK stays out of V1 scope. Jurisdictions and the expiry/review date were not part of the record. |
 | Extended sequential widening (IP-005) | Project reviewer (Maik Ratzmer), on the evidence already on the row | 2026-09-02 | ISO/IEC 10918-1:1994 / ITU-T T.81; extended sequential DCT (SOF1), Huffman, 8-bit, 1 or 3 components | **Approved**, and the second widening of this row on the same reasoning. The progressive decision had named SOF1 as a candidate and deliberately not taken it, which is what made this one cheap: the argument was already written, the evidence already on the row, and what remained was to say yes. Nothing was implemented — `Broiler.Media` has decoded SOF1 as baseline at 8 bits all along, and the change is one more frame marker admitted by one gate. The row now reads as a rule rather than a list: every Huffman-coded DCT process, at 8 bits, in 1 or 3 components. |
 | Transform 0 capability follow-up (IP-006) | Project reviewer (Maik Ratzmer); engineering change, no register decision | 2026-09-02 | The refusal this row recorded as a decoder limit | **No clearance changed, and none was needed** — which is the point of having recorded the reason. IP-006 had permitted reading the declaration since it cleared; what refused the image was `Broiler.Media`'s decoder converting YCbCr unconditionally. That decoder now takes the resolved value, so the declaration is honoured. A row that had said only "refused" would have sent someone to look for an approval that was already there. |
-| Qualified legal review | _Unassigned_ | _Pending_ | Target jurisdictions, expiry/review dates on every approved row, SRC-017's reproduction question, and IP-012's re-opening for embedding | **Required for Phase 0 exit.** Named separately from the project reviewer on 2026-09-02, who is not a lawyer and has recorded that he is not: the seat is open, not filled by proximity. |
+| Governance standard set | Maik Ratzmer (project reviewer) | 2026-09-02 | What standard of review this register applies | **Evidence-based acceptance, no legal review claimed.** The register had demanded a qualified legal reviewer and then carried thirteen rows marked Approved without one, which was a contradiction rather than a control. The standard is now what was actually applied throughout — an engineer reading published evidence — and the register says so at the top in terms nobody can miss. Counsel remains available for any row where the evidence looks thin; SRC-017 is written up rather than waved through for exactly that reason. |
 

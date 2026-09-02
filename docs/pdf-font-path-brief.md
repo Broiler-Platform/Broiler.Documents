@@ -3,10 +3,12 @@
 **Status:** Draft for the **project reviewer** — Maik Ratzmer — whose seat this
 falls in: it is a product and scope decision about what this project ships. Not a
 recommendation, and not legal advice.
-**One part is not his to settle.** Path A obliges the project to a specific
-font's licence, and reading that licence is the qualified legal seat's work, which
-is unassigned. Path B avoids it entirely, which is a difference worth weighing
-rather than a tiebreaker.
+**One part carries more exposure than the rest.** Path A obliges the project to a
+specific font's licence, read under the register's evidence-based standard by
+someone who is not a lawyer. Path B avoids that obligation entirely. That is a
+difference worth weighing rather than a tiebreaker — and if any part of this
+decision is worth counsel, it is reading the licence of a font the project would
+then redistribute inside every document its users generate.
 **Prepared:** 2026-09-02
 **Decides:** the operational font path required by
 [roadmap §11.3](pdf-support-roadmap.md#113-font-and-embedding-license-policy)

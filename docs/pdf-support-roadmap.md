@@ -3,14 +3,14 @@
 - **Status:** Base slice implemented; preview and release gates outstanding
 - **Component:** `Broiler.Documents`
 - **Target package:** `Broiler.Documents.Pdf`
-- **IP/legal review baseline:** 2026-08-11
+- **IP review baseline:** 2026-08-11 (evidence-based; see the register's standing note)
 - **Architecture, security, delivery, and legal-scope review:** 2026-08-22
 - **Base implementation landed:** 2026-08-25 (see
   [§2.5 Current implementation state](#25-current-implementation-state))
 
 The IP and licensing requirements below are engineering release controls, not a
 legal opinion. Patent freedom-to-operate, reciprocal-license decisions, and
-target-jurisdiction questions require approval by the project's qualified legal
+target-jurisdiction questions require approval by the project's
 reviewer before the affected feature ships.
 
 ## 1. Recommended end state
@@ -44,7 +44,7 @@ Include:
   PDF 2.0-only feature or developer extension;
 - logical text, basic styling, links admitted by the shared URI policy, metadata,
   and safely placeable inline images;
-- new PDF 1.7 output for broad compatibility, subject to a qualified review that
+- new PDF 1.7 output for broad compatibility, subject to a review that
   the planned reader/writer falls within Adobe's ISO 32000-1 public patent
   license definitions or has separate authority, and to the project's exact
   file-validity and supported-feature statements; and
@@ -320,7 +320,7 @@ Phase 1 option/input/result, script/shaping, image, and font-format decisions.
 Cumulative effort is roughly 31–46 engineer-weeks for a read preview, 48–74 for
 a read/write preview, and 54–84 for a hardened release. Calendar time may be
 lower when Phase 6 runs in parallel with parser work. These estimates exclude
-waiting time for standards acquisition, outside legal review, patent-family
+waiting time for standards acquisition, any counsel the project chooses to take, patent-family
 research, permissions, or commercial-license negotiation.
 
 ### 4.1 Delivery milestones and publication state

@@ -1,13 +1,15 @@
 # PDF Support Feature Matrix
 
-**Version:** 1.10 (font embedding machinery, still rejected)  
-**Updated:** 2026-09-02 (font embedding preflight built; the capability stays rejected)  
+**Version:** 1.11 (evidence-based register standard)  
+**Updated:** 2026-09-02 (aligned with the register's evidence-based standard)  
 **Authority:** This matrix defines claims; the roadmap defines planned work.
 
 Status values are `Planned`, `Candidate`, `Supported`, `Rejected`, and
 `Post-V1`. Only `Supported` may appear as a product capability. Advancing an
-entry requires tests, corpus evidence, documentation, and any applicable legal
-clearance recorded in the IP/licensing register.
+entry requires tests, corpus evidence, documentation, and a decided row in the
+IP/licensing register. Those decisions are engineering risk assessments made on
+published evidence, not legal clearances — the register says so at the top, in
+terms worth reading before treating any word here as a guarantee.
 
 `Broiler.Documents.Pdf` now exists and implements the base slice described in
 [roadmap §2.5](pdf-support-roadmap.md#25-current-implementation-state). **No
