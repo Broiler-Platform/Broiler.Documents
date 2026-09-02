@@ -127,7 +127,7 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
         ImageBuffer buffer;
         try
         {
-            buffer = _codec.Decode(input);
+            buffer = _codec.Decode(input, ColorTransformOf(frame, parameters));
         }
         catch (Exception ex) when (ex is not (OutOfMemoryException or StackOverflowException or OperationCanceledException))
         {
@@ -205,10 +205,7 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
     /// </remarks>
     private static PdfFilterResult? RefuseColour(in JpegFrameHeader frame, PdfFilterParameters parameters)
     {
-        int? fromMarker = frame.HasAdobeMarker ? frame.AdobeTransform : null;
-        int? fromParameters = parameters.ContainsKey("ColorTransform")
-            ? parameters.GetInt32("ColorTransform", UnreadableTransform)
-            : null;
+        (int? fromMarker, int? fromParameters) = Declarations(frame, parameters);
 
         if (fromMarker is int marker && fromParameters is int parameter && marker != parameter)
         {
@@ -219,7 +216,7 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
                 "read, so no colour rule was assumed.");
         }
 
-        int transform = fromMarker ?? fromParameters ?? DefaultTransform(frame.Components);
+        int transform = Resolve(frame, fromMarker, fromParameters);
 
         // Greyscale has one plane and no transform to apply, so the decoder
         // produces the same pixels whatever the declaration says.
@@ -228,11 +225,7 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
 
         return transform switch
         {
-            YCbCrTransform => null,
-            NoTransform => Uncleared(
-                $"The image is {frame.Describe()} and declares colour transform 0, meaning its samples are already RGB. " +
-                "The composed decoder applies the YCbCr conversion unconditionally, so decoding it would report colours " +
-                "the document does not contain. This is a limit of the composed decoder, not of IP-006."),
+            YCbCrTransform or NoTransform => null,
             YcckTransform => Uncleared(
                 $"The image is {frame.Describe()} and declares colour transform 2 (YCCK), which is a four-component " +
                 "rule on a three-component frame. YCCK conversion is outside this release's scope (roadmap §1.1)."),
@@ -244,6 +237,42 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
 
         static PdfFilterResult Uncleared(string message) =>
             PdfFilterResult.Unsupported(PdfDiagnosticCodes.FilterDctUnsupported, message);
+    }
+
+    /// <summary>The two places a colour transform can be declared, either absent.</summary>
+    private static (int? FromMarker, int? FromParameters) Declarations(
+        in JpegFrameHeader frame,
+        PdfFilterParameters parameters) =>
+        (frame.HasAdobeMarker ? frame.AdobeTransform : null,
+            parameters.ContainsKey("ColorTransform")
+                ? parameters.GetInt32("ColorTransform", UnreadableTransform)
+                : null);
+
+    /// <summary>
+    /// The transform that applies, given what the two declarations say. Only
+    /// reached once <see cref="RefuseColour"/> has admitted the frame, so the
+    /// declarations are known to agree or to be absent.
+    /// </summary>
+    private static int Resolve(in JpegFrameHeader frame, int? fromMarker, int? fromParameters) =>
+        fromMarker ?? fromParameters ?? DefaultTransform(frame.Components);
+
+    /// <summary>
+    /// What the decoder is told about a three-component frame's channels.
+    /// </summary>
+    /// <remarks>
+    /// The gate has already refused everything but the two cleared readings, so
+    /// this is a translation rather than a second decision — which is the point
+    /// of resolving the declarations in one place: two rules that agree today
+    /// are two rules that can drift tomorrow.
+    /// </remarks>
+    private static JpegColorTransform ColorTransformOf(
+        in JpegFrameHeader frame,
+        PdfFilterParameters parameters)
+    {
+        (int? fromMarker, int? fromParameters) = Declarations(frame, parameters);
+        return Resolve(frame, fromMarker, fromParameters) == NoTransform
+            ? JpegColorTransform.None
+            : JpegColorTransform.YCbCr;
     }
 
     /// <summary>

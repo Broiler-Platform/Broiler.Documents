@@ -157,18 +157,33 @@ public sealed class JpegStreamFilterTests
     }
 
     [Fact]
-    public void An_Adobe_Marker_Declaring_No_Transform_Is_Refused_As_A_Decoder_Limit()
+    public void An_Adobe_Marker_Declaring_No_Transform_Is_Honoured()
     {
-        // Transform 0 says the samples are already RGB. The composed decoder
-        // always applies the YCbCr conversion, so this is a thing the build
-        // cannot do rather than a thing it may not do, and the message says which.
+        // Transform 0 says the samples are already RGB. This used to be refused,
+        // not because IP-006 withheld it but because the composed decoder always
+        // applied the YCbCr conversion. It can now be told not to, so the
+        // declaration is honoured rather than reported.
         byte[] jpeg = WithAdobeMarker(Jpeg(32, 32), transform: 0);
 
         PdfFilterResult result = Decode(jpeg);
 
-        Assert.Equal(PdfDiagnosticCodes.FilterDctUnsupported, result.DiagnosticCode);
-        Assert.Contains("already RGB", result.Message, StringComparison.Ordinal);
-        Assert.Contains("limit of the composed decoder, not of IP-006", result.Message, StringComparison.Ordinal);
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal(32 * 32 * 4, result.Data!.Length);
+    }
+
+    [Fact]
+    public void The_Two_Readings_Of_One_Image_Differ()
+    {
+        // The declaration has to change the pixels, or honouring it is a claim
+        // rather than a behaviour. The same encoded bytes are read both ways.
+        byte[] samples = Jpeg(32, 32);
+
+        PdfFilterResult asYCbCr = Decode(WithAdobeMarker(samples, transform: 1));
+        PdfFilterResult asRgb = Decode(WithAdobeMarker(samples, transform: 0));
+
+        Assert.True(asYCbCr.Succeeded, asYCbCr.Message);
+        Assert.True(asRgb.Succeeded, asRgb.Message);
+        Assert.NotEqual(asYCbCr.Data!, asRgb.Data!);
     }
 
     [Fact]

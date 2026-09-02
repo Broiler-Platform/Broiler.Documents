@@ -1,7 +1,7 @@
 # PDF Support Feature Matrix
 
-**Version:** 1.7 (IP-005 widened to progressive DCT)  
-**Updated:** 2026-09-02 (IP-005 widened to progressive DCT)  
+**Version:** 1.8 (progressive DCT; colour transform 0)  
+**Updated:** 2026-09-02 (colour transform 0 honoured)  
 **Authority:** This matrix defines claims; the roadmap defines planned work.
 
 Status values are `Planned`, `Candidate`, `Supported`, `Rejected`, and
@@ -52,7 +52,8 @@ is pending.
 | DCT: 8-bit extended sequential (SOF1), Huffman | Detect/skip | Detect/skip | Reject | Later | No | No | No | None until separately cleared | Outside IP-005; the progressive widening did not name it | `pdf.image.dct.tuple-unsupported` |
 | DCT: arithmetic, lossless, hierarchical, differential, 12-bit, 4-component | Detect/skip | Detect/skip | Reject | No | No | No | No | None | Outside IP-005; arithmetic carried the historical RAND terms | `pdf.image.dct.tuple-unsupported` |
 | JPEG APP14 / `ColorTransform` 1, or absent on 3 components | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder | IP-006 approved 2026-09-01 | `pdf.image.decoded-not-projected` |
-| JPEG APP14 / `ColorTransform` 0 on 3 components, 2 (YCCK), or conflicting declarations | Detect/skip | Detect/skip | Reject | No | No | No | No | None | IP-006 approved; refused by decoder capability (0) or V1 scope (YCCK) | `pdf.image.dct.tuple-unsupported`, `pdf.image.dct.color-transform-uncertain` |
+| JPEG APP14 / `ColorTransform` 0 on 3 components | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder | IP-006 approved 2026-09-01; decoder capability added 2026-09-02 | `pdf.image.decoded-not-projected` |
+| JPEG APP14 / `ColorTransform` 2 (YCCK), or conflicting declarations | Detect/skip | Detect/skip | Reject | No | No | No | No | None | IP-006 approved; refused by V1 scope (YCCK) or self-contradiction | `pdf.image.dct.tuple-unsupported`, `pdf.image.dct.color-transform-uncertain` |
 | JPXDecode / JPEG 2000 Part 1: codestream recognized and reported | Implemented as a composed reader | Candidate | Reject | No | No | No | No | Caller-composed reader; never in the default graph | IP-007 approved for Part 1 2026-09-01 | `pdf.filter.jpx.unsupported` with the tuple |
 | JPXDecode / JPEG 2000 Part 1: entropy decoding | Not written | Later | Reject | Later | No | No | No | None | IP-007 approved; the gap is engineering, not clearance | `pdf.filter.jpx.unsupported` |
 | JPXDecode / JPEG 2000 Part 2 extensions | Detect/skip | Detect/skip | Reject | No | No | No | No | None | Outside IP-007; refused by `Rsiz` | `pdf.filter.jpx.unsupported` |
