@@ -162,6 +162,11 @@ internal sealed class PdfFeatureTally
     private readonly PageSet _artworkPages = new();
     private readonly Dictionary<string, ImageGroup> _images = new(StringComparer.Ordinal);
     private readonly DecodedImageGroup _decodedImages = new();
+    private readonly SortedSet<int> _notProjectedPages = [];
+    private readonly SortedSet<int> _deniedPages = [];
+    private int _notProjected;
+    private int _denied;
+    private string? _deniedReason;
     private readonly List<PdfFontProgram> _fontPrograms = [];
     private int _fontProgramOverflow;
 
@@ -202,6 +207,31 @@ internal sealed class PdfFeatureTally
     /// </param>
     public void NoteDecodedImage(in PdfImageShape declared, long sampleBytes, int? page, bool codec) =>
         _decodedImages.Add(declared, sampleBytes, page, codec);
+
+    /// <summary>
+    /// Records a decoded image the model could not take: a stencil mask, a
+    /// dictionary that reinterprets its samples, or a sample layout outside the
+    /// two the projection understands.
+    /// </summary>
+    public void NoteImageNotProjected(int? page)
+    {
+        _notProjected++;
+        if (page is int number)
+            _notProjectedPages.Add(number);
+    }
+
+    /// <summary>
+    /// Records a decoded image the caller's policy refused. Counted apart from
+    /// <see cref="NoteImageNotProjected"/> because a decision someone made and a
+    /// limit of this build are answered by entirely different work.
+    /// </summary>
+    public void NoteImageDenied(int? page, string? denial)
+    {
+        _denied++;
+        _deniedReason ??= denial;
+        if (page is int number)
+            _deniedPages.Add(number);
+    }
 
     /// <summary>
     /// Records one embedded font program that was detected, and what became of
@@ -282,9 +312,42 @@ internal sealed class PdfFeatureTally
 
     private void ReportDecodedImages(PdfDiagnosticSink diagnostics)
     {
-        if (_decodedImages.Total > 0)
-            diagnostics.Skipped(PdfDiagnosticCodes.ImageDecodedNotProjected, _decodedImages.Describe());
+        // Only the images that did not reach the model are reported now. A
+        // decoded image that became an InlineImage is a success, and saying it
+        // was "decoded but not projected" was true only while nothing could be.
+        if (_notProjected > 0)
+        {
+            // The tally's own description carries what the decode learned —
+            // including a dictionary that disagrees with its samples, which is
+            // one of the reasons an image is not carried. Appending the reason
+            // rather than replacing that keeps both halves of the story.
+            const string Why =
+                " Not carried into the document: a stencil mask, a Decode array that reinterprets the samples, " +
+                "or a component layout outside the two this build projects. The samples remain reachable " +
+                "through the filter pipeline.";
+            string where = PagesPhrase(_notProjectedPages);
+            diagnostics.Skipped(
+                PdfDiagnosticCodes.ImageDecodedNotProjected,
+                _decodedImages.Describe() + Why + where);
+        }
+
+        if (_denied > 0)
+        {
+            string where = PagesPhrase(_deniedPages);
+            string why = _deniedReason is null ? "." : ": " + _deniedReason + ".";
+            diagnostics.Skipped(
+                PdfDiagnosticCodes.ImageExtractionDenied,
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{_denied} decoded image(s) were refused by the resource policy{where}{why}"));
+        }
     }
+
+    /// <summary>The pages a tally was seen on, as a phrase, or nothing.</summary>
+    private static string PagesPhrase(SortedSet<int> pages) =>
+        pages.Count == 0
+            ? string.Empty
+            : " (page" + (pages.Count == 1 ? " " : "s ") + string.Join(", ", pages) + ")";
 
     private void ReportFontPrograms(PdfDiagnosticSink diagnostics)
     {

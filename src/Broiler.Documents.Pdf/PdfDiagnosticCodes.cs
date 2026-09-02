@@ -172,6 +172,14 @@ public static class PdfDiagnosticCodes
     /// </summary>
     public const string ImageDecodedNotProjected = "pdf.image.decoded-not-projected";
 
+    /// <summary>
+    /// A decoded image was refused by the caller's resource policy rather than by
+    /// this build. Distinct from <see cref="ImageDecodedNotProjected"/>, which is
+    /// this codec saying it could not carry the samples: this one is a decision
+    /// someone made and can change, and the two are fixed by different work.
+    /// </summary>
+    public const string ImageExtractionDenied = "pdf.image.extraction-denied";
+
     /// <summary>Vector artwork or a shading was found that the logical model cannot represent.</summary>
     public const string VectorArtworkDropped = "pdf.import.vector-artwork-dropped";
 

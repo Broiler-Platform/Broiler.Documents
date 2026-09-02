@@ -116,7 +116,8 @@ internal static class PdfReader
         string? structureTree = NoteDocumentLevelFeatures(store, catalog, diagnostics);
 
         PdfUriPolicy policy = options.UriPolicy ?? services.UriPolicy;
-        var interpreter = new PdfContentInterpreter(store);
+        var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
+        var interpreter = new PdfContentInterpreter(store, resources);
         var paragraphs = new List<RichTextParagraph>();
         int emptyPages = 0;
 
@@ -133,7 +134,8 @@ internal static class PdfReader
             if (!options.IncludeInvisibleText)
                 fragments = FilterVisible(fragments);
 
-            if (fragments.Count == 0)
+            IReadOnlyList<PdfPlacedImage> images = interpreter.PlacedImages;
+            if (fragments.Count == 0 && images.Count == 0)
             {
                 emptyPages++;
                 continue;
@@ -143,7 +145,8 @@ internal static class PdfReader
             List<PdfTextLine> lines = PdfReadingOrder.BuildLines(fragments, links);
 
             bool pageBreak = options.MapPageBreaks && i < pages.Count - 1;
-            paragraphs.AddRange(PdfModelProjector.Project(lines, pageBreak, options.Limits.MaxParagraphCount));
+            paragraphs.AddRange(
+                PdfModelProjector.Project(lines, images, pageBreak, options.Limits.MaxParagraphCount));
         }
 
         // Back to document scope, and the one point where the constructs the
@@ -200,7 +203,8 @@ internal static class PdfReader
             declared,
             pages.Count,
             extensions,
-            diagnostics.Build());
+            diagnostics.Build(),
+            resources.Build());
     }
 
     private static IReadOnlyList<PdfTextFragment> FilterVisible(IReadOnlyList<PdfTextFragment> fragments)

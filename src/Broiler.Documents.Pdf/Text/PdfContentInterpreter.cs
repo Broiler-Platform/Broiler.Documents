@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using Broiler.Documents.Model;
 using Broiler.Documents.Pdf.Filters;
 using Broiler.Documents.Pdf.Structure;
 using Broiler.Documents.Pdf.Syntax;
@@ -65,6 +66,8 @@ internal sealed class PdfContentInterpreter
 
     private readonly Stack<GraphicsState> _stack = new();
     private GraphicsState _state = GraphicsState.Initial;
+    private readonly DocumentConversionContextBuilder? _resources;
+    private readonly List<PdfPlacedImage> _placedImages = [];
     private PdfMatrix _textMatrix = PdfMatrix.Identity;
     private PdfMatrix _lineMatrix = PdfMatrix.Identity;
     private string? _pendingActualText;
@@ -92,16 +95,25 @@ internal sealed class PdfContentInterpreter
     private double _runSpaceWidth;
     private bool _runOpen;
 
-    public PdfContentInterpreter(PdfObjectStore store)
+    public PdfContentInterpreter(PdfObjectStore store, DocumentConversionContextBuilder? resources = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _resources = resources;
     }
+
+    /// <summary>
+    /// The images this page drew that the caller's policy allowed into the model,
+    /// with the box each is drawn in. Empty when no policy permits extraction, or
+    /// when nothing decoded to samples the model can take.
+    /// </summary>
+    public IReadOnlyList<PdfPlacedImage> PlacedImages => _placedImages;
 
     /// <summary>Runs a page's content and returns the text runs it placed.</summary>
     public IReadOnlyList<PdfTextFragment> Run(PdfPage page)
     {
         ArgumentNullException.ThrowIfNull(page);
         _fragments.Clear();
+        _placedImages.Clear();
         _state = GraphicsState.Initial;
         _stack.Clear();
         ResetPath();
@@ -730,6 +742,7 @@ internal sealed class PdfContentInterpreter
             {
                 _store.Features.NoteDecodedImage(
                     shape, decoded.Data!.LongLength, _store.CurrentPage, HasImageFilter(filter));
+                Project(stream, shape, decoded.Data);
                 return;
             }
 
@@ -1305,5 +1318,140 @@ internal sealed class PdfContentInterpreter
             new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value);
 
         private static double Finite(double value) => double.IsFinite(value) ? value : 0;
+    }
+
+    /// <summary>
+    /// Turns decoded samples into an image in the model, when the samples are a
+    /// picture, the dictionary does not reinterpret them, and the caller's policy
+    /// permits extraction.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Three things are refused here rather than guessed at, and each would
+    /// produce a plausible wrong picture instead of an error.
+    /// </para>
+    /// <para>
+    /// A <c>/ImageMask</c> stencil is not a picture: it paints the current fill
+    /// colour through a one-bit shape, so projecting it as black-and-white would
+    /// invent a colour the page never used. A <c>/Decode</c> array remaps the
+    /// component values, and honouring only some of the ways it can do that is
+    /// worse than honouring none — so any Decode at all stops the projection. And
+    /// samples whose length matches neither of the two layouts this understands
+    /// are some other arrangement of components, which is a decoder question
+    /// rather than something to infer from a byte count.
+    /// </para>
+    /// <para>
+    /// What is left is the two layouts the composed filters actually produce:
+    /// four-byte RGBA from the image codecs, and packed one-bit rows from the fax
+    /// and JBIG2 decoders, whose output convention is fixed at 0 for black.
+    /// </para>
+    /// </remarks>
+    private void Project(PdfStream stream, PdfImageShape shape, byte[] samples)
+    {
+        if (_resources is null || shape.Width <= 0 || shape.Height <= 0)
+            return;
+
+        PdfDictionary dictionary = stream.Dictionary;
+        bool stencil = _store.Resolve(dictionary["ImageMask"] ?? dictionary["IM"]) is PdfBoolean mask && mask.Value;
+        if (stencil || dictionary["Decode"] is not null || dictionary["D"] is not null)
+        {
+            _store.Features.NoteImageNotProjected(_store.CurrentPage);
+            return;
+        }
+
+        byte[]? rgba = ToRgba(samples, shape.Width, shape.Height);
+        if (rgba is null)
+        {
+            _store.Features.NoteImageNotProjected(_store.CurrentPage);
+            return;
+        }
+
+        (double left, double top, double width, double height) = PlacementOf(_state.Matrix);
+        if (width <= 0 || height <= 0)
+        {
+            _store.Features.NoteImageNotProjected(_store.CurrentPage);
+            return;
+        }
+
+        var resource = BImageResource.FromPixels(new BPixelBuffer(shape.Width, shape.Height, rgba));
+        if (!_resources.TryAdmit(
+                new DocumentResourceRequest(
+                    resource,
+                    DocumentResourceProvenance.ReadFromSource,
+                    DocumentResourceDisposition.Embedded,
+                    name: null,
+                    sourceFormat: "PDF"),
+                DocumentResourceOperations.ExtractToModel,
+                out DocumentResourceId id,
+                out string? denial))
+        {
+            _store.Features.NoteImageDenied(_store.CurrentPage, denial);
+            return;
+        }
+
+        // The drawn box is the display size, in points, because user space is
+        // points and the matrix is what decides how large the picture appears.
+        var image = new InlineImage(resource, id, width, height);
+        _placedImages.Add(new PdfPlacedImage(image, left, top, width, height));
+    }
+
+    /// <summary>
+    /// The samples as straight-alpha RGBA, or null when the layout is not one of
+    /// the two this understands.
+    /// </summary>
+    private static byte[]? ToRgba(byte[] samples, int width, int height)
+    {
+        long pixels = (long)width * height;
+        if (pixels > int.MaxValue / 4)
+            return null;
+
+        if (samples.LongLength == pixels * 4)
+            return samples;
+
+        // Packed one-bit rows, most significant bit first, 0 meaning black.
+        long stride = ((long)width + 7) / 8;
+        if (samples.LongLength != stride * height)
+            return null;
+
+        byte[] rgba = new byte[pixels * 4];
+        int output = 0;
+        for (int y = 0; y < height; y++)
+        {
+            long row = y * stride;
+            for (int x = 0; x < width; x++)
+            {
+                int bit = (samples[row + (x >> 3)] >> (7 - (x & 7))) & 1;
+                byte level = bit == 0 ? (byte)0 : (byte)255;
+                rgba[output] = level;
+                rgba[output + 1] = level;
+                rgba[output + 2] = level;
+                rgba[output + 3] = 255;
+                output += 4;
+            }
+        }
+
+        return rgba;
+    }
+
+    /// <summary>
+    /// The box the unit square maps to under <paramref name="matrix"/>: an image
+    /// is drawn by transforming [0,1]x[0,1], so its edges are the lengths of the
+    /// transformed basis vectors and its position is the corner extent.
+    /// </summary>
+    private static (double Left, double Top, double Width, double Height) PlacementOf(PdfMatrix matrix)
+    {
+        (double x0, double y0) = matrix.Transform(0, 0);
+        (double x1, double y1) = matrix.Transform(1, 0);
+        (double x2, double y2) = matrix.Transform(0, 1);
+        (double x3, double y3) = matrix.Transform(1, 1);
+
+        double left = Math.Min(Math.Min(x0, x1), Math.Min(x2, x3));
+        double top = Math.Max(Math.Max(y0, y1), Math.Max(y2, y3));
+        double width = Math.Sqrt(((x1 - x0) * (x1 - x0)) + ((y1 - y0) * (y1 - y0)));
+        double height = Math.Sqrt(((x2 - x0) * (x2 - x0)) + ((y2 - y0) * (y2 - y0)));
+
+        return double.IsFinite(left) && double.IsFinite(top) && double.IsFinite(width) && double.IsFinite(height)
+            ? (left, top, width, height)
+            : (0, 0, 0, 0);
     }
 }

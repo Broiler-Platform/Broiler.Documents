@@ -180,7 +180,13 @@ public sealed class PdfClaimGuardTests
         string source = File.ReadAllText(Path.Combine(
             root, "src", "Broiler.Documents.Pdf", "PdfDiagnosticCodes.cs"));
 
-        return Regex.Matches(source, @"=\s*""([^""]+)""", RegexOptions.CultureInvariant)
+        // Const declarations only. Matching every `= "..."` also matched the
+        // cref of a <see> tag, so a code that documented its relationship to
+        // another one was reported as an undocumented code of its own.
+        return Regex.Matches(
+                source,
+                @"const\s+string\s+\w+\s*=\s*""([^""]+)""",
+                RegexOptions.CultureInvariant)
             .Select(match => match.Groups[1].Value);
     }
 }

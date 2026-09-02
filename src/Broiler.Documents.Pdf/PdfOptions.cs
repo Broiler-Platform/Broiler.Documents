@@ -24,8 +24,9 @@ public sealed class PdfReadOptions : DocumentReadOptions
         PdfLimits? pdfLimits = null,
         bool mapPageBreaks = false,
         bool includeInvisibleText = true,
-        PdfUriPolicy? uriPolicy = null)
-        : base(limits)
+        PdfUriPolicy? uriPolicy = null,
+        DocumentResourcePolicy? resourcePolicy = null)
+        : base(limits, resourcePolicy: resourcePolicy)
     {
         PdfLimits = pdfLimits ?? PdfLimits.Default;
         MapPageBreaks = mapPageBreaks;
