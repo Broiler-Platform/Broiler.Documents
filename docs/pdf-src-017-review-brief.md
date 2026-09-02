@@ -1,7 +1,10 @@
 # SRC-017 Review Brief: Reproducing Normative Code Tables
 
-**Status:** Draft for the qualified reviewer. Nothing here is a decision, and
-nothing here is legal advice.
+**Status:** Draft for the **qualified legal reviewer**, a seat that is currently
+unassigned. Nothing here is a decision, and nothing here is legal advice.
+**Not decidable by the project reviewer.** Maik Ratzmer holds the engineering
+seat and is not a lawyer; this question is about the terms of somebody else's
+publication, which is the other seat's work.
 **Prepared:** 2026-09-02
 **Decides:** [SRC-017](pdf-approved-sources.md), and by reference SRC-018 and
 SRC-019.
