@@ -17,8 +17,10 @@ public readonly record struct ParagraphStyle
     /// <summary>Indent depth in list/indent levels; never negative.</summary>
     public int IndentLevel { get; init; }
 
+    /// <summary>Space above the paragraph, in points.</summary>
     public float SpacingBefore { get; init; }
 
+    /// <summary>Space below the paragraph, in points.</summary>
     public float SpacingAfter { get; init; }
 
     /// <summary>Left-aligned, single-spaced, no list, no indent.</summary>

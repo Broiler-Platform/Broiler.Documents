@@ -12,7 +12,17 @@ public readonly record struct InlineStyle
     /// <summary>Font family name, or <see langword="null"/> for the default family.</summary>
     public string? FontFamily { get; init; }
 
-    /// <summary>Font size in logical units, or <see langword="null"/> for the default size.</summary>
+    /// <summary>
+    /// Font size in <b>points</b>, or <see langword="null"/> for the default size.
+    /// </summary>
+    /// <remarks>
+    /// Points, not pixels, and every measurement in this model is the same: a
+    /// document says how large its type is, and how large that turns out on a
+    /// screen is the renderer's business and the screen's. A consumer whose own
+    /// coordinate space is pixels converts at its boundary rather than reading
+    /// this number as one — the conversion is 96 pixels to 72 points, and
+    /// <c>BFontStyle.PointsToPixels</c> is where it lives.
+    /// </remarks>
     public float? FontSize { get; init; }
 
     public bool Bold { get; init; }

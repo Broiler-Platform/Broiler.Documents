@@ -255,7 +255,7 @@ public sealed class DocumentRasterizer : IDisposable
             // The renderer puts the baseline at origin.Y + size * 0.8, and the
             // layout used the same 0.8 for the piece's ascent. Subtracting it
             // back out is what keeps a 24pt run and an 8pt run on one baseline.
-            double originY = baseline - (piece.Font.SizeInPixels * 0.8);
+            double originY = baseline - (piece.Font.Size * 0.8);
             var run = new BTextRun(piece.Text, piece.Font, piece.Color);
 
             if (piece.Oblique)
@@ -274,19 +274,19 @@ public sealed class DocumentRasterizer : IDisposable
                 list.DrawText(run, new BPoint(piece.X, originY));
             }
 
-            double thickness = Math.Max(0.5, piece.Font.SizeInPixels * 0.055);
+            double thickness = Math.Max(0.5, piece.Font.Size * 0.055);
 
             if (piece.Underline)
             {
                 list.FillRect(
-                    new BRect(piece.X, baseline + (piece.Font.SizeInPixels * 0.10), piece.Width, thickness),
+                    new BRect(piece.X, baseline + (piece.Font.Size * 0.10), piece.Width, thickness),
                     piece.Color);
             }
 
             if (piece.Strikethrough)
             {
                 list.FillRect(
-                    new BRect(piece.X, baseline - (piece.Font.SizeInPixels * 0.26), piece.Width, thickness),
+                    new BRect(piece.X, baseline - (piece.Font.Size * 0.26), piece.Width, thickness),
                     piece.Color);
             }
         }
