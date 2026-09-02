@@ -1,10 +1,15 @@
 # SRC-017 Review Brief: Reproducing Normative Code Tables
 
-**Status:** Draft for the **qualified legal reviewer**, a seat that is currently
-unassigned. Nothing here is a decision, and nothing here is legal advice.
-**Not decidable by the project reviewer.** Maik Ratzmer holds the engineering
-seat and is not a lawyer; this question is about the terms of somebody else's
-publication, which is the other seat's work.
+**Status:** Open question, written up for decision. Nothing here is a decision,
+and nothing here is legal advice.
+**Who may decide it.** Under the register's evidence-based standard this is the
+project reviewer's to settle — but it is the row where that standard is most
+strained, and the reason it is still open. Every other row was answerable from
+evidence a reader can check. This one asks what a rights-holder permits, the
+published evidence does not say, and reading the Recommendation does not answer
+it. **This is the row on which taking counsel would be worth its cost**, and the
+brief exists so that either a lawyer or a well-informed decision has something to
+work from.
 **Prepared:** 2026-09-02
 **Decides:** [SRC-017](pdf-approved-sources.md), and by reference SRC-018 and
 SRC-019.
