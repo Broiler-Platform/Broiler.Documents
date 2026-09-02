@@ -1,7 +1,12 @@
 # §11.3 Font Path Brief: How a Writer Gets a Font
 
-**Status:** Draft for the project's decision. Not a recommendation, and not legal
-advice.
+**Status:** Draft for the **project reviewer** — Maik Ratzmer — whose seat this
+falls in: it is a product and scope decision about what this project ships. Not a
+recommendation, and not legal advice.
+**One part is not his to settle.** Path A obliges the project to a specific
+font's licence, and reading that licence is the qualified legal seat's work, which
+is unassigned. Path B avoids it entirely, which is a difference worth weighing
+rather than a tiebreaker.
 **Prepared:** 2026-09-02
 **Decides:** the operational font path required by
 [roadmap §11.3](pdf-support-roadmap.md#113-font-and-embedding-license-policy)

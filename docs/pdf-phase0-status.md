@@ -66,7 +66,13 @@ row clears.
 ## External decisions required for Phase 0 exit
 
 - [ ] Name the qualified legal reviewer and target implementation/distribution
-  jurisdictions.
+  jurisdictions. *Half done 2026-09-02: the **project reviewer** is named —
+  Maik Ratzmer (MaiRat), senior software engineer, researcher and architect —
+  and every engineering and source-provenance decision in the register is now
+  attributed to him rather than to "the project maintainer". He is not a
+  lawyer and the register records that. The **qualified legal seat stays
+  open**, and with it the jurisdictions, every expiry/review date, SRC-017,
+  and IP-012's re-opening.*
 - [ ] Approve the first implementation slice's exact ISO 32000 scope and lawful
   standards access.
 - [ ] Decide the scope and obligations of the Adobe ISO 32000-1 public patent
