@@ -59,13 +59,30 @@ public static class PdfDiagnosticCodes
     /// <summary>A filter stage hit a byte, expansion, chain-depth, or work budget.</summary>
     public const string FilterLimit = "pdf.filter.limit";
 
-    /// <summary>LZW is recognized but not implemented; it awaits its own IP review (IP-010).</summary>
+    /// <summary>
+    /// LZW was named and no decoder for it is composed. Retained as API rather
+    /// than emitted: IP-010 cleared and retired on 2026-09-01, and
+    /// <c>LzwDecodeFilter</c> is built into every graph, so this build always
+    /// composes one. A caller who replaces the built-in with a filter of the same
+    /// name that declines keeps a code naming LZW specifically.
+    /// </summary>
     public const string FilterLzwUnsupported = "pdf.filter.lzw.unsupported";
 
-    /// <summary>CCITT fax data is recognized but not implemented (IP-009).</summary>
+    /// <summary>
+    /// CCITT fax data was found and no decoder for it is composed. IP-009 cleared
+    /// and retired the patent position on 2026-09-01 and all three schemes decode,
+    /// but through <c>Broiler.Documents.Pdf.Images</c>: a build that composes
+    /// nothing still meets this code rather than samples.
+    /// </summary>
     public const string FilterCcittUnsupported = "pdf.filter.ccitt.unsupported";
 
-    /// <summary>JPEG (DCT) data is recognized but no cleared decoder is composed (IP-005).</summary>
+    /// <summary>
+    /// A JPEG was not decoded, for one of two reasons the message separates: no
+    /// DCT decoder is composed at all, or one is and the frame's tuple falls
+    /// outside what IP-005 clears — arithmetic coding, lossless, hierarchical and
+    /// differential processes, 12-bit precision, four components, or a colour
+    /// declaration the composed decoder cannot honour.
+    /// </summary>
     public const string FilterDctUnsupported = "pdf.image.dct.tuple-unsupported";
 
     /// <summary>
@@ -85,10 +102,23 @@ public static class PdfDiagnosticCodes
     /// </summary>
     public const string FilterDctColorTransformUncertain = "pdf.image.dct.color-transform-uncertain";
 
-    /// <summary>JPEG 2000 data is recognized but not implemented (IP-007).</summary>
+    /// <summary>
+    /// JPEG 2000 data was not decoded. The message separates the three reasons,
+    /// because they are fixed by different work: nothing is composed; or the
+    /// composed reader found a Part 1 codestream, which IP-007 approved on
+    /// 2026-09-01 and for which no entropy decoder is written; or it found Part 2
+    /// extensions, which sit outside that row. Where the reader is composed the
+    /// message carries the codestream's real tuple.
+    /// </summary>
     public const string FilterJpxUnsupported = "pdf.filter.jpx.unsupported";
 
-    /// <summary>JBIG2 data is recognized but not implemented (IP-008).</summary>
+    /// <summary>
+    /// JBIG2 data was not decoded. IP-008 approved the technology on 2026-09-01
+    /// and the composed filter decodes generic regions coded with MMR; the
+    /// arithmetic decoder, and the symbol, text, halftone and refinement regions
+    /// that need it, are unwritten. The message names the segment types met, so a
+    /// host can tell "nothing composed" from "composed and outside what it does".
+    /// </summary>
     public const string FilterJbig2Unsupported = "pdf.filter.jbig2.unsupported";
 
     /// <summary>A crypt filter was named; encrypted documents are rejected in this release.</summary>
