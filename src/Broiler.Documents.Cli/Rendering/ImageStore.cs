@@ -107,23 +107,53 @@ public sealed class ImageStore : IDisposable
             return existing;
 
         var entry = new Entry();
-        try
+
+        // A picture recovered from inside a container arrives as samples a
+        // decoder already produced — a PDF image is the case that matters — and
+        // there is nothing left to decode. Only an encoded payload takes the
+        // decoder path, and only it can fail there.
+        if (image.Resource.TryGetPixels(out BPixelBuffer? pixels))
         {
-            entry.Bitmap = BBitmap.Decode(image.Data.Span);
+            // Copied rather than wrapped. The resource is immutable and shared
+            // across the whole document, and BBitmap is mutable by API: aliasing
+            // its buffer would put a SetPixel away from corrupting every other
+            // use of the same picture. One copy per distinct image per render is
+            // what this cache exists to make cheap.
+            entry.Bitmap = new BBitmap(
+                pixels.Width,
+                pixels.Height,
+                (byte[])pixels.Rgba.Clone(),
+                takeOwnership: true);
             DecodedCount++;
         }
-        catch (Exception exception) when (
-            exception is MediaException or InvalidOperationException or ArgumentException
-                or NotSupportedException or FormatException)
+        else if (image.TryGetEncoded(out ReadOnlyMemory<byte> data, out string? contentType))
         {
-            // A codec this process did not compose, or bytes that are not the
-            // format the document claimed. Both are worth reporting and neither
-            // is worth failing the render over: the rest of the page is still
-            // information, and the placeholder says where the hole is.
+            try
+            {
+                entry.Bitmap = BBitmap.Decode(data.Span);
+                DecodedCount++;
+            }
+            catch (Exception exception) when (
+                exception is MediaException or InvalidOperationException or ArgumentException
+                    or NotSupportedException or FormatException)
+            {
+                // A codec this process did not compose, or bytes that are not the
+                // format the document claimed. Both are worth reporting and neither
+                // is worth failing the render over: the rest of the page is still
+                // information, and the placeholder says where the hole is.
+                FailedCount++;
+                _notes.Add(
+                    "could not decode image \"" + image.Name + "\" (" + contentType + ", " +
+                    data.Length + " bytes): " + exception.Message);
+            }
+        }
+        else
+        {
+            // No factory on BImageResource produces this, so it means the type
+            // grew a payload kind this store was never taught. Reporting beats
+            // drawing nothing without saying so.
             FailedCount++;
-            _notes.Add(
-                "could not decode image \"" + image.Name + "\" (" + image.ContentType + ", " +
-                image.Data.Length + " bytes): " + exception.Message);
+            _notes.Add("image \"" + image.Name + "\" carries no payload this renderer understands");
         }
 
         _entries[image] = entry;
