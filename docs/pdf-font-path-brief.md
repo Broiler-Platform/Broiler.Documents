@@ -1,23 +1,46 @@
 # §11.3 Font Path Brief: How a Writer Gets a Font
 
-**Status:** Draft for the **project reviewer** — Maik Ratzmer — whose seat this
-falls in: it is a product and scope decision about what this project ships. Not a
-recommendation, and not legal advice.
-**One part carries more exposure than the rest.** Path A obliges the project to a
-specific font's licence, read under the register's evidence-based standard by
-someone who is not a lawyer. Path B avoids that obligation entirely. That is a
-difference worth weighing rather than a tiebreaker — and if any part of this
-decision is worth counsel, it is reading the licence of a font the project would
-then redistribute inside every document its users generate.
-**Prepared:** 2026-09-02
-**Decides:** the operational font path required by
-[roadmap §11.3](pdf-support-roadmap.md#113-font-and-embedding-license-policy)
-before `CanWrite` is enabled in an official host.
+**Status:** **DECIDED — path B, 2026-09-02.** The project requires an explicitly
+configured caller font set and fails with a preflight diagnostic when one is
+absent. It bundles no fallback font and holds no font licence.
+**Decided by:** Maik Ratzmer, project reviewer, in whose seat this falls.
+**Kept as a brief** rather than reduced to a line, because the reasoning is what
+a later reader will need if the decision is ever revisited — and because path A
+remains available and its costs are recorded here.
 
-Unlike [SRC-017](pdf-src-017-review-brief.md), this is not a question about
-somebody else's rights. It is a product decision with a licensing consequence,
-and either answer is defensible. What is not defensible is leaving it unmade
-while the writer's capabilities grow around it.
+## Why B
+
+It is the position this codec already takes everywhere else. The base service
+graph composes no image decoder. Resources need an explicit caller decision.
+Nothing is discovered ambiently. Fonts are now the same rule: the caller supplies
+them and holds their terms.
+
+The alternative obliges the project to a specific font's licence — read under a
+register that states plainly no lawyer reviewed it, and redistributed inside
+every document a user generates. That is the one exposure in this project that
+attaches per-document to somebody else's property, and B removes it rather than
+managing it.
+
+The cost is accepted and named: configuration and a failure experience in four
+surfaces, and saving text outside WinAnsi fails until a caller provisions a font.
+
+## What was built for it
+
+- `DocumentFontSet` — the caller's provisioned fonts, empty by default, exact
+  family matching and nothing cleverer.
+- `DocumentWriteOptions.Fonts` and `PdfWriteOptions(fonts:)` carry it.
+- `pdf.write.no-font-configured` — the preflight failure, separate from
+  `pdf.write.character-unsupported` because one is fixed by provisioning a font
+  and the other by a capability this build does not have.
+- A guard test asserting the writer never mentions the ambient font-discovery
+  types, so §11.3's export prohibition is enforced rather than merely true.
+
+## What is still owed
+
+The CLI options and documentation, and each Writer head's configuration surface.
+§11.3 requires the CLI and every head to implement the same decision, and until
+they do this is a decision the library honours and the products cannot yet be
+told about.
 
 ## 1. The decision, exactly
 

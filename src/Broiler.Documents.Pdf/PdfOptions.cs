@@ -78,7 +78,9 @@ public sealed class PdfWriteOptions : DocumentWriteOptions
         PdfFontFamilyKind defaultFamily = PdfFontFamilyKind.SansSerif,
         float defaultFontSize = 12f,
         string? fileIdentifier = null,
-        PdfUriPolicy? uriPolicy = null)
+        PdfUriPolicy? uriPolicy = null,
+        DocumentFontSet? fonts = null)
+        : base(fonts: fonts)
     {
         if (defaultFontSize is <= 0 or > 1600 || !float.IsFinite(defaultFontSize))
             throw new ArgumentOutOfRangeException(nameof(defaultFontSize));

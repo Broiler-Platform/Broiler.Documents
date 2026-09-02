@@ -17,6 +17,51 @@ public sealed class PdfWriterTests
         return (stream.ToArray(), result);
     }
 
+    [Fact]
+    public void Text_Needing_A_Font_Nobody_Provisioned_Says_So()
+    {
+        // PDF roadmap §11.3's preflight failure, in the shape a caller can act
+        // on. Cyrillic is outside WinAnsi, this build bundles no font, and the
+        // caller supplied none — so the report names the missing provisioning
+        // rather than the missing characters.
+        RichTextDocument document = RichTextDocument.FromPlainText("Привет");
+
+        (_, PdfWriteResult result) = Write(document);
+
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.WriteNoFontConfigured);
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.WriteCharacterUnsupported);
+    }
+
+    [Fact]
+    public void With_A_Font_Provisioned_The_Report_Is_About_The_Build_Instead()
+    {
+        // The other half, and the reason these are two codes. Once a caller has
+        // provisioned something, "no font configured" would be a lie: what is
+        // missing then is the embedding this build does not do, which is a
+        // different fix and a different person's problem.
+        var font = new DocumentFontResource(
+            new byte[] { 1, 2, 3 },
+            "Example Sans",
+            BFontEmbeddingRights.FromFsType(0));
+
+        RichTextDocument document = RichTextDocument.FromPlainText("Привет");
+
+        (_, PdfWriteResult result) = Write(
+            document,
+            new PdfWriteOptions(fonts: new DocumentFontSet([font])));
+
+        Assert.Contains(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.WriteCharacterUnsupported);
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.WriteNoFontConfigured);
+    }
+
     private static string Latin1(byte[] bytes) => Encoding.Latin1.GetString(bytes);
 
     [Fact]
@@ -233,7 +278,9 @@ public sealed class PdfWriterTests
             RichTextDocument.FromPlainText("Greek: αβγ"),
             new PdfWriteOptions(compressStreams: false));
 
-        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.WriteCharacterUnsupported);
+        // The substitution itself is unchanged; which code reports it depends on
+        // whether the caller provisioned anything, and this write did not.
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.WriteNoFontConfigured);
         Assert.Equal(DocumentResultStatus.Partial, result.Status);
         Assert.Contains("(Greek: ???)", Latin1(bytes));
     }

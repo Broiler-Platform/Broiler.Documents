@@ -1262,9 +1262,26 @@ internal sealed class PdfPageLayout
 
             builder ??= new StringBuilder(text.Length).Append(text, 0, i);
             builder.Append('?');
-            _diagnostics.Skipped(
-                PdfDiagnosticCodes.WriteCharacterUnsupported,
-                "Some characters are outside the writer's WinAnsi encoding and were replaced. Writing them needs an embedded composite font, which this build does not compose.");
+
+            // Two different failures wearing one symptom. Nothing provisioned is
+            // something the caller can fix by provisioning; a provisioned set
+            // that still cannot carry the text is a limit of this build. §11.3
+            // asks for the first to be said out loud, because a preflight that
+            // reports only "characters dropped" tells nobody what to do.
+            if (_options.Fonts.IsEmpty)
+            {
+                _diagnostics.Skipped(
+                    PdfDiagnosticCodes.WriteNoFontConfigured,
+                    "Some characters are outside the writer's WinAnsi encoding and were replaced. " +
+                    "No font was provisioned for this write, and this build bundles none: writing them " +
+                    "needs a caller-supplied font, supplied through the write options.");
+            }
+            else
+            {
+                _diagnostics.Skipped(
+                    PdfDiagnosticCodes.WriteCharacterUnsupported,
+                    "Some characters are outside the writer's WinAnsi encoding and were replaced. Writing them needs an embedded composite font, which this build does not compose.");
+            }
         }
 
         return builder?.ToString() ?? text;
