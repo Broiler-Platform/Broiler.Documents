@@ -207,10 +207,12 @@ is authoritative for that boundary.
   IP-005 was then widened to progressive DCT on 2026-09-02 — the first row here
   widened rather than opened, and a decision rather than a code change, since
   `Broiler.Media` had decoded SOF2 all along and only the filter's frame-marker
-  gate moved. The base build still composes no image decoder; SOF1 extended
-  sequential and four-component YCCK are still refused; a declared transform of 0
-  on three components is no longer among them, because the decoder gained the
-  parameter its refusal had been waiting on rather than because a row moved. Each is detected and skipped, or in
+  gate moved, and again for SOF1 extended sequential, which at 8 bits is
+  structurally the baseline frame the row cleared first. The base build still
+  composes no image decoder; four-component YCCK is still refused; a declared
+  transform of 0 on three components is no longer among them, because the decoder
+  gained the parameter its refusal had been waiting on rather than because a row
+  moved. Each is detected and skipped, or in
   encryption's case rejects the document. A skip reports an inventory of what it
   met — counts, pages, and the declared variants — without decoding anything to
   produce it; see
