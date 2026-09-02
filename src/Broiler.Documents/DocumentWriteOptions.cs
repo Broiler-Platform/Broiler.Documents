@@ -13,10 +13,14 @@ public class DocumentWriteOptions
 {
     public static DocumentWriteOptions Default { get; } = new();
 
-    public DocumentWriteOptions(bool asciiOnly = true, DocumentConversionContext? resources = null)
+    public DocumentWriteOptions(
+        bool asciiOnly = true,
+        DocumentConversionContext? resources = null,
+        DocumentFontSet? fonts = null)
     {
         AsciiOnly = asciiOnly;
         Resources = resources ?? DocumentConversionContext.Empty;
+        Fonts = fonts ?? DocumentFontSet.None;
     }
 
     /// <summary>
@@ -51,4 +55,17 @@ public class DocumentWriteOptions
     /// </para>
     /// </remarks>
     public DocumentConversionContext Resources { get; }
+
+    /// <summary>
+    /// The fonts the caller provisioned for this write. Defaults to
+    /// <see cref="DocumentFontSet.None"/>.
+    /// </summary>
+    /// <remarks>
+    /// PDF roadmap §11.3's chosen path: a writer takes fonts from here or from
+    /// nowhere. This project bundles no fallback and holds no font licence, so a
+    /// caller that provisions nothing gets a writer that reports what it could
+    /// not write rather than one that reaches for whatever the machine has
+    /// installed.
+    /// </remarks>
+    public DocumentFontSet Fonts { get; }
 }

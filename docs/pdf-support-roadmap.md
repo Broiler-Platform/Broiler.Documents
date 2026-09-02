@@ -1447,10 +1447,10 @@ track.
 
 ### 11.3 Font and embedding-license policy
 
-The operational choice this section opens with is set out for decision in the
-[font path brief](pdf-font-path-brief.md), which records what each path
-obligates, what is already built, and the ambient-discovery boundary that
-needs a test under either answer.
+**Decided 2026-09-02: path B.** The project requires an explicitly configured
+caller font set and presents a preflight failure when one is absent; it bundles
+no fallback font and holds no font licence. The reasoning, the costs accepted,
+and what is still owed are in the [font path brief](pdf-font-path-brief.md).
 
 - Never select fonts through ambient installed-font discovery.
 - Require caller-supplied deterministic font resources or an explicitly

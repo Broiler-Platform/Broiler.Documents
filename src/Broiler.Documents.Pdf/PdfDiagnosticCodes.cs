@@ -208,6 +208,20 @@ public static class PdfDiagnosticCodes
     /// <summary>A character is outside the writer's supported encoding and was replaced.</summary>
     public const string WriteCharacterUnsupported = "pdf.write.character-unsupported";
 
+    /// <summary>
+    /// Text needed a font the caller did not provision, and this project bundles
+    /// none. The actionable half of a dropped character: not "these letters
+    /// cannot be written" but "nothing was configured to write them with".
+    /// </summary>
+    /// <remarks>
+    /// PDF roadmap §11.3's preflight failure. It is separate from
+    /// <see cref="WriteCharacterUnsupported"/> because the two are fixed by
+    /// different work — one by provisioning a font, the other by a capability
+    /// this build does not have — and a caller who cannot tell them apart cannot
+    /// act on either.
+    /// </remarks>
+    public const string WriteNoFontConfigured = "pdf.write.no-font-configured";
+
     /// <summary>Content overflowed the page box and was clipped to the next page or dropped.</summary>
     public const string WriteOverflow = "pdf.write.overflow";
 
