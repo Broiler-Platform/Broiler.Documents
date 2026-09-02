@@ -208,11 +208,9 @@ is authoritative for that boundary.
   widened rather than opened, and a decision rather than a code change, since
   `Broiler.Media` had decoded SOF2 all along and only the filter's frame-marker
   gate moved. The base build still composes no image decoder; SOF1 extended
-  sequential, four-component YCCK, and a declared transform of 0 on three
-  components are still refused, the last of those because the composed decoder
-  cannot skip its colour conversion rather than because a row is open; and a
-  decoded image still reaches no model, because extraction into the model waits
-  on the resource policy of §6.2 rather than on a patent row. Each is detected and skipped, or in
+  sequential and four-component YCCK are still refused; a declared transform of 0
+  on three components is no longer among them, because the decoder gained the
+  parameter its refusal had been waiting on rather than because a row moved. Each is detected and skipped, or in
   encryption's case rejects the document. A skip reports an inventory of what it
   met — counts, pages, and the declared variants — without decoding anything to
   produce it; see

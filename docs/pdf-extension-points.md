@@ -230,15 +230,19 @@ What the adapter owns is the PDF half:
   the picture rather than the document.
 
 One refusal is worth singling out, because it is the shape of thing this
-boundary exists to make visible. A JPEG declaring colour transform 0 on three
-components is saying its samples are already RGB. IP-006 clears reading that
-declaration, and the adapter reads it — and then refuses the image anyway,
-because the composed decoder applies the YCbCr conversion unconditionally and
-would report colours the document does not contain. "We may not" and "we cannot"
-are different answers, they are fixed by different work, and the diagnostic says
-which one a host has hit. Honouring transform 0 needs a change inside the
-decoder, which would in turn need Broiler.Graphics' human review re-run against
-the changed revision; it does not need another register row.
+boundary exists to make visible, and it is worth reading now that it has an
+ending. A JPEG declaring colour transform 0 on three components is saying its
+samples are already RGB. IP-006 cleared reading that declaration on 2026-09-01,
+and the adapter read it — and then refused the image anyway, because the composed
+decoder applied the YCbCr conversion unconditionally and would have reported
+colours the document does not contain.
+
+"We may not" and "we cannot" are different answers, they are fixed by different
+work, and saying which one a host had hit is what made the fix findable. It was
+the second: on 2026-09-02 the decoder gained a parameter for the resolved value,
+and the declaration is now honoured. No register row moved, because none had
+been in the way. A refusal recorded only as "refused" would have sent someone
+looking for an approval that had been there all along.
 
 The decoder itself stays in `Broiler.Media`, per §5 step 3. One condition travels
 with it: that component's own human review records its managed image codecs as

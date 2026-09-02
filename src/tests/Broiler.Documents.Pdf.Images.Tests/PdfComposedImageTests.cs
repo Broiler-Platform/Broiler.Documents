@@ -124,15 +124,16 @@ public sealed class PdfComposedImageTests
     }
 
     [Fact]
-    public void A_ColorTransform_Of_Zero_Is_Refused_As_A_Decoder_Limit()
+    public void A_ColorTransform_Of_Zero_Is_Honoured()
     {
+        // The dictionary says the samples are already RGB, and the decoder is now
+        // told so rather than the image being refused for it.
         PdfReadResult result = Read(
             DocumentWithJpeg(32, 32, decodeParms: "<< /ColorTransform 0 >>"),
             composed: true);
 
-        DocumentDiagnostic refused = Only(result, PdfDiagnosticCodes.FilterDctUnsupported);
-        Assert.Contains("already RGB", refused.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
+        Assert.Single(ImagesIn(result));
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FilterDctUnsupported);
     }
 
     [Fact]
