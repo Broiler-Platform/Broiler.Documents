@@ -166,6 +166,20 @@ is authoritative for that boundary.
   structural metadata, deterministic geometric grouping into columns, lines and
   paragraphs, list-marker recognition, and link annotations admitted by the
   shared URI policy.
+- Phase 4 for images, within §9.3's approved raw-sample subset: an image whose
+  filter chain this build can run is decoded, and its samples are normalized to
+  RGBA and admitted through the caller's resource policy when the dictionary
+  describes DeviceGray at 1, 2, 4, or 8 bits, DeviceRGB at 8, or Indexed at 1, 2,
+  4, or 8 over a bounded DeviceGray or DeviceRGB palette, with a `/Decode` array
+  validated against the interval its space defines. A composed image codec's own
+  RGBA output is taken as it stands. Everything else — a stencil mask, an
+  `/SMask` or colour-key `/Mask`, a colour space or depth outside the subset, an
+  Indexed image that remaps its own indices, samples that do not fill the
+  declaration — is refused, and the refusal names the construct met rather than
+  reporting a bare count. Projected pixels are charged against the read's
+  decoded-byte budget, and a charge landing past a limit drops that image rather
+  than the document. Inline images are still consumed and inventoried without
+  being decoded.
 - A Phase 7 writer subset: layout resolved exactly once into an immutable page
   list that the serializer consumes without re-measuring; new PDF 1.7 files with
   catalog, page tree, resources, Flate content streams, cross-reference table and
@@ -177,7 +191,9 @@ is authoritative for that boundary.
 
 **Deliberately not implemented, and why.**
 
-- Image extraction into the model and encryption (IP-015). **No filter or codec
+- Encryption (IP-015), and every image outside §9.3's approved raw-sample tuple —
+  masks and transparency, the calibrated and device-independent colour spaces,
+  CMYK, and the inline form. **No filter or codec
   row is open any longer**: `JBIG2Decode` was the last, and IP-008 cleared it on
   2026-09-01. A composed filter reads the segment structure and decodes generic
   regions coded with MMR through the T.6 decoder cleared under IP-009; the

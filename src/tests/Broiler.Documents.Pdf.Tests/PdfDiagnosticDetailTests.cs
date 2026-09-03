@@ -23,6 +23,22 @@ public sealed class PdfDiagnosticDetailTests
     private static DocumentDiagnostic Only(PdfReadResult result, string code) =>
         Assert.Single(result.Diagnostics.Where(d => d.Code == code));
 
+    /// <summary>Every image that reached the document.</summary>
+    private static List<InlineImage> ImagesIn(PdfReadResult result)
+    {
+        var images = new List<InlineImage>();
+        foreach (RichTextParagraph paragraph in result.Document.Paragraphs)
+        {
+            foreach (StyleRun run in paragraph.Runs)
+            {
+                if (run.Style.Image is InlineImage image)
+                    images.Add(image);
+            }
+        }
+
+        return images;
+    }
+
     // ---- occurrence counts and locations --------------------------------------
 
     [Fact]
@@ -210,16 +226,18 @@ public sealed class PdfDiagnosticDetailTests
     public void An_Unfiltered_Image_Is_Decoded_From_Its_Raw_Samples()
     {
         // No filter at all is the case where "composes no image decoder" was
-        // furthest from true: raw samples need no decoder to be reachable.
+        // furthest from true: raw samples need no decoder to be reachable, and
+        // DeviceGray at eight bits is inside the approved raw-sample subset, so
+        // they reach the document rather than stopping at the pipeline.
         byte[] samples = Samples(8 * 8);
         PdfReadResult result = Read(DocumentWithImage(
             "/Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 8",
             samples,
             filter: null));
 
-        DocumentDiagnostic decoded = Only(result, PdfDiagnosticCodes.ImageDecodedNotProjected);
-        Assert.Contains($"{samples.Length} bytes of samples", decoded.Message, StringComparison.Ordinal);
+        Assert.Single(ImagesIn(result));
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageNotComposed);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
     }
 
     [Fact]

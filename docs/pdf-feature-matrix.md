@@ -81,7 +81,7 @@ is pending.
 |---|---|---|---|
 | In-process `Broiler.Documents.Pdf` codec | Candidate | Implemented; unpacked and unregistered | Architecture tests; package tests |
 | Standalone `Broiler.Pdf` process | Rejected | Absent | Phase 0 removal guard |
-| PDF import to logical document | Candidate | Implemented for text, styling and links | Reader corpus and semantic tests |
+| PDF import to logical document | Candidate | Implemented for text, styling, links, and images inside the approved raw-sample subset | Reader corpus and semantic tests |
 | PDF export from logical document | Candidate | Implemented for the standard-font subset | Pagination, writer, and interoperability tests |
 | Layout-preserving round trip | Rejected | Not attempted | Not a product claim |
 | Byte-preserving or incremental update | Post-V1 | Not attempted | Separate ADR and security review |
@@ -113,8 +113,9 @@ is pending.
 | JPXDecode (JPEG 2000) | Candidate for recognition; Post-V1 for decoding | Composed reader reports the codestream tuple; no entropy decoder | Part 1 cleared; MQ coder, EBCOT, and the wavelets outstanding |
 | CCITTFaxDecode | Candidate | Composed extension: all three schemes decode, round-tripped against an encoder written in the test suite | Patent history retired; the standard's code tables await a source decision |
 | JBIG2Decode | Candidate for MMR generic regions; Post-V1 for the rest | Composed filter decodes MMR generic regions and reports every other segment type | Patent row cleared; the arithmetic decoder is outstanding, and the security review still applies |
-| Image masks / soft masks | Candidate | Not reached; an image is described, and at most decoded, but never projected | Compositing semantics and resource budgets |
-| ICCBased color | Candidate | Not reached | Color-management ownership and profile licensing |
+| Raw image samples into the model: DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded DeviceGray/DeviceRGB palette, with validated `/Decode` | Candidate | Implemented; decoded samples are normalized to RGBA and admitted through the resource policy. Anything outside the tuple is refused by the reason met | Roadmap §9.3's approved subset; per-tuple projection tests |
+| Image masks / soft masks | Candidate | Refused rather than projected: a stencil paints the current fill colour, and an `/SMask` or colour-key `/Mask` carries transparency this build does not composite, so carrying either would invent a picture | Compositing semantics and resource budgets |
+| ICCBased color | Candidate | Not reached; refused by name with the family it declared | Color-management ownership and profile licensing |
 
 ## Text, fonts, and scripts
 

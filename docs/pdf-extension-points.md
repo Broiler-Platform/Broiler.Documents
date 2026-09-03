@@ -56,6 +56,7 @@ the legal question.
 | Structure | Catalog, page tree with inherited attributes, boxes, rotation, `UserUnit`, effective version, `/Extensions` inventory |
 | Metadata | `Info` and the XMP read subset (ISO 16684-1:2019) normalized to the V1 allowlist, XMP winning per field and disagreement reported; the raw packet is never preserved |
 | Text | Graphics and text state, all show-text operators, Form XObjects, marked-content `ActualText`, simple-font encodings with `/Differences`, `ToUnicode` CMaps, composite fonts through `Identity-H` |
+| Images | Samples from a filter chain the build can run, normalized to RGBA within roadmap §9.3's approved tuple — DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded palette, `/Decode` validated — and admitted through the caller's resource policy |
 | Semantics | Geometric reading-order assembly, list detection, link annotations under the URI policy |
 | Writer | New PDF 1.7 files, standard font names with WinAnsi encoding, Flate content streams, colour, decorations, alignment, lists, link annotations, normalized metadata |
 
@@ -97,7 +98,7 @@ emitted once per document:
 
 | Report | What the note carries beyond the code |
 |---|---|
-| Images | How many, how many were inline, the pages, and each distinct declared tuple — pixel size, bits per component, colour-space family, filter chain. Where a decoder is composed: whether each image decoded, the tuple it was refused for, and whether the dictionary's declared size matches the samples |
+| Images | How many, how many were inline, the pages, and each distinct declared tuple — pixel size, bits per component, colour-space family, filter chain. Where a decoder is composed: whether each image decoded, the tuple it was refused for, and whether the dictionary's declared size matches the samples. For one that decoded and did not reach the model, the distinct constructs that stopped it — a stencil mask, transparency, a colour space or depth outside the subset — since composing a decoder, widening the subset, and fixing a self-contradicting document are answered by different work |
 | Embedded font programs | How many, in which formats (`FontFile` Type 1, `FontFile2` TrueType, `FontFile3` with its subtype), how many are symbolic, and how many have no `ToUnicode` map |
 | Vector artwork | How many painting operations, classified by the shape they had — thin axis-aligned bars, axis-aligned areas, shadings, general paths — and the pages |
 | XMP | The packet's size in bytes, its filter chain, how many normalized fields it supplied, how many properties fell outside the allowlist, and whether an `Info` dictionary stood behind it |
