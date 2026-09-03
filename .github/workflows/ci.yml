@@ -61,8 +61,11 @@ jobs:
       - name: Build
         run: dotnet build Broiler.Documents.slnx -c ${{ matrix.configuration }} --nologo
 
-      # Four PDF guards read the application heads in the aggregate repository
-      # and report as skipped here. That is expected; see PdfGuardRoots.
+      # Three PDF delivery guards read the application heads in the aggregate
+      # repository and report as skipped here, which is expected; see
+      # PdfGuardRoots. It was four until the detector was repaired: the fourth
+      # read a CLI path that had moved into this repository, and now runs here
+      # unconditionally like every other guard over this component's own source.
       - name: Test
         run: dotnet test Broiler.Documents.slnx -c ${{ matrix.configuration }} --no-build --nologo
 
