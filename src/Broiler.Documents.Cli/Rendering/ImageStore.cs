@@ -156,6 +156,21 @@ public sealed class ImageStore : IDisposable
             _notes.Add("image \"" + image.Name + "\" carries no payload this renderer understands");
         }
 
+        // The picture as the document presents it: cropped to the part it uses and
+        // masked to its shape, once, here, rather than at every draw. A default
+        // presentation returns the same bitmap, so the ordinary picture pays
+        // nothing; anything else hands back a second one and the decoded original
+        // has no further use.
+        if (entry.Bitmap is not null && !image.Presentation.IsDefault)
+        {
+            BBitmap presented = image.Presentation.Apply(entry.Bitmap);
+            if (!ReferenceEquals(presented, entry.Bitmap))
+            {
+                entry.Bitmap.Dispose();
+                entry.Bitmap = presented;
+            }
+        }
+
         _entries[image] = entry;
         return entry;
     }

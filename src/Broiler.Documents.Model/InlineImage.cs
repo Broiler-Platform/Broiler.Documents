@@ -42,6 +42,165 @@ namespace Broiler.Documents.Model;
 /// rather than a default.
 /// </para>
 /// </remarks>
+/// <summary>The shape a picture is shown in, when it is not shown as a rectangle.</summary>
+public enum ImageMask
+{
+    /// <summary>The whole rectangle, which is what a picture is unless it says otherwise.</summary>
+    None,
+
+    /// <summary>An ellipse inscribed in the picture's box — the round portrait every CV template uses.</summary>
+    Ellipse,
+}
+
+/// <summary>
+/// How a picture is presented: the part of the source shown, and the shape it is
+/// shown in. Separate from the image itself because it says nothing about the
+/// bytes — two pictures can share one payload and crop it differently.
+/// </summary>
+/// <remarks>
+/// The crop is stated as fractions of the source, matching what every format
+/// states it as and surviving a resize the way a pixel offset would not. Each
+/// edge is how much of the source that side gives up: 0.1 on the left drops the
+/// leftmost tenth. Negative values, which some formats allow to pad a picture
+/// out, are not represented and are clamped away.
+/// </remarks>
+public sealed record ImagePresentation
+{
+    /// <summary>The whole picture, as a rectangle.</summary>
+    public static ImagePresentation Default { get; } = new();
+
+    public double CropLeft { get; init; }
+
+    public double CropTop { get; init; }
+
+    public double CropRight { get; init; }
+
+    public double CropBottom { get; init; }
+
+    public ImageMask Mask { get; init; }
+
+    /// <summary>True when this asks for nothing the default does not already do.</summary>
+    public bool IsDefault =>
+        Mask == ImageMask.None && !HasCrop;
+
+    /// <summary>True when any edge gives up part of the source.</summary>
+    public bool HasCrop =>
+        CropLeft > 0 || CropTop > 0 || CropRight > 0 || CropBottom > 0;
+
+    /// <summary>
+    /// The crop as a source rectangle over a picture of this size, clamped so the
+    /// rectangle always has area: a document stating crops that meet or cross
+    /// leaves nothing to draw, and drawing nothing loses the picture entirely.
+    /// </summary>
+    public BRect SourceRect(double width, double height)
+    {
+        double left = Clamp(CropLeft);
+        double top = Clamp(CropTop);
+        double right = Clamp(CropRight);
+        double bottom = Clamp(CropBottom);
+
+        if (left + right >= 1)
+            (left, right) = (0, 0);
+        if (top + bottom >= 1)
+            (top, bottom) = (0, 0);
+
+        return new BRect(
+            width * left,
+            height * top,
+            Math.Max(1, width * (1 - left - right)),
+            Math.Max(1, height * (1 - top - bottom)));
+    }
+
+    /// <summary>
+    /// The picture as this presentation shows it: cropped to the part it uses,
+    /// then masked to its shape. Returns <paramref name="source"/> itself when
+    /// the presentation asks for neither, so the ordinary picture allocates
+    /// nothing and the caller can compare by reference to know whether it owns a
+    /// second bitmap to dispose.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The order is not interchangeable. Cropping selects part of the source and
+    /// masking shapes what is drawn, so the ellipse has to be inscribed in the
+    /// <em>cropped</em> box: masking first and cropping after would draw a slice
+    /// of an ellipse rather than an ellipse.
+    /// </para>
+    /// <para>
+    /// The edge is sampled rather than tested once per pixel. A hard in-or-out
+    /// test gives a portrait a visibly stepped rim, which is the one place the
+    /// shape is actually looked at; sixteen samples per pixel cost one pass over
+    /// an image that is decoded once and cached.
+    /// </para>
+    /// <para>
+    /// Alpha is straight rather than premultiplied here, so shaping the picture
+    /// is a matter of scaling that channel alone and the colour channels stay as
+    /// they were. The backends premultiply when they upload.
+    /// </para>
+    /// </remarks>
+    public BBitmap Apply(BBitmap source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (IsDefault)
+            return source;
+
+        BRect box = SourceRect(source.Width, source.Height);
+        int left = Math.Clamp((int)Math.Round(box.Left), 0, Math.Max(0, source.Width - 1));
+        int top = Math.Clamp((int)Math.Round(box.Top), 0, Math.Max(0, source.Height - 1));
+        int width = Math.Clamp((int)Math.Round(box.Width), 1, source.Width - left);
+        int height = Math.Clamp((int)Math.Round(box.Height), 1, source.Height - top);
+
+        ReadOnlySpan<byte> from = source.Rgba;
+        var rgba = new byte[width * height * 4];
+        for (int y = 0; y < height; y++)
+        {
+            int sourceRow = (((y + top) * source.Width) + left) * 4;
+            from.Slice(sourceRow, width * 4).CopyTo(rgba.AsSpan(y * width * 4));
+        }
+
+        if (Mask == ImageMask.Ellipse)
+            MaskToEllipse(rgba, width, height);
+
+        return new BBitmap(width, height, rgba, takeOwnership: true);
+    }
+
+    /// <summary>Scales alpha by how much of each pixel the inscribed ellipse covers.</summary>
+    private static void MaskToEllipse(byte[] rgba, int width, int height)
+    {
+        const int Samples = 4;
+        double radiusX = width / 2d;
+        double radiusY = height / 2d;
+        if (radiusX <= 0 || radiusY <= 0)
+            return;
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int covered = 0;
+                for (int sy = 0; sy < Samples; sy++)
+                {
+                    double py = ((y + ((sy + 0.5) / Samples)) - radiusY) / radiusY;
+                    for (int sx = 0; sx < Samples; sx++)
+                    {
+                        double px = ((x + ((sx + 0.5) / Samples)) - radiusX) / radiusX;
+                        if ((px * px) + (py * py) <= 1)
+                            covered++;
+                    }
+                }
+
+                if (covered == Samples * Samples)
+                    continue;
+
+                int alpha = ((y * width) + x) * 4 + 3;
+                rgba[alpha] = (byte)(rgba[alpha] * covered / (Samples * Samples));
+            }
+        }
+    }
+
+    private static double Clamp(double value) =>
+        double.IsFinite(value) && value > 0 ? Math.Min(value, 1) : 0;
+}
+
 public sealed class InlineImage
 {
     /// <summary>
@@ -70,7 +229,8 @@ public sealed class InlineImage
         double? width = null,
         double? height = null,
         string? altText = null,
-        string? name = null)
+        string? name = null,
+        ImagePresentation? presentation = null)
     {
         Resource = resource ?? throw new ArgumentNullException(nameof(resource));
         ResourceId = resourceId;
@@ -78,6 +238,7 @@ public sealed class InlineImage
         Height = Validate(height, nameof(height));
         AltText = altText ?? string.Empty;
         Name = string.IsNullOrWhiteSpace(name) ? "image" : name;
+        Presentation = presentation ?? ImagePresentation.Default;
     }
 
     /// <summary>
@@ -96,19 +257,27 @@ public sealed class InlineImage
         double width,
         double height,
         string? altText = null,
-        string? name = null)
+        string? name = null,
+        ImagePresentation? presentation = null)
         : this(
             BImageResource.FromEncoded(data, Required(contentType)),
             default,
             width == 0 ? null : width,
             height == 0 ? null : height,
             altText,
-            name)
+            name,
+            presentation)
     {
     }
 
     /// <summary>The image itself, encoded or decoded.</summary>
     public BImageResource Resource { get; }
+
+    /// <summary>
+    /// The part of the picture shown and the shape it is shown in. Never null;
+    /// a picture that states nothing carries <see cref="ImagePresentation.Default"/>.
+    /// </summary>
+    public ImagePresentation Presentation { get; }
 
     /// <summary>
     /// This image's entry in the conversion context that produced it, or
@@ -208,18 +377,22 @@ public sealed class InlineImage
 
     /// <summary>Returns the same image drawn at a different size.</summary>
     public InlineImage WithSize(double? width, double? height) =>
-        new(Resource, ResourceId, width, height, AltText, Name);
+        new(Resource, ResourceId, width, height, AltText, Name, Presentation);
 
     /// <summary>Returns the same image with different alternative text.</summary>
     public InlineImage WithAltText(string? altText) =>
-        new(Resource, ResourceId, Width, Height, altText, Name);
+        new(Resource, ResourceId, Width, Height, altText, Name, Presentation);
+
+    /// <summary>Returns the same image cropped and masked differently.</summary>
+    public InlineImage WithPresentation(ImagePresentation? presentation) =>
+        new(Resource, ResourceId, Width, Height, AltText, Name, presentation);
 
     /// <summary>
     /// Returns the same image bound to a different conversion context's entry,
     /// which is what admitting a pasted or merged picture produces.
     /// </summary>
     public InlineImage WithResourceId(DocumentResourceId resourceId) =>
-        new(Resource, resourceId, Width, Height, AltText, Name);
+        new(Resource, resourceId, Width, Height, AltText, Name, Presentation);
 
     private static double? Validate(double? value, string name)
     {

@@ -752,6 +752,7 @@ public static class DocxWriter
                         new XElement(
                             DocxNamespaces.Drawing + "blip",
                             new XAttribute(DocxNamespaces.Relationships + "embed", part.RelationshipId)),
+                        BuildSourceRect(image.Presentation),
                         new XElement(
                             DocxNamespaces.Drawing + "stretch",
                             new XElement(DocxNamespaces.Drawing + "fillRect"))),
@@ -769,10 +770,39 @@ public static class DocxWriter
                                 new XAttribute("cy", heightEmus.ToString(CultureInfo.InvariantCulture)))),
                         new XElement(
                             DocxNamespaces.Drawing + "prstGeom",
-                            new XAttribute("prst", "rect"),
+                            new XAttribute("prst", PresetFor(image.Presentation.Mask)),
                             new XElement(DocxNamespaces.Drawing + "avLst"))))));
 
         return (graphic, frameProperties);
+    }
+
+    /// <summary>The preset geometry a mask is written as.</summary>
+    private static string PresetFor(ImageMask mask) =>
+        mask == ImageMask.Ellipse ? "ellipse" : "rect";
+
+    /// <summary>
+    /// The <c>a:srcRect</c> for a crop, or null when the picture uses all of its
+    /// source. Written in thousandths of a percent, which is what the attribute
+    /// states and what the reader converts back from.
+    /// </summary>
+    private static XElement? BuildSourceRect(ImagePresentation presentation)
+    {
+        if (!presentation.HasCrop)
+            return null;
+
+        var element = new XElement(DocxNamespaces.Drawing + "srcRect");
+        Add("l", presentation.CropLeft);
+        Add("t", presentation.CropTop);
+        Add("r", presentation.CropRight);
+        Add("b", presentation.CropBottom);
+        return element;
+
+        void Add(string edge, double fraction)
+        {
+            int value = (int)Math.Round(Math.Clamp(fraction, 0, 1) * 100000);
+            if (value > 0)
+                element.Add(new XAttribute(edge, value.ToString(CultureInfo.InvariantCulture)));
+        }
     }
 
     private static XElement TextElement(string value) =>

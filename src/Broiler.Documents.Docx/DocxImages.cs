@@ -138,7 +138,9 @@ internal sealed class DocxImageLoader
 
             (double width, double height) = ReadExtent(wrapper);
             (string? altText, string? name) = ReadDescription(wrapper);
-            return Load(relationshipId, relationships, width, height, altText, name, diagnostics);
+            return Load(
+                relationshipId, relationships, width, height, altText, name, diagnostics,
+                ReadPresentation(blip.Parent, wrapper));
         }
 
         diagnostics.AddDiagnosticOnce(
@@ -182,6 +184,69 @@ internal sealed class DocxImageLoader
         return Load(relationshipId, relationships, width, height, altText, name, diagnostics);
     }
 
+    /// <summary>
+    /// How the picture is shown: the part of the source it uses, and the shape it
+    /// is masked to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>a:srcRect</c> states each edge's crop in thousandths of a percent, so
+    /// 14330 is 14.33% off that side. It sits on the <c>a:blipFill</c>, which is
+    /// the blip's parent, and it crops the <em>source</em> rather than the box —
+    /// the picture still fills the extent it states.
+    /// </para>
+    /// <para>
+    /// <c>a:prstGeom</c> is the shape the fill is drawn through. Only
+    /// <c>ellipse</c> is represented, because it is the one that changes what a
+    /// document looks like rather than decorating it: the round portrait is what
+    /// every CV template puts its photograph in, and drawn square it is the first
+    /// thing anyone notices. Every other preset draws as the rectangle it is
+    /// inscribed in, which is what this codec did for all of them before.
+    /// </para>
+    /// </remarks>
+    private static ImagePresentation? ReadPresentation(XElement? blipFill, XElement wrapper)
+    {
+        double left = CropEdge(blipFill, "l");
+        double top = CropEdge(blipFill, "t");
+        double right = CropEdge(blipFill, "r");
+        double bottom = CropEdge(blipFill, "b");
+
+        XElement? geometry = FindDescendant(wrapper, DocxNamespaces.Drawing + "prstGeom");
+        ImageMask mask = string.Equals(
+            (string?)geometry?.Attribute("prst"), "ellipse", StringComparison.Ordinal)
+            ? ImageMask.Ellipse
+            : ImageMask.None;
+
+        var presentation = new ImagePresentation
+        {
+            CropLeft = left,
+            CropTop = top,
+            CropRight = right,
+            CropBottom = bottom,
+            Mask = mask,
+        };
+
+        return presentation.IsDefault ? null : presentation;
+    }
+
+    /// <summary>One edge of an <c>a:srcRect</c>, as a fraction of the source.</summary>
+    private static double CropEdge(XElement? blipFill, string edge)
+    {
+        XElement? crop = blipFill?.Element(DocxNamespaces.Drawing + "srcRect");
+        if (crop is null ||
+            !int.TryParse(
+                (string?)crop.Attribute(edge),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int thousandthsOfAPercent) ||
+            thousandthsOfAPercent <= 0)
+        {
+            return 0;
+        }
+
+        return thousandthsOfAPercent / 100000d;
+    }
+
     private InlineImage? Load(
         string relationshipId,
         DocxRelationships relationships,
@@ -189,7 +254,8 @@ internal sealed class DocxImageLoader
         double height,
         string? altText,
         string? name,
-        IDocxImageDiagnostics diagnostics)
+        IDocxImageDiagnostics diagnostics,
+        ImagePresentation? presentation = null)
     {
         if (!relationships.TryGet(relationshipId, out DocxRelationship? relationship) || relationship is null)
         {
@@ -218,7 +284,8 @@ internal sealed class DocxImageLoader
                 width,
                 height,
                 altText,
-                string.IsNullOrWhiteSpace(name) ? Path.GetFileNameWithoutExtension(relationship.Target) : name),
+                string.IsNullOrWhiteSpace(name) ? Path.GetFileNameWithoutExtension(relationship.Target) : name,
+                presentation),
             DocumentResourceDisposition.Embedded,
             diagnostics);
     }
