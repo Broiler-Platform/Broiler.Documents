@@ -208,14 +208,14 @@ reaches the required portions **described in detail and not merely referenced**,
 and it is expressly not an assurance that an implementation avoids third-party
 rights. All of that is recorded in
 [the DOCX IP and licensing register](docx-ip-licensing-register.md), where **every
-row is pending a decision**. Patent-freedom is not claimed and no
-freedom-to-operate determination has been made.
+row is now decided**. Decided is not cleared: patent-freedom is not claimed, no
+freedom-to-operate determination has been made, and the promise expressly does not
+assure that an implementation avoids third-party rights.
 
-**One naming question is open and has a visible consequence.** The register's
-proposed rule is that no label may name a vendor or its product, which would
-forbid `Word Document` — the phrase this component's hosts currently use for
-`.docx`. The register does not decide it; until it is decided, that label is
-unchanged and the rule is not enforced against it.
+**The naming rule is decided and applied.** No format label may name a vendor or
+its product, so `.docx` is offered as `DOCX Document (*.docx)` rather than as
+`Word Document` — the phrase this component's hosts used until the rule was taken.
+A guard in the aggregate repository fails the build on a label that names one.
 
 Settled by inspection: this codec embeds no third-party OOXML code, takes no
 package reference, reproduces no specification text, and no `.docx` or `.dotx`

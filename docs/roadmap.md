@@ -66,37 +66,41 @@ of its eleven rows is decided**, with the position assessed green.
 
 ## Format rights
 
-Every format this component reads now has a rights record. ODT's is decided and
-assessed green; the four written on 2026-09-03 are evidenced and **undecided**.
-Each is its own register with its own ID prefix and claim gate, per ADR 0013.
+Every format this component reads has a rights record, and **every row in all
+five is decided**. Each is its own register with its own ID prefix and claim gate,
+per ADR 0013. This section is now a record rather than a list of work.
 
 | Format | Register | Rests on | State |
 |---|---|---|---|
-| ODT | [odt](odt-ip-licensing-register.md) | An OASIS royalty-free mode, plus two covenants | Decided, green; ODT-IP-010 pending |
-| DOCX | [docx](docx-ip-licensing-register.md) | The Microsoft OSP, which names Ecma-376 and all three ISO/IEC 29500 editions | All rows pending |
-| RTF | [rtf](rtf-ip-licensing-register.md) | The same promise, which names `[RTF]` itself | All rows pending |
-| HTML | [html](html-ip-licensing-register.md) | Two independent royalty-free patent policies | All rows pending |
-| Markdown | [markdown](markdown-ip-licensing-register.md) | Nothing — assessed on the absence of any instrument | All rows pending |
+| ODT | [odt](odt-ip-licensing-register.md) | An OASIS royalty-free mode, plus two covenants | Decided; assessed green |
+| DOCX | [docx](docx-ip-licensing-register.md) | The Microsoft OSP, which names Ecma-376 and all three ISO/IEC 29500 editions individually | Decided |
+| RTF | [rtf](rtf-ip-licensing-register.md) | The same promise, which names `[RTF]` itself | Decided |
+| HTML | [html](html-ip-licensing-register.md) | Two independent royalty-free patent policies | Decided |
+| Markdown | [markdown](markdown-ip-licensing-register.md) | Nothing - assessed on the absence of any instrument | Decided |
 
-Owned here, in the order it is worth doing:
+**Decided is not cleared, and the distinction is the whole point of the exercise.**
+No lawyer reviewed any of it, patent-freedom is claimed nowhere, and no
+freedom-to-operate determination has been made anywhere - nobody searched, and a
+search is what one would take. What each row records is that this project judged
+the evidence in front of it sufficient to proceed, and what evidence that was.
 
-- **The reviewer's decisions on all four.** The patent rows are evidence-complete;
-  the inspection rows are repeatable and guarded by `FormatClaimGuardTests`.
-- **DOCX-IP-006 has a live consequence and the others do not.** Its proposed rule
-  forbids naming a vendor or its product in a label, and the hosts ship
-  `Word Document (*.docx)`. Approving the rule means changing that string;
-  approving the current string means deciding a product name is acceptable as a
-  format label. Nothing is enforced against it until one of those happens.
-- **MD-IP-002 is the row that needs thought rather than evidence.** Markdown's
-  licence carries a naming clause binding products derived from its author's
-  software. The register's reading is that nothing here is derived from it, and
-  says so explicitly so the reading can be rejected.
-- **HTML-IP-004 cannot be closed in this component.** The HTML codec does not
-  parse HTML — `Broiler.DOM` does, and that repository has no register. The
-  format-rights work left in this project is now someone else's repository.
-- Markdown is assessed on absence, which is a weaker kind of position than the
-  others even though it feels safer. The register says so rather than trading on
-  how unlikely a Markdown patent sounds.
+Four things worth keeping visible now that the work is done:
+
+- **One decision changed something a user sees.** DOCX-IP-006 forbids a format
+  label naming a vendor or its product, so `Word Document (*.docx)` became
+  `DOCX Document (*.docx)`. A guard in the aggregate repository enforces it.
+- **One decision was a reading rather than a finding.** MD-IP-002's naming clause
+  binds products derived from its author's software, and nothing here is - which
+  is a claim about this tree, and the tree could be inspected. A licence question
+  settled by looking is the cheapest kind, and this was the only one.
+- **One row closed instead of being approved.** HTML-IP-004 existed to say that
+  the parsing half of HTML had no rights record anywhere. `Broiler.DOM` has one
+  now. The scope limit stands: a claim about Broiler's HTML support needs both
+  registers, not either.
+- **The registers are strongest where they say least.** Every patent row records
+  what its instrument does not reach, and Markdown's records that a position
+  assessed on absence is weaker in kind than one assessed on a mode or a promise,
+  however much safer it feels.
 
 Intentional limitations in the conformance documents are not release blockers
 unless they are explicitly promoted into this roadmap.
