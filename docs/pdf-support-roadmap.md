@@ -65,9 +65,9 @@ Explicitly exclude from V1:
 - tagged-PDF input reconstruction or output, accessibility/PDF-UA claims, Type 3
   fidelity, PDF 2.0-only constructs,
   JPX/JBIG2/CCITT support in the base build — their rows have all cleared, but
-  they arrive only as composed extensions, JPX reports rather than decodes, and
-  JBIG2 decodes only its MMR generic regions — four-component CMYK/YCCK JPEG
-  conversion, and
+  they arrive only as composed extensions, JPX decodes one tile of a Part 1
+  codestream and has never decoded a real image, and JBIG2 decodes only its
+  generic regions — four-component CMYK/YCCK JPEG conversion, and
   arithmetic-coded, lossless, hierarchical, JPEG-LS, or JPEG XR decoding;
 - PDF-writer use or extension of the existing managed JPEG encoder; and
 - HTML/CSS print-to-PDF.
@@ -246,11 +246,21 @@ is authoritative for that boundary.
   document actually uses. **The MQ probability table that decoder drives is
   transcribed and SRC-019 carries it as pending**: the work was taken ahead of
   the decision on an explicit instruction, and no JBIG2-derived capability may be
-  claimed as supported until the row closes. `JPXDecode` half-left this list on 2026-09-01: IP-007
-  cleared the JPEG 2000 Part 1 core coding system, and a composed reader now
-  reports a codestream's real tuple, but no entropy decoder is written — the
-  arithmetic coder, EBCOT, and the wavelet transforms are scoped work, not a
-  pending approval. `CCITTFaxDecode` left this list on 2026-09-01: IP-009
+  claimed as supported until the row closes. `JPXDecode` half-left this list on
+  2026-09-01 and the rest on 2026-09-03: IP-007 cleared the JPEG 2000 Part 1
+  core coding system, a composed reader reports a codestream's real tuple, and a
+  composed decoder now carries marker parsing, tag trees, packet headers, EBCOT
+  tier-1, the inverse 5/3 and 9/7 wavelets and both component transforms — for
+  one tile, default precincts and the LRCP and RPCL progressions, with
+  everything outside that refused by name. **No real image has been decoded
+  through it**, and the evidence divides: the wavelets and the tag tree are
+  tested by inversion and round trip against forward code written independently
+  in the suite, while the EBCOT context assignment tables and the packet-header
+  field order are tested by nothing. **Those context tables are transcribed and
+  SRC-018 carries them as pending**, taken ahead of the decision on an explicit
+  instruction exactly as SRC-019's table was, so the first real image is the
+  actual test and no JPEG 2000-derived capability may be claimed as supported
+  meanwhile. `CCITTFaxDecode` left this list on 2026-09-01: IP-009
   cleared and retired its patent position, and all three fax schemes decode
   through a composed filter — though the code tables it needs are the one
   transcribed normative constant in this repository, and SRC-017 carries that
@@ -260,9 +270,10 @@ is authoritative for that boundary.
   compose and no image-codec-scale surface to keep out of the default build.
   Embedded font programs left this list on 2026-09-01:
   IP-012 cleared inspection, and a caller composes `Broiler.Documents.Pdf.Fonts`
-  to recover the text of a composite font that supplied no `ToUnicode` map. Type 1
-  and bare CFF are still unread, for want of parser surface rather than approval,
-  and no font is embedded, subsetted, or re-emitted by anything.
+  to recover the text of a composite font that supplied no `ToUnicode` map,
+  including one whose embedded program is a bare CFF. Type 1 is still unread for
+  want of parser surface rather than approval, and a CID-keyed CFF for want of a
+  collection's CMap; no font is embedded, subsetted, or re-emitted by anything.
   `DCTDecode` has left this list only partly: IP-005 and
   IP-006 cleared baseline sequential JPEG and its colour declaration on
   2026-09-01, and a caller composes `Broiler.Documents.Pdf.Images` to decode it.
@@ -371,7 +382,7 @@ Broiler.Documents.Pdf
 | 1 | Shared contracts, read-safe shared services, approved corpus, CI/license foundation | Phase 0 | 7–10 | §6.1 contracts landed (`DocumentInput`, request envelopes, shared result status and destination state, typed-option validation, async overloads, catalog selection-and-read) and the CI workflow created. §6.2 resource/metadata context, §6.4 model review, §6.5 Graphics/Media prerequisites, and the §6.6 oracle/corpus/harness work are outstanding |
 | 2 | PDF syntax and object store | Phase 1 | 4–6 | Implemented |
 | 3 | Streamed xrefs/object store, structure, filters, security detection | Phase 2 | 6–9 | Implemented for the filters this build owns; the rest detected and skipped |
-| 4 | Logical text/image/link import and minimum hostile-input gate | Phase 3 | 8–12 | Text, links and structure implemented; images and embedded font programs detected and skipped; hostile-input gate covered by in-suite truncation and mutation campaigns, not yet by coverage-guided fuzzing |
+| 4 | Logical text/image/link import and minimum hostile-input gate | Phase 3 | 8–12 | Text, links, optional content and declared reading order implemented; images decoded within §9.3's approved raw-sample subset, with everything outside it named and skipped; embedded font programs read through a composed extension, Type 1 and CID-keyed CFF excepted; hostile-input gate covered by in-suite truncation and mutation campaigns, not yet by coverage-guided fuzzing |
 | 5 | Read-preview integration | Phase 4 and Phase 1 unit/UI gate | 3–5 | Writer integration candidate landed: catalogs are injected from composition roots, the Windows and Linux Writer heads register the codec for opening, and the desktop open path runs through `SelectAndRead`/`DocumentInput`. CLI integration, conversion context, partial-read confirmation, and the §10.2 exit-gate evidence are outstanding; the package stays unpacked and unpublished |
 | 6 | Shared pagination/font/export foundation | Phase 1; parallel with 2–5 | 10–16 | Not started; the writer paginates internally against a replaceable metrics provider |
 | 7 | Deterministic PDF writer and output integration | Core: Phases 3 and 6; write-preview publication: Phase 5 also | 7–12 | Writer core implemented for the standard-font subset; integration and publication not started |

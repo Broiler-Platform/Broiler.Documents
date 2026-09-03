@@ -76,13 +76,16 @@ row clears.
   license; investigate relevant third-party declarations/claims.
 - [ ] Clear each included filter/codec tuple, including exact JPEG processes,
   entropy modes, component/precision combinations, APP14/`ColorTransform`, and
-  any LZW or fax work. *Partly done 2026-09-01, extended 2026-09-02: IP-005
-  (baseline JPEG, widened to progressive DCT on 2026-09-02), IP-006
-  (APP14/`ColorTransform`), IP-009 (CCITT fax, retired) and IP-010 (LZW, retired)
-  are approved, IP-007 clears JPEG 2000 Part 1 though no decoder for it is
-  written, and IP-008 clears JBIG2 though only its MMR generic regions decode.
-  **Every filter and codec row is decided**; what remains on them is engineering.
-  SRC-017 still carries the one transcribed normative table the fax work needed.*
+  any LZW or fax work. *Partly done 2026-09-01, extended 2026-09-02 and
+  2026-09-03: IP-005 (baseline JPEG, widened to progressive DCT on 2026-09-02),
+  IP-006 (APP14/`ColorTransform`), IP-009 (CCITT fax, retired) and IP-010 (LZW,
+  retired) are approved, IP-007 clears JPEG 2000 Part 1, whose decoder was
+  written on 2026-09-03 and has never decoded a real image, and IP-008 clears
+  JBIG2, whose generic regions decode under both coding methods since the same
+  day. **Every filter and codec row is decided**; what remains on them is
+  engineering. SRC-017 still carries the one transcribed normative table the fax
+  work needed, and SRC-018 and SRC-019 carry the two the JPEG 2000 and JBIG2
+  decoders were written on top of.*
 - [ ] Clear selected font formats/tables, Unicode data, URI standards, and any
   generated normative tables. *Partly done 2026-09-01: IP-012 is approved for
   font-program inspection, and IP-004 for the XMP read subset. Unicode data

@@ -67,11 +67,14 @@ Three further technologies are implemented but never composed by default, so a
 build that does not ask for them does not link them: JPEG (baseline and
 progressive) and CCITT fax
 (`Broiler.Documents.Pdf.Images`) and embedded font-program inspection
-(`Broiler.Documents.Pdf.Fonts`). Two more are cleared and only partly written: JPEG 2000 is
-*reported* rather than decoded, and JBIG2 decodes its MMR generic regions and
-reports the rest. In both cases the remaining work is a decoder, not an approval.
-Everything still outstanding — image extraction into the model, encryption — is
-detected and skipped with its own diagnostic. See [PDF extension points](pdf-extension-points.md) for which
+(`Broiler.Documents.Pdf.Fonts`). Two more are cleared and written but unproven:
+JPEG 2000 decodes one tile of a Part 1 codestream and has never decoded a real
+image, and JBIG2 decodes generic regions under both coding methods and reports
+the symbol, text, halftone and refinement ones. In both cases what remains is
+engineering and evidence, not an approval. Raw image samples reach the model
+within the approved DeviceGray, DeviceRGB and Indexed subset; everything outside
+it — masks, the other colour spaces, encryption — is detected and skipped with
+its own diagnostic. See [PDF extension points](pdf-extension-points.md) for which
 of the three states a given technology is in and why.
 
 Residual work owned here:

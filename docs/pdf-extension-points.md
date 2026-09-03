@@ -183,24 +183,26 @@ or be handed something undecoded.
 interface, and they are the worked examples of §5 rather than special cases.
 `CcittFaxStreamFilter` joined `JpegStreamFilter` there when IP-009 cleared,
 decoding all three fax schemes of ITU-T T.4 and T.6, and `JpxStreamFilter`
-followed when IP-007 cleared — though that one reports rather than decodes, and
-the distinction is worth keeping in view.
+followed when IP-007 cleared — though that one only reported until its decoder
+was written on 2026-09-03, and what it decodes has still never been checked
+against a real image, a distinction worth keeping in view.
 
 `Jbig2StreamFilter` completed the set. It decodes one region type for real —
-generic regions coded with MMR, reusing the T.6 decoder that arrived with
+generic regions, under MMR by reusing the T.6 decoder that arrived with
 `CcittFaxStreamFilter`, which is what a cleared row next to another cleared row
-buys you — and refuses any page whose segments are not all supported, rather than
-compositing the parts that decoded. Half a page is not a worse picture but a
-misleading one: the text a symbol region would have drawn is exactly the content
-a reader would assume was absent from the original.
+buys you, and under the arithmetic coder since 2026-09-03 — and refuses any page
+whose segments are not all supported, rather than compositing the parts that
+decoded. Half a page is not a worse picture but a misleading one: the text a
+symbol region would have drawn is exactly the content a reader would assume was
+absent from the original.
 
-A filter that never succeeds still earns its place, for a reason peculiar to
-JPEG 2000. A `JPXDecode` image may legally omit `/ColorSpace` and
+Reading a header earns its place even where nothing decodes, for a reason
+peculiar to JPEG 2000. A `JPXDecode` image may legally omit `/ColorSpace` and
 `/BitsPerComponent` from its PDF dictionary, because the codestream is the
 authority for them — so the dictionary-derived tuple every other image reports is,
 for this one, frequently blank. Reading the codestream header is the only way to
-say what the image is, and what it is happens to be exactly what a decision about
-writing the decoder needs.
+say what the image is, and what it is happens to be exactly what a decision
+about writing the decoder needed.
 
 That it is composed rather than built in is the interesting half. LZW cleared and
 went straight into the base build (§1), and fax did not, because the two are not
@@ -286,8 +288,11 @@ say. The encodings do not apply, the glyph names are inside the program, and the
 codec extracts either nothing or a guess. It extracts nothing, and reports it.
 
 A composed reader is handed one decoded program and the descriptor key it arrived
-under, and returns glyph-to-text. `Broiler.Documents.Pdf.Fonts` is the reviewed
-implementation, composing the sfnt parser from `Broiler.Graphics`:
+under, and returns glyph-to-text — or, for a program that names its glyphs rather
+than mapping them from characters, glyph-to-name, which the codec resolves
+through the one glyph-name table it authors so that no reader carries a second
+copy. `Broiler.Documents.Pdf.Fonts` is the reviewed implementation, composing the
+sfnt parser from `Broiler.Graphics` and reading a bare CFF's charset itself:
 
 ```csharp
 var codec = new PdfDocumentCodec(
@@ -304,11 +309,15 @@ where the composite case is a lookup. The codec does not guess.
 Two limits are worth stating plainly, because neither is a register question any
 more:
 
-- **Type 1 and bare CFF are declined.** The composed parser is a renderer. It
-  answers "which glyph draws this character" and exposes no glyph names, no
-  `post` table, and no CFF charset — a renderer never needs to know what a glyph
-  is called. Recovering text from those formats needs inspection surface that
-  does not exist yet, and adding it belongs in `Broiler.Graphics` under §5 step 3.
+- **Type 1 and CID-keyed CFF are declined.** The composed sfnt parser is a
+  renderer. It answers "which glyph draws this character" and exposes no glyph
+  names, no `post` table, and no CFF charset — a renderer never needs to know
+  what a glyph is called. A bare CFF is therefore read here instead, by walking
+  its charset for the names it gives its glyphs. Type 1 still needs inspection
+  surface that does not exist yet, and adding it belongs in `Broiler.Graphics`
+  under §5 step 3; a CID-keyed CFF's charset holds character identifiers from a
+  collection rather than names, so resolving them as names would invent glyphs
+  the font never mentioned.
 - **The map is built by probing.** The parser exposes no way to enumerate its
   character map, so the reader inverts it by asking the forward question once per
   code point in the BMP. That is a bounded loop, once per font, never a function

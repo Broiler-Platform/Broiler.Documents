@@ -1,7 +1,7 @@
 # PDF Support Feature Matrix
 
 **Version:** 1.11 (evidence-based register standard)  
-**Updated:** 2026-09-02 (aligned with the register's evidence-based standard)  
+**Updated:** 2026-09-03 (JPEG 2000 decoding; pending provenance rows)  
 **Authority:** This matrix defines claims; the roadmap defines planned work.
 
 Status values are `Planned`, `Candidate`, `Supported`, `Rejected`, and
@@ -18,9 +18,11 @@ under every construct this codec implements; every filter and codec row (IP-004
 through IP-010 and IP-012); and the provenance and naming rows IP-011, IP-013,
 IP-014, and IP-018. What remains is listed in the register's
 [what still blocks a support claim](pdf-ip-licensing-register.md#what-still-blocks-a-support-claim):
-SRC-017 — the one genuinely open provenance question, since transcribing ITU-T
-T.4's code tables was unavoidable — and the roadmap's own Phase 5, 7, and 8 exit
-criteria, which are engineering gates that no clearance touches. The package also remains neither packed nor registered in any
+SRC-017, the transcription question that reproducing ITU-T T.4's code tables
+raised and that SRC-018 and SRC-019 defer to; SRC-016, adjacent to it rather than
+governed by it; the re-opening of IP-012 for font embedding, requested
+2026-09-03; and the roadmap's own Phase 5, 7, and 8 exit criteria, which are
+engineering gates that no clearance touches. The package also remains neither packed nor registered in any
 application beyond the read-preview candidate. Implemented behavior is therefore
 recorded as `Candidate`: it works, it is tested, and it is not a product claim.
 How such an entry may be *named*, once one exists, is settled — see
@@ -43,12 +45,12 @@ is pending.
 | PDF 1.7 syntax, only subsets below | Implemented | Candidate | Candidate | — | — | No | Yes | In-process codec after gates | IP-001 approved 2026-09-01 | `pdf.version.unsupported` outside approved subset |
 | PDF 2.x declaration/header tolerance | Detect/skip | Detect/skip | Reject | — | — | No | No | Never a conformance claim | IP-002 pending | `pdf.version.tolerated-not-supported` |
 | Developer extensions | Detect/skip | Detect/skip | Reject | — | — | No | No | None | IP-003 pending | `pdf.extension.unsupported` |
-| Classic xref / cross-reference streams / object streams | Implemented | Plan | Plan | — | — | No | Yes | Bounded parser only | IP-001 pending | `pdf.xref.malformed` / limit code |
-| Effective incremental revision | Implemented | Plan | Reject | — | — | No | Yes | Latest effective revision only | IP-001 pending | `pdf.revisions.history-dropped` |
+| Classic xref / cross-reference streams / object streams | Implemented | Plan | Plan | — | — | No | Yes | Bounded parser only | IP-001 approved 2026-09-01 | `pdf.xref.malformed` / limit code |
+| Effective incremental revision | Implemented | Plan | Reject | — | — | No | Yes | Latest effective revision only | IP-001 approved 2026-09-01 | `pdf.revisions.history-dropped` |
 | Standard security handler / encryption | Reject | Reject | Reject | No | No | No | No | None | IP-015 blocked V1 | `pdf.encryption.unsupported` |
-| ASCIIHex / ASCII85 / RunLength filters | Implemented | Plan | Plan | Plan | Plan | No | Yes | Bounded filter chain | IP-001 plus source review pending | `pdf.filter.limit` / `pdf.filter.malformed` |
+| ASCIIHex / ASCII85 / RunLength filters | Implemented | Plan | Plan | Plan | Plan | No | Yes | Bounded filter chain | IP-001 approved 2026-09-01; SRC-001 closed 2026-09-01 | `pdf.filter.limit` / `pdf.filter.malformed` |
 | FlateDecode, PNG and TIFF predictors | Implemented; every predictor and component size | Candidate | Candidate | Candidate | Candidate | No | Yes | Bounded shared budget | IP-011 approved 2026-09-01; IP-023 confirmed | `pdf.filter.limit` / `pdf.filter.malformed` |
-| LZWDecode, including `EarlyChange` | Implemented | Candidate | Reject | Candidate | No | No | Yes | Base build; bounded filter chain | IP-010 approved and retired 2026-09-01; IP-001 pending | `pdf.filter.limit` / `pdf.filter.malformed` |
+| LZWDecode, including `EarlyChange` | Implemented | Candidate | Reject | Candidate | No | No | Yes | Base build; bounded filter chain | IP-010 approved and retired 2026-09-01; IP-001 approved 2026-09-01 | `pdf.filter.limit` / `pdf.filter.malformed` |
 | CCITTFaxDecode: MH, MR, and MMR (ITU-T T.4/T.6) | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-009 approved on patents 2026-09-01; code tables pending SRC-017 | `pdf.image.decoded-not-projected` |
 | DCT: 8-bit **every Huffman-coded process** (baseline, extended sequential, progressive), 1 or 3 components, YCbCr by declaration or default | Implemented as a composed filter | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-005 widened to progressive and extended sequential 2026-09-02; IP-006 approved 2026-09-01 | `pdf.image.decoded-not-projected` |
 | DCT: arithmetic, lossless, hierarchical, differential, 12-bit, 4-component | Detect/skip | Detect/skip | Reject | No | No | No | No | None | Outside IP-005; arithmetic carried the historical RAND terms | `pdf.image.dct.tuple-unsupported` |
@@ -68,9 +70,9 @@ is pending.
 | Type 0/CID fonts and `ToUnicode` CMaps | Implemented for `Identity-H` and `ToUnicode`, with a composed reader recovering text where `ToUnicode` is absent | Plan | Plan | — | — | No | Yes | Approved CMap/data only | IP-012 approved for inspection; IP-013 approved | `pdf.text.mapping-missing-or-uncertain` |
 | Latin, Greek, Cyrillic text export | Implemented for the WinAnsi repertoire on write; Symbol's Greek readable on import | — | Plan | — | — | No | Yes | Caller-supplied approved font | IP-012 and IP-013 approved | `document.script.unsupported` |
 | Complex scripts, bidi shaping, vertical writing, emoji sequences | Detect/skip | Detect/skip | Later | — | — | No | No | None | IP-013 approved; unimplemented by scope, not by clearance | `document.script.unsupported` |
-| XMP read into the normalized allowlist (ISO 16684-1:2019, RDF/XML subset, nine `dc`/`xmp`/`pdf` properties) | Implemented | Candidate | — | Yes | No | No | Yes | In-process reader: no I/O, no DTD, no external entity, no schema | IP-004 approved 2026-09-01; IP-001 pending | `document.metadata.raw-dropped`, `pdf.metadata.xmp-unusable` |
+| XMP read into the normalized allowlist (ISO 16684-1:2019, RDF/XML subset, nine `dc`/`xmp`/`pdf` properties) | Implemented | Candidate | — | Yes | No | No | Yes | In-process reader: no I/O, no DTD, no external entity, no schema | IP-004 approved 2026-09-01; IP-001 approved 2026-09-01 | `document.metadata.raw-dropped`, `pdf.metadata.xmp-unusable` |
 | Raw XMP packet preservation or XMP output | Rejected | Reject | Reject | — | No | No | No | None | Out of V1 scope by design, not by clearance | `document.metadata.raw-dropped` |
-| Allowlisted normalized metadata | Implemented | Plan | Plan | — | — | No | Yes | Explicit caller selection on write | IP-004 approved 2026-09-01; source review pending | `document.metadata.dropped`, `pdf.metadata.conflict` |
+| Allowlisted normalized metadata | Implemented | Plan | Plan | — | — | No | Yes | Explicit caller selection on write | IP-004 approved 2026-09-01; SRC-001 and SRC-012 approved | `document.metadata.dropped`, `pdf.metadata.conflict` |
 | URI/link values | Implemented | Plan as inert values | Plan after policy admission | — | — | No | Yes | Never activated by codec | IP-014 approved 2026-09-01 | `document.uri.rejected` |
 | Attachments, JavaScript, launch/remote/submit/multimedia actions | Detect/skip | Detect/skip | Reject | No | No | No | No | None | IP-001 and security policy | `pdf.active-content.removed` |
 | Tagged PDF / PDF/UA / PDF/A / PDF/X | Detect/skip | Detect/skip | Later | — | — | No | No | No conformance claim | IP-017 blocked V1 | Profile-specific unsupported code |
@@ -113,7 +115,7 @@ is pending.
 | DCTDecode (JPEG) | Candidate | Composed extension: baseline and progressive with a resolved colour transform decode, everything else is refused by name | `Broiler.Media.Image` decoder; IP-005 and IP-006 approved |
 | JPXDecode (JPEG 2000) | Candidate for the implemented subset | Composed decoder: tag trees, packet headers, EBCOT tier-1, inverse wavelets and component transforms, for one tile and the LRCP/RPCL progressions; everything else refused by name | Part 1 cleared; EBCOT context tables pending in SRC-018. **The wavelets are tested by inversion; the entropy coder is tested by nothing** |
 | CCITTFaxDecode | Candidate | Composed extension: all three schemes decode, round-tripped against an encoder written in the test suite | Patent history retired; the standard's code tables await a source decision |
-| JBIG2Decode | Candidate for MMR generic regions; Post-V1 for the rest | Composed filter decodes MMR generic regions and reports every other segment type | Patent row cleared; the arithmetic decoder is outstanding, and the security review still applies |
+| JBIG2Decode | Candidate for generic regions under both coding methods; Post-V1 for the rest | Composed filter decodes generic regions coded with MMR or arithmetically, and reports every other segment type | Patent row cleared; the MQ probability table is pending in SRC-019, the symbol, text, halftone and refinement regions are outstanding, and the security review still applies |
 | Raw image samples into the model: DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded DeviceGray/DeviceRGB palette, with validated `/Decode` | Candidate | Implemented; decoded samples are normalized to RGBA and admitted through the resource policy. Anything outside the tuple is refused by the reason met | Roadmap §9.3's approved subset; per-tuple projection tests |
 | Image masks / soft masks | Candidate | Refused rather than projected: a stencil paints the current fill colour, and an `/SMask` or colour-key `/Mask` carries transparency this build does not composite, so carrying either would invent a picture | Compositing semantics and resource budgets |
 | ICCBased color | Candidate | Not reached; refused by name with the family it declared | Color-management ownership and profile licensing |
