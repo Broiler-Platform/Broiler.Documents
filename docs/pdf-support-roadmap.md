@@ -66,8 +66,9 @@ Explicitly exclude from V1:
   fidelity, PDF 2.0-only constructs,
   JPX/JBIG2/CCITT support in the base build — their rows have all cleared, but
   they arrive only as composed extensions, JPX decodes one tile of a Part 1
-  codestream and has never decoded a real image, and JBIG2 decodes only its
-  generic regions — four-component CMYK/YCCK JPEG conversion, and
+  codestream and has never decoded a real image, and JBIG2 decodes its generic,
+  symbol and text regions arithmetically but neither their Huffman-coded forms
+  nor a real file — four-component CMYK/YCCK JPEG conversion, and
   arithmetic-coded, lossless, hierarchical, JPEG-LS, or JPEG XR decoding;
 - PDF-writer use or extension of the existing managed JPEG encoder; and
 - HTML/CSS print-to-PDF.
@@ -240,13 +241,18 @@ is authoritative for that boundary.
   row is open any longer**: `JBIG2Decode` was the last, and IP-008 cleared it on
   2026-09-01. A composed filter reads the segment structure and decodes generic
   regions coded with MMR through the T.6 decoder cleared under IP-009; the
-  arithmetic decoder was written on 2026-09-03, so generic regions now decode
-  under both coding methods; the symbol, text, halftone, and refinement regions
-  remain outstanding, and that is what almost every JBIG2 image in a scanned
-  document actually uses. **The MQ probability table that decoder drives is
+  arithmetic decoder was written on 2026-09-03, so generic regions decode under
+  both coding methods; and the symbol dictionaries and text regions that almost
+  every JBIG2 image in a scanned document is actually made of decode in their
+  arithmetic form since the same day — height classes and export flags, the
+  strips and reference corners a text region places by, and the integer and
+  symbol-identifier procedures all of it runs on. The halftone and refinement
+  regions, aggregate symbol coding, and the Huffman-coded form of every one of
+  them stay refused by name. **The MQ probability table all of that drives is
   transcribed and SRC-019 carries it as pending**: the work was taken ahead of
   the decision on an explicit instruction, and no JBIG2-derived capability may be
-  claimed as supported until the row closes. `JPXDecode` half-left this list on
+  claimed as supported until the row closes — nor before a real scanned page has
+  been decoded, which none has. `JPXDecode` half-left this list on
   2026-09-01 and the rest on 2026-09-03: IP-007 cleared the JPEG 2000 Part 1
   core coding system, a composed reader reports a codestream's real tuple, and a
   composed decoder now carries marker parsing, tag trees, packet headers, EBCOT

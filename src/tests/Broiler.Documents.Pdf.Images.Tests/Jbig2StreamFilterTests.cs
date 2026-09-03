@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+using static Broiler.Documents.Pdf.Images.Tests.Jbig2Streams;
 
 namespace Broiler.Documents.Pdf.Images.Tests;
 
@@ -94,21 +94,35 @@ public sealed class Jbig2StreamFilterTests
     }
 
     [Fact]
-    public void A_Symbol_Dictionary_And_Text_Region_Are_Reported_As_The_Inventory()
+    public void A_Symbol_Dictionary_Outside_The_Subset_Is_Named_Rather_Than_Counted()
     {
-        // The shape almost every real JBIG2 in a PDF has, and the one this build
-        // does not decode. What it says back is the inventory a decision about
-        // writing the arithmetic decoder would be made from.
-        byte[] stream = Page(64, 32, Segment(number: 1, type: 0, [1, 2, 3]), Segment(number: 2, type: 6, [4, 5, 6]));
+        // This asserted that a symbol dictionary was reported as inventory and
+        // nothing more, which was the whole of the behaviour until the dictionary
+        // decoder was written. Now that one decodes, a refusal has to say which
+        // dictionary it could not read: these flag bytes declare refinement, and
+        // that is what comes back.
+        byte[] stream = Page(
+            64, 32,
+            Segment(number: 1, type: 0, [0x00, 0x02, 0, 0, 0, 0, 0, 0, 0, 0]),
+            Segment(number: 2, type: 6, TextRegionHeader(32, 16), referred: [1]));
 
         PdfFilterResult result = Decode(stream);
 
         Assert.Equal(PdfDiagnosticCodes.FilterJbig2Unsupported, result.DiagnosticCode);
-        Assert.Contains("symbol dictionary", result.Message, StringComparison.Ordinal);
-        Assert.Contains("text region", result.Message, StringComparison.Ordinal);
+        Assert.Contains("refine or aggregate", result.Message, StringComparison.Ordinal);
+        Assert.Contains("1 symbol dictionary", result.Message, StringComparison.Ordinal);
+    }
 
-        // The arithmetic decoder exists now, so the reason had to stop citing it.
-        // What is missing is narrower and the message says which part.
+    [Fact]
+    public void An_Intermediate_Text_Region_Is_Refused_By_Name()
+    {
+        // Type 4 is the intermediate form: it is kept in an auxiliary buffer for
+        // another segment to refer to rather than drawn, and the buffers are not
+        // built. The immediate forms decode; this one says why it does not.
+        PdfFilterResult result = Decode(Page(64, 32, Segment(number: 1, type: 4, [1, 2, 3])));
+
+        Assert.Equal(PdfDiagnosticCodes.FilterJbig2Unsupported, result.DiagnosticCode);
+        Assert.Contains("text region", result.Message, StringComparison.Ordinal);
         Assert.Contains("whose decoder is not written", result.Message, StringComparison.Ordinal);
     }
 
@@ -116,14 +130,16 @@ public sealed class Jbig2StreamFilterTests
     public void Globals_Are_Read_And_Reported()
     {
         // The parameter is a stream, which the filter extension point could not
-        // reach at all until it learned to hand one over decoded.
-        byte[] globals = Segments(Segment(number: 0, type: 0, [1, 2, 3, 4]));
+        // reach at all until it learned to hand one over decoded. A dictionary in
+        // there is now used rather than reported — see the symbol tests — so what
+        // this covers is a globals segment that is still outside the subset.
+        byte[] globals = Segments(Segment(number: 0, type: 22, [1, 2, 3, 4]));
         byte[] stream = Page(64, 32, GenericRegion(Pattern(64, 32), 0, 0));
 
         PdfFilterResult result = Decode(stream, globals);
 
         Assert.Equal(PdfDiagnosticCodes.FilterJbig2Unsupported, result.DiagnosticCode);
-        Assert.Contains("JBIG2Globals hold 1 symbol dictionary", result.Message, StringComparison.Ordinal);
+        Assert.Contains("JBIG2Globals hold a halftone region", result.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -180,42 +196,20 @@ public sealed class Jbig2StreamFilterTests
 
     // ---- fixtures -------------------------------------------------------------
 
-    /// <summary>A page information segment, the given segments, and an end of page.</summary>
-    private static byte[] Page(int width, int height, params byte[][] segments)
+    /// <summary>
+    /// A text region body that stops after its flags: enough for a page to hold a
+    /// region, where the test is about another segment.
+    /// </summary>
+    private static byte[] TextRegionHeader(int width, int height)
     {
-        var info = new List<byte>();
-        AddUInt32(info, width);
-        AddUInt32(info, height);
-        AddUInt32(info, 0);             // x resolution
-        AddUInt32(info, 0);             // y resolution
-        info.Add(0);                    // flags
-        AddUInt16(info, 0);             // striping
-
-        var all = new List<byte[]> { Segment(number: 0, type: 48, [.. info]) };
-        all.AddRange(segments);
-        all.Add(Segment(number: 9999, type: 49, []));
-        return Segments([.. all]);
-    }
-
-    private static byte[] Segments(params byte[][] segments)
-    {
-        var bytes = new List<byte>();
-        foreach (byte[] segment in segments)
-            bytes.AddRange(segment);
-        return bytes.ToArray();
-    }
-
-    /// <summary>One segment header in the sequential organisation, plus its data.</summary>
-    private static byte[] Segment(uint number, int type, byte[] data)
-    {
-        var bytes = new List<byte>();
-        AddUInt32(bytes, number);
-        bytes.Add((byte)type);          // flags: type, one-byte page association
-        bytes.Add(0);                   // no referred-to segments, no retain bits
-        bytes.Add(1);                   // page association
-        AddUInt32(bytes, data.Length);
-        bytes.AddRange(data);
-        return bytes.ToArray();
+        var body = new List<byte>();
+        AddUInt32(body, width);
+        AddUInt32(body, height);
+        AddUInt32(body, 0);
+        AddUInt32(body, 0);
+        body.Add(0);
+        AddUInt16(body, 0);
+        return [.. body];
     }
 
     /// <summary>An immediate generic region carrying <paramref name="bitmap"/> as MMR.</summary>
@@ -262,25 +256,6 @@ public sealed class Jbig2StreamFilterTests
         return Segment(number: 1, type: 38, [.. body]);
     }
 
-    private static bool[][] Unpack(byte[] packed, int columns, int rows)
-    {
-        int stride = (columns + 7) / 8;
-        var image = new bool[rows][];
-
-        for (int y = 0; y < rows; y++)
-        {
-            image[y] = new bool[columns];
-            for (int x = 0; x < columns; x++)
-            {
-                // The filter emits PDF's convention, where zero is black.
-                int bit = (packed[(y * stride) + (x >> 3)] >> (7 - (x & 7))) & 1;
-                image[y][x] = bit == 0;
-            }
-        }
-
-        return image;
-    }
-
     private static void AssertSame(bool[][] expected, bool[][] actual)
     {
         for (int y = 0; y < expected.Length; y++)
@@ -314,19 +289,5 @@ public sealed class Jbig2StreamFilterTests
         }
 
         return image;
-    }
-
-    private static void AddUInt16(List<byte> target, int value)
-    {
-        Span<byte> bytes = stackalloc byte[2];
-        BinaryPrimitives.WriteUInt16BigEndian(bytes, (ushort)value);
-        target.AddRange(bytes.ToArray());
-    }
-
-    private static void AddUInt32(List<byte> target, long value)
-    {
-        Span<byte> bytes = stackalloc byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(bytes, (uint)value);
-        target.AddRange(bytes.ToArray());
     }
 }

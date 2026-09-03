@@ -30,7 +30,25 @@ internal static class Jbig2GenericEncoder
         bool typicalPrediction = false,
         (int X, int Y)[]? adaptive = null)
     {
-        var encoder = new MqEncoder(16);
+        var encoder = new MqEncoder();
+        Encode(encoder, new MqContexts(Jbig2GenericDecoder.GenericContextBits), image, width, height, template, typicalPrediction, adaptive);
+        return encoder.Flush();
+    }
+
+    /// <summary>
+    /// Encodes one bitmap into a coder the caller owns, for a symbol dictionary,
+    /// whose symbols run back to back through one coder and one set of contexts.
+    /// </summary>
+    internal static void Encode(
+        MqEncoder encoder,
+        MqContexts contexts,
+        byte[] image,
+        int width,
+        int height,
+        int template,
+        bool typicalPrediction = false,
+        (int X, int Y)[]? adaptive = null)
+    {
         // The decoder's own template resolution, so the two cannot drift apart —
         // and so a template misread from the standard is a single fact rather
         // than two that happen to agree.
@@ -53,7 +71,7 @@ internal static class Jbig2GenericEncoder
                 // Whether this row repeats the one above decides the bit, and
                 // the bit toggles the running state rather than setting it.
                 bool repeats = y > 0 && RowsMatch(image, width, y);
-                encoder.Encode(typicalContext, repeats == skipping ? 0 : 1);
+                encoder.Encode(contexts, typicalContext, repeats == skipping ? 0 : 1);
                 skipping = repeats;
 
                 if (skipping)
@@ -66,11 +84,9 @@ internal static class Jbig2GenericEncoder
                 foreach ((int dx, int dy) in pixels)
                     context = (context << 1) | At(image, width, height, x + dx, y + dy);
 
-                encoder.Encode(context, image[(y * width) + x]);
+                encoder.Encode(contexts, context, image[(y * width) + x]);
             }
         }
-
-        return encoder.Flush();
     }
 
     private static bool RowsMatch(byte[] image, int width, int y)

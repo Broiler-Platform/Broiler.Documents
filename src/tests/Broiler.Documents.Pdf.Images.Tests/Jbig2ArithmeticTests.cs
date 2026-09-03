@@ -175,9 +175,10 @@ public sealed class Jbig2ArithmeticTests
 
     private static int[] RoundTrip(int[] bits, int contextBits, Func<int, int> context)
     {
-        var encoder = new MqEncoder(contextBits);
+        var encoder = new MqEncoder();
+        var encoderContexts = new MqContexts(contextBits);
         for (int i = 0; i < bits.Length; i++)
-            encoder.Encode(context(i), bits[i]);
+            encoder.Encode(encoderContexts, context(i), bits[i]);
 
         byte[] data = encoder.Flush();
 
