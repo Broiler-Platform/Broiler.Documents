@@ -11,7 +11,8 @@ it. **This is the row on which taking counsel would be worth its cost**, and the
 brief exists so that either a lawyer or a well-informed decision has something to
 work from.
 **Prepared:** 2026-09-02. **Updated:** 2026-09-03, when a second transcribed
-table entered the repository and, with it, a second rights-holder — see §4.
+table entered the repository and, with it, a second rights-holder — see §4, and
+§5b for that rights-holder's terms.
 **Decides:** [SRC-017](pdf-approved-sources.md), and by reference SRC-018 and
 SRC-019. **SRC-016 is adjacent rather than covered**, for the reason §4 sets
 out: it asks the same shape of question about a different publisher's document,
@@ -118,7 +119,8 @@ So the reviewer faces a choice about scope before facing the question itself:
 The first is the more defensible and the slower. Nothing forces the choice now:
 `CffStandardStrings` is unpublished on the same footing as the fax tables, and
 the feature matrix already refuses any CFF-derived support claim while the row is
-open.
+open. **§5b now gathers the SRC-016 evidence** to the same standard §5a set for
+ITU, so deciding the two separately no longer means deciding one of them blind.
 
 **What is genuinely shared** is the precedent. Whatever is decided here will be
 the reasoning anyone reaches for next time a table cannot be authored from an
@@ -213,6 +215,125 @@ entropy decoding stay out of scope.
 **Who gathered this.** Assembled from public ITU sources on 2026-09-02 as an
 evidence record, in the same way the register's other rows were prepared. It is
 fact-gathering by an engineer, not advice, and the decision remains open.
+
+## 5b. Evidence gathered for SRC-016, 2026-09-03
+
+§4a said the CFF standard strings needed their own evidence because they are not
+the ITU's. That legwork is now done, in the same way and to the same standard.
+**Nothing below is a conclusion**; it is what the rights-holders publish about
+their own material.
+
+### The document's own notice
+
+Read directly from the specification, not from a summary of it. Adobe Technical
+Note #5176, *The Compact Font Format Specification*, version 1.0, 4 December
+2003, page ii:
+
+> Copyright © 1996–1998, 2000, 2003 by Adobe Systems Incorporated. All rights
+> reserved.
+>
+> No part of this publication may be reproduced, stored in a retrieval system, or
+> transmitted, in any form or by any means, electronic, mechanical, photocopying,
+> recording, or otherwise, without the prior written consent of the publisher.
+
+That is **materially the same prohibition ITU states**, and it was worth checking
+rather than assuming: the expectation going in was that Adobe's font
+specifications would be more permissive than a treaty organisation's, and on the
+face of the document they are not.
+
+### The same document, redistributed by Adobe under a licence
+
+Adobe also publishes this specification in its own
+[`adobe-type-tools/font-tech-notes`](https://github.com/adobe-type-tools/font-tech-notes)
+repository, which states its licence as **CC BY-ND 4.0**, and lists
+`pdfs/5176.CFF.pdf` among the notes it covers.
+
+This is the fact that makes SRC-016 a different question from SRC-017 rather than
+a copy of it. **ITU grants no licence over its Recommendations; Adobe grants one
+over this document.** The [deed](https://creativecommons.org/licenses/by-nd/4.0/)
+reads:
+
+> **Share** — copy and redistribute the material in any medium or format for any
+> purpose, even commercially.
+>
+> **Attribution** — You must give appropriate credit, provide a link to the
+> license, and indicate if changes were made.
+>
+> **NoDerivatives** — If you remix, transform, or build upon the material, you
+> may not distribute the modified material.
+
+Two things follow that a reviewer will want in front of them. A licence exists,
+so the question is no longer only "may we ask?" but "does the grant already
+reach this?". And the grant's limit — NoDerivatives — falls exactly where the
+use falls: an ordered list transcribed into source-code constants is either the
+material being *shared*, or the material *transformed*, and the deed does not
+say which. It also says nothing about whether the grant applies to a portion of
+a document rather than the whole.
+
+### The ISO route
+
+The Open Font Format, [ISO/IEC 14496-22](https://www.iso.org/standard/66391.html),
+incorporates CFF, and current editions are downloadable from ISO at no charge.
+ISO's standards carry the notice
+[reproduced on its own published documents](https://www.iec.ch/copyright): a
+"COPYRIGHT PROTECTED DOCUMENT" statement that no part may be reproduced without
+prior written permission, obtainable from ISO or from a member body in the
+requester's country.
+
+Obtainability is not a reproduction right — the same distinction §5 already draws
+for ITU, and it holds here for the same reason.
+
+### There is no third source with easier terms
+
+Worth stating because it closes an obvious line of enquiry. **SRC-006, the
+Microsoft OpenType specification, is already approved for inspection use in this
+repository — and it does not carry the table.** Its
+['CFF ' chapter](https://learn.microsoft.com/en-us/typography/opentype/spec/cff)
+refers the reader to Adobe's Technical Note #5176 for the INDEX, DICT and FontSet
+structures rather than restating them, and lists no standard strings.
+
+So the table has one origin, published under the two sets of terms above, and no
+route to it through a source this repository has already cleared.
+
+### What this evidence does not settle
+
+The same limits §5a records, plus one specific to the licence:
+
+- Whether transcribing a normative table into executable constants is
+  *reproducing the publication* at all, or is implementing a specification.
+- Whether an ordered list of glyph names is protected expression or an
+  unprotectable fact or method, and whether merger applies where there is exactly
+  one way to express it and still interoperate.
+- **Whether extracting one appendix from a CC BY-ND document, and rendering it as
+  source code, is "sharing the material" or producing "Adapted Material".** The
+  deed's own summary does not resolve it, and the licence's definition of Adapted
+  Material — material "translated, altered, arranged, transformed, or otherwise
+  modified" — is the text a reviewer would have to weigh.
+- How any of it varies by jurisdiction.
+
+### What it changes about the dispositions
+
+**It puts a different first question than SRC-017 has.** For ITU the evidence
+pointed at asking, because there was no grant to examine. Here there is one, from
+the rights-holder, over this exact document — so the first move is to establish
+whether CC BY-ND 4.0 already covers the use, and only then to consider asking.
+
+**It surfaces a concrete obligation if the answer is yes.** BY-ND requires
+attribution and a link to the licence, and requires that changes be indicated.
+Relying on the grant therefore attaches a notice obligation to the release
+artifact, in the way IP-013's Unicode notice does — something to record and
+fulfil, not merely to conclude.
+
+**It does not make refusal cheaper here than there.** If the table cannot be
+reproduced, `CffGlyphNames` resolves no standard name, which is most of what a
+bare CFF names; the composed reader returns to reporting the program as
+uninspected. As with the fax path, the engineering around it survives and the
+capability does not.
+
+**Who gathered this.** Assembled on 2026-09-03 from the specification itself and
+from public Adobe, Creative Commons, ISO and Microsoft sources, as an evidence
+record in the same way §5a was prepared. It is fact-gathering by an engineer, not
+advice, and the decision remains open.
 
 ## 6. Dispositions available, and what each costs
 
