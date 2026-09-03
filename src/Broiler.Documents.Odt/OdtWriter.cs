@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -288,6 +288,12 @@ public static class OdtWriter
         foreach (TableRow row in table.Rows)
         {
             var tr = new XElement(OdtNamespaces.Table + "table-row");
+            if (row.MinHeight > 0)
+            {
+                tr.Add(new XAttribute(
+                    OdtNamespaces.Table + "style-name", context.GetRowStyleName(row.MinHeight)));
+            }
+
             int column = 0;
             foreach (TableCell cell in row.Cells)
             {
@@ -1126,6 +1132,7 @@ public static class OdtWriter
         private readonly List<XElement> _shapeStyles = [];
         private readonly List<XElement> _tableStyles = [];
         private readonly Dictionary<string, string> _columnStyleNames = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _rowStyleNames = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _cellStyleNames = new(StringComparer.Ordinal);
         private int _tableCount;
         private readonly List<XElement> _gradients = [];
@@ -1257,6 +1264,34 @@ public static class OdtWriter
                     new XAttribute(OdtNamespaces.Style + "column-width", key))));
 
             _columnStyleNames[key] = name;
+            return name;
+        }
+
+        /// <summary>
+        /// The row style for one height, created on first use. As with a column,
+        /// ODF puts the measurement in a named style rather than on the row.
+        /// </summary>
+        /// <remarks>
+        /// Written as <c>style:min-row-height</c> and never <c>style:row-height</c>:
+        /// the model's height is a floor, and the fixed attribute would tell the
+        /// next reader something stronger than this document knows.
+        /// </remarks>
+        public string GetRowStyleName(double height)
+        {
+            string key = OdtUnits.FormatPoints(height);
+            if (_rowStyleNames.TryGetValue(key, out string? existing))
+                return existing;
+
+            string name = "ro" + (_rowStyleNames.Count + 1).ToString(CultureInfo.InvariantCulture);
+            _tableStyles.Add(new XElement(
+                OdtNamespaces.Style + "style",
+                new XAttribute(OdtNamespaces.Style + "name", name),
+                new XAttribute(OdtNamespaces.Style + "family", "table-row"),
+                new XElement(
+                    OdtNamespaces.Style + "table-row-properties",
+                    new XAttribute(OdtNamespaces.Style + "min-row-height", key))));
+
+            _rowStyleNames[key] = name;
             return name;
         }
 

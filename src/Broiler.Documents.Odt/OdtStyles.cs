@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
@@ -105,6 +105,13 @@ internal sealed class OdtStyles
         new Dictionary<string, XElement>(StringComparer.Ordinal);
 
     /// <summary>
+    /// The <c>style:table-row-properties</c> by name, which is where a row states
+    /// its height.
+    /// </summary>
+    public IReadOnlyDictionary<string, XElement> TableRowProperties { get; init; } =
+        new Dictionary<string, XElement>(StringComparer.Ordinal);
+
+    /// <summary>
     /// The <c>draw:gradient</c> elements by name. A graphic style refers to one
     /// rather than carrying the stops itself.
     /// </summary>
@@ -129,6 +136,7 @@ internal sealed class OdtStyles
         var graphicProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var cellProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var columnProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
+        var rowProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var gradients = new Dictionary<string, XElement>(StringComparer.Ordinal);
         XElement? masterStyles = null;
         List<XElement> pageLayouts = [];
@@ -148,6 +156,7 @@ internal sealed class OdtStyles
                     graphicProperties,
                     cellProperties,
                     columnProperties,
+                    rowProperties,
                     gradients);
                 masterStyles = stylesXml.Root.Element(OdtNamespaces.Office + "master-styles");
                 pageLayouts = stylesXml.Root
@@ -167,6 +176,7 @@ internal sealed class OdtStyles
                 graphicProperties,
                 cellProperties,
                 columnProperties,
+                rowProperties,
                 gradients);
         }
 
@@ -177,6 +187,7 @@ internal sealed class OdtStyles
             GraphicProperties = graphicProperties,
             TableCellProperties = cellProperties,
             TableColumnProperties = columnProperties,
+            TableRowProperties = rowProperties,
             Gradients = gradients,
         };
     }
@@ -195,6 +206,7 @@ internal sealed class OdtStyles
         Dictionary<string, XElement> graphicProperties,
         Dictionary<string, XElement> cellProperties,
         Dictionary<string, XElement> columnProperties,
+        Dictionary<string, XElement> rowProperties,
         Dictionary<string, XElement> gradients)
     {
         foreach (XElement fontFace in root.Descendants(OdtNamespaces.Style + "font-face"))
@@ -229,6 +241,10 @@ internal sealed class OdtStyles
             XElement? column = style.Element(OdtNamespaces.Style + "table-column-properties");
             if (column is not null)
                 columnProperties[name] = column;
+
+            XElement? tableRow = style.Element(OdtNamespaces.Style + "table-row-properties");
+            if (tableRow is not null)
+                rowProperties[name] = tableRow;
         }
 
         foreach (XElement gradient in root.Descendants(OdtNamespaces.Draw + "gradient"))
