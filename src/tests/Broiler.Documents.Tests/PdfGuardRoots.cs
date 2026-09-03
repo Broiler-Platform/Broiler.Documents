@@ -11,7 +11,7 @@ namespace Broiler.Documents.Tests;
 /// </para>
 /// <para>
 /// <see cref="Aggregate"/> is the repository that holds the application heads -
-/// <c>src/Broiler.Writer.*</c> and <c>src/Broiler.Cli</c>. Broiler.Documents is
+/// <c>src/Broiler.Writer.*</c>. Broiler.Documents is
 /// consumed by those heads but does not contain them, so when this repository is
 /// built standalone there is nothing for a head guard to read. Those guards use
 /// <see cref="RequireAggregate"/> and report as skipped rather than passing on an
@@ -38,7 +38,7 @@ internal static class PdfGuardRoots
     internal static string RequireAggregate()
     {
         Skip.If(Aggregate is null,
-            "The application heads (src/Broiler.Writer.*, src/Broiler.Cli) are not in this " +
+            "The application heads (src/Broiler.Writer.*) are not in this " +
             "checkout. This guard runs in the aggregate repository, where they live.");
 
         return Aggregate!;
@@ -72,8 +72,15 @@ internal static class PdfGuardRoots
         DirectoryInfo? directory = new(AppContext.BaseDirectory);
         while (directory is not null)
         {
+            // Recognised by the application heads, which is what the guards using
+            // this actually read. It also required a `src/Broiler.Cli` directory
+            // until that directory moved into this repository as
+            // `Broiler.Documents.Cli` - after which the condition was satisfiable
+            // nowhere and every guard behind it skipped instead of running. A
+            // detector is worth exactly the guards it enables, and one that can
+            // never fire disables them silently.
             if (Directory.Exists(Path.Combine(directory.FullName, "src", "Broiler.Writer.Windows")) &&
-                Directory.Exists(Path.Combine(directory.FullName, "src", "Broiler.Cli")))
+                Directory.Exists(Path.Combine(directory.FullName, "src", "Broiler.Writer")))
                 return directory.FullName;
 
             directory = directory.Parent;
