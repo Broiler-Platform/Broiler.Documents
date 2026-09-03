@@ -50,7 +50,14 @@ internal readonly record struct Jbig2GenericRegion(
     int Template,
     bool TypicalPrediction,
     int DataStart,
-    int DataLength);
+    int DataLength)
+{
+    /// <summary>
+    /// The adaptive template pixels the header supplied, A1 first. Empty for an
+    /// MMR region, which has none, and for a header that stated none.
+    /// </summary>
+    public (int X, int Y)[] Adaptive { get; init; } = [];
+}
 
 /// <summary>
 /// Reads the segment structure of a JBIG2 embedded stream.
@@ -198,6 +205,7 @@ internal static class Jbig2SegmentReader
         int combination = body[16] & 0x07;
 
         byte flags = body[17];
+        (int X, int Y)[] adaptivePixels = [];
         bool mmr = (flags & 0x01) != 0;
         int template = (flags >> 1) & 0x03;
         bool typicalPrediction = (flags & 0x08) != 0;
@@ -207,14 +215,21 @@ internal static class Jbig2SegmentReader
         {
             // Arithmetic coding carries the adaptive template pixels: four pairs
             // for template 0, one for the rest.
-            int adaptive = template == 0 ? 8 : 2;
-            if (cursor + adaptive > body.Length)
+            int count = template == 0 ? 4 : 1;
+            if (cursor + (count * 2) > body.Length)
             {
                 error = "A JBIG2 generic region declares template pixels the segment does not hold.";
                 return false;
             }
 
-            cursor += adaptive;
+            // Signed bytes: an adaptive pixel may sit left of or above the one
+            // being decoded, which is most of the point of moving it.
+            adaptivePixels = new (int, int)[count];
+            for (int i = 0; i < count; i++)
+            {
+                adaptivePixels[i] = ((sbyte)body[cursor], (sbyte)body[cursor + 1]);
+                cursor += 2;
+            }
         }
 
         if (width is <= 0 or > (1 << 16) || height is <= 0 or > (1 << 16))
@@ -226,7 +241,10 @@ internal static class Jbig2SegmentReader
         region = new Jbig2GenericRegion(
             (int)width, (int)height, (int)Math.Min(x, int.MaxValue), (int)Math.Min(y, int.MaxValue),
             combination, mmr, template, typicalPrediction,
-            segment.DataStart + cursor, segment.DataLength - cursor);
+            segment.DataStart + cursor, segment.DataLength - cursor)
+        {
+            Adaptive = adaptivePixels,
+        };
         error = null;
         return true;
     }
