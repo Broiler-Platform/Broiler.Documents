@@ -10,9 +10,12 @@ published evidence does not say, and reading the Recommendation does not answer
 it. **This is the row on which taking counsel would be worth its cost**, and the
 brief exists so that either a lawyer or a well-informed decision has something to
 work from.
-**Prepared:** 2026-09-02
+**Prepared:** 2026-09-02. **Updated:** 2026-09-03, when a second transcribed
+table entered the repository and, with it, a second rights-holder — see §4.
 **Decides:** [SRC-017](pdf-approved-sources.md), and by reference SRC-018 and
-SRC-019.
+SRC-019. **SRC-016 is adjacent rather than covered**, for the reason §4 sets
+out: it asks the same shape of question about a different publisher's document,
+and one decision does not answer both.
 
 This brief exists because SRC-017 is the last genuinely open provenance question
 in the PDF work, and because it is the only one an engineer cannot narrow further
@@ -70,7 +73,7 @@ publication of these particular assignments that is not itself derived from T.4.
 
 ## 4. What turns on the answer
 
-More than fax. Two other rows defer to this one:
+More than fax. Two rows defer to this one outright:
 
 - **SRC-018** (JPEG 2000): "should an entropy decoder ever be written, its
   MQ-coder state table and context assignments are normative constants with no
@@ -78,13 +81,49 @@ More than fax. Two other rows defer to this one:
 - **SRC-019** (JBIG2): the arithmetic decoder's state and context tables, on the
   same reasoning.
 
-So a decision here governs whether the two unfinished codecs can be finished at
-all. IP-007 and IP-008 are both approved; the engineering is scoped; and this
-question sits in front of both regardless of how much of that engineering gets
-done first. That makes SRC-017 the highest-leverage open item in the PDF work,
-not merely the last one.
+Both are ITU-T Recommendations, so the evidence in §5a reaches them and one
+decision can properly govern all three. A decision here therefore governs whether
+the two unfinished codecs can be finished at all. IP-007 and IP-008 are both
+approved; the engineering is scoped; and this question sits in front of both
+regardless of how much of that engineering gets done first.
 
 It also gates publication of the fax path that already exists and works.
+
+### 4a. What changed on 2026-09-03, and why it does not simply add a row
+
+A second transcribed table entered the repository: the **391 CFF standard
+strings**, in `CffStandardStrings`, under **SRC-016**. It is the same shape of
+problem — an ordered normative list with no authored alternative, where an
+implementation either reproduces it or resolves nothing — and the register
+initially recorded it as pending "on the same question as SRC-017."
+
+**That wording was too quick, and this brief corrects it.** The question's shape
+is shared; its governing terms are not. SRC-017 is about ITU-T Recommendations,
+and every fact in §5a is an ITU fact: ITU's reproduction notice, ITU's exception
+list, ITU's permissions address. The CFF standard strings come from Adobe's CFF
+specification and ISO/IEC 14496-22 — **a different publisher, different terms,
+and a different route to permission**. None of the §5a evidence has been checked
+against them, and this brief does not assume it transfers.
+
+So the reviewer faces a choice about scope before facing the question itself:
+
+- **Decide SRC-017 alone**, on the ITU evidence gathered, and leave SRC-016 open
+  for its own evidence-gathering and its own decision. This brief supports that
+  today.
+- **Decide a general policy** on reproducing normative tables from any
+  specification, which would cover both — but would be decided on evidence
+  gathered for one publisher and applied to another, which is the weaker basis
+  and this brief flags it as such.
+
+The first is the more defensible and the slower. Nothing forces the choice now:
+`CffStandardStrings` is unpublished on the same footing as the fax tables, and
+the feature matrix already refuses any CFF-derived support claim while the row is
+open.
+
+**What is genuinely shared** is the precedent. Whatever is decided here will be
+the reasoning anyone reaches for next time a table cannot be authored from an
+underlying fact — and on current evidence that is now happening about once a
+month.
 
 ## 5. Facts the reviewer may want, stated without conclusions
 
@@ -106,8 +145,9 @@ and the brief deliberately stops short of joining them together.
   rather than as a defence.
 - **No code, table, constant or test vector was taken from any of those
   implementations.** The transcription is from the Recommendation itself. This
-  matters because it separates the question from any third party's licence: the
-  only rights-holder in view is the ITU.
+  matters because it separates the question from any third party's licence: for
+  SRC-017 the only rights-holder in view is the ITU. (For SRC-016 it is not —
+  see §4a.)
 - **Nothing has been published.** The package is `IsPackable=false`, the fax
   filter is not composed by default, and no capability claim exists. A decision
   taken now is taken before distribution rather than after it.
@@ -220,3 +260,8 @@ To close the row, per the register's own decision fields: the exact editions
 consulted, the applicable terms and where they were read, the disposition, any
 attribution or notice obligation and where it must appear, whether SRC-018 and
 SRC-019 are covered or left open, the reviewer, the date, and the review date.
+
+Since 2026-09-03 it should also record **whether SRC-016 is covered, and on what
+basis** — because the honest answer may be "not covered, decide separately," and
+a decision that is silent on it will be read as covering it. §4a sets out why
+that reading would be wrong.
