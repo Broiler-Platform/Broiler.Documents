@@ -1,0 +1,80 @@
+# DOCX IP, Licensing, And Standards Register
+
+**Register version:** 1.0
+**Updated:** 2026-09-03 (evidence assembled; no row is decided and no legal review is claimed)
+**Owner:** Broiler.Documents maintainers
+**Approval authority:** Maik Ratzmer (GitHub [MaiRat](https://github.com/MaiRat)), project reviewer
+**Governance:** [ADR 0013](adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md)
+
+---
+
+## ⚠ NO LAWYER HAS REVIEWED ANY OF THIS, AND NO ROW HERE IS DECIDED YET
+
+The standard of review is an engineer reading published evidence. No legal
+opinion was sought, none was given, and none is represented. **No
+freedom-to-operate determination has been made** and none is attempted:
+patent-freedom is not claimed for OOXML anywhere in this register.
+
+The evidence was gathered by Claude (Anthropic's coding agent, engineering seat)
+on 2026-09-03 at the maintainer's direction. **Assembling an evidence record is
+not approving it.** Every row below is `Pending` or a recorded inspection finding
+awaiting sign-off, and the approval authority above is the only one who can
+change that.
+
+## Why this format's register reads differently from ODT's
+
+ODT's rests on a standards body's own licensing mode: the committee obliges its
+participants, and the covenant that exists on top of it is voluntary. DOCX rests
+on **a single vendor's public promise**, which is the same shape as PDF's IP-001
+and a different shape from ODT's. That matters for what the row can conclude: a
+promise from one party reaches that party's claims and no further, and this one
+says so itself in terms this register does not have to infer.
+
+## Decision fields
+
+Implementation jurisdictions and expiry/review dates are unrecorded on every row,
+as they are on every row of the PDF and ODT registers. Under this register's
+standard they are not blocking.
+
+| ID | Technology / exact scope | Primary evidence | Current assessment | Status / required action |
+|---|---|---|---|---|
+| DOCX-IP-001 | The WordprocessingML subset enumerated in [the DOCX conformance document](docx-conformance.md), read and written over Open XML packages. Spreadsheet and presentation parts are outside the row and outside the codec. | [Microsoft Open Specification Promise](https://learn.microsoft.com/en-us/openspecs/dev_center/ms-devcentlp/1c24c7c8-28b0-4ce1-a47d-95fe1ff504bc) (MS-DEVCENTLP), published 12 September 2006, revised 24 February 2023; ECMA-376; ISO/IEC 29500 | The OSP's covered list names **`Office Open XML 1.0 - Ecma-376`**, **`Office Open XML ISO/IEC 29500:2008`, `:2012` and `:2016`**, and **`[MS-DOCX]: Word Extensions to the Office Open XML File Format`** individually. Microsoft "irrevocably promises not to assert any Microsoft Necessary Claims against you for making, using, selling, offering for sale, importing or distributing any implementation to the extent it conforms to a Covered Specification". No royalty is identified. **Three limits the promise states about itself, none of which this register may paper over.** It reaches *Microsoft-owned or Microsoft-controlled* claims only. It reaches those necessary to implement **the required portions described in detail and not merely referenced** — which matters for a format that references a great deal. And it is explicitly "not an assurance ... that a Covered Implementation would not infringe patents or other intellectual property rights of any third party". Risk assessed **low** on the recorded evidence, and third-party claims are neither cleared nor searched. | **Pending the project reviewer's decision.** Evidence complete: the promise text is quoted from Microsoft's own publication and the covered entries are named there individually rather than inferred from a family. A decision should say whether the "required portions described in detail" limit is accepted as recorded given that this codec implements a subset. |
+| DOCX-IP-002 | The OSP's defensive-termination condition | The same promise text | "If you file, maintain or voluntarily participate in a patent infringement lawsuit against a Microsoft implementation of such Covered Specification, then this personal promise does not apply". That is **defensive** termination: it asks nothing of an implementer that does not sue Microsoft over the format, and it imposes no licence condition, no fee, and no reciprocal grant. It is the same shape as the defensive carve-out ODT-IP-002 records for Sun's covenant, and it is recorded as its own row for the same reason — a condition a reader might mistake for a restriction on ordinary use deserves to be read rather than summarized. | **Pending.** No action is implied for this project, which sues nobody. |
+| DOCX-IP-003 | Acquiring and using the specification text: whether this repository may hold, quote, or reproduce ECMA-376 or ISO/IEC 29500 material | ECMA-376, freely published by Ecma International; ISO/IEC 29500, a priced ISO/IEC publication | **The permission is not relied on, because it is not needed.** Inspection finds no specification text, table, figure, or excerpt anywhere in the repository. Clauses are cited by number — the conformance document cites ECMA-376 §17.7.2 for style resolution and §17.4.81 for row heights, and cites rather than quotes. That is the position SRC-001 established for ISO 32000 and it holds identically here, which is what lets this row close without anyone buying a copy of 29500. Risk assessed **very low**. | **Inspection finding recorded 2026-09-03; awaiting sign-off.** Reproducing specification material — a table of normative constants is the realistic case — would reopen this row and require the acquisition terms of whichever edition was used. |
+| DOCX-IP-004 | Implementation provenance: whether the codec embeds third-party OOXML code, data, or documents | Inspection of `src/Broiler.Documents.Docx` and the whole tracked tree; `FormatClaimGuardTests` | Four findings, each checkable by repeating the inspection. The codec's directory contains **nothing but `.cs` files and its `.csproj`** — no data file, table, or fixture. The project takes **no package reference at all**; its only references are two sibling projects in this component, so no OOXML toolkit is present to account for. **No `.docx` or `.dotx` file is tracked anywhere** in this repository, so no document is vendored or redistributed. The test packages are constructed in code. Risk assessed **very low**, and the first three are enforced by guard tests that fail the build. | **Inspection finding recorded 2026-09-03; awaiting sign-off.** |
+| DOCX-IP-005 | The platform facilities the codec is built on: ZIP container handling and XML parsing | `System.IO.Compression` and `System.Xml.Linq`; the platform's own licence and notices | The codec adds no compression implementation, no XML parser, and no table or test vector of its own; it calls the runtime. A platform dependency rather than a bundled component, carrying no OOXML-specific obligation — the same conclusion IP-023 reached for `FlateDecode` calling `ZLibStream`. Risk assessed **very low**. | **Inspection finding recorded 2026-09-03 under DOCX-IP-004; awaiting sign-off.** |
+| DOCX-IP-006 | "DOCX", "Word", "Open XML", "OOXML" naming, and any conformance, certification, or compatibility claim | The label set in [Approved labels](#approved-labels); ADR 0013's claims rule | Descriptive use of the format's name is what the labels are for. The negative rule is the same one IP-018 and ODT-IP-007 enforce, with **one addition this format needs and the others do not: no label may name Microsoft or Word.** "Word Document" is the phrase every file dialog on earth uses for `.docx` and it is a vendor's product name; using it as a format label implies a compatibility relationship with a product this project has never tested against. The format is `DOCX`. Nothing describes this implementation as OOXML-conformant, ECMA-376-conformant, ISO/IEC 29500-conformant, certified, endorsed, patent-free, or royalty-free. | **Pending the reviewer's approval of the label set, and one live discrepancy to resolve with it.** The Writer's save dialog currently reads `Word Document (*.docx)` (Broiler-Platform/Broiler.Writer#65), which this row's naming rule would forbid. Approving the labels below means changing that string; approving `Word Document` instead means deciding that a vendor product name is acceptable as a format label. **This register does not decide it, and the guard is not armed against the current string until it is.** |
+| DOCX-IP-007 | Office document encryption and password protection | ECMA-376 does not define it; `[MS-OFFCRYPTO]` does | Out of scope and refused rather than partially handled. No cryptographic, export-control, or key-handling review has been done, and none is needed while the answer is refusal. | **Blocked for V1**, as IP-015 blocks the PDF standard security handler and ODT-IP-008 blocks ODF's. |
+| DOCX-IP-008 | Third-party or user-supplied DOCX documents used as fixtures or committed to the repository | Per-artifact origin, author, licence, and approval | Possession or public download is not permission to commit or redistribute. None is committed — verified under DOCX-IP-004 and guarded. User-supplied documents a caller opens at run time remain subject to their own rights, and neither the API nor the documentation may imply this component grants any. | **Rejected by default**, per artifact, as IP-020 and ODT-IP-009 handle their cases. |
+| DOCX-SRC-001 | ECMA-376 and ISO/IEC 29500 as sources consulted while writing this codec | `src/Broiler.Documents.Docx`, in full; DOCX-IP-003 | Every line was written against the published specification for this repository. The two halves hold separately: nothing was copied, per DOCX-IP-003's finding that no specification text is present; and nothing third-party was consulted for content, there being no OOXML implementation in the tree to have consulted. Structural correspondence to the standard is expected and is not evidence of copying. | **Inspection finding recorded 2026-09-03; awaiting sign-off.** Closed for the freely published ECMA-376 edition; consulting a priced ISO/IEC edition would reopen it. |
+
+## Approved labels
+
+**Proposed 2026-09-03 under DOCX-IP-006. Not yet approved.**
+
+| Context | Proposed label |
+|---|---|
+| Format list | **DOCX** |
+| Save As | **DOCX Document (*.docx)** |
+| Import / Export | **DOCX** |
+| Tooltip / Help | **Office Open XML text document (DOCX)** |
+| Technical documentation | **DOCX (ECMA-376 / ISO/IEC 29500 WordprocessingML)** |
+
+Deliberately absent: any label containing **Word**, **Microsoft**, or **compatible**, and any "OOXML compliant" or "ISO 29500 conformant" form. The first group names a vendor and its product; the second claims a conformance the specification defines and this codec does not meet.
+
+## What still blocks a claim
+
+| Blocker | Kind | State |
+|---|---|---|
+| DOCX-IP-001, DOCX-IP-002 | The OSP and its defensive condition | **Pending a decision only.** Evidence complete and primary-sourced from Microsoft's own publication |
+| DOCX-IP-003 to DOCX-IP-005, DOCX-SRC-001 | What this repository contains and consulted | **Findings recorded, awaiting sign-off.** Repeatable by anyone; three guarded mechanically |
+| DOCX-IP-006 label set | Positive wording, and the `Word Document` discrepancy | **Pending, and it has a live consequence.** The shipped save label conflicts with the proposed rule |
+| DOCX-IP-007 | Encrypted packages | **Blocked for V1** by scope, not by evidence |
+
+Shipping the codec is not a claim about rights, and nothing here blocks it. Saying things about it is, and that is what these rows govern.
+
+## Review record
+
+| Review | Reviewer | Date | Scope | Result |
+|---|---|---|---|---|
+| OOXML evidence assembly and register creation | Claude (Anthropic coding agent, engineering seat), at the maintainer's direction — **not legal counsel, and not the approval authority** | 2026-09-03 | The Microsoft Open Specification Promise as published; the ECMA-376 and ISO/IEC 29500 publication position; inspection of this repository's DOCX source, tests, and tracked files | **Evidence recorded; no row decided.** The promise text was read at its source rather than summarized, and the covered entries confirmed to name Ecma-376, all three ISO/IEC 29500 editions, and MS-DOCX individually rather than by family. Four findings settled by inspection and three made mechanical. Two things the record could not do: decide any row, which is the approval authority's; and resolve the `Word Document` label the Writer already ships, which is a naming decision rather than an evidence question and is written up as one. |

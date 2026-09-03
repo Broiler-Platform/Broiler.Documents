@@ -1,7 +1,7 @@
 # ODT IP, Licensing, And Standards Register
 
-**Register version:** 1.3
-**Updated:** 2026-09-03 (every row decided; the position is assessed green, which is not a clearance)
+**Register version:** 1.4
+**Updated:** 2026-09-03 (a further covenant found and added as ODT-IP-010, pending; the rest decided and assessed green)
 **Owner:** Broiler.Documents maintainers
 **Approval authority:** Maik Ratzmer (GitHub [MaiRat](https://github.com/MaiRat)), project reviewer
 **Governance:** [ADR 0013](adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md),
@@ -14,8 +14,13 @@ discipline beyond PDF and adopts the evidence-based standard of review
 
 **Read this before relying on a single row below.**
 
-**Every row in this register is now decided**, the covenant rows included, and
-the project reviewer assesses the overall position **green**. That word is doing
+**One row is open and every other is decided.** The open one is ODT-IP-010,
+added on 2026-09-03 after a covenant covering OpenDocument was found while
+evidencing a different format's register. It is **additive**: it introduces a
+second, independent instrument alongside Sun's and contradicts nothing already
+decided here. The project reviewer assesses the overall position **green** on the
+rows that are decided, and finding more protection than was recorded does not
+disturb that. That word is doing
 exactly as much work as this register's standard allows and no more, so it is
 worth saying plainly what it does and does not mean.
 
@@ -104,6 +109,12 @@ are on every row of the PDF register; under this standard they are not blocking.
 | ODT-SRC-001 | The OASIS specification as a source consulted while writing this codec | `src/Broiler.Documents.Odt`, in full; ODT-IP-004 | Every line of the codec was written against the published OASIS specification for this repository. Inspection supports the two halves separately: nothing was copied, per ODT-IP-004's finding that no specification text is present; and nothing third-party was consulted for content, there being no ODF implementation in the tree to have consulted. Structural correspondence to the specification is expected and is not evidence of copying — a reader of ODF that did not follow the standard's element structure would be a reader of something else. | **Approved 2026-09-03** on the inspection recorded here. Closed for the freely published OASIS editions, and for those only. |
 | ODT-SRC-002 | ISO/IEC 26300, the ISO/IEC republication of ODF | The ISO/IEC catalogue entry; not obtained, not consulted | **Not consulted and not relied on.** The implementation is written from the OASIS text, whose acquisition right is ODT-IP-004's, so the ISO edition's own terms do not arise. This mirrors how SRC-001 is closed for the freely published ISO 32000-1 rather than for "ISO 32000 editions" at large. The republication remains a true fact about the format and may be stated as one; it may not be cited as a source this project used, and consulting it would reopen this row. | **Approved 2026-09-03 as an unconsulted source**, which is the only thing there is to approve: the row records what this project did *not* rely on. No action while it stays that way, and consulting the ISO edition reopens it. |
 
+*(continued)*
+
+| ID | Technology / exact scope | Primary evidence | Current assessment | Status / required action |
+|---|---|---|---|---|
+| ODT-IP-010 | Microsoft's Open Specification Promise as it covers OpenDocument | [Microsoft Open Specification Promise](https://learn.microsoft.com/en-us/openspecs/dev_center/ms-devcentlp/1c24c7c8-28b0-4ce1-a47d-95fe1ff504bc) (MS-DEVCENTLP), published 12 September 2006, revised 24 February 2023 | **A second covenant, from a party this register had no reason to look at.** The OSP's covered list names OpenDocument v1.0 (OASIS and ISO/IEC 26300:2006), v1.1, v1.2 and v1.3 individually, and Microsoft "irrevocably promises not to assert any Microsoft Necessary Claims against you for making, using, selling, offering for sale, importing or distributing any implementation to the extent it conforms to a Covered Specification". Microsoft further commits to extend the promise to future versions of those specifications as long as it participates in their revision. The limits are the ones the promise states about itself: Microsoft-owned or Microsoft-controlled claims only, the required portions described in detail and not merely referenced, defensive termination if the beneficiary sues Microsoft over the format, and an explicit non-assurance about third parties. **Why it was not here already, which is worth recording rather than quietly fixing:** ODT-IP-003 searched the OASIS TC's IPR page and correctly found nothing there beyond Sun's two statements. This instrument is not on that page and never would have been — it is a vendor's own publication about a format it did not originate. The search was sound and its scope was too narrow, and the way it was found was accidental: reading the same promise for DOCX and RTF. | **Pending the project reviewer's decision.** Purely additive: it neither depends on nor disturbs ODT-IP-001 or ODT-IP-002, and rejecting it would leave the position exactly where the green assessment already put it. |
+
 ## Approved labels
 
 **Approved 2026-09-03 under ODT-IP-007.** These are the wordings this component
@@ -129,8 +140,8 @@ the third would cite a source ODT-SRC-002 records as unconsulted.
 
 ## What still blocks a claim
 
-Nothing is left. The table is kept as the record of what each row was decided on
-rather than as a list of work.
+One row is left, and it arrived after the others were settled. The table is
+otherwise a record of what each row was decided on rather than a list of work.
 
 | Blocker | Kind | State |
 |---|---|---|
@@ -140,6 +151,7 @@ rather than as a list of work.
 | ODT-IP-004 to ODT-IP-006, ODT-SRC-001, ODT-SRC-002 | What this repository contains and consulted | **Approved 2026-09-03.** Settled by inspection, repeatable by anyone, and three of them guarded mechanically so the approval cannot rot quietly |
 | ODT-IP-007 label set | Positive wording for the format | **Approved 2026-09-03** for the recorded labels and no other wording. The negative rule was enforced before the approval and is unchanged by it |
 | ODT-IP-008 | Encrypted packages | **Blocked for V1** by scope, not by evidence |
+| ODT-IP-010 | Microsoft's OSP as it covers ODF | **Pending a decision only**, and additive — a second covenant found 2026-09-03 while evidencing DOCX and RTF |
 
 One distinction survives every approval on this page and is worth keeping in
 view. What inspection settles is what *this repository* did, and those rows are
@@ -162,6 +174,7 @@ the guards bound to them govern.
 
 | Review | Reviewer | Date | Scope | Result |
 |---|---|---|---|---|
+| Second covenant found (ODT-IP-010) | Claude (Anthropic coding agent, engineering seat), at the maintainer's direction — **not the approval authority** | 2026-09-03 | The Microsoft Open Specification Promise as published | **Evidence recorded; the row is pending.** Found while reading the same promise to evidence the DOCX and RTF registers, not by revisiting ODT: the OSP's covered list names OpenDocument v1.0 through v1.3 individually, alongside the Office Open XML entries that search was actually for. It is additive and contradicts nothing decided here. The reason it was missing is worth keeping: ODT-IP-003 searched the OASIS TC's IPR page, correctly found only Sun's statements there, and closed. That search was sound and too narrowly scoped — an instrument about ODF published by a party that did not originate ODF was never going to be on the originating committee's page. The general lesson, for whichever register is written next, is that "the standards body's IPR page" is a place to look rather than the set of places. |
 | Covenant review and overall position (ODT-IP-002, ODT-IP-003) | Project reviewer (Maik Ratzmer) | 2026-09-03 | Sun's 2005 OpenDocument Patent Statement and 2002 IPR statement; the OASIS OpenDocument TC IPR page as a whole | **Approved, and the position assessed green.** Two things the row had left open are answered. The reciprocity in Sun's covenant is *defensive* — withdrawn only from a party that attacks OpenDocument implementations — so it asks nothing of an ordinary implementer and cannot subtract from a mode obligation that binds Sun whether the covenant applies or not. The two instruments were never in tension; they do different jobs, and the covenant is the one that is optional. And ODT-IP-003 turned out to rest on a false premise: there is no separate IBM ODF declaration to obtain, the TC's IPR page carries Sun's two instruments and nothing else, and the secondary sources had conflated IBM's general interoperability pledge with an ODF-specific declaration that does not exist. IBM's position is a participant's, covered by the mode like any other. What the green explicitly does not do: claim patent-freedom, constitute a freedom-to-operate determination, or unlock any wording ODT-IP-007 forbids. Succession of Sun's covenant to its acquirer is recorded as untraced rather than as an obstacle. |
 | Inspection findings sign-off (ODT-IP-004 to ODT-IP-006, ODT-SRC-001, ODT-SRC-002) | Project reviewer (Maik Ratzmer, engineering seat) | 2026-09-03 | What this repository contains, imports, reproduces, and consulted | **Approved.** Five rows in one decision, because they are one question asked five ways and the answer to each is a fact about this tree rather than a judgement about anyone's rights: no specification text is reproduced, no data file sits beside the codec, no package reference exists at all, no OpenDocument file is committed anywhere, the test packages are constructed in code, and the ISO republication was never consulted. Each is repeatable by anyone in a minute. Three are better than repeatable — `OdtClaimGuardTests` fails the build if they stop being true, which is why signing them off is cheap: the decision cannot rot without something going red. What the sign-off deliberately does not do is make the format any clearer than it was. These rows were always the answerable half; the covenants are the half that matters and they stay open. |
 | OASIS licensing-mode review (ODT-IP-001) | Project reviewer (Maik Ratzmer), on the evidence record assembled 2026-09-03 | 2026-09-03 | The OASIS IPR Policy, the OpenDocument TC's IPR statement, and the ODF 1.3 specification front matter | **Approved.** First row in this register to clear, and it clears on a reading of two primary sources that agree: the TC operates under RF on Limited Terms, and the licence elements are the policy's own words rather than a summary of them. Recorded as deciding the mode and nothing else. The row had been written to the point where only the decision was missing, which is what made the decision cheap — no new evidence was sought and none was needed. What it deliberately does not reach: the covenants. Those are separate instruments, they carry a reciprocity condition the mode does not permit, and ODT-IP-002 stays open over exactly that. Jurisdictions and the expiry/review date were not part of the record. |

@@ -78,3 +78,22 @@ model.
 - Writer output is semantic model HTML, not a preservation of source markup.
 - Markdown and DOCX are implemented as peer codecs. Their format-specific
   coverage is documented separately; this HTML codec does not delegate to them.
+
+
+## Standards And Rights
+
+Both bodies that have stewarded HTML — the W3C and the WHATWG — operate
+**royalty-free** patent policies, which is the strongest starting position of any
+format this component reads. Both bind participants over Essential Claims and
+both let a participant exclude specific patents during a disclosure window, so
+neither is a statement that no relevant claim exists.
+
+That is recorded in
+[the HTML IP and licensing register](html-ip-licensing-register.md), where **every
+row is pending a decision**. Patent-freedom is not claimed and no
+freedom-to-operate determination has been made.
+
+**One limit belongs here as much as there.** This codec does not tokenize or parse
+HTML — `Broiler.Dom.Html.HtmlDocumentParser` does, in a separate repository that
+has no rights register of its own. The register covers the mapping layer, and no
+claim about Broiler's HTML support as a whole may rest on it alone.

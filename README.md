@@ -261,6 +261,11 @@ repository secret; GitHub Packages uses the built-in `GITHUB_TOKEN`.
 - [Command-line guide](docs/cli.md)
 - [Current roadmap](docs/roadmap.md)
 - [PDF Phase 0 status](docs/pdf-phase0-status.md)
+- [RTF IP and licensing register](docs/rtf-ip-licensing-register.md),
+  [DOCX](docs/docx-ip-licensing-register.md),
+  [HTML](docs/html-ip-licensing-register.md) and
+  [Markdown](docs/markdown-ip-licensing-register.md) rights records - every row
+  pending a decision; nothing about these formats is cleared.
 - [ODT IP and licensing register](docs/odt-ip-licensing-register.md) - the ODF
   rights record. Every row is decided and the position is assessed green, which is
   an engineering risk judgement on recorded evidence rather than a clearance: no
