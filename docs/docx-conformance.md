@@ -193,3 +193,30 @@ DOCX probing is conservative because DOCX is a ZIP-based OPC package:
 - A visible `word/document.xml` local ZIP entry is high confidence.
 - Generic ZIP files are not claimed without a DOCX hint or WordprocessingML
   package evidence.
+
+## Standards And Rights
+
+DOCX is ECMA-376, republished as ISO/IEC 29500. The **Microsoft Open Specification
+Promise** names `Office Open XML 1.0 - Ecma-376`, all three ISO/IEC 29500 editions,
+and `[MS-DOCX]` individually in its covered list: an irrevocable non-assertion of
+Microsoft Necessary Claims against a conforming implementation, with defensive
+termination as its only condition.
+
+The promise states three limits about itself and this document repeats none of
+them loosely: it reaches Microsoft-owned or Microsoft-controlled claims only, it
+reaches the required portions **described in detail and not merely referenced**,
+and it is expressly not an assurance that an implementation avoids third-party
+rights. All of that is recorded in
+[the DOCX IP and licensing register](docx-ip-licensing-register.md), where **every
+row is pending a decision**. Patent-freedom is not claimed and no
+freedom-to-operate determination has been made.
+
+**One naming question is open and has a visible consequence.** The register's
+proposed rule is that no label may name a vendor or its product, which would
+forbid `Word Document` — the phrase this component's hosts currently use for
+`.docx`. The register does not decide it; until it is decided, that label is
+unchanged and the rule is not enforced against it.
+
+Settled by inspection: this codec embeds no third-party OOXML code, takes no
+package reference, reproduces no specification text, and no `.docx` or `.dotx`
+file is committed anywhere in the repository.

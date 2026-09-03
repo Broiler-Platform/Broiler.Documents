@@ -74,3 +74,25 @@ foreground/background color, and non-monospace font family) produce
 - Inline parsing is intentionally simple and best-effort for malformed or deeply
   nested delimiter runs.
 - Writer output is semantic model Markdown, not preservation of source markup.
+
+
+## Standards And Rights
+
+Markdown has no standards body, no IPR mode, and no patent declaration. There is
+nothing to negotiate and nothing to read, which is a comfortable position and a
+weaker kind of one: it is assessed on the absence of any instrument rather than
+on the presence of a good one.
+
+The one live obligation is a copyright licence with a naming clause —
+"Neither the name 'Markdown' nor the names of its contributors may be used to
+endorse or promote products derived from this software" — which binds products
+derived from John Gruber's implementation. Nothing here is: this codec was written
+for this repository and imports nothing.
+
+Both are recorded in
+[the Markdown IP and licensing register](markdown-ip-licensing-register.md), where
+**every row is pending a decision**.
+
+One wording rule follows from this document rather than from the register. This is
+a **CommonMark-oriented subset** and the limits above enumerate what it does not
+implement, so nothing may describe it as CommonMark-compliant.

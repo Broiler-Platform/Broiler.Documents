@@ -1,4 +1,4 @@
-﻿# RTF Conformance And Limits
+# RTF Conformance And Limits
 
 This document is the authoritative statement of what `Broiler.Documents.Rtf`
 honours, approximates, ignores, and skips when reading RTF into the rich-text
@@ -96,3 +96,22 @@ are not written (they are not read either, so they stay at their defaults); and 
 reader does not decode (font names are read as their literal bytes) — so such a
 name does not survive a round-trip. Both are rare and safe (never lossy for text,
 formatting, colors, sizes, alignment, or hyperlinks).
+
+
+## Standards And Rights
+
+RTF is a vendor format with no standards body: Microsoft published the
+specification and last revised it in 2008. The **Microsoft Open Specification
+Promise** names `[RTF]: Rich Text Format` in its covered list, and the promise is
+an irrevocable non-assertion of Microsoft Necessary Claims against a conforming
+implementation, with defensive termination as its only condition.
+
+That is recorded, with the promise's own three limits, in
+[the RTF IP and licensing register](rtf-ip-licensing-register.md). **Read it
+before relying on anything here: every row is pending a decision.** Patent-freedom
+is not claimed and no freedom-to-operate determination has been made.
+
+What is settled by inspection rather than assertion: this codec embeds no
+third-party RTF code, takes no package reference, reproduces no specification
+text, and no `.rtf` file is committed anywhere in the repository. Guard tests fail
+the build if any of that stops being true.
