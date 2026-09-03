@@ -45,14 +45,23 @@ public sealed class PdfFontProgramMap
     /// <summary>An empty map, for a program that was read and yielded nothing.</summary>
     public static PdfFontProgramMap Empty { get; } = new(string.Empty, new Dictionary<int, string>());
 
-    public PdfFontProgramMap(string format, IReadOnlyDictionary<int, string> glyphText)
+    public PdfFontProgramMap(
+        string format,
+        IReadOnlyDictionary<int, string> glyphText,
+        IReadOnlyDictionary<int, string>? glyphNames = null)
     {
         ArgumentNullException.ThrowIfNull(glyphText);
 
         Format = format ?? string.Empty;
-        GlyphText = glyphText as ReadOnlyDictionary<int, string> ??
-            new ReadOnlyDictionary<int, string>(new Dictionary<int, string>(glyphText));
+        GlyphText = Freeze(glyphText);
+        GlyphNames = glyphNames is null
+            ? ReadOnlyDictionary<int, string>.Empty
+            : Freeze(glyphNames);
     }
+
+    private static IReadOnlyDictionary<int, string> Freeze(IReadOnlyDictionary<int, string> source) =>
+        source as ReadOnlyDictionary<int, string> ??
+        new ReadOnlyDictionary<int, string>(new Dictionary<int, string>(source));
 
     /// <summary>The program format the reader recognized, for the diagnostic.</summary>
     public string Format { get; }
@@ -63,7 +72,20 @@ public sealed class PdfFontProgramMap
     /// </summary>
     public IReadOnlyDictionary<int, string> GlyphText { get; }
 
-    public bool IsEmpty => GlyphText.Count == 0;
+    /// <summary>
+    /// Glyph index to the PostScript name the program gives that glyph, for a
+    /// format that names its glyphs rather than mapping them from characters.
+    /// </summary>
+    /// <remarks>
+    /// A name is a fact about the program; what it <em>means</em> is not. The
+    /// codec resolves these through its own glyph-name data rather than the
+    /// reader doing it, so one authored table decides what a name says and a
+    /// composed reader never has to carry a second copy of it. A reader that
+    /// recovers text directly, as an sfnt character map does, leaves this empty.
+    /// </remarks>
+    public IReadOnlyDictionary<int, string> GlyphNames { get; }
+
+    public bool IsEmpty => GlyphText.Count == 0 && GlyphNames.Count == 0;
 }
 
 /// <summary>

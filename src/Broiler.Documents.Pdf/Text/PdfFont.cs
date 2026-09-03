@@ -304,7 +304,13 @@ internal sealed class PdfFont
             ? InspectProgram(store, descriptor)
             : null;
 
-        bool recovered = inspected is { IsEmpty: false };
+        // A reader that recovered names rather than text hands the naming back
+        // here, where this project's own glyph-name data decides what each one
+        // says. Keeping that decision in one place is why the extension point
+        // carries names at all: a composed reader never needs a second copy of a
+        // table this codec already authored (SRC-010).
+        IReadOnlyDictionary<int, string>? glyphText = ResolveGlyphText(inspected);
+        bool recovered = glyphText is { Count: > 0 };
         bool unreadableProgram = program is not null && !recovered;
 
         if (program is not null)
@@ -347,7 +353,7 @@ internal sealed class PdfFont
             defaultWidth,
             toUnicode,
             codeMap ?? PdfCMap.IdentityTwoByte,
-            recovered ? inspected!.GlyphText : null);
+            recovered ? glyphText : null);
     }
 
     private static PdfCMap? ReadType0Encoding(PdfObjectStore store, PdfDictionary dictionary)
@@ -650,6 +656,36 @@ internal sealed class PdfFont
             return false;
         long value = flags.ToInt64();
         return (value & (1L << (bit - 1))) != 0;
+    }
+
+    /// <summary>
+    /// The text each glyph stands for, from whichever of the two things a reader
+    /// recovered: text directly, as an sfnt character map gives it, or names, as
+    /// a CFF charset gives them.
+    /// </summary>
+    /// <remarks>
+    /// A name is resolved through the same authored data a <c>/Differences</c>
+    /// entry goes through, so a glyph called <c>sterling</c> means what it means
+    /// everywhere else in this codec, and a name that means nothing here — an
+    /// Expert-set small-capital, a subsetter's <c>g42</c> — maps to nothing
+    /// rather than to a guess.
+    /// </remarks>
+    private static IReadOnlyDictionary<int, string>? ResolveGlyphText(PdfFontProgramMap? inspected)
+    {
+        if (inspected is null || inspected.IsEmpty)
+            return null;
+
+        if (inspected.GlyphText.Count > 0)
+            return inspected.GlyphText;
+
+        var text = new Dictionary<int, string>(inspected.GlyphNames.Count);
+        foreach ((int glyph, string name) in inspected.GlyphNames)
+        {
+            if (PdfEncodings.TryMapGlyphName(name, out string mapped) && mapped.Length > 0)
+                text[glyph] = mapped;
+        }
+
+        return text.Count > 0 ? text : null;
     }
 
     /// <summary>
