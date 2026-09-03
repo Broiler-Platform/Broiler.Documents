@@ -19,9 +19,9 @@ namespace Broiler.Documents.Odt.Tests;
 /// <para>
 /// So the binding is mechanical. These check that the description and the
 /// artifact still match, not that either is correct — and unlike the PDF guards,
-/// they are enforcing rows that are <em>pending</em>: nothing about ODT is
-/// cleared, which makes the negative claims rule the part that actually has to
-/// hold today.
+/// most of the rows they enforce are still <em>pending</em>: the licensing mode
+/// and the approved wording are decided, the covenants are not, so the negative
+/// claims rule is still the part that actually has to hold.
 /// </para>
 /// </remarks>
 public sealed class OdtClaimGuardTests
@@ -107,13 +107,14 @@ public sealed class OdtClaimGuardTests
     }
 
     [Fact(Timeout = 600000)]
-    public void The_Format_Is_Named_As_The_Register_Proposes()
+    public void The_Format_Is_Named_As_The_Register_Approves()
     {
         string root = OdtGuardRoots.Component;
         string codec = File.ReadAllText(Path.Combine(
             root, "src", "Broiler.Documents.Odt", "OdtDocumentCodec.cs"));
 
-        // "ODT" is the proposed format-list label, and the descriptor is where an
+        // "ODT" is the approved format-list label (ODT-IP-007, approved
+        // 2026-09-03), and the descriptor is where an
         // application reads it from. A vendor name, a version suffix, or the word
         // "conformant" here would reach every host that lists the format.
         Assert.Matches(@"new DocumentFormatDescriptor\(\s*""ODT""", codec);
