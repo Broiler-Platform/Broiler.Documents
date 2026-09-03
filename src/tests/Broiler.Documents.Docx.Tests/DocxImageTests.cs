@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using Broiler.Graphics;
 
 namespace Broiler.Documents.Docx.Tests;
 
@@ -13,6 +14,17 @@ public sealed class DocxImageTests
 
     private static Dictionary<string, byte[]> Media(string path, byte[]? bytes = null) =>
         new(StringComparer.Ordinal) { [path] = bytes ?? DocxTestPackage.OnePixelPng };
+
+    /// <summary>Reads a body whose pictures all reference one media part.</summary>
+    private static RichTextDocument Read(string bodyXml) =>
+        DocxTestPackage.ReadWithMedia(
+            bodyXml,
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            Media("word/media/image1.png")).Document;
+
+    private static InlineImage SingleImage(RichTextDocument document) =>
+        Assert.IsType<InlineImage>(
+            Assert.Single(Assert.Single(document.Paragraphs).Runs).Style.Image);
 
     [Fact(Timeout = 600000)]
     public void Reads_An_Inline_Drawing_As_One_Image_Character()
@@ -326,4 +338,96 @@ public sealed class DocxImageTests
     /// <summary>Read options that also permit writing what was read back out.</summary>
     private static DocumentReadOptions RoundTripReadOptions { get; } =
         new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
+
+    [Fact(Timeout = 600000)]
+    public void Reads_The_Source_Crop_A_Picture_States()
+    {
+        // 14330 is the CV template's own value: 14.33% off the top, which is how
+        // the portrait is framed inside its round mask.
+        RichTextDocument document = Read(
+            "<w:p>" + DocxTestPackage.DrawingRun(
+                "rId7", OneInchEmus, OneInchEmus,
+                srcRect: "<a:srcRect t=\"14330\" l=\"5000\"/>") + "</w:p>");
+
+        ImagePresentation presentation = SingleImage(document).Presentation;
+        Assert.Equal(0.1433, presentation.CropTop, 5);
+        Assert.Equal(0.05, presentation.CropLeft, 5);
+        Assert.Equal(0, presentation.CropRight);
+        Assert.Equal(0, presentation.CropBottom);
+        Assert.True(presentation.HasCrop);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Reads_The_Ellipse_A_Picture_Is_Masked_To()
+    {
+        RichTextDocument document = Read(
+            "<w:p>" + DocxTestPackage.DrawingRun(
+                "rId7", OneInchEmus, OneInchEmus, preset: "ellipse") + "</w:p>");
+
+        Assert.Equal(ImageMask.Ellipse, SingleImage(document).Presentation.Mask);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Preset_Other_Than_Ellipse_Draws_As_The_Rectangle_It_Always_Did()
+    {
+        // Only the ellipse is represented. Every other preset is the rectangle
+        // this codec drew for all of them before, which is a limit rather than a
+        // regression - and reading it as a mask would draw the wrong shape.
+        RichTextDocument document = Read(
+            "<w:p>" + DocxTestPackage.DrawingRun(
+                "rId7", OneInchEmus, OneInchEmus, preset: "roundRect") + "</w:p>");
+
+        Assert.Equal(ImageMask.None, SingleImage(document).Presentation.Mask);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Picture_Stating_Neither_Carries_The_Default_Presentation()
+    {
+        RichTextDocument document = Read(
+            "<w:p>" + DocxTestPackage.DrawingRun("rId7", OneInchEmus, OneInchEmus) + "</w:p>");
+
+        Assert.True(SingleImage(document).Presentation.IsDefault);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Crop_That_Leaves_Nothing_Is_Refused_Rather_Than_Drawn_Empty()
+    {
+        // Crops that meet leave no source rectangle. Honouring them would draw
+        // nothing, which loses the picture; the whole source is used instead.
+        var presentation = new ImagePresentation { CropLeft = 0.7, CropRight = 0.6 };
+        BRect source = presentation.SourceRect(100, 50);
+
+        Assert.Equal(0, source.Left);
+        Assert.Equal(100, source.Width, 3);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void The_Crop_And_The_Mask_Round_Trip()
+    {
+        // A write given no conversion context may pass no picture on, so a round
+        // trip needs a caller who says the picture may travel. The presentation
+        // has to survive that admission as well as the write.
+        var source = new InlineImage(
+            DocxTestPackage.OnePixelPng,
+            "image/png",
+            72,
+            72,
+            presentation: new ImagePresentation { CropTop = 0.1433, Mask = ImageMask.Ellipse });
+
+        (InlineImage image, DocumentWriteOptions writeOptions) = Writable(source);
+        Assert.Equal(ImageMask.Ellipse, image.Presentation.Mask);
+
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Create(InlineImage.PlaceholderText, InlineStyle.Default with { Image = image }),
+        ]);
+
+        using var stream = new MemoryStream(
+            DocxDocumentCodec.WriteToArray(document, writeOptions), writable: false);
+        RichTextDocument actual = new DocxDocumentCodec().Read(stream).Document;
+
+        ImagePresentation presentation = SingleImage(actual).Presentation;
+        Assert.Equal(ImageMask.Ellipse, presentation.Mask);
+        Assert.Equal(0.1433, presentation.CropTop, 5);
+    }
 }

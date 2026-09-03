@@ -94,8 +94,17 @@ Open XML WordprocessingML package parts.
   not narrow a line above it, and an indented paragraph's band is measured from
   its own left edge rather than the column's, so a shape overlapping one is out
   by the indent. A picture whose anchor states no
-  `wp:extent` has no box to float at and stays in the text. Crops, rotation, and
-  picture effects are dropped.
+  `wp:extent` has no box to float at and stays in the text. Rotation and picture
+  effects are dropped.
+- A picture's source crop (`a:srcRect`) and its `a:prstGeom` are read, and the
+  ellipse is the only preset represented. That is a deliberate choice rather than
+  a stopping point: the round portrait is what every CV and letterhead template
+  puts its photograph in, and drawn square it is the first thing anyone notices.
+  Every other preset draws as the rectangle it is inscribed in, which is what
+  this codec did for all of them before. A crop is stated as fractions of the
+  source, so it survives a resize; crops that meet or cross leave no rectangle to
+  draw and are ignored rather than losing the picture. The crop is applied before
+  the mask, so the ellipse is inscribed in the part actually drawn.
 - A vertical `relativeFrom` other than `paragraph` or `line` is not converted.
   Those frames measure from the page, and where a paragraph sits on a page is a
   layout result the reader does not have — a shape on the fortieth paragraph

@@ -99,7 +99,9 @@ internal static class DocxTestPackage
         string relationshipId,
         long widthEmus,
         long heightEmus,
-        string? altText = null) =>
+        string? altText = null,
+        string srcRect = "",
+        string preset = "rect") =>
         "<w:r><w:drawing>" +
         "<wp:inline xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" " +
         "distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">" +
@@ -110,9 +112,9 @@ internal static class DocxTestPackage
         "<a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">" +
         "<pic:pic xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">" +
         "<pic:nvPicPr><pic:cNvPr id=\"1\" name=\"Picture 1\"/><pic:cNvPicPr/></pic:nvPicPr>" +
-        "<pic:blipFill><a:blip r:embed=\"" + relationshipId + "\"/>" +
+        "<pic:blipFill><a:blip r:embed=\"" + relationshipId + "\"/>" + srcRect +
         "<a:stretch><a:fillRect/></a:stretch></pic:blipFill>" +
-        "<pic:spPr><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr>" +
+        "<pic:spPr><a:prstGeom prst=\"" + preset + "\"><a:avLst/></a:prstGeom></pic:spPr>" +
         "</pic:pic></a:graphicData></a:graphic>" +
         "</wp:inline></w:drawing></w:r>";
 
