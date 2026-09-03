@@ -67,12 +67,22 @@ public sealed class PdfPhaseZeroGuardTests
         Assert.Empty(manifest.RootElement.GetProperty("samples").EnumerateArray());
     }
 
-    [SkippableFact(Timeout = 600000)]
+    [Fact(Timeout = 600000)]
     public void Cli_Has_No_Legacy_External_Pdf_Process_Surface()
     {
-        string root = PdfGuardRoots.RequireAggregate();
+        // The command line this guards moved into this repository as
+        // Broiler.Documents.Cli, and the guard did not move with it: it kept
+        // reading `src/Broiler.Cli/Program.cs` in the aggregate, a path that then
+        // existed nowhere. It was skipped rather than failing only because the
+        // aggregate detector was broken too. Pointed at the CLI that exists, it
+        // needs no aggregate at all and runs everywhere.
+        string root = PdfGuardRoots.Component;
 
-        string program = File.ReadAllText(Path.Combine(root, "src/Broiler.Cli/Program.cs"));
+        string program = string.Concat(Directory
+            .EnumerateFiles(Path.Combine(root, "src", "Broiler.Documents.Cli"), "*.cs", SearchOption.AllDirectories)
+            .Where(path => !PdfGuardRoots.IsBuildOutput(path))
+            .Select(File.ReadAllText));
+
         string[] retiredTokens =
         [
             "--convert-pdf",
@@ -83,7 +93,12 @@ public sealed class PdfPhaseZeroGuardTests
         ];
 
         Assert.All(retiredTokens, token => Assert.DoesNotContain(token, program, StringComparison.OrdinalIgnoreCase));
-        Assert.False(File.Exists(Path.Combine(root, "src/Broiler.Cli.Tests/PdfToWordConverterTests.cs")));
+
+        // The converter's own test file, wherever it might reappear.
+        Assert.Empty(Directory
+            .EnumerateFiles(Path.Combine(root, "src"), "PdfToWordConverterTests.cs", SearchOption.AllDirectories)
+            .Where(path => !PdfGuardRoots.IsBuildOutput(path))
+            .ToArray());
     }
 
     [Fact(Timeout = 600000)]

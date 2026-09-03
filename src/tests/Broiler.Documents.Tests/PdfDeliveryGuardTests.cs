@@ -132,9 +132,8 @@ public sealed class PdfDeliveryGuardTests
         foreach (string site in RegistrationSites.Where(path => path.EndsWith("Program.cs", StringComparison.Ordinal)))
         {
             string source = File.ReadAllText(Path.Combine(root, site.Replace('/', Path.DirectorySeparatorChar)));
-            foreach (Match match in Regex.Matches(source, @"new\s+WriterDocumentFormat\((?<arguments>[^;]*?)\)\s*\)"))
+            foreach (string arguments in Registrations(source))
             {
-                string arguments = match.Groups["arguments"].Value;
                 if (!arguments.Contains("PdfDocumentCodec", StringComparison.Ordinal))
                     continue;
 
@@ -142,6 +141,49 @@ public sealed class PdfDeliveryGuardTests
                 Assert.DoesNotContain("WriterFormatCapabilities.Save", arguments, StringComparison.Ordinal);
                 Assert.DoesNotContain("WriterFormatCapabilities.OpenAndSave", arguments, StringComparison.Ordinal);
             }
+        }
+    }
+
+    /// <summary>
+    /// The argument text of every <c>new WriterDocumentFormat(...)</c> in a source
+    /// file, matched by counting parentheses rather than by a pattern.
+    /// </summary>
+    /// <remarks>
+    /// This used to be a regular expression ending <c>[^;]*?\)\s*\)</c>, which
+    /// stopped at the first <c>))</c> it found. That was the end of the
+    /// registration while the codec was constructed with no arguments; once a head
+    /// composed services and wrote <c>PdfDocumentCodec(CreatePdfServices())</c>,
+    /// the match ended inside the codec's own call and the capability argument
+    /// fell outside it. The guard then read a registration that mentioned PDF and
+    /// no capability, and asserted against text it had never been given.
+    ///
+    /// It did not fail, because the aggregate detector was already broken and this
+    /// guard had not run since. Two silent faults, and the second one hid behind
+    /// the first: an expression that stops matching when the code it guards grows
+    /// a nested call is the reason to count brackets instead.
+    /// </remarks>
+    private static IEnumerable<string> Registrations(string source)
+    {
+        const string Opening = "new WriterDocumentFormat(";
+        int index = source.IndexOf(Opening, StringComparison.Ordinal);
+        while (index >= 0)
+        {
+            int start = index + Opening.Length;
+            int depth = 1;
+            int position = start;
+            while (position < source.Length && depth > 0)
+            {
+                if (source[position] == '(')
+                    depth++;
+                else if (source[position] == ')')
+                    depth--;
+                position++;
+            }
+
+            if (depth == 0)
+                yield return source[start..(position - 1)];
+
+            index = source.IndexOf(Opening, position, StringComparison.Ordinal);
         }
     }
 
