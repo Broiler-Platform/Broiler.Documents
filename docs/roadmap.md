@@ -32,40 +32,39 @@ residual work is tracked here.
 
 ## ODT standards and rights
 
-The register now exists. [ADR 0013](adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md)
-makes the ADR 0011 discipline component-wide and gives each format its own
-register, its own ID prefix, and its own claim gate; ODT's is
-[the ODT IP and licensing register](odt-ip-licensing-register.md), with eleven
-rows, primary sources for the OASIS mode and the covenants, and
-`OdtClaimGuardTests` binding its inspection findings to the code. **No row is
-decided.** What was built is an evidence record and a claims boundary, not a
-clearance. Owned here:
+Done, and the section is kept for what it records rather than for work it holds.
+[ADR 0013](adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md) makes the
+ADR 0011 discipline component-wide and gives each format its own register, ID
+prefix and claim gate; ODT's is
+[the ODT IP and licensing register](odt-ip-licensing-register.md), and **every one
+of its eleven rows is decided**, with the position assessed green.
 
-- **The reviewer's decision on ODT-IP-001 through ODT-IP-003 and the ODT-IP-007
-  label set.** ODT-IP-001 is written as ready: the mode is confirmed from two
-  primary sources and nothing further was identified as needed. ODT-IP-002 is the
-  one thin row — Sun's covenant carries a reciprocity condition that sits oddly
-  beside a TC mode permitting none, and the interaction was not analysed — and is
-  where counsel would be worth its cost. ODT-IP-003 is not required for the
-  other two and needs primary instruments nobody has obtained.
-- Sign off, or reject, the inspection findings on ODT-IP-004 through ODT-IP-006
-  and ODT-SRC-001 through ODT-SRC-002. These are repeatable by anyone and three
-  of them now fail the build if they stop being true, so the decision is whether
-  the record is accepted rather than whether the facts hold.
+- The two rows this roadmap called the hard ones came apart on inspection rather
+  than on argument. **ODT-IP-002**'s reciprocity is *defensive* — Sun's covenant
+  is withdrawn only from a party that attacks OpenDocument implementations — so
+  it asks nothing of an implementer and cannot subtract from a mode obligation
+  that binds Sun either way. The two instruments were never in tension.
+  **ODT-IP-003** rested on a false premise: there is no separate IBM ODF
+  declaration to obtain, the TC's IPR page carries Sun's two instruments and
+  nothing else, and the secondary sources had conflated IBM's general
+  interoperability pledge with an ODF-specific one that does not exist.
+- **Green is a risk judgement on recorded evidence, not a clearance.** No legal
+  review, no patent-freedom claim, no freedom-to-operate determination — nobody
+  searched, and a search is what such a determination needs. It unlocks no
+  wording either: ODT-IP-007's negative rule stands and `OdtClaimGuardTests`
+  fails the build over it.
 - **The roadmap's own earlier framing was stale and is not restored.** It asked
   for "a legal reading on the ODF covenants", which contradicts the standard of
-  review this register adopted on 2026-09-02 and ADR 0013 made component-wide:
+  review the register adopted on 2026-09-02 and ADR 0013 made component-wide:
   evidence-based acceptance, with counsel reserved for rows the evidence does not
-  settle. ODT-IP-002 is written up as exactly such a row rather than waved
-  through, which is the control working as intended.
-- Until the rows clear, the [ODT conformance document](odt-conformance.md) and
-  the register bound what may be said, and no marketing copy may go further than
-  ODT-IP-007's label set — which is itself still proposed. The Writer registers
-  the codec on every head (Broiler-Platform/Broiler.Writer#65); shipping a codec
-  is not a rights claim, and the guards are what keep it from becoming one.
+  settle. It turned out these were not such rows.
+- Left unrecorded rather than unresolved: implementation jurisdictions, the
+  expiry/review dates, and the succession of Sun's covenant to its acquirer. None
+  is blocking under this register's standard, and the rows say so individually.
 - RTF, DOCX, HTML, and Markdown have **no register and therefore no cleared
   position** — an unasked question rather than an answered one. ADR 0013 says so
-  explicitly and does not answer it for them.
+  explicitly and does not answer it for them. That is now the only format-rights
+  work this component has left.
 
 Intentional limitations in the conformance documents are not release blockers
 unless they are explicitly promoted into this roadmap.
