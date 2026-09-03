@@ -166,6 +166,17 @@ is authoritative for that boundary.
   structural metadata, deterministic geometric grouping into columns, lines and
   paragraphs, list-marker recognition, and link annotations admitted by the
   shared URI policy.
+- Phase 4 for reading order, where the document states it: a tagged document's
+  structure tree is walked for its sequence, and a page whose runs that sequence
+  accounts for in full is read in the declared order rather than the inferred
+  one. A page it covers only partly falls back to geometry whole, because mixing
+  a declared order with an inferred one yields a sequence neither asked for. Only
+  the order of blocks comes from the tree; the order of glyphs within a block is
+  still geometric, since that is a geometric fact no tagging changes. **No role
+  is read** — not headings, lists, tables, or the role map — so nothing here is
+  the accessibility architecture §14.2 scopes and no conformance claim follows.
+  The reading-order diagnostic now says which of the two produced the order, per
+  page, rather than always reporting a heuristic.
 - Phase 4 for optional content: the catalog's default configuration `/D` is read
   and honoured, so content in a group it turns off is omitted rather than
   extracted as though the document had shown every layer at once. `/BaseState`,

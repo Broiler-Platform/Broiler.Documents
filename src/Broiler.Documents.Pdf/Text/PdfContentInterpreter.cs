@@ -98,6 +98,16 @@ internal sealed class PdfContentInterpreter
     /// </summary>
     private bool Hidden => _hiddenDepth != NotHidden;
 
+    /// <summary>
+    /// The marked-content id at each open level. A sequence that states none
+    /// inherits the one it is nested in, which is what makes a `/Span` inside a
+    /// tagged paragraph part of that paragraph rather than untagged content.
+    /// </summary>
+    private readonly List<int> _mcidStack = [];
+
+    /// <summary>The innermost marked-content id, or -1 outside any.</summary>
+    private int Mcid => _mcidStack.Count > 0 ? _mcidStack[^1] : -1;
+
     // Path construction state. The geometry is never rendered — it is tracked
     // only so that a paint operator can say what shape it dropped.
     private double _pathMinX;
@@ -119,6 +129,7 @@ internal sealed class PdfContentInterpreter
     private GraphicsState _runState = GraphicsState.Initial;
     private double _runFontSize;
     private double _runSpaceWidth;
+    private int _runMcid = -1;
     private bool _runOpen;
 
     public PdfContentInterpreter(
@@ -152,6 +163,7 @@ internal sealed class PdfContentInterpreter
         // must not leave the next hidden.
         _markedContentDepth = 0;
         _hiddenDepth = NotHidden;
+        _mcidStack.Clear();
 
         byte[]? content = ReadPageContent(page);
         if (content is null || content.Length == 0)
@@ -340,6 +352,7 @@ internal sealed class PdfContentInterpreter
                     // sequence inside a hidden one would otherwise close it at its
                     // own EMC and let the rest of the layer back into the text.
                     _markedContentDepth++;
+                    _mcidStack.Add(Mcid);
                     break;
                 case "EMC":
                     // Flush first: the run inside the marked-content sequence is
@@ -518,6 +531,7 @@ internal sealed class PdfContentInterpreter
             _runState = _state;
             _runFontSize = effectiveSize;
             _runSpaceWidth = SpaceWidth(effectiveSize);
+            _runMcid = Mcid;
         }
 
         _store.Budget.ChargeCharacters(text.Length);
@@ -596,7 +610,8 @@ internal sealed class PdfContentInterpreter
             _runState.Font.IsBold,
             _runState.Font.IsItalic,
             _runState.Color,
-            _runState.RenderMode));
+            _runState.RenderMode,
+            _runMcid));
 
         // Reported per run rather than once per document: the sink keeps a single
         // entry either way, and letting it count tells a reader whether one
@@ -621,6 +636,10 @@ internal sealed class PdfContentInterpreter
         PdfObject? properties = operands.Count >= 1 ? operands[^1] : null;
         string tag = operands.Count >= 2 && operands[^2] is PdfName tagName ? tagName.Value : string.Empty;
 
+        // Pushed before the property dictionary is examined so that every exit
+        // from here leaves the stack matching the depth an EMC will pop.
+        _mcidStack.Add(Mcid);
+
         // The property entry is resolved through /Properties as it stands rather
         // than as a resolved dictionary, because an optional-content group is
         // identified by the object it resolves to and the lookup must not lose
@@ -637,6 +656,18 @@ internal sealed class PdfContentInterpreter
 
         if (_store.Resolve(entry) is not PdfDictionary dictionary)
             return;
+
+        // A new marked-content id starts a new run, so a fragment never straddles
+        // two of them and the structure tree can place every one it emits.
+        if (_store.Resolve(dictionary["MCID"]) is PdfNumber mcid)
+        {
+            int value = mcid.ToInt32();
+            if (value >= 0 && value != Mcid)
+            {
+                FlushRun();
+                _mcidStack[^1] = value;
+            }
+        }
 
         if (_store.Resolve(dictionary["ActualText"]) is PdfString actual)
         {
@@ -684,6 +715,9 @@ internal sealed class PdfContentInterpreter
         // and let a later EMC re-open a layer that was never entered.
         if (_markedContentDepth > 0)
             _markedContentDepth--;
+
+        if (_mcidStack.Count > 0)
+            _mcidStack.RemoveAt(_mcidStack.Count - 1);
     }
 
     private static string DecodeTextString(byte[] bytes)

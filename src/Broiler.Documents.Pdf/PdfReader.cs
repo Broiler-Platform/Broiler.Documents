@@ -127,9 +127,16 @@ internal static class PdfReader
         store.Features.NoteOptionalContentConfiguration(
             optionalContent.GroupCount, optionalContent.OffGroupCount);
 
+        // Read for its sequence alone. A tagged document has already answered the
+        // question the geometric pass can only infer, and taking the answer costs
+        // nothing that roles or conformance would.
+        PdfStructureTree? structure = PdfStructureTree.Read(store, catalog, pages);
+
         var interpreter = new PdfContentInterpreter(store, resources, optionalContent);
         var paragraphs = new List<RichTextParagraph>();
         int emptyPages = 0;
+        int declaredOrderPages = 0;
+        int inferredOrderPages = 0;
 
         for (int i = 0; i < pages.Count; i++)
         {
@@ -152,7 +159,24 @@ internal static class PdfReader
             }
 
             List<PdfLinkRegion> links = PdfAnnotationReader.Read(store, page, policy, optionalContent);
-            List<PdfTextLine> lines = PdfReadingOrder.BuildLines(fragments, links);
+
+            // A page whose fragments the tree accounts for in full is read in the
+            // order it declares. One it accounts for only partly falls back
+            // whole: mixing a declared order with an inferred one produces a
+            // sequence neither the document nor the heuristic asked for.
+            List<PdfTextLine> lines;
+            if (structure is not null && structure.Covers(i, fragments))
+            {
+                lines = PdfReadingOrder.BuildLinesInDeclaredOrder(
+                    fragments, links, fragment => structure.OrderOf(i, fragment.Mcid));
+                declaredOrderPages++;
+            }
+            else
+            {
+                lines = PdfReadingOrder.BuildLines(fragments, links);
+                if (fragments.Count > 0)
+                    inferredOrderPages++;
+            }
 
             bool pageBreak = options.MapPageBreaks && i < pages.Count - 1;
             paragraphs.AddRange(
@@ -176,10 +200,34 @@ internal static class PdfReader
         if (paragraphs.Count > 0 || structureTree is not null)
         {
             var order = new StringBuilder();
-            if (paragraphs.Count > 0)
+
+            // Which of the two produced the order is the fact a reader needs, and
+            // on a partly tagged document the answer is genuinely "both", per
+            // page. Saying so beats picking whichever was more common.
+            if (declaredOrderPages > 0)
             {
+                string plural = declaredOrderPages == 1 ? string.Empty : "s";
+                order.Append(CultureInfo.InvariantCulture,
+                    $"Reading order on {declaredOrderPages} page{plural} came from the document's own structure tree, which states it. ");
                 order.Append(
-                    "Reading order was inferred from page geometry. PDF states where glyphs are drawn, not what order they are read in, so paragraph and column grouping is a documented heuristic.");
+                    "Only the sequence was taken from it: the order of glyphs within a block is still geometric, and no role was read. ");
+            }
+
+            if (inferredOrderPages > 0)
+            {
+                if (declaredOrderPages > 0)
+                {
+                    string plural = inferredOrderPages == 1 ? string.Empty : "s";
+                    order.Append(CultureInfo.InvariantCulture,
+                        $"On {inferredOrderPages} further page{plural} it was inferred from page geometry, the tree not accounting for every run drawn there. ");
+                }
+                else
+                {
+                    order.Append("Reading order was inferred from page geometry. ");
+                }
+
+                order.Append(
+                    "PDF states where glyphs are drawn, not what order they are read in, so paragraph and column grouping is a documented heuristic.");
             }
 
             // One code, one note. The structure tree is the reason the heuristic
@@ -192,6 +240,9 @@ internal static class PdfReader
                     order.Append(' ');
                 order.Append(structureTree);
             }
+
+            if (order.Length == 0)
+                order.Append("Reading order was inferred from page geometry.");
 
             diagnostics.Info(PdfDiagnosticCodes.ReadingOrderHeuristic, order.ToString());
         }
@@ -299,7 +350,9 @@ internal static class PdfReader
     private static string DescribeStructureTree(PdfObjectStore store, PdfDictionary root, PdfDictionary catalog)
     {
         var text = new StringBuilder(
-            "The document carries a structure tree, which this release does not consume: its root holds ");
+            "The document carries a structure tree. This release reads it for reading order only — no role, " +
+            "heading level, list, or table semantics is taken from it, and no accessibility or conformance claim " +
+            "follows. Its root holds ");
 
         int topLevel = store.Resolve(root["K"]) switch
         {

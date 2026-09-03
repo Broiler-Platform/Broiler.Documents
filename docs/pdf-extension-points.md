@@ -57,7 +57,7 @@ the legal question.
 | Metadata | `Info` and the XMP read subset (ISO 16684-1:2019) normalized to the V1 allowlist, XMP winning per field and disagreement reported; the raw packet is never preserved |
 | Text | Graphics and text state, all show-text operators, Form XObjects, marked-content `ActualText`, simple-font encodings with `/Differences`, `ToUnicode` CMaps, composite fonts through `Identity-H` |
 | Images | Samples from a filter chain the build can run, normalized to RGBA within roadmap §9.3's approved tuple — DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded palette, `/Decode` validated — and admitted through the caller's resource policy |
-| Semantics | Geometric reading-order assembly, list detection, link annotations under the URI policy, and the default optional-content configuration — content in a layer the catalog turns off is omitted |
+| Semantics | Reading order from a tagged document's structure tree where it covers the page, geometric assembly otherwise, list detection, link annotations under the URI policy, and the default optional-content configuration — content in a layer the catalog turns off is omitted |
 | Writer | New PDF 1.7 files, standard font names with WinAnsi encoding, Flate content streams, colour, decorations, alignment, lists, link annotations, normalized metadata |
 
 Nothing in that list needs a third-party runtime dependency, a bundled font, a
