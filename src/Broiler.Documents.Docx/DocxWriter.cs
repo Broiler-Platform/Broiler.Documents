@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -256,12 +256,25 @@ public static class DocxWriter
         foreach (TableRow row in table.Rows)
         {
             var tr = new XElement(DocxNamespaces.Wordprocessing + "tr");
+
+            // One trPr carries both, because a row may state a height and repeat.
+            // Written with an explicit atLeast rather than bare: the model's height
+            // is a minimum, and saying so removes the ambiguity the reader has to
+            // resolve by convention when a producer omits the rule.
+            var properties = new XElement(DocxNamespaces.Wordprocessing + "trPr");
             if (row.IsHeader)
+                properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tblHeader"));
+            if (row.MinHeight > 0)
             {
-                tr.Add(new XElement(
-                    DocxNamespaces.Wordprocessing + "trPr",
-                    new XElement(DocxNamespaces.Wordprocessing + "tblHeader")));
+                properties.Add(new XElement(
+                    DocxNamespaces.Wordprocessing + "trHeight",
+                    new XAttribute(DocxNamespaces.Wordprocessing + "val",
+                        ((int)Math.Round(row.MinHeight * 20)).ToString(CultureInfo.InvariantCulture)),
+                    new XAttribute(DocxNamespaces.Wordprocessing + "hRule", "atLeast")));
             }
+
+            if (properties.HasElements)
+                tr.Add(properties);
 
             foreach (TableCell cell in row.Cells)
                 tr.Add(BuildTableCell(document, table, cell, context));
