@@ -235,6 +235,121 @@ public sealed class PdfComposedFontTests
             reader.Read(font.AsSpan(0, length).ToArray(), "FontFile2", null, context);
     }
 
+    // ---- bare CFF -------------------------------------------------------------
+
+    [Fact]
+    public void The_Standard_String_Table_Is_The_Length_The_Format_Fixes()
+    {
+        Assert.Equal(CffStandardStrings.Count, CffStandardStrings.Length);
+        Assert.Equal(391, CffStandardStrings.Count);
+        Assert.Null(CffStandardStrings.Of(CffStandardStrings.Count));
+        Assert.Null(CffStandardStrings.Of(-1));
+    }
+
+    [Theory]
+    [InlineData(0, ".notdef")]
+    [InlineData(1, "space")]
+    [InlineData(34, "A")]
+    [InlineData(59, "Z")]
+    [InlineData(66, "a")]
+    [InlineData(91, "z")]
+    [InlineData(98, "sterling")]
+    [InlineData(229, "exclamsmall")]
+    [InlineData(390, "Semibold")]
+    public void Standard_Identifiers_Name_What_The_Format_Says(int sid, string name)
+    {
+        // The table is transcribed rather than authored, so its entries are
+        // asserted at the boundaries and at the places an off-by-one would hide:
+        // the ends of each alphabetic run, the first Expert entry, and the last
+        // string of all. A generated fixture that used the table to build itself
+        // would round-trip a wrong table happily; these do not.
+        Assert.Equal(name, CffStandardStrings.Of(sid));
+    }
+
+    [Fact]
+    public void A_Bare_Cff_Supplies_The_Text_Its_Charset_Names()
+    {
+        PdfReadResult result = Read(Cff(["A", "B", "C"]), composed: true);
+
+        Assert.Contains("ABC", result.Document.PlainText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Range_Charset_Reads_The_Same_As_A_Flat_One()
+    {
+        // A, B, C are consecutive standard identifiers, so a subsetter is free to
+        // write them as one range. A reader that understood only the flat form
+        // would lose every font that did.
+        PdfReadResult result = Read(Cff(["A", "B", "C"], rangeCharset: true), composed: true);
+
+        Assert.Contains("ABC", result.Document.PlainText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Name_The_Format_Does_Not_Define_Comes_From_The_Fonts_Own_Strings()
+    {
+        // Identifiers at or above the standard count index the font's own string
+        // index — the document's data rather than the format's — and the
+        // algorithmic uniXXXX form is resolved by the same authored data that
+        // resolves a /Differences name.
+        PdfReadResult result = Read(Cff(["uni0041", "uni0042", "uni0043"]), composed: true);
+
+        Assert.Contains("ABC", result.Document.PlainText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Cid_Keyed_Cff_Is_Refused_Rather_Than_Misread()
+    {
+        // Its charset holds character identifiers from a collection, not names.
+        // Reading them as identifiers into the standard list would name glyphs
+        // the font never mentioned and produce confident nonsense.
+        PdfReadResult result = Read(Cff(["A", "B", "C"], cidKeyed: true), composed: true);
+
+        Assert.DoesNotContain("ABC", result.Document.PlainText, StringComparison.Ordinal);
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TextMappingMissing);
+    }
+
+    [Fact]
+    public void A_Name_That_Means_Nothing_Here_Maps_To_Nothing()
+    {
+        // A subsetter's private name resolves as a name and still says nothing.
+        // Recovering the name is not the same as knowing what it says, and this
+        // build does not bridge the two by guessing.
+        PdfReadResult result = Read(Cff(["g41", "g42", "g43"]), composed: true);
+
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TextMappingMissing);
+    }
+
+    [Fact]
+    public void A_Malformed_Cff_Costs_The_Font_And_Not_The_Document()
+    {
+        byte[] truncated = GeneratedCff.WithNames(["A", "B", "C"])[..6];
+        PdfReadResult result = Read(
+            Document("ABC", Glyphs(1, 2, 3), programKey: "FontFile3", program: truncated, programSubtype: "Type1C"),
+            composed: true);
+
+        // The page's own text still arrives; only the font went unread.
+        Assert.NotEqual(DocumentResultStatus.Rejected, result.Status);
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TextMappingMissing);
+    }
+
+    [Fact]
+    public void Without_The_Reader_A_Cff_Font_Recovers_Nothing()
+    {
+        PdfReadResult result = Read(Cff(["A", "B", "C"]), composed: false);
+
+        Assert.DoesNotContain("ABC", result.Document.PlainText, StringComparison.Ordinal);
+    }
+
+    /// <summary>A document whose composite font embeds a bare CFF program.</summary>
+    private static byte[] Cff(string[] names, bool rangeCharset = false, bool cidKeyed = false) =>
+        Document(
+            "ABC",
+            Glyphs(1, 2, 3),
+            programKey: "FontFile3",
+            program: GeneratedCff.WithNames(names, rangeCharset, cidKeyed),
+            programSubtype: "CIDFontType0C");
+
     // ---- fixtures -------------------------------------------------------------
 
     /// <summary>A ToUnicode CMap that maps codes 1, 2, 3 to X, Y, Z.</summary>
@@ -254,11 +369,15 @@ public sealed class PdfComposedFontTests
         string codes,
         string? toUnicode = null,
         string programKey = "FontFile2",
-        byte[]? program = null)
+        byte[]? program = null,
+        string? programSubtype = null)
     {
         var objects = new List<byte[]>();
 
-        int programObject = Add(objects, Stream("/Length1 512", program ?? GeneratedFont.SpellingOut(alphabet)));
+        string programDictionary = programSubtype is null
+            ? "/Length1 512"
+            : $"/Subtype /{programSubtype}";
+        int programObject = Add(objects, Stream(programDictionary, program ?? GeneratedFont.SpellingOut(alphabet)));
         int descriptor = Add(objects, Latin1(
             "<< /Type /FontDescriptor /FontName /ABCDEF+Generated /Flags 4 /ItalicAngle 0 " +
             $"/Ascent 800 /Descent -200 /CapHeight 700 /StemV 80 /{programKey} {programObject} 0 R >>"));

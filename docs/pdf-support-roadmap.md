@@ -166,6 +166,19 @@ is authoritative for that boundary.
   structural metadata, deterministic geometric grouping into columns, lines and
   paragraphs, list-marker recognition, and link annotations admitted by the
   shared URI policy.
+- Phase 4 for bare CFF font programs: a caller composing
+  `Broiler.Documents.Pdf.Fonts` now recovers text from a composite font whose
+  embedded program is a bare CFF (`FontFile3` `/Type1C` or `/CIDFontType0C`) and
+  which supplied no `ToUnicode`, by reading the charset for its glyph names. The
+  extension point carries names rather than text for this case, so the one
+  authored glyph-name table in the codec decides what a name says and a composed
+  reader never carries a second copy. A CID-keyed CFF is refused: its charset
+  holds character identifiers from a collection, and resolving those as names
+  would invent glyphs the font never mentioned. Type 1 (`FontFile`) stays unread.
+  **The 391 CFF standard strings are transcribed**, the second such table in this
+  repository, and SRC-016 records the question as pending: no CFF-derived
+  capability may be claimed as supported until a reviewer decides it, exactly as
+  SRC-017 gates the fax tables.
 - Phase 4 for Type 3 fonts, to the extent that reading one does not mean drawing
   it: advances come through `/FontMatrix`, which is where a Type 3 states the
   glyph-space scale every other simple font has fixed at a thousandth, and its

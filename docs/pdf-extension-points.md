@@ -76,7 +76,7 @@ still reads; the affected construct is reported rather than guessed at.
 | `JPXDecode` (JPEG 2000) | `pdf.filter.jpx.unsupported`, carrying the codestream's tuple where the reader is composed | IP-007 (**approved** for Part 1; no decoder written) |
 | `JBIG2Decode` | `pdf.filter.jbig2.unsupported`, carrying the stream's segment inventory where the filter is composed | IP-008 (**approved**; MMR generic regions decode, the arithmetic decoder is unwritten) |
 | Any other named filter | `pdf.filter.not-composed` | — |
-| Embedded font programs | `pdf.font.program-not-composed` | IP-012 (**approved** for inspection; see §4.4) |
+| Embedded font programs | `pdf.font.program-not-composed`. A composed reader handles sfnt through its character map and bare CFF through its charset; Type 1 and CID-keyed CFF stay unread | IP-012 (**approved** for inspection; see §4.4). The CFF standard-strings table is pending in SRC-016 |
 | Type 3 fonts — the glyph procedures only | `pdf.font.type3-unsupported`. The font's own encoding, `ToUnicode`, and `/FontMatrix` advances are read; only the procedures that draw the glyphs go unexecuted | — |
 | Inline images, and images naming a filter with no composed implementation | `pdf.image.not-composed` | IP-005 |
 | A decoded image the caller's policy refused | `pdf.image.extraction-denied` | — |

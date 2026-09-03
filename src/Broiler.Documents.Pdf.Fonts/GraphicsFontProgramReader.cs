@@ -67,8 +67,20 @@ public sealed class GraphicsFontProgramReader : IPdfFontProgramReader
 
         context.CancellationToken.ThrowIfCancellationRequested();
 
+        if (program.Length == 0 || program.Length > context.MaxBytes)
+            return null;
+
+        // A bare CFF names its glyphs rather than mapping them from characters,
+        // so it is read for names and the codec decides what they say.
+        if (CffFormat(descriptorKey, subtype) is string cff)
+        {
+            return CffGlyphNames.Read(program, context.CancellationToken) is IReadOnlyDictionary<int, string> names
+                ? new PdfFontProgramMap(cff, new Dictionary<int, string>(), names)
+                : null;
+        }
+
         string? format = SfntFormat(descriptorKey, subtype);
-        if (format is null || program.Length == 0 || program.Length > context.MaxBytes)
+        if (format is null)
             return null;
 
         // The guard has to cover the probing as well as the load. The composed
@@ -97,6 +109,17 @@ public sealed class GraphicsFontProgramReader : IPdfFontProgramReader
         "FontFile3" when string.Equals(subtype, "OpenType", StringComparison.Ordinal) => "OpenType",
         _ => null,
     };
+
+    /// <summary>
+    /// The bare-CFF subtypes. <c>FontFile</c> is Type 1, which is a different
+    /// format with its own eexec-encrypted private structures, and stays
+    /// unread — the limit there is still the parser surface, not the register.
+    /// </summary>
+    private static string? CffFormat(string descriptorKey, string? subtype) =>
+        string.Equals(descriptorKey, "FontFile3", StringComparison.Ordinal) &&
+        subtype is "Type1C" or "CIDFontType0C"
+            ? subtype
+            : null;
 
     /// <summary>
     /// Inverts the program's character map into glyph-to-text by probing it.
