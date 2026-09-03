@@ -265,7 +265,8 @@ repository secret; GitHub Packages uses the built-in `GITHUB_TOKEN`.
   [DOCX](docs/docx-ip-licensing-register.md),
   [HTML](docs/html-ip-licensing-register.md) and
   [Markdown](docs/markdown-ip-licensing-register.md) rights records - every row
-  pending a decision; nothing about these formats is cleared.
+  decided. Decided is not cleared: no legal review, no patent-freedom claim, no
+  freedom-to-operate determination.
 - [ODT IP and licensing register](docs/odt-ip-licensing-register.md) - the ODF
   rights record. Every row is decided and the position is assessed green, which is
   an engineering risk judgement on recorded evidence rather than a clearance: no

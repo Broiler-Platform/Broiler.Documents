@@ -90,10 +90,13 @@ neither is a statement that no relevant claim exists.
 
 That is recorded in
 [the HTML IP and licensing register](html-ip-licensing-register.md), where **every
-row is pending a decision**. Patent-freedom is not claimed and no
-freedom-to-operate determination has been made.
+row is now decided**. Decided is not cleared: patent-freedom is not claimed and no
+freedom-to-operate determination has been made. Both policies let a participant
+exclude patents during a disclosure window, which is what keeps a royalty-free
+commitment from being a finding that no claim exists.
 
 **One limit belongs here as much as there.** This codec does not tokenize or parse
-HTML — `Broiler.Dom.Html.HtmlDocumentParser` does, in a separate repository that
-has no rights register of its own. The register covers the mapping layer, and no
-claim about Broiler's HTML support as a whole may rest on it alone.
+HTML — `Broiler.Dom.Html.HtmlDocumentParser` does, in a separate repository. That
+repository now has a rights register of its own, so the parsing half is recorded
+rather than unasked; the scope limit is unchanged, and a claim about Broiler's
+HTML support as a whole needs **both** registers rather than either.

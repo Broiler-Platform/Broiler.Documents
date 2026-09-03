@@ -91,7 +91,9 @@ for this repository and imports nothing.
 
 Both are recorded in
 [the Markdown IP and licensing register](markdown-ip-licensing-register.md), where
-**every row is pending a decision**.
+**every row is now decided** — including the reading of that clause, which was
+accepted on the strength of an inspection rather than an argument: there is no
+imported implementation in this repository for it to attach to.
 
 One wording rule follows from this document rather than from the register. This is
 a **CommonMark-oriented subset** and the limits above enumerate what it does not

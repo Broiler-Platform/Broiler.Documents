@@ -1,7 +1,7 @@
 # ODT IP, Licensing, And Standards Register
 
-**Register version:** 1.4
-**Updated:** 2026-09-03 (a further covenant found and added as ODT-IP-010, pending; the rest decided and assessed green)
+**Register version:** 1.5
+**Updated:** 2026-09-03 (every row decided, ODT-IP-010 included; the position is assessed green, which is not a clearance)
 **Owner:** Broiler.Documents maintainers
 **Approval authority:** Maik Ratzmer (GitHub [MaiRat](https://github.com/MaiRat)), project reviewer
 **Governance:** [ADR 0013](adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md),
@@ -14,13 +14,11 @@ discipline beyond PDF and adopts the evidence-based standard of review
 
 **Read this before relying on a single row below.**
 
-**One row is open and every other is decided.** The open one is ODT-IP-010,
-added on 2026-09-03 after a covenant covering OpenDocument was found while
-evidencing a different format's register. It is **additive**: it introduces a
-second, independent instrument alongside Sun's and contradicts nothing already
-decided here. The project reviewer assesses the overall position **green** on the
-rows that are decided, and finding more protection than was recorded does not
-disturb that. That word is doing
+**Every row in this register is decided**, ODT-IP-010 included, and the project
+reviewer assesses the overall position **green**. That last row was added after
+the others were settled, when a covenant covering OpenDocument turned up while a
+different format's register was being evidenced. It is **additive**: a second,
+independent instrument alongside Sun's, contradicting nothing. That word is doing
 exactly as much work as this register's standard allows and no more, so it is
 worth saying plainly what it does and does not mean.
 
@@ -113,7 +111,7 @@ are on every row of the PDF register; under this standard they are not blocking.
 
 | ID | Technology / exact scope | Primary evidence | Current assessment | Status / required action |
 |---|---|---|---|---|
-| ODT-IP-010 | Microsoft's Open Specification Promise as it covers OpenDocument | [Microsoft Open Specification Promise](https://learn.microsoft.com/en-us/openspecs/dev_center/ms-devcentlp/1c24c7c8-28b0-4ce1-a47d-95fe1ff504bc) (MS-DEVCENTLP), published 12 September 2006, revised 24 February 2023 | **A second covenant, from a party this register had no reason to look at.** The OSP's covered list names OpenDocument v1.0 (OASIS and ISO/IEC 26300:2006), v1.1, v1.2 and v1.3 individually, and Microsoft "irrevocably promises not to assert any Microsoft Necessary Claims against you for making, using, selling, offering for sale, importing or distributing any implementation to the extent it conforms to a Covered Specification". Microsoft further commits to extend the promise to future versions of those specifications as long as it participates in their revision. The limits are the ones the promise states about itself: Microsoft-owned or Microsoft-controlled claims only, the required portions described in detail and not merely referenced, defensive termination if the beneficiary sues Microsoft over the format, and an explicit non-assurance about third parties. **Why it was not here already, which is worth recording rather than quietly fixing:** ODT-IP-003 searched the OASIS TC's IPR page and correctly found nothing there beyond Sun's two statements. This instrument is not on that page and never would have been — it is a vendor's own publication about a format it did not originate. The search was sound and its scope was too narrow, and the way it was found was accidental: reading the same promise for DOCX and RTF. | **Pending the project reviewer's decision.** Purely additive: it neither depends on nor disturbs ODT-IP-001 or ODT-IP-002, and rejecting it would leave the position exactly where the green assessment already put it. |
+| ODT-IP-010 | Microsoft's Open Specification Promise as it covers OpenDocument | [Microsoft Open Specification Promise](https://learn.microsoft.com/en-us/openspecs/dev_center/ms-devcentlp/1c24c7c8-28b0-4ce1-a47d-95fe1ff504bc) (MS-DEVCENTLP), published 12 September 2006, revised 24 February 2023 | **A second covenant, from a party this register had no reason to look at.** The OSP's covered list names OpenDocument v1.0 (OASIS and ISO/IEC 26300:2006), v1.1, v1.2 and v1.3 individually, and Microsoft "irrevocably promises not to assert any Microsoft Necessary Claims against you for making, using, selling, offering for sale, importing or distributing any implementation to the extent it conforms to a Covered Specification". Microsoft further commits to extend the promise to future versions of those specifications as long as it participates in their revision. The limits are the ones the promise states about itself: Microsoft-owned or Microsoft-controlled claims only, the required portions described in detail and not merely referenced, defensive termination if the beneficiary sues Microsoft over the format, and an explicit non-assurance about third parties. **Why it was not here already, which is worth recording rather than quietly fixing:** ODT-IP-003 searched the OASIS TC's IPR page and correctly found nothing there beyond Sun's two statements. This instrument is not on that page and never would have been — it is a vendor's own publication about a format it did not originate. The search was sound and its scope was too narrow, and the way it was found was accidental: reading the same promise for DOCX and RTF. | **Approved 2026-09-03.** Purely additive: it neither depends on nor disturbs ODT-IP-001 or ODT-IP-002, and the position would have been where the green assessment already put it either way. Accepted because a rights register that knows of a material instrument and does not record it is worth less than one that does. |
 
 ## Approved labels
 
@@ -140,8 +138,8 @@ the third would cite a source ODT-SRC-002 records as unconsulted.
 
 ## What still blocks a claim
 
-One row is left, and it arrived after the others were settled. The table is
-otherwise a record of what each row was decided on rather than a list of work.
+Nothing is left. The table is a record of what each row was decided on rather
+than a list of work.
 
 | Blocker | Kind | State |
 |---|---|---|
@@ -151,7 +149,7 @@ otherwise a record of what each row was decided on rather than a list of work.
 | ODT-IP-004 to ODT-IP-006, ODT-SRC-001, ODT-SRC-002 | What this repository contains and consulted | **Approved 2026-09-03.** Settled by inspection, repeatable by anyone, and three of them guarded mechanically so the approval cannot rot quietly |
 | ODT-IP-007 label set | Positive wording for the format | **Approved 2026-09-03** for the recorded labels and no other wording. The negative rule was enforced before the approval and is unchanged by it |
 | ODT-IP-008 | Encrypted packages | **Blocked for V1** by scope, not by evidence |
-| ODT-IP-010 | Microsoft's OSP as it covers ODF | **Pending a decision only**, and additive — a second covenant found 2026-09-03 while evidencing DOCX and RTF |
+| ODT-IP-010 | Microsoft's OSP as it covers ODF | **Approved 2026-09-03**, additive — a second covenant found while evidencing DOCX and RTF |
 
 One distinction survives every approval on this page and is worth keeping in
 view. What inspection settles is what *this repository* did, and those rows are

@@ -107,9 +107,11 @@ an irrevocable non-assertion of Microsoft Necessary Claims against a conforming
 implementation, with defensive termination as its only condition.
 
 That is recorded, with the promise's own three limits, in
-[the RTF IP and licensing register](rtf-ip-licensing-register.md). **Read it
-before relying on anything here: every row is pending a decision.** Patent-freedom
-is not claimed and no freedom-to-operate determination has been made.
+[the RTF IP and licensing register](rtf-ip-licensing-register.md), where **every
+row is now decided**. Decided is not cleared: no lawyer reviewed it,
+patent-freedom is not claimed, and no freedom-to-operate determination has been
+made. The promise says the same about itself, and the register quotes it rather
+than summarising.
 
 What is settled by inspection rather than assertion: this codec embeds no
 third-party RTF code, takes no package reference, reproduces no specification
