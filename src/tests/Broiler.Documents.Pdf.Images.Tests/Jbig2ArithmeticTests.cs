@@ -38,12 +38,12 @@ public sealed class Jbig2ArithmeticTests
         // The table is transcribed, so its shape is asserted rather than assumed:
         // 47 states, the first and last as the standard fixes them, and the one
         // state that loops to itself at the bottom of the estimator.
-        Assert.Equal(47, Jbig2ArithmeticProbe.StateCount);
-        Assert.Equal((0x5601, 1, 1, 1), Jbig2ArithmeticProbe.State(0));
-        Assert.Equal((0x5601, 46, 46, 0), Jbig2ArithmeticProbe.State(46));
+        Assert.Equal(47, MqProbe.StateCount);
+        Assert.Equal((0x5601, 1, 1, 1), MqProbe.State(0));
+        Assert.Equal((0x5601, 46, 46, 0), MqProbe.State(46));
 
         // State 45 is the estimator's floor: an MPS keeps it there.
-        Assert.Equal((0x0001, 45, 43, 0), Jbig2ArithmeticProbe.State(45));
+        Assert.Equal((0x0001, 45, 43, 0), MqProbe.State(45));
     }
 
     [Theory]
@@ -175,14 +175,14 @@ public sealed class Jbig2ArithmeticTests
 
     private static int[] RoundTrip(int[] bits, int contextBits, Func<int, int> context)
     {
-        var encoder = new Jbig2ArithmeticEncoder(contextBits);
+        var encoder = new MqEncoder(contextBits);
         for (int i = 0; i < bits.Length; i++)
             encoder.Encode(context(i), bits[i]);
 
         byte[] data = encoder.Flush();
 
-        var decoder = new Jbig2ArithmeticDecoder(data);
-        var contexts = new Jbig2ArithmeticContexts(contextBits);
+        var decoder = new MqDecoder(data);
+        var contexts = new MqContexts(contextBits);
         var decoded = new int[bits.Length];
         for (int i = 0; i < bits.Length; i++)
             decoded[i] = decoder.Decode(contexts, context(i));

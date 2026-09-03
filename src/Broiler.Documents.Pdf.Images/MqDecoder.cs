@@ -8,7 +8,7 @@ namespace Broiler.Documents.Pdf.Images;
 /// <remarks>
 /// <para>
 /// Procedure only. The probability table this drives is
-/// <see cref="Jbig2ArithmeticStates"/>, kept in its own file because it is a
+/// <see cref="MqStates"/>, kept in its own file because it is a
 /// transcribed normative constant and this is not: the part an engineer can be
 /// held to and the part a reviewer has to weigh are worth keeping apart.
 /// </para>
@@ -22,9 +22,9 @@ namespace Broiler.Documents.Pdf.Images;
 /// not that either matches the standard. A shared misreading passes every test.
 /// </para>
 /// </remarks>
-internal sealed class Jbig2ArithmeticDecoder
+internal sealed class MqDecoder
 {
-    private static (ushort Qe, byte Nmps, byte Nlps, byte Switch)[] States => Jbig2ArithmeticStates.All;
+    private static (ushort Qe, byte Nmps, byte Nlps, byte Switch)[] States => MqStates.All;
 
     private readonly ReadOnlyMemory<byte> _data;
     private int _bp;
@@ -32,7 +32,7 @@ internal sealed class Jbig2ArithmeticDecoder
     private uint _a;
     private int _ct;
 
-    public Jbig2ArithmeticDecoder(ReadOnlyMemory<byte> data)
+    public MqDecoder(ReadOnlyMemory<byte> data)
     {
         _data = data;
 
@@ -49,7 +49,7 @@ internal sealed class Jbig2ArithmeticDecoder
     /// Decodes one bit against the context <paramref name="cx"/> holds, updating
     /// that context's state.
     /// </summary>
-    public int Decode(Jbig2ArithmeticContexts contexts, int cx)
+    public int Decode(MqContexts contexts, int cx)
     {
         ref byte state = ref contexts.State(cx);
         ref byte mps = ref contexts.Mps(cx);
@@ -166,12 +166,12 @@ internal sealed class Jbig2ArithmeticDecoder
 /// sets through one decoder — a generic region's, and one per integer procedure —
 /// and mixing them would decode one procedure's bits against another's statistics.
 /// </remarks>
-internal sealed class Jbig2ArithmeticContexts
+internal sealed class MqContexts
 {
     private readonly byte[] _states;
     private readonly byte[] _mps;
 
-    public Jbig2ArithmeticContexts(int bits)
+    public MqContexts(int bits)
     {
         int size = 1 << bits;
         _states = new byte[size];

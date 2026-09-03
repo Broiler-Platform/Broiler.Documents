@@ -33,9 +33,12 @@ public sealed class JpxStreamFilterTests
         Assert.Contains("5 decomposition levels", result.Message, StringComparison.Ordinal);
         Assert.Contains("9/7 irreversible wavelet", result.Message, StringComparison.Ordinal);
 
-        // The message has to distinguish "cleared but unwritten" from "pending",
-        // because they are fixed by completely different work.
-        Assert.Contains("outstanding work rather than a pending approval", result.Message, StringComparison.Ordinal);
+        // This asserted that no decoder existed until one was written. What the
+        // message must still do is carry the tuple into the refusal, so a caller
+        // learns what they have even when it is not decoded. This fixture declares
+        // 1024x1024 tiles over a much larger image, which the decoder refuses by
+        // name rather than decoding the first tile and calling it the picture.
+        Assert.Contains("multiple tiles", result.Message, StringComparison.Ordinal);
     }
 
     [Fact]
