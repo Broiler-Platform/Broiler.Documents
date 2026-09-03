@@ -44,9 +44,11 @@ internal readonly record struct Jbig2TextRegionResult(
 /// getting one wrong draws a legible page with the symbols in the wrong places.
 /// </para>
 /// <para>
-/// <strong>What is decoded here.</strong> Arithmetic coding, without refinement.
-/// A Huffman-coded text region is refused by name, so is one that refines the
-/// symbols it places, and so is any composition operator other than OR — the one
+/// <strong>What is decoded here.</strong> Arithmetic coding, including the
+/// per-instance refinement that corrects a symbol before it is drawn — the way a
+/// lossy symbol-substitution page is made exact, and the reason two instances of
+/// the same dictionary entry need not be identical. A Huffman-coded text region
+/// is refused by name, and so is any composition operator other than OR, the one
 /// case where drawing the symbols in any order gives the same answer.
 /// </para>
 /// </remarks>
@@ -101,9 +103,6 @@ internal static class Jbig2TextRegion
         if (huffman)
             return Unsupported("a Huffman-coded text region");
 
-        if (refine)
-            return Unsupported("a text region that refines the symbols it places");
-
         if (combination != 0)
         {
             return Unsupported(string.Create(
@@ -118,11 +117,24 @@ internal static class Jbig2TextRegion
             return Malformed("A JBIG2 text region refers to more symbols than this reader will hold.");
 
         int cursor = RegionInfoLength + 2;
+        (int X, int Y)[] refinementAdaptive = [];
 
-        // Read but unreachable while refinement is refused above, and skipped
-        // here so the cursor stays honest if that refusal ever moves.
+        // Refinement template 0 names two adaptive pixels, one in the bitmap being
+        // decoded and one in the reference. Template 1 names none, and a region
+        // that refines nothing states none either way.
         if (refine && refinementTemplate == 0)
+        {
+            if (cursor + 4 > header.Length)
+                return Malformed("A JBIG2 text region declares refinement pixels the segment does not hold.");
+
+            refinementAdaptive =
+            [
+                ((sbyte)header[cursor], (sbyte)header[cursor + 1]),
+                ((sbyte)header[cursor + 2], (sbyte)header[cursor + 3]),
+            ];
+
             cursor += 4;
+        }
 
         if (cursor + 4 > header.Length)
             return Malformed("A JBIG2 text region does not state how many symbol instances it holds.");
@@ -145,6 +157,9 @@ internal static class Jbig2TextRegion
         var deltaS = new Jbig2IntegerDecoder();
         var instanceT = new Jbig2IntegerDecoder();
         var identifiers = new Jbig2SymbolIdDecoder(CodeLength(symbols.Count));
+        Jbig2TextRefinement? refinement = refine
+            ? new Jbig2TextRefinement(refinementTemplate, refinementAdaptive)
+            : null;
 
         int strips = 1 << logStrips;
 
@@ -189,6 +204,13 @@ internal static class Jbig2TextRegion
                     return Malformed("A JBIG2 text region places a symbol its dictionaries do not define.");
 
                 Jbig2Bitmap symbol = symbols[id];
+
+                // A refined instance is a different bitmap from the dictionary's,
+                // and every measurement below — the corner, the advance, the
+                // placement — is taken from the corrected one.
+                if (refinement is not null && !refinement.TryApply(decoder, ref symbol, out string? refusal))
+                    return Malformed(refusal!);
+
                 bool rightCorner = corner >= 2;
                 bool bottomCorner = (corner & 1) == 0;
 
@@ -284,6 +306,90 @@ internal static class Jbig2TextRegion
 
     private static Jbig2TextRegionResult Malformed(string message) =>
         new(Jbig2DecodeOutcome.Malformed, null, 0, 0, 0, message);
+
+    /// <summary>
+    /// The per-instance refinement a text region may apply: the integer
+    /// procedures stating how one instance differs from its dictionary symbol,
+    /// and the contexts the difference is coded against.
+    /// </summary>
+    /// <remarks>
+    /// One instance of this serves the whole region, because the procedures and
+    /// the refinement contexts adapt across instances exactly as everything else
+    /// in the format does. A new one per instance would decode the second
+    /// refinement against statistics gathered from nothing.
+    /// </remarks>
+    private sealed class Jbig2TextRefinement(int template, (int X, int Y)[] adaptive)
+    {
+        private readonly Jbig2IntegerDecoder _flag = new();
+        private readonly Jbig2IntegerDecoder _width = new();
+        private readonly Jbig2IntegerDecoder _height = new();
+        private readonly Jbig2IntegerDecoder _x = new();
+        private readonly Jbig2IntegerDecoder _y = new();
+        private readonly MqContexts _contexts = new(Jbig2RefinementDecoder.RefinementContextBits);
+
+        /// <summary>
+        /// Reads whether this instance is refined and, where it is, replaces the
+        /// symbol with the correction. False means the stream stated something it
+        /// could not hold, and the message says what.
+        /// </summary>
+        public bool TryApply(MqDecoder decoder, ref Jbig2Bitmap symbol, out string? error)
+        {
+            error = null;
+
+            if (_flag.Decode(decoder, out int refined) != Jbig2IntegerOutcome.Value)
+            {
+                error = "A JBIG2 text region states no refinement flag for a symbol instance.";
+                return false;
+            }
+
+            if (refined == 0)
+                return true;
+
+            if (_width.Decode(decoder, out int deltaWidth) != Jbig2IntegerOutcome.Value ||
+                _height.Decode(decoder, out int deltaHeight) != Jbig2IntegerOutcome.Value ||
+                _x.Decode(decoder, out int offsetX) != Jbig2IntegerOutcome.Value ||
+                _y.Decode(decoder, out int offsetY) != Jbig2IntegerOutcome.Value)
+            {
+                error = "A JBIG2 text region states an incomplete refinement for a symbol instance.";
+                return false;
+            }
+
+            int width = symbol.Width + deltaWidth;
+            int height = symbol.Height + deltaHeight;
+
+            if (width is <= 0 or > Jbig2Limits.MaxSymbolExtent ||
+                height is <= 0 or > Jbig2Limits.MaxSymbolExtent)
+            {
+                error = "A JBIG2 text region refines a symbol to a size outside the supported range.";
+                return false;
+            }
+
+            // The reference is anchored half the size change away, so a symbol
+            // that grows by two grows by one on each side unless the offsets say
+            // otherwise. The halving is an arithmetic shift, which is also how a
+            // shrinking symbol rounds.
+            byte[]? pixels = Jbig2RefinementDecoder.Decode(
+                decoder,
+                _contexts,
+                width,
+                height,
+                template,
+                typicalPrediction: false,
+                symbol,
+                (deltaWidth >> 1) + offsetX,
+                (deltaHeight >> 1) + offsetY,
+                adaptive);
+
+            if (pixels is null)
+            {
+                error = "A JBIG2 text region holds a refinement this build could not decode.";
+                return false;
+            }
+
+            symbol = new Jbig2Bitmap(width, height, pixels);
+            return true;
+        }
+    }
 
     private static Jbig2TextRegionResult Unsupported(string construct) =>
         new(Jbig2DecodeOutcome.Unsupported, null, 0, 0, 0, construct);

@@ -291,33 +291,6 @@ public sealed class Jbig2SymbolRegionTests
     }
 
     [Fact]
-    public void A_Text_Region_That_Refines_Its_Symbols_Is_Refused_By_Name()
-    {
-        byte[] dictionary = Jbig2SymbolDictionaryEncoder.Encode([Box], out _);
-
-        // Region information, then flags with the refinement bit set. The decoder
-        // refuses on the flags without reading further, which is why this body
-        // needs nothing after them.
-        var body = new List<byte>();
-        AddUInt32(body, 16);
-        AddUInt32(body, 8);
-        AddUInt32(body, 0);
-        AddUInt32(body, 0);
-        body.Add(0);
-        AddUInt16(body, 0x02);
-
-        byte[] stream = Page(
-            32, 16,
-            Segment(number: 1, type: 0, dictionary),
-            Segment(number: 2, type: 6, [.. body], referred: [1]));
-
-        PdfFilterResult result = Decode(stream);
-
-        Assert.Equal(PdfDiagnosticCodes.FilterJbig2Unsupported, result.DiagnosticCode);
-        Assert.Contains("refines the symbols it places", result.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public void A_Text_Region_With_No_Symbols_Is_Refused_Rather_Than_Drawn_Empty()
     {
         // It refers to no dictionary, so every identifier it codes means nothing.

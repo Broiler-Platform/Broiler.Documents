@@ -74,7 +74,7 @@ still reads; the affected construct is reported rather than guessed at.
 |---|---|---|
 | `DCTDecode` (JPEG) | `pdf.image.dct.tuple-unsupported` or `pdf.image.dct.color-transform-uncertain`. `pdf.image.dct.progressive-unsupported` is retained as API and emitted by nothing here since IP-005 was widened on 2026-09-02 | IP-005 and IP-006 (both **approved**; see §4.1.1) |
 | `JPXDecode` (JPEG 2000) | `pdf.filter.jpx.unsupported`, carrying the codestream's tuple and the construct refused | IP-007 (**approved** for Part 1; a decoder exists for one tile and the LRCP/RPCL progressions, and its EBCOT context tables are **pending** in SRC-018) |
-| `JBIG2Decode` | `pdf.filter.jbig2.unsupported`, carrying the stream's segment inventory where the filter is composed | IP-008 (**approved**; generic regions decode under both coding methods, and symbol dictionaries and text regions arithmetically; the halftone and refinement regions, aggregate coding and every Huffman-coded form do not; the MQ probability table is **pending** in SRC-019) |
+| `JBIG2Decode` | `pdf.filter.jbig2.unsupported`, carrying the stream's segment inventory where the filter is composed | IP-008 (**approved**; generic regions decode under both coding methods, and symbol dictionaries, text regions and refinement arithmetically; the halftone regions, aggregate coding, the intermediate regions and every Huffman-coded form do not; the MQ probability table is **pending** in SRC-019) |
 | Any other named filter | `pdf.filter.not-composed` | — |
 | Embedded font programs | `pdf.font.program-not-composed`. A composed reader handles sfnt through its character map and bare CFF through its charset; Type 1 and CID-keyed CFF stay unread | IP-012 (**approved** for inspection; see §4.4). The CFF standard-strings table is pending in SRC-016 |
 | Type 3 fonts — the glyph procedures only | `pdf.font.type3-unsupported`. The font's own encoding, `ToUnicode`, and `/FontMatrix` advances are read; only the procedures that draw the glyphs go unexecuted | — |
@@ -192,11 +192,20 @@ scanned page actually has. Generic regions decode under MMR by reusing the T.6
 decoder that arrived with `CcittFaxStreamFilter`, which is what a cleared row
 next to another cleared row buys you, and under the arithmetic coder since
 2026-09-03; the symbol dictionaries and text regions that carry the text of a
-scanned page decode since the same day. It still refuses any page whose segments
-are not all supported, rather than compositing the parts that decoded. Half a
-page is not a worse picture but a misleading one: what a halftone region would
-have drawn is exactly the content a reader would assume was absent from the
-original.
+scanned page decode since the same day, and so does the refinement that corrects
+them — a region over the page, an instance before it is drawn, or a dictionary
+symbol defined as a correction of another. It still refuses any page whose
+segments are not all supported, rather than compositing the parts that decoded.
+Half a page is not a worse picture but a misleading one: what a halftone region
+would have drawn is exactly the content a reader would assume was absent from
+the original.
+
+Refinement is also why the filter composites in stream order rather than
+collecting regions and drawing them at the end. A refinement region's reference
+is the page beneath it, so the page has to exist, and to hold everything earlier
+in the stream, before the segment correcting it is read. That in turn is why the
+combination operators are now distinguished: OR can only add black, and a
+correction that clears a pixel has no way to say so without REPLACE.
 
 Reading a header earns its place even where nothing decodes, for a reason
 peculiar to JPEG 2000. A `JPXDecode` image may legally omit `/ColorSpace` and

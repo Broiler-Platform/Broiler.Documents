@@ -67,8 +67,9 @@ Explicitly exclude from V1:
   JPX/JBIG2/CCITT support in the base build — their rows have all cleared, but
   they arrive only as composed extensions, JPX decodes one tile of a Part 1
   codestream and has never decoded a real image, and JBIG2 decodes its generic,
-  symbol and text regions arithmetically but neither their Huffman-coded forms
-  nor a real file — four-component CMYK/YCCK JPEG conversion, and
+  symbol, text and refinement regions arithmetically but neither their
+  Huffman-coded forms nor a real file — four-component CMYK/YCCK JPEG conversion,
+  and
   arithmetic-coded, lossless, hierarchical, JPEG-LS, or JPEG XR decoding;
 - PDF-writer use or extension of the existing managed JPEG encoder; and
 - HTML/CSS print-to-PDF.
@@ -246,9 +247,13 @@ is authoritative for that boundary.
   every JBIG2 image in a scanned document is actually made of decode in their
   arithmetic form since the same day — height classes and export flags, the
   strips and reference corners a text region places by, and the integer and
-  symbol-identifier procedures all of it runs on. The halftone and refinement
-  regions, aggregate symbol coding, and the Huffman-coded form of every one of
-  them stay refused by name. **The MQ probability table all of that drives is
+  symbol-identifier procedures all of it runs on. Refinement followed on the same
+  day, in all three places T.88 allows one — a region correcting the page under
+  it, a text region correcting an instance before drawing it, and a dictionary
+  defining a symbol as a correction of one it holds — which is how a page coded by
+  symbol substitution is made exact rather than merely plausible. The halftone
+  regions, aggregate symbol coding, the intermediate regions that need auxiliary
+  buffers, and the Huffman-coded form of every one of them stay refused by name. **The MQ probability table all of that drives is
   transcribed and SRC-019 carries it as pending**: the work was taken ahead of
   the decision on an explicit instruction, and no JBIG2-derived capability may be
   claimed as supported until the row closes — nor before a real scanned page has
