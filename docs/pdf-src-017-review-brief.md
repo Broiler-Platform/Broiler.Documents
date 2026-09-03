@@ -10,9 +10,13 @@ published evidence does not say, and reading the Recommendation does not answer
 it. **This is the row on which taking counsel would be worth its cost**, and the
 brief exists so that either a lawyer or a well-informed decision has something to
 work from.
-**Prepared:** 2026-09-02
+**Prepared:** 2026-09-02. **Updated:** 2026-09-03, when a second transcribed
+table entered the repository and, with it, a second rights-holder — see §4, and
+§5b for that rights-holder's terms.
 **Decides:** [SRC-017](pdf-approved-sources.md), and by reference SRC-018 and
-SRC-019.
+SRC-019. **SRC-016 is adjacent rather than covered**, for the reason §4 sets
+out: it asks the same shape of question about a different publisher's document,
+and one decision does not answer both.
 
 This brief exists because SRC-017 is the last genuinely open provenance question
 in the PDF work, and because it is the only one an engineer cannot narrow further
@@ -70,7 +74,7 @@ publication of these particular assignments that is not itself derived from T.4.
 
 ## 4. What turns on the answer
 
-More than fax. Two other rows defer to this one:
+More than fax. Two rows defer to this one outright:
 
 - **SRC-018** (JPEG 2000): "should an entropy decoder ever be written, its
   MQ-coder state table and context assignments are normative constants with no
@@ -78,13 +82,50 @@ More than fax. Two other rows defer to this one:
 - **SRC-019** (JBIG2): the arithmetic decoder's state and context tables, on the
   same reasoning.
 
-So a decision here governs whether the two unfinished codecs can be finished at
-all. IP-007 and IP-008 are both approved; the engineering is scoped; and this
-question sits in front of both regardless of how much of that engineering gets
-done first. That makes SRC-017 the highest-leverage open item in the PDF work,
-not merely the last one.
+Both are ITU-T Recommendations, so the evidence in §5a reaches them and one
+decision can properly govern all three. A decision here therefore governs whether
+the two unfinished codecs can be finished at all. IP-007 and IP-008 are both
+approved; the engineering is scoped; and this question sits in front of both
+regardless of how much of that engineering gets done first.
 
 It also gates publication of the fax path that already exists and works.
+
+### 4a. What changed on 2026-09-03, and why it does not simply add a row
+
+A second transcribed table entered the repository: the **391 CFF standard
+strings**, in `CffStandardStrings`, under **SRC-016**. It is the same shape of
+problem — an ordered normative list with no authored alternative, where an
+implementation either reproduces it or resolves nothing — and the register
+initially recorded it as pending "on the same question as SRC-017."
+
+**That wording was too quick, and this brief corrects it.** The question's shape
+is shared; its governing terms are not. SRC-017 is about ITU-T Recommendations,
+and every fact in §5a is an ITU fact: ITU's reproduction notice, ITU's exception
+list, ITU's permissions address. The CFF standard strings come from Adobe's CFF
+specification and ISO/IEC 14496-22 — **a different publisher, different terms,
+and a different route to permission**. None of the §5a evidence has been checked
+against them, and this brief does not assume it transfers.
+
+So the reviewer faces a choice about scope before facing the question itself:
+
+- **Decide SRC-017 alone**, on the ITU evidence gathered, and leave SRC-016 open
+  for its own evidence-gathering and its own decision. This brief supports that
+  today.
+- **Decide a general policy** on reproducing normative tables from any
+  specification, which would cover both — but would be decided on evidence
+  gathered for one publisher and applied to another, which is the weaker basis
+  and this brief flags it as such.
+
+The first is the more defensible and the slower. Nothing forces the choice now:
+`CffStandardStrings` is unpublished on the same footing as the fax tables, and
+the feature matrix already refuses any CFF-derived support claim while the row is
+open. **§5b now gathers the SRC-016 evidence** to the same standard §5a set for
+ITU, so deciding the two separately no longer means deciding one of them blind.
+
+**What is genuinely shared** is the precedent. Whatever is decided here will be
+the reasoning anyone reaches for next time a table cannot be authored from an
+underlying fact — and on current evidence that is now happening about once a
+month.
 
 ## 5. Facts the reviewer may want, stated without conclusions
 
@@ -106,8 +147,9 @@ and the brief deliberately stops short of joining them together.
   rather than as a defence.
 - **No code, table, constant or test vector was taken from any of those
   implementations.** The transcription is from the Recommendation itself. This
-  matters because it separates the question from any third party's licence: the
-  only rights-holder in view is the ITU.
+  matters because it separates the question from any third party's licence: for
+  SRC-017 the only rights-holder in view is the ITU. (For SRC-016 it is not —
+  see §4a.)
 - **Nothing has been published.** The package is `IsPackable=false`, the fax
   filter is not composed by default, and no capability claim exists. A decision
   taken now is taken before distribution rather than after it.
@@ -174,6 +216,125 @@ entropy decoding stay out of scope.
 evidence record, in the same way the register's other rows were prepared. It is
 fact-gathering by an engineer, not advice, and the decision remains open.
 
+## 5b. Evidence gathered for SRC-016, 2026-09-03
+
+§4a said the CFF standard strings needed their own evidence because they are not
+the ITU's. That legwork is now done, in the same way and to the same standard.
+**Nothing below is a conclusion**; it is what the rights-holders publish about
+their own material.
+
+### The document's own notice
+
+Read directly from the specification, not from a summary of it. Adobe Technical
+Note #5176, *The Compact Font Format Specification*, version 1.0, 4 December
+2003, page ii:
+
+> Copyright © 1996–1998, 2000, 2003 by Adobe Systems Incorporated. All rights
+> reserved.
+>
+> No part of this publication may be reproduced, stored in a retrieval system, or
+> transmitted, in any form or by any means, electronic, mechanical, photocopying,
+> recording, or otherwise, without the prior written consent of the publisher.
+
+That is **materially the same prohibition ITU states**, and it was worth checking
+rather than assuming: the expectation going in was that Adobe's font
+specifications would be more permissive than a treaty organisation's, and on the
+face of the document they are not.
+
+### The same document, redistributed by Adobe under a licence
+
+Adobe also publishes this specification in its own
+[`adobe-type-tools/font-tech-notes`](https://github.com/adobe-type-tools/font-tech-notes)
+repository, which states its licence as **CC BY-ND 4.0**, and lists
+`pdfs/5176.CFF.pdf` among the notes it covers.
+
+This is the fact that makes SRC-016 a different question from SRC-017 rather than
+a copy of it. **ITU grants no licence over its Recommendations; Adobe grants one
+over this document.** The [deed](https://creativecommons.org/licenses/by-nd/4.0/)
+reads:
+
+> **Share** — copy and redistribute the material in any medium or format for any
+> purpose, even commercially.
+>
+> **Attribution** — You must give appropriate credit, provide a link to the
+> license, and indicate if changes were made.
+>
+> **NoDerivatives** — If you remix, transform, or build upon the material, you
+> may not distribute the modified material.
+
+Two things follow that a reviewer will want in front of them. A licence exists,
+so the question is no longer only "may we ask?" but "does the grant already
+reach this?". And the grant's limit — NoDerivatives — falls exactly where the
+use falls: an ordered list transcribed into source-code constants is either the
+material being *shared*, or the material *transformed*, and the deed does not
+say which. It also says nothing about whether the grant applies to a portion of
+a document rather than the whole.
+
+### The ISO route
+
+The Open Font Format, [ISO/IEC 14496-22](https://www.iso.org/standard/66391.html),
+incorporates CFF, and current editions are downloadable from ISO at no charge.
+ISO's standards carry the notice
+[reproduced on its own published documents](https://www.iec.ch/copyright): a
+"COPYRIGHT PROTECTED DOCUMENT" statement that no part may be reproduced without
+prior written permission, obtainable from ISO or from a member body in the
+requester's country.
+
+Obtainability is not a reproduction right — the same distinction §5 already draws
+for ITU, and it holds here for the same reason.
+
+### There is no third source with easier terms
+
+Worth stating because it closes an obvious line of enquiry. **SRC-006, the
+Microsoft OpenType specification, is already approved for inspection use in this
+repository — and it does not carry the table.** Its
+['CFF ' chapter](https://learn.microsoft.com/en-us/typography/opentype/spec/cff)
+refers the reader to Adobe's Technical Note #5176 for the INDEX, DICT and FontSet
+structures rather than restating them, and lists no standard strings.
+
+So the table has one origin, published under the two sets of terms above, and no
+route to it through a source this repository has already cleared.
+
+### What this evidence does not settle
+
+The same limits §5a records, plus one specific to the licence:
+
+- Whether transcribing a normative table into executable constants is
+  *reproducing the publication* at all, or is implementing a specification.
+- Whether an ordered list of glyph names is protected expression or an
+  unprotectable fact or method, and whether merger applies where there is exactly
+  one way to express it and still interoperate.
+- **Whether extracting one appendix from a CC BY-ND document, and rendering it as
+  source code, is "sharing the material" or producing "Adapted Material".** The
+  deed's own summary does not resolve it, and the licence's definition of Adapted
+  Material — material "translated, altered, arranged, transformed, or otherwise
+  modified" — is the text a reviewer would have to weigh.
+- How any of it varies by jurisdiction.
+
+### What it changes about the dispositions
+
+**It puts a different first question than SRC-017 has.** For ITU the evidence
+pointed at asking, because there was no grant to examine. Here there is one, from
+the rights-holder, over this exact document — so the first move is to establish
+whether CC BY-ND 4.0 already covers the use, and only then to consider asking.
+
+**It surfaces a concrete obligation if the answer is yes.** BY-ND requires
+attribution and a link to the licence, and requires that changes be indicated.
+Relying on the grant therefore attaches a notice obligation to the release
+artifact, in the way IP-013's Unicode notice does — something to record and
+fulfil, not merely to conclude.
+
+**It does not make refusal cheaper here than there.** If the table cannot be
+reproduced, `CffGlyphNames` resolves no standard name, which is most of what a
+bare CFF names; the composed reader returns to reporting the program as
+uninspected. As with the fax path, the engineering around it survives and the
+capability does not.
+
+**Who gathered this.** Assembled on 2026-09-03 from the specification itself and
+from public Adobe, Creative Commons, ISO and Microsoft sources, as an evidence
+record in the same way §5a was prepared. It is fact-gathering by an engineer, not
+advice, and the decision remains open.
+
 ## 6. Dispositions available, and what each costs
 
 Set out neutrally. The reviewer may reach a different one.
@@ -220,3 +381,8 @@ To close the row, per the register's own decision fields: the exact editions
 consulted, the applicable terms and where they were read, the disposition, any
 attribution or notice obligation and where it must appear, whether SRC-018 and
 SRC-019 are covered or left open, the reviewer, the date, and the review date.
+
+Since 2026-09-03 it should also record **whether SRC-016 is covered, and on what
+basis** — because the honest answer may be "not covered, decide separately," and
+a decision that is silent on it will be read as covering it. §4a sets out why
+that reading would be wrong.
