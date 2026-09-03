@@ -69,8 +69,10 @@ progressive) and CCITT fax
 (`Broiler.Documents.Pdf.Images`) and embedded font-program inspection
 (`Broiler.Documents.Pdf.Fonts`). Two more are cleared and written but unproven:
 JPEG 2000 decodes one tile of a Part 1 codestream and has never decoded a real
-image, and JBIG2 decodes generic regions under both coding methods and reports
-the symbol, text, halftone and refinement ones. In both cases what remains is
+image, and JBIG2 decodes generic regions under both coding methods and the
+symbol dictionaries and text regions a scanned page is made of, reporting the
+halftone and refinement ones and every Huffman-coded form. In both cases what
+remains is
 engineering and evidence, not an approval. Raw image samples reach the model
 within the approved DeviceGray, DeviceRGB and Indexed subset; everything outside
 it — masks, the other colour spaces, encryption — is detected and skipped with

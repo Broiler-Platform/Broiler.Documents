@@ -19,8 +19,6 @@ namespace Broiler.Documents.Pdf.Images.Tests;
 /// </remarks>
 internal sealed class MqEncoder
 {
-    private readonly byte[] _states;
-    private readonly byte[] _mps;
     private readonly List<byte> _output = [];
 
     private uint _a = 0x8000;
@@ -28,18 +26,21 @@ internal sealed class MqEncoder
     private int _ct = 12;
     private int _b = -1;
 
-    public MqEncoder(int contextBits)
+    /// <summary>
+    /// Codes one bit against the caller's contexts, which is the decoder's shape
+    /// and for the decoder's reason: a symbol dictionary runs a generic-region
+    /// procedure and several integer procedures through one coder, and each keeps
+    /// its own statistics. An encoder that owned one set could not encode one.
+    /// </summary>
+    public void Encode(MqContexts contexts, int cx, int d)
     {
-        int size = 1 << contextBits;
-        _states = new byte[size];
-        _mps = new byte[size];
-    }
+        ArgumentNullException.ThrowIfNull(contexts);
 
-    public void Encode(int cx, int d)
-    {
-        (ushort qe, byte nmps, byte nlps, byte exchange) = MqProbe.State(_states[cx]);
+        ref byte state = ref contexts.State(cx);
+        ref byte mps = ref contexts.Mps(cx);
+        (ushort qe, byte nmps, byte nlps, byte exchange) = MqProbe.State(state);
 
-        if (d == _mps[cx])
+        if (d == mps)
         {
             // CODEMPS.
             _a -= qe;
@@ -50,7 +51,7 @@ internal sealed class MqEncoder
                 else
                     _c += qe;
 
-                _states[cx] = nmps;
+                state = nmps;
                 Renormalize();
                 return;
             }
@@ -67,9 +68,9 @@ internal sealed class MqEncoder
             _a = qe;
 
         if (exchange == 1)
-            _mps[cx] = (byte)(1 - _mps[cx]);
+            mps = (byte)(1 - mps);
 
-        _states[cx] = nlps;
+        state = nlps;
         Renormalize();
     }
 

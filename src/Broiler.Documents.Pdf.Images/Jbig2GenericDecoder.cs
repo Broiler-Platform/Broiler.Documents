@@ -34,6 +34,9 @@ namespace Broiler.Documents.Pdf.Images;
 /// </remarks>
 internal static class Jbig2GenericDecoder
 {
+    /// <summary>The context width every generic template packs into.</summary>
+    internal const int GenericContextBits = 16;
+
     /// <summary>
     /// The fixed pixels of each template, in the raster order the context packs
     /// them: most significant bit first, top row to bottom, left to right within
@@ -99,14 +102,40 @@ internal static class Jbig2GenericDecoder
         int height,
         int template,
         bool typicalPrediction,
+        ReadOnlySpan<(int X, int Y)> adaptive) =>
+        template is < 0 or > 3 || width <= 0 || height <= 0
+            ? null
+            : Decode(new MqDecoder(data), new MqContexts(GenericContextBits), width, height, template, typicalPrediction, adaptive);
+
+    /// <summary>
+    /// Decodes a region against an arithmetic decoder and contexts the caller
+    /// owns, rather than ones opened for this region alone.
+    /// </summary>
+    /// <remarks>
+    /// A symbol dictionary codes every symbol it defines through one decoder and
+    /// one set of generic contexts, back to back. That sharing is the format's
+    /// economy rather than an implementation detail: the statistics gathered on
+    /// the first symbol are what make the second one cheap, and a decoder started
+    /// fresh per symbol would read the second as noise. The bits of one symbol
+    /// also run straight into the next with no alignment between them, so there
+    /// is no position at which a second decoder could be started.
+    /// </remarks>
+    public static byte[]? Decode(
+        MqDecoder decoder,
+        MqContexts contexts,
+        int width,
+        int height,
+        int template,
+        bool typicalPrediction,
         ReadOnlySpan<(int X, int Y)> adaptive)
     {
+        ArgumentNullException.ThrowIfNull(decoder);
+        ArgumentNullException.ThrowIfNull(contexts);
+
         if (template is < 0 or > 3 || width <= 0 || height <= 0)
             return null;
 
         (int X, int Y)[] pixels = Resolve(template, adaptive);
-        var decoder = new MqDecoder(data);
-        var contexts = new MqContexts(16);
         var bitmap = new byte[(long)width * height <= int.MaxValue ? width * height : 0];
         if (bitmap.Length == 0)
             return null;
