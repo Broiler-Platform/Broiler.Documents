@@ -183,6 +183,16 @@ public static class PdfDiagnosticCodes
     /// <summary>Vector artwork or a shading was found that the logical model cannot represent.</summary>
     public const string VectorArtworkDropped = "pdf.import.vector-artwork-dropped";
 
+    /// <summary>
+    /// Content belonging to an optional-content group the document's own default
+    /// configuration turns off was met. Distinct from
+    /// <see cref="TextVisibilityUncertain"/>, which is a rendering question this
+    /// release will not answer: this is a declaration the catalog makes about
+    /// which layers form the default presentation, and the message says whether
+    /// the content was omitted or kept.
+    /// </summary>
+    public const string OptionalContentOmitted = "pdf.import.optional-content-omitted";
+
     // ---- limits and lifecycle -------------------------------------------------
 
     /// <summary>A PDF-specific limit was reached; the result is rejected rather than truncated.</summary>

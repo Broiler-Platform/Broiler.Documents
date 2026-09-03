@@ -117,7 +117,17 @@ internal static class PdfReader
 
         PdfUriPolicy policy = options.UriPolicy ?? services.UriPolicy;
         var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
-        var interpreter = new PdfContentInterpreter(store, resources);
+
+        // The document's own default configuration decides which layers are part
+        // of its presentation. A caller who wants every layer regardless says so,
+        // and then nothing is treated as off.
+        PdfOptionalContent optionalContent =
+            PdfOptionalContent.Read(store, catalog, enforced: !options.IncludeHiddenOptionalContent);
+
+        store.Features.NoteOptionalContentConfiguration(
+            optionalContent.GroupCount, optionalContent.OffGroupCount);
+
+        var interpreter = new PdfContentInterpreter(store, resources, optionalContent);
         var paragraphs = new List<RichTextParagraph>();
         int emptyPages = 0;
 
@@ -141,7 +151,7 @@ internal static class PdfReader
                 continue;
             }
 
-            List<PdfLinkRegion> links = PdfAnnotationReader.Read(store, page, policy);
+            List<PdfLinkRegion> links = PdfAnnotationReader.Read(store, page, policy, optionalContent);
             List<PdfTextLine> lines = PdfReadingOrder.BuildLines(fragments, links);
 
             bool pageBreak = options.MapPageBreaks && i < pages.Count - 1;

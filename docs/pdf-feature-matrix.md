@@ -140,7 +140,7 @@ is pending.
 | Form XObjects | Candidate | Implemented under bounded recursion and a visited set | Recursion/resource limits |
 | Transparency groups and blend modes | Candidate | Not interpreted | Neutral graphics compositing ownership |
 | Patterns and shadings | Candidate | Not interpreted; reported as dropped artwork | Shared graphics capability; bounded evaluation |
-| Optional content groups | Candidate | Not interpreted; content is extracted without a visibility claim | Logical visibility policy required |
+| Optional content groups | Candidate | The catalog's default configuration `/D` is read and honoured: content in a group it turns off is omitted and reported with `pdf.import.optional-content-omitted`. `/BaseState`, `/ON`, `/OFF`, and OCMD membership under `/P` are applied; visibility expressions `/VE`, alternate `/Configs`, and usage applications `/AS` are not, and content they govern is kept. `IncludeHiddenOptionalContent` takes every layer and still reports the configuration | Reading a declared configuration, not judging visibility; expression and usage-application evaluation outstanding |
 | DeviceN / Separation color | Post-V1 | Not interpreted | Color-management and conformance review |
 
 ## Semantics, metadata, and active content

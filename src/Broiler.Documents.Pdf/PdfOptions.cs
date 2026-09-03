@@ -25,13 +25,15 @@ public sealed class PdfReadOptions : DocumentReadOptions
         bool mapPageBreaks = false,
         bool includeInvisibleText = true,
         PdfUriPolicy? uriPolicy = null,
-        DocumentResourcePolicy? resourcePolicy = null)
+        DocumentResourcePolicy? resourcePolicy = null,
+        bool includeHiddenOptionalContent = false)
         : base(limits, resourcePolicy: resourcePolicy)
     {
         PdfLimits = pdfLimits ?? PdfLimits.Default;
         MapPageBreaks = mapPageBreaks;
         IncludeInvisibleText = includeInvisibleText;
         UriPolicy = uriPolicy;
+        IncludeHiddenOptionalContent = includeHiddenOptionalContent;
     }
 
     /// <summary>The PDF-specific budgets, composed with the shared limits.</summary>
@@ -57,6 +59,29 @@ public sealed class PdfReadOptions : DocumentReadOptions
     /// policy from <see cref="PdfCodecServices"/>.
     /// </summary>
     public PdfUriPolicy? UriPolicy { get; }
+
+    /// <summary>
+    /// When true, content is extracted from every optional-content group
+    /// regardless of what the document's default configuration says about it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Off by default, which is the opposite of
+    /// <see cref="IncludeInvisibleText"/> and for a reason worth stating. That
+    /// option governs rendering mode 3, where deciding whether a reader sees the
+    /// glyphs needs a renderer and a claim this release will not make. This one
+    /// governs a declaration the catalog makes about itself: which layers are the
+    /// default presentation. Honouring it is reading the format rather than
+    /// judging the output, and ignoring it puts a document's alternate-language
+    /// layer, its CAD underlay, and its draft stamp into one run of text.
+    /// </para>
+    /// <para>
+    /// Setting it true is not a claim that the extra content is displayed. It
+    /// says the caller wants everything the file carries, and the diagnostic
+    /// still reports which layers the configuration had turned off.
+    /// </para>
+    /// </remarks>
+    public bool IncludeHiddenOptionalContent { get; }
 }
 
 /// <summary>Options for writing a PDF.</summary>

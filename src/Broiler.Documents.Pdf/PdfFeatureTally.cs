@@ -170,6 +170,52 @@ internal sealed class PdfFeatureTally
     private string? _deniedReason;
     private readonly List<PdfFontProgram> _fontPrograms = [];
     private int _fontProgramOverflow;
+    private readonly PageSet _hiddenLayerPages = new();
+    private int _hiddenLayers;
+    private int _undecidableLayers;
+    private int _keptLayers;
+    private int _optionalContentGroups;
+    private int _optionalContentOff;
+
+    /// <summary>
+    /// Records one run of content the default optional-content configuration
+    /// puts outside the presentation.
+    /// </summary>
+    public void NoteOptionalContentHidden(int? page)
+    {
+        _hiddenLayers++;
+        _hiddenLayerPages.Add(page);
+    }
+
+    /// <summary>
+    /// Records one membership dictionary whose visibility expression this build
+    /// does not evaluate, and whose content was therefore kept.
+    /// </summary>
+    public void NoteOptionalContentUndecidable(int? page)
+    {
+        _undecidableLayers++;
+        _hiddenLayerPages.Add(page);
+    }
+
+    /// <summary>
+    /// Records one run of content the default configuration turns off that was
+    /// extracted anyway, because the caller asked for every layer.
+    /// </summary>
+    public void NoteOptionalContentKept(int? page)
+    {
+        _keptLayers++;
+        _hiddenLayerPages.Add(page);
+    }
+
+    /// <summary>
+    /// Records what the catalog declared, so the report can say how much of the
+    /// document is layered even where nothing was omitted.
+    /// </summary>
+    public void NoteOptionalContentConfiguration(int groups, int off)
+    {
+        _optionalContentGroups = groups;
+        _optionalContentOff = off;
+    }
 
     /// <summary>Records one dropped path-painting operation.</summary>
     public void NoteArtwork(PdfArtworkKind kind, int? page)
@@ -265,10 +311,59 @@ internal sealed class PdfFeatureTally
     {
         ArgumentNullException.ThrowIfNull(diagnostics);
 
+        ReportOptionalContent(diagnostics);
         ReportArtwork(diagnostics);
         ReportImages(diagnostics);
         ReportDecodedImages(diagnostics);
         ReportFontPrograms(diagnostics);
+    }
+
+    /// <summary>
+    /// Reports what the document's layers did to the extraction. Silent where a
+    /// document declares none, and silent where it declares them and its default
+    /// configuration shows them all: a layered document that hid nothing is not
+    /// news, and the extraction is exactly what it would have been.
+    /// </summary>
+    private void ReportOptionalContent(PdfDiagnosticSink diagnostics)
+    {
+        if (_hiddenLayers == 0 && _undecidableLayers == 0 && _keptLayers == 0)
+            return;
+
+        var text = new StringBuilder(
+            "The document declares optional content, and its own default configuration ");
+
+        text.Append(CultureInfo.InvariantCulture,
+            $"turns {_optionalContentOff} of {_optionalContentGroups} group{S(_optionalContentGroups)} off. ");
+
+        if (_hiddenLayers > 0)
+        {
+            text.Append(CultureInfo.InvariantCulture,
+                $"{_hiddenLayers} run{S(_hiddenLayers)} of content {Were(_hiddenLayers)} omitted for belonging to one. ");
+            text.Append(
+                "That is the catalog's statement about which layers make up the default presentation, not a judgement " +
+                "about what a reader displays. ");
+        }
+
+        if (_keptLayers > 0)
+        {
+            text.Append(CultureInfo.InvariantCulture,
+                $"{_keptLayers} run{S(_keptLayers)} of content belonging to one {Were(_keptLayers)} extracted anyway, ");
+            text.Append(
+                "because this read asked for every layer. That is not a claim the content is displayed: it is what " +
+                "the file carries, with the document's own configuration reported beside it. ");
+        }
+
+        if (_undecidableLayers > 0)
+        {
+            text.Append(CultureInfo.InvariantCulture,
+                $"{_undecidableLayers} further run{S(_undecidableLayers)} named a visibility expression, ");
+            text.Append("which this release does not evaluate; that content was kept rather than guessed at. ");
+        }
+
+        text.Append("Alternate configurations and usage applications are not applied.");
+        _hiddenLayerPages.Append(text);
+
+        diagnostics.Skipped(PdfDiagnosticCodes.OptionalContentOmitted, text.ToString());
     }
 
     private void ReportArtwork(PdfDiagnosticSink diagnostics)

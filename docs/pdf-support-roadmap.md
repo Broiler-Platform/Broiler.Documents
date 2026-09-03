@@ -166,6 +166,17 @@ is authoritative for that boundary.
   structural metadata, deterministic geometric grouping into columns, lines and
   paragraphs, list-marker recognition, and link annotations admitted by the
   shared URI policy.
+- Phase 4 for optional content: the catalog's default configuration `/D` is read
+  and honoured, so content in a group it turns off is omitted rather than
+  extracted as though the document had shown every layer at once. `/BaseState`,
+  `/ON`, `/OFF`, and membership dictionaries under `/P` are applied; marked
+  content, XObjects, and annotations each carry their own membership and each is
+  checked. Visibility expressions `/VE`, alternate configurations `/Configs`, and
+  usage applications `/AS` are not evaluated, and content they govern is kept and
+  reported rather than guessed at. This is reading a declaration the catalog
+  makes about itself, not the visibility claim §1.2 refuses — rendering mode 3
+  still extracts and still reports uncertainty. `IncludeHiddenOptionalContent`
+  takes every layer and still reports the configuration.
 - Phase 4 for images, within §9.3's approved raw-sample subset: an image whose
   filter chain this build can run is decoded, and its samples are normalized to
   RGBA and admitted through the caller's resource policy when the dictionary

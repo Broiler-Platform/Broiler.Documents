@@ -72,6 +72,32 @@ internal sealed class PdfContentInterpreter
     private PdfMatrix _lineMatrix = PdfMatrix.Identity;
     private string? _pendingActualText;
 
+    /// <summary>The value of <see cref="_hiddenDepth"/> when nothing is hidden.</summary>
+    private const int NotHidden = -1;
+
+    private readonly PdfOptionalContent _optionalContent;
+
+    /// <summary>
+    /// How many marked-content sequences are open. Counted for both `BMC` and
+    /// `BDC`, because the matching `EMC` does not say which it closes and a
+    /// layer has to end at its own.
+    /// </summary>
+    private int _markedContentDepth;
+
+    /// <summary>
+    /// The marked-content level at which the current layer began hiding, or
+    /// <see cref="NotHidden"/>. Nested layers inside a hidden one do not move it:
+    /// the outermost decision stands until its own `EMC`.
+    /// </summary>
+    private int _hiddenDepth = NotHidden;
+
+    /// <summary>
+    /// Whether content is being drawn outside the default presentation. State
+    /// operators still run while this holds — a layer's `cm`, `Tf`, and `q`/`Q`
+    /// affect what follows it — and only content is withheld.
+    /// </summary>
+    private bool Hidden => _hiddenDepth != NotHidden;
+
     // Path construction state. The geometry is never rendered — it is tracked
     // only so that a paint operator can say what shape it dropped.
     private double _pathMinX;
@@ -95,10 +121,14 @@ internal sealed class PdfContentInterpreter
     private double _runSpaceWidth;
     private bool _runOpen;
 
-    public PdfContentInterpreter(PdfObjectStore store, DocumentConversionContextBuilder? resources = null)
+    public PdfContentInterpreter(
+        PdfObjectStore store,
+        DocumentConversionContextBuilder? resources = null,
+        PdfOptionalContent? optionalContent = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _resources = resources;
+        _optionalContent = optionalContent ?? PdfOptionalContent.None;
     }
 
     /// <summary>
@@ -117,6 +147,11 @@ internal sealed class PdfContentInterpreter
         _state = GraphicsState.Initial;
         _stack.Clear();
         ResetPath();
+
+        // A page's marked content cannot span pages, so an unbalanced BDC on one
+        // must not leave the next hidden.
+        _markedContentDepth = 0;
+        _hiddenDepth = NotHidden;
 
         byte[]? content = ReadPageContent(page);
         if (content is null || content.Length == 0)
@@ -294,9 +329,17 @@ internal sealed class PdfContentInterpreter
                     ShowArray(operands);
                     break;
 
-                // Marked content: ActualText replaces whatever the glyphs say.
+                // Marked content: ActualText replaces whatever the glyphs say,
+                // and an /OC tag can put everything up to the matching EMC
+                // outside the document's default presentation.
                 case "BDC":
                     BeginMarkedContent(operands, resources);
+                    break;
+                case "BMC":
+                    // Nothing is tagged here, but the level still counts: a plain
+                    // sequence inside a hidden one would otherwise close it at its
+                    // own EMC and let the rest of the layer back into the text.
+                    _markedContentDepth++;
                     break;
                 case "EMC":
                     // Flush first: the run inside the marked-content sequence is
@@ -304,6 +347,7 @@ internal sealed class PdfContentInterpreter
                     // would emit the glyphs the tag was there to override.
                     FlushRun();
                     _pendingActualText = null;
+                    EndMarkedContent();
                     break;
 
                 // External objects.
@@ -340,12 +384,17 @@ internal sealed class PdfContentInterpreter
                 // Path painting. Vector artwork has no logical representation, so
                 // it is classified, counted, and dropped rather than approximated.
                 case "S" or "s" or "f" or "F" or "f*" or "B" or "B*" or "b" or "b*":
-                    NoteVectorArtwork(ClassifyPath());
+                    // Artwork in a layer outside the presentation is not artwork
+                    // this document dropped: reporting it would inflate the count
+                    // with shapes the default configuration never showed.
+                    if (!Hidden)
+                        NoteVectorArtwork(ClassifyPath());
                     ResetPath();
                     break;
                 case "sh":
                     // A shading paints without a path of its own.
-                    NoteVectorArtwork(PdfArtworkKind.Shading);
+                    if (!Hidden)
+                        NoteVectorArtwork(PdfArtworkKind.Shading);
                     break;
                 case "n":
                     // A path used only to clip paints nothing, so it drops nothing.
@@ -529,6 +578,13 @@ internal sealed class PdfContentInterpreter
         if (text.Length == 0)
             return;
 
+        // The single point where text becomes a fragment, and so the single place
+        // a hidden layer has to be withheld. Positioning is tracked in the text
+        // matrices rather than here, so dropping the run costs nothing that the
+        // visible content after the layer depends on.
+        if (Hidden)
+            return;
+
         _fragments.Add(new PdfTextFragment(
             text,
             _runStartX,
@@ -558,17 +614,28 @@ internal sealed class PdfContentInterpreter
     private void BeginMarkedContent(List<PdfObject> operands, PdfDictionary? resources)
     {
         // BDC carries a tag and either an inline dictionary or a name into
-        // /Properties. ActualText on it replaces the glyphs it encloses.
-        PdfObject? properties = operands.Count >= 1 ? operands[^1] : null;
-        PdfDictionary? dictionary = properties as PdfDictionary;
+        // /Properties. ActualText on it replaces the glyphs it encloses; an /OC
+        // tag names the layer they belong to.
+        _markedContentDepth++;
 
-        if (dictionary is null && properties is PdfName name && resources is not null &&
+        PdfObject? properties = operands.Count >= 1 ? operands[^1] : null;
+        string tag = operands.Count >= 2 && operands[^2] is PdfName tagName ? tagName.Value : string.Empty;
+
+        // The property entry is resolved through /Properties as it stands rather
+        // than as a resolved dictionary, because an optional-content group is
+        // identified by the object it resolves to and the lookup must not lose
+        // the reference on the way.
+        PdfObject? entry = properties;
+        if (properties is PdfName name && resources is not null &&
             _store.Resolve(resources["Properties"]) is PdfDictionary table)
         {
-            dictionary = _store.Resolve(table[name.Value]) as PdfDictionary;
+            entry = table[name.Value];
         }
 
-        if (dictionary is null)
+        if (tag == "OC" && !Hidden)
+            BeginOptionalContent(entry);
+
+        if (_store.Resolve(entry) is not PdfDictionary dictionary)
             return;
 
         if (_store.Resolve(dictionary["ActualText"]) is PdfString actual)
@@ -576,6 +643,47 @@ internal sealed class PdfContentInterpreter
             FlushRun();
             _pendingActualText = DecodeTextString(actual.Bytes);
         }
+    }
+
+    /// <summary>
+    /// Enters a layer, and starts hiding when the document's own default
+    /// configuration puts it outside the presentation.
+    /// </summary>
+    private void BeginOptionalContent(PdfObject? entry)
+    {
+        if (_optionalContent.IsHidden(_store, entry, out bool undecidable))
+        {
+            if (!_optionalContent.Enforced)
+            {
+                _store.Features.NoteOptionalContentKept(_store.CurrentPage);
+                return;
+            }
+
+            // Whatever run is open belongs to the visible content before this
+            // point, so it is emitted rather than swallowed by the layer.
+            FlushRun();
+            _hiddenDepth = _markedContentDepth;
+            _store.Features.NoteOptionalContentHidden(_store.CurrentPage);
+            return;
+        }
+
+        if (undecidable)
+            _store.Features.NoteOptionalContentUndecidable(_store.CurrentPage);
+    }
+
+    /// <summary>
+    /// Leaves one marked-content level, and stops hiding on leaving the level
+    /// that started it.
+    /// </summary>
+    private void EndMarkedContent()
+    {
+        if (_hiddenDepth == _markedContentDepth)
+            _hiddenDepth = NotHidden;
+
+        // An unbalanced EMC is a malformed stream, not a licence to go negative
+        // and let a later EMC re-open a layer that was never entered.
+        if (_markedContentDepth > 0)
+            _markedContentDepth--;
     }
 
     private static string DecodeTextString(byte[] bytes)
@@ -604,6 +712,29 @@ internal sealed class PdfContentInterpreter
             return;
 
         string subtype = (_store.Resolve(stream.Dictionary["Subtype"]) as PdfName)?.Value ?? string.Empty;
+
+        // An XObject carries its own layer membership rather than relying on a
+        // marked-content sequence around it, and either can put it outside the
+        // presentation. A form is skipped whole: its content is hidden with it,
+        // and `Do` restores the graphics state around a form anyway, so running
+        // it would change nothing that survives.
+        if (Hidden)
+            return;
+
+        if (_optionalContent.IsHidden(_store, stream.Dictionary["OC"], out bool undecidable))
+        {
+            if (_optionalContent.Enforced)
+            {
+                _store.Features.NoteOptionalContentHidden(_store.CurrentPage);
+                return;
+            }
+
+            _store.Features.NoteOptionalContentKept(_store.CurrentPage);
+        }
+        else if (undecidable)
+        {
+            _store.Features.NoteOptionalContentUndecidable(_store.CurrentPage);
+        }
 
         if (subtype == "Image")
         {
@@ -701,7 +832,12 @@ internal sealed class PdfContentInterpreter
         }
 
         lexer.Position = Math.Min(position, lexer.End);
-        NoteInlineImage(data, parametersStart, parametersEnd);
+
+        // The samples are consumed either way — the scan is what keeps the lexer
+        // on an operator boundary — but an image in a layer outside the
+        // presentation is not one this document asked to show.
+        if (!Hidden)
+            NoteInlineImage(data, parametersStart, parametersEnd);
     }
 
     // ---- diagnostics ----------------------------------------------------------
