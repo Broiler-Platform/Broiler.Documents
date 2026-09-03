@@ -20,6 +20,9 @@ public sealed class DocxTableTests
 
     private static string Row(params string[] cells) => "<w:tr>" + string.Concat(cells) + "</w:tr>";
 
+    private static string RowWith(string properties, params string[] cells) =>
+        "<w:tr><w:trPr>" + properties + "</w:trPr>" + string.Concat(cells) + "</w:tr>";
+
     private static string Table(string properties, string grid, params string[] rows) =>
         "<w:tbl><w:tblPr>" + properties + "</w:tblPr>" + grid + string.Concat(rows) + "</w:tbl>";
 
@@ -326,5 +329,77 @@ public sealed class DocxTableTests
         using var reader = new StreamReader(package.GetEntry("word/document.xml")!.Open());
 
         Assert.DoesNotContain("<w:tbl", reader.ReadToEnd(), StringComparison.Ordinal);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Reads_The_Height_A_Row_States()
+    {
+        // 4032 twips is the first row of the CV template this was written for:
+        // an empty row whose only job is to place the block beneath it.
+        RichTextDocument document = Read(Table(
+            string.Empty,
+            Grid,
+            RowWith("<w:trHeight w:val=\"4032\"/>", Cell("a1"), Cell("b1"), Cell("c1")),
+            Row(Cell("a2"), Cell("b2"), Cell("c2"))));
+
+        DocumentTable table = Assert.Single(document.Tables);
+        Assert.Equal(201.6, table.Rows[0].MinHeight, 3);
+        Assert.Equal(0, table.Rows[1].MinHeight);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Bare_Height_Is_A_Minimum_Even_Though_The_Rule_Defaults_To_Auto()
+    {
+        // The specification's default for w:hRule is auto, and no producer means
+        // it: Word renders a bare height as a floor and the layout templates that
+        // state one depend on that. Read as auto these rows collapse.
+        RichTextDocument bare = Read(Table(
+            string.Empty, Grid, RowWith("<w:trHeight w:val=\"1440\"/>", Cell("a"), Cell("b"), Cell("c"))));
+        RichTextDocument stated = Read(Table(
+            string.Empty, Grid,
+            RowWith("<w:trHeight w:val=\"1440\" w:hRule=\"atLeast\"/>", Cell("a"), Cell("b"), Cell("c"))));
+
+        Assert.Equal(72, Assert.Single(bare.Tables).Rows[0].MinHeight, 3);
+        Assert.Equal(
+            Assert.Single(stated.Tables).Rows[0].MinHeight,
+            Assert.Single(bare.Tables).Rows[0].MinHeight,
+            3);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void An_Explicit_Auto_Row_Asks_For_No_Height()
+    {
+        RichTextDocument document = Read(Table(
+            string.Empty, Grid,
+            RowWith("<w:trHeight w:val=\"4032\" w:hRule=\"auto\"/>", Cell("a"), Cell("b"), Cell("c"))));
+
+        Assert.Equal(0, Assert.Single(document.Tables).Rows[0].MinHeight);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void An_Exact_Height_Is_Applied_As_A_Minimum_And_Reported()
+    {
+        // Clipping a row's own text loses content the document has, so an exact
+        // height becomes a floor. The difference is diagnosed rather than hidden.
+        DocumentReadResult result = DocxTestPackage.ReadBody(Table(
+            string.Empty, Grid,
+            RowWith("<w:trHeight w:val=\"720\" w:hRule=\"exact\"/>", Cell("a"), Cell("b"), Cell("c"))));
+
+        Assert.Equal(36, Assert.Single(result.Document.Tables).Rows[0].MinHeight, 3);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.table.rowheight");
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Row_Height_Round_Trips()
+    {
+        RichTextDocument source = Read(Table(
+            string.Empty,
+            Grid,
+            RowWith("<w:trHeight w:val=\"4032\"/>", Cell("a1"), Cell("b1"), Cell("c1")),
+            Row(Cell("a2"), Cell("b2"), Cell("c2"))));
+
+        DocumentTable table = Assert.Single(RoundTrip(source).Tables);
+        Assert.Equal(201.6, table.Rows[0].MinHeight, 3);
+        Assert.Equal(0, table.Rows[1].MinHeight);
     }
 }

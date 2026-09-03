@@ -182,10 +182,11 @@ public sealed class DocumentTable
 /// <summary>One row of a <see cref="DocumentTable"/>.</summary>
 public sealed class TableRow
 {
-    public TableRow(IReadOnlyList<TableCell> cells, bool isHeader = false)
+    public TableRow(IReadOnlyList<TableCell> cells, bool isHeader = false, double minHeight = 0)
     {
         Cells = cells is null || cells.Count == 0 ? [] : [.. cells];
         IsHeader = isHeader;
+        MinHeight = double.IsFinite(minHeight) && minHeight > 0 ? minHeight : 0;
     }
 
     public IReadOnlyList<TableCell> Cells { get; }
@@ -193,12 +194,32 @@ public sealed class TableRow
     /// <summary>True for a row the document marks as repeating at the top of a page.</summary>
     public bool IsHeader { get; }
 
+    /// <summary>
+    /// The height in points the row asks for, or zero when it asks for none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A <em>minimum</em>, deliberately, and never a ceiling: a row is at least
+    /// this tall and grows for content that does not fit. A layout that clipped
+    /// text to honour a stated height would lose the one thing the document is
+    /// for, so a format's exact-height rule is read as a floor too and diagnosed
+    /// rather than obeyed.
+    /// </para>
+    /// <para>
+    /// It matters more than a row of a data table suggests. The page-layout
+    /// tables every CV and letterhead template is built from use a tall first row
+    /// to place the block beneath it; without the height the row collapses to its
+    /// content and everything below rides up.
+    /// </para>
+    /// </remarks>
+    public double MinHeight { get; }
+
     internal TableRow Shifted(int at, int removed, int inserted)
     {
         var cells = new List<TableCell>(Cells.Count);
         foreach (TableCell cell in Cells)
             cells.Add(cell.Shifted(at, removed, inserted));
-        return new TableRow(cells, IsHeader);
+        return new TableRow(cells, IsHeader, MinHeight);
     }
 }
 

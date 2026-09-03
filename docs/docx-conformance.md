@@ -1,4 +1,4 @@
-﻿# DOCX Conformance
+# DOCX Conformance
 
 `Broiler.Documents.Docx` reads and writes a dependency-free DOCX subset using
 Open XML WordprocessingML package parts.
@@ -18,7 +18,8 @@ Open XML WordprocessingML package parts.
   `w:tblGrid` column widths, `w:gridSpan` and `w:vMerge` spans, per-cell and
   per-table borders (`w:tcBorders`, `w:tblBorders`, including the `insideH` and
   `insideV` edges), cell shading (`w:shd`), the `w:tblCellMar` left margin as the
-  cell padding, header rows (`w:tblHeader`), and tables nested in a cell. The
+  cell padding, header rows (`w:tblHeader`), the height a row states
+  (`w:trHeight`), and tables nested in a cell. The
   cells hold no text of their own: a cell names a range of the document's
   paragraphs, so a caret, a selection, a style, and every codec's text handling
   go on working through one flat list. Written back as `w:tbl`.
@@ -116,14 +117,25 @@ Open XML WordprocessingML package parts.
 - Table styles are not applied. A `w:tblStyle` names formatting held in the
   styles part — banding, conditional first-row and first-column formatting, and
   the borders a style states — and only what the table and its cells state
-  directly is read, with `docx.table.style`. Row heights, cell vertical
-  alignment, text direction, and table indent and alignment are not represented
-  either; a table starts at the left margin and is as tall as its rows.
+  directly is read, with `docx.table.style`. Cell vertical alignment, text direction, and
+  table indent and alignment are not represented either; a table starts at the
+  left margin.
 - A table's cells are paragraph ranges, so an edit that adds or removes
   paragraphs moves them and one that spans out of a cell into the body does not
   keep the grid over what it merged. The ranges are moved through the one place
   paragraph counts change, so typing in a cell, splitting its paragraph, and
   deleting inside it all keep the table around the text.
+- A row's `w:trHeight` is a **minimum** and never a ceiling: the row is at least
+  that tall and grows for content that does not fit. An `w:hRule="exact"` is
+  therefore read as a floor too, with `docx.table.rowheight`, because a row that
+  clipped its own text would lose content the document has. An explicit
+  `w:hRule="auto"` asks for nothing and gets nothing. A height carrying **no**
+  rule is read as a minimum as well, which is a deliberate departure from the
+  specification's stated default of `auto`: no producer means `auto` by omission,
+  Word renders a bare height as a floor, and the page-layout tables that CV and
+  letterhead templates are built from state a tall empty row precisely to place
+  the block beneath it. Read as `auto` those rows collapse and the layout falls
+  in on itself.
 - Block nesting deeper than `DocumentLimits.MaxGroupDepth` is abandoned with a
   `docx.limit.depth` diagnostic.
 - DOCX packages above `DocumentLimits.MaxDocumentBytes` are not parsed.
@@ -142,6 +154,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.read.summary` | Info | Paragraph, table, style, image, and skipped-block counts for the read. |
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
 | `docx.table.style` | Warning | A table named a table style; banding and conditional formatting are not applied. |
+| `docx.table.rowheight` | Warning | A row stated an exact height; it was applied as a minimum so its text is not clipped. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
 | `docx.limit.depth` | Warning | Block nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `docx.styles.missing` | Warning | Content named styles but the package has no styles part. Reported once. |

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -247,7 +247,8 @@ internal static class DocxReader
         int start = context.Builder.CurrentParagraphIndex;
         XElement? properties = table.Element(DocxNamespaces.Wordprocessing + "tblPr");
         CellBorders tableBorders = ReadTableBorders(properties);
-        var rows = new List<List<CellDraft>>();
+        var rows = new List<RowDraft>();
+        bool exactHeightSeen = false;
 
         foreach (XElement row in EnumerateTableChildren(table, "tr"))
         {
@@ -280,12 +281,20 @@ internal static class DocxReader
                 column += span;
             }
 
-            rows.Add(cells);
+            rows.Add(new RowDraft(cells, ReadRowMinHeight(row, ref exactHeightSeen)));
             if (rows.Count >= context.Builder.Limits.MaxParagraphCount)
                 break;
         }
 
-        ResolveRowSpans(rows);
+        if (exactHeightSeen)
+        {
+            context.Builder.AddDiagnosticOnce(
+                "docx.table.rowheight",
+                "A DOCX table row stated an exact height; it was applied as a minimum, " +
+                "because a row that clipped its own text would lose content the document has.");
+        }
+
+        ResolveRowSpans([.. rows.Select(draft => draft.Cells)]);
         context.Builder.AddTable(new DocumentTable(
             start,
             context.Builder.CurrentParagraphIndex - start,
@@ -330,8 +339,49 @@ internal static class DocxReader
         public List<DocumentTable> Tables = [];
     }
 
-    private static TableRow BuildRow(List<CellDraft> cells) =>
-        new([.. cells.Select(cell => new TableCell(
+    /// <summary>A row being read: its cells, and the height it asked for.</summary>
+    private readonly record struct RowDraft(List<CellDraft> Cells, double MinHeight);
+
+    /// <summary>
+    /// ECMA-376 §17.4.81: the height a row states, in points, as a minimum.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The rule attribute decides what the value means. <c>exact</c> is read as a
+    /// minimum rather than obeyed - clipping a row's own text is a worse outcome
+    /// than a row taller than it asked for - and it is diagnosed so the difference
+    /// is visible. An explicit <c>auto</c> asks for nothing and gets nothing.
+    /// </para>
+    /// <para>
+    /// A <c>w:trHeight</c> carrying no rule at all is read as a minimum, which is
+    /// worth stating because the specification's own default for the attribute is
+    /// <c>auto</c>. Word does not render it that way and neither does anything
+    /// else that reads these files: a bare height is a floor in practice. The CV
+    /// and letterhead templates depend on it, stating a tall empty first row to
+    /// place the block beneath it, and read as <c>auto</c> those rows collapse and
+    /// the layout falls in on itself.
+    /// </para>
+    /// </remarks>
+    private static double ReadRowMinHeight(XElement row, ref bool exactHeightSeen)
+    {
+        XElement? height = row
+            .Element(DocxNamespaces.Wordprocessing + "trPr")?
+            .Element(DocxNamespaces.Wordprocessing + "trHeight");
+        if (height is null)
+            return 0;
+
+        string? rule = (string?)height.Attribute(DocxNamespaces.Wordprocessing + "hRule");
+        if (string.Equals(rule, "auto", StringComparison.Ordinal))
+            return 0;
+
+        if (string.Equals(rule, "exact", StringComparison.Ordinal))
+            exactHeightSeen = true;
+
+        return Math.Max(0, Twips(height, "val"));
+    }
+
+    private static TableRow BuildRow(RowDraft row) =>
+        new([.. row.Cells.Select(cell => new TableCell(
             cell.ParagraphIndex,
             cell.ParagraphCount,
             cell.ColumnIndex,
@@ -340,7 +390,8 @@ internal static class DocxReader
             cell.Shading,
             cell.Borders,
             cell.Merge == VerticalMerge.Continue,
-            cell.Tables))]);
+            cell.Tables))],
+            minHeight: row.MinHeight);
 
     /// <summary>
     /// Turns <c>w:vMerge</c> continuations into a row span on the cell that
