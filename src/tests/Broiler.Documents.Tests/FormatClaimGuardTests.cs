@@ -165,4 +165,5 @@ public sealed class FormatClaimGuardTests
 
         Assert.Empty(documents);
     }
+
 }
