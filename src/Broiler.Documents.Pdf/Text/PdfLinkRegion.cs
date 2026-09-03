@@ -39,7 +39,11 @@ internal sealed class PdfLinkRegion
 /// </remarks>
 internal static class PdfAnnotationReader
 {
-    public static List<PdfLinkRegion> Read(PdfObjectStore store, PdfPage page, PdfUriPolicy policy)
+    public static List<PdfLinkRegion> Read(
+        PdfObjectStore store,
+        PdfPage page,
+        PdfUriPolicy policy,
+        PdfOptionalContent? optionalContent = null)
     {
         var regions = new List<PdfLinkRegion>();
         if (store.Resolve(page.Dictionary["Annots"]) is not PdfArray annotations)
@@ -47,6 +51,7 @@ internal static class PdfAnnotationReader
 
         store.Budget.ChargeAnnotations(annotations.Count);
 
+        PdfOptionalContent layers = optionalContent ?? PdfOptionalContent.None;
         int activeContent = 0;
         int rejectedUris = 0;
 
@@ -55,6 +60,20 @@ internal static class PdfAnnotationReader
             store.Budget.ThrowIfCancelled();
             if (store.Resolve(entry) is not PdfDictionary annotation)
                 continue;
+
+            // An annotation names its layer the same way an XObject does, and a
+            // link on a layer the default configuration turns off is no more part
+            // of the presentation than the text under it.
+            if (layers.IsHidden(store, annotation["OC"], out _))
+            {
+                if (layers.Enforced)
+                {
+                    store.Features.NoteOptionalContentHidden(store.CurrentPage);
+                    continue;
+                }
+
+                store.Features.NoteOptionalContentKept(store.CurrentPage);
+            }
 
             string subtype = (store.Resolve(annotation["Subtype"]) as PdfName)?.Value ?? string.Empty;
 
