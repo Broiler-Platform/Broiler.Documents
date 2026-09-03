@@ -267,10 +267,11 @@ its own register — [the ODT IP and licensing register](odt-ip-licensing-regist
 governed by [ADR 0013](adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md),
 which extends the [ADR 0011](adr/0011-pdf-standards-ip-provenance-and-claims.md)
 discipline beyond PDF. Read it before relying on anything here: it holds the
-primary sources. Two of its rows are decided — the OASIS licensing mode, and the
-wording this format may be described with — and **the rest are still pending**,
-including both covenant rows. Nothing about ODF is cleared, and no
-freedom-to-operate determination has been made.
+primary sources. Most of it is decided: the OASIS licensing mode, the wording
+this format may be described with, and every row inspection settles. **The two
+covenant rows are not**, and they are the ones a rights position would rest on.
+Nothing about ODF is cleared, and no freedom-to-operate determination has been
+made.
 
 One correction belongs here rather than only there, because this document is
 where the overstatement was. It used to say that "the principal contributors
