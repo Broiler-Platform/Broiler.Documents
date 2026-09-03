@@ -240,10 +240,13 @@ is authoritative for that boundary.
   row is open any longer**: `JBIG2Decode` was the last, and IP-008 cleared it on
   2026-09-01. A composed filter reads the segment structure and decodes generic
   regions coded with MMR through the T.6 decoder cleared under IP-009; the
-  arithmetic decoder, and the symbol, text, halftone, and refinement regions that
-  need it, are outstanding work rather than a pending approval — which matters,
-  because that is what almost every JBIG2 image in a scanned document actually
-  uses. `JPXDecode` half-left this list on 2026-09-01: IP-007
+  arithmetic decoder was written on 2026-09-03, so generic regions now decode
+  under both coding methods; the symbol, text, halftone, and refinement regions
+  remain outstanding, and that is what almost every JBIG2 image in a scanned
+  document actually uses. **The MQ probability table that decoder drives is
+  transcribed and SRC-019 carries it as pending**: the work was taken ahead of
+  the decision on an explicit instruction, and no JBIG2-derived capability may be
+  claimed as supported until the row closes. `JPXDecode` half-left this list on 2026-09-01: IP-007
   cleared the JPEG 2000 Part 1 core coding system, and a composed reader now
   reports a codestream's real tuple, but no entropy decoder is written — the
   arithmetic coder, EBCOT, and the wavelet transforms are scoped work, not a

@@ -104,14 +104,9 @@ public sealed class Jbig2StreamFilter : IPdfStreamFilter
             if (!Jbig2SegmentReader.TryReadGenericRegion(data, segment, out Jbig2GenericRegion region, out _))
                 continue;
 
-            if (!region.UsesMmr)
-            {
-                string prediction = region.TypicalPrediction ? " and typical prediction" : string.Empty;
-                reasons.Add(string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"a {region.Width}x{region.Height} generic region is arithmetic-coded with template {region.Template}{prediction}"));
-            }
-            else if (region.CombinationOperator is not (CombineOr or CombineReplace))
+            // Both coding methods decode now, so the only thing a generic region
+            // is still refused for is how it composites.
+            if (region.CombinationOperator is not (CombineOr or CombineReplace))
             {
                 reasons.Add(string.Create(
                     CultureInfo.InvariantCulture,
@@ -123,7 +118,7 @@ public sealed class Jbig2StreamFilter : IPdfStreamFilter
         {
             if (!segment.IsStructural && !segment.IsGenericRegion)
             {
-                reasons.Add($"it holds a {segment.Describe()}, which needs the arithmetic decoder");
+                reasons.Add($"it holds a {segment.Describe()}, whose decoder is not written");
                 break;
             }
         }
@@ -136,8 +131,31 @@ public sealed class Jbig2StreamFilter : IPdfStreamFilter
 
         return $"The page draws a JBIG2 image this build cannot decode: {string.Join("; ", reasons)}. " +
             $"The stream holds {Jbig2SegmentReader.Describe(segments)}. IP-008 clears JBIG2, and only generic " +
-            "regions coded with MMR are implemented — the arithmetic decoder and the symbol, text, halftone, and " +
-            "refinement regions that need it are outstanding work rather than a pending approval.";
+            "generic regions are implemented for both coding methods — the symbol, text, halftone, and refinement " +
+            "regions are outstanding work rather than a pending approval.";
+    }
+
+    /// <summary>
+    /// One byte per pixel packed into rows of bits, which is the form the page
+    /// compositor takes and the form the MMR decoder already produces.
+    /// </summary>
+    private static byte[] Pack(byte[] pixels, int width, int height)
+    {
+        int stride = (width + 7) / 8;
+        var packed = new byte[stride * height];
+
+        for (int y = 0; y < height; y++)
+        {
+            int row = y * stride;
+            int source = y * width;
+            for (int x = 0; x < width; x++)
+            {
+                if (pixels[source + x] != 0)
+                    packed[row + (x >> 3)] |= (byte)(0x80 >> (x & 7));
+            }
+        }
+
+        return packed;
     }
 
     /// <summary>Decodes every generic region and composites them onto the page.</summary>
@@ -165,21 +183,42 @@ public sealed class Jbig2StreamFilter : IPdfStreamFilter
             if (!Jbig2SegmentReader.TryReadGenericRegion(data, segment, out Jbig2GenericRegion region, out string? error))
                 return PdfFilterResult.Malformed(error!);
 
-            // A generic region coded with MMR is a T.6 bitmap, which is the
-            // decoder this assembly already carries for CCITTFaxDecode.
-            var options = new CcittFaxOptions(
-                CcittCoding.TwoDimensional, region.Width, region.Height,
-                BlackIs1: true, EncodedByteAlign: false, ExpectsEndOfLine: false);
-
-            CcittFaxResult decoded = CcittFaxDecoder.Decode(
-                data.Slice(region.DataStart, region.DataLength), options, context.MaxDecodedBytes);
-
-            if (decoded.Outcome == CcittFaxOutcome.TooLarge)
+            long pixels = (long)region.Width * region.Height;
+            if (pixels > context.MaxDecodedBytes)
                 return PdfFilterResult.LimitExceeded("A JBIG2 generic region would exceed this stage's decoded-byte ceiling.");
-            if (decoded.Outcome != CcittFaxOutcome.Decoded)
-                return PdfFilterResult.Malformed(decoded.Failure ?? "A JBIG2 generic region could not be decoded.");
 
-            regions.Add((region, decoded.Rows!));
+            byte[] bits;
+            if (region.UsesMmr)
+            {
+                // A generic region coded with MMR is a T.6 bitmap, which is the
+                // decoder this assembly already carries for CCITTFaxDecode.
+                var options = new CcittFaxOptions(
+                    CcittCoding.TwoDimensional, region.Width, region.Height,
+                    BlackIs1: true, EncodedByteAlign: false, ExpectsEndOfLine: false);
+
+                CcittFaxResult decoded = CcittFaxDecoder.Decode(
+                    data.Slice(region.DataStart, region.DataLength), options, context.MaxDecodedBytes);
+
+                if (decoded.Outcome == CcittFaxOutcome.TooLarge)
+                    return PdfFilterResult.LimitExceeded("A JBIG2 generic region would exceed this stage's decoded-byte ceiling.");
+                if (decoded.Outcome != CcittFaxOutcome.Decoded)
+                    return PdfFilterResult.Malformed(decoded.Failure ?? "A JBIG2 generic region could not be decoded.");
+
+                bits = decoded.Rows!;
+            }
+            else
+            {
+                byte[]? decoded = Jbig2GenericDecoder.Decode(
+                    data.Slice(region.DataStart, region.DataLength).ToArray(),
+                    region.Width, region.Height, region.Template, region.TypicalPrediction, region.Adaptive);
+
+                if (decoded is null)
+                    return PdfFilterResult.Malformed("A JBIG2 generic region could not be decoded.");
+
+                bits = Pack(decoded, region.Width, region.Height);
+            }
+
+            regions.Add((region, bits));
             pageWidth = Math.Max(pageWidth, region.X + region.Width);
             pageHeight = Math.Max(pageHeight, region.Y + region.Height);
         }

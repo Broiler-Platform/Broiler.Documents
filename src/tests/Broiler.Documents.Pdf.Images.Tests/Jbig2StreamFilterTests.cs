@@ -79,17 +79,18 @@ public sealed class Jbig2StreamFilterTests
     // ---- what it refuses, and how precisely -----------------------------------
 
     [Fact]
-    public void An_Arithmetic_Generic_Region_Is_Refused_By_Name()
+    public void An_Arithmetic_Generic_Region_Decodes_Through_The_Filter()
     {
-        byte[] stream = Page(64, 32, ArithmeticGenericRegion(64, 32));
+        // This asserted a refusal until the arithmetic decoder was written. It now
+        // asserts the whole path instead: a region encoded by the test encoder,
+        // through the segment reader, the MQ decoder, and the page compositor.
+        bool[][] bitmap = Pattern(64, 32);
+        byte[] stream = Page(64, 32, ArithmeticGenericRegion(bitmap));
 
         PdfFilterResult result = Decode(stream);
 
-        Assert.Equal(PdfDiagnosticCodes.FilterJbig2Unsupported, result.DiagnosticCode);
-        Assert.Contains("64x32 generic region is arithmetic-coded with template 0", result.Message, StringComparison.Ordinal);
-
-        // The distinction the whole exercise turns on.
-        Assert.Contains("outstanding work rather than a pending approval", result.Message, StringComparison.Ordinal);
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal(bitmap, Unpack(result.Data!, 64, 32));
     }
 
     [Fact]
@@ -105,7 +106,10 @@ public sealed class Jbig2StreamFilterTests
         Assert.Equal(PdfDiagnosticCodes.FilterJbig2Unsupported, result.DiagnosticCode);
         Assert.Contains("symbol dictionary", result.Message, StringComparison.Ordinal);
         Assert.Contains("text region", result.Message, StringComparison.Ordinal);
-        Assert.Contains("needs the arithmetic decoder", result.Message, StringComparison.Ordinal);
+
+        // The arithmetic decoder exists now, so the reason had to stop citing it.
+        // What is missing is narrower and the message says which part.
+        Assert.Contains("whose decoder is not written", result.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -230,8 +234,19 @@ public sealed class Jbig2StreamFilterTests
     }
 
     /// <summary>An immediate generic region declaring arithmetic coding.</summary>
-    private static byte[] ArithmeticGenericRegion(int width, int height)
+    /// <summary>A generic region actually coded with the arithmetic coder.</summary>
+    private static byte[] ArithmeticGenericRegion(bool[][] bitmap)
     {
+        int height = bitmap.Length;
+        int width = bitmap[0].Length;
+
+        var pixels = new byte[width * height];
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+                pixels[(y * width) + x] = bitmap[y][x] ? (byte)1 : (byte)0;
+        }
+
         var body = new List<byte>();
         AddUInt32(body, width);
         AddUInt32(body, height);
@@ -239,8 +254,10 @@ public sealed class Jbig2StreamFilterTests
         AddUInt32(body, 0);
         body.Add(0);                    // combination operator
         body.Add(0);                    // generic flags: arithmetic, template 0
-        body.AddRange(new byte[8]);     // adaptive template pixels
-        body.AddRange(new byte[16]);    // stand-in for the arithmetic data
+
+        // Nominal adaptive pixels, as signed bytes.
+        body.AddRange(new byte[] { 3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE });
+        body.AddRange(Jbig2GenericEncoder.Encode(pixels, width, height, template: 0));
 
         return Segment(number: 1, type: 38, [.. body]);
     }

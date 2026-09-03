@@ -74,7 +74,7 @@ still reads; the affected construct is reported rather than guessed at.
 |---|---|---|
 | `DCTDecode` (JPEG) | `pdf.image.dct.tuple-unsupported` or `pdf.image.dct.color-transform-uncertain`. `pdf.image.dct.progressive-unsupported` is retained as API and emitted by nothing here since IP-005 was widened on 2026-09-02 | IP-005 and IP-006 (both **approved**; see §4.1.1) |
 | `JPXDecode` (JPEG 2000) | `pdf.filter.jpx.unsupported`, carrying the codestream's tuple where the reader is composed | IP-007 (**approved** for Part 1; no decoder written) |
-| `JBIG2Decode` | `pdf.filter.jbig2.unsupported`, carrying the stream's segment inventory where the filter is composed | IP-008 (**approved**; MMR generic regions decode, the arithmetic decoder is unwritten) |
+| `JBIG2Decode` | `pdf.filter.jbig2.unsupported`, carrying the stream's segment inventory where the filter is composed | IP-008 (**approved**; generic regions decode under both coding methods, symbol and text regions do not; the MQ probability table is **pending** in SRC-019) |
 | Any other named filter | `pdf.filter.not-composed` | — |
 | Embedded font programs | `pdf.font.program-not-composed`. A composed reader handles sfnt through its character map and bare CFF through its charset; Type 1 and CID-keyed CFF stay unread | IP-012 (**approved** for inspection; see §4.4). The CFF standard-strings table is pending in SRC-016 |
 | Type 3 fonts — the glyph procedures only | `pdf.font.type3-unsupported`. The font's own encoding, `ToUnicode`, and `/FontMatrix` advances are read; only the procedures that draw the glyphs go unexecuted | — |
