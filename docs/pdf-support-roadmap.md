@@ -166,6 +166,14 @@ is authoritative for that boundary.
   structural metadata, deterministic geometric grouping into columns, lines and
   paragraphs, list-marker recognition, and link annotations admitted by the
   shared URI policy.
+- Phase 4 for Type 3 fonts, to the extent that reading one does not mean drawing
+  it: advances come through `/FontMatrix`, which is where a Type 3 states the
+  glyph-space scale every other simple font has fixed at a thousandth, and its
+  meaning comes from `ToUnicode`, its `/Differences` names, or a `/BaseEncoding`
+  it names. Where it states none of those, nothing is mapped: a Type 3 has no
+  built-in encoding, and StandardEncoding would answer for arbitrary drawn shapes
+  with Latin text, which is the failure the ZapfDingbats guard beside it already
+  refuses. The glyph procedures remain unexecuted.
 - Phase 4 for reading order, where the document states it: a tagged document's
   structure tree is walked for its sequence, and a page whose runs that sequence
   accounts for in full is read in the declared order rather than the inferred

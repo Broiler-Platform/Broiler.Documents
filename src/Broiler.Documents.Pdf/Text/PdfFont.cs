@@ -212,7 +212,10 @@ internal sealed class PdfFont
         {
             store.Diagnostics.Skipped(
                 PdfDiagnosticCodes.FontType3Unsupported,
-                "A Type 3 font was detected. Its glyph procedures are never executed, so its text is mapped only where ToUnicode or an encoding supplies a meaning.");
+                "A Type 3 font was detected. Its glyph procedures draw the glyphs and are never executed, so its text is " +
+                "mapped only where ToUnicode or the font's own /Differences names say what a code means, and never by " +
+                "assuming a standard encoding it does not have. Its advances are taken through /FontMatrix, which is " +
+                "where a Type 3 font states its glyph-space scale rather than using the fixed one every other font has.");
         }
 
         PdfDictionary? descriptor = store.Resolve(dictionary["FontDescriptor"]) as PdfDictionary;
@@ -220,12 +223,19 @@ internal sealed class PdfFont
         bool symbolic = ReadFlag(store, descriptor, bit: 3);
 
         char[]? encoding = ReadSimpleEncoding(
-            store, dictionary, symbolic, StripSubsetPrefix(baseFont), out Dictionary<int, string>? differences);
+            store, dictionary, symbolic, StripSubsetPrefix(baseFont), isType3, out Dictionary<int, string>? differences);
         PdfCMap? toUnicode = ReadToUnicode(store, dictionary);
-        Dictionary<uint, double> widths = ReadSimpleWidths(store, dictionary);
+
+        // Every simple font but a Type 3 measures its glyphs in thousandths of
+        // text space. A Type 3 states its own scale in /FontMatrix, and the
+        // default happens to be that same thousandth — which is why assuming it
+        // was right until a font said otherwise.
+        double glyphScale = isType3 ? ReadType3GlyphScale(store, dictionary) : 0.001;
+
+        Dictionary<uint, double> widths = ReadSimpleWidths(store, dictionary, glyphScale);
         double missingWidth = descriptor is not null && store.Resolve(descriptor["MissingWidth"]) is PdfNumber missing
-            ? missing.Value / 1000d
-            : 0.5;
+            ? missing.Value * glyphScale
+            : isType3 ? 0 : 0.5;
 
         string? program = DescribeEmbeddedProgram(store, descriptor);
         bool unreadableProgram = program is not null;
@@ -396,6 +406,7 @@ internal sealed class PdfFont
         PdfDictionary dictionary,
         bool symbolic,
         string family,
+        bool isType3,
         out Dictionary<int, string>? differences)
     {
         differences = null;
@@ -421,6 +432,15 @@ internal sealed class PdfFont
 
         if (table is not null)
             return table;
+
+        // A Type 3 font has no built-in encoding to fall back to. Its glyphs are
+        // procedures the document drew and named, and a name is all there is: the
+        // standard-14 tables below describe fonts this one is not, and
+        // StandardEncoding would answer for arbitrary drawn shapes with confident
+        // Latin text. Where /Differences and ToUnicode both say nothing, nothing
+        // is the honest answer, and the unmapped-glyph diagnostic reports it.
+        if (isType3)
+            return null;
 
         // One symbolic font's built-in encoding is a property of the format rather
         // than of an embedded program: a standard-14 Symbol carries no program to
@@ -479,7 +499,40 @@ internal sealed class PdfFont
         return differences;
     }
 
-    private static Dictionary<uint, double> ReadSimpleWidths(PdfObjectStore store, PdfDictionary dictionary)
+    /// <summary>
+    /// The horizontal glyph-space scale a Type 3 font declares in
+    /// <c>/FontMatrix</c>, or the 1/1000 default where it states none.
+    /// </summary>
+    /// <remarks>
+    /// Only the first element is taken. A glyph's displacement is the vector
+    /// (w, 0) through the matrix, so its horizontal component is w times that
+    /// element, and the rotated and skewed matrices where the rest of the matrix
+    /// would matter do not describe a horizontal advance for this pass to apply.
+    /// A scale that is zero, not finite, or absurd enough to place a single glyph
+    /// off any page is treated as unstated rather than honoured.
+    /// </remarks>
+    private static double ReadType3GlyphScale(PdfObjectStore store, PdfDictionary dictionary)
+    {
+        const double Default = 0.001;
+
+        if (store.Resolve(dictionary["FontMatrix"]) is not PdfArray matrix || matrix.Count < 6)
+            return Default;
+
+        if (store.Resolve(matrix[0]) is not PdfNumber scale ||
+            !double.IsFinite(scale.Value) ||
+            scale.Value == 0 ||
+            Math.Abs(scale.Value) > 100)
+        {
+            return Default;
+        }
+
+        return scale.Value;
+    }
+
+    private static Dictionary<uint, double> ReadSimpleWidths(
+        PdfObjectStore store,
+        PdfDictionary dictionary,
+        double glyphScale)
     {
         var widths = new Dictionary<uint, double>();
         if (store.Resolve(dictionary["Widths"]) is not PdfArray array)
@@ -492,7 +545,7 @@ internal sealed class PdfFont
                 continue;
             long code = (long)first + i;
             if (code is >= 0 and <= 0xFFFF)
-                widths[(uint)code] = width.Value / 1000d;
+                widths[(uint)code] = width.Value * glyphScale;
         }
 
         return widths;

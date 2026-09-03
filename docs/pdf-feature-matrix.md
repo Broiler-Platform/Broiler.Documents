@@ -124,6 +124,7 @@ is pending.
 | Standard 14 font-name handling | Candidate | Names recognized on read; emitted on write with no embedded program | No assumption that font programs are installed or redistributable |
 | Standard 14 vendor metric files | Rejected | Not used; a Broiler-authored approximate model stands in | Would require its own source/licence row |
 | Embedded Type 1 / TrueType / OpenType data | Candidate | Detected and skipped; extension point | Embedding rights remain the content provider's responsibility |
+| Type 3 fonts | Candidate | Read for what the font states — `ToUnicode`, `/Differences` names, a named `/BaseEncoding`, and `/FontMatrix` advances. The glyph procedures are never executed, and a font naming no encoding maps nothing rather than falling back to StandardEncoding | Procedure execution stays out of scope; no glyph is rendered or measured from its drawing |
 | Type 0 and CID fonts | Candidate | `Identity-H` implemented; other predefined CMaps skipped; a composed font reader recovers text where the file supplies no `ToUnicode` | Unicode mapping and vertical-writing limits explicit |
 | `ToUnicode` CMaps | Candidate | Implemented, including `bfrange` and bounded `usecmap` | Primary semantic extraction route |
 | Fallback character inference without `ToUnicode` | Candidate | Declared encoding and `/Differences` only; never a glyph-index guess | Confidence diagnostic; no silent correctness claim |

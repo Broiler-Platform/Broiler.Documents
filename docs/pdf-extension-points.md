@@ -77,7 +77,7 @@ still reads; the affected construct is reported rather than guessed at.
 | `JBIG2Decode` | `pdf.filter.jbig2.unsupported`, carrying the stream's segment inventory where the filter is composed | IP-008 (**approved**; MMR generic regions decode, the arithmetic decoder is unwritten) |
 | Any other named filter | `pdf.filter.not-composed` | — |
 | Embedded font programs | `pdf.font.program-not-composed` | IP-012 (**approved** for inspection; see §4.4) |
-| Type 3 fonts | `pdf.font.type3-unsupported` | — |
+| Type 3 fonts — the glyph procedures only | `pdf.font.type3-unsupported`. The font's own encoding, `ToUnicode`, and `/FontMatrix` advances are read; only the procedures that draw the glyphs go unexecuted | — |
 | Inline images, and images naming a filter with no composed implementation | `pdf.image.not-composed` | IP-005 |
 | A decoded image the caller's policy refused | `pdf.image.extraction-denied` | — |
 | Text needing a font the caller did not provision | `pdf.write.no-font-configured` | §11.3's chosen path: the caller supplies fonts, this project bundles none |
