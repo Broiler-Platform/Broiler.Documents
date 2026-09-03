@@ -267,11 +267,16 @@ its own register — [the ODT IP and licensing register](odt-ip-licensing-regist
 governed by [ADR 0013](adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md),
 which extends the [ADR 0011](adr/0011-pdf-standards-ip-provenance-and-claims.md)
 discipline beyond PDF. Read it before relying on anything here: it holds the
-primary sources. Most of it is decided: the OASIS licensing mode, the wording
-this format may be described with, and every row inspection settles. **The two
-covenant rows are not**, and they are the ones a rights position would rest on.
-Nothing about ODF is cleared, and no freedom-to-operate determination has been
-made.
+primary sources. **Every row is now decided** and the project reviewer assesses
+the position green: a royalty-free OASIS mode, an irrevocable non-assertion
+covenant from the format's principal original contributor with only a defensive
+carve-out, and no implementation royalty identified.
+
+Green is a judgement about risk on recorded evidence, not a clearance. **No
+lawyer has reviewed it, patent-freedom is not claimed, and no freedom-to-operate
+determination has been made.** It unlocks no new wording either: this
+implementation is still not to be described as ODF-conformant, certified,
+endorsed, patent-free, or royalty-free, and a guard test fails the build over it.
 
 One correction belongs here rather than only there, because this document is
 where the overstatement was. It used to say that "the principal contributors
