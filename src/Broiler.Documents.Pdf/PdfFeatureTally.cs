@@ -230,7 +230,14 @@ internal sealed class PdfFeatureTally
     /// a JPEG and an unfiltered image are inventoried separately even though both
     /// were skipped for the same reason.
     /// </summary>
-    public void NoteImage(string code, in PdfImageShape shape, int? page, string? reason = null)
+    /// <param name="undecoded">
+    /// True when a decoder for this image's whole filter chain is composed and
+    /// the read declined to run it. It is the difference between a capability
+    /// this build does not have and one it has and did not spend here, and only
+    /// the caller knows which, so the tally is told rather than inferring it from
+    /// the code.
+    /// </param>
+    public void NoteImage(string code, in PdfImageShape shape, int? page, string? reason = null, bool undecoded = false)
     {
         if (!_images.TryGetValue(code, out ImageGroup? group))
         {
@@ -238,7 +245,7 @@ internal sealed class PdfFeatureTally
             _images[code] = group;
         }
 
-        group.Add(shape, page, reason);
+        group.Add(shape, page, reason, undecoded);
     }
 
     /// <summary>
@@ -589,13 +596,16 @@ internal sealed class PdfFeatureTally
         private readonly PageSet _pages = new();
         private int _total;
         private int _inline;
+        private int _undecoded;
         private int _unnamedVariants;
 
-        public void Add(in PdfImageShape shape, int? page, string? reason)
+        public void Add(in PdfImageShape shape, int? page, string? reason, bool undecoded = false)
         {
             _total++;
             if (shape.IsInline)
                 _inline++;
+            if (undecoded)
+                _undecoded++;
             _pages.Add(page);
 
             // A reason exists only where a decoder was composed and declined. It
@@ -625,14 +635,24 @@ internal sealed class PdfFeatureTally
         /// Describes the group under the code it was filed against.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// The code decides the reason, because the codes mean different things.
-        /// A tuple code — <c>DCTDecode</c> and its relatives — was filed because
-        /// this build composes no decoder for that filter, which is the sentence
-        /// it has always carried. The generic code is what an image reports when
-        /// a decoder was never the obstacle: an inline image, which is read from
-        /// its declaration by design, or a stream this build could decode and has
-        /// nowhere to put. Telling that second group it wanted a decoder named a
-        /// gap the build did not have and hid the one it did.
+        /// The generic code is what an image reports when a decoder was never the
+        /// obstacle: an inline image, which is read from its declaration by
+        /// design, or a stream this build could decode and has nowhere to put.
+        /// Telling that second group it wanted a decoder named a gap the build
+        /// did not have and hid the one it did.
+        /// </para>
+        /// <para>
+        /// A tuple code — <c>DCTDecode</c> and its relatives — does not decide it
+        /// alone, and used to. The code names the filter an image would need
+        /// decoded; it does not say whether this build composes one, because
+        /// since a decoder became composable an image can carry a tuple code and
+        /// still have met a composed decoder. Reading "composes no image decoder"
+        /// off the code alone therefore told a host to go and compose a decoder
+        /// it already had, which is why the count of images the read declined to
+        /// decode picks that sentence now instead.
+        /// </para>
         /// </remarks>
         public string Describe(string code)
         {
@@ -641,7 +661,9 @@ internal sealed class PdfFeatureTally
                 ? "The page draws a raster image that the composed image decoder would not decode. "
                 : code == PdfDiagnosticCodes.ImageNotComposed
                     ? "The page draws a raster image. The logical model carries no images, so the image was detected and skipped. "
-                    : "The page draws a raster image. This build composes no image decoder, so the image was detected and skipped. ");
+                    : _undecoded == _total
+                        ? "The page draws a raster image. A decoder for its filter is composed; this read's allowance for describing images did not stretch to decoding it, so it was reported from its dictionary. "
+                        : "The page draws a raster image. This build composes no image decoder, so the image was detected and skipped. ");
             text.Append(CultureInfo.InvariantCulture, $"{_total} image{S(_total)}");
             if (_inline == _total)
                 text.Append(", all inline,");

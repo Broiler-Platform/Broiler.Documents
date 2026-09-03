@@ -77,11 +77,15 @@ public static class PdfDiagnosticCodes
     public const string FilterCcittUnsupported = "pdf.filter.ccitt.unsupported";
 
     /// <summary>
-    /// A JPEG was not decoded, for one of two reasons the message separates: no
-    /// DCT decoder is composed at all, or one is and the frame's tuple falls
-    /// outside what IP-005 clears — arithmetic coding, lossless, hierarchical and
+    /// A JPEG was not decoded, for one of three reasons the message separates: no
+    /// DCT decoder is composed at all; one is and the frame's tuple falls outside
+    /// what IP-005 clears — arithmetic coding, lossless, hierarchical and
     /// differential processes, 12-bit precision, four components, or a colour
-    /// declaration the composed decoder cannot honour.
+    /// declaration the composed decoder cannot honour; or one is, the tuple is
+    /// inside the row, and this read's allowance for describing images did not
+    /// stretch to spending it. The code is the same because what the image would
+    /// need decoded is the same; the work that would fix each is not, which is
+    /// what the message is for.
     /// </summary>
     public const string FilterDctUnsupported = "pdf.image.dct.tuple-unsupported";
 

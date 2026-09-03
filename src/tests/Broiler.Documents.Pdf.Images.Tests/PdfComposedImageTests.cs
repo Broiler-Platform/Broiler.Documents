@@ -18,7 +18,11 @@ namespace Broiler.Documents.Pdf.Images.Tests;
 /// </remarks>
 public sealed class PdfComposedImageTests
 {
-    private static PdfReadResult Read(byte[] pdf, bool composed, DocumentResourcePolicy? policy = null)
+    private static PdfReadResult Read(
+        byte[] pdf,
+        bool composed,
+        DocumentResourcePolicy? policy = null,
+        PdfLimits? limits = null)
     {
         PdfCodecServices services = composed
             ? PdfCodecServices.Base.WithStreamFilters(new JpegStreamFilter())
@@ -27,7 +31,9 @@ public sealed class PdfComposedImageTests
         using var stream = new MemoryStream(pdf);
         return new PdfDocumentCodec(services).ReadPdf(
             stream,
-            policy is null ? null : new PdfReadOptions(resourcePolicy: policy));
+            policy is null && limits is null
+                ? null
+                : new PdfReadOptions(pdfLimits: limits, resourcePolicy: policy));
     }
 
     private static DocumentDiagnostic Only(PdfReadResult result, string code) =>
@@ -41,6 +47,35 @@ public sealed class PdfComposedImageTests
         DocumentDiagnostic skipped = Only(result, PdfDiagnosticCodes.FilterDctUnsupported);
         Assert.Contains("composes no image decoder", skipped.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
+    }
+
+    [Fact]
+    public void An_Image_The_Read_Declined_To_Decode_Does_Not_Blame_The_Composition()
+    {
+        // The pair the not-composed test above is only half of. An image can carry
+        // the tuple code for two unrelated reasons — nothing composed, or composed
+        // and not spent — and until this passed both said "this build composes no
+        // image decoder", which sent a reader off to compose a decoder that was
+        // already in the graph. The ceiling is what makes the second reachable in
+        // a test; a photograph whose encoded stream passes the stock 8 MiB reaches
+        // it on its own.
+        PdfReadResult result = Read(
+            DocumentWithJpeg(32, 32),
+            composed: true,
+            limits: new PdfLimits(maxDescribedImageBytes: 16));
+
+        DocumentDiagnostic skipped = Only(result, PdfDiagnosticCodes.FilterDctUnsupported);
+        Assert.DoesNotContain("composes no image decoder", skipped.Message, StringComparison.Ordinal);
+        Assert.Contains("A decoder for its filter is composed", skipped.Message, StringComparison.Ordinal);
+
+        // Still reported from the dictionary, which is the half that has not
+        // changed: the tuple is named whether or not the samples were read.
+        Assert.Contains("32x32 8bpc DeviceRGB DCTDecode", skipped.Message, StringComparison.Ordinal);
+        Assert.Empty(ImagesIn(result));
+
+        // A declined description is diagnostic work not done, never a document
+        // that failed: the text still arrives and no limit is reported.
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.Limit);
     }
 
     [Fact]
