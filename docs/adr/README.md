@@ -10,7 +10,12 @@ pagination, and compliance-governance decisions. ADR 0008 supersedes the
 conflicting result, embedded-resource, and sync-first portions of ADRs 0003 and
 0004 for the evolved contract. ADR 0012 fixes the base/extension split the
 implementation is built on: which part of PDF the repository implements itself,
-and the order in which any further technology may be added.
+and the order in which any further technology may be added. ADR 0013 takes the
+0011 discipline out of PDF: it makes standards, IP, provenance, and claims a
+component-wide concern, adopts the evidence-based standard of review the PDF
+register set on 2026-09-02 — superseding 0011's requirement of qualified legal
+review before implementation clearance — and gives each format its own register
+and claim gate, ODT's being the first.
 Accepted and partially superseded records remain here for traceability; current
 follow-up work is in [the component roadmap](../roadmap.md).
 
@@ -28,3 +33,4 @@ follow-up work is in [the component roadmap](../roadmap.md).
 | [0010](0010-pdf-pagination-units-fonts-and-platforms.md) | PDF pagination, units, fonts, scripts, and platforms |
 | [0011](0011-pdf-standards-ip-provenance-and-claims.md) | PDF standards, IP, provenance, and claims (proposed; legal review pending) |
 | [0012](0012-pdf-base-implementation-and-composed-extensions.md) | PDF base implementation scope and composed extensions |
+| [0013](0013-standards-ip-provenance-and-claims-beyond-pdf.md) | Standards, IP, provenance, and claims beyond PDF (proposed; supersedes 0011 on standard of review) |

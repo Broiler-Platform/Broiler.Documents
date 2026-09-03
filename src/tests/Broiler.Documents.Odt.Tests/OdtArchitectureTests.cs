@@ -46,7 +46,7 @@ public sealed class OdtArchitectureTests
     }
 
     private static string OdtProjectPath() =>
-        Path.Combine(FindComponentRoot(), "src", "Broiler.Documents.Odt", "Broiler.Documents.Odt.csproj");
+        Path.Combine(OdtGuardRoots.Component, "src", "Broiler.Documents.Odt", "Broiler.Documents.Odt.csproj");
 
     private static string[] ProjectReferences(XDocument project) =>
         project
@@ -56,27 +56,4 @@ public sealed class OdtArchitectureTests
             .Cast<string>()
             .OrderBy(reference => reference, StringComparer.Ordinal)
             .ToArray();
-
-    /// <summary>
-    /// The Broiler.Documents repository root: the directory that owns
-    /// <c>Directory.Build.props</c> and holds the component's projects under
-    /// <c>src</c>. Found by walking up from the test binary, so it resolves the
-    /// same way standalone and when this component is checked out inside the
-    /// aggregate repository.
-    /// </summary>
-    private static string FindComponentRoot()
-    {
-        DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")) &&
-                File.Exists(Path.Combine(
-                    directory.FullName, "src", "Broiler.Documents", "Broiler.Documents.csproj")))
-                return directory.FullName;
-
-            directory = directory.Parent;
-        }
-
-        throw new DirectoryNotFoundException("Broiler.Documents component root not found.");
-    }
 }

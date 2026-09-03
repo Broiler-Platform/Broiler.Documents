@@ -1,4 +1,4 @@
-﻿# ODT Conformance
+# ODT Conformance
 
 `Broiler.Documents.Odt` reads and writes a dependency-free ODT subset over OASIS
 OpenDocument text packages (ODF 1.0 through 1.3, published as ISO/IEC 26300). It
@@ -178,6 +178,7 @@ blank:
 | `odt.package.content` | Error | The package has no `content.xml`. |
 | `odt.package.zip` | Error | The bytes are not a readable ZIP package. |
 | `odt.document.body` | Error | `content.xml` has no `office:text` body. |
+| `odt.xml` | Error | A part's XML could not be parsed; the message names the exception type. |
 | `odt.limit.bytes` | Error | Input exceeded `MaxDocumentBytes` and was not parsed. |
 | `odt.content.xml` / `odt.styles` / `odt.manifest` | Error | A part could not be parsed, or exceeded `MaxBinBytes` (`.limit` suffix). |
 | `odt.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
@@ -201,13 +202,17 @@ blank:
 | `odt.image.binary` | Warning | An inline picture payload was not valid base64. |
 | `odt.image.shape` | Warning | A frame held no embedded picture. |
 | `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
+| `odt.image.denied` | Warning | A picture was not read into the document because the caller's resource policy did not permit it; the message names the denial. |
+| `odt.page.geometry` | Warning | A page layout described a page with no room to write on, so the page was not read. |
 | `odt.limit.depth` | Warning | Block or inline nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `odt.limit.run` | Warning | A paragraph hit `MaxRunLength` and was truncated. |
 | `odt.limit.spaces` | Warning | A `text:s` count exceeded `MaxRunLength` and was clamped. |
 | `odt.limit.paragraphs` | Warning | Input exceeded `MaxParagraphCount`; remaining paragraphs were dropped. |
 
 Write diagnostics are `odt.link`, `odt.image.placeholder`, `odt.image.size`,
-`odt.color.alpha`, and `odt.text.control`.
+`odt.color.alpha`, `odt.text.control`, and `odt.image.omitted` — the last one
+reporting a picture the caller's resource policy did not permit the write to
+pass on, which is the writer's counterpart to `odt.image.denied`.
 
 `broilerdoc info <file>` prints all of them, which is the quickest way to see
 what a problem document lost.
@@ -233,23 +238,47 @@ identifiable from its first bytes:
 ## Standards And Rights
 
 ODF is an OASIS standard, republished as ISO/IEC 26300, and the specification is
-freely available. The OASIS ODF technical committee works under a royalty-free
-IPR mode, and the principal contributors published patent covenants covering
-conforming implementations. That is a materially better starting position than a
-format governed by a vendor licence, and it is why an ODF codec needs no licence
-negotiation to be written.
+freely available. The OASIS ODF technical committee works under the **"RF on
+Limited Terms Mode"** of the OASIS IPR Policy, under which a contributor must
+license its Essential Claims royalty-free and may not attach the further
+conditions the RAND modes allow. That is a materially better starting position
+than a format governed by a vendor licence, and it is why an ODF codec needs no
+licence negotiation to be written.
 
 It is **not** a statement that the format, or this implementation, is free of
-third-party patent claims. No one can establish that from a specification, and
-this component does not attempt to. The controls that exist for exactly this
-question — the IP and licensing register, and the rule that no feature-matrix
-entry reaches `Supported` while its rights row is pending — are the PDF ones
-today ([ADR 0011](adr/0011-pdf-standards-ip-provenance-and-claims.md),
-[the PDF IP and licensing register](pdf-ip-licensing-register.md)). Extending
-them to cover ODT, and getting a legal reading on the covenants above, is
-[roadmap](roadmap.md) work, not something this document settles.
+third-party patent claims. The mode binds the committee's participants over
+their own Essential Claims; it establishes nothing about anyone who never
+participated. No one can establish patent-freedom from a specification, and this
+component does not attempt to.
 
-What is settled here is provenance: every line of this codec was written against
-the published specification for this repository. It embeds no third-party ODF
-code, takes no runtime dependency, and vendors no sample document — the test
-packages are all constructed in code.
+**Rights are recorded in one place, and it is not this document.** ODT now has
+its own register — [the ODT IP and licensing register](odt-ip-licensing-register.md),
+governed by [ADR 0013](adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md),
+which extends the [ADR 0011](adr/0011-pdf-standards-ip-provenance-and-claims.md)
+discipline beyond PDF. Read it before relying on anything here: it holds the
+primary sources, and **every one of its rows is still pending a decision.** The
+evidence has been assembled; nobody has signed it off.
+
+One correction belongs here rather than only there, because this document is
+where the overstatement was. It used to say that "the principal contributors
+published patent covenants" covering conforming implementations, in the plural.
+Only Sun's is primary-sourced — the 2005 OpenDocument Patent Statement and the
+2002 IPR statement, both linked from the committee's own IPR page, and both
+carrying a reciprocity condition. IBM's pledge and any comparable instrument are
+named in secondary sources that nobody here has verified against the originals,
+so ODT-IP-003 records them as **not relied on**. Nothing may be said about the
+contributors' covenants as a set.
+
+What is settled here is provenance, and it is settled by inspection rather than
+by assertion: every line of this codec was written against the published
+specification for this repository. It embeds no third-party ODF code, takes no
+package reference at all, reproduces no specification text, and vendors no sample
+document — the test packages are all constructed in code. Those findings are
+ODT-IP-004 through ODT-IP-006, and `OdtClaimGuardTests` now fails the build if
+any of them stops being true.
+
+What may be said about the format is bounded by ODT-IP-007 and is deliberately
+narrow: the format may be named, and this implementation may not be described as
+ODF-conformant, standards-conformant, certified, endorsed, patent-free, or
+royalty-free. Implementing a documented subset is not conformance — the
+specification defines that, and this document describes a subset.
