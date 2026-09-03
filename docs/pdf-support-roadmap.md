@@ -1511,6 +1511,13 @@ caller font set and presents a preflight failure when one is absent; it bundles
 no fallback font and holds no font licence. The reasoning, the costs accepted,
 and what is still owed are in the [font path brief](pdf-font-path-brief.md).
 
+That decision settled *where fonts come from*. It did not settle whether this
+project may embed one, which is IP-012's and is expressly outside that row's
+inspection approval. Re-opening it was requested on 2026-09-03; the question, the
+refusals the preflight already enforces, and the dispositions available are in the
+[IP-012 embedding brief](pdf-ip-012-embedding-brief.md). Until that row moves, no
+code here writes a font program into a PDF.
+
 - Never select fonts through ambient installed-font discovery.
 - Require caller-supplied deterministic font resources or an explicitly
   licensed shared fallback font.
