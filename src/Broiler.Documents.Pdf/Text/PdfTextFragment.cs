@@ -27,7 +27,8 @@ internal sealed class PdfTextFragment
         bool bold,
         bool italic,
         BColor color,
-        int renderMode)
+        int renderMode,
+        int mcid = -1)
     {
         Text = text;
         X = x;
@@ -40,6 +41,7 @@ internal sealed class PdfTextFragment
         Italic = italic;
         Color = color;
         RenderMode = renderMode;
+        Mcid = mcid;
     }
 
     public string Text { get; }
@@ -77,6 +79,17 @@ internal sealed class PdfTextFragment
 
     /// <summary>True for a rendering mode that paints nothing.</summary>
     public bool IsInvisible => RenderMode is 3 or 7;
+
+    /// <summary>
+    /// The marked-content id this run was drawn under, or -1 where it was drawn
+    /// outside any marked content.
+    /// </summary>
+    /// <remarks>
+    /// Carried only so a tagged document's structure tree can put the run in the
+    /// order its author declared. It is page-scoped, meaningless on its own, and
+    /// like every other coordinate here it stops at model projection.
+    /// </remarks>
+    public int Mcid { get; }
 
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"'{Text}' @ ({X:F1},{Y:F1}) {FontSize:F1}pt");

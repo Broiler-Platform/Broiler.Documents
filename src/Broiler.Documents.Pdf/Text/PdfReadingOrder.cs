@@ -96,6 +96,54 @@ internal static class PdfReadingOrder
     }
 
     /// <summary>
+    /// Assembles lines in the order a tagged document declares, rather than the
+    /// order its geometry implies.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only the sequence of blocks comes from the structure tree. Within a block
+    /// the geometric pass still runs, because the order of glyphs on a baseline
+    /// is a geometric fact and no tagging changes it — what tagging settles is
+    /// which block follows which, the question a gutter histogram can only guess
+    /// at and gets wrong on a sidebar, a pull quote, or a table.
+    /// </para>
+    /// <para>
+    /// Column splitting is deliberately not run here. It exists to recover an
+    /// order the page did not state; a page that states one has already answered
+    /// it, and re-deriving it could only disagree.
+    /// </para>
+    /// </remarks>
+    public static List<PdfTextLine> BuildLinesInDeclaredOrder(
+        IReadOnlyList<PdfTextFragment> fragments,
+        IReadOnlyList<PdfLinkRegion> links,
+        Func<PdfTextFragment, int> order)
+    {
+        var lines = new List<PdfTextLine>();
+        if (fragments.Count == 0)
+            return lines;
+
+        // One group per marked-content item, in declared order. Fragments inside
+        // a group keep their own relative order for the geometric pass to sort.
+        var groups = new SortedDictionary<int, List<PdfTextFragment>>();
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            int at = order(fragment);
+            if (!groups.TryGetValue(at, out List<PdfTextFragment>? group))
+            {
+                group = [];
+                groups[at] = group;
+            }
+
+            group.Add(fragment);
+        }
+
+        foreach (List<PdfTextFragment> group in groups.Values)
+            lines.AddRange(BuildColumnLines(group, links));
+
+        return lines;
+    }
+
+    /// <summary>
     /// Splits fragments into columns separated by a clear vertical gutter. A page
     /// with no such gutter yields one column, which is the common case and costs
     /// one histogram pass.

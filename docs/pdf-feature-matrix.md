@@ -156,7 +156,8 @@ is pending.
 | Attachments and embedded files | Rejected | Detected and reported; never extracted | No extraction or activation in V1 |
 | JavaScript and active actions | Rejected | Detected and reported; never executed | Diagnose and ignore without execution |
 | Redaction or secure sanitization | Rejected | An unapplied Redact annotation raises an error-severity warning | Conversion is not redaction |
-| Tagged PDF / structure tree | Post-V1 | Presence reported; structure not consumed | Separate accessibility architecture |
+| Tagged PDF / structure tree, read for reading order only | Candidate | The tree is walked for its sequence and used to order a page whose runs it accounts for in full; a page it covers only partly falls back to geometry whole. Roles, heading levels, lists, tables, and the role map are all ignored | Sequence only; no accessibility or conformance claim follows, and §14.2 still owns the rest |
+| Tagged PDF / structure tree, everything but reading order | Post-V1 | Presence reported; roles and semantics not consumed | Separate accessibility architecture |
 | PDF/UA, PDF/A, PDF/X conformance | Post-V1 | No claim; writer output is untagged | Profile-specific standards and validation required |
 
 ## Platform claims
