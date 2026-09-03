@@ -32,6 +32,24 @@
     <BroilerDomRoot>$(MSBuildThisFileDirectory)Broiler.DOM</BroilerDomRoot>
   </PropertyGroup>
 
+  <!-- Which checkout each root actually resolved to, recorded into every
+       assembly this repository builds. The roots above are deliberately
+       overridable, and a consumer that overrides them is doing the right thing;
+       what nobody can see afterwards is that it happened. Building this
+       repository from inside a consumer's tree imports that consumer's
+       Directory.Build.props above, so the solution compiles against its
+       components instead of this one's pinned submodules, and passes while this
+       repository's own CI would fail.
+
+       A test reads these back and fails when the build did not use this
+       repository's own checkouts, so a green run from inside a consumer's tree
+       says so out loud instead of being mistaken for evidence. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="BroilerGraphicsRoot" Value="$(BroilerGraphicsRoot)" />
+    <AssemblyMetadata Include="BroilerMediaRoot" Value="$(BroilerMediaRoot)" />
+    <AssemblyMetadata Include="BroilerDomRoot" Value="$(BroilerDomRoot)" />
+  </ItemGroup>
+
   <!-- Broiler NuGet packaging metadata (vendored; do not edit by hand). -->
   <Import Project="$(MSBuildThisFileDirectory)eng\Broiler.Packaging.props" />
 
