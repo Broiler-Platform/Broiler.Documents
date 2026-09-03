@@ -906,21 +906,31 @@ internal sealed class PdfContentInterpreter
         // codec does: Flate samples are as reachable as JPEG ones, and treating
         // them otherwise told the caller this build had no decoder for an image
         // whose decoder it had composed all along.
-        if (CanDecode(filter) && DecodeToDescribe(stream) is PdfStreamDecodeResult decoded)
+        if (CanDecode(filter))
         {
-            if (decoded.Succeeded)
+            if (DecodeToDescribe(stream) is PdfStreamDecodeResult decoded)
             {
-                bool codec = HasImageFilter(filter);
-                _store.Features.NoteDecodedImage(shape, decoded.Data!.LongLength, _store.CurrentPage, codec);
-                Project(stream, shape, decoded.Data, codec, resources);
+                if (decoded.Succeeded)
+                {
+                    bool codec = HasImageFilter(filter);
+                    _store.Features.NoteDecodedImage(shape, decoded.Data!.LongLength, _store.CurrentPage, codec);
+                    Project(stream, shape, decoded.Data, codec, resources);
+                    return;
+                }
+
+                _store.Features.NoteImage(
+                    decoded.DiagnosticCode ?? ImageDiagnosticFor(filter),
+                    shape,
+                    _store.CurrentPage,
+                    decoded.Message);
                 return;
             }
 
-            _store.Features.NoteImage(
-                decoded.DiagnosticCode ?? ImageDiagnosticFor(filter),
-                shape,
-                _store.CurrentPage,
-                decoded.Message);
+            // Composed and not spent. The image is reported from its dictionary
+            // exactly as one this build cannot reach would be, but not under the
+            // same sentence: saying a build that composed a decoder composes none
+            // is false, and it is the sentence a host acts on.
+            _store.Features.NoteImage(ImageDiagnosticFor(filter), shape, _store.CurrentPage, undecoded: true);
             return;
         }
 
@@ -975,10 +985,14 @@ internal sealed class PdfContentInterpreter
     /// </para>
     /// <para>
     /// A declined attempt reports the image from its dictionary, under the same
-    /// code and the same sentence an image this build cannot reach would use. It
-    /// does not say a budget stopped it: how much allowance was left when a given
-    /// image was reached is a fact about the read, not about the document, and a
-    /// diagnostic names constructs.
+    /// code an image this build cannot reach would use — the code names the
+    /// filter that would have to be decoded, and that is true either way — but
+    /// not under the same sentence. It still does not say how much allowance was
+    /// left when a given image was reached: that is a fact about the read, not
+    /// about the document, and a diagnostic names constructs. What it does say is
+    /// that a decoder was composed, because a build that composed one and a build
+    /// that has none are fixed by entirely different work, and only the first
+    /// sentence of that note tells them apart.
     /// </para>
     /// </remarks>
     private PdfStreamDecodeResult? DecodeToDescribe(PdfStream stream)
