@@ -261,6 +261,9 @@ repository secret; GitHub Packages uses the built-in `GITHUB_TOKEN`.
 - [Command-line guide](docs/cli.md)
 - [Current roadmap](docs/roadmap.md)
 - [PDF Phase 0 status](docs/pdf-phase0-status.md)
+- [ODT IP and licensing register](docs/odt-ip-licensing-register.md) - the ODF
+  rights record. Every row is still pending a decision; nothing about ODT is
+  cleared.
 - [PDF IP and licensing register](docs/pdf-ip-licensing-register.md)
 - [PDF approved sources](docs/pdf-approved-sources.md)
 - [PDF corpus manifest](docs/pdf-corpus-manifest.json) and its
