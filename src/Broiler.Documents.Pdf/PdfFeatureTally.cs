@@ -163,6 +163,7 @@ internal sealed class PdfFeatureTally
     private readonly Dictionary<string, ImageGroup> _images = new(StringComparer.Ordinal);
     private readonly DecodedImageGroup _decodedImages = new();
     private readonly SortedSet<int> _notProjectedPages = [];
+    private readonly SortedSet<string> _notProjectedReasons = new(StringComparer.Ordinal);
     private readonly SortedSet<int> _deniedPages = [];
     private int _notProjected;
     private int _denied;
@@ -209,15 +210,22 @@ internal sealed class PdfFeatureTally
         _decodedImages.Add(declared, sampleBytes, page, codec);
 
     /// <summary>
-    /// Records a decoded image the model could not take: a stencil mask, a
-    /// dictionary that reinterprets its samples, or a sample layout outside the
-    /// two the projection understands.
+    /// Records a decoded image the model could not take, and what stopped it.
     /// </summary>
-    public void NoteImageNotProjected(int? page)
+    /// <param name="reason">
+    /// A short noun phrase naming the construct met. The distinct reasons are
+    /// reported together, because a document whose pictures are all CMYK and one
+    /// whose pictures are all stencil masks need different work, and a count
+    /// alone cannot tell a caller which they have.
+    /// </param>
+    public void NoteImageNotProjected(int? page, string reason)
     {
         _notProjected++;
         if (page is int number)
             _notProjectedPages.Add(number);
+
+        if (reason.Length > 0 && _notProjectedReasons.Count < MaxDistinctVariants)
+            _notProjectedReasons.Add(reason);
     }
 
     /// <summary>
@@ -319,16 +327,21 @@ internal sealed class PdfFeatureTally
         {
             // The tally's own description carries what the decode learned —
             // including a dictionary that disagrees with its samples, which is
-            // one of the reasons an image is not carried. Appending the reason
+            // one of the reasons an image is not carried. Appending the reasons
             // rather than replacing that keeps both halves of the story.
-            const string Why =
-                " Not carried into the document: a stencil mask, a Decode array that reinterprets the samples, " +
-                "or a component layout outside the two this build projects. The samples remain reachable " +
-                "through the filter pipeline.";
-            string where = PagesPhrase(_notProjectedPages);
+            var why = new StringBuilder();
+            why.Append(CultureInfo.InvariantCulture,
+                $" {_notProjected} of them {Were(_notProjected)} not carried into the document");
+
+            if (_notProjectedReasons.Count > 0)
+                why.Append(", having met: ").Append(string.Join("; ", _notProjectedReasons));
+
+            why.Append(". The samples remain reachable through the filter pipeline.");
+            why.Append(PagesPhrase(_notProjectedPages));
+
             diagnostics.Skipped(
                 PdfDiagnosticCodes.ImageDecodedNotProjected,
-                _decodedImages.Describe() + Why + where);
+                _decodedImages.Describe() + why);
         }
 
         if (_denied > 0)
@@ -670,8 +683,7 @@ internal sealed class PdfFeatureTally
         {
             var text = new StringBuilder("The page draws raster images this build can decode. ");
             text.Append(CultureInfo.InvariantCulture,
-                $"{Total} image{S(Total)} {Were(Total)} decoded to {_sampleBytes} bytes of samples and then dropped: ");
-            text.Append("this release's logical model carries no images, so nothing was projected into the result.");
+                $"{Total} image{S(Total)} {Were(Total)} decoded to {_sampleBytes} bytes of samples.");
             _pages.Append(text);
 
             if (_variants.Count > 0)

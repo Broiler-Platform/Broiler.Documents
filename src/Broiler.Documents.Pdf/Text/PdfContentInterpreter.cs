@@ -607,7 +607,7 @@ internal sealed class PdfContentInterpreter
 
         if (subtype == "Image")
         {
-            NoteImage(stream);
+            NoteImage(stream, resources);
             return;
         }
 
@@ -716,7 +716,7 @@ internal sealed class PdfContentInterpreter
     /// statement of exactly which decoder tuples this document would need — the
     /// question IP-005 has to answer before <c>DCTDecode</c> can be composed.
     /// </remarks>
-    private void NoteImage(PdfStream stream)
+    private void NoteImage(PdfStream stream, PdfDictionary? resources)
     {
         PdfDictionary dictionary = stream.Dictionary;
         PdfObject? filter = dictionary["Filter"];
@@ -740,9 +740,9 @@ internal sealed class PdfContentInterpreter
         {
             if (decoded.Succeeded)
             {
-                _store.Features.NoteDecodedImage(
-                    shape, decoded.Data!.LongLength, _store.CurrentPage, HasImageFilter(filter));
-                Project(stream, shape, decoded.Data);
+                bool codec = HasImageFilter(filter);
+                _store.Features.NoteDecodedImage(shape, decoded.Data!.LongLength, _store.CurrentPage, codec);
+                Project(stream, shape, decoded.Data, codec, resources);
                 return;
             }
 
@@ -1325,51 +1325,106 @@ internal sealed class PdfContentInterpreter
     /// picture, the dictionary does not reinterpret them, and the caller's policy
     /// permits extraction.
     /// </summary>
+    /// <param name="codec">
+    /// True when an image codec produced the samples. A codec has already
+    /// resolved the frame's colour space and normalized the result to RGBA, so
+    /// its output stands on its own; a byte-stream chain yields the image's own
+    /// samples instead, and only the dictionary says what they mean.
+    /// </param>
     /// <remarks>
     /// <para>
-    /// Three things are refused here rather than guessed at, and each would
-    /// produce a plausible wrong picture instead of an error.
+    /// What is refused here is refused rather than guessed at, because each case
+    /// would otherwise produce a plausible wrong picture instead of an error. A
+    /// <c>/ImageMask</c> stencil paints the current fill colour through a
+    /// one-bit shape, so projecting it as black-and-white invents a colour the
+    /// page never used. An <c>/SMask</c> or a colour-key <c>/Mask</c> carries the
+    /// transparency the picture is drawn with, and this build composites
+    /// neither, so carrying the image opaque puts a solid box where a logo's
+    /// transparent ground belongs. A colour space outside the approved raw-sample
+    /// subset needs a transform this project does not own.
     /// </para>
     /// <para>
-    /// A <c>/ImageMask</c> stencil is not a picture: it paints the current fill
-    /// colour through a one-bit shape, so projecting it as black-and-white would
-    /// invent a colour the page never used. A <c>/Decode</c> array remaps the
-    /// component values, and honouring only some of the ways it can do that is
-    /// worse than honouring none — so any Decode at all stops the projection. And
-    /// samples whose length matches neither of the two layouts this understands
-    /// are some other arrangement of components, which is a decoder question
-    /// rather than something to infer from a byte count.
-    /// </para>
-    /// <para>
-    /// What is left is the two layouts the composed filters actually produce:
-    /// four-byte RGBA from the image codecs, and packed one-bit rows from the fax
-    /// and JBIG2 decoders, whose output convention is fixed at 0 for black.
+    /// Every refusal names what it met, because the reasons are answered by
+    /// different work: composing a decoder, widening the approved subset, and
+    /// fixing a document that contradicts itself are three different things for a
+    /// caller to be told.
     /// </para>
     /// </remarks>
-    private void Project(PdfStream stream, PdfImageShape shape, byte[] samples)
+    private void Project(PdfStream stream, in PdfImageShape shape, byte[] samples, bool codec, PdfDictionary? resources)
     {
-        if (_resources is null || shape.Width <= 0 || shape.Height <= 0)
+        if (_resources is null)
             return;
 
-        PdfDictionary dictionary = stream.Dictionary;
-        bool stencil = _store.Resolve(dictionary["ImageMask"] ?? dictionary["IM"]) is PdfBoolean mask && mask.Value;
-        if (stencil || dictionary["Decode"] is not null || dictionary["D"] is not null)
+        void NotProjected(string reason) => _store.Features.NoteImageNotProjected(_store.CurrentPage, reason);
+
+        if (shape.Width <= 0 || shape.Height <= 0)
         {
-            _store.Features.NoteImageNotProjected(_store.CurrentPage);
+            NotProjected("an unstated pixel size");
             return;
         }
 
-        byte[]? rgba = ToRgba(samples, shape.Width, shape.Height);
-        if (rgba is null)
+        PdfDictionary dictionary = stream.Dictionary;
+
+        if (_store.Resolve(dictionary["ImageMask"]) is PdfBoolean mask && mask.Value)
         {
-            _store.Features.NoteImageNotProjected(_store.CurrentPage);
+            NotProjected("a stencil mask");
+            return;
+        }
+
+        if (dictionary["SMask"] is not null || dictionary["Mask"] is not null)
+        {
+            NotProjected("transparency this build does not composite");
+            return;
+        }
+
+        long pixels = (long)shape.Width * shape.Height;
+        if (pixels > int.MaxValue / BPixelBuffer.BytesPerPixel)
+        {
+            NotProjected("a pixel count past what one buffer holds");
+            return;
+        }
+
+        long rgbaBytes = pixels * BPixelBuffer.BytesPerPixel;
+
+        // Projecting is charged like the decode that fed it, and for the same
+        // reason: the pixels are four bytes each however few bytes the samples
+        // packed them into, and a one-bit page-sized scan expands thirty-two
+        // fold. A charge that lands past a limit drops this image and nothing
+        // else — carrying a picture must never be the reason a document fails.
+        try
+        {
+            _store.Budget.ChargeDecodedBytes(rgbaBytes);
+        }
+        catch (PdfLimitExceededException)
+        {
+            NotProjected("a pixel count past the read's remaining allowance");
+            return;
+        }
+
+        byte[]? rgba;
+        if (codec && samples.LongLength == rgbaBytes)
+        {
+            rgba = samples;
+        }
+        else if (TryResolveSamples(dictionary, shape, resources, out PdfSampleFormat format, out string refusal))
+        {
+            rgba = PdfImageSamples.ToRgba(format, samples);
+            if (rgba is null)
+            {
+                NotProjected("a sample count its declaration does not account for");
+                return;
+            }
+        }
+        else
+        {
+            NotProjected(refusal);
             return;
         }
 
         (double left, double top, double width, double height) = PlacementOf(_state.Matrix);
         if (width <= 0 || height <= 0)
         {
-            _store.Features.NoteImageNotProjected(_store.CurrentPage);
+            NotProjected("a placement matrix with no extent");
             return;
         }
 
@@ -1396,41 +1451,270 @@ internal sealed class PdfContentInterpreter
     }
 
     /// <summary>
-    /// The samples as straight-alpha RGBA, or null when the layout is not one of
-    /// the two this understands.
+    /// Resolves the sample layout PDF roadmap §9.3 approved — DeviceGray at 1,
+    /// 2, 4, or 8 bits, DeviceRGB at 8, and Indexed at 1, 2, 4, or 8 over a
+    /// bounded DeviceGray or DeviceRGB palette — or names why this image falls
+    /// outside it.
     /// </summary>
-    private static byte[]? ToRgba(byte[] samples, int width, int height)
+    /// <remarks>
+    /// A refusal names a colour space only where the format reserves the name.
+    /// A space a resource dictionary invented is reported as being outside the
+    /// subset without repeating what the document called it: a construct this
+    /// build recognizes is a fact about the format, and a name the author chose
+    /// is a value (ADR 0009).
+    /// </remarks>
+    private bool TryResolveSamples(
+        PdfDictionary dictionary,
+        in PdfImageShape shape,
+        PdfDictionary? resources,
+        out PdfSampleFormat format,
+        out string refusal)
     {
-        long pixels = (long)width * height;
-        if (pixels > int.MaxValue / 4)
-            return null;
+        format = default;
+        refusal = string.Empty;
 
-        if (samples.LongLength == pixels * 4)
-            return samples;
-
-        // Packed one-bit rows, most significant bit first, 0 meaning black.
-        long stride = ((long)width + 7) / 8;
-        if (samples.LongLength != stride * height)
-            return null;
-
-        byte[] rgba = new byte[pixels * 4];
-        int output = 0;
-        for (int y = 0; y < height; y++)
+        int bits = shape.BitsPerComponent;
+        if (bits is not (1 or 2 or 4 or 8))
         {
-            long row = y * stride;
-            for (int x = 0; x < width; x++)
-            {
-                int bit = (samples[row + (x >> 3)] >> (7 - (x & 7))) & 1;
-                byte level = bit == 0 ? (byte)0 : (byte)255;
-                rgba[output] = level;
-                rgba[output + 1] = level;
-                rgba[output + 2] = level;
-                rgba[output + 3] = 255;
-                output += 4;
-            }
+            refusal = "a bit depth outside the approved subset";
+            return false;
         }
 
-        return rgba;
+        PdfObject? space = ResolveColorSpace(dictionary["ColorSpace"], resources);
+        string family = ColorSpaceFamily(space);
+
+        switch (family)
+        {
+            case "DeviceGray":
+                if (!TryDecodeArray(dictionary, components: 1, upper: 1, out double[]? gray))
+                {
+                    refusal = "a Decode array outside the range the format allows";
+                    return false;
+                }
+
+                format = new PdfSampleFormat(shape.Width, shape.Height, bits, PdfSampleSpace.Gray, null, gray);
+                return true;
+
+            case "DeviceRGB":
+                if (bits != 8)
+                {
+                    refusal = "DeviceRGB at a depth other than eight bits";
+                    return false;
+                }
+
+                if (!TryDecodeArray(dictionary, components: 3, upper: 1, out double[]? rgb))
+                {
+                    refusal = "a Decode array outside the range the format allows";
+                    return false;
+                }
+
+                format = new PdfSampleFormat(shape.Width, shape.Height, bits, PdfSampleSpace.Rgb, null, rgb);
+                return true;
+
+            case "Indexed":
+                if (space is not PdfArray indexed || !TryPalette(indexed, out byte[]? palette, out refusal))
+                {
+                    if (refusal.Length == 0)
+                        refusal = "an Indexed colour space this build cannot read";
+                    return false;
+                }
+
+                // An Indexed image's Decode array remaps the indices themselves,
+                // which is a different operation from remapping colour values.
+                // Applying half of it would be worse than applying none, so only
+                // the default mapping projects.
+                if (!TryDecodeArray(dictionary, components: 1, upper: (1 << bits) - 1, out double[]? lookup) || lookup is not null)
+                {
+                    refusal = "an Indexed image that remaps its own indices";
+                    return false;
+                }
+
+                format = new PdfSampleFormat(shape.Width, shape.Height, bits, PdfSampleSpace.Indexed, palette, null);
+                return true;
+
+            case "":
+                refusal = "an unstated colour space";
+                return false;
+
+            default:
+                // Named only where the format reserves the name, so a document's
+                // own resource label never reaches a diagnostic.
+                refusal = PdfColorSpaces.IsReserved(family)
+                    ? "the colour space " + family
+                    : "a colour space outside the approved subset";
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// The colour space an image names, following a resource-dictionary label to
+    /// the space it stands for. The device families always mean themselves: the
+    /// format reserves those names, and a resource entry cannot redefine one.
+    /// </summary>
+    private PdfObject? ResolveColorSpace(PdfObject? declared, PdfDictionary? resources)
+    {
+        PdfObject? space = _store.Resolve(declared);
+
+        if (space is not PdfName name || PdfColorSpaces.IsReserved(name.Value) || resources is null)
+            return space;
+
+        return _store.Resolve(resources["ColorSpace"]) is PdfDictionary spaces &&
+               _store.Resolve(spaces[name.Value]) is PdfObject bound and not PdfNull
+            ? bound
+            : space;
+    }
+
+    /// <summary>The family a colour space belongs to, or empty where it states none.</summary>
+    private string ColorSpaceFamily(PdfObject? space) => space switch
+    {
+        PdfName name => name.Value,
+        PdfArray array when array.Count > 0 && _store.Resolve(array[0]) is PdfName head => head.Value,
+        _ => string.Empty,
+    };
+
+    /// <summary>
+    /// The image's <c>/Decode</c> array, validated against the component count
+    /// and the interval its colour space defines, or null where it is absent or
+    /// states the default mapping. False means the array is present and outside
+    /// what this build applies.
+    /// </summary>
+    /// <param name="upper">
+    /// The top of the interval this space's components run over, which the
+    /// default array runs to: 1 for the device spaces, and the largest value the
+    /// depth holds for an Indexed one, whose components are indices rather than
+    /// colour values.
+    /// </param>
+    private bool TryDecodeArray(PdfDictionary dictionary, int components, double upper, out double[]? decode)
+    {
+        decode = null;
+
+        if (_store.Resolve(dictionary["Decode"]) is not PdfArray array)
+            return true;
+
+        if (array.Count != components * 2)
+            return false;
+
+        var values = new double[array.Count];
+        bool isDefault = true;
+
+        for (int i = 0; i < array.Count; i++)
+        {
+            if (_store.Resolve(array[i]) is not PdfNumber number ||
+                !double.IsFinite(number.Value) ||
+                number.Value < 0 ||
+                number.Value > upper)
+            {
+                return false;
+            }
+
+            values[i] = number.Value;
+            if (values[i] != (i % 2 == 0 ? 0 : upper))
+                isDefault = false;
+        }
+
+        decode = isDefault ? null : values;
+        return true;
+    }
+
+    /// <summary>
+    /// The palette of an <c>[/Indexed base hival lookup]</c> space, expanded to
+    /// RGB triples so the projection needs no second branch for a gray base.
+    /// </summary>
+    private bool TryPalette(PdfArray space, out byte[]? palette, out string refusal)
+    {
+        palette = null;
+        refusal = string.Empty;
+
+        if (space.Count != 4)
+        {
+            refusal = "an Indexed colour space this build cannot read";
+            return false;
+        }
+
+        int components = ColorSpaceFamily(_store.Resolve(space[1])) switch
+        {
+            "DeviceGray" => 1,
+            "DeviceRGB" => 3,
+            _ => 0,
+        };
+
+        if (components == 0)
+        {
+            refusal = "an Indexed palette over a colour space outside the approved subset";
+            return false;
+        }
+
+        // The format caps hival at 255, so the palette is bounded before a byte
+        // of it is read.
+        if (_store.Resolve(space[2]) is not PdfNumber high || !double.IsFinite(high.Value) || high.Value is < 0 or > 255)
+        {
+            refusal = "an Indexed palette past the size the format bounds it to";
+            return false;
+        }
+
+        int entries = (int)high.Value + 1;
+        byte[]? lookup = ReadPalette(space[3]);
+
+        if (lookup is null)
+        {
+            refusal = "an Indexed palette this build cannot read";
+            return false;
+        }
+
+        if (lookup.Length < entries * components)
+        {
+            refusal = "an Indexed palette shorter than it declares";
+            return false;
+        }
+
+        palette = new byte[entries * 3];
+        for (int i = 0; i < entries; i++)
+        {
+            int at = i * 3;
+            if (components == 1)
+            {
+                byte level = lookup[i];
+                palette[at] = level;
+                palette[at + 1] = level;
+                palette[at + 2] = level;
+                continue;
+            }
+
+            palette[at] = lookup[at];
+            palette[at + 1] = lookup[at + 1];
+            palette[at + 2] = lookup[at + 2];
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// A palette's bytes, from either form the format allows. A stream one is
+    /// decoded through the shared pipeline, so it is charged like every other
+    /// stream; a limit met while reading it drops the image rather than the
+    /// document.
+    /// </summary>
+    private byte[]? ReadPalette(PdfObject? lookup)
+    {
+        switch (_store.Resolve(lookup))
+        {
+            case PdfString text:
+                return text.Bytes;
+
+            case PdfStream stream:
+                try
+                {
+                    PdfStreamDecodeResult decoded = _store.Filters.Decode(stream, _store.Resolve, _store.Budget);
+                    return decoded.Succeeded ? decoded.Data : null;
+                }
+                catch (PdfLimitExceededException)
+                {
+                    return null;
+                }
+
+            default:
+                return null;
+        }
     }
 
     /// <summary>
