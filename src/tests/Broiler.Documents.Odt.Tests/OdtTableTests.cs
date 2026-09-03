@@ -24,6 +24,19 @@ public sealed class OdtTableTests
     private static string Row(params string[] cells) =>
         "<table:table-row>" + string.Concat(cells) + "</table:table-row>";
 
+    private static string StyledRow(string styleName, params string[] cells) =>
+        "<table:table-row table:style-name=\"" + styleName + "\">" +
+        string.Concat(cells) + "</table:table-row>";
+
+    /// <summary>The base styles plus one table-row style stating <paramref name="properties"/>.</summary>
+    private static string StylesWithRow(string properties) =>
+        Styles() +
+        "<style:style style:name=\"ro1\" style:family=\"table-row\">" +
+        "<style:table-row-properties " + properties + "/></style:style>";
+
+    private static RichTextDocument ReadWithRowStyle(string properties, string bodyXml) =>
+        OdtTestPackage.ReadStyled(bodyXml, StylesWithRow(properties)).Document;
+
     private static string Table(string columns, params string[] rows) =>
         "<table:table table:name=\"T\">" + columns + string.Concat(rows) + "</table:table>";
 
@@ -201,5 +214,85 @@ public sealed class OdtTableTests
         using var reader = new StreamReader(archive.GetEntry("content.xml")!.Open());
 
         Assert.DoesNotContain("<table:table", reader.ReadToEnd(), StringComparison.Ordinal);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Reads_The_Minimum_Height_A_Row_States()
+    {
+        RichTextDocument document = ReadWithRowStyle(
+            "style:min-row-height=\"72pt\"",
+            Table(Columns(2), StyledRow("ro1", Cell("a1"), Cell("b1")), Row(Cell("a2"), Cell("b2"))));
+
+        DocumentTable table = Assert.Single(document.Tables);
+        Assert.Equal(72, table.Rows[0].MinHeight, 3);
+        Assert.Equal(0, table.Rows[1].MinHeight);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Fixed_Row_Height_Is_Read_As_A_Minimum_Too()
+    {
+        // ODF's style:row-height is a fixed height. Honoured exactly it would clip
+        // the row's own text, so it is a floor here - the position the DOCX codec
+        // takes for w:hRule="exact", and the two formats agree rather than each
+        // inventing an answer.
+        RichTextDocument document = ReadWithRowStyle(
+            "style:row-height=\"1in\"",
+            Table(Columns(2), StyledRow("ro1", Cell("a1"), Cell("b1")), Row(Cell("a2"), Cell("b2"))));
+
+        Assert.Equal(72, Assert.Single(document.Tables).Rows[0].MinHeight, 3);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Row_Stating_Both_Heights_Takes_The_Larger()
+    {
+        RichTextDocument document = ReadWithRowStyle(
+            "style:min-row-height=\"20pt\" style:row-height=\"90pt\"",
+            Table(Columns(2), StyledRow("ro1", Cell("a1"), Cell("b1"))));
+
+        Assert.Equal(90, Assert.Single(document.Tables).Rows[0].MinHeight, 3);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void An_Optimal_Height_Row_Asks_For_Nothing()
+    {
+        // Optimal is the height the content needs, which is what a row without a
+        // floor already does.
+        RichTextDocument document = ReadWithRowStyle(
+            "style:use-optimal-row-height=\"true\" style:row-height=\"90pt\"",
+            Table(Columns(2), StyledRow("ro1", Cell("a1"), Cell("b1"))));
+
+        Assert.Equal(0, Assert.Single(document.Tables).Rows[0].MinHeight);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Row_Height_Round_Trips()
+    {
+        RichTextDocument source = ReadWithRowStyle(
+            "style:min-row-height=\"72pt\"",
+            Table(Columns(2), StyledRow("ro1", Cell("a1"), Cell("b1")), Row(Cell("a2"), Cell("b2"))));
+
+        DocumentTable table = Assert.Single(RoundTrip(source).Tables);
+        Assert.Equal(72, table.Rows[0].MinHeight, 3);
+        Assert.Equal(0, table.Rows[1].MinHeight);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Two_Writes_Of_A_Document_With_Row_Heights_Are_Still_Byte_Identical()
+    {
+        // The row styles are minted on first use and cached by their formatted
+        // height, so a second write must reuse the same names in the same order.
+        // Determinism is a property this codec states, and a new style cache is
+        // exactly the shape of thing that quietly breaks it.
+        RichTextDocument source = ReadWithRowStyle(
+            "style:min-row-height=\"72pt\"",
+            Table(
+                Columns(2),
+                StyledRow("ro1", Cell("a1"), Cell("b1")),
+                Row(Cell("a2"), Cell("b2")),
+                StyledRow("ro1", Cell("a3"), Cell("b3"))));
+
+        Assert.Equal(
+            OdtDocumentCodec.WriteToArray(source),
+            OdtDocumentCodec.WriteToArray(source));
     }
 }

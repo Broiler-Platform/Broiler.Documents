@@ -22,7 +22,8 @@ toolkit behind it.
 - Tables, as a `DocumentTable` over the paragraphs of their cells: column widths
   from each `table:table-column`'s style, `table:number-columns-spanned` and
   `table:number-rows-spanned`, the background and borders a cell's
-  `style:table-cell-properties` state, header rows, and tables nested in a cell.
+  `style:table-cell-properties` state, header rows, the height a row's
+  `style:table-row-properties` asks for, and tables nested in a cell.
   A `table:covered-table-cell` is what a merge covers, so it holds nothing and is
   read as the grid position it occupies and nothing more. The cells hold no text
   of their own: a cell names a range of the document's paragraphs, so a caret, a
@@ -110,9 +111,19 @@ toolkit behind it.
 - Comments (`office:annotation`), footnotes and endnotes (`text:note`) are not
   part of the body and are not imported.
 - Table styles beyond a cell's own background and borders are not applied, and
-  row heights, cell vertical alignment, and a table's own alignment and indent
-  are not represented; a table starts at the left margin and is as tall as its
-  rows. A cell's paragraphs are a range, so an edit that spans out of a cell and
+  cell vertical alignment and a table's own alignment and indent are not
+  represented; a table starts at the left margin.
+- A row's height is a **minimum** and never a ceiling. `style:min-row-height` is
+  a floor and is taken as one; `style:row-height` is a fixed height and is taken
+  as a floor as well, because a row honouring it exactly would clip its own text
+  and losing text is the one outcome a reader may not choose. That is the
+  position the DOCX codec takes for `w:hRule="exact"`, so the two formats agree
+  rather than each inventing an answer. A row stating both takes the larger, each
+  being a floor. `style:use-optimal-row-height` asks for the height the content
+  needs, which is what a row does anyway without a floor, so it asks for none.
+  A write states the height as `style:min-row-height`, never as the fixed
+  attribute, which would tell the next reader something stronger than the
+  document knows. A cell's paragraphs are a range, so an edit that spans out of a cell and
   into the body does not keep the grid over what it merged.
 - A floating picture keeps its position, its layer and its wrapping.
   `style:wrap` is read, and its two names that read backwards are read the way

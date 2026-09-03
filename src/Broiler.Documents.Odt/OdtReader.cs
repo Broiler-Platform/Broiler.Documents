@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -676,7 +676,8 @@ internal static class OdtReader
 
             rows.Add(new TableRow(
                 cells,
-                row.Parent?.Name == OdtNamespaces.Table + "table-header-rows"));
+                row.Parent?.Name == OdtNamespaces.Table + "table-header-rows",
+                ReadRowMinHeight(row, context.Styles)));
         }
 
         context.Builder.AddTable(new DocumentTable(
@@ -726,6 +727,59 @@ internal static class OdtReader
         }
 
         return widths;
+    }
+
+    /// <summary>
+    /// The height a row asks for, in points, as a minimum.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ODF states this two ways and they do not mean the same thing.
+    /// <c>style:min-row-height</c> is a floor and is taken as one.
+    /// <c>style:row-height</c> is a fixed height, and is <em>also</em> taken as a
+    /// floor: a row honouring it exactly would clip its own text, and losing text
+    /// is the one outcome a document reader may not choose. That is the position
+    /// the DOCX codec takes for <c>w:hRule="exact"</c>, and the two formats agree
+    /// here rather than each inventing an answer.
+    /// </para>
+    /// <para>
+    /// Where a row states both, the larger wins: each is a floor and a row
+    /// satisfying the taller satisfies the other. <c>style:use-optimal-row-height</c>
+    /// asks for the height the content needs, which is what a row does anyway
+    /// without a floor, so it is read as asking for none.
+    /// </para>
+    /// </remarks>
+    private static double ReadRowMinHeight(XElement row, OdtStyles styles)
+    {
+        string? styleName = (string?)row.Attribute(OdtNamespaces.Table + "style-name");
+        if (styleName is null ||
+            !styles.TableRowProperties.TryGetValue(styleName, out XElement? properties))
+        {
+            return 0;
+        }
+
+        if (string.Equals(
+                (string?)properties.Attribute(OdtNamespaces.Style + "use-optimal-row-height"),
+                "true",
+                StringComparison.Ordinal))
+        {
+            return 0;
+        }
+
+        double height = 0;
+        if (OdtUnits.TryParseLength(
+                (string?)properties.Attribute(OdtNamespaces.Style + "min-row-height"), out double minimum))
+        {
+            height = Math.Max(height, minimum);
+        }
+
+        if (OdtUnits.TryParseLength(
+                (string?)properties.Attribute(OdtNamespaces.Style + "row-height"), out double stated))
+        {
+            height = Math.Max(height, stated);
+        }
+
+        return Math.Max(0, height);
     }
 
     /// <summary>A table's columns, looking through the groups ODF wraps them in.</summary>
