@@ -67,10 +67,18 @@ public sealed class JpxStreamFilter : IPdfStreamFilter
                 $"rather than merely undecoded. The codestream is {header.Describe()}.");
         }
 
-        return PdfFilterResult.Unsupported(
-            PdfDiagnosticCodes.FilterJpxUnsupported,
-            $"The page draws {container}a JPEG 2000 Part 1 codestream: {header.Describe()}. IP-007 clears this " +
-            "coding system, and no entropy decoder for it is composed — the arithmetic coder, EBCOT, and the " +
-            "wavelet transforms are outstanding work rather than a pending approval.");
+        JpxDecodeResult decoded = JpxImageDecoder.Decode(input, context.MaxDecodedBytes);
+
+        if (decoded.Refusal is string refusal)
+        {
+            // Refused by name rather than approximated, and the codestream's own
+            // description goes with it so a caller knows what they have.
+            return PdfFilterResult.Unsupported(
+                PdfDiagnosticCodes.FilterJpxUnsupported,
+                $"The page draws {container}a JPEG 2000 Part 1 codestream this build does not decode: {refusal}. " +
+                $"The codestream is {header.Describe()}.");
+        }
+
+        return PdfFilterResult.Success(decoded.Samples!);
     }
 }

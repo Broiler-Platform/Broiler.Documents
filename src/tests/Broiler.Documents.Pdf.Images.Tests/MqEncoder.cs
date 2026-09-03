@@ -17,7 +17,7 @@ namespace Broiler.Documents.Pdf.Images.Tests;
 /// looking like corroboration.
 /// </para>
 /// </remarks>
-internal sealed class Jbig2ArithmeticEncoder
+internal sealed class MqEncoder
 {
     private readonly byte[] _states;
     private readonly byte[] _mps;
@@ -28,7 +28,7 @@ internal sealed class Jbig2ArithmeticEncoder
     private int _ct = 12;
     private int _b = -1;
 
-    public Jbig2ArithmeticEncoder(int contextBits)
+    public MqEncoder(int contextBits)
     {
         int size = 1 << contextBits;
         _states = new byte[size];
@@ -37,7 +37,7 @@ internal sealed class Jbig2ArithmeticEncoder
 
     public void Encode(int cx, int d)
     {
-        (ushort qe, byte nmps, byte nlps, byte exchange) = Jbig2ArithmeticProbe.State(_states[cx]);
+        (ushort qe, byte nmps, byte nlps, byte exchange) = MqProbe.State(_states[cx]);
 
         if (d == _mps[cx])
         {
@@ -162,10 +162,10 @@ internal sealed class Jbig2ArithmeticEncoder
 /// Reaches the decoder's probability table so the encoder and the tests can use
 /// the same one.
 /// </summary>
-internal static class Jbig2ArithmeticProbe
+internal static class MqProbe
 {
     public static int StateCount => 47;
 
     public static (ushort Qe, byte Nmps, byte Nlps, byte Switch) State(int index) =>
-        Jbig2ArithmeticStates.All[index];
+        MqStates.All[index];
 }

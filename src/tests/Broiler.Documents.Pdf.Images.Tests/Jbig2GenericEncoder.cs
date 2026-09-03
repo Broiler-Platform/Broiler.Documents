@@ -30,7 +30,7 @@ internal static class Jbig2GenericEncoder
         bool typicalPrediction = false,
         (int X, int Y)[]? adaptive = null)
     {
-        var encoder = new Jbig2ArithmeticEncoder(16);
+        var encoder = new MqEncoder(16);
         // The decoder's own template resolution, so the two cannot drift apart —
         // and so a template misread from the standard is a single fact rather
         // than two that happen to agree.

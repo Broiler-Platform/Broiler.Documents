@@ -32,7 +32,7 @@ namespace Broiler.Documents.Pdf.Images;
 /// corroboration.
 /// </para>
 /// </remarks>
-internal static class Jbig2ArithmeticStates
+internal static class MqStates
 {
     /// <summary>Qe, NMPS, NLPS, SWITCH — one state per line, in index order.</summary>
     public static readonly (ushort Qe, byte Nmps, byte Nlps, byte Switch)[] All =

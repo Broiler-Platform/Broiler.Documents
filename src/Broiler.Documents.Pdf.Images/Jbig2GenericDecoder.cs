@@ -105,8 +105,8 @@ internal static class Jbig2GenericDecoder
             return null;
 
         (int X, int Y)[] pixels = Resolve(template, adaptive);
-        var decoder = new Jbig2ArithmeticDecoder(data);
-        var contexts = new Jbig2ArithmeticContexts(16);
+        var decoder = new MqDecoder(data);
+        var contexts = new MqContexts(16);
         var bitmap = new byte[(long)width * height <= int.MaxValue ? width * height : 0];
         if (bitmap.Length == 0)
             return null;
