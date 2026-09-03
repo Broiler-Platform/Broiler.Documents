@@ -40,6 +40,17 @@ internal readonly record struct Jbig2Segment(
 
     public bool IsSymbolDictionary => Type is 0;
 
+    /// <summary>Every segment type that draws a region, whatever it draws it from.</summary>
+    public bool IsRegion => Type is 4 or 6 or 7 or 20 or 22 or 23 or 36 or 38 or 39 or 40 or 42 or 43;
+
+    /// <summary>
+    /// An immediate refinement region, which corrects the page under it. Type 40
+    /// is the intermediate form, kept in an auxiliary buffer rather than drawn.
+    /// </summary>
+    public bool IsImmediateRefinementRegion => Type is 42 or 43;
+
+    public bool IsRefinementRegion => Type is 40 or 42 or 43;
+
     /// <summary>
     /// An immediate text region, drawn straight onto the page. Type 4 is the
     /// intermediate form, which is kept in an auxiliary buffer for another
@@ -53,6 +64,29 @@ internal readonly record struct Jbig2Segment(
     /// through the referred-to dictionaries' exports in this sequence.
     /// </summary>
     public uint[] Referred { get; init; } = [];
+}
+
+/// <summary>
+/// The region segment information every region type begins with: where it goes
+/// and how it combines with what is already there.
+/// </summary>
+internal readonly record struct Jbig2RegionInfo(
+    int Width,
+    int Height,
+    int X,
+    int Y,
+    int CombinationOperator);
+
+/// <summary>A refinement region's header, read without decoding its data.</summary>
+internal readonly record struct Jbig2RefinementRegion(
+    Jbig2RegionInfo Info,
+    int Template,
+    bool TypicalPrediction,
+    int DataStart,
+    int DataLength)
+{
+    /// <summary>The two adaptive pixels template 0 carries, A1 then A2.</summary>
+    public (int X, int Y)[] Adaptive { get; init; } = [];
 }
 
 /// <summary>A generic region's header, read without decoding its data.</summary>
@@ -99,6 +133,12 @@ internal static class Jbig2SegmentReader
 {
     /// <summary>Segments read before a stream is refused as unreasonable.</summary>
     private const int MaxSegments = 4096;
+
+    /// <summary>The region segment information every region type begins with.</summary>
+    private const int RegionInfoLength = 17;
+
+    /// <summary>The position a region may declare before it is nonsense.</summary>
+    private const int MaxCoordinate = 1 << 24;
 
     /// <summary>Marks a segment whose length the header does not state.</summary>
     private const uint UnknownLength = 0xFFFFFFFFu;
@@ -208,6 +248,95 @@ internal static class Jbig2SegmentReader
             error = "The stream carries no JBIG2 segments.";
             return false;
         }
+
+        error = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Reads the region information every region segment starts with, without
+    /// interpreting what follows it.
+    /// </summary>
+    /// <remarks>
+    /// This is what lets the page be sized before anything is decoded, which a
+    /// refinement region needs: it refines the page under it, so the page has to
+    /// exist before the segment that corrects it is read.
+    /// </remarks>
+    public static bool TryReadRegionInfo(ReadOnlySpan<byte> data, in Jbig2Segment segment, out Jbig2RegionInfo info)
+    {
+        info = default;
+        if (segment.DataLength < RegionInfoLength)
+            return false;
+
+        ReadOnlySpan<byte> body = data.Slice(segment.DataStart, segment.DataLength);
+        long width = ReadUInt32(body, 0);
+        long height = ReadUInt32(body, 4);
+        long x = ReadUInt32(body, 8);
+        long y = ReadUInt32(body, 12);
+
+        if (width is <= 0 or > (1 << 16) || height is <= 0 or > (1 << 16))
+            return false;
+
+        if (x > MaxCoordinate || y > MaxCoordinate)
+            return false;
+
+        info = new Jbig2RegionInfo((int)width, (int)height, (int)x, (int)y, body[16] & 0x07);
+        return true;
+    }
+
+    /// <summary>Reads a refinement region segment's header, up to its data.</summary>
+    public static bool TryReadRefinementRegion(
+        ReadOnlySpan<byte> data,
+        in Jbig2Segment segment,
+        out Jbig2RefinementRegion region,
+        out string? error)
+    {
+        region = default;
+
+        if (!TryReadRegionInfo(data, segment, out Jbig2RegionInfo info))
+        {
+            error = "A JBIG2 refinement region segment does not describe a region.";
+            return false;
+        }
+
+        ReadOnlySpan<byte> body = data.Slice(segment.DataStart, segment.DataLength);
+        if (body.Length < RegionInfoLength + 1)
+        {
+            error = "A JBIG2 refinement region segment is too short to state its flags.";
+            return false;
+        }
+
+        byte flags = body[RegionInfoLength];
+        int template = flags & 0x01;
+        bool typicalPrediction = (flags & 0x02) != 0;
+
+        int cursor = RegionInfoLength + 1;
+        (int X, int Y)[] adaptive = [];
+
+        // Template 0 names two adaptive pixels: one in the bitmap being decoded
+        // and one in the reference. Template 1 has none.
+        if (template == 0)
+        {
+            if (cursor + 4 > body.Length)
+            {
+                error = "A JBIG2 refinement region declares template pixels the segment does not hold.";
+                return false;
+            }
+
+            adaptive =
+            [
+                ((sbyte)body[cursor], (sbyte)body[cursor + 1]),
+                ((sbyte)body[cursor + 2], (sbyte)body[cursor + 3]),
+            ];
+
+            cursor += 4;
+        }
+
+        region = new Jbig2RefinementRegion(
+            info, template, typicalPrediction, segment.DataStart + cursor, segment.DataLength - cursor)
+        {
+            Adaptive = adaptive,
+        };
 
         error = null;
         return true;

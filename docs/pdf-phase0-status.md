@@ -82,7 +82,8 @@ row clears.
   retired) are approved, IP-007 clears JPEG 2000 Part 1, whose decoder was
   written on 2026-09-03 and has never decoded a real image, and IP-008 clears
   JBIG2, whose generic regions decode under both coding methods since the same
-  day, and whose symbol dictionaries and text regions decode arithmetically. **Every filter and codec row is decided**; what remains on them is
+  day, and whose symbol dictionaries, text regions and refinement decode
+  arithmetically. **Every filter and codec row is decided**; what remains on them is
   engineering. SRC-017 still carries the one transcribed normative table the fax
   work needed, and SRC-018 and SRC-019 carry the two the JPEG 2000 and JBIG2
   decoders were written on top of.*

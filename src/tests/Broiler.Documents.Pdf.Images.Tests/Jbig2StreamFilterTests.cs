@@ -98,18 +98,18 @@ public sealed class Jbig2StreamFilterTests
     {
         // This asserted that a symbol dictionary was reported as inventory and
         // nothing more, which was the whole of the behaviour until the dictionary
-        // decoder was written. Now that one decodes, a refusal has to say which
-        // dictionary it could not read: these flag bytes declare refinement, and
-        // that is what comes back.
+        // decoder was written. It then asserted a refusal for refinement, which
+        // decodes now too. What is left outside the subset is a dictionary that
+        // imports another's coding contexts, and that is what these flags declare.
         byte[] stream = Page(
             64, 32,
-            Segment(number: 1, type: 0, [0x00, 0x02, 0, 0, 0, 0, 0, 0, 0, 0]),
+            Segment(number: 1, type: 0, [0x01, 0x00, 0, 0, 0, 0, 0, 0, 0, 0]),
             Segment(number: 2, type: 6, TextRegionHeader(32, 16), referred: [1]));
 
         PdfFilterResult result = Decode(stream);
 
         Assert.Equal(PdfDiagnosticCodes.FilterJbig2Unsupported, result.DiagnosticCode);
-        Assert.Contains("refine or aggregate", result.Message, StringComparison.Ordinal);
+        Assert.Contains("imports another's coding contexts", result.Message, StringComparison.Ordinal);
         Assert.Contains("1 symbol dictionary", result.Message, StringComparison.Ordinal);
     }
 

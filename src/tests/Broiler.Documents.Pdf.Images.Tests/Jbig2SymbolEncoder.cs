@@ -211,6 +211,105 @@ internal static class Jbig2SymbolDictionaryEncoder
         return [.. body];
     }
 
+    /// <summary>
+    /// Builds a dictionary whose symbols are corrections of ones it was given,
+    /// which is the form an encoder reaches for when a shape recurs slightly
+    /// changed.
+    /// </summary>
+    internal static byte[] EncodeRefining(
+        IReadOnlyList<Jbig2Bitmap> input,
+        IReadOnlyList<Jbig2RefinedSymbol> symbols,
+        out Jbig2Bitmap[] order,
+        int refinementTemplate = 0)
+    {
+        (int X, int Y)[] adaptive = Nominal(0);
+        (int X, int Y)[] refinementAdaptive = [(-1, -1), (-1, -1)];
+
+        Jbig2RefinedSymbol[] sorted =
+            [.. symbols.OrderBy(symbol => symbol.Bitmap.Height).ThenBy(symbol => symbol.Bitmap.Width)];
+
+        order = [.. sorted.Select(symbol => symbol.Bitmap)];
+
+        var encoder = new MqEncoder();
+        var deltaHeight = new Jbig2IntegerEncoder();
+        var deltaWidth = new Jbig2IntegerEncoder();
+        var exportRun = new Jbig2IntegerEncoder();
+        var instances = new Jbig2IntegerEncoder();
+        var refinementX = new Jbig2IntegerEncoder();
+        var refinementY = new Jbig2IntegerEncoder();
+        var identifiers = new Jbig2SymbolIdEncoder(Jbig2TextRegion.CodeLength(input.Count + sorted.Length));
+        var refinementContexts = new MqContexts(Jbig2RefinementDecoder.RefinementContextBits);
+
+        int height = 0;
+        int index = 0;
+
+        while (index < sorted.Length)
+        {
+            int classHeight = sorted[index].Bitmap.Height;
+            deltaHeight.Encode(encoder, classHeight - height);
+            height = classHeight;
+
+            int width = 0;
+            while (index < sorted.Length && sorted[index].Bitmap.Height == classHeight)
+            {
+                Jbig2RefinedSymbol symbol = sorted[index];
+                deltaWidth.Encode(encoder, symbol.Bitmap.Width - width);
+                width = symbol.Bitmap.Width;
+
+                // One instance: the aggregate form, where a symbol is built from
+                // several, is refused by the decoder and not written here.
+                instances.Encode(encoder, 1);
+                identifiers.Encode(encoder, symbol.ReferenceId);
+                refinementX.Encode(encoder, symbol.Dx);
+                refinementY.Encode(encoder, symbol.Dy);
+
+                Jbig2Bitmap reference = symbol.ReferenceId < input.Count
+                    ? input[symbol.ReferenceId]
+                    : order[symbol.ReferenceId - input.Count];
+
+                Jbig2RefinementEncoder.Encode(
+                    encoder, refinementContexts, symbol.Bitmap, refinementTemplate,
+                    typicalPrediction: false, reference, symbol.Dx, symbol.Dy, refinementAdaptive);
+
+                index++;
+            }
+
+            deltaWidth.EncodeOutOfBand(encoder);
+        }
+
+        // The runs count through the symbols this dictionary was given before the
+        // ones it defined, so a dictionary built on another's symbols has to skip
+        // them explicitly rather than start at its own.
+        exportRun.Encode(encoder, input.Count);
+        exportRun.Encode(encoder, sorted.Length);
+
+        var body = new List<byte>();
+
+        // SDREFAGG in bit 1, the refinement template in bit 12.
+        AddUInt16(body, 0x02 | (refinementTemplate << 12));
+
+        foreach ((int x, int y) in adaptive)
+        {
+            body.Add((byte)(sbyte)x);
+            body.Add((byte)(sbyte)y);
+        }
+
+        if (refinementTemplate == 0)
+        {
+            foreach ((int x, int y) in refinementAdaptive)
+            {
+                body.Add((byte)(sbyte)x);
+                body.Add((byte)(sbyte)y);
+            }
+        }
+
+        AddUInt32(body, sorted.Length);
+        AddUInt32(body, sorted.Length);
+        body.AddRange(encoder.Flush());
+
+        return [.. body];
+    }
+
     private static (int X, int Y)[] Nominal(int template) => template switch
     {
         0 => [(3, -1), (-3, -1), (2, -2), (-2, -2)],
@@ -241,7 +340,21 @@ internal static class Jbig2SymbolDictionaryEncoder
 /// different places under the four reference corners, which is exactly what the
 /// corner tests are for.
 /// </remarks>
-internal readonly record struct Jbig2Instance(int Id, int S, int T);
+internal readonly record struct Jbig2Instance(int Id, int S, int T, Jbig2InstanceRefinement? Refine = null);
+
+/// <summary>
+/// A correction applied to one instance before it is drawn: the bitmap it should
+/// become, and where the dictionary symbol sits under it.
+/// </summary>
+/// <remarks>
+/// The size difference is not stated here because it is implied — the encoder
+/// takes it from the two bitmaps, which is also how the decoder recovers the
+/// refined size from the difference it reads.
+/// </remarks>
+internal sealed record Jbig2InstanceRefinement(Jbig2Bitmap Bitmap, int OffsetX = 0, int OffsetY = 0);
+
+/// <summary>A dictionary symbol defined as a correction of another.</summary>
+internal readonly record struct Jbig2RefinedSymbol(Jbig2Bitmap Bitmap, int ReferenceId, int Dx = 0, int Dy = 0);
 
 /// <summary>Builds a text region segment body from a list of placements.</summary>
 internal static class Jbig2TextRegionEncoder
@@ -256,8 +369,23 @@ internal static class Jbig2TextRegionEncoder
         int corner = 1,
         bool transposed = false,
         int logStrips = 0,
-        int spacingOffset = 0)
+        int spacingOffset = 0,
+        bool refine = false,
+        int refinementTemplate = 0)
     {
+        // A region that carries a correction must declare that it refines, so the
+        // flag is taken from the instances as well as from the caller: a test
+        // asking for the flag without a correction is exercising the other case.
+        refine |= instances.Any(instance => instance.Refine is not null);
+
+        (int X, int Y)[] refinementAdaptive = [(-1, -1), (-1, -1)];
+        var refinementFlag = new Jbig2IntegerEncoder();
+        var refinementWidth = new Jbig2IntegerEncoder();
+        var refinementHeight = new Jbig2IntegerEncoder();
+        var refinementX = new Jbig2IntegerEncoder();
+        var refinementY = new Jbig2IntegerEncoder();
+        var refinementContexts = new MqContexts(Jbig2RefinementDecoder.RefinementContextBits);
+
         int strips = 1 << logStrips;
         var encoder = new MqEncoder();
         var deltaT = new Jbig2IntegerEncoder();
@@ -301,12 +429,44 @@ internal static class Jbig2TextRegionEncoder
 
                 identifiers.Encode(encoder, placements[i].Id);
 
+                Jbig2Bitmap symbol = symbols[placements[i].Id];
+                Jbig2InstanceRefinement? correction = placements[i].Refine;
+
+                if (refine)
+                {
+                    refinementFlag.Encode(encoder, correction is null ? 0 : 1);
+
+                    if (correction is not null)
+                    {
+                        int deltaWidth = correction.Bitmap.Width - symbol.Width;
+                        int deltaHeight = correction.Bitmap.Height - symbol.Height;
+
+                        refinementWidth.Encode(encoder, deltaWidth);
+                        refinementHeight.Encode(encoder, deltaHeight);
+                        refinementX.Encode(encoder, correction.OffsetX);
+                        refinementY.Encode(encoder, correction.OffsetY);
+
+                        Jbig2RefinementEncoder.Encode(
+                            encoder,
+                            refinementContexts,
+                            correction.Bitmap,
+                            refinementTemplate,
+                            typicalPrediction: false,
+                            symbol,
+                            (deltaWidth >> 1) + correction.OffsetX,
+                            (deltaHeight >> 1) + correction.OffsetY,
+                            refinementAdaptive);
+
+                        symbol = correction.Bitmap;
+                    }
+                }
+
                 // The decoder advances the running coordinate by the symbol's
                 // extent either before placing it or after, depending on which
                 // corner the position names — but never both, and never by a
                 // different amount. So the encoder's running total does not
-                // branch on the corner even though the placement does.
-                Jbig2Bitmap symbol = symbols[placements[i].Id];
+                // branch on the corner even though the placement does. What it
+                // does take from the corrected symbol is the extent itself.
                 currentS += (transposed ? symbol.Height : symbol.Width) - 1;
             }
 
@@ -317,6 +477,8 @@ internal static class Jbig2TextRegionEncoder
         flags |= corner << 4;
         flags |= transposed ? 0x40 : 0;
         flags |= (spacingOffset & 0x1F) << 10;
+        flags |= refine ? 0x02 : 0;
+        flags |= refinementTemplate << 15;
 
         var body = new List<byte>();
         AddUInt32(body, width);
@@ -325,6 +487,16 @@ internal static class Jbig2TextRegionEncoder
         AddUInt32(body, y);
         body.Add(0);                    // external combination operator: OR
         AddUInt16(body, flags);
+
+        if (refine && refinementTemplate == 0)
+        {
+            foreach ((int ax, int ay) in refinementAdaptive)
+            {
+                body.Add((byte)(sbyte)ax);
+                body.Add((byte)(sbyte)ay);
+            }
+        }
+
         AddUInt32(body, instances.Count);
         body.AddRange(encoder.Flush());
 
