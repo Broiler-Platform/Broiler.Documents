@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/pdf-writer-conformance-1.json",
+  "title": "Broiler PDF writer conformance checklist",
+  "description": "One row per construct the writer emits. Each row has two halves: what this tree does, which anyone can read off the code, and what the standard requires, which only somebody holding ISO 32000-1 can fill in. The halves are kept apart so the second is never inferred from the first.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "updated", "standard", "constructs"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "updated": { "type": "string", "format": "date" },
+    "standard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "edition", "note"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "edition": { "type": "string", "minLength": 1 },
+        "note": { "type": "string", "minLength": 1 }
+      }
+    },
+    "constructs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/construct" }
+    }
+  },
+  "$defs": {
+    "construct": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "emits", "clause"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "emits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["description", "keys", "source", "evidence"],
+          "description": "What this tree does. Every field here is a fact about the code and is checked against it by PdfWriterConformanceGuardTests.",
+          "properties": {
+            "description": { "type": "string", "minLength": 1 },
+            "keys": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^/[A-Za-z0-9]+$" },
+              "description": "The dictionary keys this construct emits, as the writer emits them."
+            },
+            "conditionalKeys": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^/[A-Za-z0-9]+$" },
+              "description": "Keys emitted only when the caller supplied a value for them."
+            },
+            "source": { "type": "string", "minLength": 1 },
+            "evidence": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Tests that assert this construct's emitted form."
+            }
+          }
+        },
+        "clause": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "reference", "required", "prohibited", "constraints", "reviewer", "decided"],
+          "description": "What the standard requires. Pending until somebody with lawful access to ISO 32000-1 fills it in; nothing here may be inferred from the emits half.",
+          "properties": {
+            "state": { "enum": ["pending", "recorded"] },
+            "reference": { "type": ["string", "null"] },
+            "required": { "type": "array", "items": { "type": "string" } },
+            "prohibited": { "type": "array", "items": { "type": "string" } },
+            "constraints": { "type": ["string", "null"] },
+            "reviewer": { "type": ["string", "null"] },
+            "decided": { "type": ["string", "null"], "format": "date" }
+          }
+        }
+      }
+    }
+  }
+}

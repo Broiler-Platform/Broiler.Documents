@@ -232,6 +232,12 @@ Residual work owned here:
   `documents-pdf.yml` with a test-count guard and explicit Graphics and Media
   runs was created on 2026-08-25, and it never came across the repository split —
   `ci.yml` had neither until now.
+  The writer conformance checklist is there too, inventorying the eleven
+  constructs the writer emits with the code and tests for each, and with every
+  clause reference pending — a guard fails the build when the writer emits a key
+  the checklist does not list, so the inventory cannot quietly fall behind, and
+  the same guard deliberately says nothing about whether a clause reference is
+  right.
   What stays open needs decisions rather than code. No oracle is pinned, because
   each needs a licence review and a manifest row; the corpus stays empty, because
   each artifact needs a rights decision; and the campaign is mutation-based

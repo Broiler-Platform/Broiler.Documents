@@ -947,9 +947,20 @@ document was written for.
   an adjudication record and never silently rewrites a golden.
 - Establish a versioned clause-level writer conformance checklist and a
   `tests/pdf/performance-baseline.json` threshold file. **The threshold file, its
-  schema, the pinned runner and the measurement method exist, with no scenarios**;
-  the clause-level checklist does not, because writing clause numbers is a claim
-  about a standard rather than a control over this tree. The runner is pinned to
+  schema, the pinned runner and the measurement method exist, with no scenarios,
+  and the clause-level checklist exists with every row's emitted half filled and
+  every clause half pending.** The split is the point: what this tree emits is a
+  fact anybody can read off `PdfWriter`, and what a clause requires is not, so
+  the two live in separate halves of each row and the second is never inferred
+  from the first. Eleven constructs are inventoried — header, catalog, page tree,
+  page, content stream, font, link annotation, the placeholder written for a
+  refused link, Info, cross-reference table and trailer — each naming the code
+  that emits it and the tests that prove what it emits.
+  `PdfWriterConformanceGuardTests` binds it: a key the writer emits and the
+  checklist does not list fails the build, as does a row citing a method or a
+  test that is not there. It deliberately does not check the clause half, because
+  nothing mechanical can, and a guard that pretended to would make an unreviewed
+  row look reviewed. The runner is pinned to
   the two images this component's CI already uses, so a threshold is reproducible
   by anyone who can run CI and a number from a developer's machine is explicitly
   not evidence; a guard fails if the workflow's runners and the file's disagree.

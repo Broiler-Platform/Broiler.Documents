@@ -1,0 +1,148 @@
+{
+  "$schema": "writer-conformance.schema.json",
+  "schemaVersion": 1,
+  "updated": "2026-09-04",
+  "standard": {
+    "name": "ISO 32000-1",
+    "edition": "2008 (PDF 1.7)",
+    "note": "Every clause half below is pending. The rows were built by reading Writing/PdfWriter.cs, which establishes what this tree emits and nothing at all about what the standard requires. Filling a clause reference needs lawful access to the standard and the judgement of somebody who has read it; inferring one from the emitted form would be inventing the authority the checklist exists to cite."
+  },
+  "constructs": [
+    {
+      "id": "header",
+      "emits": {
+        "description": "The file header, naming the version this writer targets.",
+        "keys": [],
+        "source": "PdfWriter.Build, which emits the header before any object",
+        "evidence": ["PdfWriterTests.Emits_A_Well_Formed_Skeleton"]
+      },
+      "clause": { "state": "pending", "reference": null, "required": [], "prohibited": [], "constraints": null, "reviewer": null, "decided": null }
+    },
+    {
+      "id": "catalog",
+      "emits": {
+        "description": "The document catalog, object 1, pointing at the page tree.",
+        "keys": ["/Type", "/Pages"],
+        "conditionalKeys": ["/Lang"],
+        "source": "PdfWriter.WriteCatalog",
+        "evidence": ["PdfWriterTests.Emits_A_Well_Formed_Skeleton"]
+      },
+      "clause": { "state": "pending", "reference": null, "required": [], "prohibited": [], "constraints": null, "reviewer": null, "decided": null }
+    },
+    {
+      "id": "page-tree",
+      "emits": {
+        "description": "The page tree root, object 2, listing every page and their count.",
+        "keys": ["/Type", "/Kids", "/Count"],
+        "source": "PdfWriter.WritePageTree",
+        "evidence": ["PdfWriterTests.Emits_A_Well_Formed_Skeleton", "PdfWriterTests.Long_Text_Wraps_And_Overflows_Onto_Further_Pages"]
+      },
+      "clause": { "state": "pending", "reference": null, "required": [], "prohibited": [], "constraints": null, "reviewer": null, "decided": null }
+    },
+    {
+      "id": "page",
+      "emits": {
+        "description": "One page object per laid-out page, naming its media box, resources and content stream.",
+        "keys": ["/Type", "/Parent", "/MediaBox", "/Resources", "/Contents"],
+        "conditionalKeys": ["/Annots"],
+        "source": "PdfWriter.WritePage",
+        "evidence": ["PdfWriterTests.Emits_A_Well_Formed_Skeleton", "PdfWriterTests.Uses_A_Distinct_Font_Resource_Per_Style"]
+      },
+      "clause": { "state": "pending", "reference": null, "required": [], "prohibited": [], "constraints": null, "reviewer": null, "decided": null }
+    },
+    {
+      "id": "content-stream",
+      "emits": {
+        "description": "The page's content stream, Flate-compressed when the caller asks for compression.",
+        "keys": ["/Length"],
+        "conditionalKeys": ["/Filter"],
+        "source": "PdfWriter.WriteContent",
+        "evidence": [
+          "PdfWriterTests.Escapes_Parentheses_And_Backslashes_In_Page_Text",
+          "PdfWriterTests.Renders_Decorations_And_Colour_As_Content_Operators",
+          "PdfWriterTests.Places_The_Text_After_A_Tab_On_The_Next_Tab_Stop"
+        ]
+      },
+      "clause": { "state": "pending", "reference": null, "required": [], "prohibited": [], "constraints": null, "reviewer": null, "decided": null }
+    },
+    {
+      "id": "font",
+      "emits": {
+        "description": "A simple Type 1 font resource per standard face used, encoded WinAnsi except where the face has a built-in encoding.",
+        "keys": ["/Type", "/Subtype", "/BaseFont"],
+        "conditionalKeys": ["/Encoding"],
+        "source": "PdfWriter.WriteFont",
+        "evidence": [
+          "PdfWriterTests.Uses_A_Distinct_Font_Resource_Per_Style",
+          "PdfWriterTests.Maps_A_Serif_Family_Onto_The_Standard_Serif_Face",
+          "PdfWriterTests.Substitutes_And_Reports_Characters_Outside_WinAnsi"
+        ]
+      },
+      "clause": { "state": "pending", "reference": null, "required": [], "prohibited": [], "constraints": null, "reviewer": null, "decided": null }
+    },
+    {
+      "id": "link-annotation",
+      "emits": {
+        "description": "A link annotation per admitted target, revalidated against the URI policy immediately before emission.",
+        "keys": ["/Type", "/Subtype", "/Rect", "/Border", "/A", "/S", "/URI"],
+        "source": "PdfWriter.WriteLinkAnnotation",
+        "evidence": [
+          "PdfWriterTests.Emits_A_Link_Annotation_For_An_Admitted_Target",
+          "PdfWriterTests.An_Http_Target_Needs_An_Explicit_Opt_In"
+        ]
+      },
+      "clause": { "state": "pending", "reference": null, "required": [], "prohibited": [], "constraints": null, "reviewer": null, "decided": null }
+    },
+    {
+      "id": "placeholder-annotation",
+      "emits": {
+        "description": "The invisible placeholder written in place of a link whose target failed revalidation, so object numbering stays stable.",
+        "keys": ["/Type", "/Subtype", "/Rect", "/F"],
+        "source": "PdfWriter.WriteLinkAnnotation, rejection path",
+        "evidence": ["PdfWriterTests.Refuses_To_Emit_A_Denied_Link_Target"]
+      },
+      "clause": { "state": "pending", "reference": null, "required": [], "prohibited": [], "constraints": null, "reviewer": null, "decided": null }
+    },
+    {
+      "id": "info-dictionary",
+      "emits": {
+        "description": "The document information dictionary, written only from caller-supplied metadata and omitted entirely when there is none.",
+        "keys": [],
+        "conditionalKeys": ["/Title", "/Author", "/Subject", "/Keywords", "/Creator", "/Producer", "/CreationDate", "/ModDate"],
+        "source": "PdfWriter.WriteInfo",
+        "evidence": [
+          "PdfWriterTests.Writes_Only_Caller_Supplied_Metadata",
+          "PdfWriterTests.Omits_The_Info_Dictionary_When_No_Metadata_Is_Supplied",
+          "PdfWriterTests.Writes_A_Zone_Less_Date_Back_Without_A_Zone",
+          "PdfWriterTests.Keeps_A_Non_Latin_Title_Through_The_Utf"
+        ]
+      },
+      "clause": { "state": "pending", "reference": null, "required": [], "prohibited": [], "constraints": null, "reviewer": null, "decided": null }
+    },
+    {
+      "id": "cross-reference-table",
+      "emits": {
+        "description": "A classic cross-reference table, one entry per object.",
+        "keys": [],
+        "source": "PdfWriter.WriteXref",
+        "evidence": ["PdfWriterTests.Cross_Reference_Offsets_Point_At_Their_Objects"]
+      },
+      "clause": { "state": "pending", "reference": null, "required": [], "prohibited": [], "constraints": null, "reviewer": null, "decided": null }
+    },
+    {
+      "id": "trailer",
+      "emits": {
+        "description": "The trailer, its startxref offset and the end-of-file marker. The file identifier is a fresh writer control, derived or caller-supplied, never carried from a source document.",
+        "keys": ["/Size", "/Root", "/ID"],
+        "conditionalKeys": ["/Info"],
+        "source": "PdfWriter.WriteTrailer",
+        "evidence": [
+          "PdfWriterTests.Startxref_Points_At_The_Cross_Reference_Table",
+          "PdfWriterTests.A_Caller_Supplied_Identifier_Replaces_The_Derived_One",
+          "PdfWriterTests.Two_Writes_Of_The_Same_Document_Are_Byte_Identical"
+        ]
+      },
+      "clause": { "state": "pending", "reference": null, "required": [], "prohibited": [], "constraints": null, "reviewer": null, "decided": null }
+    }
+  ]
+}
