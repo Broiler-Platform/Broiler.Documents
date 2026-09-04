@@ -201,8 +201,13 @@ Residual work owned here:
   any budget. Two of those budgets only bite below the decoder's own scope, which
   admits 1 or 3 components and sampling factors of 1 to 4 and refuses the rest
   first; they matter to a caller stricter than the codec, not as holes closed.
-  What remains of §6.5 is the sync/async split: `ImageCodec` exposes no
-  synchronous decode path for it to be true of.
+  §6.5's sync/async split closed it: `ImageCodec` declares the CPU half as
+  `DecodeCore` and builds both public paths on it, so the admitted modes, the
+  colour handling and the limits are identical on the two by construction rather
+  than by review. The sync path reads synchronously rather than blocking on the
+  async one, which is the shape that deadlocks where continuations run on a
+  single thread, and there is a test that fails if that is reintroduced. §6.5 is
+  done.
 - `Broiler.Documents.Pagination` does not exist; the PDF writer paginates
   internally against a replaceable metrics provider until the shared paginator
   does.
