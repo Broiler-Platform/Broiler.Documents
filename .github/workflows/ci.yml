@@ -67,7 +67,50 @@ jobs:
       # read a CLI path that had moved into this repository, and now runs here
       # unconditionally like every other guard over this component's own source.
       - name: Test
-        run: dotnet test Broiler.Documents.slnx -c ${{ matrix.configuration }} --no-build --nologo
+        run: |
+          dotnet test Broiler.Documents.slnx -c ${{ matrix.configuration }} --no-build --nologo             --logger "trx;LogFilePrefix=broiler" --results-directory ./test-results
+
+      # A `dotnet test` that discovers nothing exits 0, so a build that silently
+      # stopped producing test assemblies would pass this job in green. The guard
+      # is a floor on the executed count rather than an exact number: it catches a
+      # collapse without failing every time somebody adds a test (PDF roadmap
+      # §6.6).
+      - name: Guard against a collapsed test count
+        run: |
+          # awk rather than bc: bc is not on the Windows runner's git-bash, and a
+          # guard that only works on one leg guards one leg.
+          total=$(grep -ho 'total="[0-9]*"' ./test-results/*.trx             | grep -o '[0-9]*' | awk '{ sum += $1 } END { print sum + 0 }')
+          echo "Executed $total test(s)."
+          if [ "$total" -lt 1400 ]; then
+            echo "::error::Executed test count collapsed to ${total:-0}; expected at least 1400."
+            exit 1
+          fi
+
+      # The console-runner suites in Graphics and Media, which `dotnet test`
+      # cannot see: they are Exe projects with their own runners, so a solution
+      # test pass reports nothing for them and reports success while doing it.
+      # They are run explicitly, against this repository's own submodule pins.
+      - name: Test the Graphics and Media suites this component pins
+        run: |
+          set -e
+          for project in             Broiler.Graphics/src/tests/Broiler.Graphics.Tests/Broiler.Graphics.Tests.csproj             Broiler.Graphics/Broiler.Media/src/tests/Broiler.Media.Image.Tests/Broiler.Media.Image.Tests.csproj             Broiler.Graphics/Broiler.Media/src/tests/Broiler.Media.Image.Managed.Tests/Broiler.Media.Image.Managed.Tests.csproj
+          do
+            echo "--- $project"
+            output=$(dotnet run --project "$project" -c ${{ matrix.configuration }} --nologo)
+            echo "$output" | tail -3
+            # `if`, not `cmd && { ... }`: the latter takes grep's exit status as
+            # the statement's own, so a non-match kills the step under `set -e` —
+            # which is exactly what it did the first time this ran, after all
+            # three suites had passed.
+            if ! echo "$output" | grep -qE '^[0-9]+/[0-9]+ passed, 0 failed\.$'; then
+              echo "::error::$project did not report a clean run."
+              exit 1
+            fi
+            if echo "$output" | grep -qE '^0/0 passed'; then
+              echo "::error::$project executed no tests."
+              exit 1
+            fi
+          done
 
       # Proves the eight packages still build from this commit. Every project is
       # platform-neutral, so one host covers the whole set and one configuration

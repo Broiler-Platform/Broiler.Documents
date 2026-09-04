@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/pdf-performance-baseline-1.json",
+  "title": "Broiler PDF performance baseline",
+  "description": "Scenarios, the runner they are measured on, and the budgets a run may not exceed. Recording a measurement is not passing a gate: a scenario passes when it is inside its budget on the pinned runner.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "updated", "runner", "measurement", "scenarios"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "updated": { "type": "string", "format": "date" },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "images", "rationale", "noiseAllowancePercent"],
+      "properties": {
+        "profile": { "type": "string", "minLength": 1 },
+        "images": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "rationale": { "type": "string", "minLength": 1 },
+        "noiseAllowancePercent": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Hosted runners vary between runs on identical input. Wall-time budgets carry this headroom; the absolute caps do not, because they are deterministic."
+        }
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "iterations", "discardedWarmups", "statistic"],
+      "properties": {
+        "method": { "type": "string", "minLength": 1 },
+        "iterations": { "type": "integer", "minimum": 1 },
+        "discardedWarmups": { "type": "integer", "minimum": 0 },
+        "statistic": { "enum": ["median", "mean", "max"] }
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "description": "Empty until a scenario's fixture and thresholds are approved. Read and host thresholds must pass before Phase 5; pagination, writer and output thresholds before Phase 7.",
+      "items": { "$ref": "#/$defs/scenario" }
+    }
+  },
+  "$defs": {
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "gate", "fixture", "budgets", "approval"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "gate": {
+          "enum": ["read", "host", "pagination", "writer", "output"],
+          "description": "Which phase gate this scenario answers to."
+        },
+        "fixture": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["corpusId", "generated"],
+          "description": "A corpus id refers to docs/pdf-corpus-manifest.json, which is empty until its rights rows clear. A generated fixture is built in code and needs no rights decision.",
+          "properties": {
+            "corpusId": { "type": ["string", "null"] },
+            "generated": { "type": "boolean" },
+            "generator": { "type": ["string", "null"] }
+          }
+        },
+        "budgets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxWallTimeMs", "maxPeakMemoryMib", "maxWorkUnits", "maxRegressionPercent"],
+          "properties": {
+            "maxWallTimeMs": { "type": ["integer", "null"], "minimum": 1 },
+            "maxPeakMemoryMib": { "type": "integer", "minimum": 1 },
+            "maxWorkUnits": { "type": "integer", "minimum": 1 },
+            "maxRegressionPercent": { "type": "number", "minimum": 0 }
+          }
+        },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "reviewer", "decided"],
+          "properties": {
+            "state": { "enum": ["pending", "approved"] },
+            "reviewer": { "type": ["string", "null"] },
+            "decided": { "type": ["string", "null"], "format": "date" },
+            "notes": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  }
+}

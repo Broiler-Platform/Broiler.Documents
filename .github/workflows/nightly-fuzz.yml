@@ -1,0 +1,73 @@
+name: Nightly fuzz
+
+# The long campaigns PDF roadmap §6.6 asks for. A pull request runs the same
+# harness for seconds as an ordinary test; this runs it for half an hour per
+# target, from a seed that changes with the run number so successive nights
+# explore different inputs rather than repeating one night forever.
+#
+# Not a required check, and it must not become one while the campaign is
+# mutation-based rather than coverage-guided: a green night is weak evidence,
+# and treating it as a gate would overstate what it proves. Coverage guidance
+# needs an instrumenting engine, which is a tool needing a row in
+# tests/pdf/tools/manifest.json and a licence review before CI may run it.
+
+on:
+  schedule:
+    # 02:30 UTC, off the hour to avoid the scheduling crush.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      minutesPerTarget:
+        description: Minutes to spend on each target
+        required: false
+        default: '30'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-fuzz
+  cancel-in-progress: false
+
+jobs:
+  campaign:
+    name: Fuzz campaign
+    runs-on: ubuntu-latest
+
+    # The outer supervisor §6.6 requires. The campaign stops itself at its own
+    # budget; this is what stops it when it cannot.
+    timeout-minutes: 90
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+        with:
+          submodules: true
+
+      - name: Check out the graphics submodule's own dependency
+        run: git -C Broiler.Graphics submodule update --init --depth 1 Broiler.Media
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build
+        run: dotnet build src/tests/Broiler.Documents.Pdf.Tests/Broiler.Documents.Pdf.Tests.csproj -c Release --nologo
+
+      # The seed is the run number, so a failing night names a seed anybody can
+      # replay: every record carries it, and FuzzCampaign.Reproduce rebuilds the
+      # exact input from it without the artifact being kept anywhere.
+      - name: Run the campaign
+        env:
+          BROILER_FUZZ_SEED: ${{ github.run_number }}
+          BROILER_FUZZ_MINUTES: ${{ inputs.minutesPerTarget || '30' }}
+        run: |
+          dotnet test src/tests/Broiler.Documents.Pdf.Tests/Broiler.Documents.Pdf.Tests.csproj \
+            -c Release --no-build --nologo \
+            --filter "FullyQualifiedName~FuzzNightlyTests" \
+            --logger "console;verbosity=detailed"

@@ -1,0 +1,18 @@
+{
+  "$schema": "performance-baseline.schema.json",
+  "schemaVersion": 1,
+  "updated": "2026-09-04",
+  "runner": {
+    "profile": "github-hosted",
+    "images": ["ubuntu-latest", "windows-latest"],
+    "rationale": "The runners the component's own CI already uses, so a threshold is reproducible by anyone who can run CI and a number measured on a developer's machine is explicitly not evidence. The cost is variance between runs on identical input, which the wall-time allowance below carries and the absolute caps do not.",
+    "noiseAllowancePercent": 35
+  },
+  "measurement": {
+    "method": "In-process stopwatch around the scenario body, peak managed memory from GC.GetTotalAllocatedBytes, and work units counted by the codec's own budget counters. No external profiler, so nothing here needs a tool-manifest row.",
+    "iterations": 5,
+    "discardedWarmups": 2,
+    "statistic": "median"
+  },
+  "scenarios": []
+}
