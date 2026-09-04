@@ -6,9 +6,9 @@ using Broiler.Graphics;
 namespace Broiler.Documents.Pdf.Fonts;
 
 /// <summary>
-/// Reads embedded sfnt font programs — TrueType and OpenType — by composing the
-/// font parser from <c>Broiler.Graphics</c>. Not composed by default: a caller
-/// opts in by putting it into <see cref="PdfCodecServices"/>.
+/// Reads embedded sfnt font programs — TrueType and OpenType — through the
+/// read-safe inspector in <c>Broiler.Graphics</c>. Not composed by default: a
+/// caller opts in by putting it into <see cref="PdfCodecServices"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -26,12 +26,22 @@ namespace Broiler.Documents.Pdf.Fonts;
 /// </para>
 /// <para>
 /// <strong>Which formats.</strong> sfnt-shaped programs only: <c>FontFile2</c>,
-/// and <c>FontFile3</c> with an <c>OpenType</c> subtype. Type 1 (<c>FontFile</c>)
-/// and bare CFF (<c>FontFile3</c> with <c>Type1C</c> or <c>CIDFontType0C</c>)
-/// carry their glyph names in structures the composed parser does not expose —
-/// it is a renderer, and a renderer never needs to know what a glyph is called.
-/// Those return null and keep reporting as uninspected, which is honest: the
-/// limit is the parser's surface, not the register.
+/// and <c>FontFile3</c> with an <c>OpenType</c> subtype, and of those only what
+/// <see cref="BFontProgramInspector"/>'s pinned tuple accepts — no WOFF, no font
+/// collection, no variable font, no CFF2, no colour or bitmap glyphs, no
+/// Graphite or AAT. Type 1 (<c>FontFile</c>) and bare CFF (<c>FontFile3</c> with
+/// <c>Type1C</c> or <c>CIDFontType0C</c>) carry their glyph names in structures
+/// the inspector does not read; those return null and keep reporting as
+/// uninspected, which is honest.
+/// </para>
+/// <para>
+/// <strong>Why the inspector and not the renderer's parser.</strong> This reads
+/// a program that arrived inside somebody else's document. The renderer's parser
+/// is written for fonts a caller provisioned and repairs what it can — it follows
+/// a WOFF container, takes the first face of a collection, and reads a short
+/// table as zeros so a slightly wrong font still draws. Every one of those turns
+/// a malformed program into plausible output instead of a refusal, which is the
+/// wrong trade on this side of the boundary (PDF roadmap §6.5).
 /// </para>
 /// </remarks>
 public sealed class GraphicsFontProgramReader : IPdfFontProgramReader
@@ -83,21 +93,29 @@ public sealed class GraphicsFontProgramReader : IPdfFontProgramReader
         if (format is null)
             return null;
 
-        // The guard has to cover the probing as well as the load. The composed
-        // parser builds its character map lazily, on the first lookup, so a
-        // malformed cmap table faults inside BuildGlyphText and not inside Load —
-        // which is exactly the shape of bug a boundary like this exists to stop
-        // reaching the caller.
+        var limits = new BFontInspectionLimits
+        {
+            // Clamped rather than cast: the codec states its budget in long, and a
+            // value past int.MaxValue would wrap into a small one that refuses
+            // every program. A font program never approaches either number.
+            MaxBytes = (int)Math.Min(context.MaxBytes, int.MaxValue),
+            MaxMappings = MaxGlyphs,
+        };
+
+        // A refusal is the expected outcome for a malformed or out-of-tuple
+        // program, not an exception to catch: the inspector validates rather than
+        // repairs, so there is nothing here to fall over. The catch stays anyway,
+        // because a boundary that relies on a parser never having a bug is not a
+        // boundary — it just costs this font's text rather than the read.
         try
         {
-            TrueTypeFont? font = TrueTypeFont.Load(program.ToArray());
-            return font is null ? null : new PdfFontProgramMap(format, BuildGlyphText(font, context));
+            if (!BFontProgramInspector.TryInspect(program, limits, out BFontProgramInspection? font, out _))
+                return null;
+
+            return new PdfFontProgramMap(format, BuildGlyphText(font!, context));
         }
         catch (Exception ex) when (ex is not (OutOfMemoryException or StackOverflowException or OperationCanceledException))
         {
-            // The boundary between an untrusted document and a parser written for
-            // trusted system fonts. A malformed program costs this font's text,
-            // never the read.
             return null;
         }
     }
@@ -143,25 +161,41 @@ public sealed class GraphicsFontProgramReader : IPdfFontProgramReader
     /// <c>A</c> and a compatibility form resolves to <c>A</c>.
     /// </para>
     /// </remarks>
-    private static Dictionary<int, string> BuildGlyphText(TrueTypeFont font, PdfFontProgramContext context)
+    /// <summary>
+    /// What each glyph spells, inverted from the program's character map.
+    /// </summary>
+    /// <remarks>
+    /// The first character to reach a glyph wins. A font that maps several
+    /// characters to one glyph — a ligature slot, a duplicated dash — gets the
+    /// lowest of them, which is arbitrary but stable, and stability is what
+    /// matters for text that has to compare equal across two reads of one file.
+    /// </remarks>
+    private static Dictionary<int, string> BuildGlyphText(
+        BFontProgramInspection font,
+        PdfFontProgramContext context)
     {
         var glyphText = new Dictionary<int, string>();
+        var lowestCodepoint = new Dictionary<int, int>();
 
-        for (int codepoint = FirstCodepoint; codepoint <= LastCodepoint; codepoint++)
+        int seen = 0;
+        foreach (KeyValuePair<int, int> mapping in font.Mappings)
         {
-            if ((codepoint & CancellationCheckMask) == 0)
+            if ((++seen & CancellationCheckMask) == 0)
                 context.CancellationToken.ThrowIfCancellationRequested();
+
+            int codepoint = mapping.Key;
+            int glyph = mapping.Value;
+            if (glyph <= 0 || codepoint < FirstCodepoint)
+                continue;
 
             if (codepoint is >= FirstSurrogate and <= LastSurrogate)
                 continue;
 
-            int glyph = font.GetGlyphIndex(codepoint);
-            if (glyph <= 0 || glyphText.ContainsKey(glyph))
+            if (lowestCodepoint.TryGetValue(glyph, out int already) && already <= codepoint)
                 continue;
 
+            lowestCodepoint[glyph] = codepoint;
             glyphText[glyph] = char.ConvertFromUtf32(codepoint);
-            if (glyphText.Count >= MaxGlyphs)
-                break;
         }
 
         return glyphText;

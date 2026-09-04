@@ -184,14 +184,18 @@ Residual work owned here:
   rather than a licence to pick one.
 - §6.5 is answered in parts. The V1 JPEG tuple is frozen and enforced — Huffman
   SOF0, SOF1 and SOF2 at 8 bits, every other frame type and precision refused by
-  name. Font-program inspection, though, reuses `Broiler.Graphics`' rendering
-  parser behind the satellite's own byte, cancellation and descriptor-key
-  boundary rather than the allowlist inspector with a pinned format tuple that
-  §6.5 describes, and that parser decodes WOFF 1.0, which the section excludes
-  from V1. `MediaLimits` bounds encoded bytes, decoded bytes, pixels and frames
+  name — and the font inspector exists: `BFontProgramInspector` in
+  `Broiler.Graphics` validates the table directory in checked arithmetic, refuses
+  a table that overlaps the directory describing it, reads the character map only
+  within its own slice, and pins the accepted tuple, so WOFF, WOFF2, collections,
+  variable fonts, CFF2, colour and bitmap glyphs, Graphite and AAT are refused by
+  name. It is separate from the rasteriser's parser on purpose: that one repairs
+  what it can, which is right for a face a caller provisioned and wrong for a
+  program that arrived inside somebody's document. What remains of §6.5 is
+  Media's: `MediaLimits` bounds encoded bytes, decoded bytes, pixels and frames
   but none of the marker, table, component, sampling, scan, restart or work
   budgets named beside them, and `ImageCodec` exposes no synchronous decode path
-  for §6.5's sync/async split to be true of.
+  for the sync/async split to be true of.
 - `Broiler.Documents.Pagination` does not exist; the PDF writer paginates
   internally against a replaceable metrics provider until the shared paginator
   does.
