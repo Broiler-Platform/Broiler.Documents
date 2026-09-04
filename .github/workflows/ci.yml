@@ -98,14 +98,18 @@ jobs:
             echo "--- $project"
             output=$(dotnet run --project "$project" -c ${{ matrix.configuration }} --nologo)
             echo "$output" | tail -3
-            echo "$output" | grep -qE '^[0-9]+/[0-9]+ passed, 0 failed\.$' || {
+            # `if`, not `cmd && { ... }`: the latter takes grep's exit status as
+            # the statement's own, so a non-match kills the step under `set -e` —
+            # which is exactly what it did the first time this ran, after all
+            # three suites had passed.
+            if ! echo "$output" | grep -qE '^[0-9]+/[0-9]+ passed, 0 failed\.$'; then
               echo "::error::$project did not report a clean run."
               exit 1
-            }
-            echo "$output" | grep -qE '^0/0 passed' && {
+            fi
+            if echo "$output" | grep -qE '^0/0 passed'; then
               echo "::error::$project executed no tests."
               exit 1
-            }
+            fi
           done
 
       # Proves the eight packages still build from this commit. Every project is
