@@ -15,8 +15,8 @@ residual work is tracked here.
   picture or object. Removing the members outright still waits on the
   repository's deprecation policy, and the bounded caller-composed image-import
   path is Phase 1 §6.2 work.
-- Re-review ADR 0004 and the read/write option surface once the §6.2 resource
-  context lands.
+- Re-review ADR 0004 and the read/write option surface now that the §6.2
+  resource context has landed.
 - Freeze public names and XML documentation after a consumer review.
 
 ## Format fidelity
@@ -146,11 +146,42 @@ Residual work owned here:
   non-seekable sources, bounded memory-only materialization, explicit ownership),
   the read/write request envelopes, the shared result status and destination
   state, typed-option validation, async overloads, and one catalog
-  selection-and-read path. The conversion and resource context (§6.2), the model
-  unit review (§6.4), the Graphics font inspector and Media image services (§6.5),
-  and `Broiler.Documents.Pagination` remain outstanding; the PDF writer paginates
+  selection-and-read path. The §6.2 resource context is built as well:
+  `DocumentConversionContext` is immutable, gives every resource an opaque
+  identity scoped to a context namespace, decides each operation separately and
+  fail-closed against the payload digest, rides on `DocumentReadResult.Resources`
+  and `DocumentWriteOptions.Resources`, and is consumed by the DOCX, RTF, HTML,
+  Markdown and ODT writers, so a resource cannot bypass policy merely by changing
+  output codec. Two pieces of §6.2 are left. The format-neutral metadata envelope
+  does not exist — normalized metadata still lives on `PdfReadResult`, and the
+  section requires a non-PDF codec to consume the same envelope before promotion.
+  And `DecodeEmbeddedObjects` still has to give way to the caller-composed
+  image-import path, which waits on the deprecation policy recorded under
+  [API contract cleanup](#api-contract-cleanup).
+- §6.4's model review is nearly done. Dimensions are points throughout and the
+  RichEdit and Writer boundaries convert explicitly through
+  `BFontStyle.PointsToPixels` rather than handing a point value to a pixels API;
+  `InlineImage` is built on `DocumentResourceId` and `BImageResource`, with
+  nullable point dimensions, intrinsic pixels at 96 per inch when both are
+  absent, and a reportable unplaceable case instead of a sentinel; non-finite
+  and negative measurements are rejected wherever the model lets one be stated;
+  and justified alignment arrived with named DOCX, ODT and HTML consumers rather
+  than ahead of them. What is missing is the format-neutral document style
+  defaults: there is no explicit 12-point document default and no document
+  logical family, so a missing inline size still has nothing to inherit from.
+- §6.5 is answered in parts. The V1 JPEG tuple is frozen and enforced — Huffman
+  SOF0, SOF1 and SOF2 at 8 bits, every other frame type and precision refused by
+  name. Font-program inspection, though, reuses `Broiler.Graphics`' rendering
+  parser behind the satellite's own byte, cancellation and descriptor-key
+  boundary rather than the allowlist inspector with a pinned format tuple that
+  §6.5 describes, and that parser decodes WOFF 1.0, which the section excludes
+  from V1. `MediaLimits` bounds encoded bytes, decoded bytes, pixels and frames
+  but none of the marker, table, component, sampling, scan, restart or work
+  budgets named beside them, and `ImageCodec` exposes no synchronous decode path
+  for §6.5's sync/async split to be true of.
+- `Broiler.Documents.Pagination` does not exist; the PDF writer paginates
   internally against a replaceable metrics provider until the shared paginator
-  exists.
+  does.
 - Coverage-guided fuzzing and the pinned oracle, corpus and performance
   infrastructure remain outstanding; the current suite covers bounded truncation
   and mutation campaigns only.

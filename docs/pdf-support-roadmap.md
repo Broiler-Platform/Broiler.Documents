@@ -883,8 +883,13 @@ fixed-layout objects remain prohibited.
   operations required above. The managed JPEG implementation performs sync I/O
   on the sync path and async I/O on the async path, with common CPU decode logic,
   limits, cancellation, and identical admitted-mode/color results.
-- Freeze the V1 JPEG tuple as 8-bit Huffman-coded SOF0/SOF2 with one or three
-  components and only approved sampling/table/restart behavior. Separately
+- Freeze the V1 JPEG tuple as 8-bit Huffman-coded SOF0, SOF1 and SOF2 — every
+  Huffman-coded DCT process the standard defines — with one or three components
+  and only approved sampling/table/restart behavior. This section said SOF0/SOF2
+  until IP-005 widened to progressive DCT and then to extended sequential on
+  2026-09-02, on the reading that its evidence divides the processes by entropy
+  coder rather than by frame type; `JpegDecoder` admits all three and refuses
+  every other frame type and precision by name. Separately
   review PDF `ColorTransform` and Adobe APP14 interpretation even for
   three-component data, including the source/use terms and Adobe Technical Note
   #5116 if relied upon; if the correct interpretation is ambiguous or the entry
@@ -1125,7 +1130,7 @@ fixed-layout objects remain prohibited.
   or developer-extension semantics.
 - Classify image filters before decoding content:
   - `DCTDecode`: only the Phase 1-approved 8-bit, one- or three-component,
-    Huffman-coded SOF0/SOF2 tuple is eligible for V1 decode. Admission also checks
+    Huffman-coded SOF0/SOF1/SOF2 tuple is eligible for V1 decode. Admission also checks
     table sources/counts, sampling factors, restart behavior, marker classes,
     PDF ColorSpace and `/Decode`, `DecodeParms/ColorTransform`, and APP14
     presence/value;
