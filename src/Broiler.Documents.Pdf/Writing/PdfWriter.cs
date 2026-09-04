@@ -430,7 +430,7 @@ internal sealed class PdfWriter
 
     private void WriteInfo(int objectNumber)
     {
-        PdfDocumentMetadata metadata = _options.Metadata;
+        DocumentMetadata metadata = _options.Metadata;
         BeginObject(objectNumber);
 
         var builder = new StringBuilder("<<");
@@ -469,7 +469,7 @@ internal sealed class PdfWriter
     /// Formats a PDF date. A value that arrived without a UTC offset is written
     /// back without one: the writer does not invent a zone it was never told.
     /// </summary>
-    internal static string FormatDate(PdfDate date)
+    internal static string FormatDate(DocumentDate date)
     {
         DateTimeOffset value = date.Value;
         var builder = new StringBuilder("D:")

@@ -91,7 +91,8 @@ internal static class DocxReader
                 document,
                 diagnostics,
                 DocumentReadResult.StatusFrom(diagnostics),
-                resources.Build());
+                resources.Build(),
+                DocxMetadata.Read(archive, options.Limits, diagnostics));
         }
         catch (InvalidDataException ex)
         {

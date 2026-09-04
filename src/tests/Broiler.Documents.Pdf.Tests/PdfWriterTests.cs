@@ -225,11 +225,11 @@ public sealed class PdfWriterTests
     [Fact]
     public void Writes_Only_Caller_Supplied_Metadata()
     {
-        var metadata = new PdfDocumentMetadata(
+        var metadata = new DocumentMetadata(
             title: "Title",
             authors: ["Ada", "Grace"],
             producer: "Broiler",
-            creationDate: PdfDate.WithOffset(new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.FromHours(-5))));
+            creationDate: DocumentDate.WithOffset(new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.FromHours(-5))));
 
         string text = Latin1(Write(RichTextDocument.FromPlainText("x"), new PdfWriteOptions(metadata: metadata)).Bytes);
 
@@ -252,7 +252,7 @@ public sealed class PdfWriterTests
     public void Writes_A_Zone_Less_Date_Back_Without_A_Zone()
     {
         string formatted = Writing.PdfWriter.FormatDate(
-            PdfDate.WithoutOffset(new DateTime(2026, 8, 25, 13, 30, 0)));
+            DocumentDate.WithoutOffset(new DateTime(2026, 8, 25, 13, 30, 0)));
 
         Assert.Equal("D:20260825133000", formatted);
     }
@@ -288,7 +288,7 @@ public sealed class PdfWriterTests
     [Fact]
     public void Keeps_A_Non_Latin_Title_Through_The_Utf16_Text_String_Form()
     {
-        var metadata = new PdfDocumentMetadata(title: "Ελληνικά");
+        var metadata = new DocumentMetadata(title: "Ελληνικά");
         byte[] bytes = Write(RichTextDocument.FromPlainText("x"), new PdfWriteOptions(metadata: metadata)).Bytes;
 
         // UTF-16BE text strings begin with the FE FF byte-order mark, escaped octally.

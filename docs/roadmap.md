@@ -152,12 +152,20 @@ Residual work owned here:
   fail-closed against the payload digest, rides on `DocumentReadResult.Resources`
   and `DocumentWriteOptions.Resources`, and is consumed by the DOCX, RTF, HTML,
   Markdown and ODT writers, so a resource cannot bypass policy merely by changing
-  output codec. Two pieces of §6.2 are left. The format-neutral metadata envelope
-  does not exist — normalized metadata still lives on `PdfReadResult`, and the
-  section requires a non-PDF codec to consume the same envelope before promotion.
-  And `DecodeEmbeddedObjects` still has to give way to the caller-composed
-  image-import path, which waits on the deprecation policy recorded under
-  [API contract cleanup](#api-contract-cleanup).
+  output codec. The metadata envelope is built too: `DocumentMetadata` carries the
+  nine frozen fields with missing and explicitly empty kept distinct, and
+  `DocumentDate` keeps a timestamp's stated precision and optional offset without
+  inventing a zone the source never gave. It is promoted rather than PDF-shaped —
+  DOCX reads and writes it through `docProps/core.xml` and `docProps/app.xml`,
+  ODT through `meta.xml`, which is the non-PDF consumer §6.2 gates promotion on,
+  and each codec reconciles its own sources before the envelope sees them. The
+  transfer policy is that nothing copies a read result's metadata into a write:
+  a caller who wants that performs it, and `DocumentMetadata.With` is where they
+  correct what should not survive. A write reports all three of §6.2's outcomes —
+  emitted, narrowed, stripped — naming fields and never quoting their values.
+  One piece of §6.2 is left: `DecodeEmbeddedObjects` still has to give way to the
+  caller-composed image-import path, which waits on the deprecation policy
+  recorded under [API contract cleanup](#api-contract-cleanup).
 - §6.4's model review is nearly done. Dimensions are points throughout and the
   RichEdit and Writer boundaries convert explicitly through
   `BFontStyle.PointsToPixels` rather than handing a point value to a pixels API;

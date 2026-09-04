@@ -184,6 +184,9 @@ blank:
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | `odt.read.summary` | Info | Paragraph, table, style, list-style, image, and skipped-block counts for the read. |
+| `document.metadata.emitted` | Info | Document properties the caller supplied reached `meta.xml`; the message names the fields. |
+| `document.metadata.narrowed` | Warning | A property reached `meta.xml` in a reduced form — ODF's `meta:initial-creator` holds one name, so authors past the first are not written. |
+| `document.metadata.dropped` | Warning | A property ODF states no equivalent for was not written; the message names the fields. |
 | `odt.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
 | `odt.package.encrypted` | Error | The package is encrypted; nothing was read. |
 | `odt.package.content` | Error | The package has no `content.xml`. |
@@ -191,7 +194,8 @@ blank:
 | `odt.document.body` | Error | `content.xml` has no `office:text` body. |
 | `odt.xml` | Error | A part's XML could not be parsed; the message names the exception type. |
 | `odt.limit.bytes` | Error | Input exceeded `MaxDocumentBytes` and was not parsed. |
-| `odt.content.xml` / `odt.styles` / `odt.manifest` | Error | A part could not be parsed, or exceeded `MaxBinBytes` (`.limit` suffix). |
+| `odt.content.xml` / `odt.styles` / `odt.manifest` / `odt.meta.xml` | Error | A part could not be parsed, or exceeded `MaxBinBytes` (`.limit` suffix). |
+| `odt.meta.date` | Warning | A `meta:creation-date` or `dc:date` stated a timestamp this build could not read, so it was dropped rather than guessed at. |
 | `odt.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
 | `odt.frame.textbox` | Warning | A text box was read as body content; its frame position is not represented. |
 | `odt.frame.block` | Warning | A page-anchored frame held neither body text nor a picture and was skipped. |

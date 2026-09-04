@@ -22,22 +22,18 @@ public sealed class PdfReadResult : DocumentReadResult
     public PdfReadResult(
         RichTextDocument document,
         DocumentResultStatus status,
-        PdfDocumentMetadata metadata,
+        DocumentMetadata metadata,
         PdfVersion declaredVersion,
         int pageCount,
         IReadOnlyList<PdfExtensionDeclaration> extensions,
         IEnumerable<DocumentDiagnostic>? diagnostics = null,
         DocumentConversionContext? resources = null)
-        : base(document, diagnostics, status, resources)
+        : base(document, diagnostics, status, resources, metadata)
     {
-        Metadata = metadata ?? PdfDocumentMetadata.Empty;
         DeclaredVersion = declaredVersion;
         PageCount = pageCount;
         Extensions = extensions ?? Array.Empty<PdfExtensionDeclaration>();
     }
-
-    /// <summary>The normalized metadata allowlist; never raw Info or XMP data.</summary>
-    public PdfDocumentMetadata Metadata { get; }
 
     /// <summary>
     /// The version the file effectively declares, after the Catalog override. A

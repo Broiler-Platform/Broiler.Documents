@@ -35,7 +35,8 @@ public class DocumentReadResult
         RichTextDocument document,
         IEnumerable<DocumentDiagnostic>? diagnostics = null,
         DocumentResultStatus status = DocumentResultStatus.Success,
-        DocumentConversionContext? resources = null)
+        DocumentConversionContext? resources = null,
+        DocumentMetadata? metadata = null)
     {
         Document = document ?? throw new ArgumentNullException(nameof(document));
         Diagnostics = diagnostics is null
@@ -43,6 +44,7 @@ public class DocumentReadResult
             : Array.AsReadOnly(diagnostics.ToArray());
         Status = status;
         Resources = resources ?? DocumentConversionContext.Empty;
+        Metadata = metadata ?? DocumentMetadata.Empty;
     }
 
     public RichTextDocument Document { get; }
@@ -57,6 +59,18 @@ public class DocumentReadResult
     /// a picture it may pass on and one it may only look at.
     /// </remarks>
     public DocumentConversionContext Resources { get; }
+
+    /// <summary>
+    /// What the document says about itself, normalized to the shared allowlist.
+    /// </summary>
+    /// <remarks>
+    /// The codec has already reconciled whatever sources its format carries and
+    /// diagnosed any disagreement between them, so this is one agreed set of
+    /// values rather than a union of parts. It is not authority to republish:
+    /// a writer takes its metadata from the caller, and nothing here copies this
+    /// into a write.
+    /// </remarks>
+    public DocumentMetadata Metadata { get; }
 
     public IReadOnlyList<DocumentDiagnostic> Diagnostics { get; }
 

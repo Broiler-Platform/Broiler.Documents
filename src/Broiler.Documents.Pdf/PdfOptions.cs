@@ -97,7 +97,7 @@ public sealed class PdfWriteOptions : DocumentWriteOptions
 
     public PdfWriteOptions(
         PdfPageSetup? pageSetup = null,
-        PdfDocumentMetadata? metadata = null,
+        DocumentMetadata? metadata = null,
         PdfLimits? pdfLimits = null,
         bool compressStreams = true,
         PdfFontFamilyKind defaultFamily = PdfFontFamilyKind.SansSerif,
@@ -105,13 +105,12 @@ public sealed class PdfWriteOptions : DocumentWriteOptions
         string? fileIdentifier = null,
         PdfUriPolicy? uriPolicy = null,
         DocumentFontSet? fonts = null)
-        : base(fonts: fonts)
+        : base(fonts: fonts, metadata: metadata)
     {
         if (defaultFontSize is <= 0 or > 1600 || !float.IsFinite(defaultFontSize))
             throw new ArgumentOutOfRangeException(nameof(defaultFontSize));
 
         PageSetup = pageSetup ?? PdfPageSetup.Letter;
-        Metadata = metadata ?? PdfDocumentMetadata.Empty;
         PdfLimits = pdfLimits ?? PdfLimits.Default;
         CompressStreams = compressStreams;
         DefaultFamily = defaultFamily;
@@ -121,12 +120,6 @@ public sealed class PdfWriteOptions : DocumentWriteOptions
     }
 
     public PdfPageSetup PageSetup { get; }
-
-    /// <summary>
-    /// The metadata to emit. It comes from the caller, never from a read result:
-    /// having read a document's Info dictionary is not authority to republish it.
-    /// </summary>
-    public PdfDocumentMetadata Metadata { get; }
 
     public PdfLimits PdfLimits { get; }
 
