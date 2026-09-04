@@ -140,6 +140,13 @@ internal sealed class PdfPageLayout
 
     public List<PdfLayoutPage> Build(RichTextDocument document)
     {
+        // What a run with no size and no family falls back to. The document's own
+        // defaults outrank the write options, because those are the author's
+        // statement and these are a caller's answer for a document that made none.
+        _defaults = document.StyleDefaults.IsDefault
+            ? new DocumentStyleDefaults { FontSizePoints = _options.DefaultFontSize }
+            : document.StyleDefaults;
+
         var pages = new List<PdfLayoutPage>();
         var page = new PdfLayoutPage();
         PdfPageSetup setup = SetupFor(document);
@@ -1287,11 +1294,28 @@ internal sealed class PdfPageLayout
         return builder?.ToString() ?? text;
     }
 
+    /// <summary>
+    /// The formatting a run with no size and no family of its own falls back to,
+    /// for the document being laid out. Set at the top of <see cref="Build"/>.
+    /// </summary>
+    private DocumentStyleDefaults _defaults = DocumentStyleDefaults.Default;
+
+    /// <summary>
+    /// The family a run with none of its own gets: the document's logical family
+    /// where it states one, and the caller's option where it does not. A document
+    /// naming a family this build has no standard font for still lands on the
+    /// option rather than on nothing.
+    /// </summary>
+    private PdfFontFamilyKind ClassifyDefaultFamily() =>
+        _defaults.FontFamily is null
+            ? _options.DefaultFamily
+            : ClassifyKnownFamily(_defaults.FontFamily) ?? _options.DefaultFamily;
+
     private RunStyle Resolve(InlineStyle style)
     {
         PdfFontFamilyKind family = ClassifyFamily(style.FontFamily);
         PdfStandardFont font = PdfStandardFonts.Select(family, style.Bold, style.Italic);
-        double size = style.FontSize is > 0 ? style.FontSize.Value : _options.DefaultFontSize;
+        double size = _defaults.FontSizeOf(style);
 
         string? href = null;
         if (style.IsLink)
@@ -1317,10 +1341,22 @@ internal sealed class PdfPageLayout
     /// standard fonts cover. The match is on the family the document names, not
     /// on any font installed on the machine — nothing here consults the host.
     /// </summary>
-    private PdfFontFamilyKind ClassifyFamily(string? family)
+    private PdfFontFamilyKind ClassifyFamily(string? family) =>
+        ClassifyKnownFamily(family) ?? ClassifyDefaultFamily();
+
+    /// <summary>
+    /// The family a name denotes, or null when this build recognizes none.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="ClassifyFamily"/> so the document default can be
+    /// classified without re-entering the fallback that consults it. Folding the
+    /// two together recurses forever on a document whose default family is a name
+    /// nothing here recognizes, which is most real font names.
+    /// </remarks>
+    private static PdfFontFamilyKind? ClassifyKnownFamily(string? family)
     {
         if (string.IsNullOrWhiteSpace(family))
-            return _options.DefaultFamily;
+            return null;
 
         string name = family.Trim();
         if (PdfStandardFonts.TryParse(name, out PdfStandardFont standard))
@@ -1349,7 +1385,7 @@ internal sealed class PdfPageLayout
             name.Contains("Garamond", StringComparison.OrdinalIgnoreCase))
             return PdfFontFamilyKind.Serif;
 
-        return _options.DefaultFamily;
+        return null;
     }
 
     // ---- layout value types ---------------------------------------------------

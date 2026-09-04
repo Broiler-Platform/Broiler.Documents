@@ -87,6 +87,7 @@ internal static class DocxReader
                 reported,
                 page));
             document = document.WithPageGeometry(page);
+            document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             return new DocumentReadResult(
                 document,
                 diagnostics,
@@ -1525,6 +1526,31 @@ internal static class DocxReader
     /// the style chain and finally for the run's own properties, so only the
     /// elements actually present override what came before.
     /// </summary>
+    /// <summary>
+    /// The formatting a run inherits when it and its paragraph name no style of
+    /// their own: <c>w:docDefaults</c> plus the default paragraph style.
+    /// </summary>
+    /// <remarks>
+    /// Resolved through the same chain a real run goes through, rather than by
+    /// reading <c>w:docDefaults</c> directly, so a document whose default style
+    /// overrides the document defaults reports what a run would actually get.
+    /// Word writes both, and they disagree more often than not.
+    /// </remarks>
+    private static DocumentStyleDefaults ReadStyleDefaults(DocxStyles styles)
+    {
+        InlineStyle style = InlineStyle.Default;
+        foreach (XElement rPr in styles.RunPropertiesForParagraph(null))
+            style = ApplyRunProperties(rPr, style, styles.Theme);
+
+        return new DocumentStyleDefaults
+        {
+            FontSizePoints = style.FontSize is float size && size > 0
+                ? size
+                : DocumentStyleDefaults.FallbackFontSizePoints,
+            FontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? null : style.FontFamily,
+        };
+    }
+
     private static InlineStyle ApplyRunProperties(XElement? rPr, InlineStyle style, DocxTheme theme)
     {
         if (rPr is null)

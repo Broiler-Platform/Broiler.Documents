@@ -19,10 +19,12 @@ public sealed class RichTextDocument
         RunningContent? runningContent = null,
         IReadOnlyList<DocumentShape>? shapes = null,
         PageGeometry? pageGeometry = null,
-        IReadOnlyList<DocumentTable>? tables = null)
+        IReadOnlyList<DocumentTable>? tables = null,
+        DocumentStyleDefaults? styleDefaults = null)
     {
         RunningContent = runningContent ?? RunningContent.Empty;
         PageGeometry = pageGeometry;
+        StyleDefaults = styleDefaults ?? DocumentStyleDefaults.Default;
         Shapes = shapes is null || shapes.Count == 0 ? [] : [.. shapes];
         Tables = tables is null || tables.Count == 0 ? [] : [.. tables];
         if (paragraphs is null || paragraphs.Count == 0)
@@ -64,6 +66,13 @@ public sealed class RichTextDocument
     public PageGeometry? PageGeometry { get; }
 
     /// <summary>
+    /// What this document's formatting falls back to where a run states nothing.
+    /// Never null: a document that named no default still has the shared one, so
+    /// no consumer has to invent a size of its own.
+    /// </summary>
+    public DocumentStyleDefaults StyleDefaults { get; }
+
+    /// <summary>
     /// The tables the body's paragraphs are arranged in, in the order they start.
     /// A table names the paragraphs of its cells rather than holding them, so the
     /// paragraph list still reads a table's text in row-major order whether or
@@ -74,19 +83,23 @@ public sealed class RichTextDocument
 
     /// <summary>This document's body with different running content.</summary>
     public RichTextDocument WithRunningContent(RunningContent? runningContent) =>
-        new(_paragraphs, runningContent, Shapes, PageGeometry, Tables);
+        new(_paragraphs, runningContent, Shapes, PageGeometry, Tables, StyleDefaults);
 
     /// <summary>This document's body with different floating shapes.</summary>
     public RichTextDocument WithShapes(IReadOnlyList<DocumentShape>? shapes) =>
-        new(_paragraphs, RunningContent, shapes, PageGeometry, Tables);
+        new(_paragraphs, RunningContent, shapes, PageGeometry, Tables, StyleDefaults);
 
     /// <summary>This document's body on a different page.</summary>
     public RichTextDocument WithPageGeometry(PageGeometry? pageGeometry) =>
-        new(_paragraphs, RunningContent, Shapes, pageGeometry, Tables);
+        new(_paragraphs, RunningContent, Shapes, pageGeometry, Tables, StyleDefaults);
 
     /// <summary>This document's body arranged in different tables.</summary>
     public RichTextDocument WithTables(IReadOnlyList<DocumentTable>? tables) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, tables);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, tables, StyleDefaults);
+
+    /// <summary>This document's body with different formatting fallbacks.</summary>
+    public RichTextDocument WithStyleDefaults(DocumentStyleDefaults? styleDefaults) =>
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, styleDefaults);
 
     /// <summary>
     /// The body table starting at <paramref name="paragraphIndex"/>, or null when
@@ -297,7 +310,7 @@ public sealed class RichTextDocument
             paragraphs.Add(_paragraphs[i].ApplyInlineStyle(startOffset, endOffset - startOffset, delta));
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults);
     }
 
     public RichTextDocument ApplyParagraphStyle(RichTextRange range, ParagraphStyleDelta delta)
@@ -314,7 +327,7 @@ public sealed class RichTextDocument
                 paragraphs.Add(_paragraphs[i]);
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults);
     }
 
     /// <summary>
@@ -387,7 +400,7 @@ public sealed class RichTextDocument
         var paragraphs = new RichTextParagraph[_paragraphs.Length];
         Array.Copy(_paragraphs, paragraphs, _paragraphs.Length);
         paragraphs[index] = paragraph;
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults);
     }
 
     /// <summary>
@@ -412,7 +425,8 @@ public sealed class RichTextDocument
             RunningContent,
             Shapes,
             PageGeometry,
-            ShiftTables(index, removeCount, insert.Count));
+            ShiftTables(index, removeCount, insert.Count),
+            StyleDefaults);
     }
 
     /// <summary>This document's tables, moved for an edit at <paramref name="at"/>.</summary>

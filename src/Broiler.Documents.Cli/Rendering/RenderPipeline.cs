@@ -62,6 +62,7 @@ public sealed class RenderPipeline
 {
     private readonly PageSetup _setup;
     private readonly bool _pageWasAskedFor;
+    private readonly bool _fontWasAskedFor;
     private readonly LayoutSettings _settings;
     private readonly FontResolution _fonts;
     private readonly ImageEncodeFormat _format;
@@ -71,6 +72,7 @@ public sealed class RenderPipeline
     private RenderPipeline(
         PageSetup setup,
         bool pageWasAskedFor,
+        bool fontWasAskedFor,
         LayoutSettings settings,
         FontResolution fonts,
         ImageEncodeFormat format,
@@ -79,6 +81,7 @@ public sealed class RenderPipeline
     {
         _setup = setup;
         _pageWasAskedFor = pageWasAskedFor;
+        _fontWasAskedFor = fontWasAskedFor;
         _settings = settings;
         _fonts = fonts;
         _format = format;
@@ -107,7 +110,11 @@ public sealed class RenderPipeline
             "Render the whole document as one tall page instead of paginating. Localizes a difference to where it is."),
         OptionSpec.Value("background", "color", "Page colour.", "#FFFFFF"),
         OptionSpec.Value("font", "family", "Family for runs that name none.", "sans-serif"),
-        OptionSpec.Value("font-size", "points", "Size for runs that name none.", "11"),
+        OptionSpec.Value(
+            "font-size",
+            "points",
+            "Size for runs that name none. Defaults to what the document states, or 12.",
+            "document"),
         OptionSpec.Value("text-color", "color", "Colour for runs that name none.", "#000000"),
         OptionSpec.Many(
             "font-file",
@@ -142,10 +149,18 @@ public sealed class RenderPipeline
         // particular one. Rendering an A4 letter on US Letter because nobody said
         // otherwise is the renderer overruling the author.
         bool pageWasAskedFor = line.Has("page-size") || line.Has("margin") || line.Has("landscape");
+        // The same rule for type as for the page: a document that states its own
+        // default keeps it unless the caller asked for a particular one.
+        bool fontWasAskedFor = line.Has("font") || line.Has("font-size");
         FontResolution fonts = FontResolution.FromCommandLine(line);
         fonts.Install();
 
-        double fontSize = line.GetDouble("font-size", 11);
+        // Only reached when the caller asked; a document that states its own
+        // default replaces this in SettingsFor, and 12 is what a document
+        // states when it states nothing.
+        double fontSize = line.GetDouble(
+            "font-size",
+            DocumentStyleDefaults.FallbackFontSizePoints);
         if (fontSize <= 0)
             throw new UsageException("--font-size must be greater than zero.");
 
@@ -188,7 +203,37 @@ public sealed class RenderPipeline
             throw new UsageException("--quality must be between 1 and 100.");
 
         return new RenderPipeline(
-            setup, pageWasAskedFor, settings, fonts, format, quality, ParsePages(line.Get("pages")));
+            setup,
+            pageWasAskedFor,
+            fontWasAskedFor,
+            settings,
+            fonts,
+            format,
+            quality,
+            ParsePages(line.Get("pages")));
+    }
+
+    /// <summary>
+    /// The layout settings for one document: the caller's, with the document's own
+    /// type defaults filled in where the caller asked for none.
+    /// </summary>
+    /// <remarks>
+    /// The family falls back to this renderer's face when the document names
+    /// none, which a display consumer may do — the page it draws is looked at
+    /// rather than published, and the manifest records what was used. A writer
+    /// may not, and does not.
+    /// </remarks>
+    private LayoutSettings SettingsFor(RichTextDocument document)
+    {
+        if (_fontWasAskedFor)
+            return _settings;
+
+        DocumentStyleDefaults defaults = document.StyleDefaults;
+        return _settings with
+        {
+            DefaultFontSizePoints = defaults.FontSizePoints,
+            DefaultFontFamily = defaults.FontFamily ?? _settings.DefaultFontFamily,
+        };
     }
 
     /// <summary>Lays a document out and rasterizes the selected pages.</summary>
@@ -197,7 +242,7 @@ public sealed class RenderPipeline
         ArgumentNullException.ThrowIfNull(document);
 
         using var images = new ImageStore();
-        var layout = new DocumentLayout(_settings, images);
+        var layout = new DocumentLayout(SettingsFor(document), images);
         PageSetup setup = _setup;
         if (!_pageWasAskedFor && document.PageGeometry is PageGeometry geometry && geometry.IsUsable)
             setup = _setup.WithGeometry(geometry);

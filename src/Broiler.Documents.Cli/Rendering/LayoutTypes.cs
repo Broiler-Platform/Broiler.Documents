@@ -237,11 +237,13 @@ public sealed class LayoutResult
     internal LayoutResult(
         IReadOnlyList<LayoutPage> pages,
         PageSetup setup,
+        LayoutSettings settings,
         IReadOnlyList<string> notes,
         bool truncated)
     {
         Pages = pages;
         Setup = setup;
+        Settings = settings;
         Notes = new ReadOnlyCollection<string>(new List<string>(notes));
         Truncated = truncated;
     }
@@ -251,6 +253,15 @@ public sealed class LayoutResult
     /// <summary>The page box the layout used, with the final height for a continuous render.</summary>
     public PageSetup Setup { get; }
 
+    /// <summary>
+    /// The typographic settings the layout used, after the document's own
+    /// defaults were folded into the caller's. Exposed for the same reason as
+    /// <see cref="Setup"/>: two renders are only comparable when these matched,
+    /// so the manifest records them and a caller can read back what was resolved
+    /// rather than what was asked for.
+    /// </summary>
+    public LayoutSettings Settings { get; }
+
     /// <summary>What the layout had to approximate or could not do, for the manifest.</summary>
     public IReadOnlyList<string> Notes { get; }
 
@@ -258,7 +269,11 @@ public sealed class LayoutResult
     public bool Truncated { get; }
 }
 
-/// <summary>The typographic choices a layout needs that the document model does not carry.</summary>
+/// <summary>
+/// The typographic choices a layout needs, resolved for one render: the caller's
+/// flags, with the document's own <see cref="DocumentStyleDefaults"/> filled in
+/// where the caller asked for nothing.
+/// </summary>
 /// <remarks>
 /// The model is a list of styled paragraphs and nothing else: no page, no
 /// default font, no indent width, no list marker. Everything a reader would
@@ -266,7 +281,7 @@ public sealed class LayoutResult
 /// rather than burying constants in the layout - is what makes two renders
 /// comparable and a difference between them attributable.
 /// </remarks>
-public sealed class LayoutSettings
+public sealed record LayoutSettings
 {
     /// <summary>The family used by runs that name none.</summary>
     public string DefaultFontFamily { get; init; } = "sans-serif";

@@ -174,9 +174,14 @@ Residual work owned here:
   absent, and a reportable unplaceable case instead of a sentinel; non-finite
   and negative measurements are rejected wherever the model lets one be stated;
   and justified alignment arrived with named DOCX, ODT and HTML consumers rather
-  than ahead of them. What is missing is the format-neutral document style
-  defaults: there is no explicit 12-point document default and no document
-  logical family, so a missing inline size still has nothing to inherit from.
+  than ahead of them. The format-neutral document style defaults landed too:
+  `DocumentStyleDefaults` states a document's size and logical family, DOCX and
+  ODT read theirs from `w:docDefaults` and `style:default-style`, and the two
+  halves of §6.4's rule are now visible in the two consumers — the renderer falls
+  back to its own face when a document names none, because what it draws is
+  looked at rather than published, and the PDF writer does not. The size always
+  resolves, at twelve points; the family may be absent, and absent is an answer
+  rather than a licence to pick one.
 - §6.5 is answered in parts. The V1 JPEG tuple is frozen and enforced — Huffman
   SOF0, SOF1 and SOF2 at 8 bits, every other frame type and precision refused by
   name. Font-program inspection, though, reuses `Broiler.Graphics`' rendering

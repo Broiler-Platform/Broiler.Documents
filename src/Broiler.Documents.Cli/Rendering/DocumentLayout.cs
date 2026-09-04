@@ -192,7 +192,7 @@ public sealed class DocumentLayout
             };
         }
 
-        return new LayoutResult(pages, finalSetup, _notes, truncated);
+        return new LayoutResult(pages, finalSetup, _settings, _notes, truncated);
     }
 
     private LayoutPage NewPage(int number, PageSetup setup, List<LayoutLine> lines, List<LayoutCell> cells)
