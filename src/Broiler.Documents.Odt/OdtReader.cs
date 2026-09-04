@@ -60,6 +60,7 @@ internal static class OdtReader
             document = document.WithRunningContent(
                 ReadRunningContent(styles, images, options.Limits, diagnostics));
             document = document.WithPageGeometry(ReadPageGeometry(styles, diagnostics));
+            document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             return new DocumentReadResult(
                 document,
                 diagnostics,
@@ -1363,6 +1364,38 @@ internal static class OdtReader
     /// once per link in the style chain and finally for the span's own style, so
     /// only the attributes actually present override what came before.
     /// </summary>
+    /// <summary>
+    /// The formatting a paragraph inherits when it names no style of its own:
+    /// ODF's <c>style:default-style</c> for the paragraph family.
+    /// </summary>
+    /// <remarks>
+    /// Resolved through the same chain a real paragraph goes through rather than
+    /// by reading the default style directly, so what this reports is what a
+    /// paragraph would actually get.
+    /// </remarks>
+    private static DocumentStyleDefaults ReadStyleDefaults(OdtStyles styles)
+    {
+        InlineStyle style = InlineStyle.Default;
+        foreach (XElement properties in styles.TextPropertiesForParagraph(null))
+        {
+            string? family =
+                styles.ResolveFontName((string?)properties.Attribute(OdtNamespaces.Style + "font-name")) ??
+                NormalizeFontFamily((string?)properties.Attribute(OdtNamespaces.Fo + "font-family"));
+            if (!string.IsNullOrWhiteSpace(family))
+                style = style with { FontFamily = NormalizeFontFamily(family) };
+
+            style = ApplyFontSize(properties, style);
+        }
+
+        return new DocumentStyleDefaults
+        {
+            FontSizePoints = style.FontSize is float size && size > 0
+                ? size
+                : DocumentStyleDefaults.FallbackFontSizePoints,
+            FontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? null : style.FontFamily,
+        };
+    }
+
     private static InlineStyle ApplyTextProperties(
         XElement? properties,
         InlineStyle style,
