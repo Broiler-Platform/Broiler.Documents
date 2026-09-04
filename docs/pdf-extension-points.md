@@ -320,20 +320,23 @@ where the composite case is a lookup. The codec does not guess.
 Two limits are worth stating plainly, because neither is a register question any
 more:
 
-- **Type 1 and CID-keyed CFF are declined.** The composed sfnt parser is a
-  renderer. It answers "which glyph draws this character" and exposes no glyph
-  names, no `post` table, and no CFF charset — a renderer never needs to know
-  what a glyph is called. A bare CFF is therefore read here instead, by walking
-  its charset for the names it gives its glyphs. Type 1 still needs inspection
-  surface that does not exist yet, and adding it belongs in `Broiler.Graphics`
-  under §5 step 3; a CID-keyed CFF's charset holds character identifiers from a
-  collection rather than names, so resolving them as names would invent glyphs
+- **Type 1 and CID-keyed CFF are declined.** `BFontProgramInspector` answers one
+  question — what a glyph spells — and exposes no glyph names, no `post` table
+  and no CFF charset, because nothing that reads an untrusted program needs to
+  know what a glyph is called. A bare CFF is therefore read here instead, by
+  walking its charset for the names it gives its glyphs. Type 1 still needs
+  inspection surface that does not exist, and adding it belongs in
+  `Broiler.Graphics`; a CID-keyed CFF's charset holds character identifiers from
+  a collection rather than names, so resolving them as names would invent glyphs
   the font never mentioned.
-- **The map is built by probing.** The parser exposes no way to enumerate its
-  character map, so the reader inverts it by asking the forward question once per
-  code point in the BMP. That is a bounded loop, once per font, never a function
-  of document size — and it is deliberately preferred to writing a second,
-  unreviewed font parser.
+- **The accepted tuple is narrower than "an sfnt".** The inspector takes a bare
+  sfnt at version `0x00010000` or `OTTO` and refuses, by name, WOFF and WOFF2
+  containers, font collections, variable fonts, CFF2, colour and bitmap glyph
+  tables, Graphite and AAT (PDF roadmap §6.5). A program outside that tuple is
+  reported as uninspected exactly as a malformed one is: this side of the
+  boundary refuses rather than repairs, and the renderer's parser — which
+  follows a WOFF container and reads a short table as zeros so a font a caller
+  chose still draws — is deliberately not what runs here.
 
 Nothing composed here authorizes anything on the write side. Reading a program to
 recover text is not embedding it; this release embeds no fonts, and an individual
