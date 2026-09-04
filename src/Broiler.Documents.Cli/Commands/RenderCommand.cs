@@ -32,9 +32,10 @@ public static class RenderCommand
                 "render report.docx --out pages/{page}.png --dpi 150",
                 "render report.docx --out report.png --continuous --font-dir ./fonts",
             },
-            "The document model carries no page geometry - no section properties survive any\n" +
-            "reader - so the page box is entirely this command's choice and both sides of a\n" +
-            "comparison must be given the same one. The manifest records what was used.\n" +
+            "A document may state the page it was written for, and DOCX, ODT and RTF all do.\n" +
+            "A render given no page of its own takes it; --page-size, --margin or --landscape\n" +
+            "override it, and --dpi never does. So both sides of a comparison need the same\n" +
+            "flags or the same stated page. The manifest records what was used either way.\n" +
             "\n" +
             "For comparing two exports, --continuous is usually the setting you want: with\n" +
             "pagination on, one extra line before a page break shifts every later page and a\n" +
