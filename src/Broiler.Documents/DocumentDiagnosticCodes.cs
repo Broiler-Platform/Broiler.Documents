@@ -45,6 +45,12 @@ public static class DocumentDiagnosticCodes
     /// <summary>Source metadata was dropped rather than carried into the result or output.</summary>
     public const string MetadataDropped = "document.metadata.dropped";
 
+    /// <summary>Document properties the caller supplied reached the output.</summary>
+    public const string MetadataEmitted = "document.metadata.emitted";
+
+    /// <summary>A document property reached the output in a reduced form.</summary>
+    public const string MetadataNarrowed = "document.metadata.narrowed";
+
     /// <summary>A URI failed the active output policy and stayed inert source data.</summary>
     public const string UriRejected = "document.uri.rejected";
 

@@ -37,7 +37,11 @@ public static class OdtWriter
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(destination);
 
-        var context = new OdtWriteContext((options ?? DocumentWriteOptions.Default).Resources);
+        DocumentWriteOptions writeOptions = options ?? DocumentWriteOptions.Default;
+        var context = new OdtWriteContext(writeOptions.Resources);
+
+        // The caller's metadata, never the source document's.
+        DocumentMetadata metadata = writeOptions.Metadata;
 
         // The body is built first because it is what discovers the automatic
         // styles, and ODF requires those to be declared ahead of it.
@@ -56,7 +60,7 @@ public static class OdtWriter
                 Encoding.ASCII.GetBytes(OdtNamespaces.PackageMediaType));
             AddXmlEntry(archive, OdtNamespaces.ContentPart, content);
             AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(document.RunningContent, document.PageGeometry, context));
-            AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta());
+            AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta(metadata));
             foreach (OdtPicturePart picture in context.Pictures)
                 AddDeflatedEntry(archive, picture.PartPath, picture.Data.Span);
             AddXmlEntry(archive, OdtNamespaces.ManifestPart, BuildManifest(context));
@@ -64,10 +68,16 @@ public static class OdtWriter
 
         byte[] bytes = package.ToArray();
         destination.Write(bytes, 0, bytes.Length);
+        var diagnostics = new List<DocumentDiagnostic>(context.Diagnostics);
+        DocumentMetadataReport.Describe(
+            metadata,
+            OdtMetadata.UnsupportedFields(metadata),
+            OdtMetadata.NarrowedFields(metadata),
+            diagnostics);
         return new DocumentWriteResult(
             bytes.Length,
-            context.Diagnostics,
-            DocumentWriteResult.StatusFrom(context.Diagnostics));
+            diagnostics,
+            DocumentWriteResult.StatusFrom(diagnostics));
     }
 
     public static byte[] WriteToArray(RichTextDocument document, DocumentWriteOptions? options = null)
@@ -1021,17 +1031,16 @@ public static class OdtWriter
     /// date would make two writes of the same document differ, and any other
     /// field would be information this codec was never given.
     /// </summary>
-    private static XDocument BuildMeta() =>
+    private static XDocument BuildMeta(DocumentMetadata metadata) =>
         new(
             new XDeclaration("1.0", "UTF-8", null),
             new XElement(
                 OdtNamespaces.Office + "document-meta",
                 new XAttribute(XNamespace.Xmlns + "office", OdtNamespaces.Office.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "meta", OdtNamespaces.Meta.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "dc", OdtNamespaces.DublinCore.NamespaceName),
                 new XAttribute(OdtNamespaces.Office + "version", OdtNamespaces.WrittenVersion),
-                new XElement(
-                    OdtNamespaces.Office + "meta",
-                    new XElement(OdtNamespaces.Meta + "generator", "Broiler.Documents.Odt"))));
+                OdtMetadata.Build(metadata)));
 
     private static XDocument BuildManifest(OdtWriteContext context)
     {

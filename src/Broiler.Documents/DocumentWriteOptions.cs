@@ -16,11 +16,13 @@ public class DocumentWriteOptions
     public DocumentWriteOptions(
         bool asciiOnly = true,
         DocumentConversionContext? resources = null,
-        DocumentFontSet? fonts = null)
+        DocumentFontSet? fonts = null,
+        DocumentMetadata? metadata = null)
     {
         AsciiOnly = asciiOnly;
         Resources = resources ?? DocumentConversionContext.Empty;
         Fonts = fonts ?? DocumentFontSet.None;
+        Metadata = metadata ?? DocumentMetadata.Empty;
     }
 
     /// <summary>
@@ -68,4 +70,18 @@ public class DocumentWriteOptions
     /// installed.
     /// </remarks>
     public DocumentFontSet Fonts { get; }
+
+    /// <summary>
+    /// The metadata to emit. Defaults to <see cref="DocumentMetadata.Empty"/>,
+    /// which emits none.
+    /// </summary>
+    /// <remarks>
+    /// It comes from the caller, never from a read result: having read what a
+    /// document says about itself is not authority to republish it under someone
+    /// else's name, and a writer that quietly carried a source's author and
+    /// producer forward would do exactly that. A caller who wants the transfer
+    /// writes it out, and may correct any field with
+    /// <see cref="DocumentMetadata.With"/> first.
+    /// </remarks>
+    public DocumentMetadata Metadata { get; }
 }

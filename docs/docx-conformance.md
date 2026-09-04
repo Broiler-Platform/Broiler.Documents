@@ -161,6 +161,8 @@ a document that opens blank can be told apart from a document that *is* blank:
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | `docx.read.summary` | Info | Paragraph, table, style, image, and skipped-block counts for the read. |
+| `document.metadata.emitted` | Info | Document properties the caller supplied reached `docProps`; the message names the fields. |
+| `document.metadata.dropped` | Warning | A property OOXML states no equivalent for was not written. `CreatorApplication` is the one: OOXML names a producing application only. |
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
 | `docx.table.style` | Warning | A table named a table style; banding and conditional formatting are not applied. |
 | `docx.table.rowheight` | Warning | A row stated an exact height; it was applied as a minimum so its text is not clipped. |
@@ -171,6 +173,8 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.styles.cycle` | Warning | A `w:basedOn` chain was cyclic and was cut short. |
 | `docx.styles.depth` | Warning | A `w:basedOn` chain exceeded `MaxGroupDepth` and was cut short. |
 | `docx.part.headerfooter` | Info | The package has headers or footers, which are not part of the body. |
+| `docx.properties.xml` | Error | `docProps/core.xml` or `docProps/app.xml` could not be parsed, or exceeded `MaxBinBytes` (`.limit` suffix). The document itself still reads. |
+| `docx.properties.date` | Warning | A `dcterms:created` or `dcterms:modified` stated a timestamp this build could not read, so it was dropped rather than guessed at. |
 | `docx.image.missing` | Warning | A picture referenced a media part the package does not contain. |
 | `docx.image.relationship` | Warning | A picture named a relationship the package does not define. |
 | `docx.image.external` | Warning | A picture linked to an image outside the package, which is not fetched. |

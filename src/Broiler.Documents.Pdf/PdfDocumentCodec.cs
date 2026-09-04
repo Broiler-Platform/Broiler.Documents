@@ -168,7 +168,7 @@ public sealed class PdfDocumentCodec : DocumentCodec
             return new PdfReadResult(
                 RichTextDocument.Empty,
                 DocumentResultStatus.Rejected,
-                PdfDocumentMetadata.Empty,
+                DocumentMetadata.Empty,
                 Structure.PdfVersion.Unknown,
                 0,
                 Array.Empty<Structure.PdfExtensionDeclaration>(),
@@ -220,7 +220,7 @@ public sealed class PdfDocumentCodec : DocumentCodec
         return new PdfReadResult(
             RichTextDocument.Empty,
             DocumentResultStatus.Rejected,
-            PdfDocumentMetadata.Empty,
+            DocumentMetadata.Empty,
             Structure.PdfVersion.Unknown,
             0,
             Array.Empty<Structure.PdfExtensionDeclaration>(),

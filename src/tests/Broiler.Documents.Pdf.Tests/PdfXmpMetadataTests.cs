@@ -40,7 +40,7 @@ public sealed class PdfXmpMetadataTests
                 """),
             info: null));
 
-        PdfDocumentMetadata metadata = result.Metadata;
+        DocumentMetadata metadata = result.Metadata;
         Assert.Equal("Only In XMP", metadata.Title);
         Assert.Equal(["Ada Lovelace", "Grace Hopper"], metadata.Authors);
         Assert.Equal(["alpha", "beta"], metadata.Keywords);

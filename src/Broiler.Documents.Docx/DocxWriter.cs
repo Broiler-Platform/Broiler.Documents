@@ -34,11 +34,22 @@ public static class DocxWriter
         BuildRunningParts(document.RunningContent, context);
         XDocument documentXml = BuildDocumentXml(document, context);
 
+        // The caller's metadata, never the source document's: this writer is
+        // given an envelope or it emits no properties at all.
+        DocumentMetadata metadata = (options ?? DocumentWriteOptions.Default).Metadata;
+        XDocument? coreXml = DocxMetadata.BuildCore(metadata);
+        XDocument? appXml = DocxMetadata.BuildApp(metadata);
+        context.ReportMetadata(metadata);
+
         using var package = new MemoryStream();
         using (var archive = new ZipArchive(package, ZipArchiveMode.Create, leaveOpen: true))
         {
-            AddXmlEntry(archive, "[Content_Types].xml", BuildContentTypes(context));
-            AddXmlEntry(archive, "_rels/.rels", BuildPackageRelationships());
+            AddXmlEntry(archive, "[Content_Types].xml", BuildContentTypes(context, coreXml is not null, appXml is not null));
+            AddXmlEntry(archive, "_rels/.rels", BuildPackageRelationships(coreXml is not null, appXml is not null));
+            if (coreXml is not null)
+                AddXmlEntry(archive, DocxMetadata.CorePart, coreXml);
+            if (appXml is not null)
+                AddXmlEntry(archive, DocxMetadata.AppPart, appXml);
             AddXmlEntry(archive, "word/document.xml", documentXml);
             if (context.HasDocumentRelationships)
                 AddXmlEntry(archive, "word/_rels/document.xml.rels", BuildDocumentRelationships(context));
@@ -1042,7 +1053,7 @@ public static class DocxWriter
         color.G.ToString("X2", CultureInfo.InvariantCulture) +
         color.B.ToString("X2", CultureInfo.InvariantCulture);
 
-    private static XDocument BuildContentTypes(DocxWriteContext context)
+    private static XDocument BuildContentTypes(DocxWriteContext context, bool hasCore, bool hasApp)
     {
         var types = new XElement(
             DocxNamespaces.ContentTypes + "Types",
@@ -1077,6 +1088,22 @@ public static class DocxWriter
                     part.IsHeader ? DocxNamespaces.HeaderContentType : DocxNamespaces.FooterContentType)));
         }
 
+        if (hasCore)
+        {
+            types.Add(new XElement(
+                DocxNamespaces.ContentTypes + "Override",
+                new XAttribute("PartName", "/" + DocxMetadata.CorePart),
+                new XAttribute("ContentType", DocxMetadata.CoreContentType)));
+        }
+
+        if (hasApp)
+        {
+            types.Add(new XElement(
+                DocxNamespaces.ContentTypes + "Override",
+                new XAttribute("PartName", "/" + DocxMetadata.AppPart),
+                new XAttribute("ContentType", DocxMetadata.AppContentType)));
+        }
+
         // One Default per distinct media extension, which is how OPC types the
         // binary parts under word/media.
         foreach (KeyValuePair<string, string> media in context.MediaContentTypes)
@@ -1090,16 +1117,41 @@ public static class DocxWriter
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), types);
     }
 
-    private static XDocument BuildPackageRelationships() =>
-        new(
-            new XDeclaration("1.0", "utf-8", "yes"),
+    /// <summary>
+    /// The package-level relationships. The property parts hang off the package
+    /// root rather than off the document part, which is where a consumer looks
+    /// for them.
+    /// </summary>
+    private static XDocument BuildPackageRelationships(bool hasCore, bool hasApp)
+    {
+        var root = new XElement(
+            DocxNamespaces.PackageRelationships + "Relationships",
             new XElement(
-                DocxNamespaces.PackageRelationships + "Relationships",
-                new XElement(
-                    DocxNamespaces.PackageRelationships + "Relationship",
-                    new XAttribute("Id", "rId1"),
-                    new XAttribute("Type", DocxNamespaces.OfficeDocumentRelationship),
-                    new XAttribute("Target", "word/document.xml"))));
+                DocxNamespaces.PackageRelationships + "Relationship",
+                new XAttribute("Id", "rId1"),
+                new XAttribute("Type", DocxNamespaces.OfficeDocumentRelationship),
+                new XAttribute("Target", "word/document.xml")));
+
+        if (hasCore)
+        {
+            root.Add(new XElement(
+                DocxNamespaces.PackageRelationships + "Relationship",
+                new XAttribute("Id", "rId2"),
+                new XAttribute("Type", DocxMetadata.CoreRelationship),
+                new XAttribute("Target", DocxMetadata.CorePart)));
+        }
+
+        if (hasApp)
+        {
+            root.Add(new XElement(
+                DocxNamespaces.PackageRelationships + "Relationship",
+                new XAttribute("Id", "rId3"),
+                new XAttribute("Type", DocxMetadata.AppRelationship),
+                new XAttribute("Target", DocxMetadata.AppPart)));
+        }
+
+        return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root);
+    }
 
     private static XDocument BuildDocumentRelationships(DocxWriteContext context)
     {
@@ -1299,6 +1351,22 @@ public static class DocxWriter
         public IReadOnlyDictionary<string, string> MediaContentTypes => _mediaContentTypes;
 
         public IReadOnlyList<DocumentDiagnostic> Diagnostics => _diagnostics;
+
+        /// <summary>
+        /// Says what became of the caller's metadata. OOXML states one producing
+        /// application and no separate authoring one, so a CreatorApplication the
+        /// caller set has nowhere to go and is reported rather than folded into
+        /// the Application element, which would assert something else.
+        /// </summary>
+        public void ReportMetadata(DocumentMetadata metadata)
+        {
+            // The two property parts are written exactly when they have content,
+            // so what a caller set either reached one of them or is on this list.
+            DocumentMetadataReport.Describe(
+                metadata,
+                [nameof(metadata.CreatorApplication)],
+                _diagnostics);
+        }
 
         public string GetHyperlinkRelationshipId(string href)
         {

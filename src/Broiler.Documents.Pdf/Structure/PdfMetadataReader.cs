@@ -31,7 +31,7 @@ namespace Broiler.Documents.Pdf.Structure;
 /// </remarks>
 internal static class PdfMetadataReader
 {
-    public static PdfDocumentMetadata Read(PdfObjectStore store, PdfDictionary? catalog)
+    public static DocumentMetadata Read(PdfObjectStore store, PdfDictionary? catalog)
     {
         PdfDictionary? info = store.Resolve(store.Trailer["Info"]) as PdfDictionary;
         XmpMetadata? xmp = ReadXmpPacket(store, catalog, info);
@@ -40,8 +40,8 @@ internal static class PdfMetadataReader
         string? subject = ReadText(store, info, "Subject");
         string? creator = ReadText(store, info, "Creator");
         string? producer = ReadText(store, info, "Producer");
-        PdfDate? created = ReadDate(store, info, "CreationDate");
-        PdfDate? modified = ReadDate(store, info, "ModDate");
+        DocumentDate? created = ReadDate(store, info, "CreationDate");
+        DocumentDate? modified = ReadDate(store, info, "ModDate");
         string? language = ReadText(store, catalog, "Lang");
         IReadOnlyList<string>? authors = SplitList(ReadText(store, info, "Author"));
         IReadOnlyList<string>? keywords = SplitList(ReadText(store, info, "Keywords"));
@@ -57,8 +57,8 @@ internal static class PdfMetadataReader
             language = Prefer(xmp.Language, language, "language", conflicts);
             creator = Prefer(xmp.CreatorTool, creator, "creator application", conflicts);
             producer = Prefer(xmp.Producer, producer, "producer", conflicts);
-            created = Prefer(ToPdfDate(xmp.CreateDate), created, "creation date", conflicts);
-            modified = Prefer(ToPdfDate(xmp.ModifyDate), modified, "modification date", conflicts);
+            created = Prefer(ToDocumentDate(xmp.CreateDate), created, "creation date", conflicts);
+            modified = Prefer(ToDocumentDate(xmp.ModifyDate), modified, "modification date", conflicts);
 
             if (conflicts.Count > 0)
             {
@@ -73,7 +73,7 @@ internal static class PdfMetadataReader
 
         NoteDroppedInfoEntries(store, info);
 
-        return new PdfDocumentMetadata(
+        return new DocumentMetadata(
             title,
             authors,
             subject,
@@ -141,12 +141,12 @@ internal static class PdfMetadataReader
         return fromXmp;
     }
 
-    private static PdfDate? Prefer(PdfDate? fromXmp, PdfDate? fromInfo, string field, List<string> conflicts)
+    private static DocumentDate? Prefer(DocumentDate? fromXmp, DocumentDate? fromInfo, string field, List<string> conflicts)
     {
-        if (fromXmp is not PdfDate value)
+        if (fromXmp is not DocumentDate value)
             return fromInfo;
 
-        if (fromInfo is PdfDate other && value != other)
+        if (fromInfo is DocumentDate other && value != other)
             conflicts.Add(field);
 
         return value;
@@ -171,12 +171,12 @@ internal static class PdfMetadataReader
     /// whether the source stated a UTC offset — so the mapping carries it across
     /// instead of normalizing it away.
     /// </summary>
-    private static PdfDate? ToPdfDate(XmpDate? date) =>
+    private static DocumentDate? ToDocumentDate(XmpDate? date) =>
         date is not XmpDate value
             ? null
             : value.HasUtcOffset
-                ? PdfDate.WithOffset(value.Value)
-                : PdfDate.WithoutOffset(value.Value.DateTime);
+                ? DocumentDate.WithOffset(value.Value)
+                : DocumentDate.WithoutOffset(value.Value.DateTime);
 
     /// <summary>
     /// Decodes and reads the catalog's XMP packet, returning what it supplied, or
@@ -380,13 +380,13 @@ internal static class PdfMetadataReader
         return parts.Length == 0 ? [value] : parts;
     }
 
-    private static PdfDate? ReadDate(PdfObjectStore store, PdfDictionary? dictionary, string key)
+    private static DocumentDate? ReadDate(PdfObjectStore store, PdfDictionary? dictionary, string key)
     {
         if (dictionary is null || store.Resolve(dictionary[key]) is not PdfString value)
             return null;
 
         string text = PdfLexer.Latin1(value.Bytes, 0, value.Bytes.Length);
-        return TryParseDate(text, out PdfDate date) ? date : null;
+        return TryParseDate(text, out DocumentDate date) ? date : null;
     }
 
     /// <summary>
@@ -394,7 +394,7 @@ internal static class PdfMetadataReader
     /// after the year is optional, and an out-of-range component rejects the value
     /// rather than being clamped into a different date.
     /// </summary>
-    internal static bool TryParseDate(string text, out PdfDate date)
+    internal static bool TryParseDate(string text, out DocumentDate date)
     {
         date = default;
         if (string.IsNullOrEmpty(text))
@@ -429,14 +429,14 @@ internal static class PdfMetadataReader
 
         if (span.Length <= 14)
         {
-            date = PdfDate.WithoutOffset(new DateTime(year, month, day, hour, minute, second, DateTimeKind.Unspecified));
+            date = DocumentDate.WithoutOffset(new DateTime(year, month, day, hour, minute, second, DateTimeKind.Unspecified));
             return true;
         }
 
         char sign = span[14];
         if (sign == 'Z')
         {
-            date = PdfDate.WithOffset(new DateTimeOffset(year, month, day, hour, minute, second, TimeSpan.Zero));
+            date = DocumentDate.WithOffset(new DateTimeOffset(year, month, day, hour, minute, second, TimeSpan.Zero));
             return true;
         }
 
@@ -458,7 +458,7 @@ internal static class PdfMetadataReader
         if (sign == '-')
             offset = -offset;
 
-        date = PdfDate.WithOffset(new DateTimeOffset(year, month, day, hour, minute, second, offset));
+        date = DocumentDate.WithOffset(new DateTimeOffset(year, month, day, hour, minute, second, offset));
         return true;
     }
 

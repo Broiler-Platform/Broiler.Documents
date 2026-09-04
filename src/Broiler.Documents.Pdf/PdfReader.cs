@@ -105,7 +105,7 @@ internal static class PdfReader
                 $"The catalog declares {extensions.Count} developer extensions. They were inventoried; no extension-defined behavior was enabled.");
         }
 
-        PdfDocumentMetadata metadata = PdfMetadataReader.Read(store, catalog);
+        DocumentMetadata metadata = PdfMetadataReader.Read(store, catalog);
         List<PdfPage> pages = PdfPageTree.Collect(store, catalog);
         if (pages.Count == 0)
         {
@@ -380,7 +380,7 @@ internal static class PdfReader
         new(
             RichTextDocument.Empty,
             DocumentResultStatus.Rejected,
-            PdfDocumentMetadata.Empty,
+            DocumentMetadata.Empty,
             PdfVersion.Unknown,
             0,
             Array.Empty<PdfExtensionDeclaration>(),

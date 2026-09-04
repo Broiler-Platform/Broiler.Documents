@@ -236,10 +236,10 @@ public sealed class PdfStructureTests
     [Fact]
     public void A_Zone_Less_Date_Keeps_Its_Missing_Offset()
     {
-        Assert.True(Structure.PdfMetadataReader.TryParseDate("D:20260101120000", out PdfDate date));
+        Assert.True(Structure.PdfMetadataReader.TryParseDate("D:20260101120000", out DocumentDate date));
         Assert.False(date.HasUtcOffset);
 
-        Assert.True(Structure.PdfMetadataReader.TryParseDate("D:20260101120000Z", out PdfDate utc));
+        Assert.True(Structure.PdfMetadataReader.TryParseDate("D:20260101120000Z", out DocumentDate utc));
         Assert.True(utc.HasUtcOffset);
 
         Assert.False(Structure.PdfMetadataReader.TryParseDate("D:20261301120000", out _));

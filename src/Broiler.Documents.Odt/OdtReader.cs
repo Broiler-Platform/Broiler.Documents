@@ -64,7 +64,8 @@ internal static class OdtReader
                 document,
                 diagnostics,
                 DocumentReadResult.StatusFrom(diagnostics),
-                resources.Build());
+                resources.Build(),
+                OdtMetadata.Read(archive, options.Limits, diagnostics));
         }
         catch (InvalidDataException ex)
         {
