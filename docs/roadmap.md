@@ -191,11 +191,18 @@ Residual work owned here:
   variable fonts, CFF2, colour and bitmap glyphs, Graphite and AAT are refused by
   name. It is separate from the rasteriser's parser on purpose: that one repairs
   what it can, which is right for a face a caller provisioned and wrong for a
-  program that arrived inside somebody's document. What remains of §6.5 is
-  Media's: `MediaLimits` bounds encoded bytes, decoded bytes, pixels and frames
-  but none of the marker, table, component, sampling, scan, restart or work
-  budgets named beside them, and `ImageCodec` exposes no synchronous decode path
-  for the sync/async split to be true of.
+  program that arrived inside somebody's document. Media's limits followed: `MediaLimits` now
+  bounds image dimensions, components, sampling factors, scans, restart
+  intervals, marker segments, coefficient memory and total blocks alongside the
+  byte and pixel budgets it already had, and the JPEG decoder validates the
+  declared numbers before allocating from them — the coefficient count is
+  computed in `long`, because at 65535 square with 4×4 sampling the int product
+  is exactly 2³², which wraps to zero and lets a frame asking for 17 GB satisfy
+  any budget. Two of those budgets only bite below the decoder's own scope, which
+  admits 1 or 3 components and sampling factors of 1 to 4 and refuses the rest
+  first; they matter to a caller stricter than the codec, not as holes closed.
+  What remains of §6.5 is the sync/async split: `ImageCodec` exposes no
+  synchronous decode path for it to be true of.
 - `Broiler.Documents.Pagination` does not exist; the PDF writer paginates
   internally against a replaceable metrics provider until the shared paginator
   does.
