@@ -324,7 +324,7 @@ provenance and wording ones, listed in the register's
 | Owner | Shared work placed there | Must remain PDF-specific |
 |---|---|---|
 | `Broiler.Documents` | Typed codec requests/options, replayable/random-access input, result-state taxonomy, cancellation, conversion/resource context, diagnostic locations, common byte/resource budgets, metadata envelope, URI output policy, release-level IP/provenance register | Nothing involving xrefs, PDF objects, operators, CMaps, or encryption |
-| `Broiler.Documents.Model` | Only cross-format semantics proven useful to DOCX/RTF/HTML too: page breaks, justification, direction, finite measurement invariants, and `InlineImage` carrying an opaque stable identity plus an immutable Graphics image resource | Resource-policy decisions, PDF color semantics, page coordinates/boxes, annotations, PDF dictionaries, positioned glyphs |
+| `Broiler.Documents.Model` | Only cross-format semantics proven useful to DOCX/RTF/HTML too: page breaks, justification, direction, finite measurement invariants, the document-level `PageGeometry` DOCX, ODT and RTF all state, and `InlineImage` carrying an opaque stable identity plus an immutable Graphics image resource | Resource-policy decisions, PDF color semantics, page coordinates, annotations, PDF dictionaries, positioned glyphs |
 | New `Broiler.Documents.Pagination` | Headless rich-text line layout, page settings, margins, page breaks, list markers, inline images, link rectangles, and an immutable PDF-neutral paged artifact | PDF serialization or backend handles |
 | `Broiler.Graphics` | Explicit font-face resources, shaped/positioned glyph runs, deterministic font resolver, technical embedding/subsetting enforcement, generally reusable licensed font/shaping assets, immutable `BImageResource` wrappers, and neutral page-scene resources | `Broiler.Documents` policy types, PDF font dictionaries, PDF encodings, Standard 14 metrics, predefined CMaps, and character collections |
 | `Broiler.Media.Image` | PDF-neutral immutable encoded-image/pixel-buffer payloads, pixel/color-format vocabulary, inspection/decode contracts and limits, and caller-composed codec services | `Broiler.Documents` policy types, PDF filter dictionaries, predictors, masks, Decode arrays, and resource resolution |
@@ -835,8 +835,16 @@ Promote only features with another immediate codec consumer. Phase 1 must add
 explicit page breaks, justified alignment, and text direction only after naming
 and testing their DOCX/RTF/HTML consumer. Add opaque stable resource identities
 for all image-capable writers and reject non-finite as well as negative model
-measurements. Absolute coordinates, page boxes, positioned glyphs, and
-fixed-layout objects remain prohibited.
+measurements. Absolute coordinates, positioned glyphs, and fixed-layout objects
+remain prohibited. **Page boxes no longer are.** `PageGeometry` states the page
+a document says it was written for — size, margins, and header and footer
+distances, one per document and nullable — and DOCX, ODT and RTF each state it,
+so the rule that a promoted feature needs another immediate codec consumer is
+satisfied rather than waived. It is a document property, not a coordinate
+system: a shape is still anchored to a paragraph and offset from the text
+column, no glyph carries a position, and the prohibition stands undiminished for
+anything that would place content *on* a page rather than describe the page a
+document was written for.
 
 - Freeze model typographic and image display dimensions as points in Phase 1,
   not Phase 6. Migrate RichEdit/UI boundaries at the same time to convert points

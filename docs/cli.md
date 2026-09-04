@@ -183,10 +183,16 @@ reported in the manifest (`--manifest out.json`, or the `render` object in
 `--json` output) so that a difference which turns out to be one of them is
 identifiable as such.
 
-**The page box.** The document model carries no page geometry at all — it is an
-ordered list of paragraphs, and no reader brings section properties across. So
-the page is entirely the caller's choice: `--page-size`, `--landscape`,
-`--margin`, `--dpi`. Both sides of a comparison must be given the same one.
+**The page box.** Two things can decide it. A document may state the page it was
+written for — DOCX, ODT and RTF all do, and the reader brings size, margins and
+header and footer distances across — and a render that was given no page of its
+own adopts it rather than inventing one. Ask for a page and the caller's wins
+outright: `--page-size`, `--landscape`, `--margin`. `--dpi` is always the
+caller's, since resolution is a property of the render and not of the document.
+So a comparison is pinned either by giving both sides the same flags or by both
+reading a document that states the same page — and because the two paths look
+identical in the output, the geometry is echoed into the manifest whichever one
+produced it.
 
 **The fonts.** Without a font mapping, Broiler.Graphics draws *every* family with
 one host face, so two machines with different font sets disagree about a document

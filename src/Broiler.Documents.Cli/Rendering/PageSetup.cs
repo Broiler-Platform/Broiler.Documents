@@ -20,11 +20,13 @@ namespace Broiler.Documents.Cli.Rendering;
 /// device boundary, keeps a rounding step out of every measurement.
 /// </para>
 /// <para>
-/// The document model carries no page geometry at all - it is an ordered list of
-/// paragraphs, and neither the DOCX reader nor any other reader brings section
-/// properties across. So the page is entirely the caller's choice here, and two
-/// renders are only comparable when they were given the same one. That is why
-/// the geometry is echoed into the render manifest rather than assumed.
+/// A document may state the page it was written for, and the DOCX, ODT and RTF
+/// readers all bring it across. <see cref="WithGeometry"/> adopts it, but only
+/// for a render that asked for no page of its own: an explicit --page-size or
+/// --margin is the caller's decision and outranks the document's. Two renders
+/// are therefore comparable when they were given the same page or read the same
+/// stated one, which is why the resolved geometry is echoed into the render
+/// manifest rather than assumed either way.
 /// </para>
 /// </remarks>
 public sealed class PageSetup
