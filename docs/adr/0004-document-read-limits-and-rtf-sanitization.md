@@ -3,10 +3,13 @@
 **Status:** Accepted for Phase 1 scaffolding; revisit before API freeze
 **Date:** 2026-07-05
 
-> **Implementation note:** The default skip policy is implemented. The public
-> `DecodeEmbeddedObjects` option is not yet connected to an image-import path;
-> resolving or removing that misleading option is tracked in
-> [the current roadmap](../roadmap.md).
+> **Implementation note:** The default skip policy is implemented. The
+> `DecodeEmbeddedObjects` option was never connected to an image-import path, and
+> the capability it was holding a place for arrived instead as
+> `DocumentReadOptions.ResourcePolicy`, which decides per resource and per
+> operation. The option is announced for removal under
+> [ADR 0014](0014-api-deprecation-and-removal.md) and still works until a later
+> release takes it out. Embedded OLE objects are never instantiated either way.
 
 ## Context
 

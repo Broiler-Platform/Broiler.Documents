@@ -12,9 +12,15 @@ residual work is tracked here.
   `document.capability.not-composed` rather than quietly doing something else —
   the RTF reader escalates its embedded-object note to that code when, and only
   when, the caller asked for decoding *and* the document really contains a
-  picture or object. Removing the members outright still waits on the
-  repository's deprecation policy, and the bounded caller-composed image-import
-  path is Phase 1 §6.2 work.
+  picture or object. `DecodeEmbeddedObjects` is now **announced for removal**:
+  the deprecation policy it was waiting on did not exist — no ADR, no README
+  section, nothing in this component ever marked `[Obsolete]` — so the item was
+  blocked on a document nobody had written.
+  [ADR 0014](adr/0014-api-deprecation-and-removal.md) writes it, and the member
+  carries the announcement, keeps working, and comes out in a later release.
+  `AsciiOnly` is deliberately not announced, under that ADR's no-replacement
+  rule: it is narrow rather than superseded, and telling callers to stop using it
+  while offering nothing instead would not help them.
 - Re-review ADR 0004 and the read/write option surface now that the §6.2
   resource context has landed.
 - Freeze public names and XML documentation after a consumer review.
@@ -163,9 +169,13 @@ Residual work owned here:
   a caller who wants that performs it, and `DocumentMetadata.With` is where they
   correct what should not survive. A write reports all three of §6.2's outcomes —
   emitted, narrowed, stripped — naming fields and never quoting their values.
-  One piece of §6.2 is left: `DecodeEmbeddedObjects` still has to give way to the
-  caller-composed image-import path, which waits on the deprecation policy
-  recorded under [API contract cleanup](#api-contract-cleanup).
+  §6.2's last piece is a release away rather than a decision away:
+  `DecodeEmbeddedObjects` gives way to the caller-composed image-import path,
+  which `ResourcePolicy` is, and it is announced for removal under ADR 0014. The
+  behaviour it drives — escalating the RTF embedded-object note to
+  `document.capability.not-composed` — had no test until the announcement was
+  written, so removing it would have changed something nobody could measure; it
+  has one now, and one of those tests goes with the member.
 - §6.4's model review is nearly done. Dimensions are points throughout and the
   RichEdit and Writer boundaries convert explicitly through
   `BFontStyle.PointsToPixels` rather than handing a point value to a pixels API;

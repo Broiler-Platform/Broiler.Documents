@@ -34,3 +34,4 @@ follow-up work is in [the component roadmap](../roadmap.md).
 | [0011](0011-pdf-standards-ip-provenance-and-claims.md) | PDF standards, IP, provenance, and claims (proposed; legal review pending) |
 | [0012](0012-pdf-base-implementation-and-composed-extensions.md) | PDF base implementation scope and composed extensions |
 | [0013](0013-standards-ip-provenance-and-claims-beyond-pdf.md) | Standards, IP, provenance, and claims beyond PDF (proposed; supersedes 0011 on standard of review) |
+| [0014](0014-api-deprecation-and-removal.md) | API deprecation and removal |
