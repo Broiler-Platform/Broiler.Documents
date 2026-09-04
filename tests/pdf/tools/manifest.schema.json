@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/pdf-tool-manifest-1.json",
+  "title": "Broiler PDF test-tool manifest",
+  "description": "Every independent tool CI runs against the PDF codec: oracles, fuzzing engines, minimizers. A tool absent from this file may not run in CI, and no entry here may become a product reference.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "updated", "tools"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "updated": { "type": "string", "format": "date" },
+    "tools": {
+      "type": "array",
+      "description": "Empty until a tool's review clears. Emptiness is the default state, not an omission.",
+      "items": { "$ref": "#/$defs/tool" }
+    }
+  },
+  "$defs": {
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "role", "identity", "acquisition", "licensing", "execution", "review"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "role": {
+          "enum": ["structural-oracle", "extraction-oracle", "rendering-oracle", "fuzzing-engine", "minimizer"],
+          "description": "qpdf is a structural/interoperability oracle, never a strict ISO-conformance authority and never the sole writer validator."
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version", "commit", "sha256", "buildFlags", "enabledFeatures"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "commit": { "type": "string", "minLength": 1 },
+            "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+            "signature": { "type": ["string", "null"] },
+            "buildFlags": { "type": "array", "items": { "type": "string" } },
+            "enabledFeatures": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["codecs", "fonts", "cmaps", "iccProfiles"],
+              "description": "Unneeded codecs and assets are disabled; what remains is listed so a licence review covers what actually ships in the image.",
+              "properties": {
+                "codecs": { "type": "array", "items": { "type": "string" } },
+                "fonts": { "type": "array", "items": { "type": "string" } },
+                "cmaps": { "type": "array", "items": { "type": "string" } },
+                "iccProfiles": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "acquisition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "source", "recipe", "cached", "redistributed"],
+          "properties": {
+            "method": { "enum": ["package-manager", "source-build", "release-binary"] },
+            "source": { "type": "string", "minLength": 1 },
+            "recipe": { "type": "string", "minLength": 1 },
+            "cached": { "type": "boolean" },
+            "redistributed": {
+              "type": "boolean",
+              "description": "Process isolation is not a redistribution safe harbour: a cached or imaged binary still carries its licence and notice obligations."
+            }
+          }
+        },
+        "licensing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["selectedLicense", "notices", "sbom", "patentReview"],
+          "properties": {
+            "selectedLicense": { "type": "string", "minLength": 1 },
+            "notices": { "type": "string", "minLength": 1 },
+            "sbom": { "type": "string", "minLength": 1 },
+            "patentReview": { "type": "string", "minLength": 1 },
+            "cryptographicFeatures": { "type": ["string", "null"] },
+            "exportControl": { "type": ["string", "null"] },
+            "sanctionsReview": { "type": ["string", "null"] },
+            "approvedJurisdictions": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command", "sandbox", "timeoutSeconds", "memoryLimitMib", "cpuLimit", "permittedExitCodes", "comparisonFormat", "retainedArtifacts"],
+          "description": "Out-of-process in CI, and absent from every product reference, package, application and release container.",
+          "properties": {
+            "command": { "type": "string", "minLength": 1 },
+            "sandbox": { "type": "string", "minLength": 1 },
+            "timeoutSeconds": { "type": "integer", "minimum": 1 },
+            "memoryLimitMib": { "type": "integer", "minimum": 1 },
+            "cpuLimit": { "type": "string", "minLength": 1 },
+            "permittedExitCodes": { "type": "array", "items": { "type": "integer" } },
+            "comparisonFormat": { "type": "string", "minLength": 1 },
+            "retainedArtifacts": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "reviewer", "decided"],
+          "properties": {
+            "state": {
+              "enum": ["pending", "approved", "rejected"],
+              "description": "A tool may not run in a required check while pending. Nothing here is approved by having been written down."
+            },
+            "reviewer": { "type": ["string", "null"] },
+            "decided": { "type": ["string", "null"], "format": "date" },
+            "notes": { "type": ["string", "null"] }
+          }
+        }
+      }
+    }
+  }
+}

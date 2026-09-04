@@ -211,9 +211,23 @@ Residual work owned here:
 - `Broiler.Documents.Pagination` does not exist; the PDF writer paginates
   internally against a replaceable metrics provider until the shared paginator
   does.
-- Coverage-guided fuzzing and the pinned oracle, corpus and performance
-  infrastructure remain outstanding; the current suite covers bounded truncation
-  and mutation campaigns only.
+- §6.6's controls are built and its content is not, which is the honest split.
+  `tests/pdf/tools/manifest.json` and `tests/pdf/performance-baseline.json` exist
+  with their schemas and guards and no rows — the Phase 0 corpus pattern, where a
+  control is built so content has somewhere to land under review. A fuzz harness
+  runs the read and probe surfaces on a bounded campaign in every pull request
+  and a half-hour-per-target campaign nightly, recording each failure's input
+  hash, seed, harness version, limit profile, failure class and corpus-rights
+  disposition. Correcting one claim while doing it: §6.6 said a
+  `documents-pdf.yml` with a test-count guard and explicit Graphics and Media
+  runs was created on 2026-08-25, and it never came across the repository split —
+  `ci.yml` had neither until now.
+  What stays open needs decisions rather than code. No oracle is pinned, because
+  each needs a licence review and a manifest row; the corpus stays empty, because
+  each artifact needs a rights decision; and the campaign is mutation-based
+  rather than coverage-guided, because an instrumenting engine is itself a tool
+  that needs the first of those before CI may run it. The nightly job is
+  deliberately not a required check while that is true.
 
 ## Stabilization
 

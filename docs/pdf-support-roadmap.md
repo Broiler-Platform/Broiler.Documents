@@ -905,13 +905,18 @@ document was written for.
 
 ### 6.6 Test, corpus, license, and CI foundation
 
-- Create required `.github/workflows/documents-pdf.yml` Windows/Linux checks for
-  pull requests and pushes affecting Documents, Graphics, Media, relevant
-  CLI/Writer roots, solution generation, packaging scripts, or the workflow.
-  **Created 2026-08-25** for the Documents solution plus the Graphics and Media
-  image suites, on both platforms, with a guard that fails a run whose executed
-  test count collapses — three of those suites are console runners that
-  `dotnet test` would exit 0 on having run nothing. The CLI/Writer host paths and
+- Create required Windows/Linux checks for pull requests and pushes affecting
+  Documents, Graphics, Media, relevant CLI/Writer roots, solution generation,
+  packaging scripts, or the workflow. **This bullet claimed a
+  `documents-pdf.yml` created 2026-08-25 and it was wrong for this repository:**
+  that file exists in the monorepo and was never carried across the split, so
+  what this component had was `ci.yml`, which built and tested the solution on
+  both platforms and did neither of the two things the claim rested on. Both are
+  there now — a floor on the executed test count, because a `dotnet test` that
+  discovers nothing exits 0 and a build that stopped producing test assemblies
+  would have passed in green; and explicit runs of the Graphics and Media
+  console-runner suites, which `dotnet test` cannot see at all because they are
+  `Exe` projects with runners of their own. The CLI/Writer host paths and
   jobs are deliberately absent until Phase 5 activates them, so the trigger
   covers only what the job actually proves; no oracle is wired in, because each
   needs its licence review and tool-manifest row first.
@@ -933,10 +938,24 @@ document was written for.
   authority and never the sole writer validator.
 - Record the tool/build identity, SHA-256/signature, acquisition recipe, enabled
   features, license/SBOM data, and versioned wrapper command in
-  `tests/pdf/tools/manifest.json`; CI fails on drift. Oracle disagreement creates
+  `tests/pdf/tools/manifest.json`; CI fails on drift. **The manifest and its
+  schema exist, with no rows** — the Phase 0 corpus pattern, where the control is
+  built so content has somewhere to land under review rather than because
+  anything is approved. `PdfTestControlGuardTests` fails an approval that names
+  no reviewer or date, and fails any product project that references a tool the
+  manifest lists. Oracle disagreement creates
   an adjudication record and never silently rewrites a golden.
 - Establish a versioned clause-level writer conformance checklist and a
-  `tests/pdf/performance-baseline.json` threshold file. The checklist names the
+  `tests/pdf/performance-baseline.json` threshold file. **The threshold file, its
+  schema, the pinned runner and the measurement method exist, with no scenarios**;
+  the clause-level checklist does not, because writing clause numbers is a claim
+  about a standard rather than a control over this tree. The runner is pinned to
+  the two images this component's CI already uses, so a threshold is reproducible
+  by anyone who can run CI and a number from a developer's machine is explicitly
+  not evidence; a guard fails if the workflow's runners and the file's disagree.
+  The cost is variance between hosted runs, which the file carries as a stated
+  wall-time allowance and does not apply to the absolute caps, since those are
+  deterministic. The checklist names the
   applicable ISO clause, required/prohibited keys, value/version constraints,
   and evidence for every emitted construct. The threshold file names fixtures,
   runner profile, absolute memory/work caps, wall-time budgets, and permitted
@@ -952,6 +971,27 @@ document was written for.
   under an outer process time/RSS supervisor. A minimized failure records its
   input hash, seed, harness/tool version, limit profile, failure class, and
   corpus-rights disposition.
+  **Built, with one part of it honestly missing.** `FuzzTargets` exposes the read
+  and probe surfaces, `FuzzCampaign` generates PDF-shaped inputs from a seed and
+  damages them, and `FuzzFailure` carries every field listed above. One harness
+  serves both cadences — the pull-request campaign is an ordinary test with a
+  seconds-long budget, the nightly workflow gives the same code half an hour per
+  target under a job timeout — because two would drift and the nightly one is the
+  one nobody watches. Generation uses a specified SplitMix64 rather than
+  `System.Random`, which is not stable across runtimes and would have voided
+  every recorded seed on an upgrade.
+  **The campaign is mutation-based, not coverage-guided.** Coverage guidance needs
+  an instrumenting engine, which is itself a tool requiring a manifest row and a
+  licence review before CI may run it, so the harness is shaped for one to drop
+  in — a target is `Action<ReadOnlySpan<byte>>` — and the nightly job is
+  deliberately not a required check while that is true.
+  **What the targets assert is the documented contract, not the absence of
+  exceptions.** The first version watched for exceptions and would have passed
+  every input ever written: ADR 0003/0004 say a read reports malformed input
+  through its result rather than by throwing, so it does, and a harness catching
+  exceptions measured nothing. The targets now check the result's status,
+  diagnostic codes and enumerability, and the expected-exception list is one
+  entry — cancellation — so a read that throws anything at all is a finding.
 - Populate the Phase 0 corpus manifest. Keep only Broiler-authored synthetic or
   explicitly redistributable fixtures in-tree; a document-level license does
   not automatically clear embedded fonts, images, profiles, personal data, or
