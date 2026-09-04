@@ -91,7 +91,15 @@ public static class RtfReader
         public Worker(DocumentReadOptions options, IReadOnlyList<DocumentDiagnostic> tokenizerDiagnostics)
         {
             _diagnostics.AddRange(tokenizerDiagnostics);
+            // Reading a member announced for removal (ADR 0014), suppressed here
+            // rather than project-wide so the next deprecation still warns. This
+            // call is what escalates the embedded-object note to
+            // document.capability.not-composed when a caller asked for decoding
+            // and the document really carries an object; it goes when the member
+            // does, and the note stays at its unescalated severity.
+#pragma warning disable CS0618 // Type or member is obsolete
             _embeddedDecodingRequested = options.DecodeEmbeddedObjects;
+#pragma warning restore CS0618
             _builder = new Accumulator(options.Limits.MaxParagraphCount);
             _maxParagraphs = options.Limits.MaxParagraphCount;
             _state = new State

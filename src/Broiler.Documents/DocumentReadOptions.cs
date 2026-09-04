@@ -32,7 +32,11 @@ public class DocumentReadOptions
 
         Limits = limits ?? DocumentLimits.Default;
         DefaultCodePage = defaultCodePage;
+        // The declaring type assigning its own announced member (ADR 0014). It
+        // keeps working until removal, so the constructor still sets it.
+#pragma warning disable CS0618
         DecodeEmbeddedObjects = decodeEmbeddedObjects;
+#pragma warning restore CS0618
         ResourcePolicy = resourcePolicy ?? DocumentResourcePolicy.Default;
     }
 
@@ -63,12 +67,20 @@ public class DocumentReadOptions
     /// missing them.
     /// </para>
     /// <para>
-    /// The setting is kept, rather than removed, because the eventual
-    /// caller-composed image path is a planned capability with a designed shape:
-    /// bounded, delegated, and explicitly permitted. Embedded OLE objects are
-    /// never instantiated regardless of this value (ADR 0004).
+    /// <strong>Announced for removal (ADR 0014).</strong> The capability it was
+    /// holding a place for arrived as <see cref="ResourcePolicy"/>, which answers
+    /// the question this one could only gesture at. It keeps working until a
+    /// later release removes it; embedded OLE objects are never instantiated
+    /// regardless of its value (ADR 0004).
     /// </para>
     /// </remarks>
+    [Obsolete(
+        "A boolean cannot express what a caller needs to say about a resource. Use " +
+        "DocumentReadOptions.ResourcePolicy, which decides per resource and per " +
+        "operation - whether a picture may be read into the model is a different " +
+        "question from whether it may be written into a file somebody else " +
+        "receives, and this flag conflated them. The read result carries those " +
+        "decisions forward as a DocumentConversionContext.")]
     public bool DecodeEmbeddedObjects { get; }
 
     /// <summary>
