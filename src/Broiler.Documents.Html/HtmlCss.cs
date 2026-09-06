@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
+using System.Text;
 using Broiler.Graphics;
 
 namespace Broiler.Documents.Html;
@@ -29,6 +30,65 @@ internal static class HtmlCss
         }
 
         return declarations;
+    }
+
+    /// <summary>
+    /// A rule body with its nested blocks taken out.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The nesting has to go before the declarations are split, not after.
+    /// <see cref="ParseDeclarations"/> divides on semicolons and then on the
+    /// first colon, and a nested block carries both - so
+    /// <c>@top-center { content: "x" } margin: 18pt</c> parses as one declaration
+    /// whose name is everything up to <c>content</c>, and the margin after it
+    /// disappears. The rule was read, the size came back, and the margin silently
+    /// did not: exactly the failure this guard exists to stop.
+    /// </para>
+    /// <para>
+    /// A block takes the text before it back to the previous semicolon, because
+    /// what precedes it is the nested rule's own selector rather than a
+    /// declaration.
+    /// </para>
+    /// <para>
+    /// It lives beside the splitter rather than beside either caller because both
+    /// callers meet the same trap and neither owns it: an <c>@page</c> rule nests
+    /// margin boxes, and a type rule nests whatever CSS nesting puts in one. The
+    /// guard was written once for the first of those and had to be found again by
+    /// the second, which is the argument for it being here.
+    /// </para>
+    /// </remarks>
+    public static string WithoutNestedBlocks(string body)
+    {
+        if (body.IndexOf('{') < 0)
+            return body;
+
+        var kept = new StringBuilder(body.Length);
+        for (int index = 0; index < body.Length; index++)
+        {
+            if (body[index] != '{')
+            {
+                kept.Append(body[index]);
+                continue;
+            }
+
+            int selector = kept.Length;
+            while (selector > 0 && kept[selector - 1] != ';')
+                selector--;
+
+            kept.Length = selector;
+
+            int depth = 0;
+            for (; index < body.Length; index++)
+            {
+                if (body[index] == '{')
+                    depth++;
+                else if (body[index] == '}' && --depth == 0)
+                    break;
+            }
+        }
+
+        return kept.ToString();
     }
 
     public static bool TryParseColor(string? value, out BColor color)

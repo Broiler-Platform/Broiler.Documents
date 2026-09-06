@@ -333,14 +333,36 @@ any length in centimetres anywhere in an HTML document had been arriving as
 nothing at all. All twelve now report `geometry: match`, which makes it 48 of 48
 across the four formats.
 
-What the fixed page then made visible is a *different* gap, and it is left open:
-the HTML rows still score worse than their DOCX and ODT twins - `plain-paragraphs`
-at an ink box of 38 pixels against 9 - because LibreOffice states paragraph
-spacing in a stylesheet rule, `p { line-height: 115%; margin-bottom: 0.25cm }`,
-and this codec applies no rule that is not an inline `style` attribute. That is
-a cascade, which is a much larger thing than reading one at-rule, and
-[the HTML conformance document](html-conformance.md) says so under its known
-limitations rather than leaving a reader to infer it from the numbers.
+What the fixed page then made visible is a *different* gap: the HTML rows scored
+worse than their DOCX and ODT twins - `plain-paragraphs` at an ink box of 38
+pixels against 9 - because LibreOffice states paragraph spacing in a stylesheet
+rule, `p { line-height: 115%; margin-bottom: 0.25cm }`, and this codec applied no
+rule that was not an inline `style` attribute.
+
+*Narrowed, and the narrowing is the interesting part.* Reading the stylesheet
+sounded like implementing the cascade, which is a much larger thing than reading
+one at-rule. Measuring what LibreOffice actually emits cut the job down instead.
+Converting DOCX to HTML it writes both the rule **and** an inline style on every
+paragraph that overrides it, so for those documents the sheet never mattered;
+converting HTML to HTML it writes bare `<p>` elements and lets the rule say
+everything, and that is the case that was being lost. Every selector in the
+sample was `@page` or the bare type selector `p`. So the codec now matches
+exactly one selector - the bare element name - with the element's own `style`
+attribute beating it property by property, and everything past that stays
+unimplemented and is reported as `html.css.rule` rather than dropped in silence.
+[The HTML conformance document](html-conformance.md) states what is and is not
+applied, and why a document reader draws the line there rather than growing a CSS
+engine.
+
+Re-measured afterwards, the HTML rows come back level with their twins:
+`plain-paragraphs` at an ink box of 9 pixels and a profile of 0.982 against the
+DOCX twin's 9 and 0.981, where before it was 38 and 0.866; `links` at 3 and 0.997
+against 4 and 0.997. One seed did not move and it is the one that says where the
+line now sits. `table-simple` is still 107 against 11, because a document with a
+table makes LibreOffice write `td p { ... }` and `th p { ... }` - descendant
+selectors, which are past the boundary - and because HTML tables are flattened to
+their cell paragraphs regardless. Two causes, one number, and the smaller of them
+is the one this change could have addressed.
 
 **An explicit page break did not paginate.** *Fixed.* `page-break-explicit` came
 back 1 page here against 2 in LibreOffice, through all four formats. Four formats

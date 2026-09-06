@@ -460,16 +460,31 @@ public static class DocxWriter
         return element;
     }
 
+    /// <summary>
+    /// Writes a paragraph's properties in the order CT_PPr fixes rather than
+    /// the order the model happens to list them in. CT_PPr is an xsd:sequence,
+    /// so each of these has exactly one legal position, and the positions here
+    /// are the ones ECMA-376 Part 1 section 17.3.1.26 gives:
+    /// <c>w:pageBreakBefore</c> 4th, <c>w:numPr</c> 7th, <c>w:spacing</c> 22nd,
+    /// <c>w:ind</c> 23rd, <c>w:jc</c> 27th. Word does not shrug at an
+    /// out-of-order pPr the way it does at an element it has never heard of; it
+    /// can refuse the file outright, and a refusal is the whole document rather
+    /// than the one property.
+    /// <para>
+    /// This method emitted <c>w:jc</c> before <c>w:spacing</c> and
+    /// <c>w:ind</c> for as long as it had written all three, so any centred
+    /// paragraph that also carried spacing or an indent - a heading, in other
+    /// words - left here out of sequence. What makes that worth recording is
+    /// that <c>w:pageBreakBefore</c>, added long after the other four, was
+    /// placed correctly and carried a comment naming this exact hazard. The
+    /// hazard was already being run into a dozen lines below the comment
+    /// warning about it.
+    /// </para>
+    /// </summary>
     private static XElement? BuildParagraphProperties(ParagraphStyle style)
     {
         var properties = new XElement(DocxNamespaces.Wordprocessing + "pPr");
 
-        // First, and not by preference: CT_PPr is a sequence, so every child
-        // has one legal position, and w:pageBreakBefore comes before all four
-        // properties written below it - w:numPr, w:spacing, w:ind and w:jc.
-        // Word does not shrug at an out-of-order pPr the way it does at an
-        // unknown element; it refuses the file.
-        //
         // The property form rather than a run holding w:br w:type="page",
         // because the property is what the model holds. A break written into a
         // run would have to go at the end of the *previous* paragraph, which
@@ -488,13 +503,6 @@ public static class DocxWriter
                 new XElement(DocxNamespaces.Wordprocessing + "ilvl", WordAttribute("val", level.ToString(CultureInfo.InvariantCulture))),
                 new XElement(DocxNamespaces.Wordprocessing + "numId", WordAttribute("val", numId.ToString(CultureInfo.InvariantCulture)))));
         }
-
-        if (style.Alignment == TextAlignment.Center)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "center")));
-        else if (style.Alignment == TextAlignment.Right)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "right")));
-        else if (style.Alignment == TextAlignment.Justify)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "both")));
 
         if (Math.Abs(style.LineSpacing - 1f) > 0.001f ||
             Math.Abs(style.SpacingBefore) > 0.001f ||
@@ -520,6 +528,13 @@ public static class DocxWriter
                 DocxNamespaces.Wordprocessing + "ind",
                 WordAttribute("left", (style.IndentLevel * 360).ToString(CultureInfo.InvariantCulture))));
         }
+
+        if (style.Alignment == TextAlignment.Center)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "center")));
+        else if (style.Alignment == TextAlignment.Right)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "right")));
+        else if (style.Alignment == TextAlignment.Justify)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc", WordAttribute("val", "both")));
 
         return properties.HasElements ? properties : null;
     }
@@ -579,21 +594,22 @@ public static class DocxWriter
         return run;
     }
 
+    /// <summary>
+    /// The run's half of the same rule <see cref="BuildParagraphProperties"/>
+    /// obeys. CT_RPr is an xsd:sequence as well, and this one had drifted
+    /// further from it than the paragraph properties had, because the emission
+    /// followed the order a person lists formatting in - bold, italic,
+    /// underline, then everything else - which is nothing like the order
+    /// ECMA-376 Part 1 section 17.3.2.28 fixes. The positions written below are
+    /// that section's: <c>w:rFonts</c> 2nd, <c>w:b</c> 3rd, <c>w:i</c> 5th,
+    /// <c>w:caps</c> 7th, <c>w:smallCaps</c> 8th, <c>w:strike</c> 9th,
+    /// <c>w:color</c> 19th, <c>w:sz</c> 24th, <c>w:u</c> 27th, <c>w:shd</c>
+    /// 30th. Underline in particular sat third and belongs second from last, so
+    /// almost any underlined run left here out of sequence.
+    /// </summary>
     private static XElement? BuildRunProperties(InlineStyle style, DocxWriteContext context)
     {
         var properties = new XElement(DocxNamespaces.Wordprocessing + "rPr");
-        if (style.Bold)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "b"));
-        if (style.Italic)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "i"));
-        if (style.Underline)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "u", WordAttribute("val", "single")));
-        if (style.Strikethrough)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "strike"));
-        if (style.Capitalization == TextCapitalization.AllCaps)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "caps"));
-        else if (style.Capitalization == TextCapitalization.SmallCaps)
-            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "smallCaps"));
 
         if (!string.IsNullOrWhiteSpace(style.FontFamily))
         {
@@ -608,6 +624,29 @@ public static class DocxWriter
                 WordAttribute("eastAsia", family)));
         }
 
+        if (style.Bold)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "b"));
+        if (style.Italic)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "i"));
+
+        // Adjacent in the sequence as well as exclusive in the model, so the
+        // either/or costs this one nothing: whichever arm runs, it lands
+        // between w:i and w:strike either way.
+        if (style.Capitalization == TextCapitalization.AllCaps)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "caps"));
+        else if (style.Capitalization == TextCapitalization.SmallCaps)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "smallCaps"));
+
+        if (style.Strikethrough)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "strike"));
+
+        if (!style.Foreground.IsEmpty)
+        {
+            properties.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "color",
+                WordAttribute("val", FormatColor(style.Foreground, context))));
+        }
+
         if (style.FontSize.HasValue)
         {
             int halfPoints = Math.Max(1, (int)Math.Round(style.FontSize.Value * 2f));
@@ -616,12 +655,8 @@ public static class DocxWriter
                 WordAttribute("val", halfPoints.ToString(CultureInfo.InvariantCulture))));
         }
 
-        if (!style.Foreground.IsEmpty)
-        {
-            properties.Add(new XElement(
-                DocxNamespaces.Wordprocessing + "color",
-                WordAttribute("val", FormatColor(style.Foreground, context))));
-        }
+        if (style.Underline)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "u", WordAttribute("val", "single")));
 
         if (!style.Background.IsEmpty)
         {

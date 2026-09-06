@@ -62,9 +62,33 @@ Open XML WordprocessingML package parts.
   that is what the model holds: a break written back into a run would make one
   paragraph's markup depend on the paragraph after it, and would have nowhere to
   put a break on the first paragraph of a document. It is written first in
-  `w:pPr` because `CT_PPr` is a sequence — `w:pageBreakBefore` precedes `w:numPr`,
-  `w:spacing`, `w:ind` and `w:jc` — and Word refuses a file whose paragraph
-  properties are out of order rather than ignoring the one it did not expect.
+  `w:pPr` because that is the position `CT_PPr` gives it - see the next bullet
+  for the rule, and for how long this writer stated it without keeping it.
+- Property order, which the schema fixes rather than leaves to taste. `CT_PPr`
+  and `CT_RPr` are both `xsd:sequence`, so a property is not merely present or
+  absent: it has exactly one legal position. Word does not shrug at an
+  out-of-order property container the way it does at an element it has never
+  heard of - it can refuse the file, and a refusal costs the whole document
+  rather than the one property. What is written, in the order it is written:
+
+  | Container | Order written | Positions in the sequence |
+  | --- | --- | --- |
+  | `w:pPr` | `w:pageBreakBefore`, `w:numPr`, `w:spacing`, `w:ind`, `w:jc` | 4, 7, 22, 23, 27 |
+  | `w:rPr` | `w:rFonts`, `w:b`, `w:i`, `w:caps`/`w:smallCaps`, `w:strike`, `w:color`, `w:sz`, `w:u`, `w:shd` | 2, 3, 5, 7/8, 9, 19, 24, 27, 30 |
+
+  This bullet is new because the paragraph above it used to be the only thing
+  here that mentioned the rule, and it was true of exactly the one element it
+  described. `w:pageBreakBefore` was placed correctly and documented as being
+  placed correctly, while a dozen lines lower the same method wrote `w:jc`
+  ahead of `w:spacing` and `w:ind` - so a centred paragraph that also carried
+  spacing or an indent, which is to say most headings, left the writer out of
+  sequence. The run properties were further out still, and nothing here had ever
+  claimed they were ordered at all: `w:u` was written third, where the sentence
+  a person says out loud puts it, rather than 27th where the schema does.
+  `DocxPropertyOrderTests` asserts both sequences now. It walks whatever
+  properties are present rather than checking an exact list, so a property added
+  to the writer later is checked in its right place rather than failing a list
+  it was never named in.
 - External hyperlinks for `http`, `https`, and `mailto`, plus internal anchor
   links, written as `w:hyperlink w:anchor`. Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried.
 - Embedded pictures, read and written as a single object replacement character

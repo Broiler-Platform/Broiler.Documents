@@ -10,9 +10,10 @@ namespace Broiler.Documents.Html;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is where HTML keeps the paper, and it is the one part of a stylesheet
-/// this codec looks at. Everything else about an HTML document's appearance is
-/// a rendering question that belongs to whoever is rendering it; the page is a
+/// This is where HTML keeps the paper, and it is the one at-rule this codec
+/// looks at - <see cref="HtmlStyleSheet"/> reads the type-selector rules out of
+/// the same text and skips every other at-rule, this one included, because the
+/// page is not a property of any element it could be a base for. The page is a
 /// property of the document, the way a <c>w:sectPr</c> is in DOCX and a
 /// <c>style:page-layout</c> is in ODF, and a reader that ignored it turned a
 /// document stating US Letter into one stating nothing at all.
@@ -183,7 +184,7 @@ internal static class HtmlPage
                         depth--;
                         if (depth == 0)
                         {
-                            body = WithoutNestedBlocks(css[(open + 1)..index]);
+                            body = HtmlCss.WithoutNestedBlocks(css[(open + 1)..index]);
                             return true;
                         }
                     }
@@ -196,57 +197,6 @@ internal static class HtmlPage
         }
 
         return false;
-    }
-
-    /// <summary>
-    /// The rule body with its nested blocks taken out.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The margin boxes have to go before the declarations are split, not after.
-    /// <see cref="HtmlCss.ParseDeclarations"/> divides on semicolons and then on
-    /// the first colon, and a nested block carries both - so
-    /// <c>@top-center { content: "x" } margin: 18pt</c> parses as one declaration
-    /// whose name is everything up to <c>content</c>, and the margin after it
-    /// disappears. The rule was read, the size came back, and the margin
-    /// silently did not: the failure mode this whole file exists to stop.
-    /// </para>
-    /// <para>
-    /// A block takes the text before it back to the previous semicolon, because
-    /// what precedes it is the box's own selector rather than a declaration.
-    /// </para>
-    /// </remarks>
-    private static string WithoutNestedBlocks(string body)
-    {
-        if (body.IndexOf('{') < 0)
-            return body;
-
-        var kept = new System.Text.StringBuilder(body.Length);
-        for (int index = 0; index < body.Length; index++)
-        {
-            if (body[index] != '{')
-            {
-                kept.Append(body[index]);
-                continue;
-            }
-
-            int selector = kept.Length;
-            while (selector > 0 && kept[selector - 1] != ';')
-                selector--;
-
-            kept.Length = selector;
-
-            int depth = 0;
-            for (; index < body.Length; index++)
-            {
-                if (body[index] == '{')
-                    depth++;
-                else if (body[index] == '}' && --depth == 0)
-                    break;
-            }
-        }
-
-        return kept.ToString();
     }
 
     /// <summary>

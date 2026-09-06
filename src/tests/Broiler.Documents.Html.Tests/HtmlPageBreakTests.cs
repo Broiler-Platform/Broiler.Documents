@@ -126,14 +126,43 @@ public sealed class HtmlPageBreakTests
     }
 
     [Fact(Timeout = 600000)]
-    public void A_Break_Stated_In_A_Stylesheet_Is_Not_Read()
+    public void A_Break_Stated_In_A_Type_Rule_Reaches_The_Paragraphs_It_Names()
     {
-        // The boundary this codec keeps: declarations come off the element, and
-        // the one at-rule it reads out of a stylesheet is @page. A rule selecting
-        // paragraphs is a cascade, and this codec does not have one.
+        // This used to assert the opposite, and the reason it did was sound while
+        // it lasted: a rule selecting paragraphs is the cascade and this codec had
+        // none. It now matches one selector, the bare element name, and the break
+        // goes wherever every other declaration in such a rule goes. Keeping the
+        // break out of it would have left a document whose line spacing came from
+        // its stylesheet and whose page breaks did not.
         RichTextDocument document = Read(
             "<html><head><style>p { page-break-before: always }</style></head>" +
             "<body><p>text</p></body></html>");
+
+        Assert.True(Assert.Single(document.Paragraphs).Style.PageBreakBefore);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Break_Stated_In_A_Class_Rule_Is_Still_Not_Read()
+    {
+        // The line moved from "no selector" to "one selector", not off the
+        // stylesheet altogether. Working out which paragraphs a class rule picked
+        // out is the cascade, and that is still a browser's job.
+        RichTextDocument document = Read(
+            "<html><head><style>.breaks { page-break-before: always }</style></head>" +
+            "<body><p class='breaks'>text</p></body></html>");
+
+        Assert.False(Assert.Single(document.Paragraphs).Style.PageBreakBefore);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Paragraph_Can_Refuse_The_Break_Its_Type_Rule_States()
+    {
+        // Inline beats type for this property as for every other, and the value
+        // that turns a break off has to be honoured or the override is only half
+        // of one.
+        RichTextDocument document = Read(
+            "<html><head><style>p { page-break-before: always }</style></head>" +
+            "<body><p style='page-break-before: auto'>text</p></body></html>");
 
         Assert.False(Assert.Single(document.Paragraphs).Style.PageBreakBefore);
     }
