@@ -202,5 +202,18 @@
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
+    <!-- The office conformance suite, and a console runner for the same reasons
+         the corpus one is. It differs in what it is evidence about: LibreOffice
+         writes the documents, so the markup broilerdoc is asked to read was
+         produced by an implementation that knows nothing about this one. It is
+         not run by CI on a pull request - it depends on a third-party binary
+         whose rows in tests/office/tools/manifest.json are still pending. See
+         docs/office-conformance.md. -->
+    <Project Path="src/tests/Broiler.Documents.Office/Broiler.Documents.Office.csproj">
+      <BuildType Project="Debug" Solution="Debug-Linux|*" />
+      <BuildType Project="Release" Solution="Release-Linux|*" />
+      <BuildType Project="Debug" Solution="Debug-Windows|*" />
+      <BuildType Project="Release" Solution="Release-Windows|*" />
+    </Project>
   </Folder>
 </Solution>

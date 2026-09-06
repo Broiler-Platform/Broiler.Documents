@@ -386,6 +386,12 @@ evidence that a file produced by Word, LibreOffice or a browser reads correctly,
 and no amount of adding samples changes that — it would take a document from
 outside, which needs a row in the external register and a decision behind it.
 
+[The office conformance suite](office-conformance.md) closes this by one step
+without taking a document from outside: LibreOffice rewrites a seed authored here
+into markup no writer here produces, and that is what `broilerdoc` is asked to
+read. It is a step and not the whole distance — the constructs are still the ones
+a seed in this repository asked for.
+
 **Nothing about how a document looks.** The layout engine belongs to the CLI, not
 to the component, and the render checks assert that it ran and was reproducible,
 not that it was right.

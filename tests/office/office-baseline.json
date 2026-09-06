@@ -1,0 +1,24 @@
+{
+  "$schema": "office-baseline.schema.json",
+  "schemaVersion": 1,
+  "updated": "2026-09-06",
+  "producedWith": {
+    "libreoffice": null,
+    "poppler": null,
+    "fontSet": null,
+    "platform": null,
+    "dpi": 144
+  },
+  "policy": {
+    "records": "Only the reads that differ from what LibreOffice made of the same file, and only the renders that do not land in the clean band. Everything this suite exercises that is absent from the two lists below is asserted to agree, so a new difference fails by not being listed.",
+    "reproduce": "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at. A render that comes back better than the band recorded here fails for the same reason - an improvement nobody records is an improvement nobody can show.",
+    "states": "documented - a limitation one of the conformance documents states. suspected-defect - a difference nobody decided on, which is what comparing against another implementation is actually good for. accepted - this component's own behaviour, looked at and accepted.",
+    "reviewer": "A row is not classified by being written down. documented and accepted both need a reviewer and a date, and a documented row needs a reference to the conformance document that states the limitation, which the guard checks is really there. This is the same demand CorpusControlGuardTests makes of the corpus baseline and PdfTestControlGuardTests makes of the tool manifest.",
+    "toolchain": "producedWith pins the LibreOffice build, the PDF text extractor, the font set, the platform and the dpi these rows were measured on. A run whose own stamp does not match it does not compare against these rows: it skips, and the skip names the mismatch. LibreOffice's layout moves between releases and with whatever fonts it can find, so a row measured on another machine is a claim about that machine, and quietly reading it as a claim about this one is how a suite comes to fail for reasons that have nothing to do with the change under test.",
+    "empty": "Both lists ship empty and every producedWith field is null, because nothing has been measured here against an approved, pinned toolchain yet. That is the shipped state on purpose, and it is not the same as having no opinion. An empty file says plainly that nothing has been measured; a file generated against whatever LibreOffice happened to be installed that morning looks like evidence, and would be worse than no baseline for exactly that reason. tests/corpus/external-sources.json ships with no rows on the same argument.",
+    "bands": "A render row records bands, not numbers. The numbers under observed are there for a reader, and for hysteresis when a run sits on a threshold; the verdict is the band. Rasterized comparison numbers move with antialiasing, hinting and the version of the font that got installed, so a file that recorded them as the expectation would fail on a change nobody can see and pass on one anybody could.",
+    "regenerate": "dotnet run --project src/tests/Broiler.Documents.Office -- --update-baseline"
+  },
+  "reads": [],
+  "renders": []
+}

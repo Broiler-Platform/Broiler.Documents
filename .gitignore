@@ -15,3 +15,8 @@ artifacts/
 # NuGet pack output (packages are published from CI/local artifacts, never committed)
 *.nupkg
 *.snupkg
+
+# Runner output. The corpus suite and the office conformance suite both write
+# their log and reports here, and CI uploads the directory as an artifact rather
+# than committing it.
+test-results/

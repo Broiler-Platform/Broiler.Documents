@@ -315,7 +315,7 @@ appears, every counter resets at the first non-list paragraph.
 
 ## The suite that drives this tool
 
-Everything above is written for an automated caller, and one of them lives in
+Everything above is written for an automated caller, and two of them live in
 this repository. `src/tests/Broiler.Documents.Corpus` materialises a document
 corpus, runs this tool over it as a child process, and compares the result with a
 committed baseline; CI runs it on both legs on every push.
@@ -333,6 +333,13 @@ in the corpus rather than assumed.
 
 What it finds and what it deliberately does not assert - no pixel, no page count,
 no version string - is in [the corpus suite](corpus-suite.md).
+
+The second is `src/tests/Broiler.Documents.Office`, which drives the same command
+line over documents LibreOffice wrote rather than documents this component wrote,
+and which is where `render`, `compare` and the font-pinning options are actually
+held to the promises made above about reproducibility. It is nightly rather than
+per-push, because it depends on a third-party binary. See
+[the office conformance suite](office-conformance.md).
 
 ## Shipping it as a tool
 

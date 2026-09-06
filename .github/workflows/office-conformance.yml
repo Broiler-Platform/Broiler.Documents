@@ -1,0 +1,196 @@
+name: Office conformance
+
+# LibreOffice writes the documents, broilerdoc reads them, and the disagreements
+# are held against tests/office/office-baseline.json. What that proves, and the
+# considerable list of what it does not, is in docs/office-conformance.md.
+#
+# Nightly and dispatchable rather than a pull-request check, for four reasons in
+# descending order of weight.
+#
+# It depends on a third-party binary whose layout changes between releases. A
+# per-PR check running against whatever LibreOffice the runner image happens to
+# ship would fail on days when nobody changed anything, because a font package
+# update moves every band at once. Pinning the version is the only coherent
+# answer, and pinning it makes the check heavy.
+#
+# It costs several hundred megabytes and a minute or two of provisioning, against
+# a suite whose value is regression detection over weeks rather than per commit.
+#
+# The sibling repository's two WPT workflows are dispatch-only for the same
+# reason, and nightly-fuzz.yml in this repository states the policy outright:
+# "Not a required check, and it must not become one."
+#
+# And the tool register decides it. tests/office/tools/manifest.json holds
+# LibreOffice and poppler as pending, and the rule this component already
+# operates - a tool absent from the register may not run in CI - means this
+# workflow is deliberately inert until somebody reviews those two rows. A
+# fully-skipped run before that is the expected state, not a broken one. That is
+# also why --allow-pending-tools is not passed here and must not be added: the
+# flag exists for a developer's machine.
+#
+# What does run on every pull request, at no cost, is the guard tests in
+# Broiler.Documents.Tests: the schemas parse, no tool is approved merely by being
+# written down, no baseline row is classified merely by being written down, every
+# documented row cites a file that exists, and no document of a supported format
+# is committed. Those catch every control-file mistake without installing
+# anything.
+
+on:
+  schedule:
+    # 03:15 UTC, after nightly-fuzz and off the hour.
+    - cron: '15 3 * * *'
+  workflow_dispatch:
+    inputs:
+      axis:
+        description: 'semantic, pixel, or all'
+        required: false
+        default: 'all'
+      only:
+        description: Run only documents whose seed/format key contains this substring
+        required: false
+        default: ''
+      dpi:
+        description: Resolution for both rasterisers
+        required: false
+        default: '144'
+      updateBaseline:
+        description: >
+          Regenerate tests/office/office-baseline.json from this run and upload it
+          as an artifact. It is never committed by CI - a row is classified by a
+          person, not by a workflow.
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: office-conformance
+  cancel-in-progress: false
+
+jobs:
+  conformance:
+    name: Office conformance
+    runs-on: ubuntu-latest
+
+    # Linux only, and that is a limitation rather than a preference. On Windows
+    # LibreOffice enumerates the system font store and there is no lever to
+    # restrict it, so the two sides cannot be made to draw with the same faces
+    # and a pixel comparison would measure the machine. The semantic axis runs
+    # fine on Windows and a developer can run it there; it is not worth a second
+    # CI leg while the interesting half cannot follow it.
+    timeout-minutes: 60
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      # One level only, and by name, matching ci.yml. `--recursive` is
+      # deliberately not used: Broiler.Media declares Broiler.Graphics as a
+      # submodule of its own and the recursion would not terminate.
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Check out the graphics submodule's own dependency
+        run: git -C Broiler.Graphics submodule update --init --depth 1 Broiler.Media
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      # The font packages are the whole determinism story and they are installed
+      # by name. Liberation is metric-compatible with Arial, Times New Roman and
+      # Courier New, and metric compatibility is what matters here: matching
+      # advance widths mean matching line breaks, which is what the ink profile
+      # measures. Carlito and Caladea play the same role for Calibri and Cambria.
+      - name: Provision LibreOffice, poppler and the pinned fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libreoffice-writer \
+            poppler-utils \
+            fonts-liberation2 \
+            fonts-crosextra-carlito \
+            fonts-crosextra-caladea \
+            fonts-dejavu-core
+          soffice --version
+          pdftoppm -v || true
+
+      - name: Build
+        run: |
+          dotnet build src/tests/Broiler.Documents.Office/Broiler.Documents.Office.csproj \
+            -c Release --nologo
+
+      # Inputs reach the script through the environment rather than through
+      # string interpolation. On the schedule trigger the inputs context is
+      # empty, so every one needs a fallback; and interpolating a user-supplied
+      # string straight into a shell line lets whoever dispatches the workflow
+      # write the rest of the command. Quoted environment variables do neither.
+      - name: Run the office conformance suite
+        env:
+          OFFICE_AXIS: ${{ inputs.axis || 'all' }}
+          OFFICE_DPI: ${{ inputs.dpi || '144' }}
+          OFFICE_ONLY: ${{ inputs.only || '' }}
+          OFFICE_UPDATE_BASELINE: ${{ inputs.updateBaseline || 'false' }}
+        run: |
+          # Deliberately not `set -e`. The runner exits with its failure count,
+          # so aborting here would kill the step before the output is printed
+          # and a failing run would arrive with no failures in it.
+          ARGS=(
+            --output-dir ./test-results
+            --skip-install
+            --axis "$OFFICE_AXIS"
+            --dpi "$OFFICE_DPI"
+            --font-dir /usr/share/fonts/truetype
+            --font-set office-fonts-1
+          )
+          if [ -n "$OFFICE_ONLY" ]; then
+            ARGS+=(--only "$OFFICE_ONLY")
+          fi
+          if [ "$OFFICE_UPDATE_BASELINE" = "true" ]; then
+            ARGS+=(--update-baseline --restamp)
+          fi
+          RUNNER_STATUS=0
+          bash eng/run-office-conformance.sh "${ARGS[@]}" || RUNNER_STATUS=$?
+          if [ "$RUNNER_STATUS" = "69" ]; then
+            echo "::warning::The toolchain could not be provisioned; nothing was measured."
+            cat ./test-results/office-toolchain-failure.json || true
+            exit 1
+          fi
+          if [ "$RUNNER_STATUS" = "99" ]; then
+            echo "::error::The suite could not run. Exit 99 is a defect in the harness."
+            exit 1
+          fi
+          # Both greps, for the reason ci.yml gives: the first says nothing
+          # failed, the second says something actually ran. A suite that
+          # materialised nothing would otherwise print a clean line over an
+          # empty run.
+          if ! grep -qE '^[0-9]+/[0-9]+ passed, 0 failed\.$' ./test-results/office-results.log; then
+            echo "::error::The office conformance suite did not report a clean run."
+            exit 1
+          fi
+          if grep -qE '^0/0 passed' ./test-results/office-results.log; then
+            echo "::warning::The suite executed no checks. That is the expected state while the tool register is pending."
+          fi
+
+      # The dispatch input offers a regenerated baseline, so it has to arrive
+      # somewhere a person can fetch it. It is deliberately not committed: a row
+      # is classified by a reviewer, and a workflow that pushed one would be
+      # writing the reviewer's half of the file.
+      - name: Collect the regenerated baseline
+        if: ${{ always() && inputs.updateBaseline == true }}
+        run: cp tests/office/office-baseline.json ./test-results/office-baseline.regenerated.json || true
+
+      - name: Upload the conformance report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: office-conformance
+          path: test-results/
+          if-no-files-found: warn
+          retention-days: 30
