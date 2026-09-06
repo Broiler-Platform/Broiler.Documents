@@ -18,6 +18,9 @@ public readonly record struct ParagraphStyleDelta
 
     public float? SpacingAfter { get; init; }
 
+    /// <summary>Whether the paragraph starts a new page.</summary>
+    public bool? PageBreakBefore { get; init; }
+
     /// <summary>Applies this delta over <paramref name="style"/>.</summary>
     public ParagraphStyle Apply(ParagraphStyle style) => style with
     {
@@ -27,6 +30,7 @@ public readonly record struct ParagraphStyleDelta
         IndentLevel = IndentLevel ?? style.IndentLevel,
         SpacingBefore = SpacingBefore ?? style.SpacingBefore,
         SpacingAfter = SpacingAfter ?? style.SpacingAfter,
+        PageBreakBefore = PageBreakBefore ?? style.PageBreakBefore,
     };
 
     public static ParagraphStyleDelta WithAlignment(TextAlignment alignment) => new() { Alignment = alignment };

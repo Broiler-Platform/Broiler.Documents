@@ -342,9 +342,24 @@ a cascade, which is a much larger thing than reading one at-rule, and
 [the HTML conformance document](html-conformance.md) says so under its known
 limitations rather than leaving a reader to infer it from the numbers.
 
-**An explicit page break does not paginate.** `page-break-explicit` came back
-1 page here against 2 in LibreOffice, through all four formats. Four formats
-agreeing rules out a codec and points at the layout engine.
+**An explicit page break did not paginate.** *Fixed.* `page-break-explicit` came
+back 1 page here against 2 in LibreOffice, through all four formats. Four formats
+agreeing ruled out a codec - and it turned out to rule out the layout engine too.
+Nothing was dropping the break, because there was nowhere to drop it from: the
+document model had no page break at all, and no codec here read or wrote one. A
+property that does not exist loses nothing and reports nothing, which is why four
+independent codecs agreed so precisely.
+
+`ParagraphStyle.PageBreakBefore` exists now, all four formats read and write it -
+`w:pageBreakBefore` and the run-level `w:br`, `fo:break-before`, `\pagebb` and
+`\page`, `page-break-before` and `break-before` - and Markdown, which has no page
+and so no page break, reports `markdown.page-break` rather than dropping it
+quietly. The layout engine takes the break, and `--continuous` ignores every break
+and counts them in a render note, because a mode that exists to remove pagination
+should say when it removed some. All four formats now paginate 2 against
+LibreOffice's 2, and the ink profile on that seed went from `poor` to `close` -
+0.545 to 0.988 through HTML - because the content is on the pages the document put
+it on.
 
 **Line height drifts over a long document.** `long-flow-multipage` is the only
 seed that reaches `severe` on the blurred difference (0.28-0.31) while its

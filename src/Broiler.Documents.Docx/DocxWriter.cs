@@ -464,6 +464,21 @@ public static class DocxWriter
     {
         var properties = new XElement(DocxNamespaces.Wordprocessing + "pPr");
 
+        // First, and not by preference: CT_PPr is a sequence, so every child
+        // has one legal position, and w:pageBreakBefore comes before all four
+        // properties written below it - w:numPr, w:spacing, w:ind and w:jc.
+        // Word does not shrug at an out-of-order pPr the way it does at an
+        // unknown element; it refuses the file.
+        //
+        // The property form rather than a run holding w:br w:type="page",
+        // because the property is what the model holds. A break written into a
+        // run would have to go at the end of the *previous* paragraph, which
+        // means a paragraph's markup would depend on the one after it, and the
+        // first paragraph of a document would have nowhere to put its break at
+        // all.
+        if (style.PageBreakBefore)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "pageBreakBefore"));
+
         if (style.ListKind != ListKind.None)
         {
             int level = Math.Clamp(style.IndentLevel <= 0 ? 0 : style.IndentLevel - 1, 0, 8);

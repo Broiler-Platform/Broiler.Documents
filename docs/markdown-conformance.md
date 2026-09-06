@@ -47,6 +47,7 @@ is intentionally conservative.
 | Bold / italic / strike | `**` / `*` / `~~` |
 | Monospace font family | Code span |
 | `LinkHref` | Inline link |
+| `PageBreakBefore` | Nothing, reported as `markdown.page-break` |
 
 The writer escapes the characters that would otherwise be read back as markup:
 `\` `` ` `` `*` `_` `[` `]` `(` `)` `#` `+` `-` `.` `!` and `~`. The last was
@@ -65,6 +66,18 @@ parser knew, so the `[…](…)` after it was taken as a link, the marker stayed
 the prose, and the loss was reported as a dropped hyperlink. Unsupported inline style fields (underline, size,
 foreground/background color, and non-monospace font family) produce
 `markdown.inline-style`.
+
+A paragraph that starts a new page is written as an ordinary paragraph and
+reported as `markdown.page-break`. Markdown has no page, so it has no page break:
+there is no syntax to write one in and no fallback that would be honest, since a
+horizontal rule is a rule and a form feed is a character in the prose. What is
+left is to say so, which is the only thing separating a codec that dropped
+something from one that was never given it — and for this construct it is the
+whole of the difference, because until the model could carry a page break every
+codec here dropped one in silence. It has its own code rather than joining
+`markdown.paragraph-style`: that diagnostic names the three fields it drops, and
+a reader deciding whether a document can be re-exported to something paginated is
+asking a different question than one chasing lost spacing.
 
 ## Security And Limits
 
@@ -86,6 +99,10 @@ foreground/background color, and non-monospace font family) produce
   `markdown.image.dropped`. Recognizing them is what keeps the marker and the
   destination out of the text; building them is a separate decision, and one
   that would have to say what a reader may do with a `data:` payload.
+- There is no page break and there will not be one. `ParagraphStyle.PageBreakBefore`
+  is written away and reported as `markdown.page-break`; a Markdown round trip
+  loses it, and no reader here can put it back, because nothing in the text says
+  it was ever there.
 - Inline parsing is intentionally simple and best-effort for malformed or deeply
   nested delimiter runs.
 - Writer output is semantic model Markdown, not preservation of source markup.

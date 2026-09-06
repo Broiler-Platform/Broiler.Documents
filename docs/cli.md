@@ -261,7 +261,13 @@ anybody would write it. The `\:` escape still works and is never needed here.
   be what another writes — the diagnostics say which.
 - **para**: `align` (`left`/`center`/`right`); `list`
   (`none`/`bullet`/`numbered`); `indent` (level); `linespacing` (multiplier);
-  `before`, `after` (points).
+  `before`, `after` (points); `pagebreak` (`on`/`off`), which starts the
+  paragraph on a new page. It is stated *before* the paragraph, because a break
+  after paragraph five and a break before paragraph six are the same break and
+  admitting both spellings would let a document say it twice and mean once. A
+  break on the first paragraph draws no empty page in front of it, and
+  `--continuous` ignores every break and says so in the render notes — there are
+  no pages to break between.
 - **image**: `file` (path, required); `width` and `height` (points, given
   together or not at all — the model reads a zero in either as "no stated size");
   `alt`; `name`.

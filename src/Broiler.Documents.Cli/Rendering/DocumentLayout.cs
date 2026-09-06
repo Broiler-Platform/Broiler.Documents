@@ -82,6 +82,7 @@ public sealed class DocumentLayout
         double y = setup.ContentTopPoints;
         double contentBottom = setup.ContentTopPoints + columnHeight;
         bool truncated = false;
+        int ignoredBreaks = 0;
 
         var numbering = new ListNumbering();
 
@@ -124,6 +125,28 @@ public sealed class DocumentLayout
             ParagraphStyle style = paragraph.Style;
             string? marker = numbering.Advance(style);
 
+            // A break the document asked for, taken before the paragraph is
+            // measured. The guard on currentLines is what stops a break on the
+            // first paragraph emitting an empty page in front of it - a document
+            // that opens with one is asking to start on a fresh page, and it is
+            // already on one.
+            //
+            // Not in continuous mode, where there are no pages to break between.
+            // Silently doing nothing would be the wrong kind of quiet, so the
+            // note below says the breaks were ignored and why.
+            if (style.PageBreakBefore && !setup.Continuous && currentLines.Count > 0)
+            {
+                BreakPage();
+                if (truncated)
+                    break;
+
+                _paragraphTops.Remove(paragraphIndex);
+            }
+            else if (style.PageBreakBefore && setup.Continuous)
+            {
+                ignoredBreaks++;
+            }
+
             _paragraphTops.TryAdd(paragraphIndex, y);
 
             // A shape's box is known once the paragraph it hangs from has a top,
@@ -164,6 +187,15 @@ public sealed class DocumentLayout
 
         if (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0)
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
+
+        if (ignoredBreaks > 0)
+        {
+            _notes.Add(string.Format(
+                CultureInfo.InvariantCulture,
+                "ignored {0} page break(s) the document states: --continuous renders one tall page, " +
+                "so there is nothing to break between.",
+                ignoredBreaks));
+        }
 
         if (truncated)
         {

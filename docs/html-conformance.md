@@ -34,6 +34,7 @@ for parsing and writes deterministic UTF-8 HTML with `HtmlSerializer`.
 | CSS `line-height` | `ParagraphStyle.LineSpacing` | Unitless/percent preferred; absolute lengths approximate. |
 | CSS margins | spacing/indent fields | Left margin or padding converts to discrete indent levels. |
 | `<ul>` / `<ol>` + `<li>` | `ListKind`, `IndentLevel` | Reader only; writer reports `html.list` for list kind. |
+| CSS `page-break-before` / `break-before` | `ParagraphStyle.PageBreakBefore` | Read from the paragraph element's own inline `style` attribute. Both spellings are current and both are read: `page-break-before` is the CSS2 property and is what LibreOffice writes, `break-before` is the CSS3 replacement the older one is now defined as an alias for. `always` and `page` are breaks; `auto` is the initial value and is not, nor is `avoid`, nor the column and region values, which name a fragmentation into containers this model does not have. `left`, `right`, `recto` and `verso` are read as a plain break and reported as `html.page-break` — the break is kept because a break is what the document asked for, and the side is not, because the model holds a flag and has no page parity. When the two properties disagree the break wins: CSS settles that by source order and this codec's declaration parser returns a dictionary rather than an order, so both are read as the one question of whether the paragraph states a break at all. A break on a containing `<div>` is not inherited by the paragraphs inside it — alignment descends, a break happens once, where it was stated. Text lying directly in a container rather than in a paragraph element becomes a paragraph carrying no paragraph style at all, a break included, which is what this reader already does with that text's alignment and spacing. |
 | CSS `@page` `size` and margins | `PageGeometry` | The one rule read out of a `<style>` element rather than off an element. `size` takes a CSS page name (`a3`-`a5`, `b4`, `b5`, JIS `b4`/`b5`, `letter`, `legal`, `ledger`), one length, or two, with `portrait`/`landscape` orienting it; margins take the shorthand in all four arities and the four longhands. Only the first unnamed rule is read - a `@page cover` states the page for part of a document and this model holds one. Margin boxes are stepped over. A rule leaving no column to write in is refused rather than honoured. |
 
 Text and attributes are HTML-decoded. Normal HTML whitespace collapses to single
@@ -63,6 +64,7 @@ out bare, collapsed on read, and reported nowhere.
 | `LinkHref` | `<a href="...">` |
 | `InlineStyle.Image` | `<img src="data:...;base64,...">` with `alt` and a CSS size |
 | Paragraph alignment, line spacing, indent, spacing | CSS on `<p>` |
+| `ParagraphStyle.PageBreakBefore` | `page-break-before: always`, in the paragraph's own `style` attribute beside whatever else that paragraph declares. The CSS2 property rather than the CSS3 `break-before: page`, even though the reader takes either: what is written has to be understood by whoever opens the file, and this is the spelling every browser and every word processor has read for twenty years — CSS Fragmentation keeps it as an alias for exactly that reason. Writing both spellings was the other option and was rejected, because it states one break twice and a consumer resolving them in the wrong order would be entitled to honour the second. |
 
 `ListKind` is not written in the first subset; the writer preserves indentation
 and emits an `html.list` diagnostic. An embedded image is written inline as a
@@ -92,6 +94,16 @@ model.
   Nothing else in a stylesheet is applied, so a `p { line-height: 115% }` rule of
   the kind a word processor emits does not reach the paragraphs it selects; only
   an inline `style` attribute does.
+- A page break stated in a stylesheet is not read. `p { page-break-before: always }`
+  selects nothing here, and neither does a class rule a word processor writes for
+  the paragraphs it wants broken; only the paragraph's own inline `style`
+  attribute is looked at. The `@page` exception does not extend to this and could
+  not: a page is one property of the whole document and can be read from one
+  at-rule without matching anything, while a break belongs to whichever
+  paragraphs a selector picked out, and finding out which those are is the
+  cascade. A document whose breaks live in a stylesheet therefore reads back with
+  none, and the reader has nothing to report, because a break it never saw leaves
+  nothing behind to notice.
 - An external stylesheet is not fetched, so a `@page` rule in one is not read.
   The reader never makes a network request, and finding out how big a document's
   paper is should not be the thing that changes that.

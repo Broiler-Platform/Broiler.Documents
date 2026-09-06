@@ -67,6 +67,22 @@ public static class MarkdownWriter
         else if (style.ListKind == ListKind.Numbered)
             builder.Append("1. ");
 
+        // Markdown has no page, so it has no page break: there is no syntax to
+        // write this one in and no fallback that would be honest, since a
+        // horizontal rule is a rule and a form feed is a character in the prose.
+        // What is left is to say so. Its own code rather than
+        // markdown.paragraph-style, because that diagnostic names the three
+        // fields it drops and a reader deciding whether to re-export somewhere
+        // paginated is asking a different question than one chasing lost
+        // spacing.
+        if (style.PageBreakBefore)
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "markdown.page-break",
+                "Markdown has no page break; a paragraph that starts a new page was written " +
+                "as an ordinary paragraph."));
+        }
+
         if (style.Alignment != TextAlignment.Left ||
             Math.Abs(style.LineSpacing - 1f) > 0.001f ||
             Math.Abs(style.SpacingBefore) > 0.001f ||

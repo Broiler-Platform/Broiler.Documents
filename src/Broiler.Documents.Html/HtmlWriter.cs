@@ -20,6 +20,21 @@ public static class HtmlWriter
     /// </summary>
     internal const string PreserveWhitespaceDeclaration = "white-space: pre-wrap";
 
+    /// <summary>
+    /// What a paragraph that starts a new page declares.
+    /// </summary>
+    /// <remarks>
+    /// The CSS2 property rather than the CSS3 <c>break-before: page</c>, even
+    /// though the newer one is the replacement and this codec's reader takes
+    /// either. What is written here has to be understood by whoever opens the
+    /// file, and <c>page-break-before</c> is the one every browser and every
+    /// word processor has read for twenty years - CSS Fragmentation keeps it as
+    /// an alias for exactly that reason. Writing both spellings was the other
+    /// option and was rejected: it states one break twice, and a consumer that
+    /// resolved them in the wrong order would be entitled to honour the second.
+    /// </remarks>
+    internal const string PageBreakBeforeDeclaration = "page-break-before: always";
+
     public static DocumentWriteResult Write(
         RichTextDocument document,
         Stream destination,
@@ -346,6 +361,12 @@ public static class HtmlWriter
     private static string FormatParagraphStyle(ParagraphStyle style, List<DocumentDiagnostic> diagnostics)
     {
         var declarations = new List<string>();
+
+        // First in the list, because it is the only one of these that is about
+        // where the paragraph starts rather than how it looks once it is there.
+        if (style.PageBreakBefore)
+            declarations.Add(PageBreakBeforeDeclaration);
+
         if (style.Alignment == TextAlignment.Center)
             declarations.Add("text-align: center");
         else if (style.Alignment == TextAlignment.Right)

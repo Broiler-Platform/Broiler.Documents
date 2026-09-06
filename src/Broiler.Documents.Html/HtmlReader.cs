@@ -32,6 +32,17 @@ internal static class HtmlReader
         "title",
     };
 
+    /// <summary>
+    /// The two properties that say a box starts on a new page, both of which are
+    /// current. <c>page-break-before</c> is the CSS2 property and is what
+    /// LibreOffice writes; <c>break-before</c> is the CSS3 replacement that the
+    /// older one is now defined as an alias for. A reader that knew only one of
+    /// them would take the break out of every document written by the other
+    /// half of the world, and say nothing, because a break that was never read
+    /// leaves nothing behind to report.
+    /// </summary>
+    private static readonly string[] PageBreakProperties = ["page-break-before", "break-before"];
+
     public static DocumentReadResult Read(byte[] bytes, DocumentReadOptions options, bool truncated)
     {
         ArgumentNullException.ThrowIfNull(bytes);
@@ -145,7 +156,13 @@ internal static class HtmlReader
             if (tag.StartsWith("h", StringComparison.OrdinalIgnoreCase) && tag.Length == 2 && char.IsDigit(tag[1]))
                 childInline = ApplyHeadingInline(tag, childInline);
 
-            builder.StartParagraph(childParagraph);
+            // The break goes on the style this paragraph is started with and not
+            // on the one its children inherit. Every other paragraph property
+            // here descends - a centred div centres the paragraphs inside it -
+            // but a break does not: it happens once, where it was stated, and a
+            // div carrying one is not three page breaks because it holds three
+            // paragraphs.
+            builder.StartParagraph(childParagraph with { PageBreakBefore = DeclaresPageBreakBefore(element, builder) });
             ReadChildren(element, builder, childInline, childParagraph, childPreserveWhitespace);
             builder.FinishParagraph(force: true);
             return;
@@ -338,6 +355,74 @@ internal static class HtmlReader
         IReadOnlyDictionary<string, string> declarations = HtmlCss.ParseDeclarations(element.GetAttribute("style"));
         return declarations.TryGetValue("white-space", out string? value) &&
                value.Trim().ToLowerInvariant() is "pre" or "pre-wrap" or "break-spaces";
+    }
+
+    /// <summary>
+    /// Whether the element's own <c>style</c> attribute says this paragraph
+    /// starts a new page.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read off the element and nowhere else, which is this codec's rule for
+    /// every declaration except the page: there is no cascade here, so a
+    /// <c>p { page-break-before: always }</c> rule in a stylesheet selects
+    /// nothing. The <c>@page</c> exception does not extend to this. A page is one
+    /// property of the whole document and can be read from one at-rule without
+    /// matching a selector; a break belongs to whichever paragraphs a selector
+    /// picked out, and finding out which those are is the cascade.
+    /// </para>
+    /// <para>
+    /// <c>auto</c> is the initial value and is not a break. Neither is
+    /// <c>avoid</c>, which asks for the opposite, nor the column and region
+    /// values, which name a fragmentation into containers this model does not
+    /// have.
+    /// </para>
+    /// <para>
+    /// When the two spellings disagree - <c>page-break-before: always</c> beside
+    /// <c>break-before: auto</c> - the break wins. CSS settles that by source
+    /// order, and source order is exactly what
+    /// <see cref="HtmlCss.ParseDeclarations"/> does not keep: it returns a
+    /// dictionary. Rather than invent an order, both are read as one question,
+    /// which is whether this paragraph states a break anywhere in its own style.
+    /// A document that says it twice means it once.
+    /// </para>
+    /// </remarks>
+    private static bool DeclaresPageBreakBefore(DomElement element, HtmlDocumentBuilder builder)
+    {
+        IReadOnlyDictionary<string, string> declarations = HtmlCss.ParseDeclarations(element.GetAttribute("style"));
+        bool breaks = false;
+        foreach (string property in PageBreakProperties)
+        {
+            if (!declarations.TryGetValue(property, out string? value))
+                continue;
+
+            switch (value.Trim().ToLowerInvariant())
+            {
+                case "always":
+                case "page":
+                    breaks = true;
+                    break;
+                case "left":
+                case "right":
+                case "recto":
+                case "verso":
+                    // These break to the next page of a named side, which is one
+                    // page break or two depending on where the document had got
+                    // to. The break is kept because a break is what the document
+                    // asked for; the side is not, because the model holds a flag
+                    // and has no notion of which face of a sheet a page lands on.
+                    // Keeping the larger half and naming the half that went is
+                    // the whole reason this codec reports anything at all.
+                    builder.AddDiagnosticOnce(
+                        "html.page-break",
+                        "A page break to a named left or right page was read as a plain page break; " +
+                        "the model carries no page parity.");
+                    breaks = true;
+                    break;
+            }
+        }
+
+        return breaks;
     }
 
     private static ParagraphStyle ApplyParagraphElement(DomElement element, ParagraphStyle style)

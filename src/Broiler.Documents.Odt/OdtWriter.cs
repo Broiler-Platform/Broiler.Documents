@@ -859,6 +859,17 @@ public static class OdtWriter
                 OdtUnits.FormatPercentage(style.LineSpacing)));
         }
 
+        // Written only when the model asks for a break, never as fo:break-before
+        // "auto" to say there is none: an automatic style here inherits from
+        // Standard, which states no break, so absence already says it. Emitting
+        // auto would add an attribute to every ordinary paragraph in the document
+        // and give each of them its own automatic style. And it is written at a
+        // fixed point in this method, after the properties that were here before
+        // it, because the attribute order is the byte order and two writes of one
+        // document have to agree.
+        if (style.PageBreakBefore)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "break-before", "page"));
+
         return properties;
     }
 

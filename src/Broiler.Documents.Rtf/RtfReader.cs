@@ -84,6 +84,7 @@ public static class RtfReader
         private bool _sawStar;
         private bool _reportedCodePage;
         private bool _reportedEmbedded;
+        private bool _reportedEmptyPage;
         private readonly bool _embeddedDecodingRequested;
 
         private State _state;
@@ -153,6 +154,8 @@ public static class RtfReader
                 document = document.WithShapes(_shapes);
             if (_builder.LimitHit)
                 _diagnostics.Add(DocumentDiagnostic.Warning("rtf.paragraphs", "Document exceeded MaxParagraphCount; extra paragraphs were dropped."));
+            if (_builder.PageBreakPending)
+                ReportEmptyPage();
 
             return new DocumentReadResult(document, _diagnostics, DocumentReadResult.StatusFrom(_diagnostics));
         }
@@ -351,10 +354,18 @@ public static class RtfReader
                 case "sb": _state.Para = _state.Para with { SpacingBefore = has ? p / 20f : 0f }; break;
                 case "sa": _state.Para = _state.Para with { SpacingAfter = has ? p / 20f : 0f }; break;
 
+                // The property spelling of a page break, and the one LibreOffice
+                // writes: it says this paragraph starts a page. It is a paragraph
+                // property like any other here, so \pard clears it along with the
+                // rest, and the 0 form turns it off the way every other toggle's
+                // does.
+                case "pagebb": _state.Para = _state.Para with { PageBreakBefore = !(has && p == 0) }; break;
+
                 case "par":
                 case "row":
                     EndParagraph();
                     break;
+                case "page": PageBreak(); break;
                 case "line": AppendChar(0x2028); break; // soft line break
                 case "tab":
                 case "cell": AppendBody("\t"); break;
@@ -784,6 +795,46 @@ public static class RtfReader
             Active.EndParagraph(_state.Para);
         }
 
+        /// <summary>
+        /// Takes a <c>\page</c>, which RTF states in the character stream rather
+        /// than on a paragraph.
+        /// </summary>
+        /// <remarks>
+        /// The buffered text is flushed first, because the accumulator is about
+        /// to be asked whether the paragraph it is building has anything in it,
+        /// and text still sitting in the pending buffer would make a break that
+        /// interrupted a paragraph look like one that arrived between two.
+        /// </remarks>
+        private void PageBreak()
+        {
+            FlushPending();
+            if (!Active.BreakPage(_state.Para))
+                ReportEmptyPage();
+        }
+
+        /// <summary>
+        /// A break with no paragraph to land on - one at the end of the document,
+        /// or a second with nothing between it and the first.
+        /// </summary>
+        /// <remarks>
+        /// What such a break asks for is a blank page, and a page break here is a
+        /// property of a paragraph, so there is no paragraph to hang it on and
+        /// nothing to hold the emptiness. Inventing an empty paragraph to carry it
+        /// would put a blank line into a document that has none, and would come
+        /// back out of the writer as content. So it is dropped - but said once,
+        /// because the difference is a page.
+        /// </remarks>
+        private void ReportEmptyPage()
+        {
+            if (_reportedEmptyPage)
+                return;
+
+            _reportedEmptyPage = true;
+            _diagnostics.Add(DocumentDiagnostic.Info(
+                "rtf.pagebreak.empty",
+                "A page break with no paragraph after it asks for a blank page, which this model cannot hold; the break was dropped."));
+        }
+
         private void AppendChar(int code) => AppendBody(((char)code).ToString());
 
         private void AppendBody(string text)
@@ -887,6 +938,33 @@ public static class RtfReader
 
         public bool LimitHit { get; private set; }
 
+        /// <summary>Whether a <c>\page</c> is still waiting for a paragraph.</summary>
+        public bool PageBreakPending { get; private set; }
+
+        /// <summary>
+        /// Takes a break before whatever comes next, and says whether one was
+        /// already waiting with nothing in between - a break that asked for a page
+        /// this accumulator has no paragraph to put on it.
+        /// </summary>
+        /// <remarks>
+        /// A break inside a paragraph ends it first. RTF lets <c>\page</c> sit
+        /// anywhere in the character stream, so one document writes
+        /// <c>text\page more\par</c> and another <c>text\par\page more\par</c> for
+        /// the same break, and the two only reach the same model if the first
+        /// spelling closes the paragraph the break interrupted. Holding the break
+        /// against the paragraph being built instead would move it in front of the
+        /// text it was written after, which is the one place it does not belong.
+        /// </remarks>
+        public bool BreakPage(ParagraphStyle style)
+        {
+            bool displaced = PageBreakPending && _current.Length == 0;
+            if (_current.Length > 0)
+                EndParagraph(style);
+
+            PageBreakPending = true;
+            return !displaced;
+        }
+
         public void Append(string text, InlineStyle style)
         {
             // Once the paragraph cap is hit, drop further text so memory stays bounded.
@@ -905,16 +983,35 @@ public static class RtfReader
                 return;
             }
 
-            _paragraphs.Add(_current.WithParagraphStyle(style));
+            _paragraphs.Add(_current.WithParagraphStyle(Spend(style)));
             _current = RichTextParagraph.Create(string.Empty, InlineStyle.Default, style);
         }
 
         public RichTextDocument Build(ParagraphStyle finalStyle)
         {
             if (!LimitHit && (_current.Length > 0 || _paragraphs.Count == 0))
-                _paragraphs.Add(_current.WithParagraphStyle(finalStyle));
+                _paragraphs.Add(_current.WithParagraphStyle(Spend(finalStyle)));
 
             return RichTextDocument.FromParagraphs(_paragraphs);
+        }
+
+        /// <summary>
+        /// The style a closing paragraph takes, with any waiting <c>\page</c>
+        /// spent on it.
+        /// </summary>
+        /// <remarks>
+        /// The first paragraph to close after a break is the one the break
+        /// belongs to, and it takes the break away with it: a flag left set would
+        /// start the paragraph after that on a new page as well, so one break in
+        /// the source would become two in the model.
+        /// </remarks>
+        private ParagraphStyle Spend(ParagraphStyle style)
+        {
+            if (!PageBreakPending)
+                return style;
+
+            PageBreakPending = false;
+            return style with { PageBreakBefore = true };
         }
     }
 }
