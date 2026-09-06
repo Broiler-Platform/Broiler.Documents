@@ -26,7 +26,7 @@ for parsing and writes deterministic UTF-8 HTML with `HtmlSerializer`.
 | `<u>` | `InlineStyle.Underline` | CSS `text-decoration: underline` also maps. |
 | `<s>`, `<strike>`, `<del>` | `InlineStyle.Strikethrough` | CSS `line-through` also maps. |
 | CSS `text-transform: uppercase`, `font-variant: small-caps` | `InlineStyle.Capitalization` | Display only; the markup keeps the author's casing. |
-| `<a href>` | `InlineStyle.LinkHref` | `http`, `https`, and `mailto` only; other schemes are dropped with `html.link`. |
+| `<a href>` | `InlineStyle.LinkHref` | Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried. Refusals are reported as `html.link`. |
 | `<font face color>` | `FontFamily`, `Foreground` | Legacy compatibility only. |
 | CSS `color`, `background-color` | `Foreground`, `Background` | Named colors, `#rgb`, `#rrggbb`, and `rgb(...)`. |
 | CSS `font-family`, `font-size` | `FontFamily`, `FontSize` | Points are preserved; px converts using 96 DPI. |
@@ -36,9 +36,21 @@ for parsing and writes deterministic UTF-8 HTML with `HtmlSerializer`.
 | `<ul>` / `<ol>` + `<li>` | `ListKind`, `IndentLevel` | Reader only; writer reports `html.list` for list kind. |
 
 Text and attributes are HTML-decoded. Normal HTML whitespace collapses to single
-spaces; `<pre>` preserves whitespace.
+spaces; `<pre>`, and any element declaring `white-space: pre`, `pre-wrap` or
+`break-spaces`, preserves it. What collapses is the five characters CSS names —
+space, tab, line feed, carriage return, form feed — and a non-breaking space is
+deliberately not one of them, so `&nbsp;` beside an ordinary space keeps both.
+Under a preserving declaration nothing is trimmed either, including at the start
+of the paragraph, which is what the declaration is for.
 
 ## Writer Mapping
+
+A paragraph whose text would not survive HTML's collapsing carries
+`white-space: pre-wrap` so that it does: a tab, a repeated space, or a space at
+either edge. Only such a paragraph carries it — the declaration changes how a
+browser lays the paragraph out, so it is not spent on paragraphs that do not need
+it. This condition used to name the tab alone, and a doubled space was written
+out bare, collapsed on read, and reported nowhere.
 
 | Model | HTML |
 |---|---|

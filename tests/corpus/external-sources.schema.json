@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/documents-corpus-external-sources-1.json",
+  "title": "Broiler.Documents external corpus sources",
+  "description": "The register a document written outside this repository has to pass through before the corpus suite may read it. It exists so the answer to 'where did this test document come from' is a row with a decision, a permitted use, a licence and a digest, rather than a URL somebody pasted. Modelled on docs/pdf-approved-sources.md, which does the same job for implementation sources, and on tests/pdf/tools/manifest.json, which does it for executables. The suite ships with an empty sources array, so it fetches nothing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "updated", "policy", "sources"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "updated": { "type": "string", "format": "date" },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default", "rule", "why", "insufficient", "digest", "network"],
+      "description": "Prose, and load-bearing prose. The insufficient list is required because every argument on it has been made somewhere in good faith, and a register that only says what is enough leaves the reader to infer the rest.",
+      "properties": {
+        "default": { "const": "off" },
+        "rule": { "type": "string", "minLength": 1 },
+        "why": { "type": "string", "minLength": 1 },
+        "insufficient": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "digest": { "type": "string", "minLength": 1 },
+        "network": { "type": "string", "minLength": 1 }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "description": "One row per external document. An empty array is the shipped state and means the suite is fully hermetic.",
+      "items": { "$ref": "#/$defs/source" }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "url",
+        "format",
+        "description",
+        "licence",
+        "permittedUse",
+        "decision",
+        "reviewer",
+        "decided",
+        "sha256",
+        "sizeBytes"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^DOC-SRC-[0-9]{3}$" },
+        "url": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "format": { "enum": ["docx", "odt", "rtf", "html", "markdown"] },
+        "description": { "type": "string", "minLength": 1 },
+        "licence": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The instrument by name, not a characterisation of it. 'Permissive' is not a licence."
+        },
+        "permittedUse": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What this project may do with the document, which is usually narrower than what the licence allows. Reading it in a test is not the same permission as redistributing it in an artifact."
+        },
+        "decision": {
+          "enum": ["approved", "pending", "rejected"],
+          "description": "Only `approved` is fetched. `pending` is the honest state for a row somebody added but nobody decided, and the runner reports it as pending rather than skipping it quietly."
+        },
+        "reviewer": {
+          "type": ["string", "null"],
+          "description": "A person. Null only while the decision is pending."
+        },
+        "decided": { "type": ["string", "null"], "format": "date" },
+        "sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Pinned bytes. Null only while the decision is pending; an approved row without one is rejected by the runner, because a fetch nobody pinned is a test whose input can change under it."
+        },
+        "sizeBytes": { "type": ["integer", "null"], "minimum": 1 },
+        "notes": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "decision": { "const": "approved" } }, "required": ["decision"] },
+          "then": {
+            "properties": {
+              "reviewer": { "type": "string", "minLength": 1 },
+              "decided": { "type": "string" },
+              "sha256": { "type": "string" },
+              "sizeBytes": { "type": "integer" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -132,6 +132,12 @@ It is itself `IsPackable=false`, so the package table above is unchanged. See th
 [CLI guide](docs/cli.md) for the full command reference, the exit codes, the edit
 language, and what makes a render reproducible across machines.
 
+CI drives that tool over a document corpus on every push, in both a Linux and a
+Windows leg, and holds what comes back against a committed baseline of what each
+format is expected to lose. See [the corpus suite](docs/corpus-suite.md) for what
+it checks, where the documents come from and why none of them is downloaded, and
+what it has found so far.
+
 ## Component Constraints
 
 - Target .NET 10 only.

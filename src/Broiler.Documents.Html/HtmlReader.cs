@@ -226,23 +226,13 @@ internal static class HtmlReader
         if (string.IsNullOrEmpty(href))
             return style;
 
-        if (IsAllowedLink(href))
+        if (DocumentLinkTarget.IsAllowed(href))
             return style with { LinkHref = href };
 
         diagnostics.Add(DocumentDiagnostic.Warning(
             "html.link",
-            "A hyperlink with a disallowed scheme was dropped."));
+            "A hyperlink with a disallowed or relative target was dropped."));
         return style;
-    }
-
-    private static bool IsAllowedLink(string href)
-    {
-        if (!Uri.TryCreate(href, UriKind.Absolute, out Uri? uri))
-            return false;
-
-        return uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeMailto, StringComparison.OrdinalIgnoreCase);
     }
 
     private static InlineStyle ApplyFontElement(DomElement element, InlineStyle style)
@@ -446,10 +436,20 @@ internal static class HtmlReader
             if (!_paragraphOpen && string.IsNullOrWhiteSpace(normalized))
                 return;
 
-            if (_segments.Count == 0)
-                normalized = normalized.TrimStart();
-            else if (EndsWithWhitespace(_segments[^1].Text) && normalized.Length > 0 && char.IsWhiteSpace(normalized[0]))
-                normalized = normalized.TrimStart();
+            // Both trims are the collapsing rule, so both stop applying when the
+            // element has asked for the text verbatim: CSS `pre`, `pre-wrap` and
+            // `break-spaces` all keep white space at the start of a line, and a
+            // reader that trimmed anyway would drop what the declaration was
+            // written to protect. Without this, a paragraph the writer had
+            // correctly marked still lost its leading space.
+            if (!preserveWhitespace)
+            {
+                if (_segments.Count == 0)
+                    normalized = normalized.TrimStart();
+                else if (EndsWithWhitespace(_segments[^1].Text) && normalized.Length > 0 &&
+                         char.IsWhiteSpace(normalized[0]))
+                    normalized = normalized.TrimStart();
+            }
 
             if (normalized.Length == 0)
                 return;
@@ -533,6 +533,20 @@ internal static class HtmlReader
         private static bool EndsWithWhitespace(string text) =>
             text.Length > 0 && char.IsWhiteSpace(text[^1]);
 
+        /// <summary>
+        /// The white space HTML collapses, which is not the white space Unicode
+        /// recognises.
+        /// </summary>
+        /// <remarks>
+        /// CSS names five characters, and a non-breaking space is deliberately
+        /// not one of them - it exists to be a space that survives. This used to
+        /// ask <c>char.IsWhiteSpace</c>, which says yes to U+00A0, so a
+        /// <c>&amp;nbsp;</c> next to an ordinary space was folded into it and the
+        /// document lost the character it was written with.
+        /// </remarks>
+        private static bool IsHtmlWhiteSpace(char character) =>
+            character is ' ' or '\t' or '\n' or '\r' or '\f';
+
         private static string NormalizeText(string text, bool preserveWhitespace)
         {
             text = text.Replace("\r\n", "\n").Replace('\r', '\n');
@@ -543,7 +557,7 @@ internal static class HtmlReader
             bool inWhitespace = false;
             foreach (char c in text)
             {
-                if (char.IsWhiteSpace(c))
+                if (IsHtmlWhiteSpace(c))
                 {
                     if (!inWhitespace)
                         builder.Append(' ');

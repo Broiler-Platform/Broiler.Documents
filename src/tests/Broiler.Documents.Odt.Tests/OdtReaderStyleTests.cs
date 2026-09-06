@@ -282,4 +282,105 @@ public sealed class OdtReaderStyleTests
         Assert.Equal(ListKind.Numbered, result.Document.Paragraphs[0].Style.ListKind);
         Assert.Equal(2, result.Document.Paragraphs[0].Style.IndentLevel);
     }
+
+    // The ODF white-space rule defers a collapsed space until something follows
+    // it, which is what makes the style it carries a decision rather than an
+    // accident. The reader used to take that style from whatever arrived next,
+    // so a space before a span was absorbed into the span and the run boundary
+    // moved one character left. The tests above this point all assert paragraph
+    // text, and the text was never wrong - which is how it survived.
+
+    [Fact]
+    public void A_Space_Before_A_Span_Is_Not_Part_Of_It()
+    {
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:p>plain <text:span text:style-name=\"T1\">bold</text:span></text:p>",
+            OdtTestPackage.Style(
+                "T1",
+                "<style:text-properties fo:font-weight=\"bold\"/>",
+                family: "text"));
+
+        RichTextParagraph paragraph = result.Document.Paragraphs[0];
+        Assert.Equal("plain bold", paragraph.Text);
+        Assert.False(paragraph.StyleAt(5).Bold);
+        Assert.True(paragraph.StyleAt(6).Bold);
+    }
+
+    [Fact]
+    public void A_Space_Inside_A_Span_Stays_Part_Of_It()
+    {
+        // The other direction, and the reason the fix records the style rather
+        // than always using the paragraph's: a space the author wrote inside the
+        // span belongs to the span.
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:p><text:span text:style-name=\"T1\">bold </text:span>plain</text:p>",
+            OdtTestPackage.Style(
+                "T1",
+                "<style:text-properties fo:font-weight=\"bold\"/>",
+                family: "text"));
+
+        RichTextParagraph paragraph = result.Document.Paragraphs[0];
+        Assert.Equal("bold plain", paragraph.Text);
+        Assert.True(paragraph.StyleAt(4).Bold);
+        Assert.False(paragraph.StyleAt(5).Bold);
+    }
+
+    [Fact]
+    public void A_Space_Between_Two_Spans_Belongs_To_Neither()
+    {
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:p><text:span text:style-name=\"T1\">a</text:span>" +
+            " <text:span text:style-name=\"T2\">b</text:span></text:p>",
+            OdtTestPackage.Style(
+                "T1", "<style:text-properties fo:font-weight=\"bold\"/>", family: "text") +
+            OdtTestPackage.Style(
+                "T2", "<style:text-properties fo:font-style=\"italic\"/>", family: "text"));
+
+        RichTextParagraph paragraph = result.Document.Paragraphs[0];
+        Assert.Equal("a b", paragraph.Text);
+        Assert.True(paragraph.StyleAt(0).Bold);
+        Assert.False(paragraph.StyleAt(1).Bold);
+        Assert.False(paragraph.StyleAt(1).Italic);
+        Assert.True(paragraph.StyleAt(2).Italic);
+    }
+
+    [Fact]
+    public void A_Deferred_Space_Flushed_By_A_Tab_Still_Carries_Its_Own_Style()
+    {
+        // A tab arrives through the literal path rather than the collapsing one,
+        // so it is the other way a pending space reaches the document. It must
+        // not pick up the tab's style either.
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:p><text:span text:style-name=\"T1\">a </text:span><text:tab/>b</text:p>",
+            OdtTestPackage.Style(
+                "T1", "<style:text-properties fo:font-weight=\"bold\"/>", family: "text"));
+
+        RichTextParagraph paragraph = result.Document.Paragraphs[0];
+        Assert.Equal("a \tb", paragraph.Text);
+        Assert.True(paragraph.StyleAt(1).Bold);
+        Assert.False(paragraph.StyleAt(2).Bold);
+    }
+
+    [Fact]
+    public void A_White_Space_Run_That_Straddles_A_Span_Boundary_Takes_The_Style_It_Ends_In()
+    {
+        // The one case where "the style it was written with" does not name a
+        // single answer: the run is half outside the span and half inside, and
+        // ODF says only that it collapses to one space, not what that space
+        // wears. The reader takes the last, so the surviving space is the span's.
+        //
+        // Pinned rather than argued. It is stable - the writer emits
+        // `a<text:span> b</text:span>` and reading that back gives this again,
+        // and the corpus suite round trips it equal through every format - and
+        // the choice is one line to flip if a reviewer prefers the other.
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:p>a <text:span text:style-name=\"T1\"> b</text:span></text:p>",
+            OdtTestPackage.Style(
+                "T1", "<style:text-properties fo:font-weight=\"bold\"/>", family: "text"));
+
+        RichTextParagraph paragraph = result.Document.Paragraphs[0];
+        Assert.Equal("a b", paragraph.Text);
+        Assert.False(paragraph.StyleAt(0).Bold);
+        Assert.True(paragraph.StyleAt(1).Bold);
+    }
 }

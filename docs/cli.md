@@ -22,6 +22,7 @@ The examples below use that name.
 - [Rendering, and what makes a render reproducible](#rendering-and-what-makes-a-render-reproducible)
 - [The edit language](#the-edit-language)
 - [What this tool is not](#what-this-tool-is-not)
+- [The suite that drives this tool](#the-suite-that-drives-this-tool)
 - [Shipping it as a tool](#shipping-it-as-a-tool)
 
 ## Why it exists
@@ -247,12 +248,17 @@ broilerdoc new --out styled.docx --text "Title\nBody text" \
 `3-$`, or `*`. Offsets are UTF-16 indices into the paragraph text — the same ones
 `dump --as json` reports.
 
-`PROPS` is comma-separated `key=value`; quote a value containing a comma.
+`PROPS` is comma-separated `key=value`; quote a value containing a comma. It
+is the last field of its verb, so it takes the rest of the line, colons and
+all — which is what lets `link=https://example.org/` be written the way
+anybody would write it. The `\:` escape still works and is never needed here.
 
 - **inline**: `bold`, `italic`, `underline`, `strike` (`on`/`off`); `caps`
   (`none`/`all`/`small`); `color`, `highlight` (`#RRGGBB`, `#RRGGBBAA`, a CSS
   colour name, or `default`); `font` (family or `default`); `size` (points or
-  `default`); `link` (URL or `off`).
+  `default`); `link` (URL or `off`). A link target is stored as written and
+  policed by each codec on the way out, so a scheme one format refuses may still
+  be what another writes — the diagnostics say which.
 - **para**: `align` (`left`/`center`/`right`); `list`
   (`none`/`bullet`/`numbered`); `indent` (level); `linespacing` (multiplier);
   `before`, `after` (points).
@@ -306,6 +312,27 @@ paragraph is a numbered item at an indent level and nothing else — no list
 identity, no start number, no restart flag. The rule here is the simple one those
 facts support: a counter per level, deeper levels reset when a shallower item
 appears, every counter resets at the first non-list paragraph.
+
+## The suite that drives this tool
+
+Everything above is written for an automated caller, and one of them lives in
+this repository. `src/tests/Broiler.Documents.Corpus` materialises a document
+corpus, runs this tool over it as a child process, and compares the result with a
+committed baseline; CI runs it on both legs on every push.
+
+```bash
+dotnet run --project src/tests/Broiler.Documents.Corpus
+```
+
+It is the reason several of the promises on this page are promises rather than
+descriptions. The exit codes are asserted against a real process rather than a
+return value. The `-` paths are exercised through a real pipe, which is the only
+way to reach them - they open the process's own standard streams. And the claim
+that two dumps of equal documents are byte-identical is checked on every document
+in the corpus rather than assumed.
+
+What it finds and what it deliberately does not assert - no pixel, no page count,
+no version string - is in [the corpus suite](corpus-suite.md).
 
 ## Shipping it as a tool
 

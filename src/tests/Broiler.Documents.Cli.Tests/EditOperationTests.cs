@@ -230,4 +230,113 @@ public sealed class EditOperationTests
 
         Assert.Contains(@"C:\temp\new\0logo.png", exception.Message, StringComparison.Ordinal);
     }
+
+    // PROPS is the last field of `inline`, so it takes the rest of the line the
+    // way every other text tail does. Read as one colon-delimited field it could
+    // not carry a URL at all: `link=https://example.org/` arrived as
+    // `link=https`, which is a relative target, which every writer refuses - so
+    // the tool emitted a plausible link diagnostic about a value nobody wrote.
+    // These assert the stored href rather than a writer's verdict, because the
+    // verdict was the part that looked right while the value was wrong.
+
+    [Theory]
+    [InlineData("https://example.org/")]
+    [InlineData("https://example.org/path?q=1&r=2#frag")]
+    [InlineData("mailto:someone@example.org")]
+    [InlineData("HTTPS://EXAMPLE.ORG/")]
+    public void A_Link_Keeps_Every_Colon_In_Its_Url(string href)
+    {
+        RichTextDocument document = Apply("link here", "inline:0:0-4:link=" + href);
+
+        Assert.Equal(href, document.Paragraphs[0].StyleAt(0).LinkHref);
+    }
+
+    [Fact]
+    public void A_Link_Url_May_Be_Written_With_The_Documented_Colon_Escape()
+    {
+        // Escaping is unnecessary now that PROPS is a tail, but the grammar
+        // documents `\:` and a caller who escapes defensively must not be
+        // punished for it.
+        RichTextDocument document = Apply("link here", @"inline:0:0-4:link=https\://example.org/");
+
+        Assert.Equal("https://example.org/", document.Paragraphs[0].StyleAt(0).LinkHref);
+    }
+
+    [Fact]
+    public void A_Quoted_Link_Url_Loses_Its_Quotes_And_Keeps_Its_Commas()
+    {
+        RichTextDocument document = Apply(
+            "link here", "inline:0:0-4:link=\"https://example.org/a,b\",bold=on");
+
+        Assert.Equal("https://example.org/a,b", document.Paragraphs[0].StyleAt(0).LinkHref);
+        Assert.True(document.Paragraphs[0].StyleAt(0).Bold);
+    }
+
+    [Fact]
+    public void A_Relative_Link_Target_Reaches_The_Model_Unchanged()
+    {
+        // Whether a writer will emit it is the writer's decision, and a
+        // different one per format. The grammar's job is to carry what was
+        // written, so that the writer refuses the caller's value rather than a
+        // truncation of it.
+        RichTextDocument document = Apply("link here", "inline:0:0-4:link=/docs/page");
+
+        Assert.Equal("/docs/page", document.Paragraphs[0].StyleAt(0).LinkHref);
+    }
+
+    [Fact]
+    public void A_Refused_Scheme_Reaches_The_Model_Whole()
+    {
+        // The edit language does not police schemes - the codecs do, per format,
+        // and they need the real value to police. Storing `javascript` here
+        // would make every writer refuse it as a relative target and report the
+        // right diagnostic for the wrong reason.
+        RichTextDocument document = Apply("link here", "inline:0:0-4:link=javascript:alert(1)");
+
+        Assert.Equal("javascript:alert(1)", document.Paragraphs[0].StyleAt(0).LinkHref);
+    }
+
+    [Fact]
+    public void A_Link_Sits_Alongside_Other_Properties_Whichever_Order_They_Come_In()
+    {
+        RichTextDocument left = Apply("link here", "inline:0:0-4:bold=on,link=https://example.org/");
+        RichTextDocument right = Apply("link here", "inline:0:0-4:link=https://example.org/,bold=on");
+
+        foreach (RichTextDocument document in new[] { left, right })
+        {
+            Assert.Equal("https://example.org/", document.Paragraphs[0].StyleAt(0).LinkHref);
+            Assert.True(document.Paragraphs[0].StyleAt(0).Bold);
+        }
+    }
+
+    [Fact]
+    public void Link_Off_Still_Removes_The_Link()
+    {
+        RichTextDocument document = Apply(
+            "link here",
+            "inline:0:0-4:link=https://example.org/",
+            "inline:0:0-4:link=off");
+
+        Assert.Null(document.Paragraphs[0].StyleAt(0).LinkHref);
+    }
+
+    [Fact]
+    public void A_Paragraph_Props_Field_Is_A_Tail_Too()
+    {
+        // `para` has no property that carries a colon today. It is a tail
+        // anyway, because the grammar is one grammar and a caller should not
+        // have to remember which verb the rule holds for.
+        RichTextDocument document = Apply("one", "para:0:align=center");
+
+        Assert.Equal(TextAlignment.Center, document.Paragraphs[0].Style.Alignment);
+    }
+
+    [Fact]
+    public void A_Missing_Props_Field_Is_Still_Named_In_The_Error()
+    {
+        UsageException failure = Assert.Throws<UsageException>(
+            () => Apply("one", "inline:0:*"));
+
+        Assert.Contains("PROPS", failure.Message, StringComparison.Ordinal);
+    }
 }

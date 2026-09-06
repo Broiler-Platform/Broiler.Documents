@@ -139,4 +139,67 @@ public sealed class RtfWriterTests
     /// <summary>Read options that also permit writing what was read back out.</summary>
     private static DocumentReadOptions RoundTripReadOptions { get; } =
         new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
+
+    // The allow-list was enforced on the way in and not on the way out, so a
+    // target no reader here would accept could still be written into a document,
+    // with no diagnostic. The round trip cannot see that: every reader refuses
+    // the same schemes, so a document that wrote the link and one that dropped
+    // it both read back without it. These assert the bytes.
+
+    [Theory(Timeout = 600000)]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("vbscript:msgbox")]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("/relative/path")]
+    public void A_Refused_Link_Target_Never_Reaches_The_Output(string href)
+    {
+        (string written, DocumentWriteResult result) = WriteLink(href);
+
+        Assert.DoesNotContain(href, written, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "rtf.link");
+    }
+
+    [Theory(Timeout = 600000)]
+    [InlineData("https://example.test/page")]
+    [InlineData("http://example.test/page")]
+    [InlineData("mailto:someone@example.test")]
+    public void A_Permitted_Link_Target_Is_Still_Written(string href)
+    {
+        (string written, DocumentWriteResult result) = WriteLink(href);
+
+        Assert.Contains(href, written, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "rtf.link");
+    }
+
+    private static (string Written, DocumentWriteResult Result) WriteLink(string href)
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Create("link", new InlineStyle { LinkHref = href })]);
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult result = new RtfDocumentCodec().Write(document, stream);
+        return (Encoding.ASCII.GetString(stream.ToArray()), result);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Fragment_Is_Written_As_The_Local_Switch()
+    {
+        // Not as "#chapter" inside the quotes: a word processor reads that as
+        // an address. This codec used to emit one, which is why its own reader
+        // could not recognise Word's.
+        string written = Write(OneRun("click", new InlineStyle { LinkHref = "#chapter" }));
+
+        Assert.Contains("HYPERLINK \\\\l \"chapter\"", written, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"#chapter\"", written, StringComparison.Ordinal);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Fragment_Round_Trips_Through_The_Field()
+    {
+        string written = Write(OneRun("click", new InlineStyle { LinkHref = "#chapter" }));
+
+        Assert.Equal(
+            "#chapter",
+            RtfReader.Read(Encoding.ASCII.GetBytes(written)).Document.Paragraphs[0].StyleAt(0).LinkHref);
+    }
 }

@@ -237,8 +237,9 @@ public sealed class PdfUriPolicyTests
     [InlineData("")]
     public void Rejects_Everything_Outside_The_Allow_List(string uri)
     {
-        Assert.False(PdfUriPolicy.Default.TryAdmit(uri, out _, out string? reason));
+        Assert.False(PdfUriPolicy.Default.TryAdmit(uri, out string canonical, out string? reason));
         Assert.NotNull(reason);
+        Assert.Empty(canonical);
     }
 
     [Fact]
@@ -249,6 +250,52 @@ public sealed class PdfUriPolicyTests
 
         Assert.True(new PdfUriPolicy(allowHttp: true).IsAdmitted("http://example.org/"));
         Assert.True(new PdfUriPolicy(allowMailto: true).IsAdmitted("mailto:someone@example.org"));
+    }
+
+    [Fact]
+    public void The_Pdf_Policy_Keeps_Its_Own_Link_Rule_Deliberately()
+    {
+        // The five interchange codecs share DocumentLinkTarget. This policy is not
+        // it, and the divergence is a decision rather than the drift that one was:
+        // it is configurable where that is fixed, and it decides more - an absolute
+        // URI, a length cap, user information, canonicalization. The edge a reader
+        // meets is the fragment, which all five now carry and this refuses. Nothing
+        // is lost that a fragment could have delivered: the writer emits a URI
+        // action and no destination, so the name it points at is not carried into a
+        // PDF either.
+        Assert.True(DocumentLinkTarget.IsAllowed("#chapter"));
+        Assert.False(PdfUriPolicy.Default.TryAdmit("#chapter", out _, out string? reason));
+        Assert.NotNull(reason);
+
+        // No configuration reaches it: the absolute-URI test runs before the scheme
+        // switch, so the opt-ins cannot admit one.
+        Assert.False(new PdfUriPolicy(allowHttp: true, allowMailto: true).IsAdmitted("#chapter"));
+
+        // A fragment inside an absolute URI is a different thing and is kept.
+        Assert.True(PdfUriPolicy.Default.TryAdmit("https://example.org/a#chapter", out string canonical, out _));
+        Assert.EndsWith("#chapter", canonical);
+    }
+
+    [Fact]
+    public void A_Target_The_Cap_Rejects_Only_After_Encoding_Says_Why()
+    {
+        // The length test at the top of TryAdmit measures what the caller passed;
+        // the one at the bottom measures what would be stored. Percent-encoding
+        // sits between them - a non-ASCII path expands about threefold - so a
+        // value under the cap can still fail it. That path returned false with the
+        // reason still null, and both writers fall back to a generic message, so
+        // the caller got a document.uri.rejected that named no cause.
+        string target = "https://example.org/" + new string((char)0xFC, 700);
+
+        Assert.True(target.Length <= PdfUriPolicy.DefaultMaxLength);
+        Assert.False(PdfUriPolicy.Default.TryAdmit(target, out string canonical, out string? reason));
+        Assert.NotNull(reason);
+
+        // The over-long value used to survive in the canonical, alone among the
+        // rejection paths - every other one leaves here before it is assigned. A
+        // caller reading it without checking the result would have stored exactly
+        // the target the policy had just refused.
+        Assert.Empty(canonical);
     }
 
     [Fact]

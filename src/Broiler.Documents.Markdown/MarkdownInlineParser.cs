@@ -61,14 +61,40 @@ internal static class MarkdownInlineParser
                 }
             }
 
+            // CommonMark image syntax, recognized so that it can be dropped
+            // deliberately. This reader builds no model image - images are
+            // outside the subset, and the writer's own data URI is not something
+            // it will read back - and the format nominates the description as
+            // the fallback text, so that is what is kept.
+            //
+            // Without this branch the `!` was not special, so the `[...](...)`
+            // after it went through the link path below: the marker was left
+            // behind in the prose, the description came through as a label, and
+            // the loss was reported as a dropped hyperlink, which it was not.
+            if (text[i] == '!' && i + 1 < text.Length && text[i + 1] == '[' &&
+                TryParseLink(text, i + 1, out string description, out _, out int imageConsumed,
+                    labelMayBeEmpty: true))
+            {
+                Flush(segments, plain, style);
+                diagnostics.Add(DocumentDiagnostic.Warning(
+                    "markdown.image.dropped",
+                    "An image was replaced by its description text; this reader does not build images."));
+
+                foreach (MarkdownSegment segment in Parse(description, style, diagnostics))
+                    Add(segments, segment.Text, segment.Style);
+
+                i += imageConsumed + 1;
+                continue;
+            }
+
             if (text[i] == '[' && TryParseLink(text, i, out string label, out string href, out int consumed))
             {
                 Flush(segments, plain, style);
                 InlineStyle linkStyle = style;
-                if (IsAllowedLink(href))
+                if (DocumentLinkTarget.IsAllowed(href))
                     linkStyle = style with { LinkHref = href };
                 else
-                    diagnostics.Add(DocumentDiagnostic.Warning("markdown.link", "A hyperlink with a disallowed scheme was dropped."));
+                    diagnostics.Add(DocumentDiagnostic.Warning("markdown.link", "A hyperlink with a disallowed or relative target was dropped."));
 
                 foreach (MarkdownSegment segment in Parse(label, linkStyle, diagnostics))
                     Add(segments, segment.Text, segment.Style);
@@ -84,12 +110,18 @@ internal static class MarkdownInlineParser
         return segments;
     }
 
+    /// <param name="labelMayBeEmpty">
+    /// True for an image, whose description is optional - a decorative image is
+    /// written <c>![](…)</c> and that is not a malformed one. A link keeps the
+    /// requirement: one with no text has nothing to click.
+    /// </param>
     private static bool TryParseLink(
         string text,
         int start,
         out string label,
         out string href,
-        out int consumed)
+        out int consumed,
+        bool labelMayBeEmpty = false)
     {
         label = string.Empty;
         href = string.Empty;
@@ -107,7 +139,7 @@ internal static class MarkdownInlineParser
         label = text[(start + 1)..labelEnd];
         href = text[hrefStart..hrefEnd].Trim();
         consumed = hrefEnd - start + 1;
-        return label.Length > 0 && href.Length > 0;
+        return (labelMayBeEmpty || label.Length > 0) && href.Length > 0;
     }
 
     private static int FindLinkDestinationEnd(string text, int start)
@@ -136,16 +168,6 @@ internal static class MarkdownInlineParser
         }
 
         return -1;
-    }
-
-    private static bool IsAllowedLink(string href)
-    {
-        if (!Uri.TryCreate(href, UriKind.Absolute, out Uri? uri))
-            return false;
-
-        return uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeMailto, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool StartsWith(string text, int index, string marker) =>

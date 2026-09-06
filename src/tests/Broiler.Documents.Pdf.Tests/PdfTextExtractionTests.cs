@@ -277,6 +277,300 @@ public sealed class PdfTextExtractionTests
         Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.UriRejected);
     }
 
+    // ---- annotations that name a place instead of a URI ----------------------
+
+    [Fact]
+    public void Reports_A_Link_That_Names_A_Destination_Instead_Of_An_Action()
+    {
+        // It used to leave with no counter touched: the link vanished, no
+        // diagnostic was raised, and the read still reported Success.
+        PdfReadResult result = ReadWithAnnotations(
+            "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] /Dest (chapter-two) >>");
+
+        Assert.Single(result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.LinkDestinationDropped));
+        Assert.Empty(LinksOf(result));
+        Assert.Equal(DocumentResultStatus.Partial, result.Status);
+
+        // The destination is never read, so nothing the file named can reach a
+        // caller through a message.
+        Assert.All(result.Diagnostics, d => Assert.DoesNotContain("chapter-two", d.Message, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_Destination_Is_Never_Projected_As_A_Fragment()
+    {
+        // The load-bearing one. A synthesised "#name" would pass no policy - the
+        // PDF policy refuses it - but DocumentLinkTarget admits it, so it would
+        // leave here inert and arrive in DOCX as a live w:hyperlink w:anchor.
+        PdfReadResult result = ReadWithAnnotations(
+            "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] /Dest (chapter-two) >>");
+
+        Assert.DoesNotContain(LinksOf(result), href => href.StartsWith("#", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("/Dest (chapter-two)")]
+    [InlineData("/Dest /ChapterOne")]
+    [InlineData("/Dest [$page 0 R /XYZ 72 720 0]")]
+    public void Reports_A_Destination_In_Any_Spelling_The_Same_Way(string destination)
+    {
+        // The fix keys off the key being present and never parses its value, so
+        // every spelling is reported identically and nothing is claimed about a
+        // form that was not read.
+        PdfReadResult result = ReadWithAnnotations(
+            "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] " + destination + " >>");
+
+        Assert.Single(result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.LinkDestinationDropped));
+        Assert.Empty(LinksOf(result));
+    }
+
+    [Fact]
+    public void A_Same_Document_Jump_Is_Not_Reported_As_Active_Content()
+    {
+        // A GoTo executes nothing and fetches nothing. Counting it as active
+        // content made a table of contents read like a document carrying
+        // JavaScript, under one merged number the two could not be told apart in.
+        PdfReadResult result = ReadWithAnnotations(
+            "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] /A << /S /GoTo /D (c) >> >>");
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ActiveContentRemoved);
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.LinkDestinationDropped);
+
+        // Reclassifying must not make the document quieter: the loss is still a
+        // skip, so the read is still Partial.
+        Assert.Equal(DocumentResultStatus.Partial, result.Status);
+    }
+
+    [Theory]
+    [InlineData("/A << /S /GoToR /F (other.pdf) >>")]
+    [InlineData("/A << /S /GoToE /T << /R /C >> >>")]
+    [InlineData("/A << /S /Named /N /NextPage >>")]
+    public void A_Jump_That_Leaves_This_File_Is_Still_Active_Content(string action)
+    {
+        // The carve-out is exact string equality on purpose: "GoTo" is a prefix of
+        // both remote spellings, so a StartsWith regression fails here at once.
+        PdfReadResult result = ReadWithAnnotations(
+            "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] " + action + " >>");
+
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ActiveContentRemoved);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.LinkDestinationDropped);
+    }
+
+    [Theory]
+    [InlineData("/Subtype /Widget ")]
+    [InlineData("")]
+    public void Counts_An_Active_Action_On_An_Annotation_That_Is_Not_A_Link(string subtype)
+    {
+        // The only guard against hoisting the subtype test above the action test,
+        // which would silence annotation-level JavaScript on every subtype but
+        // Link - and a file engineered to hide one is exactly the file that omits
+        // /Subtype altogether. Classify before you filter.
+        PdfReadResult result = ReadWithAnnotations(
+            "<< /Type /Annot " + subtype + "/Rect [70 715 140 735] /A << /S /JavaScript /JS (x) >> >>");
+
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ActiveContentRemoved);
+    }
+
+    [Fact]
+    public void Counts_A_Uri_Action_On_An_Annotation_That_Is_Not_A_Link()
+    {
+        // The same target was reported on a /Link and silent on a /Widget.
+        PdfReadResult result = ReadWithAnnotations(
+            "<< /Type /Annot /Subtype /Widget /Rect [70 715 140 735] " +
+            "/A << /S /URI /URI (javascript:evil) >> >>");
+
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ActiveContentRemoved);
+        Assert.Empty(LinksOf(result));
+        Assert.NotEqual(DocumentResultStatus.Success, result.Status);
+    }
+
+    [Theory]
+    [InlineData("/A << /URI (https://example.org/y) >>")]
+    [InlineData("/A << /S (URI) /URI (https://example.org/y) >>")]
+    public void Counts_An_Action_That_Names_No_Type(string action)
+    {
+        // An action dictionary with no /S, or an /S that is not a name, fell past
+        // the old length guard without incrementing anything.
+        PdfReadResult result = ReadWithAnnotations(
+            "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] " + action + " >>");
+
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ActiveContentRemoved);
+        Assert.Empty(LinksOf(result));
+    }
+
+    [Theory]
+    [InlineData("/A 42")]
+    [InlineData("/A 999 0 R")]
+    public void Counts_An_Action_That_Is_Not_A_Dictionary(string action)
+    {
+        // Present and unreadable is an action of a kind that cannot be named, so
+        // it is inventoried rather than trusted. It used to drop the annotation in
+        // silence.
+        PdfReadResult result = ReadWithAnnotations(
+            "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] " + action + " >>");
+
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ActiveContentRemoved);
+        Assert.Empty(LinksOf(result));
+        Assert.NotEqual(DocumentResultStatus.Success, result.Status);
+    }
+
+    [Fact]
+    public void An_Explicit_Null_Action_Is_Not_Counted_As_Active_Content()
+    {
+        // A null /A states an absent action rather than an unreadable one. This is
+        // what the PdfNull guard buys; without a test it reads as noise.
+        PdfReadResult result = ReadWithAnnotations(
+            "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] /A null >>");
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ActiveContentRemoved);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.LinkDestinationDropped);
+    }
+
+    [Fact]
+    public void An_Admitted_Action_Wins_Over_A_Coexisting_Destination()
+    {
+        // /A and /Dest are alternatives. A file carrying both cannot re-route a
+        // good link into a destination drop, and the annotation is not counted
+        // twice.
+        PdfReadResult result = ReadWithAnnotations(
+            "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] " +
+            "/A << /S /URI /URI (https://example.org/both) >> /Dest [$page 0 R /XYZ 72 720 0] >>");
+
+        Assert.Contains("https://example.org/both", LinksOf(result));
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.LinkDestinationDropped);
+    }
+
+
+    // ---- annotations on a page that drew nothing ------------------------------
+
+    [Fact]
+    public void An_Unapplied_Redaction_On_A_Page_That_Drew_Nothing_Is_Still_An_Error()
+    {
+        // The annotation reader used to sit below the emptiness test, so a page
+        // that drew nothing was never inspected. This is the shape that matters:
+        // a caller could read the conversion as a redaction and be told nothing.
+        PdfReadResult result = ReadPageWithAnnotations(
+            "q 1 0 0 1 0 0 cm Q\n",
+            "<< /Type /Annot /Subtype /Redact /Rect [70 715 200 735] >>");
+
+        DocumentDiagnostic redaction = Assert.Single(
+            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.RedactionNotApplied));
+        Assert.Equal(DocumentDiagnosticSeverity.Error, redaction.Severity);
+
+        // The page really is empty, and the fix must not pretend otherwise.
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TextOcrRequired);
+    }
+
+    [Fact]
+    public void Active_Content_On_A_Page_That_Drew_Nothing_Is_Still_Counted()
+    {
+        PdfReadResult result = ReadPageWithAnnotations(
+            "q 1 0 0 1 0 0 cm Q\n",
+            "<< /Type /Annot /Subtype /Widget /Rect [70 715 200 735] /A << /S /JavaScript /JS (x) >> >>");
+
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ActiveContentRemoved);
+    }
+
+    [Fact]
+    public void A_Scanned_Page_Whose_Image_Was_Refused_Still_Reports_Its_Redaction()
+    {
+        // Why the hole mattered rather than merely existed. A scanned page is
+        // image-only, and this project does not compose the JPEG decoder, so the
+        // image is refused and the page reaches the emptiness test with nothing -
+        // which is exactly the document someone redacts.
+        var builder = new PdfFileBuilder();
+        int catalog = builder.Reserve();
+        int pages = builder.Reserve();
+        int page = builder.Reserve();
+        int image = builder.AddStream(
+            "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8",
+            "abc",
+            filter: "DCTDecode");
+        int content = builder.AddStream(string.Empty, "q 100 0 0 100 72 600 cm /Im0 Do Q\n");
+        int redact = builder.AddObject("<< /Type /Annot /Subtype /Redact /Rect [70 715 200 735] >>");
+
+        builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
+        builder.SetObject(pages, $"<< /Type /Pages /Kids [{page} 0 R] /Count 1 >>");
+        builder.SetObject(page, $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] " +
+                                $"/Resources << /XObject << /Im0 {image} 0 R >> >> " +
+                                $"/Contents {content} 0 R /Annots [{redact} 0 R] >>");
+
+        PdfReadResult result = Read(builder.Build(catalog));
+
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.RedactionNotApplied);
+
+        // Said out loud, because it is the reason the page was empty.
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FilterDctUnsupported);
+    }
+
+    [Fact]
+    public void An_Empty_Page_With_No_Annotations_Reports_Only_Ocr()
+    {
+        // The guard against a fix that invents diagnostics on a blank page.
+        PdfReadResult result = ReadPageWithAnnotations("q 1 0 0 1 0 0 cm Q\n");
+
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TextOcrRequired);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.RedactionNotApplied);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ActiveContentRemoved);
+    }
+
+    /// <summary>
+    /// A single page that draws text, carrying the given annotation dictionaries.
+    /// "$page" stands for the page's object number. The text is here so the
+    /// projection assertions have a run to attach a link to - annotations are read
+    /// whether or not the page drew anything, which
+    /// <see cref="ReadPageWithAnnotations"/> is the fixture for.
+    /// </summary>
+    private static PdfReadResult ReadWithAnnotations(params string[] annotations) =>
+        ReadPageWithAnnotations("BT /F1 12 Tf 1 0 0 1 72 720 Tm (Broiler) Tj ET\n", annotations);
+
+    /// <summary>
+    /// A single page whose content stream is given verbatim, carrying the given
+    /// annotation dictionaries. An empty stream is the point of it: a page that
+    /// draws nothing still has its annotations inspected.
+    /// </summary>
+    private static PdfReadResult ReadPageWithAnnotations(
+        string contentStream, params string[] annotations)
+    {
+        var builder = new PdfFileBuilder();
+        int catalog = builder.Reserve();
+        int pages = builder.Reserve();
+        int page = builder.Reserve();
+        int font = builder.AddObject(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        int content = builder.AddStream(string.Empty, contentStream);
+
+        string references = string.Empty;
+        foreach (string annotation in annotations)
+        {
+            int id = builder.AddObject(annotation.Replace("$page", page.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal));
+            references += (references.Length == 0 ? string.Empty : " ") + id + " 0 R";
+        }
+
+        builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
+        builder.SetObject(pages, $"<< /Type /Pages /Kids [{page} 0 R] /Count 1 >>");
+        builder.SetObject(page, $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] " +
+                                $"/Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R " +
+                                $"/Annots [{references}] >>");
+
+        return Read(builder.Build(catalog));
+    }
+
+    private static List<string> LinksOf(PdfReadResult result)
+    {
+        var links = new List<string>();
+        foreach (RichTextParagraph paragraph in result.Document.Paragraphs)
+        {
+            foreach (StyleRun run in paragraph.Runs)
+            {
+                if (run.Style.LinkHref is { } href)
+                    links.Add(href);
+            }
+        }
+
+        return links;
+    }
+
     [Fact]
     public void Warns_Loudly_About_An_Unapplied_Redaction()
     {

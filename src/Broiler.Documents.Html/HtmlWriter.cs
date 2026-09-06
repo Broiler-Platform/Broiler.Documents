@@ -77,10 +77,11 @@ public static class HtmlWriter
             DomElement p = document.CreateElement("p");
             string paragraphStyle = FormatParagraphStyle(paragraph.Style, diagnostics);
 
-            // HTML collapses a tab to a space unless the paragraph asks it not to,
-            // so a paragraph that holds one carries the declaration that keeps it.
-            // pre-wrap rather than pre: the paragraph must still wrap at the window.
-            if (paragraph.Text.Contains('\t', StringComparison.Ordinal))
+            // HTML collapses white space unless the paragraph asks it not to, so a
+            // paragraph whose text would not survive that carries the declaration
+            // that keeps it. pre-wrap rather than pre: the paragraph must still
+            // wrap at the window.
+            if (NeedsPreservedWhitespace(paragraph.Text))
             {
                 paragraphStyle = paragraphStyle.Length > 0
                     ? paragraphStyle + "; " + PreserveWhitespaceDeclaration
@@ -97,6 +98,53 @@ public static class HtmlWriter
         return document;
     }
 
+    /// <summary>
+    /// Whether HTML's white-space collapsing would change this paragraph's text.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The rule the declaration exists for is not only about tabs. A run of two
+    /// spaces, or a space at either edge, collapses just as a tab does, and the
+    /// text then reads back shorter than it was written - with nothing said,
+    /// because from the writer's side nothing went wrong. This condition used to
+    /// name the tab alone, so the doubled space was lost in silence.
+    /// </para>
+    /// <para>
+    /// The declaration is asked for rather than the characters escaped, because
+    /// this codec's reader already understands it (an element carrying
+    /// <c>pre</c>, <c>pre-wrap</c> or <c>break-spaces</c> keeps its text
+    /// verbatim) and because <c>&amp;nbsp;</c> is a different character rather
+    /// than a protected space - it does not wrap and it does not compare equal
+    /// to the space the document actually held.
+    /// </para>
+    /// </remarks>
+    private static bool NeedsPreservedWhitespace(string text)
+    {
+        if (text.Length == 0)
+            return false;
+
+        // A soft break is written as <br> rather than as white space, so it is
+        // not what this asks about.
+        if (IsCollapsible(text[0]) || IsCollapsible(text[^1]))
+            return true;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            // A tab collapses to one space on its own; anything else has to meet
+            // a neighbour to be lost.
+            if (text[i] == '\t')
+                return true;
+
+            if (i > 0 && IsCollapsible(text[i]) && IsCollapsible(text[i - 1]))
+                return true;
+        }
+
+        return false;
+
+        static bool IsCollapsible(char character) =>
+            character is ' ' or '\t' or '\n' or '\r' or '\f';
+    }
+
     private static void AppendRuns(
         DomDocument document,
         DomNode parent,
@@ -110,7 +158,7 @@ public static class HtmlWriter
             string text = paragraph.Text.Substring(offset, run.Length);
             offset += run.Length;
 
-            DomNode target = CreateRunContainer(document, run.Style);
+            DomNode target = CreateRunContainer(document, run.Style, diagnostics);
             if (target is DomElement element)
             {
                 AppendRunContent(document, element, text, run.Style, resources, diagnostics);
@@ -201,10 +249,23 @@ public static class HtmlWriter
     private static string FormatLength(double value) =>
         value.ToString("0.###", CultureInfo.InvariantCulture) + "pt";
 
-    private static DomNode CreateRunContainer(DomDocument document, InlineStyle style)
+    private static DomNode CreateRunContainer(
+        DomDocument document,
+        InlineStyle style,
+        List<DocumentDiagnostic> diagnostics)
     {
         string css = FormatInlineStyle(style);
-        if (!string.IsNullOrEmpty(style.LinkHref))
+
+        // The reader's rule, applied on the way out as well. Without it a
+        // javascript: or data: target reached the anchor - and nothing said
+        // so, because from the writer's side nothing had gone wrong.
+        if (!string.IsNullOrEmpty(style.LinkHref) && !DocumentLinkTarget.IsAllowed(style.LinkHref))
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "html.link",
+                "A hyperlink with a disallowed or relative target was written as plain text."));
+        }
+        else if (!string.IsNullOrEmpty(style.LinkHref))
         {
             DomElement link = document.CreateElement("a");
             link.SetAttribute("href", style.LinkHref);

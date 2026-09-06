@@ -42,7 +42,7 @@ Include:
   32000-1:2008 constructs; declarations are inventory and diagnostics, never
   feature enablement, this is not ISO 32000-2 conformance, and V1 implements no
   PDF 2.0-only feature or developer extension;
-- logical text, basic styling, links admitted by the shared URI policy, metadata,
+- logical text, basic styling, links admitted by `PdfUriPolicy`, metadata,
   and safely placeable inline images;
 - new PDF 1.7 output for broad compatibility, subject to a review that
   the planned reader/writer falls within Adobe's ISO 32000-1 public patent
@@ -166,8 +166,8 @@ is authoritative for that boundary.
   with `/Differences`, `ToUnicode` CMaps including `bfrange` and bounded
   `usecmap`, composite fonts through `Identity-H`, subset-prefix removal from
   structural metadata, deterministic geometric grouping into columns, lines and
-  paragraphs, list-marker recognition, and link annotations admitted by the
-  shared URI policy.
+  paragraphs, list-marker recognition, and link annotations admitted by
+  `PdfUriPolicy`.
 - Phase 4 for bare CFF font programs: a caller composing
   `Broiler.Documents.Pdf.Fonts` now recovers text from a composite font whose
   embedded program is a bare CFF (`FontFile3` `/Type1C` or `/CIDFontType0C`) and
@@ -205,7 +205,9 @@ is authoritative for that boundary.
   extracted as though the document had shown every layer at once. `/BaseState`,
   `/ON`, `/OFF`, and membership dictionaries under `/P` are applied; marked
   content, XObjects, and annotations each carry their own membership and each is
-  checked. Visibility expressions `/VE`, alternate configurations `/Configs`, and
+  checked. For an annotation the check governs the link it would project, not the
+  inventory: a Redact or an active action on a layer the configuration turns off
+  is still classified and still reported. Visibility expressions `/VE`, alternate configurations `/Configs`, and
   usage applications `/AS` are not evaluated, and content they govern is kept and
   reported rather than guessed at. This is reading a declaration the catalog
   makes about itself, not the visibility claim §1.2 refuses — rendering mode 3

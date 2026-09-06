@@ -34,7 +34,23 @@ toolkit behind it.
   node is one space, white space at either edge of a paragraph is nothing, and
   significant spaces arrive as `text:s`. The writer applies the same rule in
   reverse, so a leading, trailing, or repeated space is written as `text:s` and
-  survives a round trip.
+  survives a round trip, whether or not a style boundary falls inside the run.
+  Which spaces need protecting is a question about the paragraph rather than
+  about the run being written, and asking it run by run cost a character every
+  time a run of spaces was split.
+
+  The surviving space carries the character style of the text node it was
+  **written in**, not of whatever follows it: in
+  `<text:span>a</text:span> <text:span>b</text:span>` the space is the
+  paragraph's and only the two letters are the spans'. The rule defers a
+  collapsed space until something follows it, so this is a decision rather than
+  an accident, and getting it wrong moves a run boundary without changing a
+  character of text. A white-space run that straddles a boundary — half outside a
+  span and half inside it — has no single style to inherit; the surviving space
+  takes the one it ends in. ODF settles what such a run collapses to and not what
+  it wears, so that half is this codec's choice, and
+  `OdtReaderStyleTests.A_White_Space_Run_That_Straddles_A_Span_Boundary_Takes_The_Style_It_Ends_In`
+  pins it.
 - Inline constructs: `text:span`, `text:a`, `text:s`, `text:tab`,
   `text:line-break`, and `text:ruby` (the `text:ruby-base` text). Fields and
   marks — `text:date`, `text:page-number`, `text:bookmark-ref`, and the rest —
@@ -68,7 +84,7 @@ toolkit behind it.
   same-kind list paragraphs into one `text:list`, nesting deeper levels inside the
   `text:list-item` they belong to, so numbering does not restart at every item.
 - External hyperlinks for `http`, `https`, and `mailto`, plus internal anchor
-  links, under the same URI policy the other codecs use.
+  links. Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried.
 - Embedded pictures, read and written as a single object replacement character
   (`U+FFFC`) whose run carries the image. A `draw:frame` holding a `draw:image`
   is read whether the picture is a package entry named by `xlink:href` or an
@@ -228,6 +244,9 @@ Write diagnostics are `odt.link`, `odt.image.placeholder`, `odt.image.size`,
 `odt.color.alpha`, `odt.text.control`, and `odt.image.omitted` — the last one
 reporting a picture the caller's resource policy did not permit the write to
 pass on, which is the writer's counterpart to `odt.image.denied`.
+`odt.text.control` covers every string that comes from the model, a picture's
+description as well as run text; the description path was unguarded and threw
+out of the serializer rather than reporting.
 
 `broilerdoc info <file>` prints all of them, which is the quickest way to see
 what a problem document lost.

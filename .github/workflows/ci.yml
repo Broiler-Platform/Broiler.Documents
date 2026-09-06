@@ -112,6 +112,61 @@ jobs:
             fi
           done
 
+      # The corpus suite: a document corpus driven through the built
+      # `broilerdoc` executable, held against tests/corpus/corpus-baseline.json.
+      # It is a console runner rather than an xunit project, so the `dotnet test`
+      # above discovers none of it - which is deliberate. It needs the executable
+      # to exist before it runs, and folding several hundred process-level checks
+      # into the trx count would make that floor say less rather than more.
+      #
+      # `-c Release` and not `-c ${{ matrix.configuration }}`, which looks wrong
+      # and is not: Broiler.Documents.slnx maps every solution configuration to
+      # the project configuration `Release`, so the Build step above put this
+      # project's output in bin/Release on both legs. Passing the solution
+      # configuration here would build a second copy in bin/Release-Windows and
+      # `--no-build` would then find nothing.
+      #
+      # No `--nologo`: `dotnet run` forwards an option it does not recognise to
+      # the application, and this runner rejects unknown options rather than
+      # ignoring them.
+      #
+      # It runs on both legs on purpose. Everything it asserts is either
+      # host-independent or compared within one run on one host, and the two legs
+      # differ in exactly the thing the render checks refuse to assert: the
+      # fonts.
+      - name: Run the corpus suite over the command line
+        timeout-minutes: 20
+        run: |
+          # Deliberately not `set -e`. The runner exits with its failure count,
+          # so aborting here would kill the step before the output is printed and
+          # a failing run would arrive with no failures in it. Echo first, judge
+          # second.
+          output=$(dotnet run --project src/tests/Broiler.Documents.Corpus \
+            -c Release --no-build -- \
+            --report ./test-results/corpus.json \
+            --junit ./test-results/corpus.junit.xml 2>&1)
+          echo "$output"
+          # Both greps, for the same reason the Graphics and Media loop uses
+          # both: the first says nothing failed, the second says something
+          # actually ran. A suite that materialised nothing would otherwise print
+          # a clean line over an empty run.
+          if ! echo "$output" | grep -qE '^[0-9]+/[0-9]+ passed, 0 failed\.$'; then
+            echo "::error::The corpus suite did not report a clean run."
+            exit 1
+          fi
+          if echo "$output" | grep -qE '^0/0 passed'; then
+            echo "::error::The corpus suite executed no checks."
+            exit 1
+          fi
+
+      - name: Upload the corpus report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: corpus-report-${{ matrix.configuration }}
+          path: test-results/corpus.*
+          if-no-files-found: warn
+
       # Proves the eight packages still build from this commit. Every project is
       # platform-neutral, so one host covers the whole set and one configuration
       # produces it. Broiler.Documents.Pdf and Broiler.Documents.Cli are both

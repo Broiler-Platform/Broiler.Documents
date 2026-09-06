@@ -167,11 +167,18 @@ public static class EditOperations
                 return;
 
             case "inline":
+                // PROPS is the last field, so it takes the rest of the line,
+                // colons and all - the same rule the text-tail verbs follow. Read
+                // as a single colon-delimited field it could not carry a URL:
+                // `link=https://example.org/` arrived as `link=https`, which then
+                // looks like a relative target and gets refused by every writer,
+                // so the tool reported a plausible diagnostic for a value the
+                // caller never wrote.
                 ApplyInline(
                     paragraphs,
                     ParagraphRange(paragraphs, Field(fields, 1, "PARAGRAPHS")),
                     Field(fields, 2, "CHARS"),
-                    ParseInlineDelta(Field(fields, 3, "PROPS")));
+                    ParseInlineDelta(TailFrom(operation, 3, name: "PROPS")));
                 return;
 
             case "clear":
@@ -192,10 +199,13 @@ public static class EditOperations
                 return;
 
             case "para":
+                // Its last field too. No paragraph property carries a colon
+                // today, but the grammar is one grammar and a reader should not
+                // have to remember which verb it holds for.
                 ApplyParagraph(
                     paragraphs,
                     ParagraphRange(paragraphs, Field(fields, 1, "PARAGRAPHS")),
-                    ParseParagraphDelta(Field(fields, 2, "PROPS")));
+                    ParseParagraphDelta(TailFrom(operation, 2, name: "PROPS")));
                 return;
 
             default:
@@ -734,14 +744,21 @@ public static class EditOperations
     /// typed. That field needs no escapes - its parser splits on commas and equals
     /// signs, and a value containing a comma can be quoted.
     /// </remarks>
-    private static string TailFrom(string operation, int index, bool unescape = true)
+    private static string TailFrom(string operation, int index, bool unescape = true, string? name = null)
     {
         int position = 0;
         for (int field = 0; field < index; field++)
         {
             position = IndexOfUnescapedColon(operation, position);
             if (position < 0)
-                throw new UsageException("Missing text after field " + field + ".");
+            {
+                // A named tail says which field is missing, because for those
+                // the caller is thinking in field names rather than positions.
+                throw new UsageException(name is null
+                    ? "Missing text after field " + field + "."
+                    : "Missing " + name + " field.");
+            }
+
             position++;
         }
 

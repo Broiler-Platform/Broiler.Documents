@@ -2,7 +2,7 @@
 
 - **Status:** Active; regenerated whenever the codec's behavior changes
 - **Component:** `Broiler.Documents.Pdf`
-- **Updated:** 2026-09-01 (IP-001 approved)
+- **Updated:** 2026-09-06 (annotations classified on every page and layer)
 - **Purpose:** to scope the IP-001 acceptance by stating exactly which PDF
   constructs the implementation reads, writes, recognizes without interpreting,
   and rejects
@@ -99,7 +99,7 @@ IP-001 determination has to cover on the reading side.
 | `ToUnicode` CMaps: codespace ranges, `bfchar`, `bfrange`, bounded `usecmap` | 9.10.3 | Parsed; the preferred mapping route | `Text/PdfCMap.cs` |
 | Marked content `BDC`/`EMC` and `/ActualText` | 14.6, 14.9.4 | `ActualText` replaces the glyphs it encloses | `Text/PdfContentInterpreter.cs` |
 | Annotation dictionaries, `/Subtype /Link`, `/Rect` | 12.5.6.5 | Read | `Text/PdfLinkRegion.cs` |
-| URI actions (`/A` with `/S /URI`) | 12.6.4.7 | Admitted by the URI policy, then projected as a link | `Text/PdfLinkRegion.cs`, `PdfUriPolicy.cs` |
+| URI actions (`/A` with `/S /URI`) | 12.6.4.7 | Admitted by the URI policy, then projected as a link, and only from a `/Link` annotation; the same action on any other subtype is counted as active content instead | `Text/PdfLinkRegion.cs`, `PdfUriPolicy.cs` |
 | Document information dictionary | 14.3.3 | Projected to the normalized allowlist only | `Structure/PdfMetadataReader.cs` |
 
 **Recovery behavior.** When the declared cross-reference data cannot produce a
@@ -131,12 +131,13 @@ distinction that matters for the register rows they belong to.
 | Predefined CMaps other than the Identity pair | 9.7.5 | `pdf.text.mapping-missing-or-uncertain` | IP-013 |
 | Metadata streams (XMP) | 14.3.2 | Decoded through the ordinary filter pipeline and parsed into the normalized allowlist under the pinned ISO 16684-1:2019 subset; XMP wins per field, `Info` fills the rest, disagreement emits `pdf.metadata.conflict`, an unusable packet emits `pdf.metadata.xmp-unusable` and falls back to `Info`, and the raw packet is dropped with `document.metadata.raw-dropped` | IP-004 approved |
 | Path painting and shading operators | 8.5, 8.7 | `pdf.import.vector-artwork-dropped`, counted by shape class; path construction operators are followed for classification only and nothing is retained | — |
-| JavaScript, Launch, GoToR, SubmitForm, ImportData actions | 12.6.4 | `pdf.active-content.removed` | — |
+| JavaScript, Launch, GoToR, GoToE, SubmitForm, ImportData and Named actions, on any annotation subtype; an action whose kind is not named or whose `/A` is not an action dictionary; and a URI action carried by an annotation that is not a `/Link`; on every page and every layer | 12.6.4 | `pdf.active-content.removed` | — |
+| Same-document destinations: a `/Link` with `/Dest`, and `/A` actions with `/S /GoTo` | 12.5.6.5, 12.6.4.7 | `pdf.import.link-destination-dropped`. The jump names a place in this same file, so nothing is executed or fetched and the destination value is not read at all; the text is kept and no link is projected, internal destinations being deferred until a cross-format bookmark/anchor model exists ([roadmap §9.3](pdf-support-roadmap.md#93-images-and-links)) | — |
 | Embedded files, screen, movie, rich media, 3D annotations | 12.5.6, 7.11 | `pdf.active-content.removed` | — |
 | AcroForm `/SigFlags`, signature fields | 12.7, 12.8 | `pdf.signature.not-validated` | IP-016 |
 | Structure tree (`/StructTreeRoot`), tagged PDF | 14.7, 14.8 | Described and not consumed: the note reports the root's top-level element count, `/MarkInfo /Marked`, whether a `/ParentTree` exists, and the role-map size, under `pdf.import.reading-order-heuristic` | IP-017 |
 | Optional content, artifacts, invisible and clipping render modes | 8.11, 9.3.6 | `pdf.text.visibility-uncertain`; extracted without a visibility claim | — |
-| Unapplied `/Redact` annotations | 12.5.6 | `pdf.redaction.not-applied` (error severity) | — |
+| Unapplied `/Redact` annotations, on every page and every layer | 12.5.6 | `pdf.redaction.not-applied` (error severity). The annotation is classified whatever the page drew and whatever the optional-content configuration shows: a page yielding no extractable text and a group turned off both leave the overlay unapplied and the content under it in the file | — |
 | PDF 2.x version declarations | 7.5.2, 7.7.2 | `pdf.version.tolerated-not-supported` | IP-002 |
 | Developer extension declarations | 7.12 | `pdf.extension.unsupported` | IP-003 |
 
@@ -153,7 +154,7 @@ implementation does with a given file needs them as much as the feature rows.
 | An indirect reference that resolves to nothing | 7.3.10 | Reported with `pdf.object.missing` and treated as null |
 | A reference cycle | 7.3.10 | Cut to keep resolution terminating, and reported with `pdf.object.cycle` |
 | Cross-reference data that cannot be used | 7.5.4, 7.5.8 | Rebuilt by scanning for objects, reported with `pdf.xref.recovered`; individual faults report `pdf.xref.malformed` |
-| A page with no extractable text | 9.4 | Reported with `pdf.text.ocr-required`; OCR is outside this release |
+| A page with no extractable text | 9.4 | Reported with `pdf.text.ocr-required`; OCR is outside this release. The page's annotations are inspected all the same, so a scanned page carrying an unapplied redaction or an active action is not silent about it |
 | An image whose colour space or sample layout is outside the supported subset | 8.9.5 | Reported with `pdf.image.unsupported` |
 | More diagnostics than the cap retains | — | The remainder is summarized with `pdf.diagnostics.truncated`; no diagnostic is silently dropped |
 | Cancellation at a checkpoint | — | Reported with `pdf.operation.cancelled` |

@@ -67,4 +67,30 @@ public sealed class FormatCodeEditIntentTests
         Assert.NotNull(color.Delta.Foreground);
         Assert.Equal("\n", paragraph.Text);
     }
+
+    [Fact(Timeout = 600000)]
+    public void The_Edit_Intent_Keeps_Its_Own_Link_Rule_Deliberately()
+    {
+        // The five codecs share DocumentLinkTarget. This validator does not,
+        // and the divergence is a decision rather than the drift that one was:
+        // this component references only the model, so it cannot see
+        // Broiler.Documents without changing the package graph - this very test
+        // project cannot name the type - and its rule genuinely differs. It
+        // caps length, rejects control characters, and admits the empty string
+        // because that is how the grammar spells "remove this link", while it
+        // refuses the fragment every codec writes. That last one is the visible
+        // edge of the split, recorded here so a reader finds a decision rather
+        // than a bug.
+        RichTextDocument document = RichTextDocument.FromPlainText("link");
+
+        Assert.Equal("FCEDIT022", Validate(document, "#chapter").ErrorCode);
+        Assert.True(Validate(document, string.Empty).IsValid);
+    }
+
+    private static FormatCodeEditValidationResult Validate(RichTextDocument document, string href) =>
+        FormatCodeEditValidator.Validate(
+            document,
+            new ApplyFormatCodeInlineIntent(
+                new RichTextRange(document.Start, document.End),
+                InlineStyleDelta.WithLink(href)));
 }

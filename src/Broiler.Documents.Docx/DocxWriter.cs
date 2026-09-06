@@ -527,18 +527,23 @@ public static class DocxWriter
     private static XElement? BuildHyperlink(string text, InlineStyle style, DocxWriteContext context)
     {
         string href = style.LinkHref ?? string.Empty;
-        if (href.StartsWith("#", StringComparison.Ordinal) && href.Length > 1)
+        if (!DocumentLinkTarget.IsAllowed(href))
+        {
+            context.AddDiagnosticOnce("docx.link", "A hyperlink with a disallowed or relative target was written as plain text.");
+            return null;
+        }
+
+        // A same-document reference is its own element in WordprocessingML: an
+        // anchor naming a bookmark rather than a relationship to a URL. What the
+        // anchor points at is not carried - nothing here reads or writes a
+        // bookmark - so this preserves the reference the source made and not a
+        // jump that works.
+        if (href[0] == '#')
         {
             return new XElement(
                 DocxNamespaces.Wordprocessing + "hyperlink",
                 WordAttribute("anchor", href[1..]),
                 BuildRun(text, style with { LinkHref = null }, context));
-        }
-
-        if (!IsExternalLink(href))
-        {
-            context.AddDiagnosticOnce("docx.link", "A hyperlink with a disallowed or relative target was written as plain text.");
-            return null;
         }
 
         string relationshipId = context.GetHyperlinkRelationshipId(href);
@@ -577,12 +582,15 @@ public static class DocxWriter
 
         if (!string.IsNullOrWhiteSpace(style.FontFamily))
         {
+            // A family name is a model string and reaches an attribute, so it
+            // needs the same filter run text and a description do.
+            string family = XmlText(style.FontFamily, context);
             properties.Add(new XElement(
                 DocxNamespaces.Wordprocessing + "rFonts",
-                WordAttribute("ascii", style.FontFamily),
-                WordAttribute("hAnsi", style.FontFamily),
-                WordAttribute("cs", style.FontFamily),
-                WordAttribute("eastAsia", style.FontFamily)));
+                WordAttribute("ascii", family),
+                WordAttribute("hAnsi", family),
+                WordAttribute("cs", family),
+                WordAttribute("eastAsia", family)));
         }
 
         if (style.FontSize.HasValue)
@@ -627,7 +635,7 @@ public static class DocxWriter
                 continue;
 
             if (i > start)
-                run.Add(TextElement(text[start..i]));
+                run.Add(TextElement(text[start..i], context));
 
             switch (character)
             {
@@ -646,7 +654,7 @@ public static class DocxWriter
         }
 
         if (start < text.Length)
-            run.Add(TextElement(text[start..]));
+            run.Add(TextElement(text[start..], context));
     }
 
     /// <summary>
@@ -741,10 +749,13 @@ public static class DocxWriter
             DocxNamespaces.WordDrawing + "docPr",
             new XAttribute("id", index),
             new XAttribute("name", name));
-        if (image.AltText.Length > 0)
+        // An attribute is as much XML as an element, and a description arrives
+        // from the same document the run text did.
+        string description = XmlText(image.AltText, context);
+        if (description.Length > 0)
         {
-            pictureProperties.Add(new XAttribute("descr", image.AltText));
-            frameProperties.Add(new XAttribute("descr", image.AltText));
+            pictureProperties.Add(new XAttribute("descr", description));
+            frameProperties.Add(new XAttribute("descr", description));
         }
 
         var graphic = new XElement(
@@ -816,11 +827,75 @@ public static class DocxWriter
         }
     }
 
-    private static XElement TextElement(string value) =>
+    private static XElement TextElement(string value, DocxWriteContext context) =>
         new(
             DocxNamespaces.Wordprocessing + "t",
             new XAttribute(DocxNamespaces.Xml + "space", "preserve"),
-            value);
+            XmlText(value, context));
+
+    /// <summary>
+    /// Text as XML can carry it: the characters XML 1.0 cannot represent are
+    /// dropped, and a valid surrogate pair is kept whole.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// XML has no representation for most control characters, not even an
+    /// escape, so there is nothing to write but a diagnostic. Handing one to the
+    /// serializer throws, and the tool turns that into exit 70 - which
+    /// docs/cli.md defines as always a defect in the tool. It is reachable from
+    /// ordinary input: the HTML reader decodes <c>&amp;#7;</c> into the model
+    /// and the RTF reader passes <c>\u7</c> through, so a document that reads
+    /// cleanly could not be written.
+    /// </para>
+    /// <para>
+    /// Every string that comes from the model passes through here, not only run
+    /// text. An attribute is as much XML as an element, and a picture's
+    /// description arrives from the same document the text did.
+    /// </para>
+    /// </remarks>
+    private static string XmlText(string value, DocxWriteContext context)
+    {
+        int first = -1;
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (!XmlConvert.IsXmlChar(value[i]))
+            {
+                first = i;
+                break;
+            }
+        }
+
+        // Nothing to drop, which is every ordinary document: no allocation and
+        // the original string is handed straight on.
+        if (first < 0)
+            return value;
+
+        var clean = new StringBuilder(value.Length);
+        clean.Append(value, 0, first);
+
+        for (int i = first; i < value.Length; i++)
+        {
+            char character = value[i];
+
+            // A surrogate is not an XML character on its own and a valid pair
+            // is, so the pair is recognized before the test rejects its halves.
+            if (char.IsHighSurrogate(character) &&
+                i + 1 < value.Length &&
+                char.IsLowSurrogate(value[i + 1]))
+            {
+                clean.Append(character).Append(value[i + 1]);
+                i++;
+                continue;
+            }
+
+            if (XmlConvert.IsXmlChar(character))
+                clean.Append(character);
+            else
+                context.AddDiagnosticOnce("docx.text.control", "A control character that XML cannot represent was dropped.");
+        }
+
+        return clean.ToString();
+    }
 
     /// <summary>
     /// One anchored shape, as the DrawingML a word processor writes: a picture
@@ -1264,16 +1339,6 @@ public static class DocxWriter
         entry.LastWriteTime = ZipTimestamp;
         using Stream stream = entry.Open();
         stream.Write(data);
-    }
-
-    private static bool IsExternalLink(string href)
-    {
-        if (!Uri.TryCreate(href, UriKind.Absolute, out Uri? uri))
-            return false;
-
-        return uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeMailto, StringComparison.OrdinalIgnoreCase);
     }
 
     private static XAttribute WordAttribute(string name, string value) =>

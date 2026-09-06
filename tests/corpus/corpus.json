@@ -1,0 +1,498 @@
+{
+  "$schema": "corpus.schema.json",
+  "schemaVersion": 1,
+  "updated": "2026-09-05",
+  "provenance": {
+    "origin": "authored",
+    "rule": "Every sample in this file is authored here and materialised by the tool under test. Nothing is downloaded and no document file is committed. That is not convenience: ADR 0013 gives each format its own rights record, and this repository's practice, recorded across the similarity review log in docs/pdf-approved-sources.md, is that fixtures are generated in the tree rather than taken from anywhere. A corpus of documents somebody else wrote would be the one part of this test suite whose provenance nobody could state.",
+    "external": "A registered, digest-pinned fetch path exists for the day somebody decides an outside document may be used: tests/corpus/external-sources.json. It ships with no approved row, so it fetches nothing.",
+    "cost": "The cost is real and worth naming. These documents were written by the same project that wrote the codecs, so they exercise what this component thought of. They are evidence about round-trip fidelity and about the command contract. They are not evidence that a document produced by Word, LibreOffice or a browser reads correctly."
+  },
+  "assets": [
+    {
+      "id": "square",
+      "description": "A small PNG, produced by rendering a one-character document at a fixed page box. The tool draws its own fixture, so no image file is committed and the asset is reproducible from this row alone.",
+      "recipe": {
+        "text": "X",
+        "sourceFormat": "markdown",
+        "pageSize": "40x40",
+        "marginPoints": 4
+      }
+    }
+  ],
+  "samples": [
+    {
+      "id": "plain",
+      "title": "Plain paragraphs",
+      "exercises": [
+        "paragraph"
+      ],
+      "lines": [
+        "One paragraph, and nothing to it.",
+        "A second paragraph.",
+        "A third."
+      ],
+      "operations": [],
+      "notes": "The floor. Every format must carry unstyled prose without losing a character, so a difference here is never a documented limitation."
+    },
+    {
+      "id": "emphasis",
+      "title": "Inline emphasis",
+      "exercises": [
+        "bold",
+        "italic",
+        "underline",
+        "strikethrough"
+      ],
+      "lines": [
+        "Bold italic underline struck normal."
+      ],
+      "operations": [
+        "inline:0:0-4:bold=on",
+        "inline:0:5-11:italic=on",
+        "inline:0:12-21:underline=on",
+        "inline:0:22-28:strike=on"
+      ],
+      "notes": "Four toggles, each on its own word and each separated from the next by a space. The separators are load-bearing: a reader that mis-attributes the space between two runs is caught here rather than in a run-boundary unit test nobody wrote."
+    },
+    {
+      "id": "typography",
+      "title": "Family, size and capitalization",
+      "exercises": [
+        "fontFamily",
+        "fontSize",
+        "capitalization"
+      ],
+      "lines": [
+        "Family and size and caps here."
+      ],
+      "operations": [
+        "inline:0:0-6:font=monospace",
+        "inline:0:11-15:size=18",
+        "inline:0:20-24:caps=all"
+      ],
+      "notes": "Capitalization is display-only in the model, so a format with no way to say it drops the property rather than rewriting the text."
+    },
+    {
+      "id": "colour",
+      "title": "Foreground and highlight",
+      "exercises": [
+        "foreground",
+        "background"
+      ],
+      "lines": [
+        "Foreground and highlight."
+      ],
+      "operations": [
+        "inline:0:0-10:color=#B71C1C",
+        "inline:0:15-24:highlight=#FFF59D"
+      ],
+      "notes": "Colour is where the roadmap's position is easiest to see: Markdown has no way to express either, and says so in a diagnostic instead of pretending."
+    },
+    {
+      "id": "links",
+      "title": "Permitted link schemes",
+      "exercises": [
+        "link"
+      ],
+      "lines": [
+        "Absolute link and mail link and plain text."
+      ],
+      "operations": [
+        "inline:0:9-13:link=https://example.org/",
+        "inline:0:23-27:link=mailto:someone@example.org"
+      ],
+      "notes": "The two schemes every codec here allows. example.org is reserved by RFC 2606, so nothing in this corpus names a host anybody owns. The sample could not be written until the edit language could express a URL at all: a PROPS value used to be cut at its first colon, so `link=https://example.org/` stored the href `https`, which every writer then refused as a relative target - a plausible diagnostic about a value nobody had written."
+    },
+    {
+      "id": "links-rejected",
+      "title": "A link scheme the writers should refuse",
+      "exercises": [
+        "link",
+        "diagnostics"
+      ],
+      "lines": [
+        "Bad link here."
+      ],
+      "operations": [
+        "inline:0:0-3:link=javascript:alert(1)"
+      ],
+      "mustNotAppear": [
+        {
+          "text": "javascript:",
+          "emittedBy": [],
+          "state": "accepted",
+          "why": "No writer emits it. Every codec applies its own reader's allow-list on the way out, degrades the run to plain text and reports it, so the refused scheme reaches no document. The entry stays because the check is the only thing that can see this: every reader refuses the same schemes, so a document that wrote the link and one that dropped it read back identically and no round trip can tell them apart.",
+          "reviewer": "Claude Opus 5, on the write-side URI policy pass",
+          "decided": "2026-09-05"
+        }
+      ],
+      "notes": "Not a fidelity sample, and the round trip cannot see what it is for: every reader here refuses the scheme too, so a document that kept the link and one that dropped it both read back without it and both round trip equal. What the sample asserts is mustNotAppear - that the bytes a writer produced do not carry the refused scheme. All five writers now degrade it to plain text and say so; the entry stays to keep it that way."
+    },
+    {
+      "id": "links-relative",
+      "title": "Targets that are not absolute",
+      "exercises": [
+        "link",
+        "diagnostics"
+      ],
+      "lines": [
+        "Root link here.",
+        "Page link here.",
+        "Anchor link here."
+      ],
+      "operations": [
+        "inline:0:5-9:link=/docs/page",
+        "inline:1:5-9:link=page.html",
+        "inline:2:7-11:link=#anchor"
+      ],
+      "mustNotAppear": [
+        {
+          "text": "/docs/page",
+          "emittedBy": [],
+          "state": "accepted",
+          "why": "A root-relative target has no scheme to check and nothing to resolve against - a document is not a page, and this component fetches nothing - so every writer refuses it and says so. Recorded here because the corpus's other link samples cover schemes only, and this was the half nobody had pinned.",
+          "reviewer": "Claude Opus 5, on the write-side URI policy pass",
+          "decided": "2026-09-05"
+        },
+        {
+          "text": "page.html",
+          "emittedBy": [],
+          "state": "accepted",
+          "why": "The same for a document-relative target. Both spellings are refused by all five writers, which is worth asserting because it is the case a reader of the conformance documents could mistake for a scheme question.",
+          "reviewer": "Claude Opus 5, on the write-side URI policy pass",
+          "decided": "2026-09-05"
+        }
+      ],
+      "notes": "The three shapes a target can take that are not an absolute permitted URL. The two relative ones are refused by every writer, which mustNotAppear asserts against the bytes - the round trip cannot, because the writer that materialises the sample drops the link before any round trip begins. The anchor is admitted by every writer and round trips through all five, which it did not until one predicate replaced the five that disagreed about it. It is kept here because that agreement is the thing worth holding: a fragment preserves the reference the source made, and the six baseline rows it used to carry were the divergence going away."
+    },
+    {
+      "id": "alignment",
+      "title": "Paragraph alignment",
+      "exercises": [
+        "alignment"
+      ],
+      "lines": [
+        "Left aligned line.",
+        "Centred line.",
+        "Right aligned line.",
+        "Justified line."
+      ],
+      "operations": [
+        "para:1:align=center",
+        "para:2:align=right",
+        "para:3:align=justify"
+      ],
+      "notes": "Includes justify, which is the alignment the conformance documents are least consistent about. This corpus records what the code does; where that differs from a document, the difference is a question for the document and the baseline says so in the row."
+    },
+    {
+      "id": "lists",
+      "title": "Bullet and numbered lists",
+      "exercises": [
+        "listKind",
+        "indentLevel"
+      ],
+      "lines": [
+        "Intro paragraph.",
+        "Bullet one",
+        "Bullet two",
+        "Number one",
+        "Number two",
+        "After the lists."
+      ],
+      "operations": [
+        "para:1-2:list=bullet",
+        "para:3-4:list=numbered"
+      ],
+      "notes": "The paragraphs on either side are load-bearing: list state must not leak into the prose around it."
+    },
+    {
+      "id": "indent-spacing",
+      "title": "Indent levels and paragraph spacing",
+      "exercises": [
+        "indentLevel",
+        "lineSpacing",
+        "spacingBefore",
+        "spacingAfter"
+      ],
+      "lines": [
+        "Level zero.",
+        "Level one.",
+        "Level two.",
+        "Spaced and stretched."
+      ],
+      "operations": [
+        "para:1:indent=1",
+        "para:2:indent=2",
+        "para:3:before=12,after=12,linespacing=1.5"
+      ],
+      "notes": null
+    },
+    {
+      "id": "unicode",
+      "title": "Scripts, astral planes and symbols",
+      "exercises": [
+        "text",
+        "encoding"
+      ],
+      "lines": [
+        "Latin café naïve",
+        "Cyrillic Привет",
+        "CJK 你好世界",
+        "Arabic مرحبا",
+        "Astral 😀",
+        "Math ∑∞≠"
+      ],
+      "operations": [],
+      "notes": "One line per encoding hazard: a non-ASCII Latin letter, two non-Latin scripts, a right-to-left script, a surrogate pair, and characters outside every legacy code page. RTF has the most to get wrong here, because it is the only one of the five that is not UTF-8 on the wire."
+    },
+    {
+      "id": "whitespace",
+      "title": "Whitespace and run boundaries",
+      "exercises": [
+        "text",
+        "softBreak",
+        "tab",
+        "runBoundary",
+        "styledWhitespace"
+      ],
+      "lines": [
+        "Lead and  gap and trail.",
+        "plain then styled here",
+        "styled then plain here",
+        "Soft break and\ttab here.",
+        "Split  here and there."
+      ],
+      "operations": [
+        "inline:1:11-17:italic=on",
+        "inline:2:0-6:bold=on",
+        "inline:4:6-11:bold=on"
+      ],
+      "notes": "The sample that pays for itself. Line one holds a doubled space, which a format with HTML's collapsing rule has to encode deliberately or lose. Lines two and three put a space on each side of a run boundary, which is where a reader that defers a space and then flushes it with the wrong style gets caught. Line four carries the model's U+2028 soft break and a tab. Line five puts a style boundary INSIDE a run of two spaces, which is the case a writer deciding per style run cannot see: each half looks like a single space, each is written bare, and the two collapse back into one on read."
+    },
+    {
+      "id": "metacharacters",
+      "title": "Characters each format has to escape",
+      "exercises": [
+        "text",
+        "escaping"
+      ],
+      "lines": [
+        "Braces { } backslash \\ here",
+        "Angle <b> amp & quote \"q\"",
+        "Stars *em* under _u_ hash # brackets [x](y)",
+        "Pipe | tilde ~~s~~ backtick `c`"
+      ],
+      "operations": [],
+      "notes": "Every character here is literal document text. A writer that fails to escape one of them does not merely look wrong: the text is read back as markup, so the round trip loses characters. One line per format's own metacharacters, and every line goes through all five writers, because a character that is inert in one format is not inert in another."
+    },
+    {
+      "id": "control-characters",
+      "title": "Characters XML cannot represent",
+      "exercises": [
+        "text",
+        "diagnostics"
+      ],
+      "lines": [
+        "Bell \u0007 and vertical tab \u000b here.",
+        "Unit separator \u001f and start of heading \u0001 here.",
+        "Astral 😀 and a tab\tsurvive."
+      ],
+      "operations": [],
+      "notes": "Reachable from ordinary input rather than contrived: the HTML reader decodes &#7; into the model and the RTF reader passes \\u7 through, so a document can read cleanly and carry one. XML 1.0 has no representation for most of them, not even an escape, so the two package writers drop them and report it - which is a diagnostic, not a failure. The DOCX writer used to hand them to the serializer and the tool reported an internal error, which its own help defines as always a defect in it; the corpus loader refused such a sample until that was fixed. The third line is the control: an astral character arrives as a surrogate pair that a naive per-character test would reject, and a tab is a control character XML does allow."
+    },
+    {
+      "id": "empty-paragraphs",
+      "title": "Empty paragraphs",
+      "exercises": [
+        "paragraph"
+      ],
+      "lines": [
+        "First.",
+        "",
+        "Third.",
+        "",
+        "Last."
+      ],
+      "operations": [],
+      "notes": "An empty paragraph is a paragraph. A format whose paragraph separator is a blank line cannot express one, which is a real limitation rather than a defect - but it should be recorded as a limitation and not discovered."
+    },
+    {
+      "id": "image",
+      "title": "An inline image",
+      "exercises": [
+        "image"
+      ],
+      "lines": [
+        "Text around  the image here."
+      ],
+      "asset": "square",
+      "operations": [
+        "image:0:12:file=\"${asset:square}\",width=36,height=36,alt=a generated square"
+      ],
+      "notes": "The image is the PNG the tool rendered for this run, so the sample carries a real encoded image without one being committed. The doubled space is where the image goes. The path is quoted because the PROPS field is split on commas outside quotes and a temporary directory is not this project's to choose."
+    },
+    {
+      "id": "long-flow",
+      "title": "Text long enough to wrap and paginate",
+      "exercises": [
+        "layout",
+        "pagination"
+      ],
+      "lines": [
+        "A paragraph long enough that the layout has to break it across several lines, which is the only way to reach the wrapping code from a document rather than from a unit test, and long enough again that the page it is drawn on runs out before the text does.",
+        "A second paragraph, so that the break between two of them is exercised as well as the break inside one.",
+        "A third, to push the whole flow past the bottom of a single page at the default page box.",
+        "A fourth, for the same reason.",
+        "A fifth, for the same reason.",
+        "A sixth, for the same reason."
+      ],
+      "operations": [
+        "para:0:align=center"
+      ],
+      "notes": "The only sample whose point is the renderer rather than the codecs: it is here so that wrapping and a line break are exercised from a document rather than from a unit test. It deliberately does not claim to paginate. Where a line wraps depends on the host's font metrics, so how many pages this fills is a property of the machine - the suite forces pagination with an explicit small page box instead of hoping the text is long enough."
+    }
+  ],
+  "authored": [
+    {
+      "id": "rtf-control-words",
+      "title": "RTF control words this component reads but never writes",
+      "format": "rtf",
+      "kind": "text",
+      "content": "{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0\\fnil\\fcharset0 Helvetica;}{\\f1\\fmodern\\fcharset0 Courier;}}{\\colortbl;\\red183\\green28\\blue28;\\red255\\green245\\blue157;}{\\*\\generator Authored by tests/corpus/corpus.json;}{\\stylesheet{\\s0 Normal;}}\\viewkind4\\widowctrl\\deflang1033\n\\pard\\qj\\li720\\sb120\\sa120 Justified, indented and spaced.\\par\n\\pard\\b Bold\\b0  \\i italic\\i0  \\ul underlined\\ulnone  \\strike struck\\strike0  \\scaps small caps\\scaps0\\par\n\\pard\\cf1 Foreground\\cf0  and \\highlight2 highlight\\highlight0  and \\f1 monospace\\f0  and \\fs30 large\\fs22\\par\n\\pard Escapes: \\'e9 \\'fc \\u8212 ? \\lquote q\\rquote  \\ldblquote d\\rdblquote  \\bullet  \\endash  \\emdash  \\~nbsp \\_hyphen\\par\n\\pard A tab:\\tab and a line break:\\line on the next line\\par\n\\pard{\\field{\\*\\fldinst HYPERLINK \"https://example.org/\"}{\\fldrslt a field hyperlink}}\\par\n\\pard{\\pict\\wmetafile8\\picw100\\pich100 0102030405}\\par\n\\pard{\\*\\listtable{\\list\\listid1}}Text after a skipped destination.\\par\n}",
+      "notes": "Written by hand from the honoured, approximated, ignored and skipped tables in docs/rtf-conformance.md, and shaped so that most of what it holds is on a row the writer does not emit: justification, twip indents, a stylesheet, a generator destination, a list table, a picture destination, character escapes, and a HYPERLINK field. A corpus made only of this component's own output cannot reach any of it, because the writer has no reason to produce it."
+    },
+    {
+      "id": "html-structure",
+      "title": "HTML structure the writer never emits",
+      "format": "html",
+      "kind": "text",
+      "content": "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>Authored HTML</title><style>.red{color:#B71C1C}</style></head>\n<body>\n<h1>A heading level the writer never emits</h1>\n<h3>And a deeper one</h3>\n<ul><li>first</li><li>second<ul><li>nested deeper</li></ul></li></ul>\n<ol><li>ordered one</li><li>ordered two</li></ol>\n<p style=\"text-align:center\" class=\"red\">Centred by CSS, coloured by a class.</p>\n<p style=\"text-align:right;line-height:1.5;margin-left:40px\">Right, stretched and indented by CSS.</p>\n<p><b>b</b> <strong>strong</strong> <i>i</i> <em>em</em> <u>u</u> <s>s</s> <del>del</del> <span style=\"font-weight:700\">numeric weight</span> <span style=\"text-transform:uppercase\">transformed</span></p>\n<p><font face=\"Courier\" color=\"#0000FF\">A legacy font element</font> and <span style=\"font-family:Georgia;font-size:18pt\">CSS type</span></p>\n<p>Entities: &amp; &lt; &gt; &quot; &#233; &nbsp; and a<br>hard break</p>\n<blockquote><p>A quoted paragraph.</p></blockquote>\n<div>Direct text in a div.</div>\n<table><tr><td>cell a</td><td>cell b</td></tr><tr><td>cell c</td><td>cell d</td></tr></table>\n<p><a href=\"https://example.org/\">absolute</a> <a href=\"mailto:someone@example.org\">mail</a> <a href=\"/relative\">relative</a> <a href=\"javascript:alert(1)\">refused</a></p>\n<script>var ignored = 1;</script>\n</body></html>\n",
+      "notes": "Nested lists, ordered lists, a table, a blockquote, a bare div, legacy font elements, CSS type and colour and line height, a numeric font weight, text-transform, entity forms including a non-breaking space, and four link targets of which two must be refused. The HTML writer emits none of this shape, so every line here is a reader path the generated corpus cannot reach."
+    },
+    {
+      "id": "markdown-blocks",
+      "title": "Markdown block and inline forms, including two outside the subset",
+      "format": "markdown",
+      "kind": "text",
+      "content": "# ATX heading\n\n###### Deepest ATX heading\n\nSetext heading\n==============\n\n> A blockquote line\n> continued on the next\n>> nested deeper\n\n```text\nfenced code, which is monospace\n  and keeps its own second line\n```\n\n1) Ordered with a paren\n2) And a second\n\n1. Ordered with a dot\n2. And a second\n\n- bullet with a dash\n  - nested bullet\n\n* bullet with a star\n\n+ bullet with a plus\n\nA hard break by two spaces  \nand the line after it.\n\nA hard break by backslash\\\nand the line after that.\n\n**strong** __also strong__ *em* _also em_ `code` ~~strike~~ [label](https://example.org/) [mail](mailto:someone@example.org) [refused](javascript:alert(1))\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nTrailing paragraph.\n",
+      "notes": "Both spellings of most constructs the reader accepts, plus two it does not: a setext heading and a GFM table. Those two are here on purpose. docs/markdown-conformance.md maps ATX headings and says nothing about setext, and a corpus containing only what the subset covers could never show what the reader does with what it does not - which, for a reader meant to degrade predictably, is the more interesting half."
+    },
+    {
+      "id": "docx-package",
+      "title": "A WordprocessingML package assembled by hand",
+      "format": "docx",
+      "kind": "package",
+      "parts": [
+        {
+          "path": "[Content_Types].xml",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>"
+        },
+        {
+          "path": "_rels/.rels",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>"
+        },
+        {
+          "path": "word/document.xml",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body><w:p><w:pPr><w:jc w:val=\"center\"/><w:spacing w:before=\"240\" w:after=\"240\" w:line=\"360\" w:lineRule=\"auto\"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val=\"36\"/><w:rFonts w:ascii=\"Georgia\"/></w:rPr><w:t>Authored heading</w:t></w:r></w:p><w:p><w:pPr><w:numPr><w:ilvl w:val=\"0\"/><w:numId w:val=\"1\"/></w:numPr><w:ind w:left=\"720\"/></w:pPr><w:r><w:t>A numbered item with no numbering part</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell a</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>cell b</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>cell c</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>cell d</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p><w:r><w:rPr><w:i/><w:u w:val=\"single\"/><w:strike/><w:color w:val=\"B71C1C\"/><w:highlight w:val=\"yellow\"/><w:caps/></w:rPr><w:t xml:space=\"preserve\">every run property at once </w:t></w:r><w:r><w:tab/><w:t>after a tab</w:t></w:r><w:r><w:br/><w:t>after a break</w:t></w:r></w:p><w:p><w:r><w:t xml:space=\"preserve\">  leading and trailing spaces preserved  </w:t></w:r></w:p><w:p/><w:p><w:r><w:t>After an empty paragraph.</w:t></w:r></w:p></w:body></w:document>"
+        }
+      ],
+      "notes": "The package a DOCX reader has to cope with when nobody used this writer to make it: a table, a numbered paragraph whose numbering part is absent, every run property at once, xml:space-preserved padding, and an empty paragraph. It is three parts rather than the dozen a word processor emits, and that is itself part of the test - the reader must not require parts the format does not."
+    },
+    {
+      "id": "odt-package",
+      "title": "An OpenDocument package assembled by hand",
+      "format": "odt",
+      "kind": "package",
+      "parts": [
+        {
+          "path": "mimetype",
+          "stored": true,
+          "content": "application/vnd.oasis.opendocument.text"
+        },
+        {
+          "path": "META-INF/manifest.xml",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.2\"><manifest:file-entry manifest:full-path=\"/\" manifest:media-type=\"application/vnd.oasis.opendocument.text\"/><manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/></manifest:manifest>"
+        },
+        {
+          "path": "content.xml",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><office:document-content xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\" xmlns:style=\"urn:oasis:names:tc:opendocument:xmlns:style:1.0\" xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\" xmlns:fo=\"urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" office:version=\"1.2\"><office:automatic-styles><style:style style:name=\"T1\" style:family=\"text\"><style:text-properties fo:font-weight=\"bold\" fo:color=\"#B71C1C\" fo:font-size=\"18pt\"/></style:style><style:style style:name=\"T2\" style:family=\"text\"><style:text-properties fo:font-style=\"italic\" style:text-underline-style=\"solid\"/></style:style><style:style style:name=\"P1\" style:family=\"paragraph\"><style:paragraph-properties fo:text-align=\"center\" fo:margin-left=\"1cm\" fo:margin-top=\"0.2cm\" fo:line-height=\"150%\"/></style:style></office:automatic-styles><office:body><office:text><text:h text:outline-level=\"1\">An ODF heading element</text:h><text:p text:style-name=\"P1\"><text:span text:style-name=\"T1\">Centred, coloured and sized</text:span></text:p><text:list><text:list-item><text:p>list item one</text:p></text:list-item><text:list-item><text:p>list item two</text:p><text:list><text:list-item><text:p>nested item</text:p></text:list-item></text:list></text:list-item></text:list><text:p>spaces<text:s text:c=\"3\"/>then<text:tab/>a tab<text:line-break/>after a break</text:p><text:p><text:span text:style-name=\"T2\">italic underlined</text:span> and plain</text:p><text:p><text:a xlink:href=\"https://example.org/\">absolute</text:a> and <text:a xlink:href=\"javascript:alert(1)\">refused</text:a></text:p><table:table><table:table-row><table:table-cell><text:p>cell a</text:p></table:table-cell><table:table-cell><text:p>cell b</text:p></table:table-cell></table:table-row></table:table></office:text></office:body></office:document-content>"
+        }
+      ],
+      "notes": "The mimetype part is stored rather than deflated and is written first, which is what the format requires and what a probe reads. The content exercises text:h, nested text:list, text:s, text:tab, text:line-break, a table, and two link targets - and the plain text on either side of a span, which is where this corpus has already caught the reader once."
+    }
+  ],
+  "malformed": [
+    {
+      "id": "absent",
+      "title": "A path that is not there",
+      "kind": "absent",
+      "extension": ".docx",
+      "expectedExit": 2,
+      "notes": "Exit 2, never 3. The split between an input that could not be read and a document its codec rejected is the one docs/cli.md singles out, and a harness that collapses them reports the wrong thing."
+    },
+    {
+      "id": "empty-package",
+      "title": "A zero-byte file named .docx",
+      "kind": "empty",
+      "extension": ".docx",
+      "expectedExit": 3,
+      "notes": null
+    },
+    {
+      "id": "truncated-package",
+      "title": "The first 200 bytes of a real DOCX",
+      "kind": "truncate",
+      "of": "plain",
+      "format": "docx",
+      "bytes": 200,
+      "extension": ".docx",
+      "expectedExit": 3,
+      "notes": "A package header with nothing behind it. Produced by cutting a document this corpus generated, so it is a real truncation rather than a guess at what one looks like."
+    },
+    {
+      "id": "text-as-package",
+      "title": "Plain text named .docx",
+      "kind": "literal",
+      "content": "this is not a package",
+      "extension": ".docx",
+      "expectedExit": 3,
+      "notes": null
+    },
+    {
+      "id": "unbalanced-rtf",
+      "title": "RTF with unbalanced groups",
+      "kind": "literal",
+      "content": "{\\rtf1\\ansi Unbalanced {{{ text",
+      "extension": ".rtf",
+      "expectedExit": 0,
+      "notes": "Exit 0 is correct, and it is the point. ADR 0004 makes the RTF reader total: it never throws on malformed input and returns what it could read. What the suite is really asserting is the absence of exit 70, which docs/cli.md defines as always a defect in the tool."
+    },
+    {
+      "id": "unclosed-html",
+      "title": "HTML with unclosed elements",
+      "kind": "literal",
+      "content": "<html><body><p>open <b>and never closed",
+      "extension": ".html",
+      "expectedExit": 0,
+      "notes": "The same contract as the RTF row, through a different parser."
+    },
+    {
+      "id": "deep-nesting",
+      "title": "Deeply nested RTF groups",
+      "kind": "repeat",
+      "prefix": "{\\rtf1\\ansi ",
+      "unit": "{",
+      "count": 4096,
+      "suffix": " deep",
+      "extension": ".rtf",
+      "expectedExit": 0,
+      "notes": "Past MaxGroupDepth, which rtf-conformance.md documents as reported through rtf.depth rather than thrown. Group nesting is iterative in the reader, so this checks that the limit is enforced, not that the stack survives."
+    }
+  ]
+}

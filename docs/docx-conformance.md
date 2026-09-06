@@ -42,7 +42,7 @@ Open XML WordprocessingML package parts.
 - Paragraph formatting: left/center/right alignment, line spacing, spacing
   before/after, indentation, bullet lists, and numbered lists.
 - External hyperlinks for `http`, `https`, and `mailto`, plus internal anchor
-  links.
+  links, written as `w:hyperlink w:anchor`. Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried.
 - Embedded pictures, read and written as a single object replacement character
   (`U+FFFC`) whose run carries the image. Both shapes Word writes are read:
   DrawingML (`w:drawing`, inline and anchored, including a picture inside
@@ -183,6 +183,15 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.shape` | Warning | A drawing held no embedded picture. |
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's, or a page-relative vertical offset kept as stated. |
+
+Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, and `docx.text.control`.
+`docx.text.control` is the counterpart to ODT's `odt.text.control`: XML 1.0 has
+no representation for most control characters, not even an escape, so one that
+reaches the writer is dropped and reported. It is not a contrived input — the
+HTML reader decodes `&#7;` into the model and the RTF reader passes `\u7`
+through, so a document that read cleanly used to fail to write, and the tool
+reported an internal error rather than a diagnostic. Every string that comes from
+the model passes the filter, a picture's description as well as run text.
 
 `Broiler.Cli --convert-doc <in> --output <out>` prints all of them, which is the
 quickest way to see what a problem document lost. In the Writer, set
