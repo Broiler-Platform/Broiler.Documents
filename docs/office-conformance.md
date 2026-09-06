@@ -20,7 +20,7 @@ runs that nightly.
 - [The semantic axis](#the-semantic-axis)
 - [The pixel axis](#the-pixel-axis)
 - [The baseline](#the-baseline)
-- [The tool register, and why the suite ships inert](#the-tool-register-and-why-the-suite-ships-inert)
+- [The tool register](#the-tool-register)
 - [Determinism](#determinism)
 - [What it found](#what-it-found)
 - [What it cannot tell you](#what-it-cannot-tell-you)
@@ -203,31 +203,44 @@ It ships with both lists empty and every stamp field null, which says plainly
 that nothing has been measured against an approved, pinned toolchain yet.
 `tests/corpus/external-sources.json` ships with no rows on the same argument.
 
-## The tool register, and why the suite ships inert
+## The tool register
 
-`tests/office/tools/manifest.json` holds LibreOffice and poppler, **both
-pending**. The rule is the one this component already operates for its PDF
-oracles: a tool absent from the register may not run in CI, and no entry in it
-may become a product reference.
+`tests/office/tools/manifest.json` holds LibreOffice and poppler, and **both are
+approved**, by the project reviewer on 2026-09-06. The rule is the one this
+component already operates for its PDF oracles: a tool absent from the register
+may not run in CI, and no entry in it may become a product reference.
 
-Note where that rule bites - CI, not a developer's machine. So the runner does
-not refuse to exist: it reports one skip per document naming the outstanding
-decision and the file the row is in, and `--allow-pending-tools` drives the tools
-anyway for local work. CI never passes that flag. **A fully-skipped nightly run
-before those two rows are decided is the expected state of this suite, not a
-broken one**, and it is worth knowing that before filing a bug about it.
+The file shipped with both rows pending, which was the point rather than an
+oversight - a row exists so a tool's details have somewhere to land while it is
+reviewed, and writing one down approves nothing. The evidence each row records is
+what the decision was taken on: LibreOffice under MPL-2.0 with nothing conveyed
+and no file modified, poppler under GPL-2.0-or-later as separate programs invoked
+at arm's length and never linked. Each row also states what its approval does
+*not* reach, and those limits are part of the decision rather than caveats around
+it - in particular that neither approval authorises conveying the CI image, and
+that process isolation is not a redistribution safe harbour.
 
-Adopting the suite is therefore three steps, in order:
+Note where the rule bites - CI, not a developer's machine. That distinction
+mattered while the rows were open, because it let the suite be useful to whoever
+was writing it: the runner reported one skip per document naming the outstanding
+decision, and `--allow-pending-tools` drove the tools anyway. The flag is still
+there and CI still never passes it; it now does nothing that approval has not
+already done.
 
-1. Decide the two rows in `tests/office/tools/manifest.json` - both are
-   process-isolated, neither is linked, and poppler's GPL is the one that wants a
-   sentence rather than a shrug.
-2. Pin a toolchain (the CI workflow installs `libreoffice-writer`,
+What remains before the suite asserts anything is the baseline:
+
+1. Pin a toolchain (the CI workflow installs `libreoffice-writer`,
    `poppler-utils` and four font packages) and run `--update-baseline --restamp`
-   on it.
-3. Classify every row the regeneration writes. They arrive as
+   on it. It has to be that toolchain and not a developer's: the stamp records
+   the platform, and a baseline made on Windows makes every comparison on the
+   Linux leg a skip.
+2. Classify every row the regeneration writes. They arrive as
    `suspected-defect` with no reviewer, which is what an unreviewed difference
    should read as.
+
+Until that happens the suite runs its toolchain-independent floor - the documents
+are produced, probed and read, and the renders are measured - and skips every
+comparison, naming the unpinned stamp as the reason rather than passing quietly.
 
 ## Determinism
 

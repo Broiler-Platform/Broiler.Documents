@@ -207,8 +207,8 @@
          writes the documents, so the markup broilerdoc is asked to read was
          produced by an implementation that knows nothing about this one. It is
          not run by CI on a pull request - it depends on a third-party binary
-         whose rows in tests/office/tools/manifest.json are still pending. See
-         docs/office-conformance.md. -->
+         whose layout moves between releases, so it is nightly and dispatchable
+         and must not become a required check. See docs/office-conformance.md. -->
     <Project Path="src/tests/Broiler.Documents.Office/Broiler.Documents.Office.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />

@@ -38,10 +38,10 @@
         "notes": "Driven out of process and never linked. Embedding it - UNO, or any in-process binding - would put an MPL-2.0 codebase inside this component's own process and change the licensing question from one about running a tool into one about a combined work, so the suite pays the process startup cost instead. The oracle is a second opinion about interchange and not a conformance authority: what it reports is what one widely used implementation did with the file, which is the gap the round-trip corpus cannot close by itself and is not the same thing as a statement about the standard."
       },
       "review": {
-        "state": "pending",
-        "reviewer": null,
-        "decided": null,
-        "why": "Written up, not decided. What it is, where it comes from, what it carries and how it is run are all recorded here, which is the evidence a reviewer needs; the decision is the project reviewer's under ADR 0013 and has not been taken. Until it is, this tool may not run in CI, and the suite skips its checks and names this row as the reason."
+        "state": "approved",
+        "reviewer": "Maik Ratzmer (project reviewer)",
+        "decided": "2026-09-06",
+        "why": "Approved for CI use as an interchange oracle, on the evidence recorded in this row and on the standard ADR 0013 sets: acceptance by a person reading published evidence, with no legal review claimed and none performed. What carried it is that nothing is conveyed and nothing is combined. The application is installed into a CI image and driven through its command line; no file of it is modified, so MPL-2.0's per-file copyleft has nothing to attach to, and no part of it is shipped in a package, an application or a release container. **What this decision does not touch.** It does not clear the components a distribution build carries under further licences - bundled libraries, dictionaries, fonts - which the row already says the headline licence does not stand in for; the image that installs the packages is what a licence review has to read, and that review has not been done. It does not permit embedding: UNO or any in-process binding would change the question from running a tool to a combined work, and the approval is for the out-of-process form only. It does not make this a conformance authority - what the oracle reports is what one widely used implementation did with a file. And it does not authorise publishing the image; that is conveying, and it is a different question from this one."
       }
     },
     {
@@ -72,10 +72,10 @@
         "notes": "Invoked as a separate process and never linked, and that distinction is the one that matters for a GPL tool standing beside a differently-licensed component: linking would raise a combined-work question this project has no answer for and does not need to ask, while spawning a program and reading its output does not raise it. It is not, however, a redistribution safe harbour. Process isolation is not one: a cached or imaged binary still carries its licence and notice obligations, which is why redistributed is false on this row and why the image that installs the package, rather than this row, is what a licence review has to read."
       },
       "review": {
-        "state": "pending",
-        "reviewer": null,
-        "decided": null,
-        "why": "Written up, not decided, and the licence is the reason this one is worth a deliberate look rather than a nod. The row states the position it relies on - separate programs, invoked out of process, nothing redistributed - and states plainly that isolation is not a safe harbour, so the reviewer is deciding on the argument rather than on a summary of it. Pending until the project reviewer records the decision."
+        "state": "approved",
+        "reviewer": "Maik Ratzmer (project reviewer)",
+        "decided": "2026-09-06",
+        "why": "Approved for CI use as a rendering oracle, on the same standard and by the same authority. The licence is why this row was worth a deliberate look rather than a nod, and the decision rests on the argument the row states rather than on a summary of it: the utilities are separate programs, invoked at arm's length, reading a file this suite wrote and writing output into a scratch directory. Nothing links them to anything in this component, so the combined-work question the GPL would otherwise raise is not reached. Nothing is conveyed - the packages are installed unmodified into a CI image, invoked, and never shipped. **What this decision does not touch.** Process isolation is not a redistribution safe harbour and this approval does not make it one: a cached or imaged binary still carries its licence and notice obligations, so publishing or otherwise conveying the image is a separate decision that has not been taken. It does not extend to the poppler libraries, which are not a dependency of anything this component builds and are not approved here. And it claims no patent position and no legal review, in keeping with every other record in this component."
       }
     }
   ]

@@ -20,13 +20,13 @@ name: Office conformance
 # reason, and nightly-fuzz.yml in this repository states the policy outright:
 # "Not a required check, and it must not become one."
 #
-# And the tool register decides it. tests/office/tools/manifest.json holds
-# LibreOffice and poppler as pending, and the rule this component already
-# operates - a tool absent from the register may not run in CI - means this
-# workflow is deliberately inert until somebody reviews those two rows. A
-# fully-skipped run before that is the expected state, not a broken one. That is
-# also why --allow-pending-tools is not passed here and must not be added: the
-# flag exists for a developer's machine.
+# And the tool register gates it. tests/office/tools/manifest.json holds
+# LibreOffice and poppler, both approved by the project reviewer on 2026-09-06,
+# under the rule this component already operates: a tool absent from the register
+# may not run in CI. --allow-pending-tools is not passed here and must not be
+# added - the flag exists for a developer's machine, and adding it would let a
+# future row that has not been reviewed run here without anyone noticing, which
+# is the one thing the register exists to stop.
 #
 # What does run on every pull request, at no cost, is the guard tests in
 # Broiler.Documents.Tests: the schemas parse, no tool is approved merely by being
@@ -175,7 +175,7 @@ jobs:
             exit 1
           fi
           if grep -qE '^0/0 passed' ./test-results/office-results.log; then
-            echo "::warning::The suite executed no checks. That is the expected state while the tool register is pending."
+            echo "::warning::The suite executed no checks. Either a tool could not be driven or the corpus is empty; the log names which."
           fi
 
       # The dispatch input offers a regenerated baseline, so it has to arrive

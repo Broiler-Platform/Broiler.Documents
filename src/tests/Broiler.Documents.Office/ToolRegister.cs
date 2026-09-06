@@ -144,15 +144,16 @@ internal sealed class ToolRegister
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A run that skips every one of its checks because both rows are still
-    /// pending is the expected state of this suite before approval, not a
-    /// broken suite. That is worth saying plainly here, because it is exactly
-    /// the observation a reader files a bug about: a green run with a large
-    /// skip count looks like a harness that lost its tests. It is not. It is
-    /// the register doing the one thing it exists to do, and the reasons
-    /// below are written to be read on their own, without this file open, so
-    /// that the report says whose decision is outstanding rather than only
-    /// that something was skipped.
+    /// A run that skips every one of its checks because a row is still pending
+    /// is a correct suite reporting its state, not a broken one. Both of the
+    /// rows this suite drives were approved on 2026-09-06, so that is no longer
+    /// the state a reader will meet - but the code has to keep behaving that way
+    /// for the next tool somebody adds, and the reasons below are still written
+    /// to be read on their own, without this file open, so that a report says
+    /// whose decision is outstanding rather than only that something was
+    /// skipped. A green run with a large skip count is exactly the observation a
+    /// reader files a bug about, and it deserves an answer in the report rather
+    /// than in a comment.
     /// </para>
     /// <para>
     /// <paramref name="allowPending"/> is the local switch. It reaches a
