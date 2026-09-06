@@ -210,8 +210,10 @@ toolkit behind it.
   ODF means them: `run-through` is text through the shape, and `none` is no text
   beside it at all. A wrapped line keeps one span, running down whichever side
   has more room, so `parallel` gets the larger side rather than text down both.
-  `style:run-through` is the whole of the stacking that is represented — order *among* shapes on the same side of the text is not, and
-  they draw in the order they were read. A style that states no run-through is
+  `style:run-through` is the shape against the text and `draw:z-index` is the
+  shape against the other shapes; both are read and both are written, and a
+  drawing that states no index reads as zero, which leaves the order the shapes
+  were read in. A style that states no run-through is
   read as `background`, which is not ODF's own default; it is what this reader
   has always done, and a box wrongly in front would hide the text under it. A
   page-anchored frame is placed against its paragraph, since that is the only

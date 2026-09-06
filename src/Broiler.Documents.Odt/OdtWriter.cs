@@ -102,6 +102,9 @@ public static class OdtWriter
         var element = new XElement(
             OdtNamespaces.Draw + "custom-shape",
             new XAttribute(OdtNamespaces.Text + "anchor-type", "paragraph"),
+            new XAttribute(
+                OdtNamespaces.Draw + "z-index",
+                shape.ZOrder.ToString(CultureInfo.InvariantCulture)),
             new XAttribute(OdtNamespaces.Draw + "style-name", context.GetShapeStyleName(shape)),
             new XAttribute(OdtNamespaces.Svg + "x", OdtUnits.FormatPoints(shape.OffsetX)),
             new XAttribute(OdtNamespaces.Svg + "y", OdtUnits.FormatPoints(shape.OffsetY)),
@@ -156,6 +159,9 @@ public static class OdtWriter
         var frame = new XElement(
             OdtNamespaces.Draw + "frame",
             new XAttribute(OdtNamespaces.Draw + "style-name", context.GetShapeStyleName(shape)),
+            new XAttribute(
+                OdtNamespaces.Draw + "z-index",
+                shape.ZOrder.ToString(CultureInfo.InvariantCulture)),
             new XAttribute(
                 OdtNamespaces.Draw + "name",
                 "Image" + part.Index.ToString(CultureInfo.InvariantCulture)),

@@ -1051,9 +1051,10 @@ public static class DocxWriter
     /// <remarks>
     /// <c>behindDoc</c> is written from the shape rather than fixed, because it is
     /// read that way: a stripe read from behind the text and saved as "0" would
-    /// come back from Word painted over the letter. <c>relativeHeight</c> follows
-    /// it so the two layers do not interleave - order within a layer is not
-    /// modelled, and one value per layer is as much as can honestly be written.
+    /// come back from Word painted over the letter. <c>relativeHeight</c> is the
+    /// shape's own <see cref="DocumentShape.ZOrder"/>, which is the same number
+    /// this attribute was read into, so a letterhead's stripe and the logo box on
+    /// top of it come back stacked the way they arrived.
     /// </para>
     /// <para>
     /// A running shape's vertical offset is measured from the top of the page
@@ -1075,7 +1076,9 @@ public static class DocxWriter
             new XAttribute("distL", PointsToEmu(shape.WrapDistance)),
             new XAttribute("distR", PointsToEmu(shape.WrapDistance)),
             new XAttribute("simplePos", "0"),
-            new XAttribute("relativeHeight", shape.BehindText ? "1" : "2"),
+            new XAttribute(
+                "relativeHeight",
+                shape.ZOrder.ToString(CultureInfo.InvariantCulture)),
             new XAttribute("behindDoc", shape.BehindText ? "1" : "0"),
             new XAttribute("locked", "0"),
             new XAttribute("layoutInCell", "1"),

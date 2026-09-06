@@ -145,6 +145,11 @@ public static class RtfWriter
         AppendTwips(sb, "shptop", shape.OffsetY);
         AppendTwips(sb, "shpright", shape.OffsetX + shape.Width);
         AppendTwips(sb, "shpbottom", shape.OffsetY + shape.Height);
+        // \shpz is the shape against the other shapes, and it is written from the
+        // model rather than left out: a letterhead read with its logo box on top
+        // of its stripe and saved without one would come back stacked whichever
+        // way the reader happened to walk them.
+        sb.Append("\\shpz").Append(shape.ZOrder.ToString(CultureInfo.InvariantCulture));
         // Against the column and the paragraph, which is what the offsets mean.
         sb.Append("\\shpbxcolumn\\shpbypara\\shpwr3");
 

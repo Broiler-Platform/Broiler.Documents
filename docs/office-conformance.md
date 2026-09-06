@@ -474,29 +474,61 @@ component being correct and the only one a suite can make about itself.
 ### What the two later seeds found
 
 `line-break-within-paragraph` and `letterhead-frames` were added after everything
-above, and between them they produced eleven new baseline rows. Nine are suspected
-defects and none of them was reachable before.
+above, and between them they produced eleven new baseline rows. Nine were
+suspected defects and none of them was reachable before. Three are fixed.
 
-**A forced line break is not a break in layout.** All four targets carry the
-construct, all five codecs read and write it as U+2028 - the model's own
-line-break character - and `DocumentLayout` then classifies characters with
-`char.IsWhiteSpace`, for which U+2028 is true. So the break becomes an ordinary
-break *opportunity* and the seed's five-line address reflows onto two. Four
-targets failing at the same profile similarity, 0.29 against LibreOffice, is the
-signature of a layout defect rather than a codec one. The semantic axis passes
-clean and that is not a weakness in the seed: the text canonicalisation maps
-U+2028 to a newline on both sides before comparing, so `text` is blind to this
-construct by construction and only the pixel axis can reach it.
+**A forced line break was not a break in layout.** *Fixed.* All four targets
+carry the construct and all five codecs read and write it as U+2028, the model's
+own line-break character - and `DocumentLayout` then classified characters with
+`char.IsWhiteSpace`, for which U+2028 is true. So the break arrived as an ordinary
+break *opportunity*, the seed's five-line address reflowed onto two, and every
+paragraph under it moved up the page. Four targets failing at the same profile
+similarity, 0.29, was the signature: a layout defect, not a codec one.
 
-**A header's shape paints over the body's shape.** Both of `letterhead-frames`'s
-frames are foreground objects; the layout appends running-content shapes after
-the body's and the rasterizer draws foreground shapes in list order, so the
-header's band is painted last and the bordered box the document stacks in front
-of it disappears underneath. Both files state the order - `draw:z-index` 0 and 1,
-`relativeHeight` 2 and 3 - and neither is read. `DocumentShape` says so in its own
-summary: *"Order among shapes is not modelled: they draw in the order they were
-read."* The RTF target is the one place the box survives, because LibreOffice
-writes both shapes into the body there and the accident needs a header.
+The tokenizer now yields a break of its own and the wrapper ends the line on it.
+`PdfPageLayout` had the same defect wearing different clothes and is fixed with
+it - its word scan knew only spaces and tabs, so the character was swept into the
+word beside it and handed to the content stream as a glyph no standard font has.
+The four rows went from an ink box of 175-202 px and a profile of 0.29 to 22-32 px
+and 0.90; what is left is per-line leading, which every prose seed here reports.
+Justification is deliberately unchanged: LibreOffice stretches the line before a
+manual break like any other, which was measured rather than assumed.
+
+Worth keeping in view: the semantic axis passed clean throughout, and that is not
+a weakness in the seed. The text canonicalisation maps U+2028 to a newline on both
+sides before comparing, so `text` is blind to this construct by construction and
+only the pixel axis could ever have reached it.
+
+**A header's shape painted over the body's shape.** *Fixed.* Both of
+`letterhead-frames`'s frames are foreground objects; the layout appended
+running-content shapes after the body's and the rasterizer drew foreground shapes
+in list order, so the header's band was painted last and the bordered box the
+document stacks in front of it disappeared underneath. Both files stated the
+order - `draw:z-index` 0 and 1, `relativeHeight` 2 and 3 - and neither was read.
+`DocumentShape` said so in its own summary: *"Order among shapes is not modelled:
+they draw in the order they were read."*
+
+It is modelled now. `DocumentShape.ZOrder` is one order for the whole document,
+which is how all three formats state it and what a letterhead needs, since the
+band is in the header and the box is in the body. All three readers take it -
+`draw:z-index`, `relativeHeight`, `\shpz` - all three writers state it, and both
+layout engines order every shape on a page by it before drawing. A shape whose
+format says nothing sits at zero and keeps the order it was read in, which is the
+answer this gave before, kept as the floor rather than as the rule.
+
+**A shape was drawn on every page after its anchor's.** *Fixed, and found while
+fixing the one above.* The map of anchor tops was never emptied at a page break,
+so the logo box anchored to the first paragraph was drawn again on page two at the
+y it had on page one. The wrap exclusions were the same defect twice over: a band
+in page-one coordinates pushing text aside on a page with nothing beside it. Both
+are page-local and both are cleared when a page ends.
+
+Two rows scored *worse* after that fix, and the accounting is worth stating rather
+than smoothing over. `letterhead-frames/odt` went from `fair` to `poor` on the
+profile and `letterhead-frames/docx` from 0.930 to 0.922, because the box wrongly
+repeated on page two had been overlapping rows LibreOffice inks there - a defect
+that was flattering the score of another. The remaining defects are the ones
+below, and the numbers now show their size.
 
 **A gradient angle with a unit on it parses as zero.** LibreOffice 24.2 writes
 `draw:angle="30deg"`; `OdtReader` parses the attribute as a bare number of tenths
@@ -510,12 +542,14 @@ correctly.
 **`w:titlePg` is not read.** The seed's DOCX declares a first-page header, a
 default footer and the flag. LibreOffice puts no footer on page one; this
 component puts the default one there, carrying the `PAGE` field's stale cached
-result rather than a page number.
+result rather than a page number. It is the whole of the 1154 px that row's ink
+box still reports.
 
 **The ODT master-page chain stops at the first page.** The reader resolves the
 master page the body starts on, correctly, and files its header into the
 *Default* slot - so `style:next-style-name` is never followed, the band repeats on
-page two, and the `Continuation` master's footer is never read at all.
+page two, and the `Continuation` master's footer is never read at all. That
+missing footer is the 1180 px on page two.
 
 **RTF lets a footer's field result into the body.** The one nobody predicted.
 `text/letterhead-frames/rtf` opens with a bare `2` that LibreOffice's projection
@@ -526,14 +560,16 @@ the same character surviving into our ODT export, which is the difference betwee
 a reader defect that stops at our model and one that reaches a file somebody else
 opens.
 
-The remaining two rows are `documented` rather than findings, and they are the
-price of the html target on a seed like this. LibreOffice cannot write a frame
-into HTML, so it flattens both to GIF files beside the document; the reader never
-fetches an external resource and reports `html.skip.external`, which
+The last row is `letterhead-frames/html`, and it now carries two causes rather
+than one. LibreOffice cannot write a frame into HTML, so it flattens both to GIF
+files beside the document; the reader never fetches an external resource and
+reports `html.skip.external`, which
 [the HTML conformance document](html-conformance.md) states in both directions.
-That target measures the seed with its construct removed, and the row is kept
-rather than the target dropped, because a target quietly missing from the corpus
-is worse than one whose weakness is written down.
+That half is a limitation. The other half arrived with the line-break fix:
+LibreOffice writes the page's header as `<div title="header">`, this reader has no
+notion of that convention and reads it as body content, and the `<br/>` inside it
+is now honoured - so the body opens with a blank line LibreOffice puts nowhere.
+Honouring the break is right; reading a header as body is what needs deciding.
 
 ## What it cannot tell you
 

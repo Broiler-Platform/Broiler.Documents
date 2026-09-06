@@ -57,6 +57,7 @@ public static class RtfReader
         private int _shapeTop;
         private int _shapeRight;
         private int _shapeBottom;
+        private int _shapeZ;
         private BColor _shapeFillStart = BColor.Empty;
         private BColor _shapeFillEnd = BColor.Empty;
         private BColor _shapeLineColor = BColor.Empty;
@@ -340,6 +341,11 @@ public static class RtfReader
                 case "shptop": if (has) _shapeTop = p; return;
                 case "shpright": if (has) _shapeRight = p; return;
                 case "shpbottom": if (has) _shapeBottom = p; return;
+                // \shpz orders one shape against another, and the RTF a
+                // letterhead makes is where it matters: the stripe and the box
+                // over it are both in the body here, and this is the only thing
+                // saying which the reader sees.
+                case "shpz": if (has) _shapeZ = p; return;
                 case "sp": _state.Dest = RtfDestination.ShapeProperty; BeginShapeProperty(); return;
                 case "sn": _state.Dest = RtfDestination.ShapePropertyName; return;
                 case "sv": _state.Dest = RtfDestination.ShapePropertyValue; return;
@@ -664,6 +670,7 @@ public static class RtfReader
             _shapeTop = 0;
             _shapeRight = 0;
             _shapeBottom = 0;
+            _shapeZ = 0;
             _shapeFillStart = BColor.Empty;
             _shapeFillEnd = BColor.Empty;
             _shapeLineColor = BColor.Empty;
@@ -762,7 +769,8 @@ public static class RtfReader
                 height,
                 fill,
                 _shapeHasLine ? _shapeLineColor : BColor.Empty,
-                paragraphs));
+                paragraphs,
+                zOrder: _shapeZ));
         }
 
         /// <summary>The headers and footers the document's running destinations collected.</summary>

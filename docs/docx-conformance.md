@@ -130,9 +130,11 @@ Open XML WordprocessingML package parts.
 - Tracked deletions, embedded objects, fields, comments, headers, footers,
   footnotes, and section layout are skipped or approximated with diagnostics
   where applicable.
-- A floating picture keeps its position, its layer and its wrapping. `behindDoc`
-  is the whole of the stacking that is represented — order *among* shapes on the
-  same side of the text is not, and they draw in the order they were read.
+- A floating picture keeps its position, its layer, its stacking and its
+  wrapping. `behindDoc` is the shape against the text and `relativeHeight` is the
+  shape against the other shapes; both are read and both are written. An anchor
+  that states no `relativeHeight` reads as zero, which leaves the order the
+  shapes were read in.
   `wrapSquare`, `wrapTight` and `wrapThrough` all wrap around the shape's box:
   the outline the last two follow is not, so text clears the frame rather than
   the picture inside it. A wrapped line keeps one span — it runs down whichever

@@ -22,7 +22,7 @@ below are exercised by `RtfConformanceTests`, `RtfLimitTests`,
 | Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only, including the `\l` switch that spells a same-document reference: it is read as `#name` and written back the same way. The name may not contain a quote — the field argument is quoted and RTF has no escape for one inside it, so a quote would truncate the target silently; the shared rule refuses it for every format. Targets otherwise follow that rule, or `rtf.link`) |
 | Running content | `\header` `\headerf` `\headerl` `\headerr` `\footer` `\footerf` `\footerl` `\footerr` (→ `RunningContent`, not the body flow) |
 | Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN` (→ `PageGeometry`) |
-| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fLine` `lineColor` (→ `DocumentShape`) |
+| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fLine` `lineColor` (→ `DocumentShape`) |
 
 ## Page breaks
 
@@ -104,7 +104,10 @@ A `\shp` group is read into a `DocumentShape` anchored to the paragraph it sits
 in. Its box comes from `\shpleft`/`\shptop`/`\shpright`/`\shpbottom` in twips
 and its paint from `{\sp{\sn name}{\sv value}}` pairs, of which seven are
 understood: `fFilled`, `fillColor`, `fillBackColor`, `fillType` and `fillAngle`
-for a solid or gradient fill, `fLine` and `lineColor` for the outline. A shape
+for a solid or gradient fill, `fLine` and `lineColor` for the outline. `\shpz`
+is read and written beside them: it orders one shape against another, and RTF is
+the target where a letterhead's stripe and the box over it both land in the body,
+so it is the only thing left saying which the reader sees. A shape
 colour is one integer holding blue, green and red in that order, which is the
 reverse of how the rest of the format writes one and the easiest thing here to
 get backwards. `\shptxt` carries the shape's own text, which stays out of the

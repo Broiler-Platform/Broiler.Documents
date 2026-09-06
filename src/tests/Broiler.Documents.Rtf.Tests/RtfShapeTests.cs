@@ -174,4 +174,25 @@ public sealed class RtfShapeTests
     /// <summary>Read options that also permit writing what was read back out.</summary>
     private static DocumentReadOptions RoundTripReadOptions { get; } =
         new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
+
+    [Fact(Timeout = 600000)]
+    public void Shpz_Is_The_Shapes_Z_Order()
+    {
+        // RTF is the one target where a letterhead's two shapes both land in the
+        // body, so \shpz is the only thing left saying which is drawn on top.
+        const string rtf =
+            "{\\rtf1\\ansi{\\shp{\\*\\shpinst\\shpleft0\\shptop0\\shpright1000\\shpbottom1000\\shpz6" +
+            "{\\sp{\\sn fFilled}{\\sv 1}}{\\sp{\\sn fillColor}{\\sv 0}}}}body\\par}";
+
+        Assert.Equal(6, Assert.Single(RtfReader.Read(Encoding.ASCII.GetBytes(rtf)).Document.Shapes).ZOrder);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Z_Order_Round_Trips_Through_The_Writer()
+    {
+        RichTextDocument source = WithShapes(new DocumentShape(0, -40, 0, 30, 200, Green, zOrder: 4));
+
+        Assert.Contains("\\shpz4", Ascii(source), StringComparison.Ordinal);
+        Assert.Equal(4, Assert.Single(RoundTrip(source).Shapes).ZOrder);
+    }
 }

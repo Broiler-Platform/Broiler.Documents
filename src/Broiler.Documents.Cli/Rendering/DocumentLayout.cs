@@ -48,6 +48,14 @@ public sealed class DocumentLayout
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
 
+    /// <summary>
+    /// U+2028 LINE SEPARATOR, which is how the model spells a break inside a
+    /// paragraph. Every codec reads and writes it - <c>text:line-break</c>,
+    /// <c>w:br</c>, <c>\line</c>, <c>&lt;br&gt;</c> - and
+    /// <c>RichTextEditor.InsertLineBreak</c> inserts exactly this.
+    /// </summary>
+    private const char ForcedLineBreak = '\u2028';
+
     public DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -91,6 +99,19 @@ public sealed class DocumentLayout
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
             currentLines = new List<LayoutLine>();
             currentCells = new List<LayoutCell>();
+
+            // Both of these are page-local and neither was being emptied, which is
+            // the same defect twice. An anchor top is a y within the page it was
+            // measured on, so carrying it forward drew a letterhead's logo box on
+            // every page after the one its paragraph is on; an exclusion is a band
+            // in the same coordinates, so carrying it forward pushed text aside on
+            // a page with nothing beside it. A shape whose box runs past the page
+            // bottom stops excluding there, which is an approximation this model
+            // cannot avoid - it anchors a shape to a paragraph and the paragraph is
+            // on one page.
+            _paragraphTops.Clear();
+            _wrap = new TextWrapExclusions();
+
             y = setup.ContentTopPoints;
             if (pages.Count >= _settings.MaxPages)
                 truncated = true;
@@ -139,8 +160,6 @@ public sealed class DocumentLayout
                 BreakPage();
                 if (truncated)
                     break;
-
-                _paragraphTops.Remove(paragraphIndex);
             }
             else if (style.PageBreakBefore && setup.Continuous)
             {
@@ -247,9 +266,20 @@ public sealed class DocumentLayout
             top: setup.ContentTopPoints + setup.ContentHeightPoints,
             band: setup.MarginBottomPoints));
 
+        // One list and one ordering across the body and the running bands, because
+        // that is how the formats state it: a letterhead's stripe is anchored in
+        // the header and the box over it in the body, and their z-orders are the
+        // only thing saying which the reader sees. Appending the bands after the
+        // body - which is what this did - painted the header's stripe last and
+        // over anything the body put on top of it.
+        //
+        // OrderBy rather than Sort, because it is stable: shapes that state no
+        // order all sit at zero and keep the order they were read in, which is the
+        // answer this gave before z-order was modelled.
         List<LayoutShape> shapes = PlaceShapes(setup);
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup));
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
+        shapes = shapes.OrderBy(shape => shape.ZOrder).ToList();
 
         return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells);
     }
@@ -278,7 +308,8 @@ public sealed class DocumentLayout
                 shape.Outline,
                 PlaceShapeText(shape, bounds, setup),
                 shape.Image,
-                shape.BehindText));
+                shape.BehindText,
+                shape.ZOrder));
         }
 
         return placed;
@@ -318,7 +349,8 @@ public sealed class DocumentLayout
                 shape.Outline,
                 PlaceShapeText(shape, bounds, setup),
                 shape.Image,
-                shape.BehindText));
+                shape.BehindText,
+                shape.ZOrder));
         }
 
         return placed;
@@ -888,6 +920,23 @@ public sealed class DocumentLayout
 
         foreach (Token token in tokens)
         {
+            if (token.IsForcedBreak)
+            {
+                // The document says the line ends here, so it ends here even with
+                // room to spare. The whitespace held back in front of the break is
+                // dropped the way a wrapped line's trailing space is: it is the gap
+                // between two words that are no longer on the same line.
+                //
+                // Justification is deliberately not touched. The line before a
+                // forced break is stretched like any other non-final line, which
+                // is measured rather than assumed - LibreOffice does the same, and
+                // `isLastLine` below still names only the paragraph's final row.
+                pendingSpace.Clear();
+                pendingWidth = 0;
+                Flush();
+                continue;
+            }
+
             if (token.IsWhitespace)
             {
                 // Leading whitespace on a wrapped line is dropped; whitespace
@@ -1039,8 +1088,20 @@ public sealed class DocumentLayout
             string text = paragraph.Text.Substring(offset, length);
             offset += run.Length;
 
-            foreach ((string fragment, bool whitespace, bool image, bool tab) in Fragments(text, run.Style))
+            foreach ((string fragment, bool whitespace, bool image, bool tab, bool forcedBreak) in Fragments(text, run.Style))
             {
+                if (forcedBreak)
+                {
+                    if (word is not null)
+                    {
+                        tokens.Add(word);
+                        word = null;
+                    }
+
+                    tokens.Add(Token.ForcedBreak());
+                    continue;
+                }
+
                 if (image)
                 {
                     LayoutPiece piece = MakeImagePiece(run.Style);
@@ -1098,6 +1159,25 @@ public sealed class DocumentLayout
 
         foreach (char character in text)
         {
+            // A forced line break is not whitespace and not a word: it is an
+            // instruction about where the line ends. It has to be pulled out here,
+            // before the whitespace test below, because char.IsWhiteSpace is true
+            // for U+2028 - which is how a break spent this engine's whole life
+            // arriving as an ordinary space and reflowing the address block it was
+            // written to hold apart.
+            if (character == ForcedLineBreak)
+            {
+                if (builder.Length > 0)
+                {
+                    yield return new Fragment(builder.ToString(), whitespace ?? false, false, false, false);
+                    builder.Clear();
+                }
+
+                whitespace = null;
+                yield return new Fragment(string.Empty, Whitespace: false, Image: false, Tab: false, Break: true);
+                continue;
+            }
+
             // A tab is neither a word nor part of a whitespace run: how wide it is
             // depends on where along its line it falls, so it stands alone, the way
             // an image placeholder does.
@@ -1106,21 +1186,21 @@ public sealed class DocumentLayout
             {
                 if (builder.Length > 0)
                 {
-                    yield return new Fragment(builder.ToString(), whitespace ?? false, false, false);
+                    yield return new Fragment(builder.ToString(), whitespace ?? false, false, false, false);
                     builder.Clear();
                 }
 
                 whitespace = null;
                 yield return isTab
-                    ? new Fragment(string.Empty, Whitespace: true, Image: false, Tab: true)
-                    : new Fragment(string.Empty, Whitespace: false, Image: true, Tab: false);
+                    ? new Fragment(string.Empty, Whitespace: true, Image: false, Tab: true, Break: false)
+                    : new Fragment(string.Empty, Whitespace: false, Image: true, Tab: false, Break: false);
                 continue;
             }
 
             bool isSpace = char.IsWhiteSpace(character);
             if (whitespace is not null && isSpace != whitespace)
             {
-                yield return new Fragment(builder.ToString(), whitespace.Value, false, false);
+                yield return new Fragment(builder.ToString(), whitespace.Value, false, false, false);
                 builder.Clear();
             }
 
@@ -1129,10 +1209,10 @@ public sealed class DocumentLayout
         }
 
         if (builder.Length > 0)
-            yield return new Fragment(builder.ToString(), whitespace ?? false, false, false);
+            yield return new Fragment(builder.ToString(), whitespace ?? false, false, false, false);
     }
 
-    private readonly record struct Fragment(string Text, bool Whitespace, bool Image, bool Tab);
+    private readonly record struct Fragment(string Text, bool Whitespace, bool Image, bool Tab, bool Break);
 
     /// <summary>
     /// The drawable pieces for a fragment. Usually one; small capitals produce
@@ -1290,12 +1370,23 @@ public sealed class DocumentLayout
         public List<LayoutLine> Lines { get; }
     }
 
-    /// <summary>An unbreakable run of pieces: one word, one whitespace gap, one tab, or one image.</summary>
+    /// <summary>
+    /// An unbreakable run of pieces: one word, one whitespace gap, one tab, one
+    /// image - or the forced break, which is the one token that carries no pieces
+    /// at all and says only where the line ends.
+    /// </summary>
     private sealed class Token
     {
-        private Token(bool isWhitespace) => IsWhitespace = isWhitespace;
+        private Token(bool isWhitespace, bool isForcedBreak = false)
+        {
+            IsWhitespace = isWhitespace;
+            IsForcedBreak = isForcedBreak;
+        }
 
         public bool IsWhitespace { get; }
+
+        /// <summary>True for the token U+2028 makes: end this line here.</summary>
+        public bool IsForcedBreak { get; }
 
         public List<LayoutPiece> Pieces { get; } = new();
 
@@ -1305,6 +1396,13 @@ public sealed class DocumentLayout
         public bool IsTab => Pieces.Count == 1 && Pieces[0].IsTab;
 
         public static Token Empty(bool isWhitespace = false) => new(isWhitespace);
+
+        /// <summary>
+        /// The break itself. Not whitespace: the wrapping loop drops leading
+        /// whitespace, and a break that arrived as whitespace would be dropped
+        /// at the very place it is meant to act.
+        /// </summary>
+        public static Token ForcedBreak() => new(isWhitespace: false, isForcedBreak: true);
 
         public static Token Single(LayoutPiece piece, bool isWhitespace = false)
         {

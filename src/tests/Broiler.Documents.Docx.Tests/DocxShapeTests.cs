@@ -1,3 +1,5 @@
+using Broiler.Graphics;
+
 namespace Broiler.Documents.Docx.Tests;
 
 /// <summary>
@@ -210,6 +212,41 @@ public sealed class DocxShapeTests
         Assert.Equal(
             Assert.Single(source.Shapes).Wrap,
             Assert.Single(actual.Shapes).Wrap);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void An_Anchors_Relative_Height_Is_The_Shapes_Z_Order()
+    {
+        // A letterhead states its stacking here and nowhere else: the stripe in
+        // the header and the box over it in the body carry relativeHeight 2 and 3,
+        // and reading neither left the render painting them in whatever order the
+        // parts happened to be walked in.
+        string shape = GradientShape.Replace(
+            "<wp:anchor xmlns:wp=",
+            "<wp:anchor relativeHeight=\"7\" xmlns:wp=",
+            StringComparison.Ordinal);
+
+        Assert.Equal(7, Assert.Single(Read(shape).Shapes).ZOrder);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void An_Anchor_That_States_No_Relative_Height_Reads_As_Zero()
+    {
+        // Zero is "the format said nothing", which leaves the order the shapes
+        // were read in - the answer every anchor got before this was read at all.
+        Assert.Equal(0, Assert.Single(Read(GradientShape).Shapes).ZOrder);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Z_Order_Round_Trips_Through_The_Writer()
+    {
+        RichTextDocument source = RichTextDocument
+            .FromPlainText("body")
+            .WithShapes([new DocumentShape(0, -40, 0, 30, 200, ShapeFill.Solid(BColor.Black), zOrder: 4)]);
+
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false);
+
+        Assert.Equal(4, Assert.Single(new DocxDocumentCodec().Read(stream).Document.Shapes).ZOrder);
     }
 
     [Fact(Timeout = 600000)]

@@ -386,9 +386,31 @@ internal static class OdtReader
             image: null,
             behindText: behindText,
             wrap: wrap,
-            wrapSide: wrapSide));
+            wrapSide: wrapSide,
+            zOrder: ZIndex(drawing)));
         return true;
     }
+
+    /// <summary>
+    /// ODF's <c>draw:z-index</c>: which of two overlapping drawings the reader
+    /// sees, with the higher number on top.
+    /// </summary>
+    /// <remarks>
+    /// One order for the whole document and not one per master page, which is
+    /// what a letterhead needs: the stripe is anchored in the first page's header
+    /// and the logo box in the body, and the two indices are the only statement
+    /// of which wins where they overlap. A drawing that states none reads as
+    /// zero, which leaves the order it was read in - the answer this reader gave
+    /// before the attribute was read at all.
+    /// </remarks>
+    private static int ZIndex(XElement drawing) =>
+        int.TryParse(
+            (string?)drawing.Attribute(OdtNamespaces.Draw + "z-index"),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out int index)
+            ? index
+            : 0;
 
     /// <summary>
     /// The fill, outline, and stacking a graphic style states, resolving a named
@@ -1440,7 +1462,8 @@ internal static class OdtReader
             image: image,
             behindText: behindText,
             wrap: wrap,
-            wrapSide: wrapSide));
+            wrapSide: wrapSide,
+            zOrder: ZIndex(frame)));
         return true;
     }
 

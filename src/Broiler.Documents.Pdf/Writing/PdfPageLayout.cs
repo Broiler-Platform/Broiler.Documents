@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using Broiler.Documents.Model;
@@ -77,7 +78,8 @@ internal sealed record PdfPlacedShape(
     double Width,
     double Height,
     ShapeFill? Fill,
-    BColor Outline);
+    BColor Outline,
+    int ZOrder = 0);
 
 /// <summary>One laid-out page.</summary>
 internal sealed class PdfLayoutPage
@@ -295,6 +297,7 @@ internal sealed class PdfPageLayout
         pages.Add(page);
         PlaceShapes(document.Shapes, anchors, setup);
         PlaceRunningContent(pages, document.RunningContent, setup, document.PageGeometry);
+        OrderShapes(pages);
         return pages;
     }
 
@@ -366,6 +369,35 @@ internal sealed class PdfPageLayout
     }
 
     /// <summary>
+    /// Puts every page's shapes into the order the document stacked them in.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Once rather than as they arrive, because they do not arrive in one pass:
+    /// a table's shading and rules go down with the text, body shapes after the
+    /// last page is known, and a running band's after that. Appending in that
+    /// order painted a header's stripe over anything the body had put on top of
+    /// it, which is the one arrangement a letterhead is made of.
+    /// </para>
+    /// <para>
+    /// OrderBy rather than Sort, because it is stable: a table's shading carries
+    /// no z-order and neither does a shape whose format stated none, so all of
+    /// them sit at zero and keep the order they were placed in - which is the
+    /// answer this gave before z-order was modelled, and the one that keeps a
+    /// cell's shading under its own rules.
+    /// </para>
+    /// </remarks>
+    private static void OrderShapes(List<PdfLayoutPage> pages)
+    {
+        foreach (PdfLayoutPage page in pages)
+        {
+            List<PdfPlacedShape> ordered = page.Shapes.OrderBy(shape => shape.ZOrder).ToList();
+            page.Shapes.Clear();
+            page.Shapes.AddRange(ordered);
+        }
+    }
+
+    /// <summary>
     /// Places a running band's shapes on one page. Unlike a body shape there is
     /// no paragraph to hang from: the offset is measured from the top of the page,
     /// which in PDF's upward user space is a subtraction from its height.
@@ -395,7 +427,8 @@ internal sealed class PdfPageLayout
                 shape.Width,
                 shape.Height,
                 shape.Fill,
-                shape.Outline));
+                shape.Outline,
+                shape.ZOrder));
 
             if (shape.HasText)
                 PlaceRunningBlock(page, shape.Paragraphs, left, shape.Width, top, shape.Height, isHeader: true);
@@ -788,7 +821,8 @@ internal sealed class PdfPageLayout
                 shape.Width,
                 shape.Height,
                 shape.Fill,
-                shape.Outline));
+                shape.Outline,
+                shape.ZOrder));
 
             if (shape.HasText)
                 PlaceRunningBlock(anchor.Page, shape.Paragraphs, left, shape.Width, top, shape.Height, isHeader: true);
@@ -1029,6 +1063,20 @@ internal sealed class PdfPageLayout
         {
             _cancellationToken.ThrowIfCancellationRequested();
 
+            if (enumerated.IsForcedBreak)
+            {
+                // The document says the line ends here, so it ends here with room
+                // to spare. The trailing space in front of the break goes the way a
+                // wrapped line's does, and the empty line that two breaks in a row
+                // make is kept, because that is the blank line the author typed.
+                TrimTrailingSpace(current);
+                lines.Add(current);
+                current = new LayoutLine();
+                used = 0;
+                StartLine();
+                continue;
+            }
+
             // What a tab is worth is the distance to the stop it lands on, so it
             // can only be measured here, where the line's used width is known.
             Word word = enumerated.IsTab
@@ -1207,8 +1255,22 @@ internal sealed class PdfPageLayout
                 continue;
             }
 
+            // And a forced break is its own word for the opposite reason: it has no
+            // width at all and says only where the line ends. Left in the text it
+            // would be swept into the word around it and drawn as whatever glyph
+            // the font has for U+2028, which is none in any of the standard
+            // fourteen. This branch and the scan below are one change in two
+            // halves: the scan has to stop in front of a break for the branch to
+            // ever see one at the top of an iteration.
+            if (text[index] == ForcedLineBreak)
+            {
+                index++;
+                yield return Word.ForcedBreak(style);
+                continue;
+            }
+
             int start = index;
-            while (index < text.Length && !IsBreakSpace(text[index]))
+            while (index < text.Length && !IsBreakSpace(text[index]) && text[index] != ForcedLineBreak)
                 index++;
 
             // Absorb the run of spaces that follows the word.
@@ -1228,8 +1290,17 @@ internal sealed class PdfPageLayout
     }
 
     // A non-breaking space is deliberately not a break opportunity: it is the one
-    // space a document uses to say "do not wrap here".
+    // space a document uses to say "do not wrap here". U+2028 is absent for the
+    // opposite reason - it is not an opportunity but an instruction, and SplitWords
+    // has taken it out before this is asked.
     private static bool IsBreakSpace(char c) => c is ' ' or '\t';
+
+    /// <summary>
+    /// U+2028 LINE SEPARATOR, which is how the model spells a break inside a
+    /// paragraph: <c>text:line-break</c>, <c>w:br</c>, <c>\line</c> and
+    /// <c>&lt;br&gt;</c> all read and write it.
+    /// </summary>
+    private const char ForcedLineBreak = '\u2028';
 
     /// <summary>
     /// The width a line has used once the tab reaching <paramref name="used"/> has
@@ -1433,13 +1504,20 @@ internal sealed class PdfPageLayout
 
     private readonly struct Word
     {
-        public Word(string text, double width, RunStyle style, bool isSpace, bool isTab = false)
+        public Word(
+            string text,
+            double width,
+            RunStyle style,
+            bool isSpace,
+            bool isTab = false,
+            bool isForcedBreak = false)
         {
             Text = text;
             Width = width;
             Style = style;
             IsSpace = isSpace;
             IsTab = isTab;
+            IsForcedBreak = isForcedBreak;
         }
 
         /// <summary>
@@ -1447,6 +1525,14 @@ internal sealed class PdfPageLayout
         /// decides how far it reaches.
         /// </summary>
         public static Word Tab(RunStyle style) => new(string.Empty, 0, style, isSpace: true, isTab: true);
+
+        /// <summary>
+        /// The break U+2028 makes: no glyphs, no width, and the line ends after it.
+        /// Not a space, because the wrapper drops one that would open a line and
+        /// this is the one thing that has to survive to close one.
+        /// </summary>
+        public static Word ForcedBreak(RunStyle style) =>
+            new(string.Empty, 0, style, isSpace: false, isTab: false, isForcedBreak: true);
 
         public string Text { get; }
 
@@ -1460,11 +1546,15 @@ internal sealed class PdfPageLayout
         /// <summary>True for a tab: a gap of measured width that draws no glyphs.</summary>
         public bool IsTab { get; }
 
+        /// <summary>True for the break U+2028 makes: end this line here.</summary>
+        public bool IsForcedBreak { get; }
+
         public PdfStandardFont Font => Style.Font;
 
         public double FontSize => Style.FontSize;
 
-        public Word WithText(string text, double width) => new(text, width, Style, IsSpace, IsTab);
+        public Word WithText(string text, double width) =>
+            new(text, width, Style, IsSpace, IsTab, IsForcedBreak);
 
         public LayoutPiece ToPiece() => new(Text, Width, Style, IsTab);
     }

@@ -169,6 +169,32 @@ public sealed class OdtShapeTests
     }
 
     [Fact]
+    public void A_Frames_Z_Index_Is_The_Shapes_Z_Order()
+    {
+        // ODF states the stacking on the drawing rather than in its style, and a
+        // letterhead is where it matters: the header's band and the body's box
+        // overlap, and draw:z-index is the only thing saying which wins.
+        string content =
+            "<text:p><draw:custom-shape text:anchor-type=\"paragraph\" draw:z-index=\"3\" " +
+            "draw:style-name=\"gr1\" svg:width=\"2cm\" svg:height=\"3cm\" svg:x=\"-1cm\" svg:y=\"0cm\">" +
+            "<text:p>logo</text:p></draw:custom-shape>body</text:p>";
+
+        Assert.Equal(3, Assert.Single(OdtTestPackage.ReadBody(content).Document.Shapes).ZOrder);
+    }
+
+    [Fact]
+    public void A_Z_Order_Round_Trips_Through_The_Writer()
+    {
+        RichTextDocument source = WithShapes(new DocumentShape(0, -40, 0, 30, 200, Green, zOrder: 4));
+
+        Assert.Contains(
+            "draw:z-index=\"4\"",
+            ContentOf(OdtDocumentCodec.WriteToArray(source)),
+            StringComparison.Ordinal);
+        Assert.Equal(4, Assert.Single(RoundTrip(source).Shapes).ZOrder);
+    }
+
+    [Fact]
     public void A_Document_Without_Shapes_Writes_None()
     {
         Assert.DoesNotContain(
