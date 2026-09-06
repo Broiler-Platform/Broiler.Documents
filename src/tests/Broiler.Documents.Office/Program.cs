@@ -276,7 +276,7 @@ internal static class Program
                     return 99;
                 }
 
-                OfficeBaseline.Write(baselinePath, observedStamp, ToRows(readings), renders, baseline);
+                OfficeBaseline.Write(baselinePath, observedStamp, ToRows(readings), ToRows(renders), baseline);
                 Console.WriteLine();
                 Console.WriteLine("baseline    rewrote " + baselinePath + " from this run.");
                 Console.WriteLine("            New rows are recorded as suspected defects until somebody");
@@ -355,6 +355,30 @@ internal static class Program
             .Select(reading => new ReadRow(
             reading.Seed, reading.Via, reading.Check, reading.Differences, reading.Diagnostics,
             BaselineState.SuspectedDefect, null, string.Empty, null, null));
+
+    /// <summary>
+    /// The renders worth committing, on the same rule as the readings.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A row is written only when the two renderings did not agree. The file's
+    /// policy is that absence asserts agreement - "a new difference fails by not
+    /// being listed" - and a row recording that everything was fine is not an
+    /// expectation, it is a note. Three of the first forty-eight were clean and
+    /// were being written anyway, which would have started this file off as a log
+    /// of every document rather than a record of the ones that disagree.
+    /// </para>
+    /// <para>
+    /// The test for clean is the one <see cref="PixelChecks"/> already applies
+    /// when there is no row: every band at its best, and the two sides
+    /// paginating alike. Deciding it twice in two places is how the two would
+    /// come to disagree, so it is asked of <see cref="Bands"/> here as well.
+    /// </para>
+    /// </remarks>
+    private static IEnumerable<RenderRow> ToRows(IEnumerable<RenderRow> renders) =>
+        renders.Where(render =>
+            !Bands.IsBest(render.Bands) ||
+            render.BroilerdocPages != render.LibreOfficePages);
 
     /// <summary>
     /// Refuses to materialise inside the repository.
