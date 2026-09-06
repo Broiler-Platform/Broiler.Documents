@@ -41,6 +41,54 @@ Open XML WordprocessingML package parts.
   An explicit font name on the same element wins.
 - Paragraph formatting: left/center/right alignment, line spacing, spacing
   before/after, indentation, bullet lists, and numbered lists.
+- Page breaks, read from both spellings WordprocessingML has for the one thing
+  and written back as one:
+
+  | WordprocessingML | Read | Written |
+  | --- | --- | --- |
+  | `w:pPr/w:pageBreakBefore` | `ParagraphStyle.PageBreakBefore` on that paragraph | `w:pPr/w:pageBreakBefore`, first in `w:pPr` |
+  | `w:r/w:br w:type="page"` at the end of a paragraph | `PageBreakBefore` on the **following** paragraph | as `w:pageBreakBefore` on that following paragraph |
+  | `w:br` with no type, or `w:type="column"`/`"textWrapping"` | the line break it has always been (`U+2028`) | `w:br` |
+
+  `w:pageBreakBefore` follows the on/off rule the character properties do:
+  present means on, and `w:val="false"`, `"0"` or `"off"` turns off a break the
+  style chain applied — which is how a template that opens every chapter on a
+  fresh page states the one heading that must not. A break stated in a paragraph
+  style is resolved through the same chain everything else is, so a template
+  that keeps it there rather than on the paragraph still paginates.
+  `w:br w:type="page"` is what Word writes when a user presses Ctrl+Enter, and
+  it sits at the end of the paragraph *before* the page it starts, which is why
+  it is read onto the next one. The write is always the property form, because
+  that is what the model holds: a break written back into a run would make one
+  paragraph's markup depend on the paragraph after it, and would have nowhere to
+  put a break on the first paragraph of a document. It is written first in
+  `w:pPr` because that is the position `CT_PPr` gives it - see the next bullet
+  for the rule, and for how long this writer stated it without keeping it.
+- Property order, which the schema fixes rather than leaves to taste. `CT_PPr`
+  and `CT_RPr` are both `xsd:sequence`, so a property is not merely present or
+  absent: it has exactly one legal position. Word does not shrug at an
+  out-of-order property container the way it does at an element it has never
+  heard of - it can refuse the file, and a refusal costs the whole document
+  rather than the one property. What is written, in the order it is written:
+
+  | Container | Order written | Positions in the sequence |
+  | --- | --- | --- |
+  | `w:pPr` | `w:pageBreakBefore`, `w:numPr`, `w:spacing`, `w:ind`, `w:jc` | 4, 7, 22, 23, 27 |
+  | `w:rPr` | `w:rFonts`, `w:b`, `w:i`, `w:caps`/`w:smallCaps`, `w:strike`, `w:color`, `w:sz`, `w:u`, `w:shd` | 2, 3, 5, 7/8, 9, 19, 24, 27, 30 |
+
+  This bullet is new because the paragraph above it used to be the only thing
+  here that mentioned the rule, and it was true of exactly the one element it
+  described. `w:pageBreakBefore` was placed correctly and documented as being
+  placed correctly, while a dozen lines lower the same method wrote `w:jc`
+  ahead of `w:spacing` and `w:ind` - so a centred paragraph that also carried
+  spacing or an indent, which is to say most headings, left the writer out of
+  sequence. The run properties were further out still, and nothing here had ever
+  claimed they were ordered at all: `w:u` was written third, where the sentence
+  a person says out loud puts it, rather than 27th where the schema does.
+  `DocxPropertyOrderTests` asserts both sequences now. It walks whatever
+  properties are present rather than checking an exact list, so a property added
+  to the writer later is checked in its right place rather than failing a list
+  it was never named in.
 - External hyperlinks for `http`, `https`, and `mailto`, plus internal anchor
   links, written as `w:hyperlink w:anchor`. Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried.
 - Embedded pictures, read and written as a single object replacement character
@@ -145,6 +193,31 @@ Open XML WordprocessingML package parts.
   letterhead templates are built from state a tall empty row precisely to place
   the block beneath it. Read as `auto` those rows collapse and the layout falls
   in on itself.
+- A page break *inside* a paragraph is not carried. Word honours a
+  `w:br w:type="page"` with text after it in the same paragraph by splitting the
+  paragraph across the boundary; a paragraph here holds one flag saying where it
+  starts, and nothing in the model says "the first half of me is on the page
+  before". Such a break is demoted to the line break every other `w:br` becomes,
+  with `docx.pagebreak.split`, rather than carried to the next paragraph — which
+  would pull the text that followed the break onto the page before the one the
+  document put it on. Two breaks with nothing between them are two boundaries
+  and a blank page in the middle: the first is kept and
+  `docx.pagebreak.repeated` reports the rest, because honouring the later one
+  would move the paragraph a page further on than the document did. A break in
+  the last paragraph of a part has no paragraph to start and is dropped with
+  `docx.pagebreak.trailing`; a document that deliberately ends on a blank page
+  loses that page.
+- A page break at the end of a table cell is dropped, with
+  `docx.pagebreak.table`. Every cell's paragraphs live in the document's one
+  flat list, so the paragraph after a cell's last one is the neighbouring cell's
+  or the body's past the table, and neither is the row Word splits there. A
+  break on a paragraph *within* a cell is read and written back as stated, but
+  the layout places a row whole, so nothing acts on it.
+- Section breaks do not paginate. A `w:sectPr` in a paragraph's `w:pPr` with
+  `w:type="nextPage"` is a page boundary as much as a break is, but it is
+  section layout, which this codec does not read beyond the last section's page
+  geometry and running content (`docx.section.multiple`). A document that
+  paginates with section breaks rather than page breaks still reads as one flow.
 - Block nesting deeper than `DocumentLimits.MaxGroupDepth` is abandoned with a
   `docx.limit.depth` diagnostic.
 - DOCX packages above `DocumentLimits.MaxDocumentBytes` are not parsed.
@@ -167,6 +240,10 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.table.style` | Warning | A table named a table style; banding and conditional formatting are not applied. |
 | `docx.table.rowheight` | Warning | A row stated an exact height; it was applied as a minimum so its text is not clipped. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
+| `docx.pagebreak.split` | Warning | A `w:br w:type="page"` had text after it in the same paragraph; it was read as a line break, because pages break between paragraphs here and not inside one. |
+| `docx.pagebreak.repeated` | Warning | A paragraph stated more than one page break; the first was kept and the blank pages the others make were dropped. |
+| `docx.pagebreak.trailing` | Warning | A page break in the last paragraph of a part was dropped; there is no following paragraph for it to start. |
+| `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row is placed whole, so it has no page boundary inside it. |
 | `docx.limit.depth` | Warning | Block nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `docx.styles.missing` | Warning | Content named styles but the package has no styles part. Reported once. |
 | `docx.styles.unknown` | Warning | A `w:pStyle`/`w:rStyle` named a style the table does not define. Once per id. |

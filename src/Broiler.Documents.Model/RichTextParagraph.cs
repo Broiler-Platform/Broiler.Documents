@@ -171,8 +171,21 @@ public sealed class RichTextParagraph
     public (RichTextParagraph Head, RichTextParagraph Tail) SplitAt(int offset)
     {
         offset = Math.Clamp(offset, 0, Text.Length);
+
+        // The tail does not inherit the page break. Every other paragraph
+        // property describes how the paragraph looks and belongs to both halves;
+        // a break describes where the paragraph starts, and there is only one
+        // start. Copying it would mean that pressing Enter inside a paragraph
+        // that begins a page silently added a second page break to the document -
+        // an edit inventing content nobody typed, which is the worst kind.
+        //
+        // Merge needs no equivalent care: Append keeps the first paragraph's
+        // style, so the surviving break is the one that was already there.
         var head = new RichTextParagraph(Text[..offset], Style, SliceRuns(0, offset));
-        var tail = new RichTextParagraph(Text[offset..], Style, SliceRuns(offset, Text.Length - offset));
+        var tail = new RichTextParagraph(
+            Text[offset..],
+            Style with { PageBreakBefore = false },
+            SliceRuns(offset, Text.Length - offset));
         return (head, tail);
     }
 

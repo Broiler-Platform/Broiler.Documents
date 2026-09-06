@@ -37,6 +37,13 @@ internal sealed class OdtStyles
 
     public const string TextFamily = "text";
 
+    /// <summary>
+    /// The table family. Nothing here resolves table properties through the
+    /// chain, but a table style may name the master page a document starts on,
+    /// and a document may begin with a table.
+    /// </summary>
+    public const string TableFamily = "table";
+
     private readonly Dictionary<StyleKey, StyleDefinition> _styles;
     private readonly Dictionary<string, DefaultStyle> _defaults;
     private readonly Dictionary<string, string> _fontFaces;
@@ -228,7 +235,8 @@ internal sealed class OdtStyles
                 name,
                 (string?)style.Attribute(OdtNamespaces.Style + "parent-style-name"),
                 style.Element(OdtNamespaces.Style + "paragraph-properties"),
-                style.Element(OdtNamespaces.Style + "text-properties"));
+                style.Element(OdtNamespaces.Style + "text-properties"),
+                (string?)style.Attribute(OdtNamespaces.Style + "master-page-name"));
 
             XElement? graphic = style.Element(OdtNamespaces.Style + "graphic-properties");
             if (graphic is not null)
@@ -345,6 +353,45 @@ internal sealed class OdtStyles
     }
 
     /// <summary>
+    /// The master page a style puts its content on, resolved through the
+    /// inheritance chain, or null when no style in the chain names one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ODF 1.3 section 20.301 puts <c>style:master-page-name</c> on the
+    /// paragraph or table style rather than on the content, and a style that
+    /// carries a non-empty one starts a new page laid out by that master. It is
+    /// the only route from a document's body to its paper: the master pages
+    /// themselves sit in <c>styles.xml</c> in no particular order and none of
+    /// them is marked as the one the document begins on.
+    /// </para>
+    /// <para>
+    /// The most specific declaration wins, which is why the chain is walked
+    /// rather than the named style being read directly. A word processor
+    /// routinely emits an automatic style whose only content is this attribute
+    /// and whose parent carries everything else.
+    /// </para>
+    /// <para>
+    /// An empty value is kept rather than treated as absent, and the difference
+    /// is load-bearing. ODF says an empty <c>style:master-page-name</c> means no
+    /// page break occurs, so a style can use it to cancel one it would otherwise
+    /// have inherited. Folding empty into null would turn that cancellation back
+    /// into the inherited page.
+    /// </para>
+    /// </remarks>
+    public string? MasterPageName(string family, string? styleName)
+    {
+        string? name = null;
+        foreach (StyleDefinition style in Chain(family, styleName))
+        {
+            if (style.MasterPageName is not null)
+                name = style.MasterPageName;
+        }
+
+        return name;
+    }
+
+    /// <summary>
     /// Resolves a <c>style:font-name</c> reference to the family its
     /// <c>style:font-face</c> declares. A document that names a face it never
     /// declared keeps the reference, which is usually the family name anyway.
@@ -456,7 +503,8 @@ internal sealed class OdtStyles
         string Name,
         string? ParentStyleName,
         XElement? ParagraphProperties,
-        XElement? TextProperties);
+        XElement? TextProperties,
+        string? MasterPageName);
 
     private sealed record DefaultStyle(XElement? ParagraphProperties, XElement? TextProperties);
 

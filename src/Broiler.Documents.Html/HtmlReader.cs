@@ -32,6 +32,17 @@ internal static class HtmlReader
         "title",
     };
 
+    /// <summary>
+    /// The two properties that say a box starts on a new page, both of which are
+    /// current. <c>page-break-before</c> is the CSS2 property and is what
+    /// LibreOffice writes; <c>break-before</c> is the CSS3 replacement that the
+    /// older one is now defined as an alias for. A reader that knew only one of
+    /// them would take the break out of every document written by the other
+    /// half of the world, and say nothing, because a break that was never read
+    /// leaves nothing behind to report.
+    /// </summary>
+    private static readonly string[] PageBreakProperties = ["page-break-before", "break-before"];
+
     public static DocumentReadResult Read(byte[] bytes, DocumentReadOptions options, bool truncated)
     {
         ArgumentNullException.ThrowIfNull(bytes);
@@ -62,28 +73,50 @@ internal static class HtmlReader
         foreach (HtmlParseDiagnostic diagnostic in parse.Diagnostics)
             diagnostics.Add(DocumentDiagnostic.Warning("html.parse", diagnostic.Message));
 
+        // Gathered before the walk rather than after it, because the type rules
+        // in it are a base for every element the walk touches. The page comes out
+        // of the same text at the end: one collection of the style elements
+        // answers both questions, and two collections would be two chances for
+        // the answers to disagree about what the document's stylesheet is.
+        string? styleSheetText = StyleSheetText(parse.Document);
+        HtmlStyleSheet styleSheet = HtmlStyleSheet.Parse(styleSheetText);
+        if (styleSheet.HasSkippedRule)
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "html.css.rule",
+                "A style rule was not applied because this codec does not implement it; " +
+                "only a bare element-name selector and the @page at-rule are read."));
+        }
+
         var builder = new HtmlDocumentBuilder(options.Limits, diagnostics);
         DomNode root = parse.Document.Body is not null
             ? parse.Document.Body
             : parse.Document.DocumentElement is not null ? parse.Document.DocumentElement : parse.Document;
-        ReadChildren(root, builder, InlineStyle.Default, ParagraphStyle.Default, preserveWhitespace: false);
-        return new DocumentReadResult(builder.Build(), diagnostics, DocumentReadResult.StatusFrom(diagnostics));
+        ReadChildren(root, builder, styleSheet, InlineStyle.Default, ParagraphStyle.Default, preserveWhitespace: false);
+
+        RichTextDocument document = builder.Build();
+        if (HtmlPage.TryRead(styleSheetText, PageGeometry.A4, out PageGeometry page))
+            document = document.WithPageGeometry(page);
+
+        return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
     }
 
     private static void ReadChildren(
         DomNode parent,
         HtmlDocumentBuilder builder,
+        HtmlStyleSheet styleSheet,
         InlineStyle inlineStyle,
         ParagraphStyle paragraphStyle,
         bool preserveWhitespace)
     {
         foreach (DomNode child in parent.ChildNodes)
-            ReadNode(child, builder, inlineStyle, paragraphStyle, preserveWhitespace);
+            ReadNode(child, builder, styleSheet, inlineStyle, paragraphStyle, preserveWhitespace);
     }
 
     private static void ReadNode(
         DomNode node,
         HtmlDocumentBuilder builder,
+        HtmlStyleSheet styleSheet,
         InlineStyle inlineStyle,
         ParagraphStyle paragraphStyle,
         bool preserveWhitespace)
@@ -111,12 +144,12 @@ internal static class HtmlReader
             return;
         }
 
-        InlineStyle childInline = ApplyInlineElement(element, inlineStyle, builder.Diagnostics);
-        ParagraphStyle childParagraph = ApplyParagraphElement(element, paragraphStyle);
+        InlineStyle childInline = ApplyInlineElement(element, styleSheet, inlineStyle, builder.Diagnostics);
+        ParagraphStyle childParagraph = ApplyParagraphElement(element, styleSheet, paragraphStyle);
         bool childPreserveWhitespace =
             preserveWhitespace ||
             tag.Equals("pre", StringComparison.OrdinalIgnoreCase) ||
-            PreservesWhitespace(element);
+            PreservesWhitespace(element, styleSheet);
 
         if (tag.Equals("ul", StringComparison.OrdinalIgnoreCase) ||
             tag.Equals("ol", StringComparison.OrdinalIgnoreCase))
@@ -127,7 +160,7 @@ internal static class HtmlReader
                 IndentLevel = Math.Max(1, childParagraph.IndentLevel + 1),
             };
             builder.FinishParagraph(force: false);
-            ReadChildren(element, builder, childInline, listStyle, childPreserveWhitespace);
+            ReadChildren(element, builder, styleSheet, childInline, listStyle, childPreserveWhitespace);
             builder.FinishParagraph(force: false);
             return;
         }
@@ -140,8 +173,17 @@ internal static class HtmlReader
             if (tag.StartsWith("h", StringComparison.OrdinalIgnoreCase) && tag.Length == 2 && char.IsDigit(tag[1]))
                 childInline = ApplyHeadingInline(tag, childInline);
 
-            builder.StartParagraph(childParagraph);
-            ReadChildren(element, builder, childInline, childParagraph, childPreserveWhitespace);
+            // The break goes on the style this paragraph is started with and not
+            // on the one its children inherit. Every other paragraph property
+            // here descends - a centred div centres the paragraphs inside it -
+            // but a break does not: it happens once, where it was stated, and a
+            // div carrying one is not three page breaks because it holds three
+            // paragraphs.
+            builder.StartParagraph(childParagraph with
+            {
+                PageBreakBefore = DeclaresPageBreakBefore(element, styleSheet, builder),
+            });
+            ReadChildren(element, builder, styleSheet, childInline, childParagraph, childPreserveWhitespace);
             builder.FinishParagraph(force: true);
             return;
         }
@@ -149,16 +191,17 @@ internal static class HtmlReader
         if (BlockContainers.Contains(tag))
         {
             builder.FinishParagraph(force: false);
-            ReadChildren(element, builder, childInline, childParagraph, childPreserveWhitespace);
+            ReadChildren(element, builder, styleSheet, childInline, childParagraph, childPreserveWhitespace);
             builder.FinishParagraph(force: false);
             return;
         }
 
-        ReadChildren(element, builder, childInline, childParagraph, childPreserveWhitespace);
+        ReadChildren(element, builder, styleSheet, childInline, childParagraph, childPreserveWhitespace);
     }
 
     private static InlineStyle ApplyInlineElement(
         DomElement element,
+        HtmlStyleSheet styleSheet,
         InlineStyle style,
         ICollection<DocumentDiagnostic> diagnostics)
     {
@@ -195,7 +238,7 @@ internal static class HtmlReader
                 break;
         }
 
-        IReadOnlyDictionary<string, string> declarations = HtmlCss.ParseDeclarations(element.GetAttribute("style"));
+        IReadOnlyDictionary<string, string> declarations = styleSheet.DeclarationsFor(element);
         foreach (KeyValuePair<string, string> declaration in declarations)
             style = ApplyInlineCss(style, declaration.Key, declaration.Value);
 
@@ -276,7 +319,25 @@ internal static class HtmlReader
             case "background":
             case "background-color":
                 if (HtmlCss.TryParseColor(value.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault(), out BColor background))
-                    return style with { Background = background };
+                {
+                    // A transparent background is no background, and the model
+                    // spells that BColor.Empty rather than a colour that happens
+                    // to be invisible. Storing the transparent colour instead
+                    // made every such run a highlighted run: it counts in
+                    // info's highlightedRuns, it survives into every writer that
+                    // emits a highlight, and it is a highlight nobody applied.
+                    //
+                    // It cost nothing while only an inline style could say it.
+                    // Then type-selector rules arrived and LibreOffice writes
+                    // "background: transparent" in the p rule of every HTML
+                    // document it produces, which turned a latent wrong answer
+                    // into one on every paragraph of every such file.
+                    return style with
+                    {
+                        Background = background.A == 0 ? BColor.Empty : background,
+                    };
+                }
+
                 break;
             case "text-transform":
                 if (value.Equals("uppercase", StringComparison.OrdinalIgnoreCase))
@@ -322,20 +383,93 @@ internal static class HtmlReader
     }
 
     /// <summary>
-    /// Whether an element's own <c>white-space</c> declaration keeps the tabs and
+    /// Whether an element's <c>white-space</c> declaration keeps the tabs and
     /// runs of spaces inside it, the way <c>pre</c> does. It is how a browser is
     /// told to show a tab as a tab, and so how a tab reaches this reader intact.
     /// <c>pre-line</c> is not one of them: it keeps line breaks and collapses
     /// everything else, tabs included.
     /// </summary>
-    private static bool PreservesWhitespace(DomElement element)
+    private static bool PreservesWhitespace(DomElement element, HtmlStyleSheet styleSheet)
     {
-        IReadOnlyDictionary<string, string> declarations = HtmlCss.ParseDeclarations(element.GetAttribute("style"));
+        IReadOnlyDictionary<string, string> declarations = styleSheet.DeclarationsFor(element);
         return declarations.TryGetValue("white-space", out string? value) &&
                value.Trim().ToLowerInvariant() is "pre" or "pre-wrap" or "break-spaces";
     }
 
-    private static ParagraphStyle ApplyParagraphElement(DomElement element, ParagraphStyle style)
+    /// <summary>
+    /// Whether the declarations resolved for this element say the paragraph
+    /// starts a new page.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Read from the element's own style and from a bare type rule beneath it,
+    /// which is what every other declaration this reader looks at now does. It
+    /// used to be the element alone, and the reasoning was that a rule selecting
+    /// paragraphs is the cascade and this codec has none - true while the codec
+    /// matched no selector at all, and no longer true of <c>p</c>. Carving the
+    /// break out of what <see cref="HtmlStyleSheet"/> resolves would leave a
+    /// document whose line spacing came from its stylesheet and whose page breaks
+    /// did not, and no reader of either the code or the output could say why.
+    /// A class rule still selects nothing, and that is the line that moved: not
+    /// off the element, but from "no selector" to "one selector".
+    /// </para>
+    /// <para>
+    /// <c>auto</c> is the initial value and is not a break. Neither is
+    /// <c>avoid</c>, which asks for the opposite, nor the column and region
+    /// values, which name a fragmentation into containers this model does not
+    /// have.
+    /// </para>
+    /// <para>
+    /// When the two spellings disagree - <c>page-break-before: always</c> beside
+    /// <c>break-before: auto</c> - the break wins. CSS settles that by source
+    /// order, and source order is exactly what
+    /// <see cref="HtmlCss.ParseDeclarations"/> does not keep: it returns a
+    /// dictionary. Rather than invent an order, both are read as one question,
+    /// which is whether a break is stated anywhere in the style resolved for this
+    /// paragraph. A document that says it twice means it once.
+    /// </para>
+    /// </remarks>
+    private static bool DeclaresPageBreakBefore(
+        DomElement element, HtmlStyleSheet styleSheet, HtmlDocumentBuilder builder)
+    {
+        IReadOnlyDictionary<string, string> declarations = styleSheet.DeclarationsFor(element);
+        bool breaks = false;
+        foreach (string property in PageBreakProperties)
+        {
+            if (!declarations.TryGetValue(property, out string? value))
+                continue;
+
+            switch (value.Trim().ToLowerInvariant())
+            {
+                case "always":
+                case "page":
+                    breaks = true;
+                    break;
+                case "left":
+                case "right":
+                case "recto":
+                case "verso":
+                    // These break to the next page of a named side, which is one
+                    // page break or two depending on where the document had got
+                    // to. The break is kept because a break is what the document
+                    // asked for; the side is not, because the model holds a flag
+                    // and has no notion of which face of a sheet a page lands on.
+                    // Keeping the larger half and naming the half that went is
+                    // the whole reason this codec reports anything at all.
+                    builder.AddDiagnosticOnce(
+                        "html.page-break",
+                        "A page break to a named left or right page was read as a plain page break; " +
+                        "the model carries no page parity.");
+                    breaks = true;
+                    break;
+            }
+        }
+
+        return breaks;
+    }
+
+    private static ParagraphStyle ApplyParagraphElement(
+        DomElement element, HtmlStyleSheet styleSheet, ParagraphStyle style)
     {
         string tag = element.LocalName;
         if (tag.Equals("blockquote", StringComparison.OrdinalIgnoreCase))
@@ -345,7 +479,7 @@ internal static class HtmlReader
         if (!string.IsNullOrWhiteSpace(align))
             style = ApplyAlignment(style, align);
 
-        IReadOnlyDictionary<string, string> declarations = HtmlCss.ParseDeclarations(element.GetAttribute("style"));
+        IReadOnlyDictionary<string, string> declarations = styleSheet.DeclarationsFor(element);
         foreach (KeyValuePair<string, string> declaration in declarations)
         {
             switch (declaration.Key)
@@ -386,6 +520,44 @@ internal static class HtmlReader
             "justify" => style with { Alignment = TextAlignment.Justify },
             _ => style with { Alignment = TextAlignment.Left },
         };
+    }
+
+    /// <summary>
+    /// The text of every <c>style</c> element in the document, joined.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>style</c> is in this reader's skip list and stays there: its content is
+    /// not text the document says, and a reader that let it through would put a
+    /// stylesheet in the middle of the prose. What that skip also did was throw
+    /// away everything in a stylesheet the model has somewhere to put. So the
+    /// element is still skipped for content and read here twice over - by
+    /// <see cref="HtmlPage"/> for the page, and by <see cref="HtmlStyleSheet"/>
+    /// for the type-selector rules that stand under each element's own style.
+    /// </para>
+    /// <para>
+    /// Every sheet rather than the first, because a producer may split the page
+    /// away from the rest; <see cref="HtmlPage"/> takes the first rule it finds
+    /// across them and <see cref="HtmlStyleSheet"/> reads them all in order. A
+    /// <c>link</c> to an external sheet is not followed - this codec reads a
+    /// document, and fetching a URL to find out how a paragraph is spaced would
+    /// make reading one a network operation.
+    /// </para>
+    /// </remarks>
+    private static string? StyleSheetText(DomDocument document)
+    {
+        StringBuilder? text = null;
+        foreach (DomElement element in document.GetElementsByTagName("style"))
+        {
+            string content = element.TextContent;
+            if (string.IsNullOrWhiteSpace(content))
+                continue;
+
+            text ??= new StringBuilder();
+            text.AppendLine(content);
+        }
+
+        return text?.ToString();
     }
 
     private static string DecodeUtf8(byte[] bytes)

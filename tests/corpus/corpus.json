@@ -333,6 +333,23 @@
       "notes": "The image is the PNG the tool rendered for this run, so the sample carries a real encoded image without one being committed. The doubled space is where the image goes. The path is quoted because the PROPS field is split on commas outside quotes and a temporary directory is not this project's to choose."
     },
     {
+      "id": "page-break",
+      "title": "An explicit page break",
+      "exercises": [
+        "pageBreakBefore",
+        "pagination"
+      ],
+      "lines": [
+        "The paragraph before the break.",
+        "The paragraph the document says starts a new page.",
+        "A third, so the break is not the last thing in the document."
+      ],
+      "operations": [
+        "para:1:pagebreak=on"
+      ],
+      "notes": "The one paragraph property that is not a description of how the paragraph looks. Four of the five formats can state it - DOCX as w:pageBreakBefore, ODF as fo:break-before, RTF as \\pagebb, HTML as page-break-before - and Markdown cannot, so it is also the sample that watches a codec say what it dropped rather than drop it quietly. It sits on the middle paragraph on purpose: a break on the first would be indistinguishable from a document that simply starts, and a break on the last has nothing after it to be pushed onto the new page."
+    },
+    {
       "id": "long-flow",
       "title": "Text long enough to wrap and paginate",
       "exercises": [

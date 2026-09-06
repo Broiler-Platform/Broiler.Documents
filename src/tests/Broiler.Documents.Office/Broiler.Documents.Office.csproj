@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Office</RootNamespace>
+    <AssemblyName>broilerdoc-office</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RollForward>LatestMinor</RollForward>
+  </PropertyGroup>
+
+  <!--
+    A console runner rather than an xunit project, for the same two reasons the
+    corpus suite gives: it needs the built `broilerdoc` executable to exist
+    before it runs, which is a build ordering requirement no test discovery pass
+    expresses, and CI floors the `dotnet test` count to catch a build that
+    silently stopped producing test assemblies. Folding several hundred
+    process-level checks into that number would make the floor say less.
+
+    It differs from the corpus suite in one way that decides everything else
+    about it: it drives a second, foreign implementation. The corpus suite is
+    evidence about round-trip fidelity within this component. This one is
+    evidence about interchange with something that was not written here, which
+    is the gap docs/corpus-suite.md openly says the corpus cannot close.
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    Linked rather than copied. Both files describe how a check is spawned and
+    reported, and two definitions of that would drift - the corpus suite has
+    already paid for one such drift, where CheckResult's own documentation
+    promised an `only` option the runner never grew. They keep their original
+    namespace, so the files here carry `using Broiler.Documents.Corpus;`. That
+    is slightly odd to read, and it is the price of one definition.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Broiler.Documents.Corpus\BroilerDocTool.cs" Link="BroilerDocTool.cs" />
+    <Compile Include="..\Broiler.Documents.Corpus\CheckResult.cs" Link="CheckResult.cs" />
+  </ItemGroup>
+
+  <!--
+    Build ordering only. ReferenceOutputAssembly is false because this project
+    calls the tool through its command line and never links against it: the
+    contract under test is the executable's, and a runner holding a reference to
+    the assembly could accidentally test the code instead of the contract.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Broiler.Documents.Cli\Broiler.Documents.Cli.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

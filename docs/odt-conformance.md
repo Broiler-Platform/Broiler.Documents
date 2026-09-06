@@ -77,6 +77,53 @@ toolkit behind it.
   `fo:line-height` as a percentage, `fo:margin-top`, `fo:margin-bottom`,
   `fo:margin-left`, and the single-value `fo:margin` shorthand. Lengths are read
   in `pt`, `in`, `cm`, `mm`, `pc`, and `px`.
+- Page breaks. `fo:break-before` on `style:paragraph-properties` is
+  `ParagraphStyle.PageBreakBefore`, resolved through the same inheritance chain
+  as the alignment and the margins rather than off the style the content names —
+  a word processor routinely puts the break on a named style and the direct
+  formatting on the automatic style that inherits from it, so the most specific
+  declaration wins. `page` is a break. `auto` is not, and cancels one the chain
+  carried, which is exactly what a producer writes it for. `column` is not a page
+  break either: it moves to the next column of the same page. It overrides an
+  inherited break and is reported as `odt.break.column`, because a model with no
+  columns has nowhere to keep it. A write states `fo:break-before="page"` and
+  states nothing at all when there is no break — an automatic style here inherits
+  from `Standard`, which states none, so absence already says it, and writing
+  `auto` would give every ordinary paragraph an automatic style of its own.
+
+  `fo:break-after="page"` is **read onto the paragraph that follows**, not
+  dropped. The two spellings are one break in one gap: a break stated after
+  paragraph five and a break stated before paragraph six put the same page in the
+  same place, and that identity is the whole reason the model holds the near end
+  and not both. Moving the far spelling one paragraph forward is therefore not a
+  guess at what the author meant; it is the same fact written the only way the
+  model can write it, and it is the difference between a `break-after` document
+  paginating here the way it paginates in the application that wrote it and
+  paginating a page short. Nothing is ever written back as `fo:break-after`.
+  Where both ends of one gap speak, either asking for a page gets one: a
+  `break-after` above beats a `break-before` of `auto` below, because `auto` says
+  only that this paragraph does not itself start a page.
+
+  The carry goes one paragraph and stays inside one flow of text. The body, each
+  header, each footer, and each shape that keeps its own text read their own, so
+  a break at the end of a header cannot come out at the top of the body. A text
+  box read as body content is body content, and its paragraphs are in the body's
+  flow, which is the same rule seen from the other side. Three positions have no
+  following paragraph that could hold the break, and each drops it with an
+  `odt.break.after` warning rather than quietly: after the last paragraph of a
+  flow, where it asks for a page with nothing on it and this model is a sequence
+  of paragraphs rather than of pages; immediately before a table, where the break
+  belongs to the table and putting it on the first cell's paragraph would break
+  the page inside the grid instead of in front of it; and at the end of a table
+  cell, where the next paragraph is the first of the next cell, which is across
+  the grid rather than down the page.
+
+  `fo:break-before` itself is read wherever it is stated, a paragraph inside a
+  table cell included; what a renderer does with a page break in the middle of a
+  grid is the renderer's decision and not the codec's to pre-empt. A page break
+  *implied* by a non-empty `style:master-page-name` is not read as one — every
+  document names a master page on its first block, and the first page of a
+  document is not a break.
 - Lists: the kind comes from the `text:list-style` the list names —
   `text:list-level-style-number` with a `style:num-format` is numbered,
   `text:list-level-style-bullet` and `text:list-level-style-image` are bulleted —
@@ -93,6 +140,23 @@ toolkit behind it.
   `svg:title` (falling back to `svg:desc`). A write stores each distinct image
   once under `Pictures`, declares it in the manifest, and anchors the frame
   `as-char`. Raster formats only: PNG, JPEG, GIF, BMP, TIFF, WebP, and ICO.
+- The page, from the `style:page-layout` that a master page names: size, and the
+  four margins. Which master page is a question ODF answers from the other end —
+  a master page never says it is the first, the content says which one it is on,
+  through the `style:master-page-name` of the style on its first block. So that
+  is what the reader follows, resolving the attribute through the style
+  inheritance chain (the most specific declaration wins, and an empty one cancels
+  an inherited one, per ODF's rule that empty means no page break occurs). A
+  document whose first block names nothing falls back to the master page called
+  `Standard`, and then to the first one defined. Only the first block is
+  consulted: a name further down starts a later page, and this model holds one
+  page rather than a sequence of them. The reader previously took the first
+  master page outright, which is correct for documents a word processor writes
+  from scratch and wrong for ones it converts — LibreOffice turning HTML into ODF
+  writes `Standard` carrying its own default paper and `HTML` carrying the page
+  the source asked for, and lays the body out on the second. The header and
+  footer are read from the same master page as the paper, because a Letter header
+  on an A4 page is not a thing any document said.
 - A master page's header and footer shapes, read onto the running content and
   written back into the master page. They are placed against the page rather
   than a paragraph, so a header's `svg:y` is read from the top of the page. Their
@@ -221,6 +285,8 @@ blank:
 | `odt.link` | Warning | A hyperlink with a disallowed or relative target was dropped. |
 | `odt.align.justify` | Warning | A justified paragraph was read as left-aligned. |
 | `odt.linespacing.fixed` | Warning | A fixed line height was not represented. |
+| `odt.break.column` | Warning | A `fo:break-before`/`-after` of `column` was read as no break; the model breaks pages and has no columns. |
+| `odt.break.after` | Warning | A `fo:break-after="page"` had no following paragraph in the same flow to carry it to — the flow ended, or the next block was a table, or the cell did — and was dropped. |
 | `odt.text.transform` | Warning | A `lowercase`/`capitalize` transform was dropped. |
 | `odt.styles.unknown` | Warning | A style reference named an undefined style. Once per family and name. |
 | `odt.styles.cycle` | Warning | A `style:parent-style-name` chain was cyclic and was cut short. |

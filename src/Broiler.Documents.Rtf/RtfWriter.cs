@@ -69,6 +69,7 @@ public static class RtfWriter
             RichTextParagraph paragraph = document.Paragraphs[i];
             sb.Append("\\pard\\plain");
             WriteParagraphProperties(sb, paragraph.Style);
+            WritePageBreak(sb, paragraph.Style, first: i == 0);
             sb.Append(' ');
             foreach (DocumentShape shape in document.Shapes)
             {
@@ -187,6 +188,7 @@ public static class RtfWriter
             {
                 sb.Append("\\pard\\plain");
                 WriteParagraphProperties(sb, paragraph.Style);
+                ReportBreakOutsideTheBody(paragraph.Style, diagnostics, reported);
                 sb.Append(' ');
                 WriteRuns(sb, paragraph, fonts, colors, resources, diagnostics, reported);
                 sb.Append("\\par");
@@ -269,6 +271,7 @@ public static class RtfWriter
             {
                 sb.Append("\\pard\\plain");
                 WriteParagraphProperties(sb, paragraph.Style);
+                ReportBreakOutsideTheBody(paragraph.Style, diagnostics, reported);
                 sb.Append(' ');
                 WriteRuns(sb, paragraph, fonts, colors, resources, diagnostics, reported);
                 sb.Append("\\par");
@@ -332,6 +335,67 @@ public static class RtfWriter
             sb.Append("\\sb").Append(Twips(style.SpacingBefore));
         if (style.SpacingAfter != 0f)
             sb.Append("\\sa").Append(Twips(style.SpacingAfter));
+    }
+
+    /// <summary>
+    /// Writes a paragraph's page break: <c>\page</c> in the text, or
+    /// <c>\pagebb</c> when the paragraph is the first in the document.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// RTF spells the same break both ways and Word and Writer honour both, but
+    /// <c>\page</c> is the one a small reader is likeliest to know. It lives in
+    /// the character stream, which any reader has to walk to get the text out at
+    /// all, where <c>\pagebb</c> is a paragraph property that a reader not
+    /// modelling paragraph properties steps over without a word. Emitting both
+    /// was the other option and it is worse: a reader honouring both would be
+    /// told to break twice for one break.
+    /// </para>
+    /// <para>
+    /// The first paragraph takes <c>\pagebb</c> instead, because a <c>\page</c>
+    /// at the head of the body is not a break between two things - there is
+    /// nothing before it - and a reader that meets one draws a blank page the
+    /// document never asked for. That is measured, not assumed: the same one-line
+    /// document renders on two pages in Writer with <c>\page</c> and on one with
+    /// <c>\pagebb</c>, because a break before the first paragraph is already
+    /// satisfied. This codec's own layout ignores it there for the same reason,
+    /// and its reader reads the word back, so the flag still survives the round
+    /// trip rather than being quietly dropped.
+    /// </para>
+    /// </remarks>
+    private static void WritePageBreak(StringBuilder sb, ParagraphStyle style, bool first)
+    {
+        if (!style.PageBreakBefore)
+            return;
+
+        sb.Append(first ? "\\pagebb" : "\\page");
+    }
+
+    /// <summary>
+    /// Notes a page break on a paragraph that is not in the body flow: one in a
+    /// header, a footer, or a shape's text.
+    /// </summary>
+    /// <remarks>
+    /// There is no page for such a break to start. Running content is drawn on
+    /// whatever page the body reached, and a shape's text is laid out inside the
+    /// shape, so neither the format nor this codec's layout has anywhere to put
+    /// one. The flag is dropped, and this note is what keeps the drop from being
+    /// silent - a model can carry the bit there even though nothing can honour it.
+    /// </remarks>
+    private static void ReportBreakOutsideTheBody(
+        ParagraphStyle style,
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> reported)
+    {
+        if (!style.PageBreakBefore)
+            return;
+
+        AddOnce(
+            diagnostics,
+            reported,
+            "rtf.pagebreak.dropped",
+            "A page break on a header, footer, or shape paragraph was not written: " +
+            "there is no page for it to start.");
     }
 
     private static void WriteRuns(

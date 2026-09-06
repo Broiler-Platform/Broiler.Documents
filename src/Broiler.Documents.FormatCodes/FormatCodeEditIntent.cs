@@ -49,6 +49,12 @@ public enum FormatCodeProperty
     LineSpacing,
     SpacingBefore,
     SpacingAfter,
+
+    // The last of the paragraph properties. Inserted here rather than appended
+    // past the structure entries because the group is what a reader navigates
+    // by; only the inline run above is addressed arithmetically, and this sits
+    // outside it.
+    PageBreakBefore,
     Tab,
     LineBreak,
     ParagraphBreak,
@@ -91,6 +97,7 @@ public enum FormatCodePaletteEntry
     LineSpacing,
     SpacingBefore,
     SpacingAfter,
+    PageBreakBefore,
     Tab,
     LineBreak,
     ParagraphBreak,

@@ -1,0 +1,82 @@
+{
+  "$schema": "manifest.schema.json",
+  "schemaVersion": 1,
+  "updated": "2026-09-06",
+  "policy": {
+    "records": "Every external application the LibreOffice conformance suite drives to produce evidence about how this component's documents interchange with software that was not written here. It is documents-scoped, and it is a separate file from tests/pdf/tools/manifest.json on purpose: that register asks a tool for a commit hash, build flags and the list of ICC profiles the build enabled, which are fair questions for something compiled from source against the PDF codec and unanswerable ones for whatever LibreOffice a distribution installed. ADR 0013 gives the other half of the reason - one format's pending row must not gate another format's suite, which is why the registers are separate files rather than sections of one.",
+    "gate": "A tool absent from this file may not run in CI, and no entry here may become a product reference. Both halves carry weight. The first keeps a required check from depending on software nobody reviewed; the second keeps a test oracle from quietly becoming something the product links, ships, or relies on, which is the failure the PDF register was written to prevent and which costs more to undo than to forbid.",
+    "scope": "The gate is about CI, not about a developer's machine. The runner reads this file and asks it a question - may this tool be driven, and if not, why not - then skips with the reason and gates its exit code on the answer. Passing --allow-pending-tools drives the tool anyway, which is how the suite stays useful to whoever is writing it while these rows are open. CI never passes that flag, so the two facts are not in tension.",
+    "default": "Emptiness, and pendingness, are the default state of this file rather than an omission. A row exists so that a tool's details have somewhere to land while it is reviewed; writing one down approves nothing. A run that skips every check because both rows below are pending is a correct suite reporting its state accurately, not a broken one, and the report says so on each skipped line rather than leaving a reader to guess.",
+    "approval": "Recording the decision belongs to the project reviewer, on the standard ADR 0013 sets for this component: evidence-based acceptance by a person reading published evidence, with no legal review claimed. An engineer, or an agent, may fill a row in to the point where only the decision is missing. The row stays pending until he takes it, and is not approved by whoever gathered the evidence."
+  },
+  "tools": [
+    {
+      "id": "libreoffice",
+      "role": "interchange-oracle",
+      "identity": {
+        "name": "LibreOffice",
+        "version": null,
+        "versionCommand": "soffice --version"
+      },
+      "licensing": {
+        "licence": "MPL-2.0",
+        "obligations": [
+          "Keep the licence text and the notices with any copy that is conveyed. Nothing here conveys one: the application is installed into a CI image and driven, and no part of it is shipped in a package, an application, or a release container.",
+          "MPL-2.0's copyleft is per-file and attaches to files that are modified. No file is modified. The suite drives the installed application through its command line and reads the documents it writes back.",
+          "A distribution build carries components under further licences - bundled libraries, dictionaries, fonts. The headline licence on this row is the application's; what the image actually installs is the thing a review has to look at, and this row does not stand in for that list."
+        ],
+        "redistributed": false
+      },
+      "acquisition": {
+        "method": "package-manager",
+        "source": "The distribution's own LibreOffice packages, installed into the CI container image. No release binary is downloaded and nothing is built from source.",
+        "recipe": "The image's Dockerfile installs the packages and the image tag is what pins them, which is why identity.version is null: the row would otherwise carry a number that goes stale the first time the base image moves, and a stale number in a register reads as a fact. Recorded as package-manager rather than container-image because the package manager is what decides which build arrives; the image only freezes that decision, and versionCommand is how a runner and a human ask the installed copy the same question and get the same answer."
+      },
+      "execution": {
+        "isolation": "Spawned as a separate process, headless, with -env:UserInstallation pointed at a scratch profile created for the run and deleted after it. The isolated profile is not tidiness: LibreOffice keeps recovery state, a document history and per-user settings in that profile, so a run sharing a developer's own profile could both be influenced by settings nobody recorded and leave changes behind, and neither is acceptable in something used as an oracle.",
+        "network": false,
+        "notes": "Driven out of process and never linked. Embedding it - UNO, or any in-process binding - would put an MPL-2.0 codebase inside this component's own process and change the licensing question from one about running a tool into one about a combined work, so the suite pays the process startup cost instead. The oracle is a second opinion about interchange and not a conformance authority: what it reports is what one widely used implementation did with the file, which is the gap the round-trip corpus cannot close by itself and is not the same thing as a statement about the standard."
+      },
+      "review": {
+        "state": "approved",
+        "reviewer": "Maik Ratzmer (project reviewer)",
+        "decided": "2026-09-06",
+        "why": "Approved for CI use as an interchange oracle, on the evidence recorded in this row and on the standard ADR 0013 sets: acceptance by a person reading published evidence, with no legal review claimed and none performed. What carried it is that nothing is conveyed and nothing is combined. The application is installed into a CI image and driven through its command line; no file of it is modified, so MPL-2.0's per-file copyleft has nothing to attach to, and no part of it is shipped in a package, an application or a release container. **What this decision does not touch.** It does not clear the components a distribution build carries under further licences - bundled libraries, dictionaries, fonts - which the row already says the headline licence does not stand in for; the image that installs the packages is what a licence review has to read, and that review has not been done. It does not permit embedding: UNO or any in-process binding would change the question from running a tool to a combined work, and the approval is for the out-of-process form only. It does not make this a conformance authority - what the oracle reports is what one widely used implementation did with a file. And it does not authorise publishing the image; that is conveying, and it is a different question from this one."
+      }
+    },
+    {
+      "id": "poppler-utils",
+      "role": "rendering-oracle",
+      "identity": {
+        "name": "poppler-utils (pdftoppm, pdffonts)",
+        "version": null,
+        "versionCommand": "pdftoppm -v, which prints to stderr; pdffonts -v answers the same way"
+      },
+      "licensing": {
+        "licence": "GPL-2.0-or-later",
+        "obligations": [
+          "Convey the source, or a written offer for it, with any copy that is conveyed. Nothing here conveys one: the utilities are installed into a CI image, invoked, and never shipped.",
+          "Keep the licence and copyright notices intact on any copy. The packages are installed unmodified and are not repackaged.",
+          "The GPL's reach is the question that decides this row, and the answer this row relies on is that the utilities are separate programs run at arm's length rather than a work combined with anything in this component."
+        ],
+        "redistributed": false
+      },
+      "acquisition": {
+        "method": "package-manager",
+        "source": "The distribution's poppler-utils package, installed into the same CI container image. Nothing is built from source and no binary is fetched from a release page.",
+        "recipe": "Installed by the image's Dockerfile; the image tag pins it, so identity.version is null here for the same reason it is null on the LibreOffice row. Only the command-line utilities are wanted - pdftoppm to rasterise a page and pdffonts to list what a file actually embedded - and the library packages are not a dependency of anything this component builds."
+      },
+      "execution": {
+        "isolation": "Spawned as a separate process per invocation, reading a file this suite wrote and writing its output into the run's scratch directory. No shared state between invocations, and no state that outlives the run.",
+        "network": false,
+        "notes": "Invoked as a separate process and never linked, and that distinction is the one that matters for a GPL tool standing beside a differently-licensed component: linking would raise a combined-work question this project has no answer for and does not need to ask, while spawning a program and reading its output does not raise it. It is not, however, a redistribution safe harbour. Process isolation is not one: a cached or imaged binary still carries its licence and notice obligations, which is why redistributed is false on this row and why the image that installs the package, rather than this row, is what a licence review has to read."
+      },
+      "review": {
+        "state": "approved",
+        "reviewer": "Maik Ratzmer (project reviewer)",
+        "decided": "2026-09-06",
+        "why": "Approved for CI use as a rendering oracle, on the same standard and by the same authority. The licence is why this row was worth a deliberate look rather than a nod, and the decision rests on the argument the row states rather than on a summary of it: the utilities are separate programs, invoked at arm's length, reading a file this suite wrote and writing output into a scratch directory. Nothing links them to anything in this component, so the combined-work question the GPL would otherwise raise is not reached. Nothing is conveyed - the packages are installed unmodified into a CI image, invoked, and never shipped. **What this decision does not touch.** Process isolation is not a redistribution safe harbour and this approval does not make it one: a cached or imaged binary still carries its licence and notice obligations, so publishing or otherwise conveying the image is a separate decision that has not been taken. It does not extend to the poppler libraries, which are not a dependency of anything this component builds and are not approved here. And it claims no patent position and no legal review, in keeping with every other record in this component."
+      }
+    }
+  ]
+}

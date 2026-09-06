@@ -1,7 +1,7 @@
 {
   "$schema": "corpus-baseline.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-09-05",
+  "updated": "2026-09-06",
   "policy": {
     "records": "Only the round trips that lose something or warn about something. Everything this corpus can do that is absent from the list below is asserted to round trip clean, so a new loss fails by not being listed.",
     "reproduce": "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at.",
@@ -151,8 +151,8 @@
       "source": "html",
       "via": "docx",
       "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000B here.\"",
-        "text@p1: text differs: \"Unit separator \u001F and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
+        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
         "extra@p?: paragraph only in the right document: \"Unit separator  and start of heading  here.\""
       ],
       "diagnostics": [
@@ -169,8 +169,8 @@
       "source": "html",
       "via": "odt",
       "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000B here.\"",
-        "text@p1: text differs: \"Unit separator \u001F and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
+        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
         "extra@p?: paragraph only in the right document: \"Unit separator and start of heading here.\""
       ],
       "diagnostics": [
@@ -187,8 +187,8 @@
       "source": "markdown",
       "via": "docx",
       "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000B here.\"",
-        "text@p1: text differs: \"Unit separator \u001F and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
+        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
         "extra@p?: paragraph only in the right document: \"Unit separator  and start of heading  here.\""
       ],
       "diagnostics": [
@@ -205,8 +205,8 @@
       "source": "markdown",
       "via": "odt",
       "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000B here.\"",
-        "text@p1: text differs: \"Unit separator \u001F and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
+        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
         "extra@p?: paragraph only in the right document: \"Unit separator and start of heading here.\""
       ],
       "diagnostics": [
@@ -223,8 +223,8 @@
       "source": "rtf",
       "via": "docx",
       "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000B here.\"",
-        "text@p1: text differs: \"Unit separator \u001F and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
+        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
         "extra@p?: paragraph only in the right document: \"Unit separator  and start of heading  here.\""
       ],
       "diagnostics": [
@@ -241,8 +241,8 @@
       "source": "rtf",
       "via": "odt",
       "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000B here.\"",
-        "text@p1: text differs: \"Unit separator \u001F and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
+        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
         "extra@p?: paragraph only in the right document: \"Unit separator and start of heading here.\""
       ],
       "diagnostics": [
@@ -927,7 +927,7 @@
         "paragraph-style@p3: indent level 1 vs 0",
         "paragraph-style@p4: indent level 1 vs 0",
         "paragraph-style@p5: indent level 2 vs 0",
-        "text@p6: text differs: \"fenced code, which is monospace\u2028  and keeps its own secon...\" vs \"fenced code, which is monospace\u2028and keeps its own second ...\""
+        "text@p6: text differs: \"fenced code, which is monospace   and keeps its own secon...\" vs \"fenced code, which is monospace and keeps its own second ...\""
       ],
       "diagnostics": [
         "markdown.inline-style"
@@ -1034,6 +1034,62 @@
       "why": "The RTF reader ignores line-spacing control words. rtf-conformance.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model. Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
+    },
+    {
+      "sample": "page-break",
+      "source": "docx",
+      "via": "markdown",
+      "differences": [],
+      "diagnostics": [
+        "markdown.page-break"
+      ],
+      "state": "documented",
+      "reference": "docs/markdown-conformance.md",
+      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. markdown-conformance.md states it as a property the format will not carry rather than as one not yet implemented.",
+      "reviewer": "Claude Opus 5, on the page-break pass",
+      "decided": "2026-09-06"
+    },
+    {
+      "sample": "page-break",
+      "source": "html",
+      "via": "markdown",
+      "differences": [],
+      "diagnostics": [
+        "markdown.page-break"
+      ],
+      "state": "documented",
+      "reference": "docs/markdown-conformance.md",
+      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. markdown-conformance.md states it as a property the format will not carry rather than as one not yet implemented.",
+      "reviewer": "Claude Opus 5, on the page-break pass",
+      "decided": "2026-09-06"
+    },
+    {
+      "sample": "page-break",
+      "source": "odt",
+      "via": "markdown",
+      "differences": [],
+      "diagnostics": [
+        "markdown.page-break"
+      ],
+      "state": "documented",
+      "reference": "docs/markdown-conformance.md",
+      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. markdown-conformance.md states it as a property the format will not carry rather than as one not yet implemented.",
+      "reviewer": "Claude Opus 5, on the page-break pass",
+      "decided": "2026-09-06"
+    },
+    {
+      "sample": "page-break",
+      "source": "rtf",
+      "via": "markdown",
+      "differences": [],
+      "diagnostics": [
+        "markdown.page-break"
+      ],
+      "state": "documented",
+      "reference": "docs/markdown-conformance.md",
+      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. markdown-conformance.md states it as a property the format will not carry rather than as one not yet implemented.",
+      "reviewer": "Claude Opus 5, on the page-break pass",
+      "decided": "2026-09-06"
     },
     {
       "sample": "rtf-control-words",

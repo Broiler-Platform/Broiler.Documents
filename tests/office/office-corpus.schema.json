@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/documents-office-corpus-1.json",
+  "title": "Broiler.Documents LibreOffice conformance seeds",
+  "description": "The seeds the LibreOffice conformance suite hands to an office suite it did not write, so that the documents it then measures were manufactured by something other than this component's own writers. A seed is a fragment of authored HTML held here as a string, never a document: FormatClaimGuardTests.No_Document_Of_A_Supported_Format_Is_Committed walks the whole tree and fails the build if a .docx, .odt, .rtf, .html, .htm, .dotx or .ott appears in it, and downloading one at test time would be the same act with the evidence deleted. The runner writes each seed into a temporary workspace, asks LibreOffice to rewrite it into every target, and throws the workspace away. That is the same bargain tests/corpus/corpus.json already makes when it holds RTF control words and HTML structure as strings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "updated",
+    "fonts",
+    "targets",
+    "seeds",
+    "toolFonts"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "updated": {
+      "type": "string",
+      "format": "date"
+    },
+    "fonts": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/font"
+      },
+      "description": "The families a seed is allowed to name. Pinned because LibreOffice substitutes a missing family in silence: a document asking for a face the host does not have is drawn with whatever the host picked instead, and every pixel measurement taken afterwards is then a measurement of the substitute rather than of the conversion. These four are the ones a Linux runner and a Windows runner can both be expected to have through the same package, which is a weaker claim than it sounds and is worth having written down where a failing run can find it."
+    },
+    "toolFonts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Faces the office suite itself supplies rather than any seed naming them - LibreOffice's own symbol fonts for list bullets, and the substitute a host offers for them. They are permitted in an exported PDF without a seed asking, because they arrive with the tool rather than with the document, and a font guard that refused them would fail every seed containing a bullet."
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/target"
+      },
+      "description": "The formats LibreOffice is asked to rewrite each seed into. The enum holds the five this component composes rather than the four listed here; whether an office suite can actually export a given one of them is a fact about an external tool, and a tool that cannot is a skip with a reason at run time rather than a manifest that failed to load."
+    },
+    "seeds": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/seed"
+      },
+      "description": "One construct each. A seed that exercised two things would fail for both reasons at once and report one of them, which is the failure mode that costs an afternoon."
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Reaches the report, the baseline and the --only filter, so it is constrained to a shape that survives all three without quoting. Same spelling rule as tests/corpus/corpus.json, deliberately, because a reader moving between the two files should not have to learn a second one."
+    },
+    "font": {
+      "enum": [
+        "Liberation Serif",
+        "Liberation Sans",
+        "Liberation Mono",
+        "DejaVu Sans"
+      ],
+      "description": "The pinned set, stated here as well as in the fonts array so that neither can be widened quietly. This is as far as the schema can go on its own: it can refuse a family outside these four, but it cannot check a seed's markup against THIS manifest's fonts array, because a schema has no way to compare one part of an instance with another. That check lives in the loader."
+    },
+    "target": {
+      "enum": [
+        "docx",
+        "odt",
+        "rtf",
+        "html",
+        "md"
+      ],
+      "description": "The five formats this component composes. Markdown is in the list although no seed targets it, because what this constraint asserts is that a target is a format this component knows - not that it is one an office suite exports."
+    },
+    "html": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The seed itself: valid HTML, UTF-8, no BOM, on one line. One line because a seed is read in a diff far more often than it is read in a browser, and a construct spread over twenty lines is a construct nobody compares against the seed beside it.",
+      "allOf": [
+        {
+          "pattern": "^<html[ >]",
+          "description": "A whole document rather than a fragment. LibreOffice will happily read a fragment and supply the rest itself, which means supplying the page and the font as well - the two things every seed here is required to state."
+        },
+        {
+          "pattern": "@page\\s*\\{\\s*size:\\s*21\\.59cm\\s+27\\.94cm;\\s*margin:\\s*2\\.54cm\\s*\\}",
+          "description": "The page box, stated rather than inherited. Verified rather than assumed: LibreOffice replaced a stated A4 with US Letter on a host whose locale said so, and a page of a different width gives a text column of a different width, a different number of lines to the page and therefore a different number of pages - a difference that looks exactly like a defect in the converter and is not one."
+        },
+        {
+          "pattern": "<body style=\"font-family:'(Liberation Serif|Liberation Sans|Liberation Mono|DejaVu Sans)'",
+          "description": "The family, stated on the body, from the pinned set. On the body specifically because that is the one element every seed has and every run of text inherits from; a family stated only on an inner span leaves the rest of the document to whatever the host chose."
+        },
+        {
+          "not": {
+            "pattern": "font-family:(?!'(?:Liberation Serif|Liberation Sans|Liberation Mono|DejaVu Sans)')"
+          },
+          "description": "Every other family reference in the seed, not just the one on the body. A negative lookahead rather than an enumeration because the interesting case is the family nobody thought to list: a seed that named Arial on one heading would measure the host's Arial, or the host's substitute for it, and would look like a passing seed either way. The quoted form is required by the same pattern, since an unquoted family is one the loader cannot read back."
+        }
+      ]
+    },
+    "seed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "why",
+        "html",
+        "expect",
+        "textIgnore"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "why": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What this seed is for, and where a choice was made, why the other choice was wrong. Required and non-empty: a seed that does not say what it is for is a seed nobody can classify, which means nobody can decide whether its failure is news, and a failure nobody can classify is eventually a failure somebody deletes."
+        },
+        "html": {
+          "$ref": "#/$defs/html"
+        },
+        "expect": {
+          "$ref": "#/$defs/expect"
+        },
+        "textIgnore": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/textIgnore"
+          },
+          "description": "Patterns removed from this seed's text before it is compared, and only this seed's. Empty is the normal state and the one to aim for. A difference between two targets is ordinarily news and belongs in a baseline row where somebody has to classify it; an ignore is for the narrower case where the text a comparison would see is generated by the reading application rather than written by the author, so that no classification could ever be made about it."
+        }
+      }
+    },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minParagraphs",
+        "multipage",
+        "substitutesFonts"
+      ],
+      "description": "What the seed asserts about the documents made from it. Both fields are deliberately coarse. A suite that asserted a width in pixels or an exact page count would fail on the leg that was working perfectly, because those are facts about the host's fonts and about a typesetting program this project does not own.",
+      "properties": {
+        "minParagraphs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "A floor, not a count. Whether a list item, a heading or a table cell is a paragraph is answered differently by each target, so the floor is set to the number of paragraphs that every target must agree on - usually the prose ones - and the seeds that care about the rest say so in their own way."
+        },
+        "multipage": {
+          "type": "boolean",
+          "description": "True where the seed is asserted to produce more than one page. Only two seeds claim it, and they reach it by the two routes that do not depend on the host: one says so in the document with an explicit break, and one is long enough that the page runs out several times over on any machine honouring the stated box. A seed that merely hoped to overflow would be asserting the host's font metrics under another name, which is why there is no third."
+        },
+        "substitutesFonts": {
+          "type": "boolean",
+          "description": "Whether this seed knowingly asks for glyphs the pinned families do not have, so that LibreOffice must substitute. It degrades the font guard for this seed to a skip that names the seed's own reason, rather than reporting a substitution nobody could have avoided as a failure. The seed's why has to say what it is asking for and why no pinned family covers it."
+        }
+      }
+    },
+    "textIgnore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pattern",
+        "why"
+      ],
+      "description": "One regular expression and the reason it is permitted. The reason is required for the same purpose the baseline's reviewer field serves: an ignore is the one row in this file that can hide a real failure, so it does not get to exist without an argument attached to it that somebody can disagree with.",
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "format": "regex",
+          "description": "Checked here only as far as a format annotation goes, which in most validators is not at all. The loader compiles every one of these with the same engine the runner will use and names the seed when one does not compile, because a pattern that throws at comparison time reports itself as a failure of the seed rather than of the manifest."
+        },
+        "why": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/documents-tool-manifest-1.json",
+  "title": "Broiler.Documents external-tool register",
+  "description": "Every external application the documents conformance suites drive as an oracle. A tool absent from this file may not run in CI, and no entry here may become a product reference. This is deliberately not the PDF register's schema: that one demands a commit hash, build flags and an enabled-feature list, which are answerable for a tool built from source against the PDF codec and meaningless for a distribution's LibreOffice, where the image tag is the pin and there is no build to describe. Note where the rule bites - CI, not a developer's machine. The runner asks this file whether a tool may be driven, gates its exit code on the answer, and still runs locally against a pending row when it is told to; a reader who assumes that looseness is an oversight will tighten it and produce a suite nobody can run until a review completes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "updated", "policy", "tools"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "updated": { "type": "string", "format": "date" },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Why the file exists, in prose, next to the rows it governs. Kept in the data rather than in a sibling document because a rule that lives somewhere else is a rule the next person to add a row will not have read.",
+      "required": ["records", "gate", "scope", "default", "approval"],
+      "properties": {
+        "records": { "type": "string", "minLength": 1 },
+        "gate": { "type": "string", "minLength": 1 },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The CI-versus-local distinction, spelled out. Approval is exposed as a query the runner acts on, not as an exception the loader throws, so that CI can refuse a pending tool while a developer drives one."
+        },
+        "default": {
+          "type": "string",
+          "minLength": 1,
+          "description": "That an empty or wholly pending file is the expected state and not an omission. A suite that skips every check because nothing is approved yet is reporting accurately."
+        },
+        "approval": { "type": "string", "minLength": 1 }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "description": "Empty until a tool is written down, and pending until somebody decides. Neither state is a defect in this file.",
+      "items": { "$ref": "#/$defs/tool" }
+    }
+  },
+  "$defs": {
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "identity", "licensing", "acquisition", "execution", "review"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "description": "What the runner asks the register about. Stable across version changes, because the row outlives whatever the image currently installs."
+        },
+        "role": {
+          "enum": ["interchange-oracle", "rendering-oracle", "text-oracle"],
+          "description": "What the tool's answer is evidence of, and therefore what it may be cited for. An interchange oracle says what one widely used implementation did with a file; a rendering oracle says what a page looked like; a text oracle says what text came back out. None of the three is a conformance authority, and a row's role is the bound on what a report may claim from it."
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "version": {
+              "type": ["string", "null"],
+              "description": "Null where the container image is what pins the version. A number written here that nobody re-checks when the base image moves is worse than an honest null, because a register is read as a record of fact."
+            },
+            "versionCommand": {
+              "type": "string",
+              "minLength": 1,
+              "description": "How to ask the installed copy what it is, so that the runner's report and a human at a terminal agree about which build produced the evidence."
+            }
+          }
+        },
+        "licensing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["licence", "obligations", "redistributed"],
+          "properties": {
+            "licence": {
+              "type": "string",
+              "minLength": 1,
+              "description": "An SPDX identifier. The application's own licence; a distribution build carries components under others, and this field does not stand in for that list."
+            },
+            "obligations": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "description": "What the licence asks of this project, written out rather than implied by the SPDX id. A reviewer is deciding on the argument, and an argument that was never written down cannot be reviewed."
+            },
+            "redistributed": {
+              "type": "boolean",
+              "description": "Process isolation is not a redistribution safe harbour: a cached or imaged binary still carries its licence and notice obligations. False here is a claim about what leaves the project, not a claim that the question does not arise."
+            }
+          }
+        },
+        "acquisition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "source", "recipe"],
+          "properties": {
+            "method": { "enum": ["package-manager", "container-image", "release-binary"] },
+            "source": { "type": "string", "minLength": 1 },
+            "recipe": {
+              "type": "string",
+              "minLength": 1,
+              "description": "How the binary actually arrives, in enough detail that somebody could reproduce the environment the evidence came from. This is the field that carries the pin when identity.version is null."
+            }
+          }
+        },
+        "execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["isolation", "network", "notes"],
+          "description": "Out of process in CI, and absent from every product reference, package, application and release container.",
+          "properties": {
+            "isolation": {
+              "type": "string",
+              "minLength": 1,
+              "description": "How the process is kept from reading or leaving state that the run did not create. An oracle influenced by settings nobody recorded is not evidence about anything."
+            },
+            "network": {
+              "const": false,
+              "type": "boolean",
+              "description": "Must be false. A tool that reached the network would make the result depend on something outside the run, and a differing answer would then be unattributable to any change in this component."
+            },
+            "notes": { "type": "string", "minLength": 1 }
+          }
+        },
+        "review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "reviewer", "decided", "why"],
+          "properties": {
+            "state": {
+              "enum": ["pending", "approved", "rejected"],
+              "description": "A tool may not run in a required check while pending. Nothing here is approved by having been written down."
+            },
+            "reviewer": {
+              "type": ["string", "null"],
+              "description": "The person who took the decision. An engineer or an agent may assemble the row; recording the decision is the project reviewer's."
+            },
+            "decided": { "type": ["string", "null"], "format": "date" },
+            "why": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The reasoning behind the state, written for whoever inherits the row. Required in every state, including pending, where it says what evidence is present and what decision is outstanding."
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "state": { "const": "approved" } },
+                "required": ["state"]
+              },
+              "then": {
+                "description": "This is the schema half of 'a tool is not approved merely by being written down'. An approval names who gave it and the day they did, or it is not one - a state of approved over a null reviewer is what a row looks like when somebody changed the word and left the decision to be filled in later. The guard test is the other half, because a schema only binds files that are validated and a test binds every run.",
+                "required": ["reviewer", "decided"],
+                "properties": {
+                  "reviewer": { "type": "string", "minLength": 1 },
+                  "decided": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

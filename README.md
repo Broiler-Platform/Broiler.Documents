@@ -138,6 +138,14 @@ format is expected to lose. See [the corpus suite](docs/corpus-suite.md) for wha
 it checks, where the documents come from and why none of them is downloaded, and
 what it has found so far.
 
+A second suite runs nightly rather than on every push, and answers the question
+the first one cannot: whether this component reads documents an unrelated
+implementation wrote. LibreOffice manufactures them from seeds authored here, and
+both what they say and how they look are compared. See
+[the office conformance suite](docs/office-conformance.md), which is also candid
+about what a pixel comparison between two independent layout engines can and
+cannot assert.
+
 ## Component Constraints
 
 - Target .NET 10 only.

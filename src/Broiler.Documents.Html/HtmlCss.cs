@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
+using System.Text;
 using Broiler.Graphics;
 
 namespace Broiler.Documents.Html;
@@ -29,6 +30,65 @@ internal static class HtmlCss
         }
 
         return declarations;
+    }
+
+    /// <summary>
+    /// A rule body with its nested blocks taken out.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The nesting has to go before the declarations are split, not after.
+    /// <see cref="ParseDeclarations"/> divides on semicolons and then on the
+    /// first colon, and a nested block carries both - so
+    /// <c>@top-center { content: "x" } margin: 18pt</c> parses as one declaration
+    /// whose name is everything up to <c>content</c>, and the margin after it
+    /// disappears. The rule was read, the size came back, and the margin silently
+    /// did not: exactly the failure this guard exists to stop.
+    /// </para>
+    /// <para>
+    /// A block takes the text before it back to the previous semicolon, because
+    /// what precedes it is the nested rule's own selector rather than a
+    /// declaration.
+    /// </para>
+    /// <para>
+    /// It lives beside the splitter rather than beside either caller because both
+    /// callers meet the same trap and neither owns it: an <c>@page</c> rule nests
+    /// margin boxes, and a type rule nests whatever CSS nesting puts in one. The
+    /// guard was written once for the first of those and had to be found again by
+    /// the second, which is the argument for it being here.
+    /// </para>
+    /// </remarks>
+    public static string WithoutNestedBlocks(string body)
+    {
+        if (body.IndexOf('{') < 0)
+            return body;
+
+        var kept = new StringBuilder(body.Length);
+        for (int index = 0; index < body.Length; index++)
+        {
+            if (body[index] != '{')
+            {
+                kept.Append(body[index]);
+                continue;
+            }
+
+            int selector = kept.Length;
+            while (selector > 0 && kept[selector - 1] != ';')
+                selector--;
+
+            kept.Length = selector;
+
+            int depth = 0;
+            for (; index < body.Length; index++)
+            {
+                if (body[index] == '{')
+                    depth++;
+                else if (body[index] == '}' && --depth == 0)
+                    break;
+            }
+        }
+
+        return kept.ToString();
     }
 
     public static bool TryParseColor(string? value, out BColor color)
@@ -84,6 +144,18 @@ internal static class HtmlCss
         return TryParsePoints(value, out size);
     }
 
+    /// <summary>
+    /// A CSS length in points.
+    /// </summary>
+    /// <remarks>
+    /// The absolute units - <c>in</c>, <c>cm</c>, <c>mm</c>, <c>pc</c>, <c>q</c> -
+    /// are here because a word processor writing HTML reaches for them first. Every
+    /// length LibreOffice emits is in centimetres, and without them this returned
+    /// false for all of them: not a wrong number, but no number, so a margin
+    /// stated in a document simply did not arrive. A parser that claims to read
+    /// CSS lengths and knows only the four a hand-written page tends to use is
+    /// claiming too much.
+    /// </remarks>
     public static bool TryParsePoints(string? value, out float points)
     {
         points = 0;
@@ -110,6 +182,31 @@ internal static class HtmlCss
         {
             trimmed = trimmed[..^2].Trim();
             multiplier = 12f;
+        }
+        else if (trimmed.EndsWith("in", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[..^2].Trim();
+            multiplier = 72f;
+        }
+        else if (trimmed.EndsWith("cm", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[..^2].Trim();
+            multiplier = 72f / 2.54f;
+        }
+        else if (trimmed.EndsWith("mm", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[..^2].Trim();
+            multiplier = 72f / 25.4f;
+        }
+        else if (trimmed.EndsWith("pc", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[..^2].Trim();
+            multiplier = 12f;
+        }
+        else if (trimmed.EndsWith("q", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[..^1].Trim();
+            multiplier = 72f / 101.6f;
         }
 
         if (!float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out float valueNumber))
@@ -164,7 +261,12 @@ internal static class HtmlCss
         value.EndsWith("px", StringComparison.Ordinal) ||
         value.EndsWith("pt", StringComparison.Ordinal) ||
         value.EndsWith("em", StringComparison.Ordinal) ||
-        value.EndsWith("rem", StringComparison.Ordinal);
+        value.EndsWith("rem", StringComparison.Ordinal) ||
+        value.EndsWith("in", StringComparison.Ordinal) ||
+        value.EndsWith("cm", StringComparison.Ordinal) ||
+        value.EndsWith("mm", StringComparison.Ordinal) ||
+        value.EndsWith("pc", StringComparison.Ordinal) ||
+        value.EndsWith("q", StringComparison.Ordinal);
 
     private static bool TryParseHexColor(string value, out BColor color)
     {

@@ -269,6 +269,12 @@ internal static class DocxReader
                 ReadBlockContent(cell.Elements(), context, depth + 1);
                 context.Builder.PopTableSink();
 
+                // A cell ends the reach of a page break stated in its last
+                // paragraph: the paragraphs of every cell are one flat list, so
+                // the next one is the neighbouring cell's or the body's past
+                // the table, and neither is where the document put the break.
+                context.Builder.DiscardPageBreakAtCellEnd();
+
                 cells.Add(new CellDraft
                 {
                     ParagraphIndex = cellStart,
@@ -984,6 +990,16 @@ internal static class DocxReader
                 continue;
             }
 
+            // The break Ctrl+Enter writes is a run child, not a paragraph
+            // property, and it sits at the end of the paragraph *before* the
+            // one that starts the page. The builder holds it until then; see
+            // DocxDocumentBuilder.NotePageBreak.
+            if (child.Name == DocxNamespaces.Wordprocessing + "br" && IsPageBreak(child))
+            {
+                builder.NotePageBreak(style);
+                continue;
+            }
+
             if (child.Name == DocxNamespaces.Wordprocessing + "br" ||
                 child.Name == DocxNamespaces.Wordprocessing + "cr")
             {
@@ -1474,6 +1490,17 @@ internal static class DocxReader
             _ => style,
         };
 
+        // w:pageBreakBefore is an on/off property, so it follows the same rule
+        // w:b and w:caps do: present with no w:val means on, and the file has
+        // to spell "false" to turn one off. It matters here more than it does
+        // for bold, because a template that puts a break before every heading
+        // states it in the style and the one heading that must not start a
+        // page turns it off in its own w:pPr. Read as "present means on" that
+        // heading would open a page of its own.
+        XElement? pageBreakBefore = pPr.Element(DocxNamespaces.Wordprocessing + "pageBreakBefore");
+        if (pageBreakBefore is not null)
+            style = style with { PageBreakBefore = ReadOnOff(pageBreakBefore) };
+
         XElement? spacing = pPr.Element(DocxNamespaces.Wordprocessing + "spacing");
         if (spacing is not null)
         {
@@ -1669,6 +1696,20 @@ internal static class DocxReader
         return element is null ? style : apply(style, ReadOnOff(element));
     }
 
+    /// <summary>
+    /// Whether a <c>w:br</c> is a page break. The kind lives in <c>w:type</c>,
+    /// which is an enumeration and not one of the on/off attributes, so it is
+    /// matched exactly: an absent type is a line break, and <c>column</c> and
+    /// <c>textWrapping</c> are breaks with no page in them. Reading any
+    /// <c>w:br</c> as a page break would put a page boundary wherever a
+    /// two-column layout only changed column.
+    /// </summary>
+    private static bool IsPageBreak(XElement br) =>
+        string.Equals(
+            (string?)br.Attribute(DocxNamespaces.Wordprocessing + "type"),
+            "page",
+            StringComparison.Ordinal);
+
     private static bool ReadOnOff(XElement element)
     {
         string? value = WordValue(element);
@@ -1783,6 +1824,9 @@ internal static class DocxReader
         private readonly List<DocumentTable> _tables = [];
         private readonly Stack<List<DocumentTable>> _tableSinks = new();
         private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
+        private InlineStyle _pageBreakStyle = InlineStyle.Default;
+        private bool _pageBreakSeen;
+        private bool _pageBreakStartsNextParagraph;
         private int _tableCount;
         private int _unsupportedBlockCount;
 
@@ -1873,9 +1917,73 @@ internal static class DocxReader
                 " unsupported block(s)."));
         }
 
+        /// <summary>
+        /// Holds the page break a <c>w:br w:type="page"</c> states until the
+        /// paragraph it starts. The run form sits at the end of the paragraph
+        /// before the break - it is what Word writes when a user presses
+        /// Ctrl+Enter - so nothing is appended here and nothing is decided
+        /// until the paragraph ends.
+        /// </summary>
+        /// <remarks>
+        /// The run's style is kept because the break may turn out not to be the
+        /// last thing in its paragraph. Word honours a break with text after it
+        /// by splitting the paragraph across the boundary, and a paragraph
+        /// carrying one flag cannot say "the first half of me is on the page
+        /// before". That case is demoted to the line break every other
+        /// <c>w:br</c> becomes, and reported, rather than pulling the text that
+        /// followed the break back onto the previous page.
+        /// </remarks>
+        public void NotePageBreak(InlineStyle style)
+        {
+            // Two breaks with nothing between them are two page boundaries and
+            // a blank page in the middle. The flag holds one, and the one kept
+            // is the first: honouring the later one instead would move the
+            // paragraph a page further on than the document put it.
+            if (_pageBreakSeen)
+            {
+                AddDiagnosticOnce(
+                    "docx.pagebreak.repeated",
+                    "A paragraph stated more than one page break; the extra breaks, and the blank pages they make, were dropped.");
+                return;
+            }
+
+            _pageBreakSeen = true;
+            _pageBreakStyle = style;
+        }
+
+        /// <summary>
+        /// Drops a page break that reached the end of a table cell. Word splits
+        /// the row a break inside a table falls in; a row is placed whole here,
+        /// so there is no boundary inside one to move it to, and the paragraph
+        /// that follows in the flat list is a page's worth of layout away from
+        /// where the break was written. It is dropped and said out loud rather
+        /// than landing somewhere the document never asked for.
+        /// </summary>
+        public void DiscardPageBreakAtCellEnd()
+        {
+            if (!_pageBreakSeen && !_pageBreakStartsNextParagraph)
+                return;
+
+            _pageBreakSeen = false;
+            _pageBreakStartsNextParagraph = false;
+            AddDiagnosticOnce(
+                "docx.pagebreak.table",
+                "A page break at the end of a table cell was dropped; a row is placed whole, so it has no page boundary inside it.");
+        }
+
         public void StartParagraph(ParagraphStyle style)
         {
             _segments.Clear();
+
+            // The two spellings mean one break. A paragraph reached by a
+            // w:br that also states w:pageBreakBefore starts one page, not two,
+            // so this sets the flag rather than counting anything.
+            if (_pageBreakStartsNextParagraph)
+            {
+                style = style with { PageBreakBefore = true };
+                _pageBreakStartsNextParagraph = false;
+            }
+
             _paragraphStyle = style;
         }
 
@@ -1883,6 +1991,13 @@ internal static class DocxReader
         {
             if (string.IsNullOrEmpty(text))
                 return;
+
+            // Text after a page break run is the case NotePageBreak cannot
+            // carry: the break is inside the paragraph rather than at the end
+            // of it. Demoting it here, on the first content that follows,
+            // keeps the reader a single forward pass.
+            if (_pageBreakSeen)
+                DemotePageBreakToLineBreak();
 
             if (text.Length > _limits.MaxRunLength)
             {
@@ -1900,8 +2015,33 @@ internal static class DocxReader
             _segments.Add(new Segment(text, style));
         }
 
+        /// <summary>
+        /// Turns a page break that content followed into a line break, because
+        /// the paragraph it is in cannot be split. The flag is cleared first:
+        /// the line break goes in through <see cref="AppendText"/>, which is
+        /// where the demotion is triggered from.
+        /// </summary>
+        private void DemotePageBreakToLineBreak()
+        {
+            InlineStyle style = _pageBreakStyle;
+            _pageBreakSeen = false;
+            AddDiagnosticOnce(
+                "docx.pagebreak.split",
+                "A page break with text after it in the same paragraph was read as a line break; pages here break between paragraphs, not inside one.");
+            AppendText(((char)0x2028).ToString(), style);
+        }
+
         public void FinishParagraph()
         {
+            // A page break that reached the end of its paragraph is the break
+            // the next paragraph starts with, whatever that paragraph's own
+            // w:pPr says.
+            if (_pageBreakSeen)
+            {
+                _pageBreakSeen = false;
+                _pageBreakStartsNextParagraph = true;
+            }
+
             if (_paragraphs.Count >= _limits.MaxParagraphCount)
             {
                 AddDiagnosticOnce("docx.limit.paragraphs", "DOCX input exceeded MaxParagraphCount; remaining paragraphs were dropped.");
@@ -1929,6 +2069,19 @@ internal static class DocxReader
 
         public RichTextDocument Build()
         {
+            // A break stated in the last paragraph of a part has no paragraph
+            // to start. Word ends such a document on a blank page, and nothing
+            // in this model says "and then a page with nothing on it", so the
+            // break is dropped - out loud, because the page count is what the
+            // reader just changed.
+            if (_pageBreakStartsNextParagraph)
+            {
+                _pageBreakStartsNextParagraph = false;
+                AddDiagnosticOnce(
+                    "docx.pagebreak.trailing",
+                    "A page break after the last paragraph was dropped; there is no following paragraph for it to start.");
+            }
+
             RichTextDocument document = _paragraphs.Count == 0
                 ? RichTextDocument.Empty
                 : RichTextDocument.FromParagraphs(_paragraphs);

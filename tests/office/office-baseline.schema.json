@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/documents-office-baseline-1.json",
+  "title": "Broiler.Documents LibreOffice conformance baseline",
+  "description": "One row per read that disagrees with LibreOffice about a document, and one per render that does not land in the clean band. Anything this suite exercises and does not list here is asserted to agree, so a new difference fails by not being listed rather than by being listed differently - which keeps the file readable and keeps the check that matters from depending on somebody having written a row for the case that broke. A row that stops reproducing fails too, and so does a render that comes back better than the band recorded for it: the point of separating a documented limitation from a suspected defect is to watch the second list shrink, and a shrink nobody records is a shrink nobody can show. Modelled on documents-corpus-baseline-1.json, which does the same job for round trips through this component's own codecs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "updated", "producedWith", "policy", "reads", "renders"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "updated": { "type": "string", "format": "date" },
+    "producedWith": {
+      "$ref": "#/$defs/toolchain",
+      "description": "What produced these rows. Unlike the corpus baseline, this file compares against a program that is not in this repository, so a row is only meaningful next to the build that made it."
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["records", "reproduce", "states", "reviewer", "toolchain", "empty", "bands", "regenerate"],
+      "description": "Prose, and load-bearing prose. It is required rather than optional because every one of these paragraphs answers a question a reader has already asked once - why the file lists only failures, why a fix has to edit it, why an empty file is a decision and not an oversight.",
+      "properties": {
+        "records": { "type": "string", "minLength": 1 },
+        "reproduce": { "type": "string", "minLength": 1 },
+        "states": { "type": "string", "minLength": 1 },
+        "reviewer": { "type": "string", "minLength": 1 },
+        "toolchain": { "type": "string", "minLength": 1 },
+        "empty": { "type": "string", "minLength": 1 },
+        "bands": { "type": "string", "minLength": 1 },
+        "regenerate": { "type": "string", "minLength": 1 }
+      }
+    },
+    "reads": {
+      "type": "array",
+      "description": "Text, probe, read, interop and round-trip checks whose result differs from LibreOffice's. An empty array is the shipped state and asserts nothing: producedWith is unpinned, so no run has been allowed to compare against it yet.",
+      "items": { "$ref": "#/$defs/readRow" }
+    },
+    "renders": {
+      "type": "array",
+      "description": "Rasterized page comparisons that do not land in the clean band on every axis. An empty array is the shipped state, for the same reason as reads.",
+      "items": { "$ref": "#/$defs/renderRow" }
+    }
+  },
+  "$defs": {
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["libreoffice", "poppler", "fontSet", "platform", "dpi"],
+      "properties": {
+        "libreoffice": {
+          "type": ["string", "null"],
+          "description": "The LibreOffice build, by version string, not by a characterisation of it. Its layout moves between releases, so a row measured on one build is not evidence about another. Null means nothing has been pinned, which is the shipped state and makes every comparison a skip rather than a pass."
+        },
+        "poppler": {
+          "type": ["string", "null"],
+          "description": "The version of the tool that turns LibreOffice's PDF back into text and pixels. It is pinned because it is as much a part of the measurement as the thing being measured: a text-extraction change would move every read row without LibreOffice having changed at all."
+        },
+        "fontSet": {
+          "type": ["string", "null"],
+          "description": "The identifier of the font set both sides were given. Without one, two hosts disagree about a document neither of them got wrong, and every render row becomes a fact about which fonts were installed that morning."
+        },
+        "platform": {
+          "type": ["string", "null"],
+          "description": "The runtime identifier the rows were measured on. Recorded because font fallback, hinting and the default paper size all differ by platform, and a mismatch is a reason to skip rather than a reason to disbelieve the row."
+        },
+        "dpi": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The rasterization density the render bands were measured at. It is part of the stamp because the inkBox thresholds are stated in pixels: the same page compared at another density lands in another band without anything having changed."
+        }
+      }
+    },
+    "readRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seed", "via", "check", "state", "why"],
+      "properties": {
+        "seed": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The generated or authored document the check ran on."
+        },
+        "via": {
+          "$ref": "#/$defs/format",
+          "description": "The format the seed was handed to both implementations in."
+        },
+        "check": {
+          "enum": ["text", "probe", "read", "interop", "roundtrip"],
+          "description": "Which comparison disagreed. Kept in the key rather than folded into one row per document, because a seed can be perfectly readable and still disagree about a probe, and merging the two would hide whichever was fixed first."
+        },
+        "differences": {
+          "type": "array",
+          "maxItems": 40,
+          "items": { "type": "string" },
+          "description": "The comparison's own differences, sorted so that a reordering inside the tool is not a diff here, and capped so that one badly broken document cannot make the file unreadable for every other row. Absolute paths, byte counts and durations are deliberately absent: a baseline carrying a temporary directory would differ on every run, and one carrying a byte count would fail whenever a writer changed something that made no difference to the document."
+        },
+        "diagnostics": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+\\.[a-z0-9.-]+$" },
+          "description": "Diagnostic codes, and only codes. A set, so a code the run reported twice appears once: the second report is the same fact about the same check, and counting it would make the row differ from one this suite already knows about. Severity is deliberately not filtered: a codec may report a real skip at info, and hiding those makes a documented, tested, reported behaviour look like a silent loss. Messages are excluded because they embed paths and third-party exception text; the code is the stable contract, the message is not."
+        },
+        "state": { "$ref": "#/$defs/state" },
+        "reference": { "$ref": "#/$defs/reference" },
+        "why": { "$ref": "#/$defs/why" },
+        "reviewer": { "$ref": "#/$defs/reviewer" },
+        "decided": { "$ref": "#/$defs/decided" }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/classifiedBySomebody" },
+        { "$ref": "#/$defs/documentedCitesADocument" }
+      ]
+    },
+    "renderRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seed", "via", "state", "why"],
+      "properties": {
+        "seed": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The generated or authored document that was rendered by both implementations."
+        },
+        "via": {
+          "$ref": "#/$defs/format",
+          "description": "The format the seed was handed to both implementations in."
+        },
+        "pageCount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["broilerdoc", "libreoffice"],
+          "description": "Both counts, not their difference. Which side produced more pages is the first thing a reader wants and the last thing a subtraction preserves.",
+          "properties": {
+            "broilerdoc": { "type": "integer", "minimum": 0 },
+            "libreoffice": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "worstPage": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The 1-based page the recorded bands were taken from - the worst one, because a document is no better than its worst page and a mean across pages would let one ruined page hide behind nineteen good ones. Zero when the run produced no page to compare."
+        },
+        "bands": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["geometry", "inkBox", "inkProfile", "coverage", "blurDiff"],
+          "description": "The verdict, one band per axis. These are enums rather than free strings on purpose: renaming a band in the classifier without updating this file fails the guard, which is the only thing standing between a vocabulary and a set of strings that used to mean something.",
+          "properties": {
+            "geometry": {
+              "enum": ["match", "off"],
+              "description": "Whether the two rasterizations agree about the page box within a couple of pixels. It is first and it is binary because everything below it is meaningless when it says off: comparing ink on pages of different sizes measures the paper, not the layout."
+            },
+            "inkBox": {
+              "enum": ["tight", "near", "loose", "wild"],
+              "description": "How far the bounding box of the drawn ink moved, by its worst edge. Banded rather than recorded in pixels so that a hinting change does not read as a layout change."
+            },
+            "inkProfile": {
+              "enum": ["exact", "close", "fair", "poor"],
+              "description": "How similar the row-by-row ink profiles are. This is the axis that notices a line breaking in a different place, which is the difference this suite exists to find."
+            },
+            "coverage": {
+              "enum": ["exact", "close", "fair", "poor"],
+              "description": "How much ink each side put on the page, in total. It catches a whole missing element that happened to leave the bounding box alone."
+            },
+            "blurDiff": {
+              "enum": ["clean", "light", "heavy", "severe"],
+              "description": "How much survives a blurred difference of the two pages. Blurred because the unblurred difference of two independently hinted rasterizations is never empty, so an exact pixel comparison would report a failure on every row and therefore report nothing."
+            }
+          }
+        },
+        "observed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["inkBoxDeltaPx", "inkProfileSimilarity", "coverageDelta", "blurDiffRatio"],
+          "description": "The numbers the bands were derived from. They are here for a reader, so a row that says loose can be read as barely loose or hopelessly loose, and for hysteresis, so a run sitting on a threshold does not flap between two bands from one build to the next. They are never the verdict: an expectation stated in these numbers would fail on an antialiasing change nobody can see, and the band exists precisely so that it does not.",
+          "properties": {
+            "inkBoxDeltaPx": { "type": "integer", "minimum": 0 },
+            "inkProfileSimilarity": { "type": "number", "minimum": 0, "maximum": 1 },
+            "coverageDelta": { "type": "number", "minimum": 0, "maximum": 1 },
+            "blurDiffRatio": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "state": { "$ref": "#/$defs/state" },
+        "reference": { "$ref": "#/$defs/reference" },
+        "why": { "$ref": "#/$defs/why" },
+        "reviewer": { "$ref": "#/$defs/reviewer" },
+        "decided": { "$ref": "#/$defs/decided" }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/classifiedBySomebody" },
+        { "$ref": "#/$defs/documentedCitesADocument" }
+      ]
+    },
+    "classifiedBySomebody": {
+      "if": {
+        "properties": { "state": { "enum": ["documented", "accepted"] } },
+        "required": ["state"]
+      },
+      "then": {
+        "description": "A row is not classified by being written down. A regenerated row starts as a suspected defect and that state needs nobody; the other two are claims - a document says this is a limitation, somebody looked at this and accepted it - and a claim names who made it and when, or it is not one. suspected-defect requires none of this, which is what makes it the honest default rather than a formality to fill in.",
+        "required": ["reviewer", "decided"],
+        "properties": {
+          "reviewer": { "type": "string", "minLength": 1 },
+          "decided": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "documentedCitesADocument": {
+      "if": {
+        "properties": { "state": { "const": "documented" } },
+        "required": ["state"]
+      },
+      "then": {
+        "description": "Calling a difference documented is a citation, so the row carries one and the guard checks the file is really there. A citation nobody can follow is the same as none, and it is worse than none when it is the reason a failing row was allowed to stay.",
+        "required": ["reference"],
+        "properties": {
+          "reference": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "state": {
+      "enum": ["documented", "suspected-defect", "accepted"],
+      "description": "documented - a limitation one of the conformance documents states. suspected-defect - a difference nobody decided on, which is what comparing against another implementation is actually good for, and the state every regenerated row starts in. accepted - this component's own behaviour, looked at and accepted."
+    },
+    "reference": {
+      "type": ["string", "null"],
+      "pattern": "^docs/[A-Za-z0-9._/-]+\\.md$",
+      "description": "A repository-relative path to the conformance document that settles the row. Required for a documented row and null for the others - a suspected defect that cited a document would be documented, and saying so in two fields lets them disagree."
+    },
+    "why": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What is happening and why it has the state it has. Written for somebody deciding whether a failing run is a regression or a fix, which is a different reader from the one the state serves."
+    },
+    "reviewer": {
+      "type": ["string", "null"],
+      "description": "Who classified the row. A person, not a program. Required unless the state is suspected-defect, which is the state an unreviewed row starts in."
+    },
+    "decided": {
+      "type": ["string", "null"],
+      "format": "date",
+      "description": "When they classified it. The regenerator never fills this in, even though it knows the date: a date here is a person's claim about when they looked, and a program stamping it would turn the whole quartet into decoration."
+    },
+    "format": {
+      "enum": ["docx", "odt", "rtf", "html", "md"],
+      "description": "The formats both implementations claim to read. PDF is absent because LibreOffice does not read one back, so there is no comparison to make."
+    }
+  }
+}

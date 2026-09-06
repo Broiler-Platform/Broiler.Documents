@@ -61,7 +61,8 @@ public static class EditOperations
         "               font (family name or default); size (points or default);",
         "               link (URL or off).",
         "  para keys    align (left|center|right|justify); list (none|bullet|numbered);",
-        "               indent (level); linespacing (multiplier); before, after (points).",
+        "               indent (level); linespacing (multiplier); before, after (points);",
+        "               pagebreak (on|off), which starts the paragraph on a new page.",
         "  image keys   file (path, required); width, height (points, default the encoded",
         "               pixel size read as CSS pixels); alt; name. This field runs to the",
         "               end of the line and is taken literally, so a path keeps its drive",
@@ -519,10 +520,14 @@ public static class EditOperations
                 case "spacingbefore": delta = delta with { SpacingBefore = Points(key, value) }; break;
                 case "after":
                 case "spacingafter": delta = delta with { SpacingAfter = Points(key, value) }; break;
+                case "pagebreak":
+                case "pagebreakbefore":
+                    delta = delta with { PageBreakBefore = Switch(key, value) };
+                    break;
                 default:
                     throw new UsageException(
                         "Unknown paragraph property \"" + key + "\". Known: align, list, indent, " +
-                        "linespacing, before, after.");
+                        "linespacing, before, after, pagebreak.");
             }
         }
 

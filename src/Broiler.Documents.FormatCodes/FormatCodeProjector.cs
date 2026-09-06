@@ -166,6 +166,23 @@ public sealed class FormatCodeProjector
         AddParagraphNumber(builder, "Space After", FormatCodeProperty.SpacingAfter,
             style.SpacingAfter, 0f, boundary, paragraphRange);
 
+        // A flag rather than a number, so it projects as its presence. The code
+        // is emitted only when the break is asked for, which is the same rule
+        // every paragraph code above follows: the projection states what differs
+        // from the default and stays silent about what does not.
+        if (style.PageBreakBefore)
+        {
+            builder.AddToken(
+                FormatCodeTokenKind.ParagraphCode,
+                "[Page Break]",
+                boundary,
+                boundary,
+                paragraphRange,
+                FormatCodeMappingMode.Boundary,
+                ParagraphDescriptor(FormatCodeProperty.PageBreakBefore, paragraphRange,
+                    new ParagraphStyleDelta { PageBreakBefore = false }));
+        }
+
         if (style.IndentLevel < 0 || style.LineSpacing <= 0 ||
             style.SpacingBefore < 0 || style.SpacingAfter < 0)
         {

@@ -57,9 +57,15 @@ internal static class OdtReader
             var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
             var images = new OdtImageLoader(archive, manifest, options.Limits, resources);
             RichTextDocument document = ReadContent(content, styles, images, options.Limits, diagnostics);
+
+            // One resolution, used by both. The page and the header that sits on
+            // it belong to the same master page, and reading them from two
+            // different ones would put a Letter header on an A4 page without
+            // anything saying so.
+            XElement? master = ResolveMasterPage(content, styles);
             document = document.WithRunningContent(
-                ReadRunningContent(styles, images, options.Limits, diagnostics));
-            document = document.WithPageGeometry(ReadPageGeometry(styles, diagnostics));
+                ReadRunningContent(master, styles, images, options.Limits, diagnostics));
+            document = document.WithPageGeometry(ReadPageGeometry(master, styles, diagnostics));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             return new DocumentReadResult(
                 document,
@@ -105,6 +111,12 @@ internal static class OdtReader
         var builder = new OdtDocumentBuilder(limits, diagnostics);
         var context = new OdtReadContext(styles, images, builder);
         ReadBlockContent(body.Elements(), context, list: null, depth: 0);
+
+        // A break after the last paragraph asks for a page with nothing on it,
+        // and a document is a sequence of paragraphs here rather than a sequence
+        // of pages, so there is no empty page to add.
+        context.DropPageBreak();
+
         builder.ReportReadSummary(
             body.Elements().Any(IsContentBlock),
             styles.Count,
@@ -114,23 +126,132 @@ internal static class OdtReader
     }
 
     /// <summary>
-    /// Reads the headers and footers hanging off the first master page.
+    /// The master page the document actually begins on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This used to be the first <c>style:master-page</c> in <c>styles.xml</c>,
+    /// on the reasoning that it is the one the default body style points at in
+    /// every document a word processor writes. That is true of documents a word
+    /// processor writes from scratch and false of ones it converts. LibreOffice
+    /// converting HTML to ODF emits two master pages - <c>Standard</c> carrying
+    /// its own default paper, and <c>HTML</c> carrying the page the source
+    /// actually asked for - and lays the body out on the second. Reading the
+    /// first gave a document whose stated page was A4 while every other reader
+    /// of the same file, including the one that wrote it, saw US Letter.
+    /// </para>
+    /// <para>
+    /// ODF states the link the other way round from where a reader looks for it.
+    /// A master page does not say that it is the first; the <em>content</em>
+    /// says which master page it is on, by way of the
+    /// <c>style:master-page-name</c> of the style on its first block. So that is
+    /// what is followed here, and the search stops at the first block: a
+    /// non-empty value further down the document starts a later page, and the
+    /// model has one page geometry rather than a sequence of them.
+    /// </para>
+    /// <para>
+    /// A document whose first block names nothing falls back to the master page
+    /// called <c>Standard</c>, which is ODF's own default name for it, and then
+    /// to the first one defined. The last of those three is the old behaviour,
+    /// kept as the floor rather than as the rule.
+    /// </para>
+    /// </remarks>
+    private static XElement? ResolveMasterPage(XDocument content, OdtStyles styles)
+    {
+        XElement? masterStyles = styles.MasterStyles;
+        if (masterStyles is null)
+            return null;
+
+        string? named = FirstBlockMasterPageName(content, styles);
+        if (!string.IsNullOrEmpty(named))
+        {
+            foreach (XElement candidate in masterStyles.Elements(OdtNamespaces.Style + "master-page"))
+            {
+                if (string.Equals(
+                        (string?)candidate.Attribute(OdtNamespaces.Style + "name"),
+                        named,
+                        StringComparison.Ordinal))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        XElement? standard = null;
+        XElement? first = null;
+        foreach (XElement candidate in masterStyles.Elements(OdtNamespaces.Style + "master-page"))
+        {
+            first ??= candidate;
+            if (standard is null &&
+                string.Equals(
+                    (string?)candidate.Attribute(OdtNamespaces.Style + "name"),
+                    "Standard",
+                    StringComparison.Ordinal))
+            {
+                standard = candidate;
+            }
+        }
+
+        return standard ?? first;
+    }
+
+    /// <summary>
+    /// The master page named by the style on the body's first block, or null.
+    /// </summary>
+    /// <remarks>
+    /// Descendants rather than children, because the first block is not always a
+    /// child of <c>office:text</c> - a document may open with a
+    /// <c>text:section</c>, and one written by a word processor opens with
+    /// <c>text:sequence-decls</c>, which is not a block at all. Taking the first
+    /// block in document order steps over both without needing a list of the
+    /// things that are not content.
+    /// </remarks>
+    private static string? FirstBlockMasterPageName(XDocument content, OdtStyles styles)
+    {
+        XElement? body = content.Root
+            ?.Element(OdtNamespaces.Office + "body")
+            ?.Element(OdtNamespaces.Office + "text");
+        if (body is null)
+            return null;
+
+        foreach (XElement block in body.Descendants())
+        {
+            if (block.Name == OdtNamespaces.Text + "p" || block.Name == OdtNamespaces.Text + "h")
+            {
+                return styles.MasterPageName(
+                    OdtStyles.ParagraphFamily,
+                    (string?)block.Attribute(OdtNamespaces.Text + "style-name"));
+            }
+
+            if (block.Name == OdtNamespaces.Table + "table")
+            {
+                return styles.MasterPageName(
+                    OdtStyles.TableFamily,
+                    (string?)block.Attribute(OdtNamespaces.Table + "style-name"));
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Reads the headers and footers hanging off the master page the document
+    /// begins on.
     /// </summary>
     /// <remarks>
     /// ODF keeps them in <c>styles.xml</c> under <c>office:master-styles</c>, one
     /// set per master page, and a document can define several. The model has one
-    /// set, so the first master page is read - which is the one the default body
-    /// style points at in every document a word processor writes.
+    /// set, so the running content of the page the body starts on is the one
+    /// read - see <see cref="ResolveMasterPage"/> for how that page is found, and
+    /// for why it is not simply the first one defined.
     /// </remarks>
     private static RunningContent ReadRunningContent(
+        XElement? master,
         OdtStyles styles,
         OdtImageLoader images,
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics)
     {
-        XElement? master = styles.MasterStyles
-            ?.Elements(OdtNamespaces.Style + "master-page")
-            .FirstOrDefault();
         if (master is null)
             return RunningContent.Empty;
 
@@ -154,19 +275,18 @@ internal static class OdtReader
     }
 
     /// <summary>
-    /// Reads the page the first master page is laid out on.
+    /// Reads the paper the given master page is laid out on.
     /// </summary>
     /// <remarks>
     /// ODF keeps the paper in a style:page-layout and has the master page name it,
     /// so this follows that reference rather than guessing at the first layout -
-    /// a document can define several, and only the named one is the page.
+    /// a document can define several, and only the named one is the page. Which
+    /// master page arrives here is <see cref="ResolveMasterPage"/>'s decision.
     /// A layout that leaves no column to write on is dropped and reported.
     /// </remarks>
-    private static PageGeometry? ReadPageGeometry(OdtStyles styles, List<DocumentDiagnostic> diagnostics)
+    private static PageGeometry? ReadPageGeometry(
+        XElement? master, OdtStyles styles, List<DocumentDiagnostic> diagnostics)
     {
-        XElement? master = styles.MasterStyles
-            ?.Elements(OdtNamespaces.Style + "master-page")
-            .FirstOrDefault();
         string? layoutName = (string?)master?.Attribute(OdtNamespaces.Style + "page-layout-name");
         if (string.IsNullOrWhiteSpace(layoutName))
             return null;
@@ -383,6 +503,7 @@ internal static class OdtReader
             nested,
             list: null,
             depth + 1);
+        nested.DropPageBreak();
 
         IReadOnlyList<RichTextParagraph> paragraphs = builder.Build().Paragraphs;
         return paragraphs.Count == 1 && paragraphs[0].Length == 0 ? [] : paragraphs;
@@ -417,6 +538,7 @@ internal static class OdtReader
         var builder = new OdtDocumentBuilder(limits, diagnostics);
         var context = new OdtReadContext(styles, images, builder);
         ReadBlockContent(part.Elements(), context, list: null, depth: 0);
+        context.DropPageBreak();
 
         RichTextDocument built = builder.Build();
         IReadOnlyList<RichTextParagraph> paragraphs = built.Paragraphs;
@@ -427,10 +549,64 @@ internal static class OdtReader
     }
 
     /// <summary>Everything a read needs to turn one element into document content.</summary>
+    /// <remarks>
+    /// One of these belongs to one flow of text. The body builds its own, and so
+    /// does every header, every footer, and every shape that keeps its text to
+    /// itself, which is what stops a page break stated at the end of a header
+    /// coming out at the top of the body. A text box read as body content is
+    /// body content and shares the body's, which is the same answer read the
+    /// other way round.
+    /// </remarks>
     private sealed record OdtReadContext(
         OdtStyles Styles,
         OdtImageLoader Images,
-        OdtDocumentBuilder Builder);
+        OdtDocumentBuilder Builder)
+    {
+        private bool _pendingPageBreak;
+
+        /// <summary>
+        /// Records that the paragraph just read asked for a page break after
+        /// itself, so the next paragraph in this flow can carry it.
+        /// </summary>
+        /// <remarks>
+        /// A break stated after paragraph five and a break stated before
+        /// paragraph six are the same break - that identity is the reason the
+        /// model holds one end of it and not both. Moving the far spelling onto
+        /// the near paragraph is therefore not a guess about what the author
+        /// meant; it is the only way the model has of writing down what the
+        /// document already said. The alternative, reporting it and dropping it,
+        /// would be honest about the loss and would still lose a page break a
+        /// word processor draws.
+        /// </remarks>
+        public void HoldPageBreak(bool wanted) => _pendingPageBreak = wanted;
+
+        /// <summary>Hands any held break to the paragraph now starting.</summary>
+        public bool TakePageBreak()
+        {
+            bool held = _pendingPageBreak;
+            _pendingPageBreak = false;
+            return held;
+        }
+
+        /// <summary>
+        /// Gives up on a held break, because nothing follows it that the model
+        /// could hang one on: the flow ended, or the next block is a table, whose
+        /// page break would belong to the table rather than to a paragraph inside
+        /// somebody's cell. It goes out as a diagnostic rather than quietly,
+        /// since a break the reader knew about and could not place is exactly the
+        /// thing a caller comparing page counts needs told.
+        /// </summary>
+        public void DropPageBreak()
+        {
+            if (!_pendingPageBreak)
+                return;
+
+            _pendingPageBreak = false;
+            Builder.AddDiagnosticOnce(
+                "odt.break.after",
+                "A fo:break-after page break had no following paragraph to carry it and was dropped.");
+        }
+    }
 
     /// <summary>
     /// The list a paragraph is inside: which kind its level draws as, and how
@@ -478,6 +654,12 @@ internal static class OdtReader
 
             if (name == OdtNamespaces.Table + "table")
             {
+                // A break held over from the paragraph above has nowhere to land:
+                // the next thing to be laid out is a table, and this model states
+                // a page break on a paragraph rather than on a table. Putting it
+                // on the first paragraph of the first cell would break the page
+                // inside the grid instead of before it.
+                context.DropPageBreak();
                 ReadTable(element, context, depth + 1);
                 continue;
             }
@@ -661,6 +843,13 @@ internal static class OdtReader
                     context.Builder.PushTableSink(nested);
                     ReadBlockContent(cell.Elements(), context, list: null, depth + 1);
                     context.Builder.PopTableSink();
+
+                    // A cell is the end of a flow as far as a page break is
+                    // concerned. The paragraph that follows the last one in this
+                    // cell is the first one in the next cell, which is across the
+                    // grid rather than down the page, so a break carried there
+                    // would land somewhere the document never pointed at.
+                    context.DropPageBreak();
 
                     cells.Add(new TableCell(
                         cellStart,
@@ -949,8 +1138,35 @@ internal static class OdtReader
         string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name");
 
         ParagraphStyle paragraphStyle = ParagraphStyle.Default;
+        string? breakAfter = null;
         foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
+        {
             paragraphStyle = ApplyParagraphProperties(properties, paragraphStyle, context.Builder);
+
+            // fo:break-after is resolved here rather than inside
+            // ApplyParagraphProperties because it is not a property of this
+            // paragraph at all: it is the next paragraph's page break, stated
+            // from the far end. The chain arrives root-first, so the last
+            // declaration seen is the most specific one, which is the same rule
+            // every other attribute in it follows.
+            string? after = (string?)properties.Attribute(OdtNamespaces.Fo + "break-after");
+            if (after is not null)
+                breakAfter = after;
+        }
+
+        // A break handed over by the paragraph above is taken after this
+        // paragraph's own properties have been applied, so it wins over an
+        // fo:break-before of auto. That is the right way round: the two
+        // attributes describe the same gap and either of them asking for a page
+        // gets one, so a paragraph saying nothing stronger than "I do not start a
+        // page" cannot talk the paragraph above it out of ending one.
+        if (context.TakePageBreak())
+            paragraphStyle = paragraphStyle with { PageBreakBefore = true };
+
+        if (string.Equals(breakAfter, "column", StringComparison.Ordinal))
+            ReportColumnBreak(context.Builder);
+
+        context.HoldPageBreak(string.Equals(breakAfter, "page", StringComparison.Ordinal));
 
         // The list wins over whatever indent the paragraph style carried: inside a
         // list the nesting is the indent, and ODF list paragraph styles routinely
@@ -1284,6 +1500,28 @@ internal static class OdtReader
                 break;
         }
 
+        // ODF gives fo:break-before three values and only one of them is a page.
+        // A column break moves to the next column of the same page, so reading it
+        // as a page break would add a page the document never asked for; it is
+        // reported instead, because a model with no columns cannot hold it and a
+        // construct that vanishes without a word is the defect this whole
+        // property exists to close. Both of the other values still override what
+        // the chain carried, since an inherited break has to be cancellable and
+        // auto is what a producer writes to cancel it.
+        switch ((string?)properties.Attribute(OdtNamespaces.Fo + "break-before"))
+        {
+            case "page":
+                style = style with { PageBreakBefore = true };
+                break;
+            case "column":
+                ReportColumnBreak(builder);
+                style = style with { PageBreakBefore = false };
+                break;
+            case "auto":
+                style = style with { PageBreakBefore = false };
+                break;
+        }
+
         // fo:margin is the shorthand a producer writes to reset all four edges at
         // once. Only the single-value form is unambiguous without a box model.
         string? margin = (string?)properties.Attribute(OdtNamespaces.Fo + "margin");
@@ -1343,6 +1581,18 @@ internal static class OdtReader
 
         return style;
     }
+
+    /// <summary>
+    /// Says that a column break was met and not kept. The model breaks pages and
+    /// has no notion of a column, so there is nothing to write it into - but a
+    /// column break is a real instruction in the document, and the reader that
+    /// silently answered "no break" to it is the one that let every page break in
+    /// every format disappear without trace.
+    /// </summary>
+    private static void ReportColumnBreak(OdtDocumentBuilder builder) =>
+        builder.AddDiagnosticOnce(
+            "odt.break.column",
+            "A column break was not represented; this model breaks pages and has no columns.");
 
     private static int IndentLevelFor(double points) =>
         Math.Max(0, (int)Math.Round(points / OdtUnits.PointsPerIndentLevel, MidpointRounding.AwayFromZero));

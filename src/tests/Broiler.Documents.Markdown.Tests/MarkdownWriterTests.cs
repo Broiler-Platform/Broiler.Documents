@@ -72,6 +72,41 @@ public sealed class MarkdownWriterTests
     }
 
     [Fact(Timeout = 600000)]
+    public void Writing_A_Page_Break_Says_Markdown_Cannot_Express_One()
+    {
+        // Markdown has no page and so no page break, and there is no fallback
+        // that would be honest - a horizontal rule is a rule, and a form feed is
+        // a character in the prose. What is left is to say so, which is the only
+        // thing that separates a codec that dropped something from one that was
+        // never given it.
+        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
+        {
+            MakeParagraph(ParagraphStyle.Default, ("first", InlineStyle.Default)),
+            MakeParagraph(
+                ParagraphStyle.Default with { PageBreakBefore = true },
+                ("second", InlineStyle.Default)),
+        });
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult result = new MarkdownDocumentCodec().Write(document, stream);
+
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.page-break");
+        Assert.Equal("first\n\nsecond\n", System.Text.Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Document_That_Breaks_No_Page_Reports_No_Page_Break()
+    {
+        // The other half of the same claim. A diagnostic every document carries
+        // says nothing about any of them.
+        using var stream = new MemoryStream();
+        DocumentWriteResult result = new MarkdownDocumentCodec()
+            .Write(RichTextDocument.FromPlainText("first\nsecond"), stream);
+
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.page-break");
+    }
+
+    [Fact(Timeout = 600000)]
     public void Writes_An_Embedded_Image_As_A_Data_Uri()
     {
         var image = new InlineImage(new byte[] { 1, 2, 3 }, "image/png", 40, 20, "a logo");
