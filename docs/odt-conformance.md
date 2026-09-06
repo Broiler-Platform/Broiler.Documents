@@ -93,6 +93,23 @@ toolkit behind it.
   `svg:title` (falling back to `svg:desc`). A write stores each distinct image
   once under `Pictures`, declares it in the manifest, and anchors the frame
   `as-char`. Raster formats only: PNG, JPEG, GIF, BMP, TIFF, WebP, and ICO.
+- The page, from the `style:page-layout` that a master page names: size, and the
+  four margins. Which master page is a question ODF answers from the other end —
+  a master page never says it is the first, the content says which one it is on,
+  through the `style:master-page-name` of the style on its first block. So that
+  is what the reader follows, resolving the attribute through the style
+  inheritance chain (the most specific declaration wins, and an empty one cancels
+  an inherited one, per ODF's rule that empty means no page break occurs). A
+  document whose first block names nothing falls back to the master page called
+  `Standard`, and then to the first one defined. Only the first block is
+  consulted: a name further down starts a later page, and this model holds one
+  page rather than a sequence of them. The reader previously took the first
+  master page outright, which is correct for documents a word processor writes
+  from scratch and wrong for ones it converts — LibreOffice turning HTML into ODF
+  writes `Standard` carrying its own default paper and `HTML` carrying the page
+  the source asked for, and lays the body out on the second. The header and
+  footer are read from the same master page as the paper, because a Letter header
+  on an A4 page is not a thing any document said.
 - A master page's header and footer shapes, read onto the running content and
   written back into the master page. They are placed against the page rather
   than a paragraph, so a header's `svg:y` is read from the top of the page. Their

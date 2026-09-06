@@ -57,9 +57,15 @@ internal static class OdtReader
             var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
             var images = new OdtImageLoader(archive, manifest, options.Limits, resources);
             RichTextDocument document = ReadContent(content, styles, images, options.Limits, diagnostics);
+
+            // One resolution, used by both. The page and the header that sits on
+            // it belong to the same master page, and reading them from two
+            // different ones would put a Letter header on an A4 page without
+            // anything saying so.
+            XElement? master = ResolveMasterPage(content, styles);
             document = document.WithRunningContent(
-                ReadRunningContent(styles, images, options.Limits, diagnostics));
-            document = document.WithPageGeometry(ReadPageGeometry(styles, diagnostics));
+                ReadRunningContent(master, styles, images, options.Limits, diagnostics));
+            document = document.WithPageGeometry(ReadPageGeometry(master, styles, diagnostics));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             return new DocumentReadResult(
                 document,
@@ -114,23 +120,132 @@ internal static class OdtReader
     }
 
     /// <summary>
-    /// Reads the headers and footers hanging off the first master page.
+    /// The master page the document actually begins on.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This used to be the first <c>style:master-page</c> in <c>styles.xml</c>,
+    /// on the reasoning that it is the one the default body style points at in
+    /// every document a word processor writes. That is true of documents a word
+    /// processor writes from scratch and false of ones it converts. LibreOffice
+    /// converting HTML to ODF emits two master pages - <c>Standard</c> carrying
+    /// its own default paper, and <c>HTML</c> carrying the page the source
+    /// actually asked for - and lays the body out on the second. Reading the
+    /// first gave a document whose stated page was A4 while every other reader
+    /// of the same file, including the one that wrote it, saw US Letter.
+    /// </para>
+    /// <para>
+    /// ODF states the link the other way round from where a reader looks for it.
+    /// A master page does not say that it is the first; the <em>content</em>
+    /// says which master page it is on, by way of the
+    /// <c>style:master-page-name</c> of the style on its first block. So that is
+    /// what is followed here, and the search stops at the first block: a
+    /// non-empty value further down the document starts a later page, and the
+    /// model has one page geometry rather than a sequence of them.
+    /// </para>
+    /// <para>
+    /// A document whose first block names nothing falls back to the master page
+    /// called <c>Standard</c>, which is ODF's own default name for it, and then
+    /// to the first one defined. The last of those three is the old behaviour,
+    /// kept as the floor rather than as the rule.
+    /// </para>
+    /// </remarks>
+    private static XElement? ResolveMasterPage(XDocument content, OdtStyles styles)
+    {
+        XElement? masterStyles = styles.MasterStyles;
+        if (masterStyles is null)
+            return null;
+
+        string? named = FirstBlockMasterPageName(content, styles);
+        if (!string.IsNullOrEmpty(named))
+        {
+            foreach (XElement candidate in masterStyles.Elements(OdtNamespaces.Style + "master-page"))
+            {
+                if (string.Equals(
+                        (string?)candidate.Attribute(OdtNamespaces.Style + "name"),
+                        named,
+                        StringComparison.Ordinal))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        XElement? standard = null;
+        XElement? first = null;
+        foreach (XElement candidate in masterStyles.Elements(OdtNamespaces.Style + "master-page"))
+        {
+            first ??= candidate;
+            if (standard is null &&
+                string.Equals(
+                    (string?)candidate.Attribute(OdtNamespaces.Style + "name"),
+                    "Standard",
+                    StringComparison.Ordinal))
+            {
+                standard = candidate;
+            }
+        }
+
+        return standard ?? first;
+    }
+
+    /// <summary>
+    /// The master page named by the style on the body's first block, or null.
+    /// </summary>
+    /// <remarks>
+    /// Descendants rather than children, because the first block is not always a
+    /// child of <c>office:text</c> - a document may open with a
+    /// <c>text:section</c>, and one written by a word processor opens with
+    /// <c>text:sequence-decls</c>, which is not a block at all. Taking the first
+    /// block in document order steps over both without needing a list of the
+    /// things that are not content.
+    /// </remarks>
+    private static string? FirstBlockMasterPageName(XDocument content, OdtStyles styles)
+    {
+        XElement? body = content.Root
+            ?.Element(OdtNamespaces.Office + "body")
+            ?.Element(OdtNamespaces.Office + "text");
+        if (body is null)
+            return null;
+
+        foreach (XElement block in body.Descendants())
+        {
+            if (block.Name == OdtNamespaces.Text + "p" || block.Name == OdtNamespaces.Text + "h")
+            {
+                return styles.MasterPageName(
+                    OdtStyles.ParagraphFamily,
+                    (string?)block.Attribute(OdtNamespaces.Text + "style-name"));
+            }
+
+            if (block.Name == OdtNamespaces.Table + "table")
+            {
+                return styles.MasterPageName(
+                    OdtStyles.TableFamily,
+                    (string?)block.Attribute(OdtNamespaces.Table + "style-name"));
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Reads the headers and footers hanging off the master page the document
+    /// begins on.
     /// </summary>
     /// <remarks>
     /// ODF keeps them in <c>styles.xml</c> under <c>office:master-styles</c>, one
     /// set per master page, and a document can define several. The model has one
-    /// set, so the first master page is read - which is the one the default body
-    /// style points at in every document a word processor writes.
+    /// set, so the running content of the page the body starts on is the one
+    /// read - see <see cref="ResolveMasterPage"/> for how that page is found, and
+    /// for why it is not simply the first one defined.
     /// </remarks>
     private static RunningContent ReadRunningContent(
+        XElement? master,
         OdtStyles styles,
         OdtImageLoader images,
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics)
     {
-        XElement? master = styles.MasterStyles
-            ?.Elements(OdtNamespaces.Style + "master-page")
-            .FirstOrDefault();
         if (master is null)
             return RunningContent.Empty;
 
@@ -154,19 +269,18 @@ internal static class OdtReader
     }
 
     /// <summary>
-    /// Reads the page the first master page is laid out on.
+    /// Reads the paper the given master page is laid out on.
     /// </summary>
     /// <remarks>
     /// ODF keeps the paper in a style:page-layout and has the master page name it,
     /// so this follows that reference rather than guessing at the first layout -
-    /// a document can define several, and only the named one is the page.
+    /// a document can define several, and only the named one is the page. Which
+    /// master page arrives here is <see cref="ResolveMasterPage"/>'s decision.
     /// A layout that leaves no column to write on is dropped and reported.
     /// </remarks>
-    private static PageGeometry? ReadPageGeometry(OdtStyles styles, List<DocumentDiagnostic> diagnostics)
+    private static PageGeometry? ReadPageGeometry(
+        XElement? master, OdtStyles styles, List<DocumentDiagnostic> diagnostics)
     {
-        XElement? master = styles.MasterStyles
-            ?.Elements(OdtNamespaces.Style + "master-page")
-            .FirstOrDefault();
         string? layoutName = (string?)master?.Attribute(OdtNamespaces.Style + "page-layout-name");
         if (string.IsNullOrWhiteSpace(layoutName))
             return null;
