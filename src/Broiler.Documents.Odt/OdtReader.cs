@@ -1243,25 +1243,13 @@ internal static class OdtReader
             return style;
 
         href = href.Trim();
-        if (!IsAllowedLink(href))
+        if (!DocumentLinkTarget.IsAllowed(href))
         {
             context.Builder.AddDiagnosticOnce("odt.link", "A hyperlink with a disallowed or relative target was dropped.");
             return style;
         }
 
         return style with { LinkHref = href };
-    }
-
-    private static bool IsAllowedLink(string href)
-    {
-        if (href.StartsWith("#", StringComparison.Ordinal))
-            return href.Length > 1;
-        if (!Uri.TryCreate(href, UriKind.Absolute, out Uri? uri))
-            return false;
-
-        return uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeMailto, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -1569,6 +1557,7 @@ internal static class OdtReader
         private readonly Stack<List<DocumentTable>> _tableSinks = new();
         private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
         private bool _pendingSpace;
+        private InlineStyle _pendingSpaceStyle = InlineStyle.Default;
         private int _length;
         private int _tableCount;
         private int _unsupportedBlockCount;
@@ -1647,6 +1636,7 @@ internal static class OdtReader
             _segments.Clear();
             _length = 0;
             _pendingSpace = false;
+            _pendingSpaceStyle = InlineStyle.Default;
             _paragraphStyle = style;
         }
 
@@ -1673,7 +1663,13 @@ internal static class OdtReader
                         start = -1;
                     }
 
+                    // The style is recorded with the flag, not read off whatever
+                    // arrives next. The space belongs to the text node it was
+                    // written in, and the next thing to arrive is often a
+                    // <text:span> - so taking the style from there moved the run
+                    // boundary and swallowed the space into the span.
                     _pendingSpace = true;
+                    _pendingSpaceStyle = style;
                     continue;
                 }
 
@@ -1702,11 +1698,17 @@ internal static class OdtReader
             // A pending space only survives if something precedes it. That single
             // condition is both halves of the ODF rule: no leading space, and no
             // doubled space, because the flag is set rather than counted.
+            //
+            // It is flushed with the style it was written with, which is not
+            // always the style of the text it precedes: in
+            // `<text:span>Bold</text:span> and <text:span>italic</text:span>`
+            // the spaces around "and" are the paragraph's, and only the word is
+            // the span's.
             if (_pendingSpace)
             {
                 _pendingSpace = false;
                 if (_length > 0)
-                    AppendCore(" ", style);
+                    AppendCore(" ", _pendingSpaceStyle);
             }
 
             AppendCore(text, style);

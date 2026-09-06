@@ -1631,25 +1631,13 @@ internal static class DocxReader
         if (string.IsNullOrWhiteSpace(href))
             return style;
 
-        if (!IsAllowedLink(href))
+        if (!DocumentLinkTarget.IsAllowed(href))
         {
-            builder.AddDiagnosticOnce("docx.link", "A hyperlink with a disallowed scheme was dropped.");
+            builder.AddDiagnosticOnce("docx.link", "A hyperlink with a disallowed or relative target was dropped.");
             return style;
         }
 
         return style with { LinkHref = href };
-    }
-
-    private static bool IsAllowedLink(string href)
-    {
-        if (href.StartsWith("#", StringComparison.Ordinal))
-            return true;
-        if (!Uri.TryCreate(href, UriKind.Absolute, out Uri? uri))
-            return false;
-
-        return uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeMailto, StringComparison.OrdinalIgnoreCase);
     }
 
     private static InlineStyle ApplyCapitalization(

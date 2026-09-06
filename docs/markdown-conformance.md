@@ -34,6 +34,7 @@ is intentionally conservative.
 | `` `code` `` | `FontFamily = "monospace"` | |
 | `~~strike~~` | `InlineStyle.Strikethrough` | GitHub-flavored extension included for model symmetry. |
 | `[label](href)` | `InlineStyle.LinkHref` | `http`, `https`, and `mailto` only; other schemes are dropped with `markdown.link`. |
+| `![description](src)` | The description, as text | No image is built. The description is what CommonMark nominates as the fallback, so it stands in for the picture and the rest of the syntax goes, reported as `markdown.image.dropped`. An empty description is valid and leaves nothing behind. |
 
 ## Writer Mapping
 
@@ -47,20 +48,29 @@ is intentionally conservative.
 | Monospace font family | Code span |
 | `LinkHref` | Inline link |
 
+The writer escapes the characters that would otherwise be read back as markup:
+`\` `` ` `` `*` `_` `[` `]` `(` `)` `#` `+` `-` `.` `!` and `~`. The last was
+missed until the corpus suite caught it — doubled, a tilde is this reader's own
+strikethrough, so literal tildes went out bare and came back as a struck run with
+the tildes gone.
+
 The writer emits UTF-8 Markdown with a trailing newline. Unsupported paragraph
 style fields (alignment, line spacing, spacing before/after) produce
 `markdown.paragraph-style`. An embedded image is written as CommonMark image
 syntax with a base64 data URI (`markdown.image.datauri`); the reader does not
 turn it back into a model image, so an image does not survive a Markdown
-round-trip. Unsupported inline style fields (underline, size,
+round-trip — it comes back as its description, and nothing of the syntax is left
+in the text. That last part had to be fixed: `!` was not a character the inline
+parser knew, so the `[…](…)` after it was taken as a link, the marker stayed in
+the prose, and the loss was reported as a dropped hyperlink. Unsupported inline style fields (underline, size,
 foreground/background color, and non-monospace font family) produce
 `markdown.inline-style`.
 
 ## Security And Limits
 
 - The reader never fetches link targets or external resources.
-- Links are inert model metadata; unsafe schemes are dropped with
-  `markdown.link`.
+- Links are inert model metadata. Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried. Refusals are reported as
+  `markdown.link`. The same allow-list applies when writing. A target the reader would refuse is written as plain text with the run's other formatting kept, and reported — a link admitted under one policy must not be able to launder itself into output under another, which is the position `PdfUriPolicy` states for the PDF codec and now holds across all five. Reader and writer share one predicate so the two cannot drift apart again.
 - `DocumentLimits.MaxDocumentBytes`, `MaxRunLength`, and `MaxParagraphCount` are
   enforced with diagnostics.
 - HTML blocks are treated as text by this codec; HTML interchange belongs to
@@ -68,9 +78,14 @@ foreground/background color, and non-monospace font family) produce
 
 ## Known Limitations
 
-- No full CommonMark block parser: tables, reference links, images, HTML blocks,
-  setext headings, thematic breaks, task lists, and nested container edge cases
-  are outside the first subset.
+- No full CommonMark block parser: tables, reference links, HTML blocks, setext
+  headings, thematic breaks, task lists, and nested container edge cases are
+  outside the first subset.
+- Inline images are recognized and deliberately not built: the reader replaces
+  `![description](src)` with its description and reports
+  `markdown.image.dropped`. Recognizing them is what keeps the marker and the
+  destination out of the text; building them is a separate decision, and one
+  that would have to say what a reader may do with a `data:` payload.
 - Inline parsing is intentionally simple and best-effort for malformed or deeply
   nested delimiter runs.
 - Writer output is semantic model Markdown, not preservation of source markup.

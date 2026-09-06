@@ -76,4 +76,59 @@ public sealed class MarkdownReaderTests
         using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(markdown));
         return codec.Read(stream);
     }
+
+    [Fact(Timeout = 600000)]
+    public void An_Image_Becomes_Its_Description_And_Says_So()
+    {
+        // This reader builds no image - they are outside the subset - so the
+        // question is what it leaves behind, and CommonMark nominates the
+        // description as the fallback. The marker used to survive as prose,
+        // because `!` was not special and the `[...](...)` after it went through
+        // the link path: the paragraph came back with a stray exclamation mark
+        // and the loss was reported as a dropped hyperlink, which it was not.
+        DocumentReadResult result = ReadResult("before ![the alt](https://example.test/x.png) after");
+
+        Assert.Equal("before the alt after", result.Document.Paragraphs[0].Text);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.image.dropped");
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.link");
+    }
+
+    [Fact(Timeout = 600000)]
+    public void An_Image_With_No_Description_Leaves_Nothing_Behind()
+    {
+        // A decorative image is written with an empty description, and that is
+        // not a malformed one. A link keeps the opposite rule - one with no text
+        // has nothing to click - so the two part company here.
+        DocumentReadResult result = ReadResult("before ![](https://example.test/x.png) after");
+
+        Assert.Equal("before  after", result.Document.Paragraphs[0].Text);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.image.dropped");
+    }
+
+    [Fact(Timeout = 600000)]
+    public void The_Writers_Own_Data_Uri_Image_Reads_Back_As_Its_Description()
+    {
+        // The round trip this codec actually performs on itself: the writer
+        // emits the picture as a data URI, and the reader will not build an
+        // image from it. What it must not do is leave half the syntax in the
+        // text.
+        DocumentReadResult result = ReadResult("a ![square](data:image/png;base64,iVBORw0KGgo=) b");
+
+        Assert.Equal("a square b", result.Document.Paragraphs[0].Text);
+    }
+
+    [Theory(Timeout = 600000)]
+    // Not images, and none of them should be mistaken for one.
+    [InlineData(@"literal \!\[not an image\] here", "literal ![not an image] here")]
+    [InlineData("Look! [label](https://example.test) after", "Look! label after")]
+    [InlineData("before ![alt]() after", "before ![alt]() after")]
+    [InlineData("before ![oops and no close", "before ![oops and no close")]
+    [InlineData("Hello! World", "Hello! World")]
+    public void What_Is_Not_Image_Syntax_Is_Left_Alone(string markdown, string expected)
+    {
+        DocumentReadResult result = ReadResult(markdown);
+
+        Assert.Equal(expected, result.Document.Paragraphs[0].Text);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.image.dropped");
+    }
 }

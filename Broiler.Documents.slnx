@@ -1,4 +1,4 @@
-<Solution>
+﻿<Solution>
   <Configurations>
     <BuildType Name="Debug" />
     <BuildType Name="Release" />
@@ -187,6 +187,16 @@
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
     <Project Path="src/tests/Broiler.Documents.Cli.Tests/Broiler.Documents.Cli.Tests.csproj">
+      <BuildType Project="Debug" Solution="Debug-Linux|*" />
+      <BuildType Project="Release" Solution="Release-Linux|*" />
+      <BuildType Project="Debug" Solution="Debug-Windows|*" />
+      <BuildType Project="Release" Solution="Release-Windows|*" />
+    </Project>
+    <!-- A console runner rather than a test project: it drives the built
+         broilerdoc executable as a child process, so it needs that executable to
+         exist before it runs, and `dotnet test` discovers nothing in it. CI runs
+         it in its own step and reads its count line. See docs/corpus-suite.md. -->
+    <Project Path="src/tests/Broiler.Documents.Corpus/Broiler.Documents.Corpus.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />

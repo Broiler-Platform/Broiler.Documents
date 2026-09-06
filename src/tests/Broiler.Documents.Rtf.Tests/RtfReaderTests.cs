@@ -277,4 +277,31 @@ public sealed class RtfReaderTests
         Assert.Equal("Calibri", first.StyleAt(0).FontFamily);
         Assert.Equal(11f, first.StyleAt(0).FontSize ?? 0f);
     }
+
+    [Theory(Timeout = 600000)]
+    // How Word spells a same-document reference. The instruction carries the
+    // switch as an escaped backslash, and the reader used to discard escapes in
+    // a field instruction -- so the bookmark name arrived alone, failed the
+    // allow-list, and was reported as an unsupported scheme, of which it had
+    // none.
+    [InlineData("HYPERLINK \\\\l \"chapter\"")]
+    [InlineData("HYPERLINK \\\\l \"chapter\" ")]
+    [InlineData("HYPERLINK \\\\L \"chapter\"")]
+    public void Hyperlink_With_The_Local_Switch_Is_Read_As_A_Fragment(string instruction)
+    {
+        InlineStyle style = Read("{\\rtf1{\\field{\\*\\fldinst{" + instruction + "}}{\\fldrslt click}}}")
+            .Paragraphs[0].StyleAt(0);
+
+        Assert.Equal("#chapter", style.LinkHref);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Hyperlink_Without_The_Local_Switch_Keeps_Its_Target()
+    {
+        // The switch scan must not see the 'l' in a URL.
+        InlineStyle style = Read("{\\rtf1{\\field{\\*\\fldinst{HYPERLINK \"https://l.test/l\"}}{\\fldrslt c}}}")
+            .Paragraphs[0].StyleAt(0);
+
+        Assert.Equal("https://l.test/l", style.LinkHref);
+    }
 }

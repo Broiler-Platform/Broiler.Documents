@@ -24,6 +24,17 @@ namespace Broiler.Documents.Pdf;
 /// schemes — is rejected, and the value stays inert source data with a
 /// <see cref="PdfDiagnosticCodes.UriRejected"/> diagnostic.
 /// </para>
+/// <para>
+/// An absolute URI is required, so a target that is only a same-document
+/// <c>#fragment</c> is refused as well, and no configuration changes that: the
+/// absolute test runs before the scheme switch, so the opt-ins never see one.
+/// That is the one place this policy and <c>DocumentLinkTarget</c> — the
+/// predicate the five interchange codecs share — reach different answers about
+/// a target either could carry. It costs nothing a fragment could have
+/// delivered: this writer emits a URI action and no destination, so the name it
+/// points at is not carried here either. A fragment inside an absolute URI is a
+/// different thing and is kept.
+/// </para>
 /// </remarks>
 public sealed class PdfUriPolicy
 {
@@ -57,7 +68,9 @@ public sealed class PdfUriPolicy
     /// <summary>
     /// Admits a URI, returning the canonical form to store. A rejection reason is
     /// returned instead of thrown, because a denied link is ordinary content, not
-    /// an error.
+    /// an error. A rejection returns an empty canonical form and a non-null
+    /// reason, both without exception: a caller that reads the canonical without
+    /// checking the result cannot thereby store a target this policy refused.
     /// </summary>
     public bool TryAdmit(string? value, out string canonical, out string? reason)
     {
@@ -126,7 +139,22 @@ public sealed class PdfUriPolicy
         }
 
         canonical = uri.AbsoluteUri;
-        return canonical.Length <= MaxLength;
+        if (canonical.Length > MaxLength)
+        {
+            // Not the same rejection as the one at the top of the method, and it
+            // does not read as one. That test measures what the caller passed;
+            // this measures what would be stored, and percent-encoding sits
+            // between them - a non-ASCII path expands about threefold - so a
+            // value under the cap can still fail it. This return used to leave
+            // the reason null, which the method's own contract forbids, and both
+            // writers then fell back to a generic message: the caller got a
+            // rejection that named no cause.
+            reason = "encoding the value made it longer than the policy permits";
+            canonical = string.Empty;
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>Convenience form for callers that only need the decision.</summary>

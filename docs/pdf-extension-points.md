@@ -280,7 +280,11 @@ writer stops emitting the approximation notice when it is false.
 
 Decides which URI values may become active links, on both the read and the write
 side. `https` is admitted by default; `http` and `mailto` need an explicit
-opt-in; everything else is rejected.
+opt-in; everything else is rejected. An absolute URI is required, so a target that
+is only a same-document `#fragment` falls under "everything else" — the five
+interchange codecs carry one under `DocumentLinkTarget` and this policy does not,
+and no configuration changes that, because the absolute test runs before the
+scheme switch. A fragment inside an absolute URI is a different thing and is kept.
 
 Two properties hold regardless of how it is configured:
 

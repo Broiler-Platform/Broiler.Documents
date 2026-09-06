@@ -152,13 +152,22 @@ internal static class PdfReader
                 fragments = FilterVisible(fragments);
 
             IReadOnlyList<PdfPlacedImage> images = interpreter.PlacedImages;
+
+            // Annotations are page-level objects: whether one carries an
+            // unapplied redaction or an executable action has nothing to do
+            // with what the content stream drew. Reading them below the
+            // emptiness test meant a page that drew nothing was never
+            // inspected at all - and a scanned page is empty here whenever
+            // this build refuses its image, which is the ordinary shape of a
+            // supposedly redacted document. It stays below Run: PlacedImages
+            // is the interpreter's own list, cleared at the top of each page.
+            List<PdfLinkRegion> links = PdfAnnotationReader.Read(store, page, policy, optionalContent);
+
             if (fragments.Count == 0 && images.Count == 0)
             {
                 emptyPages++;
                 continue;
             }
-
-            List<PdfLinkRegion> links = PdfAnnotationReader.Read(store, page, policy, optionalContent);
 
             // A page whose fragments the tree accounts for in full is read in the
             // order it declares. One it accounts for only partly falls back

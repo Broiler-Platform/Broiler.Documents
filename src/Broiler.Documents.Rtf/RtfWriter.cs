@@ -368,10 +368,35 @@ public static class RtfWriter
             return;
         }
 
+        // The reader's rule, applied on the way out as well. Without it a
+        // javascript: or file: target reached the HYPERLINK field and
+        // nothing said so.
+        if (!string.IsNullOrEmpty(style.LinkHref) && !DocumentLinkTarget.IsAllowed(style.LinkHref))
+        {
+            AddOnce(
+                diagnostics,
+                reported,
+                "rtf.link",
+                "A hyperlink with a disallowed or relative target was written as plain text.");
+            WriteStyledText(sb, text, style, fonts, colors);
+            return;
+        }
+
         if (!string.IsNullOrEmpty(style.LinkHref))
         {
-            sb.Append("{\\field{\\*\\fldinst{HYPERLINK \"");
-            AppendEscaped(sb, style.LinkHref);
+            // A fragment is not a URL, and RTF does not spell it as one: the
+            // field takes the \l switch and a bookmark name. Writing "#name"
+            // into the quotes instead would produce a target a word processor
+            // reads as an address, which is how this codec used to emit one and
+            // why its own reader could not recognise Word's.
+            bool local = style.LinkHref[0] == '#';
+            string target = local ? style.LinkHref[1..] : style.LinkHref;
+
+            sb.Append("{\\field{\\*\\fldinst{HYPERLINK ");
+            if (local)
+                sb.Append("\\\\l ");
+            sb.Append('\"');
+            AppendEscaped(sb, target);
             sb.Append("\"}}{\\fldrslt ");
             WriteStyledText(sb, text, style, fonts, colors);
             sb.Append("}}");

@@ -48,7 +48,14 @@ ownership and limits) and RichEdit ADR 0016 (sanitize, then fall back).
   executes, or deserializes OLE objects, macros, or `\*\objdata` payloads.
   Hyperlink targets are stored as inert `LinkHref` text (ADR 0005); URL policy
   reuses RichEdit ADR 0016 — only `http`, `https`, and `mailto` survive; other
-  schemes are dropped.
+  schemes are dropped. A same-document `#fragment` survives as well, carrying no
+  name with whitespace, a quote, or a second `#`; a relative target does not.
+  One predicate decides this for all five interchange codecs
+  (`DocumentLinkTarget`), on write as well as on read, and the omissions are
+  deliberate: no length cap, no user-information rejection, no canonicalization.
+  The PDF codec is not one of the five and keeps its own policy. Nothing here resolves a
+  fragment — no codec reads or writes a bookmark — so it preserves a reference
+  the source made, not a jump that works.
 
 - **Embedded images are opt-in and delegated.** `\pict` decoding is **off by
   default**. When a caller opts in via `DocumentReadOptions`, the payload is

@@ -133,4 +133,91 @@ public sealed class MarkdownWriterTests
     /// <summary>Read options that also permit writing what was read back out.</summary>
     private static DocumentReadOptions RoundTripReadOptions { get; } =
         new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
+
+    [Theory(Timeout = 600000)]
+    [InlineData("Pipe | tilde ~~s~~ backtick `c`")]
+    [InlineData("approx ~5 items")]
+    [InlineData("~~~")]
+    public void Literal_Tildes_Are_Escaped_Rather_Than_Read_Back_As_Strikethrough(string text)
+    {
+        // Doubled, a tilde is GitHub-flavored strikethrough, which this codec's
+        // own reader honours - so literal tildes written out bare came back as a
+        // struck run with the tildes gone. Every other delimiter in the writer
+        // was already escaped; this one was missed.
+        RichTextDocument expected = RichTextDocument.FromPlainText(text);
+
+        byte[] bytes = MarkdownDocumentCodec.WriteToArray(expected);
+        using var stream = new MemoryStream(bytes);
+        RichTextDocument actual = new MarkdownDocumentCodec().Read(stream, RoundTripReadOptions).Document;
+
+        Assert.Equal(text, actual.Paragraphs[0].Text);
+        Assert.False(actual.Paragraphs[0].StyleAt(0).Strikethrough);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Struck_Run_Still_Writes_The_Delimiter_It_Means()
+    {
+        // The escape must not reach the delimiters the writer emits itself.
+        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
+        {
+            MakeParagraph(
+                ParagraphStyle.Default,
+                ("gone", InlineStyle.Default with { Strikethrough = true })),
+        });
+
+        Assert.Contains("~~gone~~", Write(document), StringComparison.Ordinal);
+    }
+
+    // The allow-list was enforced on the way in and not on the way out, so a
+    // target no reader here would accept could still be written into a document,
+    // with no diagnostic. The round trip cannot see that: every reader refuses
+    // the same schemes, so a document that wrote the link and one that dropped
+    // it both read back without it. These assert the bytes.
+
+    [Theory(Timeout = 600000)]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("vbscript:msgbox")]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("/relative/path")]
+    public void A_Refused_Link_Target_Never_Reaches_The_Output(string href)
+    {
+        (string written, DocumentWriteResult result) = WriteLink(href);
+
+        Assert.DoesNotContain(href, written, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.link");
+    }
+
+    [Theory(Timeout = 600000)]
+    [InlineData("https://example.test/page")]
+    [InlineData("http://example.test/page")]
+    [InlineData("mailto:someone@example.test")]
+    public void A_Permitted_Link_Target_Is_Still_Written(string href)
+    {
+        (string written, DocumentWriteResult result) = WriteLink(href);
+
+        Assert.Contains(href, written, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.link");
+    }
+
+    private static (string Written, DocumentWriteResult Result) WriteLink(string href)
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Create("link", new InlineStyle { LinkHref = href })]);
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult result = new MarkdownDocumentCodec().Write(document, stream);
+        return (System.Text.Encoding.UTF8.GetString(stream.ToArray()), result);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void An_Empty_Href_Is_Not_A_Link_And_Is_Not_A_Diagnostic()
+    {
+        // The other four writers guard on IsNullOrEmpty and say nothing; this
+        // one guarded on null, so the empty string the edit language uses to
+        // mean "remove this link" was reported as a refused target.
+        (string written, DocumentWriteResult result) = WriteLink(string.Empty);
+
+        Assert.Equal("link", written.Trim());
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.link");
+    }
 }

@@ -303,4 +303,102 @@ public sealed class OdtWriterTests
         DocumentAssert.Equivalent(document, RoundTrip(document));
     }
 
+    // The theory above covers a run of spaces inside one style run. A run does
+    // not have to sit inside one: bold the second of two spaces and the writer
+    // sees two runs of one space each, with nothing either side of either. Each
+    // half was written out bare, and two adjacent literal spaces in two text
+    // nodes are what the ODF collapse rule folds back into one - so the
+    // paragraph came back a character short, with nothing reported.
+
+    [Theory]
+    [InlineData("a  b", 2, 3)]
+    [InlineData("a   b", 2, 3)]
+    [InlineData("a   b", 3, 4)]
+    [InlineData("a     b", 3, 5)]
+    [InlineData("  leading", 0, 1)]
+    [InlineData("trailing  ", 8, 9)]
+    [InlineData("  both  ends  ", 6, 7)]
+    [InlineData("Split  here and there.", 6, 11)]
+    public void A_Run_Of_Spaces_Split_By_A_Style_Boundary_Still_Round_Trips(
+        string text, int styleStart, int styleEnd)
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [Styled(text, styleStart, styleEnd)]);
+
+        Assert.Equal(text, RoundTrip(document).Paragraphs[0].Text);
+    }
+
+    [Fact]
+    public void A_Space_Run_Inside_One_Style_Run_Is_Written_The_Way_It_Always_Was()
+    {
+        // The common case, and the one a change to the space rules could quietly
+        // rewrite: one literal space carries the run and text:s carries the
+        // rest, so the markup stays what a reader of the file would expect.
+        byte[] package = OdtDocumentCodec.WriteToArray(RichTextDocument.FromPlainText("a     b"));
+
+        Assert.Contains("a <text:s text:c=\"4\" />b", ContentXml(package), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Split_Run_Writes_Its_Second_Half_As_Text_S()
+    {
+        // The fix stated in markup rather than through the round trip: the half
+        // that continues the run must not be a bare space, whichever node it
+        // lands in.
+        byte[] package = OdtDocumentCodec.WriteToArray(
+            RichTextDocument.FromParagraphs([Styled("a  b", 2, 3)]));
+
+        string content = ContentXml(package);
+
+        Assert.Contains("<text:s />", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("  ", content[content.IndexOf("<office:body", StringComparison.Ordinal)..],
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>A paragraph whose <c>[start, end)</c> characters are bold.</summary>
+    private static RichTextParagraph Styled(string text, int start, int end)
+    {
+        RichTextParagraph paragraph = RichTextParagraph.Empty;
+        paragraph = paragraph.InsertText(0, text[..start], InlineStyle.Default);
+        paragraph = paragraph.InsertText(start, text[start..end], InlineStyle.Default with { Bold = true });
+        return paragraph.InsertText(end, text[end..], InlineStyle.Default);
+    }
+
+    private static string ContentXml(byte[] package)
+    {
+        using var stream = new MemoryStream(package, writable: false);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+        return ReadText(archive, "content.xml");
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Control_Character_In_A_Picture_Description_Is_Dropped_Too()
+    {
+        // The run-text path has guarded this for a long time; the description
+        // reaches an element too and did not, so a document carrying one threw
+        // out of the serializer and the tool reported exit 70.
+        var image = new InlineImage(OdtTestPackage.OnePixelPng, "image/png", 8, 8, altText: "x\u0007y");
+        (InlineImage admitted, DocumentWriteOptions options) = Writable(image);
+
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Create(
+                InlineImage.PlaceholderText, InlineStyle.Default with { Image = admitted })]);
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult result = new OdtDocumentCodec().Write(document, stream, options);
+
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.text.control");
+    }
+
+    /// <summary>Admits an image under a policy that permits writing it.</summary>
+    private static (InlineImage Image, DocumentWriteOptions Options) Writable(InlineImage image)
+    {
+        var builder = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
+        InlineImage admitted = builder.AdmitImage(
+            image,
+            DocumentResourceProvenance.CallerSupplied,
+            DocumentResourceDisposition.Embedded);
+
+        return (admitted, new DocumentWriteOptions(resources: builder.Build()));
+    }
 }

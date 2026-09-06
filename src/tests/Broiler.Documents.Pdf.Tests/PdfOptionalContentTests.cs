@@ -258,6 +258,141 @@ public sealed class PdfOptionalContentTests
             "<< /OCGs [4 0 R] /D << /OFF [4 0 R] >> >>",
             $"/L0 << {membership} >>");
 
+
+    // ---- annotations on a layer -----------------------------------------------
+
+    [Fact]
+    public void A_Redaction_On_A_Layer_The_Configuration_Turns_Off_Is_Still_An_Error()
+    {
+        // One /OC key used to silence the only error this codec raises about an
+        // unapplied redaction. A declaration about presentation does not lift an
+        // overlay off the content underneath it.
+        PdfReadResult result = Read(Annotated(
+            "<< /Type /Annot /Subtype /Redact /Rect [70 690 200 710] /OC 4 0 R >>"));
+
+        DocumentDiagnostic redaction = Assert.Single(
+            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.RedactionNotApplied));
+        Assert.Equal(DocumentDiagnosticSeverity.Error, redaction.Severity);
+    }
+
+    [Fact]
+    public void Active_Content_On_A_Layer_The_Configuration_Turns_Off_Is_Still_Counted()
+    {
+        // Optional content governs what is shown, not whether an action is in the
+        // file for something else to run.
+        PdfReadResult result = Read(Annotated(
+            "<< /Type /Annot /Subtype /Widget /Rect [70 690 200 710] " +
+            "/A << /S /JavaScript /JS (x) >> /OC 4 0 R >>"));
+
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ActiveContentRemoved);
+    }
+
+    [Fact]
+    public void Whether_A_Redaction_Is_Reported_Does_Not_Depend_On_Which_Layers_Were_Asked_For()
+    {
+        // The sharpest statement of the bug: the same bytes, read two ways, must
+        // agree about what the file carries.
+        byte[] pdf = Annotated("<< /Type /Annot /Subtype /Redact /Rect [70 690 200 710] /OC 4 0 R >>");
+
+        Assert.Contains(
+            Read(pdf).Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.RedactionNotApplied);
+        Assert.Contains(
+            Read(pdf, new PdfReadOptions(includeHiddenOptionalContent: true)).Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.RedactionNotApplied);
+    }
+
+    [Fact]
+    public void A_Link_On_A_Layer_The_Configuration_Turns_Off_Is_Still_Not_Projected()
+    {
+        // The control that stops an over-broad fix. Classification is not a
+        // visibility question; projection is, and this half must not move.
+        PdfReadResult result = Read(Annotated(
+            "<< /Type /Annot /Subtype /Link /Rect [70 690 200 710] /OC 4 0 R " +
+            "/A << /S /URI /URI (https://example.org/x) >> >>"));
+
+        Assert.Empty(LinksOf(result));
+
+        // A link that was never admitted is not a link the policy refused.
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.UriRejected);
+    }
+
+    [Fact]
+    public void A_Destination_On_A_Layer_The_Configuration_Turns_Off_Is_Not_Reported_As_A_Loss()
+    {
+        // Its message says the text was kept and no link projected. On a layer the
+        // configuration turns off the text is not kept either, so reporting a loss
+        // there would be false.
+        PdfReadResult result = Read(Annotated(
+            "<< /Type /Annot /Subtype /Link /Rect [70 690 200 710] /Dest (chapter-two) /OC 4 0 R >>"));
+
+        Assert.DoesNotContain(
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.LinkDestinationDropped);
+        Assert.Empty(LinksOf(result));
+    }
+
+    [Fact]
+    public void An_Annotation_On_A_Layer_The_Configuration_Leaves_On_Is_Unaffected()
+    {
+        PdfReadResult result = Read(Annotated(
+            "<< /Type /Annot /Subtype /Link /Rect [70 690 200 710] /OC 4 0 R " +
+            "/A << /S /URI /URI (https://example.org/x) >> >>",
+            hide: false));
+
+        Assert.Contains("https://example.org/x", LinksOf(result));
+    }
+
+    private static List<string> LinksOf(PdfReadResult result)
+    {
+        var links = new List<string>();
+        foreach (RichTextParagraph paragraph in result.Document.Paragraphs)
+        {
+            foreach (StyleRun run in paragraph.Runs)
+            {
+                if (run.Style.LinkHref is { } href)
+                    links.Add(href);
+            }
+        }
+
+        return links;
+    }
+
+    /// <summary>
+    /// A one-page document that draws visible text and carries the given
+    /// annotations, with object 4 the optional-content group the annotations name
+    /// as "4 0 R". The group is off by default, so an annotation naming it sits
+    /// outside the presentation the catalog declares.
+    /// </summary>
+    private static byte[] Annotated(string annotation, bool hide = true)
+    {
+        var builder = new PdfFileBuilder();
+        int catalog = builder.Reserve();
+        int pages = builder.Reserve();
+        int page = builder.Reserve();
+        int group = builder.AddObject("<< /Type /OCG /Name (Layer) >>");
+        int font = builder.AddObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        int stream = builder.AddStream(string.Empty, Show("Quarterly report"));
+        int annot = builder.AddObject(annotation);
+
+        // As in Document: the fixtures name the group as "4 0 R", which holds
+        // because the catalog, page tree and page are reserved first.
+        Assert.Equal(4, group);
+
+        string configuration = hide ? $"/OFF [{group} 0 R]" : $"/ON [{group} 0 R]";
+        builder.SetObject(
+            catalog,
+            $"<< /Type /Catalog /Pages {pages} 0 R " +
+            $"/OCProperties << /OCGs [{group} 0 R] /D << {configuration} >> >> >>");
+        builder.SetObject(pages, $"<< /Type /Pages /Kids [{page} 0 R] /Count 1 >>");
+        builder.SetObject(
+            page,
+            $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] " +
+            $"/Resources << /Font << /F1 {font} 0 R >> >> " +
+            $"/Contents {stream} 0 R /Annots [{annot} 0 R] >>");
+
+        return builder.Build(catalog);
+    }
+
     /// <summary>
     /// A one-page document whose catalog carries <paramref name="ocProperties"/>
     /// and whose page resources map the marked-content property names. Object 4

@@ -108,8 +108,22 @@ public static class MarkdownWriter
             formatted = "*" + formatted + "*";
         if (style.Bold)
             formatted = "**" + formatted + "**";
-        if (style.LinkHref is not null)
-            formatted = "[" + formatted + "](" + EscapeLinkDestination(style.LinkHref) + ")";
+        // The reader's rule, applied on the way out as well. Without it a
+        // javascript: or data: target was written into the destination and
+        // nothing said so.
+        if (!string.IsNullOrEmpty(style.LinkHref))
+        {
+            if (DocumentLinkTarget.IsAllowed(style.LinkHref))
+            {
+                formatted = "[" + formatted + "](" + EscapeLinkDestination(style.LinkHref) + ")";
+            }
+            else
+            {
+                diagnostics.Add(DocumentDiagnostic.Warning(
+                    "markdown.link",
+                    "A hyperlink with a disallowed or relative target was written as plain text."));
+            }
+        }
 
         if (style.Underline ||
             style.FontSize.HasValue ||
@@ -194,6 +208,12 @@ public static class MarkdownWriter
                 case '-':
                 case '.':
                 case '!':
+                // Doubled, this is GitHub-flavored strikethrough, which this
+                // codec's own reader honours - so literal tildes written out bare
+                // came back as a struck run with the tildes gone. Escaped
+                // singly, like every other delimiter here: a lone tilde means
+                // nothing on its own, and `\~` is a literal tilde either way.
+                case '~':
                     builder.Append('\\').Append(c);
                     break;
                 case (char)0x2028:

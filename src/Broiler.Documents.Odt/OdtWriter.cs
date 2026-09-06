@@ -171,8 +171,9 @@ public static class OdtWriter
                 new XAttribute(OdtNamespaces.XLink + "show", "embed"),
                 new XAttribute(OdtNamespaces.XLink + "actuate", "onLoad")));
 
-        if (image.AltText.Length > 0)
-            frame.Add(new XElement(OdtNamespaces.Svg + "title", image.AltText));
+        string description = XmlText(image.AltText, context);
+        if (description.Length > 0)
+            frame.Add(new XElement(OdtNamespaces.Svg + "title", description));
 
         return frame;
     }
@@ -505,9 +506,87 @@ public static class OdtWriter
         AddInlineContent(host, text, offset, style, state, context);
     }
 
+    /// <summary>
+    /// Whether nothing but spaces stands between <paramref name="from"/> and the
+    /// end of the paragraph.
+    /// </summary>
+    /// <remarks>
+    /// A reader drops a trailing run of spaces entirely, so every space in one
+    /// has to be written as <c>text:s</c> - and whether the run is trailing is a
+    /// fact about the paragraph, not about the style run that happens to hold
+    /// this part of it. Asking <c>offset + run >= state.Text.Length</c> answered
+    /// the run-local question and missed a trailing run split across a boundary.
+    /// </remarks>
+    private static bool ReachesParagraphEnd(string text, int from)
+    {
+        for (int i = from; i < text.Length; i++)
+        {
+            if (text[i] != ' ')
+                return false;
+        }
+
+        return true;
+    }
+
+
+    /// <summary>
+    /// Text as XML can carry it: the characters XML 1.0 cannot represent are
+    /// dropped, and a valid surrogate pair is kept whole.
+    /// </summary>
+    /// <remarks>
+    /// The run-text path has always done this inline. It is a method because run
+    /// text is not the only string that comes from the model - a picture's
+    /// description reaches an element too, and did so unguarded, so a document
+    /// this reader accepted could not be written back and the tool reported exit
+    /// 70 rather than a diagnostic.
+    /// </remarks>
+    private static string XmlText(string value, OdtWriteContext context)
+    {
+        int first = -1;
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (!XmlConvert.IsXmlChar(value[i]))
+            {
+                first = i;
+                break;
+            }
+        }
+
+        if (first < 0)
+            return value;
+
+        var clean = new StringBuilder(value.Length);
+        clean.Append(value, 0, first);
+
+        for (int i = first; i < value.Length; i++)
+        {
+            char character = value[i];
+
+            // A surrogate is not an XML character on its own and a valid pair
+            // is, so the pair is recognized before the test rejects its halves.
+            if (char.IsHighSurrogate(character) &&
+                i + 1 < value.Length &&
+                char.IsLowSurrogate(value[i + 1]))
+            {
+                clean.Append(character).Append(value[i + 1]);
+                i++;
+                continue;
+            }
+
+            if (XmlConvert.IsXmlChar(character))
+                clean.Append(character);
+            else
+                context.AddDiagnosticOnce(
+                    "odt.text.control",
+                    "A control character that XML cannot represent was dropped.");
+        }
+
+        return clean.ToString();
+    }
+
     private static XElement? BuildAnchor(string href, OdtWriteContext context)
     {
-        if (!IsAllowedLink(href))
+        if (!DocumentLinkTarget.IsAllowed(href))
         {
             context.AddDiagnosticOnce(
                 "odt.link",
@@ -561,10 +640,28 @@ public static class OdtWriter
                 // A reader drops a space at either edge of a paragraph and folds
                 // a run of them into one, so those spaces have to be written as
                 // text:s to survive a round trip.
-                bool atParagraphStart = !state.HasContent && pending.Length == 0;
-                bool atParagraphEnd = offset + run >= state.Text.Length;
+                //
+                // Every question here is asked of the paragraph rather than of
+                // the run being written, because a run of spaces does not have
+                // to lie inside one style run. Split across a boundary, each
+                // half used to see a single space with nothing either side of
+                // it, write it out bare, and leave two adjacent literal spaces
+                // in two text nodes - which a reader folds back into one, one
+                // character short and with nothing reported. It is the mirror of
+                // the reader defect in OdtDocumentBuilder.Append: a decision
+                // that needs the neighbouring run's context, taken from a
+                // run-local view.
+                int start = offset + i;
                 int count = run - i;
-                if (atParagraphStart || atParagraphEnd)
+
+                // The paragraph's run of spaces began before this one did, so
+                // the literal space that stands for the whole run has already
+                // been written and these are the ones that need protecting.
+                bool continuesRun = start > 0 && state.Text[start - 1] == ' ';
+                bool atParagraphStart = start == 0;
+                bool atParagraphEnd = ReachesParagraphEnd(state.Text, start + count);
+
+                if (atParagraphStart || atParagraphEnd || continuesRun)
                 {
                     Flush();
                     AddSpaces(host, count, state);
@@ -713,8 +810,9 @@ public static class OdtWriter
                 new XAttribute(OdtNamespaces.XLink + "show", "embed"),
                 new XAttribute(OdtNamespaces.XLink + "actuate", "onLoad")));
 
-        if (image.AltText.Length > 0)
-            frame.Add(new XElement(OdtNamespaces.Svg + "title", image.AltText));
+        string description = XmlText(image.AltText, context);
+        if (description.Length > 0)
+            frame.Add(new XElement(OdtNamespaces.Svg + "title", description));
 
         host.Add(frame);
         state.HasContent = true;
@@ -789,9 +887,11 @@ public static class OdtWriter
 
         if (!string.IsNullOrWhiteSpace(style.FontFamily))
         {
+            // A family name is a model string and reaches an attribute, so it
+            // needs the same filter run text and a description do.
             properties.Add(new XAttribute(
                 OdtNamespaces.Fo + "font-family",
-                QuoteFontFamily(style.FontFamily)));
+                QuoteFontFamily(XmlText(style.FontFamily, context))));
         }
 
         if (style.FontSize is { } size && size > 0)
@@ -1099,18 +1199,6 @@ public static class OdtWriter
         entry.LastWriteTime = ZipTimestamp;
         using Stream stream = entry.Open();
         stream.Write(data);
-    }
-
-    private static bool IsAllowedLink(string href)
-    {
-        if (href.StartsWith("#", StringComparison.Ordinal))
-            return href.Length > 1;
-        if (!Uri.TryCreate(href, UriKind.Absolute, out Uri? uri))
-            return false;
-
-        return uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-            uri.Scheme.Equals(Uri.UriSchemeMailto, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

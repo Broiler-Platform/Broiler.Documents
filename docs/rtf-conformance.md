@@ -17,7 +17,7 @@ below are exercised by `RtfConformanceTests`, `RtfLimitTests`, and
 | Control symbols | `\\` `\{` `\}` `\~` (nbsp) `\_` (nb-hyphen) `\-` (optional hyphen, dropped) `\`+CR/LF (→ paragraph) `\*` (destination marker) |
 | Encoding | `\'hh` `\uN` `\ucN` `\ansicpgN` `\fcharsetN` (per font) |
 | Tables | `\fonttbl` `\colortbl` |
-| Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only) |
+| Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only, including the `\l` switch that spells a same-document reference: it is read as `#name` and written back the same way. The name may not contain a quote — the field argument is quoted and RTF has no escape for one inside it, so a quote would truncate the target silently; the shared rule refuses it for every format. Targets otherwise follow that rule, or `rtf.link`) |
 
 ## Approximated
 

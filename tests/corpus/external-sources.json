@@ -1,0 +1,19 @@
+{
+  "$schema": "external-sources.schema.json",
+  "schemaVersion": 1,
+  "updated": "2026-09-05",
+  "policy": {
+    "default": "off",
+    "rule": "The corpus suite fetches nothing unless it is asked to and the row it would fetch is approved here. `--fetch` without an approved row is not an error and not a skip that hides: the runner reports the row, its state, and the reason it did not fetch it.",
+    "why": "This component does not commit documents anybody else wrote, and downloading one at test time is the same act with the evidence deleted. ADR 0013 gives every format its own rights record and its own claim gate; docs/pdf-approved-sources.md sets the pattern this file follows - a row before use, a permitted use narrower than the source, and a decision that a person made. tests/pdf/tools/manifest.json does the same job for executables. This is the same control for input documents.",
+    "insufficient": [
+      "That a document is published on the web.",
+      "That a document is described as a sample, a test file, or a conformance suite.",
+      "That an open-source project ships it. SRC-015 in docs/pdf-approved-sources.md records the finding directly: the existence of an open-source implementation is not permission to copy it, and the same holds for its fixtures.",
+      "That the licence looks permissive to whoever is writing the code today. The decision field wants a name and a date."
+    ],
+    "digest": "Every approved row pins a SHA-256. A fetch whose bytes do not match it fails the run rather than proceeding: an unpinned download makes a green CI run evidence about whatever the server served that morning.",
+    "network": "Approved rows are still only fetched when --fetch is passed. The suite's default run is hermetic, so CI stays reproducible offline and a network outage cannot fail a build over something unrelated to this component."
+  },
+  "sources": []
+}

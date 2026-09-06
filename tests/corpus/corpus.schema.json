@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/documents-corpus-1.json",
+  "title": "Broiler.Documents sample corpus",
+  "description": "The documents the corpus suite drives the broilerdoc command line over. A sample is a recipe, not a file: it is materialised by the tool under test, from this manifest, on every run. That is what keeps the corpus reproducible and keeps a document file out of the repository - see the provenance block, and tests/corpus/external-sources.json for the registered path an outside document would have to come through.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "updated", "provenance", "assets", "samples", "authored", "malformed"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "updated": { "type": "string", "format": "date" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "rule", "external", "cost"],
+      "description": "Where these documents came from, and what that buys and costs. The cost field is required because a corpus written by the project that wrote the codecs proves less than one that was not, and a reader should not have to work that out.",
+      "properties": {
+        "origin": { "const": "authored" },
+        "rule": { "type": "string", "minLength": 1 },
+        "external": { "type": "string", "minLength": 1 },
+        "cost": { "type": "string", "minLength": 1 }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "description": "Binary fixtures a sample needs, each produced by the tool itself so that nothing is committed.",
+      "items": { "$ref": "#/$defs/asset" }
+    },
+    "samples": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/sample" }
+    },
+    "authored": {
+      "type": "array",
+      "description": "Documents stated as markup here rather than produced by the tool. They exist because a generated corpus can only hold constructs one of this component's own writers emits, so on its own it shows the readers exactly the shapes those writers already chose. These are the nested list, the table, the stylesheet destination and the setext heading no writer here produces.",
+      "items": { "$ref": "#/$defs/authored" }
+    },
+    "malformed": {
+      "type": "array",
+      "description": "Inputs that are not valid documents. They exercise the exit-code contract rather than fidelity, and each row states the exit it must produce and why that exit and not the neighbouring one.",
+      "items": { "$ref": "#/$defs/malformed" }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "format": { "enum": ["docx", "odt", "rtf", "html", "markdown"] },
+    "forbidden": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "emittedBy", "state", "why", "reviewer", "decided"],
+      "description": "One string, and the formats known to emit it anyway. The second half is what keeps this honest: a format listed in emittedBy is asserted to STILL emit it, so a writer that gets fixed fails the suite until somebody removes it from the list. That is the same bargain the round-trip baseline makes - a recorded defect that stops reproducing is news, and news nobody records is news nobody can show.",
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "emittedBy": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/format" },
+          "description": "Formats whose writer puts this in the file today. Empty is the state to aim for."
+        },
+        "state": {
+          "enum": ["documented", "suspected-defect", "accepted"],
+          "description": "Why the formats in emittedBy do it. The same three the round-trip baseline uses."
+        },
+        "why": { "type": "string", "minLength": 1 },
+        "reviewer": { "type": "string", "minLength": 1 },
+        "decided": { "type": "string", "format": "date" }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "recipe"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "description": { "type": "string", "minLength": 1 },
+        "recipe": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["text", "sourceFormat", "pageSize", "marginPoints"],
+          "description": "Rendered by `broilerdoc render` from a document the runner writes first. Every field is an argument to that render, so the asset is reproducible from this row without the runner holding a private constant.",
+          "properties": {
+            "text": { "type": "string", "minLength": 1 },
+            "sourceFormat": { "$ref": "#/$defs/format" },
+            "pageSize": { "type": "string", "pattern": "^[0-9]+x[0-9]+$" },
+            "marginPoints": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "exercises", "lines", "operations", "notes"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "minLength": 1 },
+        "exercises": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "The model properties this sample is meant to reach. Prose for a reader, not a key the runner matches on: what the sample actually exercises is whatever the operations do."
+        },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "One paragraph per entry, passed to `new --text` joined by newlines. The text is taken verbatim by the tool - --text applies no escape language, unlike the --op values below - so a backslash here is a backslash in the document. A control character XML cannot represent is allowed here and is expected to be dropped with a diagnostic by the two package writers rather than to fail the write; that used to be an internal error, which is why the loader once refused such a sample."
+        },
+        "operations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Edit-language operations, exactly as `--op` takes them, escapes included. The token ${asset:ID} is replaced with the path of that asset before the operation is passed on; nothing else in an operation is rewritten."
+        },
+        "asset": {
+          "$ref": "#/$defs/id",
+          "description": "The asset this sample's operations refer to. Required when an operation contains an ${asset:...} token."
+        },
+        "mustNotAppear": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/forbidden" },
+          "description": "Strings that must not occur in a document written from this sample. This is the only check in the suite that reads what a writer emitted rather than what the model round trips to, and some things are visible nowhere else: a refused URI scheme that every reader also refuses reads back as absent whether the writer dropped it or wrote it out, so no comparison can tell the two apart. A literal, case-insensitive substring test against the decoded text of the file and, for a package, of every entry inside it - not a sanitiser, so a writer that percent-encoded the string would pass it."
+        },
+        "notes": {
+          "type": ["string", "null"],
+          "description": "Why the sample is shaped the way it is. Null when the title says it."
+        }
+      }
+    },
+    "authored": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "format", "kind", "notes"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "minLength": 1 },
+        "format": { "$ref": "#/$defs/format" },
+        "kind": {
+          "enum": ["text", "package"],
+          "description": "A text document is written byte for byte from `content`. A package is zipped from `parts`, which is the only container knowledge this runner holds - which entry is stored and which is deflated, and nothing about what is inside them."
+        },
+        "content": { "type": "string", "minLength": 1, "description": "kind=text: the document, verbatim. Written as UTF-8 with no newline translation, so both CI legs read the same bytes." },
+        "parts": {
+          "type": "array",
+          "minItems": 1,
+          "description": "kind=package: the entries, in order. The order is normative for OpenDocument, whose mimetype entry must come first and be stored.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "stored", "content"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "stored": { "type": "boolean", "description": "Stored rather than deflated. True only where the format requires it." },
+              "content": { "type": "string" }
+            }
+          }
+        },
+        "notes": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "text" } }, "required": ["kind"] },
+          "then": { "required": ["content"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "package" } }, "required": ["kind"] },
+          "then": { "required": ["parts"] }
+        }
+      ]
+    },
+    "malformed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "kind", "extension", "expectedExit", "notes"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "title": { "type": "string", "minLength": 1 },
+        "kind": {
+          "enum": ["absent", "empty", "literal", "truncate", "repeat"],
+          "description": "How the runner builds the input. `absent` writes nothing; `truncate` cuts a document this corpus generated, so the truncation is real rather than imagined."
+        },
+        "extension": { "type": "string", "pattern": "^\\.[a-z0-9]+$" },
+        "expectedExit": {
+          "type": "integer",
+          "enum": [0, 1, 2, 3, 4, 5, 6],
+          "description": "Exit 70 is deliberately not permitted here. docs/cli.md defines it as always a defect in the tool, so a row expecting it would be a row blessing one."
+        },
+        "notes": { "type": ["string", "null"] },
+        "content": {
+          "type": "string",
+          "description": "kind=literal: the exact bytes to write, as UTF-8."
+        },
+        "of": {
+          "$ref": "#/$defs/id",
+          "description": "kind=truncate: the sample whose materialised document is cut."
+        },
+        "format": {
+          "$ref": "#/$defs/format",
+          "description": "kind=truncate: which of that sample's documents is cut."
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "kind=truncate: how many leading bytes to keep."
+        },
+        "prefix": { "type": "string", "description": "kind=repeat: written once, before the repetitions." },
+        "unit": { "type": "string", "minLength": 1, "description": "kind=repeat: the string repeated." },
+        "count": { "type": "integer", "minimum": 1, "description": "kind=repeat: how many times." },
+        "suffix": { "type": "string", "description": "kind=repeat: written once, after the repetitions." }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "literal" } }, "required": ["kind"] },
+          "then": { "required": ["content"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "truncate" } }, "required": ["kind"] },
+          "then": { "required": ["of", "format", "bytes"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "repeat" } }, "required": ["kind"] },
+          "then": { "required": ["prefix", "unit", "count", "suffix"] }
+        }
+      ]
+    }
+  }
+}

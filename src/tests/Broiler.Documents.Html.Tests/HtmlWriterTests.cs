@@ -206,4 +206,109 @@ public sealed class HtmlWriterTests
     /// <summary>Read options that also permit writing what was read back out.</summary>
     private static DocumentReadOptions RoundTripReadOptions { get; } =
         new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
+
+    // HTML collapses white space, so a document whose text depends on it needs
+    // the paragraph to say otherwise. The writer used to ask for that only when
+    // the paragraph held a tab, and a doubled space was therefore written out
+    // bare and read back one character shorter - with nothing reported, because
+    // from the writer's side nothing had gone wrong.
+
+    [Theory(Timeout = 600000)]
+    [InlineData("Lead and  gap and trail.")]
+    [InlineData("  leading kept")]
+    [InlineData("trailing kept  ")]
+    [InlineData("  both  ends  ")]
+    [InlineData("a\tb")]
+    [InlineData("a     b")]
+    // A non-breaking space is not HTML white space and must not be folded into
+    // the space beside it. char.IsWhiteSpace says otherwise, which is a Unicode
+    // answer to a CSS question, and the character the document was written with
+    // was lost to it.
+    [InlineData("a  b and   c")]
+    public void White_Space_That_Html_Would_Collapse_Survives_A_Round_Trip(string text)
+    {
+        RichTextDocument expected = RichTextDocument.FromPlainText(text);
+
+        byte[] bytes = HtmlDocumentCodec.WriteToArray(expected);
+        using var stream = new MemoryStream(bytes);
+        RichTextDocument actual = new HtmlDocumentCodec().Read(stream, RoundTripReadOptions).Document;
+
+        Assert.Equal(text, actual.Paragraphs[0].Text);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Paragraph_That_Needs_No_Help_Does_Not_Ask_For_It()
+    {
+        // The declaration is not free - it changes how a browser lays the
+        // paragraph out - so it goes on the paragraphs that need it and no
+        // others.
+        string html = Write(RichTextDocument.FromPlainText("nothing special here"));
+
+        Assert.Contains("<p>nothing special here</p>", html, StringComparison.Ordinal);
+        Assert.DoesNotContain(HtmlWriter.PreserveWhitespaceDeclaration, html, StringComparison.Ordinal);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Paragraph_Whose_Spaces_Would_Collapse_Asks_To_Keep_Them()
+    {
+        string html = Write(RichTextDocument.FromPlainText("two  spaces"));
+
+        Assert.Contains(HtmlWriter.PreserveWhitespaceDeclaration, html, StringComparison.Ordinal);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Ordinary_Html_Still_Collapses_Its_Source_Formatting()
+    {
+        // The other half of the same rule, and the one a change here could
+        // break: markup indented for a human to read must not arrive with that
+        // indentation in the text.
+        byte[] bytes = Encoding.UTF8.GetBytes(
+            "<html><body>\n  <p>\n    collapsed   text\n  </p>\n</body></html>");
+
+        using var stream = new MemoryStream(bytes);
+        RichTextDocument document = new HtmlDocumentCodec().Read(stream).Document;
+
+        Assert.StartsWith("collapsed text", document.Paragraphs[0].Text, StringComparison.Ordinal);
+    }
+
+    // The allow-list was enforced on the way in and not on the way out, so a
+    // target no reader here would accept could still be written into a document,
+    // with no diagnostic. The round trip cannot see that: every reader refuses
+    // the same schemes, so a document that wrote the link and one that dropped
+    // it both read back without it. These assert the bytes.
+
+    [Theory(Timeout = 600000)]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("vbscript:msgbox")]
+    [InlineData("file:///etc/passwd")]
+    [InlineData("/relative/path")]
+    public void A_Refused_Link_Target_Never_Reaches_The_Output(string href)
+    {
+        (string written, DocumentWriteResult result) = WriteLink(href);
+
+        Assert.DoesNotContain(href, written, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.link");
+    }
+
+    [Theory(Timeout = 600000)]
+    [InlineData("https://example.test/page")]
+    [InlineData("http://example.test/page")]
+    [InlineData("mailto:someone@example.test")]
+    public void A_Permitted_Link_Target_Is_Still_Written(string href)
+    {
+        (string written, DocumentWriteResult result) = WriteLink(href);
+
+        Assert.Contains(href, written, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "html.link");
+    }
+
+    private static (string Written, DocumentWriteResult Result) WriteLink(string href)
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Create("link", new InlineStyle { LinkHref = href })]);
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult result = new HtmlDocumentCodec().Write(document, stream);
+        return (Encoding.UTF8.GetString(stream.ToArray()), result);
+    }
 }

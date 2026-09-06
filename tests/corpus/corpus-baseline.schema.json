@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/documents-corpus-baseline-1.json",
+  "title": "Broiler.Documents corpus round-trip baseline",
+  "description": "One row per round trip in tests/corpus/corpus.json that loses something or warns about something. Round trips absent from this file are asserted to be lossless and silent, so a new loss fails by not being listed rather than by being listed differently - which keeps the file readable and keeps the check that matters from depending on somebody having written a row for the case that broke. A row that stops reproducing fails too: the point of separating a documented limitation from a suspected defect is to watch the second list shrink, and a shrink nobody records is a shrink nobody can show.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "updated", "policy", "roundTrips"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "updated": { "type": "string", "format": "date" },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["records", "reproduce", "states", "reviewer", "regenerate"],
+      "properties": {
+        "records": { "type": "string", "minLength": 1 },
+        "reproduce": { "type": "string", "minLength": 1 },
+        "states": { "type": "string", "minLength": 1 },
+        "reviewer": { "type": "string", "minLength": 1 },
+        "regenerate": { "type": "string", "minLength": 1 }
+      }
+    },
+    "roundTrips": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/row" }
+    }
+  },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample",
+        "source",
+        "via",
+        "differences",
+        "diagnostics",
+        "state",
+        "reference",
+        "why",
+        "reviewer",
+        "decided"
+      ],
+      "properties": {
+        "sample": {
+          "type": "string",
+          "description": "The corpus document, generated or authored."
+        },
+        "source": {
+          "$ref": "#/$defs/format",
+          "description": "The format it was read from."
+        },
+        "via": {
+          "$ref": "#/$defs/format",
+          "description": "The format it was written to and read back through."
+        },
+        "differences": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The comparison's own differences, as kind@paragraph: detail. Absolute paths, byte counts and durations are deliberately absent: a baseline carrying a temporary directory would differ on every run, and one carrying a byte count would fail whenever a writer changed something that made no difference to the document."
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9]+\\.[a-z0-9.-]+$" },
+          "description": "Diagnostic codes, and only codes. Every code except the per-format read summaries, which every package reader emits on every document and which would say only that a read happened. Severity is deliberately not filtered: a codec may report a real skip at info - the RTF reader does when it steps over a picture - and hiding those made a documented, tested, reported behaviour look like a silent loss, which is how one came to be classified as a defect. Messages are excluded because they embed paths and third-party exception text; the code is the stable contract, the message is not."
+        },
+        "state": {
+          "enum": ["documented", "suspected-defect", "accepted"],
+          "description": "documented - a limitation one of the conformance documents states. suspected-defect - a difference nobody decided on, which docs/cli.md says is what round-tripping is actually good for. accepted - the normalized model's own behaviour, looked at and accepted."
+        },
+        "reference": {
+          "type": ["string", "null"],
+          "description": "A repository-relative path to the document that settles the row. Required for a documented row, and CorpusBaselineGuardTests checks that the file is really there - a citation nobody can follow is the same as none."
+        },
+        "why": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What is happening and why it has the state it has. Written for somebody deciding whether a failing run is a regression or a fix."
+        },
+        "reviewer": {
+          "type": ["string", "null"],
+          "description": "Who classified the row. Required unless the state is suspected-defect, which is the state an unreviewed row starts in."
+        },
+        "decided": {
+          "type": ["string", "null"],
+          "format": "date"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "state": { "enum": ["documented", "accepted"] } },
+            "required": ["state"]
+          },
+          "then": {
+            "description": "A row is not classified by being written down. This mirrors PdfTestControlGuardTests.No_Tool_Is_Approved_Merely_By_Being_Written_Down, which makes the same demand of the tool manifest.",
+            "properties": {
+              "reviewer": { "type": "string", "minLength": 1 },
+              "decided": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "state": { "const": "documented" } },
+            "required": ["state"]
+          },
+          "then": {
+            "properties": {
+              "reference": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "format": { "enum": ["docx", "odt", "rtf", "html", "markdown"] }
+  }
+}

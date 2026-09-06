@@ -396,6 +396,27 @@ public static class RtfReader
 
             _sawStar = false;
 
+            // A field instruction is text, and the three literal escapes belong
+            // in it. They used to be dropped here, which is why the \l switch
+            // Word spells a same-document link with - an escaped backslash, then
+            // an l - arrived at ExtractHyperlink invisible, and its bookmark name
+            // was reported as a hyperlink with an unsupported scheme.
+            //
+            // Only these three. The rest either produce characters an
+            // instruction has no use for or, in the case of a line break, would
+            // end a paragraph in the middle of one.
+            if (_state.Dest is RtfDestination.FieldInstruction)
+            {
+                switch (symbol)
+                {
+                    case '\\': HandleText("\\"); break;
+                    case '{': HandleText("{"); break;
+                    case '}': HandleText("}"); break;
+                }
+
+                return;
+            }
+
             if (_state.Dest is not (RtfDestination.Normal or RtfDestination.FieldResult))
                 return;
 
@@ -802,6 +823,18 @@ public static class RtfReader
             }
         }
 
+        /// <summary>The <c>\l</c> switch, which makes the field's target a bookmark name.</summary>
+        private static bool HasLocalSwitch(ReadOnlySpan<char> switches)
+        {
+            for (int i = 0; i + 1 < switches.Length; i++)
+            {
+                if (switches[i] == '\\' && (switches[i + 1] == 'l' || switches[i + 1] == 'L'))
+                    return true;
+            }
+
+            return false;
+        }
+
         private string? ExtractHyperlink(string instruction)
         {
             int hyperlink = instruction.IndexOf("HYPERLINK", StringComparison.OrdinalIgnoreCase);
@@ -816,18 +849,24 @@ public static class RtfReader
                 return null;
 
             string url = instruction.Substring(open + 1, close - open - 1).Trim();
-            if (IsAllowedUrl(url))
+
+            // The \l switch makes the quoted value a bookmark name rather than
+            // an address, which is how Word writes a same-document reference.
+            // The instruction carries it as literal text, because the field
+            // escapes the backslash. Without this the name reached the
+            // allow-list on its own, failed it, and was reported as an
+            // unsupported scheme - of which it had none.
+            if (HasLocalSwitch(instruction.AsSpan(hyperlink, open - hyperlink)))
+                url = "#" + url;
+
+            if (DocumentLinkTarget.IsAllowed(url))
                 return url;
 
             _diagnostics.Add(DocumentDiagnostic.Warning(
-                "rtf.link", "A hyperlink with an unsupported URL scheme was dropped."));
+                "rtf.link", "A hyperlink with a disallowed or relative target was dropped."));
             return null;
         }
 
-        private static bool IsAllowedUrl(string url) =>
-            url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-            url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
-            url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase);
 
         private static int Clamp(int value) => Math.Clamp(value, 0, 255);
 

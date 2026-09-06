@@ -133,7 +133,14 @@ public static class PdfDiagnosticCodes
     /// <summary>The document is encrypted; this release rejects it before interpreting content.</summary>
     public const string EncryptionUnsupported = "pdf.encryption.unsupported";
 
-    /// <summary>Active content (JavaScript, Launch, embedded files, rich media) was found and never instantiated.</summary>
+    /// <summary>
+    /// A construct that would reach outside this document if anything executed it
+    /// was found and never instantiated: JavaScript, Launch, GoToR, GoToE,
+    /// SubmitForm, ImportData, Named, embedded files, rich media, a URI action an
+    /// annotation that is not a link carries, and an action whose kind cannot be
+    /// named. A plain GoTo is not one of these; it reports
+    /// <see cref="LinkDestinationDropped"/>.
+    /// </summary>
     public const string ActiveContentRemoved = "pdf.active-content.removed";
 
     /// <summary>A signature was found; it is neither validated nor preserved.</summary>
@@ -196,6 +203,19 @@ public static class PdfDiagnosticCodes
     /// the content was omitted or kept.
     /// </summary>
     public const string OptionalContentOmitted = "pdf.import.optional-content-omitted";
+
+    /// <summary>
+    /// An annotation named a place inside the same document - a <c>/Dest</c>, or a
+    /// GoTo action - and the logical model has no bookmark or anchor for it to
+    /// land on, so the text was kept and no link was projected. Distinct from
+    /// <see cref="UriRejected"/>, which is a policy refusing a URI it examined:
+    /// nothing was refused here and no policy saw it. Distinct from
+    /// <see cref="ActiveContentRemoved"/>, which is a construct that would reach
+    /// outside the file: this one reaches nothing. The three are fixed by
+    /// different work - configuring a policy, nothing at all, and a cross-format
+    /// bookmark model that does not exist yet.
+    /// </summary>
+    public const string LinkDestinationDropped = "pdf.import.link-destination-dropped";
 
     // ---- limits and lifecycle -------------------------------------------------
 

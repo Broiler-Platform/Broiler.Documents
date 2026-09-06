@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Corpus</RootNamespace>
+    <AssemblyName>broilerdoc-corpus</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <RollForward>LatestMinor</RollForward>
+  </PropertyGroup>
+
+  <!--
+    A console runner, not an xunit project, and deliberately not IsTestProject.
+    Two reasons, and the second is the one that decided it.
+
+    It drives the built `broilerdoc` executable as a child process, so it needs
+    that executable to exist before it runs - which is a build ordering
+    requirement, not something a test discovery pass can express.
+
+    And `dotnet test` counts what it discovers. CI floors that count to catch a
+    build that silently stopped producing test assemblies (PDF roadmap 6.6);
+    folding several hundred process-level checks into the same number would make
+    the floor say less, not more. This suite reports its own count in its own
+    step, in the same `N/N passed, 0 failed.` shape CI already greps for the
+    console-runner suites in Graphics and Media.
+  -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    Build ordering only. ReferenceOutputAssembly is false because this project
+    calls the tool through its command line and never links against it: the
+    contract under test is the executable's, and a runner holding a reference to
+    the assembly could accidentally test the code instead of the contract.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Broiler.Documents.Cli\Broiler.Documents.Cli.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>
