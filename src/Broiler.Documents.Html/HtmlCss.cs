@@ -84,6 +84,18 @@ internal static class HtmlCss
         return TryParsePoints(value, out size);
     }
 
+    /// <summary>
+    /// A CSS length in points.
+    /// </summary>
+    /// <remarks>
+    /// The absolute units - <c>in</c>, <c>cm</c>, <c>mm</c>, <c>pc</c>, <c>q</c> -
+    /// are here because a word processor writing HTML reaches for them first. Every
+    /// length LibreOffice emits is in centimetres, and without them this returned
+    /// false for all of them: not a wrong number, but no number, so a margin
+    /// stated in a document simply did not arrive. A parser that claims to read
+    /// CSS lengths and knows only the four a hand-written page tends to use is
+    /// claiming too much.
+    /// </remarks>
     public static bool TryParsePoints(string? value, out float points)
     {
         points = 0;
@@ -110,6 +122,31 @@ internal static class HtmlCss
         {
             trimmed = trimmed[..^2].Trim();
             multiplier = 12f;
+        }
+        else if (trimmed.EndsWith("in", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[..^2].Trim();
+            multiplier = 72f;
+        }
+        else if (trimmed.EndsWith("cm", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[..^2].Trim();
+            multiplier = 72f / 2.54f;
+        }
+        else if (trimmed.EndsWith("mm", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[..^2].Trim();
+            multiplier = 72f / 25.4f;
+        }
+        else if (trimmed.EndsWith("pc", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[..^2].Trim();
+            multiplier = 12f;
+        }
+        else if (trimmed.EndsWith("q", StringComparison.Ordinal))
+        {
+            trimmed = trimmed[..^1].Trim();
+            multiplier = 72f / 101.6f;
         }
 
         if (!float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out float valueNumber))
@@ -164,7 +201,12 @@ internal static class HtmlCss
         value.EndsWith("px", StringComparison.Ordinal) ||
         value.EndsWith("pt", StringComparison.Ordinal) ||
         value.EndsWith("em", StringComparison.Ordinal) ||
-        value.EndsWith("rem", StringComparison.Ordinal);
+        value.EndsWith("rem", StringComparison.Ordinal) ||
+        value.EndsWith("in", StringComparison.Ordinal) ||
+        value.EndsWith("cm", StringComparison.Ordinal) ||
+        value.EndsWith("mm", StringComparison.Ordinal) ||
+        value.EndsWith("pc", StringComparison.Ordinal) ||
+        value.EndsWith("q", StringComparison.Ordinal);
 
     private static bool TryParseHexColor(string value, out BColor color)
     {

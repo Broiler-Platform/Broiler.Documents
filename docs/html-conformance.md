@@ -34,6 +34,7 @@ for parsing and writes deterministic UTF-8 HTML with `HtmlSerializer`.
 | CSS `line-height` | `ParagraphStyle.LineSpacing` | Unitless/percent preferred; absolute lengths approximate. |
 | CSS margins | spacing/indent fields | Left margin or padding converts to discrete indent levels. |
 | `<ul>` / `<ol>` + `<li>` | `ListKind`, `IndentLevel` | Reader only; writer reports `html.list` for list kind. |
+| CSS `@page` `size` and margins | `PageGeometry` | The one rule read out of a `<style>` element rather than off an element. `size` takes a CSS page name (`a3`-`a5`, `b4`, `b5`, JIS `b4`/`b5`, `letter`, `legal`, `ledger`), one length, or two, with `portrait`/`landscape` orienting it; margins take the shorthand in all four arities and the four longhands. Only the first unnamed rule is read - a `@page cover` states the page for part of a document and this model holds one. Margin boxes are stepped over. A rule leaving no column to write in is refused rather than honoured. |
 
 Text and attributes are HTML-decoded. Normal HTML whitespace collapses to single
 spaces; `<pre>`, and any element declaring `white-space: pre`, `pre-wrap` or
@@ -55,6 +56,7 @@ out bare, collapsed on read, and reported nowhere.
 | Model | HTML |
 |---|---|
 | Document | `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>...` |
+| `PageGeometry` | `<style type="text/css">@page { size: Wpt Hpt; margin: T R B L; }</style>` in the head, and nothing when the document states no page. Written in points because the model is in points, so a round trip converts nothing; the margins are written as four values rather than folded to the shortest shorthand, so a diff of two exports shows a margin change where the margin changed. |
 | Paragraphs | `<p>` elements |
 | Soft breaks | `<br>` |
 | Inline style fields | CSS on `<span>` or `<a>` |
@@ -83,7 +85,16 @@ model.
 ## Known Limitations
 
 - CSS support is declaration-level and intentionally small; no cascade,
-  selector matching, external stylesheets, computed style, or layout.
+  selector matching, external stylesheets, computed style, or layout. The one
+  exception is the `@page` rule, which is read out of a `<style>` element because
+  the page is a property of the document rather than of its presentation - it is
+  where HTML keeps what DOCX keeps in `w:sectPr` and ODF in `style:page-layout`.
+  Nothing else in a stylesheet is applied, so a `p { line-height: 115% }` rule of
+  the kind a word processor emits does not reach the paragraphs it selects; only
+  an inline `style` attribute does.
+- An external stylesheet is not fetched, so a `@page` rule in one is not read.
+  The reader never makes a network request, and finding out how big a document's
+  paper is should not be the thing that changes that.
 - Tables are flattened through their text content and block boundaries.
 - Relative links are currently dropped; only absolute `http`, `https`, and
   `mailto` links are retained.

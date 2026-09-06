@@ -72,6 +72,20 @@ public static class HtmlWriter
         html.AppendChild(body);
         head.AppendChild(meta);
 
+        // The page, when the document states one. Written as an @page rule
+        // because that is where HTML keeps it and where every other producer
+        // looks for it - a document that arrived from DOCX or ODF carrying US
+        // Letter used to leave through here carrying nothing, and the loss was
+        // silent because no reader of the result could tell it apart from a
+        // document that never stated a page at all.
+        if (rich.PageGeometry is { } page && page.IsUsable)
+        {
+            DomElement style = document.CreateElement("style");
+            style.SetAttribute("type", "text/css");
+            style.AppendChild(document.CreateTextNode(HtmlPage.Format(page)));
+            head.AppendChild(style);
+        }
+
         foreach (RichTextParagraph paragraph in rich.Paragraphs)
         {
             DomElement p = document.CreateElement("p");

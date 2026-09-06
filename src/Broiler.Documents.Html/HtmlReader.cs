@@ -67,7 +67,12 @@ internal static class HtmlReader
             ? parse.Document.Body
             : parse.Document.DocumentElement is not null ? parse.Document.DocumentElement : parse.Document;
         ReadChildren(root, builder, InlineStyle.Default, ParagraphStyle.Default, preserveWhitespace: false);
-        return new DocumentReadResult(builder.Build(), diagnostics, DocumentReadResult.StatusFrom(diagnostics));
+
+        RichTextDocument document = builder.Build();
+        if (HtmlPage.TryRead(StyleSheetText(parse.Document), PageGeometry.A4, out PageGeometry page))
+            document = document.WithPageGeometry(page);
+
+        return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
     }
 
     private static void ReadChildren(
@@ -386,6 +391,43 @@ internal static class HtmlReader
             "justify" => style with { Alignment = TextAlignment.Justify },
             _ => style with { Alignment = TextAlignment.Left },
         };
+    }
+
+    /// <summary>
+    /// The text of every <c>style</c> element in the document, joined.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>style</c> is in this reader's skip list and stays there: its content is
+    /// not text the document says, and a reader that let it through would put a
+    /// stylesheet in the middle of the prose. What that skip also did, until now,
+    /// was throw away the one thing in a stylesheet the model has somewhere to
+    /// put - the page. So the element is still skipped for content and read here
+    /// for its <c>@page</c> rule, which is the whole of this codec's interest in
+    /// CSS that is not on an element.
+    /// </para>
+    /// <para>
+    /// Every sheet rather than the first, because a producer may split the page
+    /// away from the rest; <see cref="HtmlPage"/> takes the first rule it finds
+    /// across them. A <c>link</c> to an external sheet is not followed - this
+    /// codec reads a document, and fetching a URL to find out how big its paper
+    /// is would make reading one a network operation.
+    /// </para>
+    /// </remarks>
+    private static string? StyleSheetText(DomDocument document)
+    {
+        StringBuilder? text = null;
+        foreach (DomElement element in document.GetElementsByTagName("style"))
+        {
+            string content = element.TextContent;
+            if (string.IsNullOrWhiteSpace(content))
+                continue;
+
+            text ??= new StringBuilder();
+            text.AppendLine(content);
+        }
+
+        return text?.ToString();
     }
 
     private static string DecodeUtf8(byte[] bytes)

@@ -313,12 +313,34 @@ layers away from anything anyone would have thought to look at.
 [The ODT conformance document](odt-conformance.md) states the resolution rule,
 and `OdtMasterPageTests` holds it.
 
-The twelve `html` documents also came back `off`, are still `off`, and that one is
-not the same finding wearing the same word. LibreOffice's HTML carries its page in a CSS
-`@page` rule, which this component's HTML reader does not consult at all, so the
-render falls back to its default. Two different causes reaching one band is
-exactly why the failure message names the geometry before the four numbers
-underneath it.
+**The HTML codec did not carry the page at all.** *Also fixed.* The twelve `html`
+documents came back `off` as well, and that was not the same finding wearing the
+same word - two different causes reaching one band, which is why the failure
+message names the geometry before the four numbers underneath it. LibreOffice's
+HTML carries its page in a CSS `@page` rule, and this codec looked at no
+stylesheet: the reader skipped every `<style>` element, correctly, because its
+content is not text the document says, and in doing so threw away the one thing
+in a stylesheet the model has somewhere to put. The writer emitted no rule
+either, so a document arriving from DOCX or ODF stating US Letter left through
+HTML stating nothing - a silent loss, because no reader of the result could tell
+it from a document that never stated a page.
+
+Both halves are implemented, and the shared CSS length parser learned the
+absolute units on the way. It knew `px`, `pt`, `em` and `rem`, which is what a
+hand-written page uses; every length LibreOffice writes is in centimetres, and
+for those it had been returning false - not a wrong number, but no number, so
+any length in centimetres anywhere in an HTML document had been arriving as
+nothing at all. All twelve now report `geometry: match`, which makes it 48 of 48
+across the four formats.
+
+What the fixed page then made visible is a *different* gap, and it is left open:
+the HTML rows still score worse than their DOCX and ODT twins - `plain-paragraphs`
+at an ink box of 38 pixels against 9 - because LibreOffice states paragraph
+spacing in a stylesheet rule, `p { line-height: 115%; margin-bottom: 0.25cm }`,
+and this codec applies no rule that is not an inline `style` attribute. That is
+a cascade, which is a much larger thing than reading one at-rule, and
+[the HTML conformance document](html-conformance.md) says so under its known
+limitations rather than leaving a reader to infer it from the numbers.
 
 **An explicit page break does not paginate.** `page-break-explicit` came back
 1 page here against 2 in LibreOffice, through all four formats. Four formats
