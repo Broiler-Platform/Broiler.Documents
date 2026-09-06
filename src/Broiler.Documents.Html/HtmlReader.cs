@@ -319,7 +319,25 @@ internal static class HtmlReader
             case "background":
             case "background-color":
                 if (HtmlCss.TryParseColor(value.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault(), out BColor background))
-                    return style with { Background = background };
+                {
+                    // A transparent background is no background, and the model
+                    // spells that BColor.Empty rather than a colour that happens
+                    // to be invisible. Storing the transparent colour instead
+                    // made every such run a highlighted run: it counts in
+                    // info's highlightedRuns, it survives into every writer that
+                    // emits a highlight, and it is a highlight nobody applied.
+                    //
+                    // It cost nothing while only an inline style could say it.
+                    // Then type-selector rules arrived and LibreOffice writes
+                    // "background: transparent" in the p rule of every HTML
+                    // document it produces, which turned a latent wrong answer
+                    // into one on every paragraph of every such file.
+                    return style with
+                    {
+                        Background = background.A == 0 ? BColor.Empty : background,
+                    };
+                }
+
                 break;
             case "text-transform":
                 if (value.Equals("uppercase", StringComparison.OrdinalIgnoreCase))
