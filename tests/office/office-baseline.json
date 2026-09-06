@@ -35,6 +35,50 @@
       "decided": "2026-09-06"
     },
     {
+      "seed": "letterhead-frames",
+      "via": "html",
+      "check": "text",
+      "differences": [],
+      "diagnostics": [
+        "html.skip.external"
+      ],
+      "state": "documented",
+      "reference": "docs/html-conformance.md",
+      "why": "Not a difference this component could avoid. LibreOffice's HTML export has no way to write a frame, so it flattens both of the seed's frames to GIF files beside the document and links them; the reader never fetches an external resource and reports html.skip.external once per read, which docs/html-conformance.md states outright in both directions. What the row is worth recording for is what it says about the corpus rather than about the codec: the html target of this seed measures a document with the construct taken out of it, so a reader comparing the four targets knows not to read agreement here as evidence about frames.",
+      "reviewer": "Claude Opus 5, on the letterhead and line-break seeds",
+      "decided": "2026-09-06"
+    },
+    {
+      "seed": "letterhead-frames",
+      "via": "rtf",
+      "check": "interop",
+      "differences": [
+        "+ libreoffice-of-ours: 2The band down the left margin is a gradient-filled frame anchored in the header of the first page. The bordered box ove ...",
+        "- libreoffice-of-its-own: The band down the left margin is a gradient-filled frame anchored in the header of the first page. The bordered box over ..."
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "The same defect as the text row for this document, one step further on. The stray 2 the RTF reader lifts out of the footer's PAGE field is written into our ODT export as body text, and LibreOffice reads it back from there. It is the interop check doing what it is for: a reader defect that stops at our model is ours to find, and one that reaches a file somebody else opens is worth a louder row.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "letterhead-frames",
+      "via": "rtf",
+      "check": "text",
+      "differences": [
+        "+ libreoffice: The band down the left margin is a gradient-filled frame anchored in the header of the first page. The bordered box over ...",
+        "- broilerdoc: 2The band down the left margin is a gradient-filled frame anchored in the header of the first page. The bordered box ove ..."
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "A page number escapes from the footer into the body. LibreOffice writes the seed's footer as {\\footer ... Page {\\field{\\*\\fldinst PAGE}{\\fldrslt 2}}}, and broilerdoc's text projection opens with a bare 2 that LibreOffice's does not. The word Page beside it is correctly absent, so the reader is skipping the footer destination's own text and keeping the text inside \\fldrslt - a field result is body text only when the field is in the body. It also puts the number in the wrong place twice over: the render for this document draws the footer as Page with nothing after it.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
       "seed": "links",
       "via": "html",
       "check": "text",
@@ -849,6 +893,222 @@
       "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
+    },
+    {
+      "seed": "letterhead-frames",
+      "via": "docx",
+      "pageCount": {
+        "broilerdoc": 2,
+        "libreoffice": 2
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "wild",
+        "inkProfile": "fair",
+        "coverage": "exact",
+        "blurDiff": "light"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 1154,
+        "inkProfileSimilarity": 0.929917275094751,
+        "coverageDelta": 0.0007767627252921374,
+        "blurDiffRatio": 0.04993717815408992
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Three defects on one document, and the ink box is measuring the third. The bordered box anchored in the body is not drawn on page one: it and the header's band are both foreground shapes, DocumentLayout appends running-content shapes after the body's, and the rasterizer draws every foreground shape in list order - so the band is painted last and over the box. Both files state the stacking and neither is read: draw:z-index 0 and 1 in the ODF, relativeHeight 2 and 3 in the DOCX, and DocumentShape says as much in its own summary. The box then appears on page two, where the document anchors it to a paragraph on page one. And the 1154 px is a footer drawn on page one where LibreOffice draws none - w:titlePg is set and the section declares no first-page footer, and the flag is not read - carrying the PAGE field's stale cached result, 0 in the source and 2 here.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "letterhead-frames",
+      "via": "html",
+      "pageCount": {
+        "broilerdoc": 2,
+        "libreoffice": 2
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "wild",
+        "inkProfile": "poor",
+        "coverage": "close",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 129,
+        "inkProfileSimilarity": 0.48415759371813616,
+        "coverageDelta": 0.0021160285673828463,
+        "blurDiffRatio": 0.05828701404636117
+      },
+      "state": "documented",
+      "reference": "docs/html-conformance.md",
+      "why": "The frames are gone from this target before broilerdoc sees it. LibreOffice's HTML export writes them as GIF files beside the document, the reader never fetches an external resource, and the text row for the same document carries the html.skip.external that says so. So the band and the box are absent on our side and drawn on LibreOffice's, and the 0.48 profile is measuring that rather than anything about the HTML codec. The row is kept rather than the target dropped, because a target quietly missing from the corpus is worse than one whose weakness is written down.",
+      "reviewer": "Claude Opus 5, on the letterhead and line-break seeds",
+      "decided": "2026-09-06"
+    },
+    {
+      "seed": "letterhead-frames",
+      "via": "odt",
+      "pageCount": {
+        "broilerdoc": 2,
+        "libreoffice": 2
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "wild",
+        "inkProfile": "fair",
+        "coverage": "exact",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 134,
+        "inkProfileSimilarity": 0.9134381822971356,
+        "coverageDelta": 0.0009676008450518261,
+        "blurDiffRatio": 0.0795800117184921
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Three defects, two of them ODT's own. The band's gradient runs left to right instead of top to bottom: LibreOffice 24.2 writes draw:angle=\"30deg\" and OdtReader parses the attribute as a bare number of tenths of a degree, so TryParse fails on the unit and the false branch yields zero - and a failed parse reaches the same branch as an absent attribute, so nothing is reported. A unit-aware parse alone would not settle it either: LibreOffice's own DOCX export of this shape writes ang=\"3600000\", sixty degrees, where the ODF says thirty, and the DOCX path draws it correctly. The band is also repeated on page two and the page number never appears at all, because the reader resolves the master page the body starts on - correctly, through style:master-page-name - files its header into the Default slot, and never follows style:next-style-name to the Continuation master or reads its footer. The bordered box is hidden under the band as in the docx row, for the reason that row gives.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "letterhead-frames",
+      "via": "rtf",
+      "pageCount": {
+        "broilerdoc": 2,
+        "libreoffice": 2
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "near",
+        "inkProfile": "poor",
+        "coverage": "exact",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 31,
+        "inkProfileSimilarity": 0.8751197018649929,
+        "coverageDelta": 0.00027078381857793647,
+        "blurDiffRatio": 0.08679885043242887
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "The tightest ink box of the four at 31 px, and a poor profile for reasons the box cannot see. LibreOffice writes both shapes into the body here rather than into a header destination, so the stacking accident the docx and odt rows describe does not happen and the bordered box is the one place in this corpus where it is visible - but both shapes are then repeated on page two, where the document puts neither. The gradient runs left to right, as it does through ODT. And the stray 2 the text row for this document records is drawn at the head of the body while the footer reads Page with nothing after it.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "line-break-within-paragraph",
+      "via": "docx",
+      "pageCount": {
+        "broilerdoc": 1,
+        "libreoffice": 1
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "wild",
+        "inkProfile": "poor",
+        "coverage": "exact",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 175,
+        "inkProfileSimilarity": 0.3000733170796383,
+        "coverageDelta": 0.00031204611474219303,
+        "blurDiffRatio": 0.06884717270746682
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "A forced line break is not a break in layout. Every codec reads text:line-break, w:br, \\line and <br> as U+2028, which is the model's own line-break character - RichTextEditor.InsertLineBreak inserts exactly that - and DocumentLayout then classifies characters with char.IsWhiteSpace, for which U+2028 is true. So the break arrives as an ordinary break opportunity, the seed's five-line address reflows onto two wrapped lines, and everything after it moves up the page. The tokenizer has no mandatory-break fragment to fall into: it distinguishes whitespace, tab and image and nothing else. Four targets failing at the same profile similarity is the signature of a layout defect rather than a codec one, and the semantic axis is silent by construction - the text canonicalisation maps U+2028 to a newline on both sides before comparing, so no comparison of text can tell an honoured break from a lost one.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "line-break-within-paragraph",
+      "via": "html",
+      "pageCount": {
+        "broilerdoc": 1,
+        "libreoffice": 1
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "wild",
+        "inkProfile": "poor",
+        "coverage": "exact",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 176,
+        "inkProfileSimilarity": 0.30011738031261054,
+        "coverageDelta": 0.00038477091173169664,
+        "blurDiffRatio": 0.06902356902356903
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "A forced line break is not a break in layout. Every codec reads text:line-break, w:br, \\line and <br> as U+2028, which is the model's own line-break character - RichTextEditor.InsertLineBreak inserts exactly that - and DocumentLayout then classifies characters with char.IsWhiteSpace, for which U+2028 is true. So the break arrives as an ordinary break opportunity, the seed's five-line address reflows onto two wrapped lines, and everything after it moves up the page. The tokenizer has no mandatory-break fragment to fall into: it distinguishes whitespace, tab and image and nothing else. Four targets failing at the same profile similarity is the signature of a layout defect rather than a codec one, and the semantic axis is silent by construction - the text canonicalisation maps U+2028 to a newline on both sides before comparing, so no comparison of text can tell an honoured break from a lost one.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "line-break-within-paragraph",
+      "via": "odt",
+      "pageCount": {
+        "broilerdoc": 1,
+        "libreoffice": 1
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "wild",
+        "inkProfile": "poor",
+        "coverage": "exact",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 176,
+        "inkProfileSimilarity": 0.30007288441721375,
+        "coverageDelta": 0.00031153033604013926,
+        "blurDiffRatio": 0.06884046758434013
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "A forced line break is not a break in layout. Every codec reads text:line-break, w:br, \\line and <br> as U+2028, which is the model's own line-break character - RichTextEditor.InsertLineBreak inserts exactly that - and DocumentLayout then classifies characters with char.IsWhiteSpace, for which U+2028 is true. So the break arrives as an ordinary break opportunity, the seed's five-line address reflows onto two wrapped lines, and everything after it moves up the page. The tokenizer has no mandatory-break fragment to fall into: it distinguishes whitespace, tab and image and nothing else. Four targets failing at the same profile similarity is the signature of a layout defect rather than a codec one, and the semantic axis is silent by construction - the text canonicalisation maps U+2028 to a newline on both sides before comparing, so no comparison of text can tell an honoured break from a lost one.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "line-break-within-paragraph",
+      "via": "rtf",
+      "pageCount": {
+        "broilerdoc": 1,
+        "libreoffice": 1
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "wild",
+        "inkProfile": "poor",
+        "coverage": "exact",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 202,
+        "inkProfileSimilarity": 0.28868824545671495,
+        "coverageDelta": 0.0002001221363966462,
+        "blurDiffRatio": 0.0692773321449792
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "A forced line break is not a break in layout. Every codec reads text:line-break, w:br, \\line and <br> as U+2028, which is the model's own line-break character - RichTextEditor.InsertLineBreak inserts exactly that - and DocumentLayout then classifies characters with char.IsWhiteSpace, for which U+2028 is true. So the break arrives as an ordinary break opportunity, the seed's five-line address reflows onto two wrapped lines, and everything after it moves up the page. The tokenizer has no mandatory-break fragment to fall into: it distinguishes whitespace, tab and image and nothing else. Four targets failing at the same profile similarity is the signature of a layout defect rather than a codec one, and the semantic axis is silent by construction - the text canonicalisation maps U+2028 to a newline on both sides before comparing, so no comparison of text can tell an honoured break from a lost one.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "seed": "links",

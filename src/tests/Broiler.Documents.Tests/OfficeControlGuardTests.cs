@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Broiler.Documents.Tests;
@@ -34,7 +35,10 @@ public sealed class OfficeControlGuardTests
     private const string Runner = "src/tests/Broiler.Documents.Office";
 
     private static readonly string[] DocumentExtensions =
-        [".docx", ".dotx", ".odt", ".ott", ".rtf", ".html", ".htm"];
+        [".docx", ".dotx", ".odt", ".ott", ".fodt", ".rtf", ".html", ".htm"];
+
+    /// <summary>The markup properties a seed may carry, exactly one of which it must.</summary>
+    private static readonly string[] SeedLanguages = ["html", "fodt"];
 
     private static JsonDocument Load(string relative) =>
         JsonDocument.Parse(File.ReadAllText(Path.Combine(PdfGuardRoots.Component, relative)));
@@ -221,13 +225,104 @@ public sealed class OfficeControlGuardTests
         foreach (JsonElement seed in corpus.RootElement.GetProperty("seeds").EnumerateArray())
         {
             string id = seed.GetProperty("id").GetString() ?? "?";
-            string html = seed.GetProperty("html").GetString() ?? string.Empty;
+            string markup = Markup(seed);
 
             Assert.True(
-                pinned.Any(font => html.Contains(font, StringComparison.OrdinalIgnoreCase)),
+                pinned.Any(font => markup.Contains(font, StringComparison.OrdinalIgnoreCase)),
                 "The seed '" + id + "' names none of the pinned families, so LibreOffice will pick " +
                 "one from the host and the comparison will measure the machine.");
         }
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Every_Seed_Is_Written_In_Exactly_One_Language()
+    {
+        // The corpus holds two markup languages since a letterhead's constructs
+        // turned out to be unstateable in HTML, and the loader picks the seed's
+        // by looking for the property. So the shape it cannot tolerate is a seed
+        // carrying both: the loader would refuse it minutes into a provisioned
+        // run, and a seed carrying neither would materialise an empty document
+        // and pass every check that is not about a construct.
+        using JsonDocument corpus = Load(Corpus);
+
+        foreach (JsonElement seed in corpus.RootElement.GetProperty("seeds").EnumerateArray())
+        {
+            string id = seed.GetProperty("id").GetString() ?? "?";
+            string[] present = SeedLanguages
+                .Where(language => seed.TryGetProperty(language, out JsonElement value) &&
+                                   value.ValueKind == JsonValueKind.String &&
+                                   !string.IsNullOrWhiteSpace(value.GetString()))
+                .ToArray();
+
+            Assert.True(present.Length == 1,
+                "The seed '" + id + "' carries " +
+                (present.Length == 0
+                    ? "no markup at all"
+                    : "markup in both " + string.Join(" and ", present)) +
+                ". A seed is written in exactly one of " + string.Join(", ", SeedLanguages) + ".");
+        }
+    }
+
+    [Fact(Timeout = 600000)]
+    public void The_Schema_The_Runner_And_This_Guard_Agree_About_The_Seed_Languages()
+    {
+        // Three places name the seed languages and none of them can see the
+        // other two: the schema's oneOf decides what a seed may carry, the
+        // runner's family-spelling table decides what it can check the fonts of,
+        // and the list at the top of this file decides what these guards look
+        // for. Drift between the first two is the dangerous one - a language the
+        // schema admitted and the runner had no spelling for would be refused at
+        // load, minutes into a provisioned run, with the seed blamed.
+        //
+        // The runner's side is read out of the source rather than referenced,
+        // the same compromise The_Schema_And_The_Runner_Agree_About_The_Band_Vocabulary
+        // makes and for the same reason: this project deliberately does not link
+        // against the console runner.
+        using JsonDocument schema = Load("tests/office/office-corpus.schema.json");
+        string runner = File.ReadAllText(Path.Combine(
+            PdfGuardRoots.Component, "src/tests/Broiler.Documents.Office/OfficeManifest.cs"));
+
+        string[] declared = Regex
+            .Matches(runner, "\\[\"([a-z]+)\"\\] = \\(")
+            .Select(match => match.Groups[1].Value)
+            .ToArray();
+        Assert.True(declared.Length > 0,
+            "OfficeManifest.cs no longer declares a family-spelling table, so this guard cannot " +
+            "check what the runner accepts.");
+
+        string[] permitted = schema.RootElement
+            .GetProperty("$defs").GetProperty("seed").GetProperty("oneOf").EnumerateArray()
+            .Select(branch => branch.GetProperty("required").EnumerateArray().First().GetString() ?? string.Empty)
+            .ToArray();
+
+        Assert.True(
+            declared.Order(StringComparer.Ordinal).SequenceEqual(
+                permitted.Order(StringComparer.Ordinal), StringComparer.Ordinal),
+            "The seed languages have drifted. OfficeManifest.cs can materialise [" +
+            string.Join(", ", declared) + "] and office-corpus.schema.json permits [" +
+            string.Join(", ", permitted) + "].");
+
+        Assert.True(
+            declared.Order(StringComparer.Ordinal).SequenceEqual(
+                SeedLanguages.Order(StringComparer.Ordinal), StringComparer.Ordinal),
+            "This guard looks for [" + string.Join(", ", SeedLanguages) + "] and the runner " +
+            "materialises [" + string.Join(", ", declared) + "], so the checks above are reading " +
+            "less than the corpus can hold.");
+    }
+
+    /// <summary>Whichever of the two markup properties a seed carries.</summary>
+    private static string Markup(JsonElement seed)
+    {
+        foreach (string language in SeedLanguages)
+        {
+            if (seed.TryGetProperty(language, out JsonElement value) &&
+                value.ValueKind == JsonValueKind.String)
+            {
+                return value.GetString() ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
     }
 
     [Fact(Timeout = 600000)]

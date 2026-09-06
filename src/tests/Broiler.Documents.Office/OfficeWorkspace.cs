@@ -26,13 +26,14 @@ internal sealed record OfficeDocument(OfficeSeed Seed, string Via, string Path, 
 /// <remarks>
 /// <para>
 /// The trick this whole suite turns on is here. Nothing under test is committed
-/// and nothing is downloaded: a seed is a fragment of authored HTML held as a
-/// string in <c>tests/office/office-corpus.json</c>, and LibreOffice is what
-/// turns it into a <c>.docx</c>, an <c>.odt</c> or an <c>.rtf</c>. So the file
-/// broilerdoc is asked to read is markup no Broiler writer produced, which is
-/// exactly the gap <c>docs/corpus-suite.md</c> says the existing corpus cannot
-/// close - a corpus written by this component's own writers "can only contain
-/// constructs those writers emit".
+/// and nothing is downloaded: a seed is a fragment of authored markup held as a
+/// string in <c>tests/office/office-corpus.json</c> - HTML, or flat ODF where the
+/// construct is one HTML cannot state - and LibreOffice is what turns it into a
+/// <c>.docx</c>, an <c>.odt</c> or an <c>.rtf</c>. So the file broilerdoc is
+/// asked to read is markup no Broiler writer produced, which is exactly the gap
+/// <c>docs/corpus-suite.md</c> says the existing corpus cannot close - a corpus
+/// written by this component's own writers "can only contain constructs those
+/// writers emit".
 /// </para>
 /// <para>
 /// The documents live for one run in a temporary directory and are never near
@@ -118,8 +119,8 @@ internal sealed class OfficeWorkspace
 
         foreach (OfficeSeed seed in _manifest.Seeds)
         {
-            string path = Path.Combine(seedDirectory, seed.Id + ".html");
-            File.WriteAllBytes(path, new UTF8Encoding(false).GetBytes(seed.Html));
+            string path = Path.Combine(seedDirectory, seed.Id + seed.Extension);
+            File.WriteAllBytes(path, new UTF8Encoding(false).GetBytes(seed.Source));
         }
 
         // The filter is applied here rather than only to the checks, because
@@ -139,7 +140,7 @@ internal sealed class OfficeWorkspace
         await Parallelism.ForEachAsync(work, jobs, item =>
         {
             (OfficeSeed seed, string via) = item;
-            string source = Path.Combine(seedDirectory, seed.Id + ".html");
+            string source = Path.Combine(seedDirectory, seed.Id + seed.Extension);
             string target = Path.Combine(Directory, "docs", seed.Id, via);
 
             LibreOfficeRun run = _libreOffice.Convert(
@@ -148,7 +149,7 @@ internal sealed class OfficeWorkspace
                 target,
                 NextProfile(),
                 _timeout,
-                LibreOfficeTool.InputFilterFor(".html"));
+                LibreOfficeTool.InputFilterFor(seed.Extension));
 
             CheckResult result = Validate("produce", "produce/" + seed.Id + "/" + via, run,
                 LibreOfficeFilters.NameOf(via), MinimumSize(via));

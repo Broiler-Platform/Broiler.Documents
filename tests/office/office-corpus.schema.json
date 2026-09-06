@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://broiler.dev/schemas/documents-office-corpus-1.json",
   "title": "Broiler.Documents LibreOffice conformance seeds",
-  "description": "The seeds the LibreOffice conformance suite hands to an office suite it did not write, so that the documents it then measures were manufactured by something other than this component's own writers. A seed is a fragment of authored HTML held here as a string, never a document: FormatClaimGuardTests.No_Document_Of_A_Supported_Format_Is_Committed walks the whole tree and fails the build if a .docx, .odt, .rtf, .html, .htm, .dotx or .ott appears in it, and downloading one at test time would be the same act with the evidence deleted. The runner writes each seed into a temporary workspace, asks LibreOffice to rewrite it into every target, and throws the workspace away. That is the same bargain tests/corpus/corpus.json already makes when it holds RTF control words and HTML structure as strings.",
+  "description": "The seeds the LibreOffice conformance suite hands to an office suite it did not write, so that the documents it then measures were manufactured by something other than this component's own writers. A seed is a fragment of authored markup held here as a string, never a document: FormatClaimGuardTests.No_Document_Of_A_Supported_Format_Is_Committed walks the whole tree and fails the build if a .docx, .odt, .fodt, .rtf, .html, .htm, .dotx or .ott appears in it, and downloading one at test time would be the same act with the evidence deleted. The runner writes each seed into a temporary workspace, asks LibreOffice to rewrite it into every target, and throws the workspace away. That is the same bargain tests/corpus/corpus.json already makes when it holds RTF control words and HTML structure as strings. There are two seed languages, html and fodt, and a seed carries exactly one of them; the fodt property's own description says why a second one had to exist.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -56,7 +56,7 @@
       "items": {
         "$ref": "#/$defs/seed"
       },
-      "description": "One construct each. A seed that exercised two things would fail for both reasons at once and report one of them, which is the failure mode that costs an afternoon."
+      "description": "One construct each. A seed that exercised two things would fail for both reasons at once and report one of them, which is the failure mode that costs an afternoon. One theme rather than one element, which is how alignment-and-indent and colour-and-highlight already read; and where a construct can only go wrong in combination with another - a drawing in a header against a drawing in the body, which is a question about stacking and unaskable of either alone - the seed carries the combination and its why says that is what it is doing."
     }
   },
   "$defs": {
@@ -109,16 +109,87 @@
         }
       ]
     },
+    "fodt": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The seed as a flat ODF text document: one XML file, UTF-8, no BOM, on one line, for the same reason the html form is on one line. This exists because the html form has a ceiling that was measured rather than guessed. LibreOffice's HTML import can only manufacture the constructs HTML can state, and across the twenty-four ODT and DOCX documents the html seeds produce there is not one header, footer, anchored frame, shape fill, field or placeholder - so the whole family of constructs a letterhead is built from was unreachable, and a difference in any of them could not fail this suite because no document in it had one. A .fodt is still a string authored in this repository and still nobody else's document, so the provenance bargain in this file's own description is unchanged; and LibreOffice's export still writes the docx, rtf and html targets in its own markup. Only the odt target ends up close to its own source, and that one target's weakness is the price of the other three being able to carry the construct at all - a seed whose finding is odt-only should say so in its why.",
+      "allOf": [
+        {
+          "pattern": "<office:document[\\s>]",
+          "description": "The single-file form, office:document rather than office:document-content. A .fodt carrying only the content root has no styles and no master pages, which is most of what this form was added to be able to state."
+        },
+        {
+          "pattern": "fo:page-width=\"21\\.59cm\"",
+          "description": "The same page as every html seed states, for the same reason and so that the two languages stay comparable: a page of a different width gives a text column of a different width, a different number of lines to the page, and therefore a different number of pages."
+        },
+        {
+          "pattern": "fo:page-height=\"27\\.94cm\"",
+          "description": "The other half of the page box."
+        },
+        {
+          "pattern": "fo:margin-left=\"2\\.54cm\"",
+          "description": "The margins are pinned to the html seeds' value rather than left to the seed, including for a letterhead, which is the case that makes the argument. A stripe in the margin is placed at a negative offset from the text column and needs no wider margin to sit in; a seed that widened one would be stating a different text column from every other seed here and calling the difference a letterhead."
+        },
+        {
+          "pattern": "fo:margin-right=\"2\\.54cm\"",
+          "description": "The other three, one clause each. A pattern matches a substring and cannot say that four attributes agree, so a seed stating three of them and leaving the fourth to ODF's default would pass a single combined check."
+        },
+        {
+          "pattern": "fo:margin-top=\"2\\.54cm\""
+        },
+        {
+          "pattern": "fo:margin-bottom=\"2\\.54cm\""
+        },
+        {
+          "pattern": "style:font-name=\"(Liberation Serif|Liberation Sans|Liberation Mono|DejaVu Sans)\"",
+          "description": "A pinned family, named on a style. ODF has no single element every run inherits from the way HTML has a body, so this cannot check that the family reaches all of the text - the loader's negative check below does that half, and the seed's own default paragraph style is where it belongs."
+        },
+        {
+          "not": {
+            "pattern": "(?:style:font-name|svg:font-family)=\"(?!(?:Liberation Serif|Liberation Sans|Liberation Mono|DejaVu Sans)\")"
+          },
+          "description": "Every other family reference in the seed, in either of the two places ODF states one - style:font-name on a text style, and svg:font-family on the font-face declaration that style points at. A negative lookahead rather than an enumeration because the interesting case is the family nobody thought to list: a seed naming one the host substitutes for would measure the host's fonts and look like a seed that passed."
+        },
+        {
+          "not": {
+            "pattern": "fo:font-family="
+          },
+          "description": "The third spelling, refused outright rather than checked. ODF permits fo:font-family as an alias, and the loader reads families only out of the two above - so a seed using it would carry a family nobody compared against the pinned set. Refusing the spelling is a smaller rule than teaching two readers a third one, and this is the only place a seed would want it."
+        }
+      ]
+    },
     "seed": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "id",
         "why",
-        "html",
         "expect",
         "textIgnore"
       ],
+      "oneOf": [
+        {
+          "required": [
+            "html"
+          ],
+          "not": {
+            "required": [
+              "fodt"
+            ]
+          }
+        },
+        {
+          "required": [
+            "fodt"
+          ],
+          "not": {
+            "required": [
+              "html"
+            ]
+          }
+        }
+      ],
+      "description": "Exactly one markup property, and the two ways to get that wrong mean opposite things. Neither is a seed that would materialise an empty document and pass every check that is not about a construct; both is a seed whose author changed language and left the old markup behind, where running either silently would run something other than what the diff appears to say.",
       "properties": {
         "id": {
           "$ref": "#/$defs/id"
@@ -130,6 +201,9 @@
         },
         "html": {
           "$ref": "#/$defs/html"
+        },
+        "fodt": {
+          "$ref": "#/$defs/fodt"
         },
         "expect": {
           "$ref": "#/$defs/expect"

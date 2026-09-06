@@ -85,7 +85,7 @@ internal sealed record TextIgnore(string Pattern, string Why)
 internal sealed record OfficeExpectation(int MinParagraphs, bool Multipage, bool SubstitutesFonts);
 
 /// <summary>
-/// One authored HTML fragment, and everything the suite knows about it before
+/// One authored markup fragment, and everything the suite knows about it before
 /// LibreOffice has been asked to do anything with it.
 /// </summary>
 /// <remarks>
@@ -100,19 +100,43 @@ internal sealed record OfficeExpectation(int MinParagraphs, bool Multipage, bool
 /// report it printed.
 /// </para>
 /// <para>
-/// HTML is the input because it is the one format that can be written as a
-/// string in a manifest, read by the office suite without a converter of this
-/// project's own standing in the way, and reviewed by a person looking at a
-/// diff. That last property is why the markup is kept on one line: a seed is
-/// read beside the seed next to it far more often than it is read on its own.
+/// There are two seed languages and the second one exists because the first has
+/// a ceiling. HTML can be written as a string, read by the office suite with no
+/// converter of this project's standing in the way, and reviewed in a diff - but
+/// LibreOffice's HTML import can only manufacture the constructs HTML can state,
+/// and a header, a footer, an anchored frame, a shape fill and a field are all
+/// outside that. Measured rather than assumed: across the twenty-four ODT and
+/// DOCX documents the HTML seeds produce there is not one of any of them. So a
+/// seed may instead be written in <em>flat ODF</em>, which is a single XML file
+/// and therefore still a string in this manifest, still authored here, and still
+/// nobody else's document. LibreOffice's export writes the DOCX, RTF and HTML
+/// from it in its own markup exactly as before; only the ODT target is close to
+/// its own source, and that one target's weakness is the price of the other
+/// three being able to carry the construct at all.
+/// </para>
+/// <para>
+/// Either way the markup is kept on one line, because a seed is read beside the
+/// seed next to it far more often than it is read on its own.
 /// </para>
 /// </remarks>
+/// <param name="Source">The markup itself, in the language <paramref name="SourceFormat"/> names.</param>
+/// <param name="SourceFormat">
+/// <c>html</c> or <c>fodt</c>. It decides the extension the seed is written
+/// under and the input filter LibreOffice is given, and both matter: LibreOffice
+/// falls back to the plain-text importer on input it cannot place, and exits 0
+/// when it does.
+/// </param>
 internal sealed record OfficeSeed(
     string Id,
     string Why,
-    string Html,
+    string Source,
+    string SourceFormat,
     OfficeExpectation Expect,
-    IReadOnlyList<TextIgnore> TextIgnore);
+    IReadOnlyList<TextIgnore> TextIgnore)
+{
+    /// <summary>The file extension this seed is materialised under, dot included.</summary>
+    public string Extension => "." + SourceFormat;
+}
 
 /// <summary>
 /// The seed corpus, as <c>tests/office/office-corpus.json</c> states it.
@@ -148,23 +172,62 @@ internal sealed class OfficeManifest
 
     /// <summary>
     /// Every family reference the manifest is allowed to write, in the one
-    /// spelling the schema permits.
+    /// spelling the schema permits for each seed language.
     /// </summary>
     /// <remarks>
-    /// Two expressions rather than one because they answer different questions.
-    /// The first collects the families that were named and can therefore be
-    /// checked; the second finds every place a family was declared at all. The
-    /// second exists only to catch the declarations the first one missed - an
-    /// unquoted name, or a quoting style nobody agreed on - because a family
-    /// this loader silently skipped is a family nobody checked against the
-    /// pinned set, and a check that quietly examines less than it was asked to
-    /// reads exactly like a check that passed.
+    /// <para>
+    /// Two expressions per language rather than one because they answer
+    /// different questions. The first collects the families that were named and
+    /// can therefore be checked; the second finds every place a family was
+    /// declared at all. The second exists only to catch the declarations the
+    /// first one missed - an unquoted name, or a quoting style nobody agreed on
+    /// - because a family this loader silently skipped is a family nobody
+    /// checked against the pinned set, and a check that quietly examines less
+    /// than it was asked to reads exactly like a check that passed.
+    /// </para>
+    /// <para>
+    /// ODF states a family in two places and both are listed. <c>style:font-name</c>
+    /// is what a text style points at and <c>svg:font-family</c> is what the
+    /// font-face declaration it points at resolves to; a seed that pinned one
+    /// and not the other would leave half of its text to whatever the host
+    /// offered.
+    /// </para>
     /// </remarks>
-    private static readonly Regex QuotedFamily =
-        new("font-family:'([^']*)'", RegexOptions.CultureInvariant);
+    private static readonly IReadOnlyDictionary<string, (Regex Named, Regex Any)> FamilySpellings =
+        new Dictionary<string, (Regex, Regex)>(StringComparer.Ordinal)
+        {
+            ["html"] = (
+                new Regex("font-family:'([^']*)'", RegexOptions.CultureInvariant),
+                new Regex("font-family:", RegexOptions.CultureInvariant)),
+            ["fodt"] = (
+                new Regex("(?:style:font-name|svg:font-family)=\"([^\"]*)\"", RegexOptions.CultureInvariant),
+                new Regex("(?:style:font-name|svg:font-family|fo:font-family)=", RegexOptions.CultureInvariant)),
+        };
 
-    private static readonly Regex AnyFamily =
-        new("font-family:", RegexOptions.CultureInvariant);
+    /// <summary>
+    /// The seed languages this runner can materialise, and the extension each is
+    /// written under.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Derived from the table above rather than written out again, so the two
+    /// cannot disagree. A language with no family spelling is one whose fonts
+    /// nobody could check, and LibreOffice substitutes a family it does not have
+    /// in silence - so accepting such a seed would produce a run that measured
+    /// the host's font set and reported it as a difference in this component.
+    /// Refusing it at load is the only honest answer, and deriving the list is
+    /// how that stays true when somebody adds a third language.
+    /// </para>
+    /// <para>
+    /// The name doubles as the extension, because everything downstream keys off
+    /// it: the workspace writes <c>&lt;id&gt;.&lt;format&gt;</c> and
+    /// <see cref="LibreOfficeTool.InputFilterFor"/> turns the same extension into
+    /// the import filter. A format here with no filter there would be converted
+    /// by whatever LibreOffice guessed, which is the failure the <c>produce</c>
+    /// check exists to catch and not one worth relying on it for.
+    /// </para>
+    /// </remarks>
+    public static readonly IReadOnlyList<string> SeedFormats = FamilySpellings.Keys.ToArray();
 
     private OfficeManifest(
         IReadOnlyList<string> fonts,
@@ -231,10 +294,12 @@ internal sealed class OfficeManifest
         var seeds = root.GetProperty("seeds").EnumerateArray().Select(seed =>
         {
             JsonElement expect = seed.GetProperty("expect");
+            (string source, string format) = Source(seed);
             return new OfficeSeed(
                 Text(seed, "id"),
                 Text(seed, "why"),
-                Text(seed, "html"),
+                source,
+                format,
                 new OfficeExpectation(
                     expect.GetProperty("minParagraphs").GetInt32(),
                     expect.GetProperty("multipage").GetBoolean(),
@@ -269,14 +334,17 @@ internal sealed class OfficeManifest
     /// instance and compare.
     /// </para>
     /// <para>
-    /// So the five checks below are exactly the cross-field ones. Two ids are
-    /// each fine on their own and wrong together, and the same id twice would
+    /// So the checks below are exactly the cross-field ones. Two ids are each
+    /// fine on their own and wrong together, and the same id twice would
     /// overwrite a row in the report rather than fail. A family named in markup
     /// is checked here against <em>this manifest's</em> <c>fonts</c> array,
     /// which the schema can only approximate against its own fixed list - so a
     /// manifest that shortened its font list would still pass the schema and
-    /// fails here. A target is checked against the formats this component
-    /// composes, which live in code and not in the file. And a
+    /// fails here, and which spelling to read it in depends on the seed's own
+    /// language, which is another part of the instance. A target is checked
+    /// against the formats this component composes, which live in code and not
+    /// in the file, and a seed language against the ones this runner can
+    /// materialise, which live in code for the same reason. And a
     /// <c>textIgnore</c> pattern is compiled with the engine that will actually
     /// run it, because <c>format: regex</c> is an annotation most validators do
     /// not enforce, and a pattern that throws at comparison time reports itself
@@ -317,12 +385,20 @@ internal sealed class OfficeManifest
 
         foreach (OfficeSeed seed in Seeds)
         {
-            if (string.IsNullOrWhiteSpace(seed.Html))
+            if (string.IsNullOrWhiteSpace(seed.Source))
             {
                 problems.Add(
-                    seed.Id + " carries no html, so there is nothing to hand the office suite. " +
+                    seed.Id + " carries no markup, so there is nothing to hand the office suite. " +
                     "A seed with no markup would materialise an empty document and pass every " +
                     "check in the suite that is not about a construct.");
+            }
+
+            if (!FamilySpellings.ContainsKey(seed.SourceFormat))
+            {
+                problems.Add(
+                    seed.Id + " is written in '" + seed.SourceFormat + "', which this runner cannot " +
+                    "materialise. The seed languages are " + string.Join(", ", SeedFormats) + ".");
+                continue;
             }
 
             foreach (TextIgnore ignore in seed.TextIgnore)
@@ -339,24 +415,25 @@ internal sealed class OfficeManifest
                 }
             }
 
-            MatchCollection quoted = QuotedFamily.Matches(seed.Html);
+            (Regex named, Regex any) = FamilySpellings[seed.SourceFormat];
+            MatchCollection quoted = named.Matches(seed.Source);
             var readable = quoted.Select(match => match.Index).ToHashSet();
 
             // Quoting the offending text rather than counting it. A count would
             // say that one of three declarations could not be read and leave
             // the reader to find which; the markup itself says which, and the
             // spelling is usually the whole of the answer.
-            foreach (Match declaration in AnyFamily.Matches(seed.Html))
+            foreach (Match declaration in any.Matches(seed.Source))
             {
                 if (readable.Contains(declaration.Index))
                     continue;
 
-                int length = Math.Min(48, seed.Html.Length - declaration.Index);
+                int length = Math.Min(48, seed.Source.Length - declaration.Index);
                 problems.Add(
                     seed.Id + " writes a font family this loader cannot read, at: " +
-                    seed.Html.Substring(declaration.Index, length) +
-                    " - the single-quoted form is the only spelling the schema permits, and a " +
-                    "family the loader skipped is a family nobody checked against the pinned set.");
+                    seed.Source.Substring(declaration.Index, length) +
+                    " - the schema permits one spelling per seed language, and a family the " +
+                    "loader skipped is a family nobody checked against the pinned set.");
             }
 
             foreach (string family in quoted
@@ -376,6 +453,38 @@ internal sealed class OfficeManifest
 
         if (problems.Count > 0)
             throw new InvalidDataException("office-corpus.json does not hang together:\n  " + string.Join("\n  ", problems));
+    }
+
+    /// <summary>
+    /// The one markup property a seed carries, and which language it is in.
+    /// </summary>
+    /// <remarks>
+    /// Exactly one, and the two failures are kept apart because they mean
+    /// opposite things. None at all is a seed that would materialise an empty
+    /// document and pass every check that is not about a construct. Two is a
+    /// seed whose author changed language and left the old markup behind, where
+    /// picking either silently would run half of what the diff appears to say.
+    /// </remarks>
+    private static (string Source, string Format) Source(JsonElement seed)
+    {
+        var present = SeedFormats
+            .Where(format => seed.TryGetProperty(format, out JsonElement value) &&
+                             value.ValueKind == JsonValueKind.String)
+            .ToArray();
+
+        string id = seed.TryGetProperty("id", out JsonElement name) ? name.GetString() ?? "?" : "?";
+
+        return present.Length switch
+        {
+            1 => (Text(seed, present[0]), present[0]),
+            0 => throw new InvalidDataException(
+                "The seed '" + id + "' carries neither " + string.Join(" nor ", SeedFormats) +
+                ", so there is nothing to hand the office suite."),
+            _ => throw new InvalidDataException(
+                "The seed '" + id + "' carries both " + string.Join(" and ", present) +
+                ". A seed is written in one language; two would mean running something other than " +
+                "what the file appears to say."),
+        };
     }
 
     private static string Text(JsonElement element, string name) =>

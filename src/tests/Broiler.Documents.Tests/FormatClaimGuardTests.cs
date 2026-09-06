@@ -150,8 +150,14 @@ public sealed class FormatClaimGuardTests
         // fixture from a file that is meant to be here. MD-IP-004 carries that one
         // by inspection instead, with the CommonMark test suite specifically in
         // view as the thing most likely to be copied in.
+        //
+        // .fodt is here because the office corpus now authors flat ODF seeds as
+        // strings. A flat ODF file is an ODF text document with the zip taken
+        // off, so a committed one is exactly what this guard exists to refuse -
+        // and the extension being new is the reason to list it, since the seeds
+        // make writing one out the obvious next thing somebody tries.
         string root = PdfGuardRoots.Component;
-        string[] extensions = [".rtf", ".docx", ".dotx", ".html", ".htm", ".odt", ".ott"];
+        string[] extensions = [".rtf", ".docx", ".dotx", ".html", ".htm", ".odt", ".ott", ".fodt"];
 
         string[] documents = Directory
             .EnumerateFiles(root, "*", SearchOption.AllDirectories)
