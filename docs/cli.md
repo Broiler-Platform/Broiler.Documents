@@ -168,6 +168,23 @@ meaningful. `dump --as codes` emits the Formatting Codes projection — this
 component's own canonical, versioned rendering of a document's semantics
 ([ADR 0006](adr/0006-formatting-codes-projection-and-grammar.md)).
 
+`dump --as text` is the characters and nothing else, and the two places that is
+most visible are worth stating because another implementation's plain-text export
+states them differently. **A list paragraph projects as its text without its
+marker**: a bulleted `alpha` is `alpha`, not `• alpha`, because the bullet is a
+property of the paragraph rather than a character in it — `--as outline` is where
+the list kind and depth are shown, and `--as json` where they are machine
+readable. **A table projects as one line per cell**, in row order, because that is
+how the model holds a table once it is flattened; a projection that joined a row
+onto one line would be inventing a column separator the document never stated.
+
+Neither is a loss and neither is the only defensible answer — LibreOffice's own
+text export makes the opposite choice on both counts, writing the marker into the
+text and joining a row onto one line. Comparing the two projections is a good way
+to find a reader that dropped content and a poor way to find one that disagrees
+about presentation, so a harness doing that has to expect these two differences
+and say so rather than record them as findings.
+
 ### Turning diagnostics into a build failure
 
 ```bash
