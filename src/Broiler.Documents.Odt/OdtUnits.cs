@@ -108,6 +108,69 @@ internal static class OdtUnits
     public static string FormatColor(BColor color) =>
         string.Create(CultureInfo.InvariantCulture, $"#{color.R:x2}{color.G:x2}{color.B:x2}");
 
+    /// <summary>
+    /// Reads an ODF angle - a number with an optional <c>deg</c>, <c>grad</c> or
+    /// <c>rad</c> unit - as degrees.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A bare number is tenths of a degree, and that is not a guess about the
+    /// producer: ODF 1.2 typed <c>draw:angle</c> as an integer in tenths, ODF 1.3
+    /// retyped it as an angle with a unit, and both spellings are in the wild
+    /// because LibreOffice changed which it writes. Reading only the older one is
+    /// how <c>draw:angle="30deg"</c> came back as no angle at all - a failed parse
+    /// and an absent attribute reach the same branch, so the gradient drew the
+    /// wrong way round and said nothing.
+    /// </para>
+    /// <para>
+    /// The result is degrees in ODF's own frame, which is not the model's.
+    /// Converting between the two belongs to the caller that knows what the angle
+    /// is measuring; this only reads the number.
+    /// </para>
+    /// </remarks>
+    public static bool TryParseAngle(string? value, out double degrees)
+    {
+        degrees = 0;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        string text = value.Trim();
+        (string Suffix, double PerUnit)[] units =
+        [
+            ("deg", 1.0),
+            ("grad", 0.9),
+            ("rad", 180.0 / Math.PI),
+        ];
+
+        foreach ((string suffix, double perUnit) in units)
+        {
+            if (!text.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!double.TryParse(
+                    text[..^suffix.Length].Trim(),
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out double amount))
+            {
+                return false;
+            }
+
+            degrees = amount * perUnit;
+            return double.IsFinite(degrees);
+        }
+
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double tenths))
+            return false;
+
+        degrees = tenths / 10.0;
+        return double.IsFinite(degrees);
+    }
+
+    /// <summary>Writes an angle in degrees, with the unit ODF 1.3 asks for.</summary>
+    public static string FormatAngle(double degrees) =>
+        Round(degrees).ToString("0.##", CultureInfo.InvariantCulture) + "deg";
+
     /// <summary>Formats a length in points, with the trailing zeroes an ODF consumer does not need.</summary>
     public static string FormatPoints(double points) =>
         Round(points).ToString("0.###", CultureInfo.InvariantCulture) + "pt";

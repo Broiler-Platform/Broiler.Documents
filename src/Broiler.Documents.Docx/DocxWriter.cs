@@ -135,10 +135,15 @@ public static class DocxWriter
     /// </summary>
     /// <remarks>
     /// A first-page header only takes effect when the section also says it wants a
-    /// distinct one, so <c>w:titlePg</c> is written whenever a First part exists.
-    /// Without it Word reads the part and then draws the default over it.
+    /// distinct one, so <c>w:titlePg</c> is written whenever a First part exists -
+    /// without it Word reads the part and then draws the default over it - and
+    /// whenever the model says the first page is different even though it names no
+    /// part of its own. That second case is a letterhead: a first-page header, no
+    /// first-page footer, and page one carrying none. Writing the references
+    /// without the flag would put the default footer back under it.
     /// </remarks>
-    private static XElement BuildSectionProperties(DocxWriteContext context, PageGeometry? geometry)
+    private static XElement BuildSectionProperties(
+        DocxWriteContext context, RunningContent running, PageGeometry? geometry)
     {
         var sectPr = new XElement(DocxNamespaces.Wordprocessing + "sectPr");
         bool hasFirst = false;
@@ -160,7 +165,7 @@ public static class DocxWriter
             sectPr.Add(reference);
         }
 
-        if (hasFirst)
+        if (hasFirst || running.DifferentFirstPage)
             sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "titlePg"));
 
         if (geometry is not null && geometry.IsUsable)
@@ -189,7 +194,7 @@ public static class DocxWriter
         foreach (XElement block in BuildBlocks(document, document.Tables, 0, document.ParagraphCount, context))
             body.Add(block);
 
-        body.Add(BuildSectionProperties(context, document.PageGeometry));
+        body.Add(BuildSectionProperties(context, document.RunningContent, document.PageGeometry));
 
         var root = new XElement(
             DocxNamespaces.Wordprocessing + "document",

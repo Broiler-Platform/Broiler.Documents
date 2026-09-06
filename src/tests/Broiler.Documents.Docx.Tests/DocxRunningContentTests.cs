@@ -265,4 +265,66 @@ public sealed class DocxRunningContentTests
         // A first-page header only takes effect when the section asks for one.
         Assert.Contains("titlePg", xml);
     }
+
+    [Fact(Timeout = 600000)]
+    public void TitlePg_Is_What_Makes_The_First_Page_Different()
+    {
+        // The letterhead's section: a first-page header, a default footer, and
+        // the flag. The flag was not read, so the empty first-page footer fell
+        // back to the default one and a page number was drawn under a letterhead
+        // that carries none - which is what LibreOffice draws too, and did not.
+        RunningContent running = Read(
+            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/>" +
+            "<w:footerReference r:id=\"rF\" w:type=\"default\"/>" +
+            "<w:titlePg/></w:sectPr>").Document.RunningContent;
+
+        Assert.True(running.DifferentFirstPage);
+        Assert.Equal("the letterhead", TextOf(running.EffectiveHeader(PageSelection.First)));
+        Assert.Empty(running.EffectiveFooter(PageSelection.First));
+        Assert.Equal("page one", TextOf(running.EffectiveFooter(PageSelection.Default)));
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Without_TitlePg_The_First_Page_Takes_The_Default_Footer()
+    {
+        // The other half of the same rule, and the reason it is a flag rather
+        // than "a First part exists". Word ignores a first-page reference in a
+        // section that did not ask for one; a default footer applies to page one
+        // like every other page.
+        RunningContent running = Read(
+            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/>" +
+            "<w:footerReference r:id=\"rF\" w:type=\"default\"/></w:sectPr>").Document.RunningContent;
+
+        Assert.False(running.DifferentFirstPage);
+        Assert.Equal("page one", TextOf(running.EffectiveFooter(PageSelection.First)));
+    }
+
+    [Fact(Timeout = 600000)]
+    public void TitlePg_Turned_Off_Is_Off()
+    {
+        RunningContent running = Read(
+            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/>" +
+            "<w:footerReference r:id=\"rF\" w:type=\"default\"/>" +
+            "<w:titlePg w:val=\"false\"/></w:sectPr>").Document.RunningContent;
+
+        Assert.False(running.DifferentFirstPage);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Different_First_Page_Round_Trips_Through_The_Writer()
+    {
+        RichTextDocument source = RichTextDocument.FromPlainText("body").WithRunningContent(
+            RunningContent.Empty
+                .WithDifferentFirstPage(true)
+                .WithFooter(PageSelection.Default, [RichTextParagraph.Plain("page number")]));
+
+        // No First part at all, so the flag is the only thing asking for the
+        // element - and the only thing keeping the page number off page one when
+        // the document is read back.
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false);
+        RunningContent back = new DocxDocumentCodec().Read(stream).Document.RunningContent;
+
+        Assert.True(back.DifferentFirstPage);
+        Assert.Empty(back.EffectiveFooter(PageSelection.First));
+    }
 }

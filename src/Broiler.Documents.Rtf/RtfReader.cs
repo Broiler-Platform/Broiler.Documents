@@ -29,6 +29,14 @@ public static class RtfReader
         public InlineStyle Char;
         public ParagraphStyle Para;
         public RtfDestination Dest;
+
+        /// <summary>
+        /// Where a field's result belongs: the destination the field was sitting
+        /// in when it opened. It is part of the state RTF pushes and pops with its
+        /// braces, so a field inside a footer keeps the footer while the group
+        /// that holds it is open and gives it back when the group closes.
+        /// </summary>
+        public RtfDestination FieldHost;
         public int UnicodeSkip;
         public int CodePage;
     }
@@ -85,6 +93,7 @@ public static class RtfReader
         private bool _sawStar;
         private bool _reportedCodePage;
         private bool _reportedEmbedded;
+        private bool _titlePage;
         private bool _reportedEmptyPage;
         private readonly bool _embeddedDecodingRequested;
 
@@ -109,6 +118,7 @@ public static class RtfReader
                 Char = InlineStyle.Default,
                 Para = ParagraphStyle.Default,
                 Dest = RtfDestination.Normal,
+                FieldHost = RtfDestination.Normal,
                 UnicodeSkip = 1,
                 CodePage = options.DefaultCodePage,
             };
@@ -201,6 +211,13 @@ public static class RtfReader
                     ResetColor();
                     return;
                 case "field":
+                    // Remembered before the destination is overwritten. A PAGE
+                    // field in a footer used to hand its result to the body: the
+                    // result destination replaced the footer rather than sitting
+                    // inside it, so a letterhead's cached page number arrived at
+                    // the head of the letter with the word beside it correctly
+                    // skipped.
+                    _state.FieldHost = _state.Dest;
                     _state.Dest = RtfDestination.Field;
                     _fieldLink = null;
                     return;
@@ -233,6 +250,11 @@ public static class RtfReader
                     }
 
                     return;
+                // \titlepg is what makes \headerf and \footerf mean anything,
+                // and what makes a band the first page does not state empty there
+                // rather than the default one - the same fact w:titlePg carries in
+                // DOCX and a first master page carries in ODF.
+                case "titlepg": _titlePage = true; return;
                 case "header": _state.Dest = RtfDestination.Header; return;
                 case "headerf": _state.Dest = RtfDestination.HeaderFirst; return;
                 case "headerl": _state.Dest = RtfDestination.HeaderEven; return;
@@ -434,7 +456,7 @@ public static class RtfReader
                 return;
             }
 
-            if (_state.Dest is not (RtfDestination.Normal or RtfDestination.FieldResult))
+            if (!KeepsText(_state.Dest))
                 return;
 
             switch (symbol)
@@ -453,7 +475,7 @@ public static class RtfReader
 
         private void HandleByte(byte value)
         {
-            if (_state.Dest is not (RtfDestination.Normal or RtfDestination.FieldResult))
+            if (!KeepsText(_state.Dest))
                 return;
 
             if (_pendingUnicodeSkip > 0)
@@ -521,7 +543,7 @@ public static class RtfReader
 
         private void HandleUnicode(int parameter)
         {
-            if (_state.Dest is not (RtfDestination.Normal or RtfDestination.FieldResult))
+            if (!KeepsText(_state.Dest))
                 return;
 
             int code = parameter < 0 ? parameter + 65536 : parameter;
@@ -613,24 +635,44 @@ public static class RtfReader
         {
             get
             {
-                if (_state.Dest is RtfDestination.Normal or RtfDestination.FieldResult)
-                    return _builder;
+                // A field result belongs where the field is, not where the reader
+                // happens to be: the destination says "this is a field result" and
+                // the host says which part of the document it is a field result in.
+                RtfDestination destination = _state.Dest == RtfDestination.FieldResult
+                    ? _state.FieldHost
+                    : _state.Dest;
 
-                if (_state.Dest == RtfDestination.ShapeText)
+                if (destination == RtfDestination.ShapeText)
                     return _shapeText ??= new Accumulator(_maxParagraphs);
 
-                if (!IsRunning(_state.Dest))
+                if (!IsRunning(destination))
                     return _builder;
 
-                if (!_running.TryGetValue(_state.Dest, out Accumulator? accumulator))
+                if (!_running.TryGetValue(destination, out Accumulator? accumulator))
                 {
                     accumulator = new Accumulator(_maxParagraphs);
-                    _running[_state.Dest] = accumulator;
+                    _running[destination] = accumulator;
                 }
 
                 return accumulator;
             }
         }
+
+        /// <summary>
+        /// Whether text reaching this destination is kept at all.
+        /// </summary>
+        /// <remarks>
+        /// The same set <see cref="HandleText"/> routes to the body writer, named
+        /// once so the three gates that guard an escape, a hex byte and a \uN
+        /// cannot drift from it. They used to list Normal and FieldResult and
+        /// nothing else, so a footer reading "Seite 1 von 2" lost its umlaut while
+        /// the plain letters beside it survived - the same routing defect the
+        /// field result had, in the three places that spell a character rather
+        /// than carry one.
+        /// </remarks>
+        private static bool KeepsText(RtfDestination destination) =>
+            destination is RtfDestination.Normal or RtfDestination.FieldResult or RtfDestination.ShapeText ||
+            IsRunning(destination);
 
         private static bool IsRunning(RtfDestination destination) => destination is
             RtfDestination.Header or RtfDestination.HeaderFirst or RtfDestination.HeaderEven or
@@ -776,7 +818,7 @@ public static class RtfReader
         /// <summary>The headers and footers the document's running destinations collected.</summary>
         private RunningContent BuildRunningContent()
         {
-            RunningContent content = RunningContent.Empty;
+            RunningContent content = RunningContent.Empty.WithDifferentFirstPage(_titlePage);
             foreach ((RtfDestination destination, Accumulator accumulator) in _running)
             {
                 IReadOnlyList<RichTextParagraph> paragraphs = accumulator.Build(ParagraphStyle.Default).Paragraphs;

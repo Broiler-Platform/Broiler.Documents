@@ -1025,6 +1025,16 @@ public static class OdtWriter
     /// declares them. An unset selection contributes nothing, so a document with
     /// one header everywhere writes one element.
     /// </summary>
+    /// <remarks>
+    /// The exception is a first page that deliberately carries nothing, which is
+    /// the arrangement a letterhead makes: a header of its own, no footer, and a
+    /// page number from the second page on. Left out entirely, ODF's rule is
+    /// "same as the rest" and the number comes back under the letterhead. Written
+    /// as an empty element, LibreOffice drops the band from every page rather than
+    /// from the first - measured, not assumed. Written holding one empty
+    /// paragraph, it says what the document meant and reads back the same way, so
+    /// that is what an explicitly empty first band becomes.
+    /// </remarks>
     private static IEnumerable<XElement> BuildRunningParts(RunningContent running, OdtWriteContext context)
     {
         if (running is null || running.IsEmpty)
@@ -1037,7 +1047,12 @@ public static class OdtWriter
             IReadOnlyList<DocumentShape> shapes =
                 isHeader ? running.HeaderShapes(selection) : running.FooterShapes(selection);
             if (paragraphs.Count == 0 && shapes.Count == 0)
-                continue;
+            {
+                if (!IsDeliberatelyEmptyFirstPart(running, selection, isHeader))
+                    continue;
+
+                paragraphs = [RichTextParagraph.Empty];
+            }
 
             var part = new XElement(OdtNamespaces.Style + element);
 
@@ -1052,6 +1067,28 @@ public static class OdtWriter
 
             yield return part;
         }
+    }
+
+    /// <summary>
+    /// Whether this first-page band is empty because the document said so rather
+    /// than because it said nothing.
+    /// </summary>
+    /// <remarks>
+    /// Only when the rest of the document has one to inherit: a document with no
+    /// footer anywhere needs no element saying the first page has none either, and
+    /// writing one would be noise in every ODT this codec produces.
+    /// </remarks>
+    private static bool IsDeliberatelyEmptyFirstPart(
+        RunningContent running, PageSelection selection, bool isHeader)
+    {
+        if (selection != PageSelection.First || !running.DifferentFirstPage)
+            return false;
+
+        return isHeader
+            ? running.Header(PageSelection.Default).Count > 0 ||
+              running.HeaderShapes(PageSelection.Default).Count > 0
+            : running.Footer(PageSelection.Default).Count > 0 ||
+              running.FooterShapes(PageSelection.Default).Count > 0;
     }
 
     /// <summary>
@@ -1312,9 +1349,14 @@ public static class OdtWriter
                     new XAttribute(OdtNamespaces.Draw + "style", "linear"),
                     new XAttribute(OdtNamespaces.Draw + "start-color", OdtUnits.FormatColor(fill.Start)),
                     new XAttribute(OdtNamespaces.Draw + "end-color", OdtUnits.FormatColor(fill.End)),
+                    // Converted rather than written straight, and with the unit
+                    // ODF 1.3 asks for. The model measures a gradient along the
+                    // page and ODF measures it down the page, so the two are a
+                    // quarter turn apart; writing the model's number under ODF's
+                    // name would turn every gradient this codec round-trips.
                     new XAttribute(
                         OdtNamespaces.Draw + "angle",
-                        ((long)Math.Round(fill.AngleDegrees * 10)).ToString(CultureInfo.InvariantCulture))));
+                        OdtUnits.FormatAngle(OdtGradientAngle.ToOdf(fill.AngleDegrees)))));
 
                 properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "gradient"));
                 properties.Add(new XAttribute(OdtNamespaces.Draw + "fill-gradient-name", gradientName));

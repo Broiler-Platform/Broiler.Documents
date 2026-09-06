@@ -77,6 +77,23 @@ the first page's and `\headerl`/`\footerl` the left - even - page's.
 `\headerr`/`\footerr` are read as those as well: they name the right, odd page,
 which is every page in a document that does not distinguish them.
 
+`\titlepg` is read and written beside them. It is what makes `\headerf` and
+`\footerf` mean anything, and what makes a band the first page does not state
+*empty* there rather than the default one - the same fact `w:titlePg` carries in
+DOCX and a master-page chain carries in ODF. **LibreOffice disagrees here and
+this reader follows Microsoft's own format.** Given `\titlepg{\footer ...}` with
+no `\footerf`, Word draws no footer on the first page and LibreOffice draws the
+default one; LibreOffice's DOCX importer honours the same flag the Word way, so
+matching its RTF reading would have made this component disagree with itself
+across two of its own readers to agree with an application that disagrees with
+itself across two of its own importers.
+
+A field's result belongs to the destination the field is in. `\fldrslt` used to
+replace the current destination rather than sit inside it, so a `PAGE` field in a
+footer handed its cached number to the body - the letterhead's page number arrived
+at the head of the letter with the word beside it correctly skipped, which is what
+said the routing rather than the parsing was wrong.
+
 A page break inside running content is read, because `\pagebb` is a paragraph
 property wherever a paragraph is. It cannot be written back, which the writing
 section says out loud rather than leaving to be discovered.

@@ -148,4 +148,49 @@ public sealed class DocumentLayoutRunningContentTests
         Assert.Null(Line(result, tall));
         Assert.Contains(result.Notes, note => note.Contains("taller than its page margin", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void A_Different_First_Page_Draws_No_Footer_Where_The_Document_States_None()
+    {
+        // The letterhead: a header of its own on page one, a page number from
+        // page two on, and nothing under the letterhead. Both pages used to get
+        // the footer, because an empty first-page slot fell back to the default.
+        var document = RichTextDocument
+            .FromParagraphs([
+                RichTextParagraph.Plain("page one"),
+                RichTextParagraph.Plain("page two")
+                    .WithParagraphStyle(ParagraphStyle.Default with { PageBreakBefore = true }),
+            ])
+            .WithRunningContent(RunningContent.Empty
+                .WithDifferentFirstPage(true)
+                .WithHeader(PageSelection.First, [RichTextParagraph.Plain("letterhead")])
+                .WithFooter(PageSelection.Default, [RichTextParagraph.Plain("page number")]));
+
+        LayoutResult result = Layout(document);
+        string TextOn(int page) => string.Concat(result.Pages[page].Lines
+            .SelectMany(line => line.Pieces)
+            .Select(piece => piece.Text));
+
+        Assert.Equal(2, result.Pages.Count);
+        Assert.Contains("letterhead", TextOn(0), StringComparison.Ordinal);
+        Assert.DoesNotContain("page number", TextOn(0), StringComparison.Ordinal);
+        Assert.Contains("page number", TextOn(1), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Without_The_Flag_The_First_Page_Still_Takes_The_Default_Footer()
+    {
+        // The fallback is the rule and the flag is the exception, not the other
+        // way round: a document that names one footer wants it on every page.
+        var document = RichTextDocument
+            .FromPlainText("body")
+            .WithRunningContent(RunningContent.Empty
+                .WithFooter(PageSelection.Default, [RichTextParagraph.Plain("page number")]));
+
+        string text = string.Concat(Layout(document).Pages[0].Lines
+            .SelectMany(line => line.Pieces)
+            .Select(piece => piece.Text));
+
+        Assert.Contains("page number", text, StringComparison.Ordinal);
+    }
 }

@@ -730,7 +730,16 @@ internal static class DocxReader
                 "DOCX document has more than one section; the last section's header and footer were read."));
         }
 
-        RunningContent content = RunningContent.Empty;
+        // w:titlePg is what makes a `first` reference mean anything, and it is
+        // also what makes a band the first page does not name empty there rather
+        // than the default one. Read before the references, because a first-page
+        // header with no first-page footer beside it is exactly the arrangement it
+        // decides: LibreOffice draws no footer on page one of such a section, and
+        // this reader drew the default one carrying a stale cached page number.
+        XElement? titlePage = sectPr.Element(DocxNamespaces.Wordprocessing + "titlePg");
+        RunningContent content = RunningContent.Empty
+            .WithDifferentFirstPage(titlePage is not null && ReadOnOff(titlePage));
+
         foreach (XElement reference in sectPr.Elements())
         {
             bool isHeader = reference.Name == DocxNamespaces.Wordprocessing + "headerReference";

@@ -168,6 +168,57 @@ public sealed class OdtShapeTests
         Assert.Equal(wrap, Assert.Single(RoundTrip(source).Shapes).Wrap);
     }
 
+    [Theory]
+    [InlineData("30deg", 60)]
+    [InlineData("0deg", 90)]
+    [InlineData("90deg", 0)]
+    [InlineData("135deg", 315)]
+    [InlineData("100grad", 0)]
+    [InlineData("300", 60)]
+    public void A_Gradient_Angle_Is_Turned_From_ODFs_Frame_Into_The_Models(string stated, double expected)
+    {
+        // Two things at once, because the seed that found this needed both.
+        // LibreOffice 24.2 writes the angle with a unit and the reader parsed a
+        // bare number of tenths of a degree, so the parse failed and reached the
+        // same branch an absent attribute does - a band that should run down the
+        // page ran across it and nothing said so. And the two formats do not
+        // share a zero: ODF measures from down the page and the model from along
+        // it, so even a parsed angle needed the quarter turn. 300 is the older
+        // unitless spelling of the same thirty degrees.
+        string styles =
+            "<style:style style:name=\"gr1\" style:family=\"graphic\">" +
+            "<style:graphic-properties draw:fill=\"gradient\" draw:fill-gradient-name=\"g1\"/>" +
+            "</style:style>";
+        string content =
+            "<text:p><draw:custom-shape text:anchor-type=\"paragraph\" draw:style-name=\"gr1\" " +
+            "svg:width=\"2cm\" svg:height=\"3cm\" svg:x=\"0cm\" svg:y=\"0cm\">" +
+            "<text:p>box</text:p></draw:custom-shape>body</text:p>";
+        string stylesPart =
+            "<office:styles><draw:gradient draw:name=\"g1\" draw:style=\"linear\" " +
+            "draw:start-color=\"#aecf00\" draw:end-color=\"#ffffff\" draw:angle=\"" + stated +
+            "\"/></office:styles>";
+
+        DocumentShape shape = Assert.Single(
+            OdtTestPackage.ReadStyled(content, stylesPart, styles).Document.Shapes);
+
+        Assert.Equal(expected, Assert.IsType<ShapeFill>(shape.Fill).AngleDegrees, 3);
+    }
+
+    [Fact]
+    public void A_Gradient_Angle_Round_Trips_Through_The_Writer()
+    {
+        RichTextDocument source = WithShapes(
+            new DocumentShape(0, 0, 0, 30, 200, new ShapeFill(BColor.Black, BColor.White, 60)));
+
+        // Written in ODF's frame and with the unit ODF 1.3 asks for, so a
+        // consumer that only understands the newer spelling reads it too.
+        Assert.Contains(
+            "draw:angle=\"30deg\"",
+            ContentOf(OdtDocumentCodec.WriteToArray(source)),
+            StringComparison.Ordinal);
+        Assert.Equal(60, Assert.IsType<ShapeFill>(Assert.Single(RoundTrip(source).Shapes).Fill).AngleDegrees, 3);
+    }
+
     [Fact]
     public void A_Frames_Z_Index_Is_The_Shapes_Z_Order()
     {

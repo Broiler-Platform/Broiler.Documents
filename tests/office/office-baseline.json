@@ -49,36 +49,6 @@
       "decided": "2026-09-06"
     },
     {
-      "seed": "letterhead-frames",
-      "via": "rtf",
-      "check": "interop",
-      "differences": [
-        "+ libreoffice-of-ours: 2The band down the left margin is a gradient-filled frame anchored in the header of the first page. The bordered box ove ...",
-        "- libreoffice-of-its-own: The band down the left margin is a gradient-filled frame anchored in the header of the first page. The bordered box over ..."
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": null,
-      "why": "The same defect as the text row for this document, one step further on. The stray 2 the RTF reader lifts out of the footer's PAGE field is written into our ODT export as body text, and LibreOffice reads it back from there. It is the interop check doing what it is for: a reader defect that stops at our model is ours to find, and one that reaches a file somebody else opens is worth a louder row.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "seed": "letterhead-frames",
-      "via": "rtf",
-      "check": "text",
-      "differences": [
-        "+ libreoffice: The band down the left margin is a gradient-filled frame anchored in the header of the first page. The bordered box over ...",
-        "- broilerdoc: 2The band down the left margin is a gradient-filled frame anchored in the header of the first page. The bordered box ove ..."
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": null,
-      "why": "A page number escapes from the footer into the body. LibreOffice writes the seed's footer as {\\footer ... Page {\\field{\\*\\fldinst PAGE}{\\fldrslt 2}}}, and broilerdoc's text projection opens with a bare 2 that LibreOffice's does not. The word Page beside it is correctly absent, so the reader is skipping the footer destination's own text and keeping the text inside \\fldrslt - a field result is body text only when the field is in the body. It also puts the number in the wrong place twice over: the render for this document draws the footer as Page with nothing after it.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
       "seed": "links",
       "via": "html",
       "check": "text",
@@ -901,23 +871,23 @@
         "broilerdoc": 2,
         "libreoffice": 2
       },
-      "worstPage": 1,
+      "worstPage": 2,
       "bands": {
         "geometry": "match",
-        "inkBox": "wild",
-        "inkProfile": "fair",
+        "inkBox": "loose",
+        "inkProfile": "poor",
         "coverage": "exact",
         "blurDiff": "light"
       },
       "observed": {
-        "inkBoxDeltaPx": 1154,
-        "inkProfileSimilarity": 0.9215656322507952,
-        "coverageDelta": 8.097725622235527e-05,
-        "blurDiffRatio": 0.04807521703967783
+        "inkBoxDeltaPx": 52,
+        "inkProfileSimilarity": 0.8541433821351655,
+        "coverageDelta": 6.498811645870486e-05,
+        "blurDiffRatio": 0.023602549184657026
       },
       "state": "suspected-defect",
       "reference": null,
-      "why": "Two of this row's three defects are fixed and the ink box is still measuring the third. The bordered box anchored in the body is drawn now, and on the first page only: a shape carries the z-order all three formats state - relativeHeight here - and the layout orders the body's shapes and the running bands' together rather than appending the bands last and painting the header's band over everything; and the map of anchor tops is emptied at a page break, so a box anchored to a paragraph on page one no longer reappears on page two at the y it had there. What is left at 1154 px is a footer drawn on page one where LibreOffice draws none - w:titlePg is set, the section declares no first-page footer, and the flag is not read - carrying the PAGE field's stale cached result. The profile moved from 0.930 to 0.922 in the same change, which is honest rather than a regression: the box wrongly repeated on page two overlapped rows LibreOffice inks there, and removing it removed ink that was flattering the score.",
+      "why": "The last of this row's defects is fixed and 1154 px became 52. w:titlePg is read now, so page one carries no footer where LibreOffice draws none, and the stale cached PAGE result goes with it. What is left is on page two, where both sides draw the same three lines and the same page number and put the footer 52 px apart - a footer distance, which is a layout convention rather than anything the reader lost. The profile reads poor at 0.854 on the strength of that: page two holds three lines at the top and one at the bottom, and on ink that sparse a displaced footer moves a whole peak of the smoothed profile. The band this file records is the metric behaving as its own documentation describes, on the page in this corpus with the least ink to measure.",
       "reviewer": null,
       "decided": null
     },
@@ -955,23 +925,23 @@
         "broilerdoc": 2,
         "libreoffice": 2
       },
-      "worstPage": 2,
+      "worstPage": 1,
       "bands": {
         "geometry": "match",
-        "inkBox": "wild",
-        "inkProfile": "poor",
+        "inkBox": "near",
+        "inkProfile": "fair",
         "coverage": "exact",
-        "blurDiff": "heavy"
+        "blurDiff": "light"
       },
       "observed": {
-        "inkBoxDeltaPx": 1180,
-        "inkProfileSimilarity": 0.8522724984959134,
-        "coverageDelta": 0.00011966065887634471,
-        "blurDiffRatio": 0.07192018221429985
+        "inkBoxDeltaPx": 31,
+        "inkProfileSimilarity": 0.9215817437174411,
+        "coverageDelta": 4.796741929094864e-05,
+        "blurDiffRatio": 0.04759244817455602
       },
       "state": "suspected-defect",
       "reference": null,
-      "why": "The stacking and the repeated box are fixed here as in the docx row, and the worst page moving to the second is the shape of what is left. The band's gradient still runs left to right instead of top to bottom, because draw:angle=\"30deg\" is parsed as a bare number of tenths of a degree and the failed parse reaches the same branch as an absent attribute. And the band is still repeated on page two while the page number never appears at all, because the reader files the resolved master page's header into the Default slot and never follows style:next-style-name to the Continuation master or reads its footer. The 1180 px is that missing footer: LibreOffice inks the bottom of page two and this component inks nothing below its third line. poor where the row recorded fair is the same accounting as the docx row - a box wrongly drawn on page two was overlapping rows LibreOffice inks, and it is gone.",
+      "why": "All three ODT defects are fixed and this row is close to clean: 1180 px became 31 and the profile 0.852 became 0.922. draw:angle is read with its unit and turned the quarter turn ODF and this model are apart, so the band runs down the page; the master-page chain is followed by one link, so the band belongs to the first page and the page number to the second; and the first page carries no footer because the master page it is on states none. The row stays because near and fair are not clean, and what is under them now is the ordinary disagreement of two layout engines about where a line sits - the same thing every prose seed in this corpus reports.",
       "reviewer": null,
       "decided": null
     },
@@ -985,22 +955,22 @@
       "worstPage": 1,
       "bands": {
         "geometry": "match",
-        "inkBox": "near",
+        "inkBox": "wild",
         "inkProfile": "poor",
         "coverage": "exact",
         "blurDiff": "heavy"
       },
       "observed": {
-        "inkBoxDeltaPx": 31,
-        "inkProfileSimilarity": 0.8751197018649929,
-        "coverageDelta": 0.00027078381857793647,
-        "blurDiffRatio": 0.08679885043242887
+        "inkBoxDeltaPx": 1193,
+        "inkProfileSimilarity": 0.8664212087134724,
+        "coverageDelta": 0.00010521885521885474,
+        "blurDiffRatio": 0.08665082194493959
       },
-      "state": "suspected-defect",
-      "reference": null,
-      "why": "Both shapes survive the RTF round trip and the ink box is the tightest of the four at 31 px. Page two is clean now: the shapes are anchored to a paragraph on page one and stop there. RTF is also the one target where the box was never hidden, because LibreOffice writes both shapes into the body rather than into a header destination and the stacking accident needed a header - the z-order it does write, \\shpz, is read and written now either way. What the profile is measuring is all on the first page: the stray 2 that the text row for this document records is drawn at the head of the body, the footer reads Page with nothing after it, and the gradient runs left to right as it does through ODT.",
-      "reviewer": null,
-      "decided": null
+      "state": "documented",
+      "reference": "docs/rtf-conformance.md",
+      "why": "A disagreement rather than a defect, and the one place in this corpus where following the format costs a band. \\titlepg is read now, so this component draws no footer on the first page of a section that states one and names no \\footerf - which is what Word does. LibreOffice draws the default footer there, and the 1193 px is the whole of the difference: it inks the bottom of page one and this component inks nothing below the third line. Matching LibreOffice would have been the cheaper number and the worse answer, because its own DOCX importer honours the same flag the Word way - agreeing with it here would have made this component disagree with itself across two of its own readers. The stray page number the text and interop rows recorded is gone: a field result belongs to the destination the field is in. What the profile still reads is the gradient, which runs left to right here where ODT and DOCX now run it down the page - LibreOffice writes no fillAngle into its RTF at all and renders its own file bottom-to-top, so no reading of that document agrees with all three of the source, the oracle and the other two targets.",
+      "reviewer": "Claude Opus 5, on the reader fixes the letterhead seed found",
+      "decided": "2026-09-06"
     },
     {
       "seed": "line-break-within-paragraph",

@@ -475,7 +475,8 @@ component being correct and the only one a suite can make about itself.
 
 `line-break-within-paragraph` and `letterhead-frames` were added after everything
 above, and between them they produced eleven new baseline rows. Nine were
-suspected defects and none of them was reachable before. Three are fixed.
+suspected defects and none of them was reachable before. All nine are fixed, and
+the two that remain are limitations with a document behind them.
 
 **A forced line break was not a break in layout.** *Fixed.* All four targets
 carry the construct and all five codecs read and write it as U+2028, the model's
@@ -513,8 +514,7 @@ which is how all three formats state it and what a letterhead needs, since the
 band is in the header and the box is in the body. All three readers take it -
 `draw:z-index`, `relativeHeight`, `\shpz` - all three writers state it, and both
 layout engines order every shape on a page by it before drawing. A shape whose
-format says nothing sits at zero and keeps the order it was read in, which is the
-answer this gave before, kept as the floor rather than as the rule.
+format says nothing sits at zero and keeps the order it was read in.
 
 **A shape was drawn on every page after its anchor's.** *Fixed, and found while
 fixing the one above.* The map of anchor tops was never emptied at a page break,
@@ -523,53 +523,77 @@ y it had on page one. The wrap exclusions were the same defect twice over: a ban
 in page-one coordinates pushing text aside on a page with nothing beside it. Both
 are page-local and both are cleared when a page ends.
 
-Two rows scored *worse* after that fix, and the accounting is worth stating rather
-than smoothing over. `letterhead-frames/odt` went from `fair` to `poor` on the
-profile and `letterhead-frames/docx` from 0.930 to 0.922, because the box wrongly
-repeated on page two had been overlapping rows LibreOffice inks there - a defect
-that was flattering the score of another. The remaining defects are the ones
-below, and the numbers now show their size.
+**A gradient angle with a unit on it parsed as zero.** *Fixed.* LibreOffice 24.2
+writes `draw:angle="30deg"`; `OdtReader` parsed the attribute as a bare number of
+tenths of a degree, `TryParse` failed on the unit, and the false branch yielded
+`0`, so the band ran left to right instead of top to bottom. A failed parse and an
+absent attribute reached the same branch, so nothing was reported.
 
-**A gradient angle with a unit on it parses as zero.** LibreOffice 24.2 writes
-`draw:angle="30deg"`; `OdtReader` parses the attribute as a bare number of tenths
-of a degree, `TryParse` fails on the unit, and the false branch yields `0`, so the
-band runs left to right instead of top to bottom. A failed parse and an absent
-attribute reach the same branch, so nothing is reported. A unit-aware parse alone
-would not settle it: LibreOffice's own DOCX export of the same shape writes
-`ang="3600000"`, sixty degrees, where the ODF says thirty, and that path draws it
-correctly.
+Both spellings are read now - ODF 1.2 typed the attribute as tenths and ODF 1.3 as
+an angle with `deg`, `grad` or `rad` - and the value is then turned a quarter,
+which a unit-aware parse alone would not have done. The two formats do not share a
+zero: ODF measures a gradient from *down* the page and the model from *along* it.
+That was measured rather than derived from prose - LibreOffice was asked to render
+a black-to-white gradient at five ODF angles and the corners were sampled - and
+confirmed from the other side, since the same shape LibreOffice writes as `30deg`
+in ODF it writes as `ang="3600000"`, sixty degrees, in OOXML.
 
-**`w:titlePg` is not read.** The seed's DOCX declares a first-page header, a
-default footer and the flag. LibreOffice puts no footer on page one; this
-component puts the default one there, carrying the `PAGE` field's stale cached
-result rather than a page number. It is the whole of the 1154 px that row's ink
-box still reports.
+**`w:titlePg` was not read.** *Fixed.* The seed's DOCX declares a first-page
+header, a default footer and the flag. LibreOffice puts no footer on page one;
+this component put the default one there, carrying the `PAGE` field's stale cached
+result. The flag is what makes a `first` reference mean anything and what makes a
+band the first page does not name *empty* there rather than the default one, and
+`RunningContent.DifferentFirstPage` is where the model keeps it. The row went from
+an ink box of 1154 px to 52, which is a footer distance and not a lost band.
 
-**The ODT master-page chain stops at the first page.** The reader resolves the
-master page the body starts on, correctly, and files its header into the
-*Default* slot - so `style:next-style-name` is never followed, the band repeats on
-page two, and the `Continuation` master's footer is never read at all. That
-missing footer is the 1180 px on page two.
+**The ODT master-page chain stopped at the first page.** *Fixed.* The reader
+resolved the master page the body starts on, correctly, and filed its header into
+the *Default* slot - so `style:next-style-name` was never followed, the band
+repeated on page two, and the `Continuation` master's footer was never read. The
+chain is followed by one link now: the master page the body begins on supplies the
+first page and the one it names supplies the rest. One link and not the whole
+chain, because the model holds three selections rather than a sequence of pages.
+With the gradient and the stacking, that row went from 1180 px and a `poor`
+profile to 31 px and `fair`.
 
-**RTF lets a footer's field result into the body.** The one nobody predicted.
-`text/letterhead-frames/rtf` opens with a bare `2` that LibreOffice's projection
-does not have: the reader skips the `{\footer ...}` destination's own text but
-keeps the text inside `\fldrslt`, so the cached page number lands at the head of
-the body while the word `Page` beside it is correctly dropped. `interop` catches
-the same character surviving into our ODT export, which is the difference between
-a reader defect that stops at our model and one that reaches a file somebody else
-opens.
+**RTF let a footer's field result into the body.** *Fixed.* The one nobody
+predicted. `text/letterhead-frames/rtf` opened with a bare `2` that LibreOffice's
+projection did not have: the reader skipped the `{\footer ...}` destination's own
+text but kept the text inside `\fldrslt`, so the cached page number landed at the
+head of the body while the word `Page` beside it was correctly dropped. A field
+result belongs to the destination the field is in, and the state now carries that
+destination through the group that holds it. Both the `text` row and the `interop`
+row it produced are gone from the baseline.
 
-The last row is `letterhead-frames/html`, and it now carries two causes rather
-than one. LibreOffice cannot write a frame into HTML, so it flattens both to GIF
-files beside the document; the reader never fetches an external resource and
-reports `html.skip.external`, which
+Two rows are left, and both are limitations rather than defects.
+
+`letterhead-frames/rtf` is `documented`, and it is the one place in this corpus
+where following the format costs a band. `\titlepg` is read now, so no footer is
+drawn on the first page of a section that states the flag and names no
+`\footerf` - which is what Word does. LibreOffice draws the default footer there,
+and that 1193 px is the whole of the difference. Matching LibreOffice would have
+been the cheaper number and the worse answer: its own DOCX importer honours the
+same flag the Word way, so agreeing with it here would have made this component
+disagree with itself across two of its own readers.
+
+`letterhead-frames/html` carries two causes. LibreOffice cannot write a frame into
+HTML, so it flattens both to GIF files beside the document; the reader never
+fetches an external resource and reports `html.skip.external`, which
 [the HTML conformance document](html-conformance.md) states in both directions.
-That half is a limitation. The other half arrived with the line-break fix:
-LibreOffice writes the page's header as `<div title="header">`, this reader has no
-notion of that convention and reads it as body content, and the `<br/>` inside it
-is now honoured - so the body opens with a blank line LibreOffice puts nowhere.
-Honouring the break is right; reading a header as body is what needs deciding.
+The other half arrived with the line-break fix: LibreOffice writes the page's
+header as `<div title="header">`, this reader has no notion of that convention and
+reads it as body content, and the `<br/>` inside it is now honoured - so the body
+opens with a blank line LibreOffice puts nowhere. Honouring the break is right;
+reading a header as body is what needs deciding.
+
+One thing the fixes made visible is worth recording on its own, because it will
+happen again. Two rows scored *worse* at the point where the page-scoping fix
+landed - `letterhead-frames/odt` from `fair` to `poor`, `docx` from 0.930 to 0.922
+- because the box wrongly repeated on page two had been overlapping rows
+LibreOffice inks there. One defect was flattering the score of another, and the
+next round of fixes took both rows well past where they started. A band that gets
+worse after a fix is not necessarily a regression; it can be the measurement
+finally seeing what was under the thing that just moved.
 
 ## What it cannot tell you
 

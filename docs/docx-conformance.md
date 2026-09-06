@@ -100,6 +100,12 @@ Open XML WordprocessingML package parts.
   each distinct image once under `word/media`, with its relationship and a
   content-type default for its extension. Raster formats only: PNG, JPEG, GIF,
   BMP, TIFF, WebP, and ICO.
+- `w:titlePg`, which is what makes a `first` header or footer mean anything and
+  what makes a band the first page does not name *empty* there rather than the
+  default one. A letterhead is the case: a first-page header, a default footer,
+  and no footer on page one. Unread, the empty first-page slot fell back and a
+  page number was drawn under the letterhead. It is written back whenever a First
+  part exists or the model says the first page is different.
 - A header's and a footer's shapes, read onto the running content rather than
   into the body. They are placed against the page: `svg`-style horizontal offsets
   stay measured from the text column, while the vertical one is measured from the

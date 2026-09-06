@@ -53,6 +53,85 @@ public sealed class RtfRunningContentTests
     }
 
     [Fact(Timeout = 600000)]
+    public void A_Fields_Result_Stays_In_The_Footer_It_Is_In()
+    {
+        // The letterhead's footer, as LibreOffice writes it. \fldrslt used to
+        // replace the footer destination rather than sit inside it, so the cached
+        // page number arrived at the head of the body - and the word beside it
+        // did not, which is what said the routing rather than the parsing was
+        // wrong.
+        const string rtf =
+            "{\\rtf1\\ansi{\\footer Page {\\field{\\*\\fldinst PAGE }{\\fldrslt 2}}}Body\\par}";
+
+        RichTextDocument document = RtfReader.Read(System.Text.Encoding.ASCII.GetBytes(rtf)).Document;
+
+        Assert.Equal("Body", document.PlainText);
+        Assert.Equal("Page 2", TextOf(document.RunningContent.Footer(PageSelection.Default)));
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Fields_Result_In_The_Body_Is_Still_Body_Text()
+    {
+        // The other side of the same rule: a field in the body puts its result
+        // in the body, which is what the destination did unconditionally and now
+        // does because that is where the field is.
+        const string rtf =
+            "{\\rtf1\\ansi Seen on {\\field{\\*\\fldinst PAGE }{\\fldrslt 7}}\\par}";
+
+        Assert.Equal("Seen on 7", RtfReader.Read(System.Text.Encoding.ASCII.GetBytes(rtf)).Document.PlainText);
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Footer_Keeps_The_Characters_That_Are_Spelled_Rather_Than_Carried()
+    {
+        // An escape, a hex byte and a \uN are handled apart from plain text, and
+        // all three were gated to the body: a footer's plain letters survived and
+        // anything spelled out of them did not.
+        const string rtf =
+            "{\\rtf1\\ansi{\\footer Seite \\'e4 \\u8212? \\\\}Body\\par}";
+
+        RunningContent running = RtfReader.Read(System.Text.Encoding.ASCII.GetBytes(rtf))
+            .Document.RunningContent;
+
+        Assert.Equal("Seite \u00e4 \u2014 \\", TextOf(running.Footer(PageSelection.Default)));
+    }
+
+    [Fact(Timeout = 600000)]
+    public void Titlepg_Is_What_Makes_The_First_Page_Different()
+    {
+        // \titlepg is RTF's spelling of the fact w:titlePg carries in DOCX and a
+        // master-page chain carries in ODF: the first page takes the bands it
+        // names and none of the others.
+        const string rtf =
+            "{\\rtf1\\ansi\\titlepg{\\headerf a letterhead}{\\footer a page number}Body\\par}";
+
+        RunningContent running = RtfReader.Read(System.Text.Encoding.ASCII.GetBytes(rtf))
+            .Document.RunningContent;
+
+        Assert.True(running.DifferentFirstPage);
+        Assert.Equal("a letterhead", TextOf(running.EffectiveHeader(PageSelection.First)));
+        Assert.Empty(running.EffectiveFooter(PageSelection.First));
+        Assert.Equal("a page number", TextOf(running.EffectiveFooter(PageSelection.Default)));
+    }
+
+    [Fact(Timeout = 600000)]
+    public void A_Different_First_Page_Round_Trips()
+    {
+        RichTextDocument source = RichTextDocument.FromPlainText("body").WithRunningContent(
+            RunningContent.Empty
+                .WithDifferentFirstPage(true)
+                .WithFooter(PageSelection.Default, [RichTextParagraph.Plain("a page number")]));
+
+        byte[] bytes = RtfWriter.WriteToArray(source);
+        Assert.Contains("\\titlepg", System.Text.Encoding.ASCII.GetString(bytes), StringComparison.Ordinal);
+
+        RunningContent back = RtfReader.Read(bytes).Document.RunningContent;
+
+        Assert.True(back.DifferentFirstPage);
+        Assert.Empty(back.EffectiveFooter(PageSelection.First));
+    }
+
+    [Fact(Timeout = 600000)]
     public void A_Document_Without_Running_Content_Writes_No_Destinations()
     {
         string rtf = System.Text.Encoding.ASCII.GetString(

@@ -236,14 +236,34 @@ internal static class OdtReader
 
     /// <summary>
     /// Reads the headers and footers hanging off the master page the document
-    /// begins on.
+    /// begins on, and off the one that follows it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// ODF keeps them in <c>styles.xml</c> under <c>office:master-styles</c>, one
-    /// set per master page, and a document can define several. The model has one
-    /// set, so the running content of the page the body starts on is the one
-    /// read - see <see cref="ResolveMasterPage"/> for how that page is found, and
-    /// for why it is not simply the first one defined.
+    /// set per master page, and a document can define several. Which one the body
+    /// begins on is <see cref="ResolveMasterPage"/>'s decision, and for a document
+    /// with one master page that is the whole answer: its parts are the running
+    /// content of every page.
+    /// </para>
+    /// <para>
+    /// A letterhead is not that document. It puts the first page on a master page
+    /// of its own carrying the band, and names another in
+    /// <c>style:next-style-name</c> carrying the page number - and reading only
+    /// the first put the band on every page and the number on none. So the chain
+    /// is followed by one link: the master page the body starts on supplies the
+    /// <em>first</em> page and the one it names supplies the rest. One link and
+    /// not the whole chain, because the model holds three selections rather than a
+    /// sequence of pages; a document whose third master page differs again is
+    /// past what can be represented, and following further would only choose a
+    /// different page to be wrong about.
+    /// </para>
+    /// <para>
+    /// A first page of its own also means a band it does not state is empty
+    /// there rather than the default one - the letterhead states a header and no
+    /// footer, and LibreOffice draws no footer on its first page. That is what
+    /// <see cref="RunningContent.DifferentFirstPage"/> carries.
+    /// </para>
     /// </remarks>
     private static RunningContent ReadRunningContent(
         XElement? master,
@@ -255,23 +275,107 @@ internal static class OdtReader
         if (master is null)
             return RunningContent.Empty;
 
-        RunningContent content = RunningContent.Empty;
+        XElement? next = NextMasterPage(master, styles);
+        RunningContent content = RunningContent.Empty.WithDifferentFirstPage(next is not null);
+
+        // The page after the first supplies the default and even bands, and it is
+        // read first so that the first page's own parts land on top of it. Its
+        // First parts are deliberately not read: it is not the first page.
+        if (next is not null)
+            content = ReadParts(next, content, first: false, styles, images, limits, diagnostics);
+
+        return ReadParts(master, content, first: next is not null, styles, images, limits, diagnostics);
+    }
+
+    /// <summary>
+    /// One master page's parts folded into <paramref name="content"/>.
+    /// </summary>
+    /// <param name="first">
+    /// True when this master page is the first page rather than the rest of the
+    /// document, which moves its plain <c>style:header</c> and <c>style:footer</c>
+    /// into the First selection. Its own <c>-first</c> and <c>-left</c> parts keep
+    /// the selections they name either way: ODF lets one master page state all
+    /// three, and a document that does is saying something more specific than the
+    /// chain is.
+    /// </param>
+    private static RunningContent ReadParts(
+        XElement master,
+        RunningContent content,
+        bool first,
+        OdtStyles styles,
+        OdtImageLoader images,
+        DocumentLimits limits,
+        List<DocumentDiagnostic> diagnostics)
+    {
         foreach ((string element, bool isHeader, PageSelection selection) in RunningParts)
         {
+            if (first && selection == PageSelection.Even)
+                continue;
+
             XElement? part = master.Element(OdtNamespaces.Style + element);
             if (part is null)
                 continue;
 
             var (paragraphs, shapes) = ReadPart(part, styles, images, limits, diagnostics);
             if (paragraphs.Count == 0 && shapes.Count == 0)
-                continue;
+            {
+                // An empty part is an answer for the two selections that would
+                // otherwise inherit. ODF states a first or even page that carries
+                // nothing by writing the element and leaving it empty - which is
+                // the other way a document says "no footer on the first page",
+                // beside the master-page chain - and skipping it would send the
+                // selection back to the default it was written to escape. The
+                // default band has nothing to inherit from, so an empty one there
+                // is still nothing.
+                if (selection == PageSelection.Default)
+                    continue;
+
+                paragraphs = [RichTextParagraph.Empty];
+            }
+
+            PageSelection target = first && selection == PageSelection.Default
+                ? PageSelection.First
+                : selection;
 
             content = isHeader
-                ? content.WithHeader(selection, paragraphs, shapes)
-                : content.WithFooter(selection, paragraphs, shapes);
+                ? content.WithHeader(target, paragraphs, shapes)
+                : content.WithFooter(target, paragraphs, shapes);
         }
 
         return content;
+    }
+
+    /// <summary>
+    /// The master page <paramref name="master"/> hands over to, or null when it
+    /// names none, names itself, or names one the document does not define.
+    /// </summary>
+    /// <remarks>
+    /// Naming itself is the case worth guarding rather than the case worth
+    /// reporting: it is what a document with one master page and a redundant
+    /// <c>style:next-style-name</c> says, it means "every page is this one", and
+    /// treating it as a chain would split one master page into a first page and a
+    /// rest that are identical - and then claim the first page is different.
+    /// </remarks>
+    private static XElement? NextMasterPage(XElement master, OdtStyles styles)
+    {
+        string? name = (string?)master.Attribute(OdtNamespaces.Style + "next-style-name");
+        if (string.IsNullOrEmpty(name) ||
+            string.Equals(name, (string?)master.Attribute(OdtNamespaces.Style + "name"), StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        XElement? masterStyles = styles.MasterStyles;
+        if (masterStyles is null)
+            return null;
+
+        foreach (XElement candidate in masterStyles.Elements(OdtNamespaces.Style + "master-page"))
+        {
+            if (string.Equals((string?)candidate.Attribute(OdtNamespaces.Style + "name"), name, StringComparison.Ordinal))
+                return candidate;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -440,14 +544,10 @@ internal static class OdtReader
                 TryColor((string?)gradient.Attribute(OdtNamespaces.Draw + "start-color"), out BColor start) &&
                 TryColor((string?)gradient.Attribute(OdtNamespaces.Draw + "end-color"), out BColor end))
             {
-                double angle = double.TryParse(
+                OdtUnits.TryParseAngle(
                     (string?)gradient.Attribute(OdtNamespaces.Draw + "angle"),
-                    NumberStyles.Float,
-                    CultureInfo.InvariantCulture,
-                    out double tenths)
-                    ? tenths / 10d
-                    : 0;
-                fill = new ShapeFill(start, end, angle);
+                    out double odfDegrees);
+                fill = new ShapeFill(start, end, OdtGradientAngle.ToModel(odfDegrees));
             }
         }
         else if (string.Equals(kind, "solid", StringComparison.Ordinal) &&
