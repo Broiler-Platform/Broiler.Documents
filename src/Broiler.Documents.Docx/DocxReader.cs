@@ -730,7 +730,16 @@ internal static class DocxReader
                 "DOCX document has more than one section; the last section's header and footer were read."));
         }
 
-        RunningContent content = RunningContent.Empty;
+        // w:titlePg is what makes a `first` reference mean anything, and it is
+        // also what makes a band the first page does not name empty there rather
+        // than the default one. Read before the references, because a first-page
+        // header with no first-page footer beside it is exactly the arrangement it
+        // decides: LibreOffice draws no footer on page one of such a section, and
+        // this reader drew the default one carrying a stale cached page number.
+        XElement? titlePage = sectPr.Element(DocxNamespaces.Wordprocessing + "titlePg");
+        RunningContent content = RunningContent.Empty
+            .WithDifferentFirstPage(titlePage is not null && ReadOnOff(titlePage));
+
         foreach (XElement reference in sectPr.Elements())
         {
             bool isHeader = reference.Name == DocxNamespaces.Wordprocessing + "headerReference";
@@ -1117,7 +1126,8 @@ internal static class DocxReader
             behindText: BehindDoc(anchor),
             wrap: wrap.Wrap,
             wrapSide: wrap.Side,
-            wrapDistance: wrap.Distance));
+            wrapDistance: wrap.Distance,
+            zOrder: RelativeHeight(anchor)));
         return true;
     }
 
@@ -1169,7 +1179,8 @@ internal static class DocxReader
             behindText: BehindDoc(anchor),
             wrap: shapeWrap.Wrap,
             wrapSide: shapeWrap.Side,
-            wrapDistance: shapeWrap.Distance));
+            wrapDistance: shapeWrap.Distance,
+            zOrder: RelativeHeight(anchor)));
         return true;
     }
 
@@ -1190,6 +1201,29 @@ internal static class DocxReader
             "0" or "false" => false,
             _ => true,
         };
+
+    /// <summary>
+    /// The <c>wp:anchor</c> attribute ordering one anchored object against
+    /// another: higher draws later, and therefore on top.
+    /// </summary>
+    /// <remarks>
+    /// One number for the whole document rather than one per part, which is what
+    /// makes a letterhead legible: the stripe is anchored in the header and the
+    /// logo box in the body, and their <c>relativeHeight</c> values are the only
+    /// thing saying which of the two the reader sees. It is required on a
+    /// <c>wp:anchor</c>, so one that states none is a producer leaving it out and
+    /// reads as zero - the order the shapes were read in, which is the answer
+    /// every anchor got before this was read at all. A <c>wp:inline</c> reaching
+    /// here has no such attribute and gets the same answer for the same reason.
+    /// </remarks>
+    private static int RelativeHeight(XElement anchor) =>
+        uint.TryParse(
+            (string?)anchor.Attribute("relativeHeight"),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out uint height)
+            ? (int)Math.Min(height, int.MaxValue)
+            : 0;
 
     private static string? PositionOffset(XElement anchor, string axis) =>
         (string?)anchor.Element(DocxNamespaces.WordDrawing + axis)

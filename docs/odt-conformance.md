@@ -157,6 +157,22 @@ toolkit behind it.
   the source asked for, and lays the body out on the second. The header and
   footer are read from the same master page as the paper, because a Letter header
   on an A4 page is not a thing any document said.
+- The master-page chain, followed by one link. The master page the body begins on
+  supplies the *first* page and the one its `style:next-style-name` names supplies
+  the rest, which is how a letterhead states that the band belongs to page one and
+  the page number to every page after it — read as one master page, the band went
+  on every page and the number on none. One link and not the whole chain, because
+  this model holds three selections rather than a sequence of pages; a document
+  whose third master page differs again is past what can be represented. A master
+  page naming itself is not a chain, which is what a document with one master page
+  and a redundant attribute says.
+- A first page of its own also means a band it does not state is *empty* there
+  rather than the default one, which is what `RunningContent.DifferentFirstPage`
+  carries. ODF's other way of saying the same thing is `style:header-first` and
+  `style:footer-first` on a single master page, and an empty one of those is an
+  answer rather than an omission: it is read as a band that carries nothing, and
+  written that way — as the element holding one empty paragraph, because
+  LibreOffice reads a wholly empty element as no band on *any* page.
 - A master page's header and footer shapes, read onto the running content and
   written back into the master page. They are placed against the page rather
   than a paragraph, so a header's `svg:y` is read from the top of the page. Their
@@ -210,8 +226,16 @@ toolkit behind it.
   ODF means them: `run-through` is text through the shape, and `none` is no text
   beside it at all. A wrapped line keeps one span, running down whichever side
   has more room, so `parallel` gets the larger side rather than text down both.
-  `style:run-through` is the whole of the stacking that is represented — order *among* shapes on the same side of the text is not, and
-  they draw in the order they were read. A style that states no run-through is
+  `style:run-through` is the shape against the text and `draw:z-index` is the
+  shape against the other shapes; both are read and both are written, and a
+  drawing that states no index reads as zero, which leaves the order the shapes
+  were read in. A gradient's `draw:angle` is read with or without a unit — ODF 1.2
+  typed it as tenths of a degree and ODF 1.3 as an angle with `deg`, `grad` or
+  `rad`, and LibreOffice changed which it writes, so reading only the older
+  spelling turned every recent gradient into no angle at all. It is then turned a
+  quarter: ODF measures a gradient from down the page and this model measures it
+  from along the page, and the two were being read as if they agreed. A style that
+  states no run-through is
   read as `background`, which is not ODF's own default; it is what this reader
   has always done, and a box wrongly in front would hide the text under it. A
   page-anchored frame is placed against its paragraph, since that is the only

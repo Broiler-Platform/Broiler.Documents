@@ -145,7 +145,8 @@ public sealed class LayoutShape
         BColor outline,
         IReadOnlyList<LayoutLine> lines,
         InlineImage? image = null,
-        bool behindText = true)
+        bool behindText = true,
+        int zOrder = 0)
     {
         Bounds = bounds;
         Fill = fill;
@@ -153,6 +154,7 @@ public sealed class LayoutShape
         Lines = lines;
         Image = image;
         BehindText = behindText;
+        ZOrder = zOrder;
     }
 
     public BRect Bounds { get; }
@@ -166,6 +168,13 @@ public sealed class LayoutShape
 
     /// <summary>The shape's own text, already positioned inside its box.</summary>
     public IReadOnlyList<LayoutLine> Lines { get; }
+
+    /// <summary>
+    /// The shape's place among the other shapes on its page: a higher number
+    /// draws later. The page's shape list is already in this order, so the
+    /// rasterizer paints it as it finds it.
+    /// </summary>
+    public int ZOrder { get; }
 
     /// <summary>True when the shape is painted under the page's text rather than over it.</summary>
     public bool BehindText { get; }

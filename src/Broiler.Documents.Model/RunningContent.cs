@@ -45,12 +45,14 @@ public sealed class RunningContent
         RichTextParagraph[][] headers,
         RichTextParagraph[][] footers,
         DocumentShape[][] headerShapes,
-        DocumentShape[][] footerShapes)
+        DocumentShape[][] footerShapes,
+        bool differentFirstPage)
     {
         _headers = headers;
         _footers = footers;
         _headerShapes = headerShapes;
         _footerShapes = footerShapes;
+        DifferentFirstPage = differentFirstPage;
     }
 
     /// <summary>A document with no header and no footer.</summary>
@@ -58,7 +60,32 @@ public sealed class RunningContent
         [None, None, None],
         [None, None, None],
         [NoShapes, NoShapes, NoShapes],
-        [NoShapes, NoShapes, NoShapes]);
+        [NoShapes, NoShapes, NoShapes],
+        differentFirstPage: false);
+
+    /// <summary>
+    /// True when the document says the first page has running content of its own,
+    /// so a band the first page does not state is empty there rather than the
+    /// default one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It is a separate fact from whether a First part exists, and a letterhead is
+    /// the case that shows why. DOCX writes <c>w:titlePg</c> in the section and
+    /// then a <c>first</c> header and a <c>default</c> footer; ODF puts the first
+    /// page on its own master page and gives it a header and no footer. Both say
+    /// the same thing - page one takes the header it names and <em>no</em> footer -
+    /// and without this flag the empty First footer falls back to the default and
+    /// a page number appears on a page that should carry none.
+    /// </para>
+    /// <para>
+    /// One flag for both bands, because that is how both formats state it: a
+    /// section is a title page or it is not, and a master page is the first page's
+    /// or it is not. Neither has a way to say the header is special and the footer
+    /// is not.
+    /// </para>
+    /// </remarks>
+    public bool DifferentFirstPage { get; }
 
     /// <summary>True when nothing is set, which is the common case.</summary>
     public bool IsEmpty
@@ -123,7 +150,8 @@ public sealed class RunningContent
             Replace(_headers, selection, paragraphs, None, RichTextParagraph.Empty),
             _footers,
             Replace(_headerShapes, selection, shapes, NoShapes, substitute: null),
-            _footerShapes);
+            _footerShapes,
+            DifferentFirstPage);
 
     public RunningContent WithFooter(
         PageSelection selection,
@@ -133,22 +161,40 @@ public sealed class RunningContent
             _headers,
             Replace(_footers, selection, paragraphs, None, RichTextParagraph.Empty),
             _headerShapes,
-            Replace(_footerShapes, selection, shapes, NoShapes, substitute: null));
+            Replace(_footerShapes, selection, shapes, NoShapes, substitute: null),
+            DifferentFirstPage);
+
+    /// <summary>
+    /// The same running content with <see cref="DifferentFirstPage"/> set or
+    /// cleared.
+    /// </summary>
+    public RunningContent WithDifferentFirstPage(bool differentFirstPage) =>
+        differentFirstPage == DifferentFirstPage
+            ? this
+            : new(_headers, _footers, _headerShapes, _footerShapes, differentFirstPage);
 
     /// <summary>
     /// The selection whose header or footer actually applies: its own when it has
     /// one, else the default. A part that holds only a stripe and no words is
     /// still a part, so shapes count towards having one.
     /// </summary>
-    private static int EffectiveIndex(
+    private int EffectiveIndex(
         RichTextParagraph[][] paragraphs,
         DocumentShape[][] shapes,
         PageSelection selection)
     {
         int own = Index(selection);
-        return paragraphs[own].Length > 0 || shapes[own].Length > 0
-            ? own
-            : Index(PageSelection.Default);
+        if (paragraphs[own].Length > 0 || shapes[own].Length > 0)
+            return own;
+
+        // The one case where an empty slot is an answer rather than a gap. A
+        // document that states a first page of its own has said what page one
+        // carries, and a band it did not state is empty there - falling back
+        // would put the default footer under a letterhead that asked for none.
+        if (selection == PageSelection.First && DifferentFirstPage)
+            return own;
+
+        return Index(PageSelection.Default);
     }
 
     /// <summary>

@@ -549,6 +549,7 @@ internal sealed class LibreOfficeTool
     /// when it needs none.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// HTML is the whole reason this method exists, and the trap is a silent
     /// one. Converting from HTML to a Writer format without naming the importer
     /// does not fail: html to docx and html to rtf were both measured exiting
@@ -558,12 +559,26 @@ internal sealed class LibreOfficeTool
     /// missing output as a codec that wrote an unreadable file, which is a
     /// conclusion about this repository drawn entirely from a missing argument
     /// in the harness.
+    /// </para>
+    /// <para>
+    /// Flat ODF is named for a weaker reason and named anyway. LibreOffice does
+    /// place a <c>.fodt</c> correctly from its extension alone - that was
+    /// measured too - but the extension is the only thing telling it so, and the
+    /// fallback when a detection misses is the plain-text importer, which exits
+    /// 0 and leaves a plausible file behind. The <c>produce</c> check would
+    /// catch that, and being caught by a guard is worse than not happening.
+    /// </para>
     /// </remarks>
     public static string? InputFilterFor(string extension)
     {
         string normalised = extension.Trim().TrimStart('.').ToLowerInvariant();
 
-        return normalised is "html" or "htm" ? "HTML (StarWriter)" : null;
+        return normalised switch
+        {
+            "html" or "htm" => "HTML (StarWriter)",
+            "fodt" => "OpenDocument Text Flat XML",
+            _ => null,
+        };
     }
 
     /// <summary>

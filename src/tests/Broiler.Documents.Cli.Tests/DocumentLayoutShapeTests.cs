@@ -107,6 +107,88 @@ public sealed class DocumentLayoutShapeTests
     }
 
     [Fact]
+    public void A_Shape_Is_Drawn_Only_On_The_Page_Its_Anchor_Is_On()
+    {
+        // The anchor top is a y within the page it was measured on, and the map
+        // holding it was never emptied at a page break - so a letterhead's logo
+        // box, anchored to the first paragraph, was drawn again on every page
+        // after it at the y it had on the first.
+        var document = RichTextDocument
+            .FromParagraphs([
+                RichTextParagraph.Plain("first page"),
+                RichTextParagraph.Plain("second page")
+                    .WithParagraphStyle(ParagraphStyle.Default with { PageBreakBefore = true }),
+            ])
+            .WithShapes([new DocumentShape(0, -40, 0, 30, 20, ShapeFill.Solid(BColor.Black))]);
+
+        LayoutResult result = Layout(document);
+
+        Assert.Equal(2, result.Pages.Count);
+        Assert.Single(result.Pages[0].Shapes);
+        Assert.Empty(result.Pages[1].Shapes);
+    }
+
+    [Fact]
+    public void A_Higher_Z_Order_Draws_Later()
+    {
+        LayoutResult result = Layout(RichTextDocument
+            .FromPlainText("body")
+            .WithShapes([
+                new DocumentShape(0, 0, 0, 30, 20, ShapeFill.Solid(BColor.White), zOrder: 5),
+                new DocumentShape(0, 0, 0, 30, 20, ShapeFill.Solid(BColor.Black), zOrder: 1),
+            ]));
+
+        // Read in the wrong order on purpose: the document's own numbering is
+        // what decides, not the order the reader happened to walk them in.
+        Assert.Equal([1, 5], result.Pages[0].Shapes.Select(shape => shape.ZOrder));
+    }
+
+    [Fact]
+    public void A_Header_Shape_Draws_Under_A_Body_Shape_That_Outranks_It()
+    {
+        // The letterhead: a stripe anchored in the header and a logo box anchored
+        // in the body, overlapping, with the document saying the box is on top.
+        // Running shapes were appended after the body's and painted last, so the
+        // stripe covered the box and nothing in the render said so.
+        var document = RichTextDocument
+            .FromPlainText("body")
+            .WithShapes([
+                new DocumentShape(
+                    0, -40, 0, 30, 20, ShapeFill.Solid(BColor.White), behindText: false, zOrder: 1),
+            ])
+            .WithRunningContent(RunningContent.Empty.WithHeader(
+                PageSelection.Default,
+                [],
+                [new DocumentShape(
+                    0, -40, 0, 30, 200, ShapeFill.Solid(BColor.Black), behindText: false, zOrder: 0)]));
+
+        List<LayoutShape> shapes = Layout(document).Pages[0].Shapes.ToList();
+
+        Assert.Equal(2, shapes.Count);
+        Assert.Equal(0, shapes[0].ZOrder);
+        Assert.Equal(1, shapes[1].ZOrder);
+    }
+
+    [Fact]
+    public void Shapes_That_State_No_Order_Keep_The_Order_They_Were_Read_In()
+    {
+        // Zero means "the format said nothing", and the answer then is the one
+        // this gave before z-order was modelled. A sort that was not stable would
+        // change that quietly for every document in the corpus.
+        LayoutResult result = Layout(RichTextDocument
+            .FromPlainText("body")
+            .WithShapes([
+                new DocumentShape(0, 0, 0, 30, 20, ShapeFill.Solid(BColor.Black)),
+                new DocumentShape(0, 0, 0, 30, 20, ShapeFill.Solid(BColor.White)),
+                new DocumentShape(0, 0, 0, 30, 20, ShapeFill.Solid(BColor.Red)),
+            ]));
+
+        Assert.Equal(
+            [BColor.Black, BColor.White, BColor.Red],
+            result.Pages[0].Shapes.Select(shape => shape.Fill!.Start));
+    }
+
+    [Fact]
     public void The_Body_Is_Not_Moved_By_A_Shape()
     {
         LayoutResult plain = Layout(RichTextDocument.FromPlainText("body 0"));

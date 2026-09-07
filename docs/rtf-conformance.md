@@ -22,7 +22,7 @@ below are exercised by `RtfConformanceTests`, `RtfLimitTests`,
 | Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only, including the `\l` switch that spells a same-document reference: it is read as `#name` and written back the same way. The name may not contain a quote — the field argument is quoted and RTF has no escape for one inside it, so a quote would truncate the target silently; the shared rule refuses it for every format. Targets otherwise follow that rule, or `rtf.link`) |
 | Running content | `\header` `\headerf` `\headerl` `\headerr` `\footer` `\footerf` `\footerl` `\footerr` (→ `RunningContent`, not the body flow) |
 | Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN` (→ `PageGeometry`) |
-| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fLine` `lineColor` (→ `DocumentShape`) |
+| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fLine` `lineColor` (→ `DocumentShape`) |
 
 ## Page breaks
 
@@ -77,6 +77,23 @@ the first page's and `\headerl`/`\footerl` the left - even - page's.
 `\headerr`/`\footerr` are read as those as well: they name the right, odd page,
 which is every page in a document that does not distinguish them.
 
+`\titlepg` is read and written beside them. It is what makes `\headerf` and
+`\footerf` mean anything, and what makes a band the first page does not state
+*empty* there rather than the default one - the same fact `w:titlePg` carries in
+DOCX and a master-page chain carries in ODF. **LibreOffice disagrees here and
+this reader follows Microsoft's own format.** Given `\titlepg{\footer ...}` with
+no `\footerf`, Word draws no footer on the first page and LibreOffice draws the
+default one; LibreOffice's DOCX importer honours the same flag the Word way, so
+matching its RTF reading would have made this component disagree with itself
+across two of its own readers to agree with an application that disagrees with
+itself across two of its own importers.
+
+A field's result belongs to the destination the field is in. `\fldrslt` used to
+replace the current destination rather than sit inside it, so a `PAGE` field in a
+footer handed its cached number to the body - the letterhead's page number arrived
+at the head of the letter with the word beside it correctly skipped, which is what
+said the routing rather than the parsing was wrong.
+
 A page break inside running content is read, because `\pagebb` is a paragraph
 property wherever a paragraph is. It cannot be written back, which the writing
 section says out loud rather than leaving to be discovered.
@@ -104,7 +121,10 @@ A `\shp` group is read into a `DocumentShape` anchored to the paragraph it sits
 in. Its box comes from `\shpleft`/`\shptop`/`\shpright`/`\shpbottom` in twips
 and its paint from `{\sp{\sn name}{\sv value}}` pairs, of which seven are
 understood: `fFilled`, `fillColor`, `fillBackColor`, `fillType` and `fillAngle`
-for a solid or gradient fill, `fLine` and `lineColor` for the outline. A shape
+for a solid or gradient fill, `fLine` and `lineColor` for the outline. `\shpz`
+is read and written beside them: it orders one shape against another, and RTF is
+the target where a letterhead's stripe and the box over it both land in the body,
+so it is the only thing left saying which the reader sees. A shape
 colour is one integer holding blue, green and red in that order, which is the
 reverse of how the rest of the format writes one and the easiest thing here to
 get backwards. `\shptxt` carries the shape's own text, which stays out of the

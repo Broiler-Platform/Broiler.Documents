@@ -61,16 +61,46 @@ Nothing is committed and nothing is downloaded.
 format its own rights record, each rejects third-party document artifacts by
 default and per artifact, and
 `FormatClaimGuardTests.No_Document_Of_A_Supported_Format_Is_Committed` walks the
-whole tree to enforce it. So a seed is a fragment of authored HTML held as a
+whole tree to enforce it. So a seed is a fragment of authored markup held as a
 string in `tests/office/office-corpus.json` - the same device `corpus.json`
 already uses for RTF control words and ZIP part content - and LibreOffice
 manufactures the real documents at run time in a temporary directory that
 `Program.Guard` refuses to place inside the repository.
 
-Twelve seeds, four target formats, forty-eight documents. Each seed exercises one
-thing and says in its own `why` what that is. The corpus is deliberately small:
-the first baseline has to be classified by a person, and a suite whose baseline
-nobody has read is a log rather than a control.
+Fourteen seeds, four target formats, fifty-six documents. Each seed exercises one
+thing and says in its own `why` what that is; where a construct can only go wrong
+in combination with another - which of two frames is drawn on top is unaskable of
+either frame alone - the seed carries the combination and its `why` says that is
+what it is doing. The corpus is deliberately small: the first baseline has to be
+classified by a person, and a suite whose baseline nobody has read is a log
+rather than a control.
+
+### Two seed languages
+
+Thirteen seeds are HTML and one is flat ODF, and the second language exists
+because the first has a ceiling that was measured rather than argued about.
+LibreOffice's HTML import can only manufacture the constructs HTML can state, and
+across the twenty-four ODT and DOCX documents the HTML seeds produce there is not
+one header, footer, anchored frame, shape fill, field or placeholder. Every one of
+those is something a letterhead is built from, so a difference in any of them
+could not fail this suite - not because the checks were too weak, but because no
+document in the corpus had one.
+
+A `.fodt` is a single XML file, so it is still a string in the manifest, still
+authored here, and still nobody else's document: the bargain above is unchanged,
+and the two guards now refuse a committed `.fodt` alongside the extensions they
+already refused. LibreOffice's export writes the DOCX, RTF and HTML targets from
+it in its own markup exactly as before. Only the ODT target ends up close to its
+own source, and that one target's weakness is what the other three cost - without
+it the construct is not in the corpus at all.
+
+The two languages differ in what the schema can hold them to, and the difference
+is not arbitrary. The HTML form states its page in an `@page` rule and its family
+on the `<body>`, which every run inherits from. ODF has no element that plays the
+body's part, so the flat form pins the page box on the page layout, requires a
+pinned family on a style, and refuses `fo:font-family` outright - the loader reads
+families out of `style:font-name` and `svg:font-family` only, and a family it
+skipped is a family nobody checked against the pinned set.
 
 ## The semantic axis
 
@@ -199,9 +229,11 @@ usefully instead of reading a wall of red. `--update-baseline` refuses to change
 the stamp without `--restamp`, because a baseline regenerated on the wrong
 LibreOffice is worse than no baseline - it looks like evidence.
 
-It ships with both lists empty and every stamp field null, which says plainly
-that nothing has been measured against an approved, pinned toolchain yet.
-`tests/corpus/external-sources.json` ships with no rows on the same argument.
+It shipped with both lists empty and every stamp field null, which said plainly
+that nothing had been measured against an approved, pinned toolchain yet.
+`tests/corpus/external-sources.json` still ships with no rows on the same
+argument. This one no longer does: it carries the stamp of the toolchain the CI
+workflow provisions and the rows the runs on it produced.
 
 ## The tool register
 
@@ -227,20 +259,32 @@ decision, and `--allow-pending-tools` drove the tools anyway. The flag is still
 there and CI still never passes it; it now does nothing that approval has not
 already done.
 
-What remains before the suite asserts anything is the baseline:
+## Adding a seed
 
-1. Pin a toolchain (the CI workflow installs `libreoffice-writer`,
-   `poppler-utils` and four font packages) and run `--update-baseline --restamp`
-   on it. It has to be that toolchain and not a developer's: the stamp records
-   the platform, and a baseline made on Windows makes every comparison on the
-   Linux leg a skip.
-2. Classify every row the regeneration writes. They arrive as
-   `suspected-defect` with no reviewer, which is what an unreviewed difference
-   should read as.
+The baseline is what makes this more work than editing one file, and the order
+matters:
 
-Until that happens the suite runs its toolchain-independent floor - the documents
-are produced, probed and read, and the renders are measured - and skips every
-comparison, naming the unpinned stamp as the reason rather than passing quietly.
+1. Write the seed. HTML unless the construct is one HTML cannot state, in which
+   case flat ODF - and the `why` has to say which and why, because the second
+   language costs the ODT target most of its independence.
+2. Pin a toolchain (the CI workflow installs `libreoffice-writer`,
+   `poppler-utils` and four font packages) and run `--update-baseline` on it. It
+   has to be that toolchain and not a developer's: the stamp records the
+   platform, and a baseline made on Windows makes every comparison on the Linux
+   leg a skip. `--restamp` is needed only when the toolchain itself has moved,
+   and regenerating on the wrong one without it is refused rather than silently
+   allowed.
+3. Classify every row the regeneration writes. They arrive as
+   `suspected-defect` carrying a placeholder `why`, which is what an unreviewed
+   difference should read as, and they stay `suspected-defect` until somebody
+   has an argument for `documented` or `accepted`. Replacing the placeholder
+   with a real sentence is not the same act as classifying the row, and a
+   finding worth keeping is worth both.
+
+A run whose toolchain does not match the stamp does not fail. It runs the
+toolchain-independent floor - the documents are produced, probed and read, and
+the renders are measured - and skips every comparison, naming the field that
+differs rather than passing quietly.
 
 ## Determinism
 
@@ -418,14 +462,138 @@ saying it did not emit list structure. [The roadmap](roadmap.md) already lists
 HTML list writing as deliberate and unimplemented, so this is a `documented` row
 rather than a finding - and it is the shape a correct codec makes in this suite.
 
-Everything else was clean. All 48 documents produced, probed and read without a
+Everything else was clean. Every document produced, probed and read without a
 single exit 70; `links/docx` came back `exact` on the profile and `clean` on the
 blurred difference, which is what agreement between two independent layout engines
 looks like when there is nothing wrong; and a full generate-then-verify cycle over
-both axes reported 667 of 667 checks passing with five skips, each naming its
+both axes reported every check passing with five skips, each naming its
 reason. That cycle is the thing worth running before trusting any of the numbers
 above: it proves the baseline is stable, which is a different claim from the
 component being correct and the only one a suite can make about itself.
+
+### What the two later seeds found
+
+`line-break-within-paragraph` and `letterhead-frames` were added after everything
+above, and between them they produced eleven new baseline rows. Nine were
+suspected defects and none of them was reachable before. All nine are fixed, and
+the two that remain are limitations with a document behind them.
+
+**A forced line break was not a break in layout.** *Fixed.* All four targets
+carry the construct and all five codecs read and write it as U+2028, the model's
+own line-break character - and `DocumentLayout` then classified characters with
+`char.IsWhiteSpace`, for which U+2028 is true. So the break arrived as an ordinary
+break *opportunity*, the seed's five-line address reflowed onto two, and every
+paragraph under it moved up the page. Four targets failing at the same profile
+similarity, 0.29, was the signature: a layout defect, not a codec one.
+
+The tokenizer now yields a break of its own and the wrapper ends the line on it.
+`PdfPageLayout` had the same defect wearing different clothes and is fixed with
+it - its word scan knew only spaces and tabs, so the character was swept into the
+word beside it and handed to the content stream as a glyph no standard font has.
+The four rows went from an ink box of 175-202 px and a profile of 0.29 to 22-32 px
+and 0.90; what is left is per-line leading, which every prose seed here reports.
+Justification is deliberately unchanged: LibreOffice stretches the line before a
+manual break like any other, which was measured rather than assumed.
+
+Worth keeping in view: the semantic axis passed clean throughout, and that is not
+a weakness in the seed. The text canonicalisation maps U+2028 to a newline on both
+sides before comparing, so `text` is blind to this construct by construction and
+only the pixel axis could ever have reached it.
+
+**A header's shape painted over the body's shape.** *Fixed.* Both of
+`letterhead-frames`'s frames are foreground objects; the layout appended
+running-content shapes after the body's and the rasterizer drew foreground shapes
+in list order, so the header's band was painted last and the bordered box the
+document stacks in front of it disappeared underneath. Both files stated the
+order - `draw:z-index` 0 and 1, `relativeHeight` 2 and 3 - and neither was read.
+`DocumentShape` said so in its own summary: *"Order among shapes is not modelled:
+they draw in the order they were read."*
+
+It is modelled now. `DocumentShape.ZOrder` is one order for the whole document,
+which is how all three formats state it and what a letterhead needs, since the
+band is in the header and the box is in the body. All three readers take it -
+`draw:z-index`, `relativeHeight`, `\shpz` - all three writers state it, and both
+layout engines order every shape on a page by it before drawing. A shape whose
+format says nothing sits at zero and keeps the order it was read in.
+
+**A shape was drawn on every page after its anchor's.** *Fixed, and found while
+fixing the one above.* The map of anchor tops was never emptied at a page break,
+so the logo box anchored to the first paragraph was drawn again on page two at the
+y it had on page one. The wrap exclusions were the same defect twice over: a band
+in page-one coordinates pushing text aside on a page with nothing beside it. Both
+are page-local and both are cleared when a page ends.
+
+**A gradient angle with a unit on it parsed as zero.** *Fixed.* LibreOffice 24.2
+writes `draw:angle="30deg"`; `OdtReader` parsed the attribute as a bare number of
+tenths of a degree, `TryParse` failed on the unit, and the false branch yielded
+`0`, so the band ran left to right instead of top to bottom. A failed parse and an
+absent attribute reached the same branch, so nothing was reported.
+
+Both spellings are read now - ODF 1.2 typed the attribute as tenths and ODF 1.3 as
+an angle with `deg`, `grad` or `rad` - and the value is then turned a quarter,
+which a unit-aware parse alone would not have done. The two formats do not share a
+zero: ODF measures a gradient from *down* the page and the model from *along* it.
+That was measured rather than derived from prose - LibreOffice was asked to render
+a black-to-white gradient at five ODF angles and the corners were sampled - and
+confirmed from the other side, since the same shape LibreOffice writes as `30deg`
+in ODF it writes as `ang="3600000"`, sixty degrees, in OOXML.
+
+**`w:titlePg` was not read.** *Fixed.* The seed's DOCX declares a first-page
+header, a default footer and the flag. LibreOffice puts no footer on page one;
+this component put the default one there, carrying the `PAGE` field's stale cached
+result. The flag is what makes a `first` reference mean anything and what makes a
+band the first page does not name *empty* there rather than the default one, and
+`RunningContent.DifferentFirstPage` is where the model keeps it. The row went from
+an ink box of 1154 px to 52, which is a footer distance and not a lost band.
+
+**The ODT master-page chain stopped at the first page.** *Fixed.* The reader
+resolved the master page the body starts on, correctly, and filed its header into
+the *Default* slot - so `style:next-style-name` was never followed, the band
+repeated on page two, and the `Continuation` master's footer was never read. The
+chain is followed by one link now: the master page the body begins on supplies the
+first page and the one it names supplies the rest. One link and not the whole
+chain, because the model holds three selections rather than a sequence of pages.
+With the gradient and the stacking, that row went from 1180 px and a `poor`
+profile to 31 px and `fair`.
+
+**RTF let a footer's field result into the body.** *Fixed.* The one nobody
+predicted. `text/letterhead-frames/rtf` opened with a bare `2` that LibreOffice's
+projection did not have: the reader skipped the `{\footer ...}` destination's own
+text but kept the text inside `\fldrslt`, so the cached page number landed at the
+head of the body while the word `Page` beside it was correctly dropped. A field
+result belongs to the destination the field is in, and the state now carries that
+destination through the group that holds it. Both the `text` row and the `interop`
+row it produced are gone from the baseline.
+
+Two rows are left, and both are limitations rather than defects.
+
+`letterhead-frames/rtf` is `documented`, and it is the one place in this corpus
+where following the format costs a band. `\titlepg` is read now, so no footer is
+drawn on the first page of a section that states the flag and names no
+`\footerf` - which is what Word does. LibreOffice draws the default footer there,
+and that 1193 px is the whole of the difference. Matching LibreOffice would have
+been the cheaper number and the worse answer: its own DOCX importer honours the
+same flag the Word way, so agreeing with it here would have made this component
+disagree with itself across two of its own readers.
+
+`letterhead-frames/html` carries two causes. LibreOffice cannot write a frame into
+HTML, so it flattens both to GIF files beside the document; the reader never
+fetches an external resource and reports `html.skip.external`, which
+[the HTML conformance document](html-conformance.md) states in both directions.
+The other half arrived with the line-break fix: LibreOffice writes the page's
+header as `<div title="header">`, this reader has no notion of that convention and
+reads it as body content, and the `<br/>` inside it is now honoured - so the body
+opens with a blank line LibreOffice puts nowhere. Honouring the break is right;
+reading a header as body is what needs deciding.
+
+One thing the fixes made visible is worth recording on its own, because it will
+happen again. Two rows scored *worse* at the point where the page-scoping fix
+landed - `letterhead-frames/odt` from `fair` to `poor`, `docx` from 0.930 to 0.922
+- because the box wrongly repeated on page two had been overlapping rows
+LibreOffice inks there. One defect was flattering the score of another, and the
+next round of fixes took both rows well past where they started. A band that gets
+worse after a fix is not necessarily a regression; it can be the measurement
+finally seeing what was under the thing that just moved.
 
 ## What it cannot tell you
 
@@ -445,7 +613,17 @@ the answer is to widen the band and write down why, not to argue with the metric
 
 **The text canonicalisation can hide a bug.** Whitespace, soft hyphens,
 non-breaking spaces and line separators are normalised away on both sides. A
-codec that differs only in those is reported clean.
+codec that differs only in those is reported clean. That is not hypothetical:
+`line-break-within-paragraph` exists because a forced break is lost in layout on
+every target, and every one of its `text` rows passes.
+
+**Neither text projection carries a shape or a running band.** LibreOffice's
+`txt` filter drops the text inside a frame and the text in a header or footer,
+and so does `broilerdoc dump --as text`. So for a document built out of those -
+which is what `letterhead-frames` is - the semantic axis compares two projections
+that both omit the content in question and agrees. The whole assertion of such a
+seed is on the pixel axis, and a reader taking a green `text` row as evidence
+about a letterhead would be reading it backwards.
 
 **A guard that fires is reporting the guard.** LibreOffice's silent font
 substitution and its silent plain-text fallback are both policed here, and both
@@ -468,6 +646,16 @@ repository into markup no writer here produces, which closes the corpus suite's
 stated gap by one step. It does not introduce constructs from real-world
 documents and never will while third-party document artifacts are rejected by
 default, per artifact, by every format's IP register.
+
+**And a construct nobody wrote a seed for is not covered, whatever the numbers
+say.** That reads as a truism and was not treated as one: for the corpus's first
+twelve seeds the limit was not what anybody chose to write but what the seed
+language could hold, and the whole family of constructs a letterhead is built
+from - header, footer, anchored frame, shape fill, field, placeholder - was
+absent from all forty-eight documents because HTML cannot state any of it. The
+flat ODF form lifts that particular ceiling and does not change the shape of the
+limitation. Reading a green run as coverage of a construct requires knowing that
+some seed carries it, and the seed list is the only place that is written down.
 
 **A bug both implementations share passes.** That is the standing limitation of
 every differential suite, and it is why this one sits beside

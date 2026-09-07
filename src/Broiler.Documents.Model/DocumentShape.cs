@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Broiler.Graphics;
 
@@ -26,11 +27,15 @@ namespace Broiler.Documents.Model;
 /// anchored to.
 /// </para>
 /// <para>
-/// <see cref="BehindText"/> is the one piece of stacking the model keeps. It is
-/// what the formats actually record - DOCX's <c>behindDoc</c>, ODT's
-/// <c>style:run-through</c> - and it is the difference between a letterhead's
-/// stripe, which the letter is written on top of, and a stamp meant to cover it.
-/// Order among shapes is not modelled: they draw in the order they were read.
+/// Stacking is two independent questions and the model keeps both.
+/// <see cref="BehindText"/> is the shape against the text - DOCX's
+/// <c>behindDoc</c>, ODT's <c>style:run-through</c> - and it is the difference
+/// between a letterhead's stripe, which the letter is written on top of, and a
+/// stamp meant to cover it. <see cref="ZOrder"/> is the shape against other
+/// shapes, which is a different question with a different answer: a letterhead
+/// puts a stripe and a logo box both in front of nothing in particular, and
+/// which of the two wins where they overlap is the whole of what the reader
+/// sees.
 /// </para>
 /// <para>
 /// The anchor is a paragraph index, so an edit that inserts or removes
@@ -54,7 +59,8 @@ public sealed class DocumentShape
         bool behindText = true,
         ShapeWrap wrap = ShapeWrap.None,
         WrapSide wrapSide = WrapSide.Largest,
-        double wrapDistance = 0)
+        double wrapDistance = 0,
+        int zOrder = 0)
     {
         ParagraphIndex = paragraphIndex;
         OffsetX = offsetX;
@@ -68,6 +74,7 @@ public sealed class DocumentShape
         Wrap = wrap;
         WrapSide = wrapSide;
         WrapDistance = double.IsFinite(wrapDistance) && wrapDistance > 0 ? wrapDistance : 0;
+        ZOrder = Math.Max(0, zOrder);
         Paragraphs = paragraphs is null || paragraphs.Count == 0
             ? []
             : [.. paragraphs];
@@ -106,6 +113,29 @@ public sealed class DocumentShape
     /// letterhead case, and painting it over the letter would hide the letter.
     /// </summary>
     public bool BehindText { get; }
+
+    /// <summary>
+    /// Where the shape sits among the other shapes: a higher number draws later,
+    /// and therefore on top.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One order for the whole document, because that is what all three formats
+    /// record - ODF's <c>draw:z-index</c>, OOXML's <c>relativeHeight</c>, RTF's
+    /// <c>\shpz</c> - and none of them scopes it to the body or to a header. A
+    /// letterhead is exactly the case that needs it: the stripe lives in the
+    /// header and the logo box in the body, they overlap, and the document says
+    /// which is on top by giving them numbers that can be compared across the two.
+    /// </para>
+    /// <para>
+    /// Zero is the default and means "the format said nothing", which leaves the
+    /// order the shapes were read in - the answer this model gave before the
+    /// property existed, kept as the floor rather than as the rule. Negative
+    /// values are clamped away because all three formats state a non-negative
+    /// number and a reader producing one would be reporting its own arithmetic.
+    /// </para>
+    /// </remarks>
+    public int ZOrder { get; }
 
     /// <summary>
     /// How the body text behaves around the shape. Defaults to

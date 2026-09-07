@@ -135,10 +135,15 @@ public static class DocxWriter
     /// </summary>
     /// <remarks>
     /// A first-page header only takes effect when the section also says it wants a
-    /// distinct one, so <c>w:titlePg</c> is written whenever a First part exists.
-    /// Without it Word reads the part and then draws the default over it.
+    /// distinct one, so <c>w:titlePg</c> is written whenever a First part exists -
+    /// without it Word reads the part and then draws the default over it - and
+    /// whenever the model says the first page is different even though it names no
+    /// part of its own. That second case is a letterhead: a first-page header, no
+    /// first-page footer, and page one carrying none. Writing the references
+    /// without the flag would put the default footer back under it.
     /// </remarks>
-    private static XElement BuildSectionProperties(DocxWriteContext context, PageGeometry? geometry)
+    private static XElement BuildSectionProperties(
+        DocxWriteContext context, RunningContent running, PageGeometry? geometry)
     {
         var sectPr = new XElement(DocxNamespaces.Wordprocessing + "sectPr");
         bool hasFirst = false;
@@ -160,7 +165,7 @@ public static class DocxWriter
             sectPr.Add(reference);
         }
 
-        if (hasFirst)
+        if (hasFirst || running.DifferentFirstPage)
             sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "titlePg"));
 
         if (geometry is not null && geometry.IsUsable)
@@ -189,7 +194,7 @@ public static class DocxWriter
         foreach (XElement block in BuildBlocks(document, document.Tables, 0, document.ParagraphCount, context))
             body.Add(block);
 
-        body.Add(BuildSectionProperties(context, document.PageGeometry));
+        body.Add(BuildSectionProperties(context, document.RunningContent, document.PageGeometry));
 
         var root = new XElement(
             DocxNamespaces.Wordprocessing + "document",
@@ -1051,9 +1056,10 @@ public static class DocxWriter
     /// <remarks>
     /// <c>behindDoc</c> is written from the shape rather than fixed, because it is
     /// read that way: a stripe read from behind the text and saved as "0" would
-    /// come back from Word painted over the letter. <c>relativeHeight</c> follows
-    /// it so the two layers do not interleave - order within a layer is not
-    /// modelled, and one value per layer is as much as can honestly be written.
+    /// come back from Word painted over the letter. <c>relativeHeight</c> is the
+    /// shape's own <see cref="DocumentShape.ZOrder"/>, which is the same number
+    /// this attribute was read into, so a letterhead's stripe and the logo box on
+    /// top of it come back stacked the way they arrived.
     /// </para>
     /// <para>
     /// A running shape's vertical offset is measured from the top of the page
@@ -1075,7 +1081,9 @@ public static class DocxWriter
             new XAttribute("distL", PointsToEmu(shape.WrapDistance)),
             new XAttribute("distR", PointsToEmu(shape.WrapDistance)),
             new XAttribute("simplePos", "0"),
-            new XAttribute("relativeHeight", shape.BehindText ? "1" : "2"),
+            new XAttribute(
+                "relativeHeight",
+                shape.ZOrder.ToString(CultureInfo.InvariantCulture)),
             new XAttribute("behindDoc", shape.BehindText ? "1" : "0"),
             new XAttribute("locked", "0"),
             new XAttribute("layoutInCell", "1"),

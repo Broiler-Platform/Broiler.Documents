@@ -35,6 +35,20 @@
       "decided": "2026-09-06"
     },
     {
+      "seed": "letterhead-frames",
+      "via": "html",
+      "check": "text",
+      "differences": [],
+      "diagnostics": [
+        "html.skip.external"
+      ],
+      "state": "documented",
+      "reference": "docs/html-conformance.md",
+      "why": "Not a difference this component could avoid. LibreOffice's HTML export has no way to write a frame, so it flattens both of the seed's frames to GIF files beside the document and links them; the reader never fetches an external resource and reports html.skip.external once per read, which docs/html-conformance.md states outright in both directions. What the row is worth recording for is what it says about the corpus rather than about the codec: the html target of this seed measures a document with the construct taken out of it, so a reader comparing the four targets knows not to read agreement here as evidence about frames.",
+      "reviewer": "Claude Opus 5, on the letterhead and line-break seeds",
+      "decided": "2026-09-06"
+    },
+    {
       "seed": "links",
       "via": "html",
       "check": "text",
@@ -849,6 +863,222 @@
       "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
+    },
+    {
+      "seed": "letterhead-frames",
+      "via": "docx",
+      "pageCount": {
+        "broilerdoc": 2,
+        "libreoffice": 2
+      },
+      "worstPage": 2,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "loose",
+        "inkProfile": "poor",
+        "coverage": "exact",
+        "blurDiff": "light"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 52,
+        "inkProfileSimilarity": 0.8541433821351655,
+        "coverageDelta": 6.498811645870486e-05,
+        "blurDiffRatio": 0.023602549184657026
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "The last of this row's defects is fixed and 1154 px became 52. w:titlePg is read now, so page one carries no footer where LibreOffice draws none, and the stale cached PAGE result goes with it. What is left is on page two, where both sides draw the same three lines and the same page number and put the footer 52 px apart - a footer distance, which is a layout convention rather than anything the reader lost. The profile reads poor at 0.854 on the strength of that: page two holds three lines at the top and one at the bottom, and on ink that sparse a displaced footer moves a whole peak of the smoothed profile. The band this file records is the metric behaving as its own documentation describes, on the page in this corpus with the least ink to measure.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "letterhead-frames",
+      "via": "html",
+      "pageCount": {
+        "broilerdoc": 2,
+        "libreoffice": 2
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "wild",
+        "inkProfile": "poor",
+        "coverage": "close",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 159,
+        "inkProfileSimilarity": 0.33214031103726394,
+        "coverageDelta": 0.0021160285673828463,
+        "blurDiffRatio": 0.06312137148965619
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "Two causes, and only one of them is settled. LibreOffice cannot write a frame into HTML, so it flattens both of this seed's frames to GIF files beside the document; the reader never fetches an external resource and says so with html.skip.external, which docs/html-conformance.md states in both directions. That half is a limitation rather than a defect, and the text row for the same document records it. The second half arrived with the line-break fix and nobody has decided on it: LibreOffice writes the page's header as <div title=\"header\">, this reader has no notion of that convention and reads it as body content, and the <br/> inside it is now honoured - so the body opens with a blank line LibreOffice puts nowhere, and the profile fell from 0.484 to 0.332. Honouring the break is right. Reading a header as body is the part that needs deciding, either by a statement in the conformance document or by the reader learning the convention.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "letterhead-frames",
+      "via": "odt",
+      "pageCount": {
+        "broilerdoc": 2,
+        "libreoffice": 2
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "near",
+        "inkProfile": "fair",
+        "coverage": "exact",
+        "blurDiff": "light"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 31,
+        "inkProfileSimilarity": 0.9215817437174411,
+        "coverageDelta": 4.796741929094864e-05,
+        "blurDiffRatio": 0.04759244817455602
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "All three ODT defects are fixed and this row is close to clean: 1180 px became 31 and the profile 0.852 became 0.922. draw:angle is read with its unit and turned the quarter turn ODF and this model are apart, so the band runs down the page; the master-page chain is followed by one link, so the band belongs to the first page and the page number to the second; and the first page carries no footer because the master page it is on states none. The row stays because near and fair are not clean, and what is under them now is the ordinary disagreement of two layout engines about where a line sits - the same thing every prose seed in this corpus reports.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "letterhead-frames",
+      "via": "rtf",
+      "pageCount": {
+        "broilerdoc": 2,
+        "libreoffice": 2
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "wild",
+        "inkProfile": "poor",
+        "coverage": "exact",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 1193,
+        "inkProfileSimilarity": 0.8664212087134724,
+        "coverageDelta": 0.00010521885521885474,
+        "blurDiffRatio": 0.08665082194493959
+      },
+      "state": "documented",
+      "reference": "docs/rtf-conformance.md",
+      "why": "A disagreement rather than a defect, and the one place in this corpus where following the format costs a band. \\titlepg is read now, so this component draws no footer on the first page of a section that states one and names no \\footerf - which is what Word does. LibreOffice draws the default footer there, and the 1193 px is the whole of the difference: it inks the bottom of page one and this component inks nothing below the third line. Matching LibreOffice would have been the cheaper number and the worse answer, because its own DOCX importer honours the same flag the Word way - agreeing with it here would have made this component disagree with itself across two of its own readers. The stray page number the text and interop rows recorded is gone: a field result belongs to the destination the field is in. What the profile still reads is the gradient, which runs left to right here where ODT and DOCX now run it down the page - LibreOffice writes no fillAngle into its RTF at all and renders its own file bottom-to-top, so no reading of that document agrees with all three of the source, the oracle and the other two targets.",
+      "reviewer": "Claude Opus 5, on the reader fixes the letterhead seed found",
+      "decided": "2026-09-06"
+    },
+    {
+      "seed": "line-break-within-paragraph",
+      "via": "docx",
+      "pageCount": {
+        "broilerdoc": 1,
+        "libreoffice": 1
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "near",
+        "inkProfile": "fair",
+        "coverage": "exact",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 32,
+        "inkProfileSimilarity": 0.9000482630157792,
+        "coverageDelta": 0.00021765861226645533,
+        "blurDiffRatio": 0.053107669835611014
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "The break is honoured now, and what is left is ordinary disagreement between two layout engines. DocumentLayout classified characters with char.IsWhiteSpace, which is true for U+2028, so a forced break arrived as a break opportunity and the seed's five-line address reflowed onto two; the tokenizer now yields a break of its own and the wrapper ends the line on it. PdfPageLayout had the same defect wearing different clothes - its word scan knew only spaces and tabs, so the character was swept into the word around it and handed to the content stream as a glyph no standard font has - and is fixed with it, though only the render is measured here. The numbers moved from an ink box of 175 to 202 px and a profile of 0.29 to 22 to 32 px and 0.90. What remains is per-line leading, which every prose seed in this corpus reports as heavy on the blurred difference and which is not about this construct.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "line-break-within-paragraph",
+      "via": "html",
+      "pageCount": {
+        "broilerdoc": 1,
+        "libreoffice": 1
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "near",
+        "inkProfile": "fair",
+        "coverage": "exact",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 31,
+        "inkProfileSimilarity": 0.9004799235303318,
+        "coverageDelta": 0.00032287746748531007,
+        "blurDiffRatio": 0.0528564856077111
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "The break is honoured now, and what is left is ordinary disagreement between two layout engines. DocumentLayout classified characters with char.IsWhiteSpace, which is true for U+2028, so a forced break arrived as a break opportunity and the seed's five-line address reflowed onto two; the tokenizer now yields a break of its own and the wrapper ends the line on it. PdfPageLayout had the same defect wearing different clothes - its word scan knew only spaces and tabs, so the character was swept into the word around it and handed to the content stream as a glyph no standard font has - and is fixed with it, though only the render is measured here. The numbers moved from an ink box of 175 to 202 px and a profile of 0.29 to 22 to 32 px and 0.90. What remains is per-line leading, which every prose seed in this corpus reports as heavy on the blurred difference and which is not about this construct.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "line-break-within-paragraph",
+      "via": "odt",
+      "pageCount": {
+        "broilerdoc": 1,
+        "libreoffice": 1
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "near",
+        "inkProfile": "fair",
+        "coverage": "exact",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 31,
+        "inkProfileSimilarity": 0.9000497422666139,
+        "coverageDelta": 0.00021662705486234952,
+        "blurDiffRatio": 0.053099933155080214
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "The break is honoured now, and what is left is ordinary disagreement between two layout engines. DocumentLayout classified characters with char.IsWhiteSpace, which is true for U+2028, so a forced break arrived as a break opportunity and the seed's five-line address reflowed onto two; the tokenizer now yields a break of its own and the wrapper ends the line on it. PdfPageLayout had the same defect wearing different clothes - its word scan knew only spaces and tabs, so the character was swept into the word around it and handed to the content stream as a glyph no standard font has - and is fixed with it, though only the render is measured here. The numbers moved from an ink box of 175 to 202 px and a profile of 0.29 to 22 to 32 px and 0.90. What remains is per-line leading, which every prose seed in this corpus reports as heavy on the blurred difference and which is not about this construct.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "seed": "line-break-within-paragraph",
+      "via": "rtf",
+      "pageCount": {
+        "broilerdoc": 1,
+        "libreoffice": 1
+      },
+      "worstPage": 1,
+      "bands": {
+        "geometry": "match",
+        "inkBox": "near",
+        "inkProfile": "fair",
+        "coverage": "exact",
+        "blurDiff": "heavy"
+      },
+      "observed": {
+        "inkBoxDeltaPx": 22,
+        "inkProfileSimilarity": 0.913952419962867,
+        "coverageDelta": 0.0001237868884927714,
+        "blurDiffRatio": 0.05987468640654915
+      },
+      "state": "suspected-defect",
+      "reference": null,
+      "why": "The break is honoured now, and what is left is ordinary disagreement between two layout engines. DocumentLayout classified characters with char.IsWhiteSpace, which is true for U+2028, so a forced break arrived as a break opportunity and the seed's five-line address reflowed onto two; the tokenizer now yields a break of its own and the wrapper ends the line on it. PdfPageLayout had the same defect wearing different clothes - its word scan knew only spaces and tabs, so the character was swept into the word around it and handed to the content stream as a glyph no standard font has - and is fixed with it, though only the render is measured here. The numbers moved from an ink box of 175 to 202 px and a profile of 0.29 to 22 to 32 px and 0.90. What remains is per-line leading, which every prose seed in this corpus reports as heavy on the blurred difference and which is not about this construct.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "seed": "links",
