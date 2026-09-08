@@ -351,6 +351,12 @@ public static class FormatCodeInsertPalette
             new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { SpacingBefore = before }),
         FormatCodePaletteEntry.SpacingAfter when TryFloat(value, out float after) =>
             new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { SpacingAfter = after }),
+        // A flag rather than a number, so it takes no value - and the mirror of
+        // the removal descriptor the projector hangs on the [Page Break] it
+        // draws. Without this the entry fell to the throw below, which told a
+        // caller to supply a value that does not exist.
+        FormatCodePaletteEntry.PageBreakBefore =>
+            new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { PageBreakBefore = true }),
         FormatCodePaletteEntry.Tab => new ReplaceFormatCodeTextIntent(range, "\t"),
         FormatCodePaletteEntry.LineBreak => new ReplaceFormatCodeTextIntent(range, "\u2028"),
         FormatCodePaletteEntry.ParagraphBreak => new ReplaceFormatCodeTextIntent(range, "\n"),
