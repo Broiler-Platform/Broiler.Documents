@@ -123,8 +123,13 @@ internal sealed class PdfPageLayout
     private readonly PdfDiagnosticSink _diagnostics;
     private readonly CancellationToken _cancellationToken;
 
-    /// <summary>The boxes wrapping shapes keep this layout's lines out of.</summary>
-    private readonly TextWrapExclusions _wrap = new();
+    /// <summary>
+    /// The boxes wrapping shapes keep this layout's lines out of, for the page
+    /// being filled. Replaced rather than cleared when a page ends, because the
+    /// bands are page-local and a stale one narrows a line on a page whose
+    /// shapes are elsewhere.
+    /// </summary>
+    private TextWrapExclusions _wrap = new();
 
     public PdfPageLayout(
         PdfWriteOptions options,
@@ -159,6 +164,29 @@ internal sealed class PdfPageLayout
         int listNumber = 1;
         ListKind previousList = ListKind.None;
 
+        // Starting a page was three lines written out at four sites, and the
+        // fourth line - emptying the exclusions - was at none of them. An
+        // exclusion is a band held as a distance down from the head of a page,
+        // and y restarts at that head on every page, so one left in the list
+        // lands in the same place on the next page and pushes text aside on a
+        // page with nothing beside it. With a shape taller than the page, the
+        // column's own left edge never came back at all.
+        //
+        // The anchors need no equivalent: each records the page object it was
+        // measured on, and PlaceShapes resolves against that page rather than
+        // against whichever one is current.
+        //
+        // One helper rather than a fourth copy of the reset, so a fifth site
+        // cannot forget it. DocumentLayout.BreakPage is the same decision on the
+        // other engine, taken for the same reason.
+        void BreakPage()
+        {
+            pages.Add(page);
+            page = new PdfLayoutPage();
+            y = top;
+            _wrap = new TextWrapExclusions();
+        }
+
         var anchors = new Dictionary<int, (PdfLayoutPage Page, double Top)>();
         for (int paragraphIndex = 0; paragraphIndex < document.ParagraphCount; paragraphIndex++)
         {
@@ -172,11 +200,7 @@ internal sealed class PdfPageLayout
                 foreach (CellContent row in ComposeTable(document, table, setup.MarginLeft, setup.ContentWidth))
                 {
                     if (y - row.Height < bottom && page.Runs.Count > 0)
-                    {
-                        pages.Add(page);
-                        page = new PdfLayoutPage();
-                        y = top;
-                    }
+                        BreakPage();
 
                     row.PlaceOn(page, y, this, anchors);
                     y -= row.Height;
@@ -209,11 +233,7 @@ internal sealed class PdfPageLayout
             // the same guard the overflow break below uses, and the same rule the
             // CLI layout states on its own break.
             if (style.PageBreakBefore && page.Runs.Count > 0)
-            {
-                pages.Add(page);
-                page = new PdfLayoutPage();
-                y = top;
-            }
+                BreakPage();
 
             y -= style.SpacingBefore;
 
@@ -275,11 +295,7 @@ internal sealed class PdfPageLayout
                 y -= EmptyLineHeight() * lineSpacing;
                 y -= SpacingAfter(style, EmptyLineHeight());
                 if (y < bottom)
-                {
-                    pages.Add(page);
-                    page = new PdfLayoutPage();
-                    y = top;
-                }
+                    BreakPage();
 
                 continue;
             }
@@ -291,11 +307,7 @@ internal sealed class PdfPageLayout
                 TextBand band = lineIndex < bands.Count ? bands[lineIndex] : new TextBand(0, available);
                 double lineHeight = line.Height * lineSpacing;
                 if (y - lineHeight < bottom && page.Runs.Count > 0)
-                {
-                    pages.Add(page);
-                    page = new PdfLayoutPage();
-                    y = top;
-                }
+                    BreakPage();
 
                 y -= lineHeight;
                 lastLineHeight = lineHeight;
