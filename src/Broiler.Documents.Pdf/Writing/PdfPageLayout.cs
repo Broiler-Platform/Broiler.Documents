@@ -197,6 +197,24 @@ internal sealed class PdfPageLayout
                 listNumber = 1;
             previousList = style.ListKind;
 
+            // A break the document asked for, taken before the paragraph is
+            // measured. Until this was here the only thing that started a page
+            // was running out of room, so a document that stated where its pages
+            // divide came out as one flow - through a writer whose whole claim is
+            // that layout is resolved once and deterministically.
+            //
+            // The guard on Runs is what stops a break on the first paragraph
+            // emitting an empty page in front of it: a document that opens with
+            // one is asking to start on a fresh page and is already on one. It is
+            // the same guard the overflow break below uses, and the same rule the
+            // CLI layout states on its own break.
+            if (style.PageBreakBefore && page.Runs.Count > 0)
+            {
+                pages.Add(page);
+                page = new PdfLayoutPage();
+                y = top;
+            }
+
             y -= style.SpacingBefore;
 
             double indent = style.IndentLevel * IndentWidth;
