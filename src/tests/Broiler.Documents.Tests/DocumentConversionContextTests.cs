@@ -1,6 +1,7 @@
 using System;
 using Broiler.Documents.Model;
 using Broiler.Graphics;
+using Broiler.Graphics.Imaging;
 using Xunit;
 
 namespace Broiler.Documents.Tests;

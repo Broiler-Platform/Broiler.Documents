@@ -1,4 +1,7 @@
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
+using Broiler.Graphics.Geometry;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Model.Tests;
 

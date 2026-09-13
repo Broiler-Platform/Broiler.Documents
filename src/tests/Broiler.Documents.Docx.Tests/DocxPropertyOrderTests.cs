@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Xml.Linq;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Docx.Tests;
 

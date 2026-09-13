@@ -3,6 +3,7 @@ using System.Globalization;
 using Broiler.Documents.Pdf.Filters;
 using Broiler.Media.Image;
 using Broiler.Media.Image.Managed;
+using Broiler.Media.Image.Managed.Jpeg;
 
 namespace Broiler.Documents.Pdf.Images;
 
@@ -133,7 +134,7 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
         ImageBuffer buffer;
         try
         {
-            buffer = _codec.Decode(input, ColorTransformOf(frame, parameters));
+            buffer = JpegImageCodec.Decode(input, ColorTransformOf(frame, parameters));
         }
         catch (Exception ex) when (ex is not (OutOfMemoryException or StackOverflowException or OperationCanceledException))
         {

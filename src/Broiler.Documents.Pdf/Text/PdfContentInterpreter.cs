@@ -6,6 +6,8 @@ using Broiler.Documents.Pdf.Filters;
 using Broiler.Documents.Pdf.Structure;
 using Broiler.Documents.Pdf.Syntax;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Pdf.Text;
 

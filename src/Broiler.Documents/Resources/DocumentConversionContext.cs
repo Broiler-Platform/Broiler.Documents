@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using Broiler.Documents.Model;
 using Broiler.Graphics;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents;
 

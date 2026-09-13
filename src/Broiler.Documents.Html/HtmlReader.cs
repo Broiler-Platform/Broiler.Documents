@@ -7,6 +7,7 @@ using Broiler.Documents.Model;
 using Broiler.Dom;
 using Broiler.Dom.Html;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Html;
 

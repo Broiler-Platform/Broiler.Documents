@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using Broiler.Documents.Model;
 using Broiler.Graphics;
+using Broiler.Graphics.Text;
 
 namespace Broiler.Documents;
 

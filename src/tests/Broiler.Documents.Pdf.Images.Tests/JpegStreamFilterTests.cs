@@ -305,7 +305,7 @@ public sealed class JpegStreamFilterTests
             }
         }
 
-        return new JpegImageCodec().Encode(new ImageBuffer(width, height, rgba), quality: 90);
+        return JpegImageCodec.Encode(new ImageBuffer(width, height, rgba), quality: 90);
     }
 
     /// <summary>

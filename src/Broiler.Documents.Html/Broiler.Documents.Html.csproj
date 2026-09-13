@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -15,12 +15,15 @@
   <ItemGroup>
     <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
     <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
-    <ProjectReference Include="$(BroilerDomRoot)\Broiler.Dom\Broiler.Dom.csproj" />
-    <ProjectReference Include="$(BroilerDomRoot)\Broiler.Dom.Html\Broiler.Dom.Html.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Broiler.Documents.Html.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Broiler.Dom" Version="0.1.0-preview.1" />
+    <PackageReference Include="Broiler.Dom.Html" Version="0.1.0-preview.1" />
   </ItemGroup>
 
 </Project>

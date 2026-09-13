@@ -1,6 +1,7 @@
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Graphics;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Pdf.Images.Tests;
 

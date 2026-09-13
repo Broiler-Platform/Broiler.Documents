@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Xml.Linq;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.FormatCodes.Tests;
 

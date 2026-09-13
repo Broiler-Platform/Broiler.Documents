@@ -9,6 +9,7 @@ using System.Xml;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Docx;
 

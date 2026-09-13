@@ -2,6 +2,8 @@ using System;
 using System.Globalization;
 using System.Security.Cryptography;
 using Broiler.Graphics;
+using Broiler.Graphics.Imaging;
+using Broiler.Graphics.Text;
 
 namespace Broiler.Documents;
 

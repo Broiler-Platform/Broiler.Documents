@@ -36,11 +36,15 @@
   -->
   <ItemGroup>
     <ProjectReference Include="..\Broiler.Documents.Pdf\Broiler.Documents.Pdf.csproj" />
-    <ProjectReference Include="$(BroilerMediaRoot)\src\Broiler.Media.Image.Managed\Broiler.Media.Image.Managed.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Broiler.Documents.Pdf.Images.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Broiler.Media.Image" Version="0.1.0-preview.11" />
+    <PackageReference Include="Broiler.Media.Image.Managed" Version="0.1.0-preview.11" />
   </ItemGroup>
 
 </Project>

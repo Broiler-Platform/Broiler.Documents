@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Xml.Linq;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Odt.Tests;
 

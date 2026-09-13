@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -18,9 +18,6 @@
     Broiler.UI, DOM, input, or platform dependency, so document-format codecs and
     other headless consumers can use the model without the UI stack.
   -->
-  <ItemGroup>
-    <ProjectReference Include="$(BroilerGraphicsRoot)\src\Broiler.Graphics\Broiler.Graphics.csproj" />
-  </ItemGroup>
 
   <!--
     The opaque indexing behind RichTextPosition (internal ctor, ParagraphIndex,
@@ -36,6 +33,9 @@
     <InternalsVisibleTo Include="Broiler.UI.RichEdit.Standard.Tests" />
     <InternalsVisibleTo Include="Broiler.Documents.Model.Tests" />
     <InternalsVisibleTo Include="Broiler.Documents.FormatCodes" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Broiler.Graphics" Version="0.1.0-preview.2" />
   </ItemGroup>
 
 </Project>

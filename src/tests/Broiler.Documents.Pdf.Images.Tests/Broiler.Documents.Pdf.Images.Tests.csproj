@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Broiler.Media.Image.Managed" Version="0.1.0-preview.11" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <PackageReference Include="xunit" Version="2.5.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
@@ -26,7 +27,6 @@
     <ProjectReference Include="..\..\Broiler.Documents.Pdf\Broiler.Documents.Pdf.csproj" />
     <ProjectReference Include="..\..\Broiler.Documents\Broiler.Documents.csproj" />
     <ProjectReference Include="..\..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
-    <ProjectReference Include="$(BroilerMediaRoot)\src\Broiler.Media.Image.Managed\Broiler.Media.Image.Managed.csproj" />
   </ItemGroup>
 
   <ItemGroup>

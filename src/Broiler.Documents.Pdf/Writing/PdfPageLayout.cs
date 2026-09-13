@@ -6,6 +6,7 @@ using System.Threading;
 using Broiler.Documents.Model;
 using Broiler.Documents.Pdf.Text;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Pdf.Writing;
 

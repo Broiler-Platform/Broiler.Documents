@@ -5,6 +5,7 @@ using System.IO;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Rtf;
 

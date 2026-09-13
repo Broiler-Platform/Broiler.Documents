@@ -1,3 +1,4 @@
+using Broiler.Graphics.Text;
 using System;
 using System.IO;
 using System.Linq;
@@ -61,7 +62,7 @@ public sealed class PdfFontProvisioningTests
         var font = new DocumentFontResource(
             new byte[] { 1, 2, 3 },
             "Example Sans",
-            Broiler.Graphics.BFontEmbeddingRights.FromFsType(0));
+            BFontEmbeddingRights.FromFsType(0));
         var set = new DocumentFontSet([font]);
 
         Assert.False(set.IsEmpty);

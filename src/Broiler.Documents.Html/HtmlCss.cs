@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Html;
 

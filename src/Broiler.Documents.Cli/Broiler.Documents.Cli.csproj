@@ -54,10 +54,6 @@
     BBitmap.Save needs. Both are registered explicitly at startup - the graphics
     core carries no default codec catalog.
   -->
-  <ItemGroup>
-    <ProjectReference Include="$(BroilerGraphicsRoot)\src\Broiler.Graphics\Broiler.Graphics.csproj" />
-    <ProjectReference Include="$(BroilerGraphicsRoot)\Broiler.Media\src\Broiler.Media.Image.Managed\Broiler.Media.Image.Managed.csproj" />
-  </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Broiler.Documents.Cli.Tests" />

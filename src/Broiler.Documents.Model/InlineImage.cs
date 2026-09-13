@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using Broiler.Graphics;
+using Broiler.Graphics.Geometry;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Model;
 

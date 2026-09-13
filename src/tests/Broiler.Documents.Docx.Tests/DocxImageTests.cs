@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using Broiler.Graphics;
+using Broiler.Graphics.Geometry;
 
 namespace Broiler.Documents.Docx.Tests;
 
