@@ -9,6 +9,7 @@ using Broiler.Documents.Cli.Documents;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Model;
 using Broiler.Graphics;
+using Broiler.Graphics.Imaging;
 using Broiler.Media.Image;
 
 namespace Broiler.Documents.Cli.Rendering;

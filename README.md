@@ -39,14 +39,13 @@ dotnet add package Broiler.Documents.Rtf --prerelease
 
 `NuGet.config` in the repository root pins two sources — nuget.org and the
 Broiler-Platform GitHub Packages feed — and clears whatever the machine has
-configured, so a restore resolves identically everywhere. Package source mapping
-sends `Broiler.*` to either feed and everything else to nuget.org only.
+configured. Package source mapping sends `Broiler.*` to GitHub Packages and
+everything else to nuget.org. Versions are pinned in `Directory.Packages.props`.
 
 That mapping is load-bearing. GitHub Packages requires authentication **even for
 public packages** and answers `401` to an anonymous request, so an unmapped source
-would be queried for every package and break the restore. Because this repository
-takes its Broiler dependencies through the submodules as project references,
-nothing queries that feed today and no credentials are needed to build.
+would be queried for every package and break the restore. This repository now
+uses Broiler package dependencies, so a fresh restore needs feed credentials.
 
 To actually pull `Broiler.*` from GitHub Packages you need a personal access token
 with the `read:packages` scope. Put it in your **user-level** config, never in the
@@ -56,7 +55,10 @@ committed one:
 dotnet nuget update source broiler-github --username <github-user> --password <pat> --store-password-in-clear-text --configfile "$APPDATA/NuGet/NuGet.Config"
 ```
 
-In GitHub Actions use `secrets.GITHUB_TOKEN` rather than a personal token.
+In GitHub Actions the workflows supply `secrets.GITHUB_TOKEN` through
+`NuGetPackageSourceCredentials_broiler-github`. The dependency packages must grant
+this repository Actions read access; `packages: read` alone does not grant access
+to packages owned by another repository.
 
 ## Packages
 
@@ -97,8 +99,8 @@ Broiler.Documents.Pdf      -> Broiler.Documents -> Broiler.Documents.Model   (no
 ```
 
 `Broiler.Graphics`, `Broiler.Dom`, and `Broiler.Dom.Html` are packaged by their own
-repositories and appear as package dependencies at the same suite version, so they
-must be on the feed a consumer restores from.
+repositories and appear as package dependencies at the versions pinned here, so
+they must be on the feed a consumer restores from.
 
 ## Command line
 
@@ -178,38 +180,23 @@ src/tests/               one xUnit test project per assembly
 eng/                     vendored packaging metadata and package icon
 docs/                    roadmap, conformance documents, ADRs, PDF registers
 .github/workflows/       CI and publish pipelines
-Broiler.Graphics/        submodule; value types the document model is built on
-Broiler.DOM/             submodule; the DOM and HTML parser the HTML codec uses
+Directory.Packages.props  centrally pinned Broiler and test package versions
 Broiler.Documents.slnx   solution over every project in src/
 ```
 
-Cross-component dependencies are git submodules at the repository root, so every
-project reference resolves inside a checkout of this repository and no feed is
-needed to build.
-
-`Broiler.Graphics` in turn declares `Broiler.Media` as a submodule of its own, and
-the graphics core needs it. Initialise that one extra level explicitly, as below —
-`--recursive` does **not** terminate, because `Broiler.Media` declares
-`Broiler.Graphics` as a submodule in turn.
+Cross-component dependencies are NuGet packages. Project references remain inside
+this repository; sibling checkouts and parent build properties are not required.
 
 ## Building and testing
 
-Clone with submodules, or initialise them in an existing checkout:
+Clone the repository, then configure feed credentials as described above:
 
 ```bash
-git clone --recurse-submodules https://github.com/Broiler-Platform/Broiler.Documents.git
-```
-
-```bash
-git submodule update --init
-```
-
-```bash
-git -C Broiler.Graphics submodule update --init --depth 1 Broiler.Media
+git clone https://github.com/Broiler-Platform/Broiler.Documents.git
 ```
 
 The solution defines six configurations. Every project here is platform-neutral
-`net10.0`, so all six build the same twenty projects; the `-Windows` and `-Linux`
+`net10.0`, so all six build the same projects; the `-Windows` and `-Linux`
 variants exist to line this component up with the rest of the suite and map onto
 plain `Debug`/`Release`.
 
@@ -221,8 +208,8 @@ dotnet build Broiler.Documents.slnx -c Release
 dotnet test Broiler.Documents.slnx -c Release --no-build
 ```
 
-Four PDF guards in `Broiler.Documents.Tests` assert on the application heads
-(`src/Broiler.Writer.*`, `src/Broiler.Cli`), which live in the aggregate repository
+Three PDF guards in `Broiler.Documents.Tests` assert on application heads
+(`src/Broiler.Writer.*`), which live in the aggregate repository
 rather than here. They report as **skipped** in a standalone checkout and run in
 full when this component is checked out inside the aggregate.
 
@@ -231,30 +218,38 @@ full when this component is checked out inside the aggregate.
 Every project is platform-neutral, so one run produces the whole set:
 
 ```bash
-dotnet pack Broiler.Documents.slnx -c Release -o ./artifacts
+pwsh -File eng/pack.ps1
 ```
 
-Test projects, `Broiler.Documents.Pdf`, and `Broiler.Documents.Cli` never pack.
+The script checks package identities, internal dependency versions, documentation,
+icons, and symbols, and rejects an output directory containing stale packages.
+Test projects, the PDF codec and providers, and `Broiler.Documents.Cli` never pack.
 The CLI is wired to pack as a .NET tool and is held at `IsPackable=false` so that
 adding a command line does not silently change what a `v*` tag pushes to
 nuget.org; [the CLI guide](docs/cli.md) says how to turn it on. `eng/Broiler.Packaging.props`
-is a vendored copy of the suite-wide packaging metadata and holds the version,
-which stays in lockstep across Broiler components during preview — edit the
-canonical file and re-run the sync script rather than editing the copy.
+is a vendored copy of the suite-wide packaging metadata and holds the default
+preview version. Publishing resolves an unused preview and passes it as an
+MSBuild override without editing this file or changing dependency versions.
 
 ## Continuous integration and releases
 
-`.github/workflows/ci.yml` builds, tests, and packs on every push and pull request
-— `Release-Linux` on Ubuntu and `Release-Windows` on Windows. Both legs build the
-same projects; they run on both hosts because the codecs touch encodings,
-newlines, and path handling, which is where the two disagree.
+`.github/workflows/ci.yml` builds and tests Release on Ubuntu and Windows, runs the
+CLI corpus on both, and packs and verifies all eight shipping packages on Windows.
+`eng/run-tests.ps1` also requires at least 1,400 executed tests. Unit and corpus
+reports are uploaded even on failure. Dependency projects run their own suites in
+their own repositories.
 
 `.github/workflows/publish.yml` publishes. Run it manually to choose a feed (GitHub
 Packages or nuget.org); it defaults to a dry run that packs and attaches the
-packages without pushing. Pushing a `v*` tag publishes to nuget.org, and the tag
-must match the version in `eng/Broiler.Packaging.props`, which stays the source of
-truth for the suite version. Publishing to nuget.org needs a `NUGET_API_KEY`
-repository secret; GitHub Packages uses the built-in `GITHUB_TOKEN`.
+packages without pushing. Like Broiler.DOM, publication selects the next unused
+`X.Y.Z-preview.N` across all shipping packages, using the configured preview as a
+floor. A manual suffix or `v*` tag must be unused and at least that next preview;
+tags publish to nuget.org. The reusable CI workflow validates that version, and
+publication downloads those exact artifacts instead of rebuilding. An isolated
+consumer restore checks dependencies against the destination feed before any push,
+including during dry runs. Publishing to nuget.org needs a `NUGET_API_KEY`
+repository secret; GitHub Packages uses the built-in `GITHUB_TOKEN`. Runs are
+serialized to avoid concurrent version selection.
 
 ## Supported Subsets
 

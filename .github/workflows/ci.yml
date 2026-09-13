@@ -5,182 +5,94 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      package-version:
+        description: Resolved preview version for a publish run
+        type: string
+        default: ''
 
 permissions:
   contents: read
+  packages: read
+
+env:
+  PACKAGE_VERSION: ${{ inputs.package-version }}
+  NuGetPackageSourceCredentials_broiler-github: Username=${{ github.actor }};Password=${{ secrets.GITHUB_TOKEN }};ValidAuthenticationTypes=Basic
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: ${{ matrix.configuration }}
+    name: ${{ matrix.os }} / Release
     runs-on: ${{ matrix.os }}
-
     defaults:
       run:
         shell: bash
-
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Every project in this component is platform-neutral net10.0, so both
-          # legs build the same twenty projects. They run anyway because the
-          # codecs touch encodings, newlines, and path handling, and those are
-          # exactly the places where the two hosts disagree - and because the CLI
-          # renders text through whatever fonts the host happens to have, which
-          # is the one place the two legs are expected to look different.
-          - os: ubuntu-latest
-            configuration: Release-Linux
-          - os: windows-latest
-            configuration: Release-Windows
-
+        os: [ubuntu-latest, windows-latest]
     steps:
-      # One level only, and by name. Broiler.Graphics supplies the value types the
-      # document model is built on, Broiler.DOM the parser the HTML codec uses;
-      # both are project references, so nothing restores without them.
-      # Broiler.Graphics needs its own Broiler.Media in turn, which is why the
-      # second step exists. `--recursive` is deliberately NOT used: Broiler.Media
-      # declares Broiler.Graphics as a submodule of its own and the recursion
-      # would not terminate.
       - name: Check out
         uses: actions/checkout@v7
-        with:
-          submodules: true
-
-      - name: Check out the graphics submodule's own dependency
-        run: git -C Broiler.Graphics submodule update --init --depth 1 Broiler.Media
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Test preview version selection
+        run: node --test eng/resolve-preview-version.test.mjs
+
       - name: Build
-        run: dotnet build Broiler.Documents.slnx -c ${{ matrix.configuration }} --nologo
-
-      # Three PDF delivery guards read the application heads in the aggregate
-      # repository and report as skipped here, which is expected; see
-      # PdfGuardRoots. It was four until the detector was repaired: the fourth
-      # read a CLI path that had moved into this repository, and now runs here
-      # unconditionally like every other guard over this component's own source.
-      - name: Test
         run: |
-          dotnet test Broiler.Documents.slnx -c ${{ matrix.configuration }} --no-build --nologo             --logger "trx;LogFilePrefix=broiler" --results-directory ./test-results
-
-      # A `dotnet test` that discovers nothing exits 0, so a build that silently
-      # stopped producing test assemblies would pass this job in green. The guard
-      # is a floor on the executed count rather than an exact number: it catches a
-      # collapse without failing every time somebody adds a test (PDF roadmap
-      # §6.6).
-      - name: Guard against a collapsed test count
-        run: |
-          # awk rather than bc: bc is not on the Windows runner's git-bash, and a
-          # guard that only works on one leg guards one leg.
-          total=$(grep -ho 'total="[0-9]*"' ./test-results/*.trx             | grep -o '[0-9]*' | awk '{ sum += $1 } END { print sum + 0 }')
-          echo "Executed $total test(s)."
-          if [ "$total" -lt 1400 ]; then
-            echo "::error::Executed test count collapsed to ${total:-0}; expected at least 1400."
-            exit 1
+          args=()
+          if [ -n "$PACKAGE_VERSION" ]; then
+            args+=("-p:Version=$PACKAGE_VERSION" "-p:PackageVersion=$PACKAGE_VERSION")
           fi
+          dotnet build Broiler.Documents.slnx -c Release --nologo "${args[@]}"
 
-      # The console-runner suites in Graphics and Media, which `dotnet test`
-      # cannot see: they are Exe projects with their own runners, so a solution
-      # test pass reports nothing for them and reports success while doing it.
-      # They are run explicitly, against this repository's own submodule pins.
-      - name: Test the Graphics and Media suites this component pins
-        run: |
-          set -e
-          for project in             Broiler.Graphics/src/tests/Broiler.Graphics.Tests/Broiler.Graphics.Tests.csproj             Broiler.Graphics/Broiler.Media/src/tests/Broiler.Media.Image.Tests/Broiler.Media.Image.Tests.csproj             Broiler.Graphics/Broiler.Media/src/tests/Broiler.Media.Image.Managed.Tests/Broiler.Media.Image.Managed.Tests.csproj
-          do
-            echo "--- $project"
-            output=$(dotnet run --project "$project" -c ${{ matrix.configuration }} --nologo)
-            echo "$output" | tail -3
-            # `if`, not `cmd && { ... }`: the latter takes grep's exit status as
-            # the statement's own, so a non-match kills the step under `set -e` —
-            # which is exactly what it did the first time this ran, after all
-            # three suites had passed.
-            if ! echo "$output" | grep -qE '^[0-9]+/[0-9]+ passed, 0 failed\.$'; then
-              echo "::error::$project did not report a clean run."
-              exit 1
-            fi
-            if echo "$output" | grep -qE '^0/0 passed'; then
-              echo "::error::$project executed no tests."
-              exit 1
-            fi
-          done
+      - name: Test
+        shell: pwsh
+        run: ./eng/run-tests.ps1 -Configuration Release
 
-      # The corpus suite: a document corpus driven through the built
-      # `broilerdoc` executable, held against tests/corpus/corpus-baseline.json.
-      # It is a console runner rather than an xunit project, so the `dotnet test`
-      # above discovers none of it - which is deliberate. It needs the executable
-      # to exist before it runs, and folding several hundred process-level checks
-      # into the trx count would make that floor say less rather than more.
-      #
-      # `-c Release` and not `-c ${{ matrix.configuration }}`, which looks wrong
-      # and is not: Broiler.Documents.slnx maps every solution configuration to
-      # the project configuration `Release`, so the Build step above put this
-      # project's output in bin/Release on both legs. Passing the solution
-      # configuration here would build a second copy in bin/Release-Windows and
-      # `--no-build` would then find nothing.
-      #
-      # No `--nologo`: `dotnet run` forwards an option it does not recognise to
-      # the application, and this runner rejects unknown options rather than
-      # ignoring them.
-      #
-      # It runs on both legs on purpose. Everything it asserts is either
-      # host-independent or compared within one run on one host, and the two legs
-      # differ in exactly the thing the render checks refuse to assert: the
-      # fonts.
+      # Console suites are not discovered by dotnet test.
       - name: Run the corpus suite over the command line
         timeout-minutes: 20
         run: |
-          # Deliberately not `set -e`. The runner exits with its failure count,
-          # so aborting here would kill the step before the output is printed and
-          # a failing run would arrive with no failures in it. Echo first, judge
-          # second.
-          output=$(dotnet run --project src/tests/Broiler.Documents.Corpus \
-            -c Release --no-build -- \
-            --report ./test-results/corpus.json \
-            --junit ./test-results/corpus.junit.xml 2>&1)
-          echo "$output"
-          # Both greps, for the same reason the Graphics and Media loop uses
-          # both: the first says nothing failed, the second says something
-          # actually ran. A suite that materialised nothing would otherwise print
-          # a clean line over an empty run.
-          if ! echo "$output" | grep -qE '^[0-9]+/[0-9]+ passed, 0 failed\.$'; then
-            echo "::error::The corpus suite did not report a clean run."
-            exit 1
-          fi
-          if echo "$output" | grep -qE '^0/0 passed'; then
-            echo "::error::The corpus suite executed no checks."
+          status=0
+          dotnet run --project src/tests/Broiler.Documents.Corpus -c Release --no-build -- \
+            --report ./test-results/corpus.json --junit ./test-results/corpus.junit.xml \
+            > ./test-results/corpus.log 2>&1 || status=$?
+          cat ./test-results/corpus.log
+          if [ "$status" -ne 0 ] || ! grep -qE '^[1-9][0-9]*/[1-9][0-9]* passed, 0 failed\.$' ./test-results/corpus.log; then
+            echo '::error::The corpus suite failed or executed no checks.'
             exit 1
           fi
 
-      - name: Upload the corpus report
+      - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: corpus-report-${{ matrix.configuration }}
-          path: test-results/corpus.*
+          name: test-reports-${{ matrix.os }}
+          path: test-results/
           if-no-files-found: warn
 
-      # Proves the eight packages still build from this commit. Every project is
-      # platform-neutral, so one host covers the whole set and one configuration
-      # produces it. Broiler.Documents.Pdf and Broiler.Documents.Cli are both
-      # IsPackable=false and are absent by design. Publishing is a separate,
-      # deliberate action - see publish.yml.
-      - name: Pack
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          dotnet pack Broiler.Documents.slnx -c Release --nologo -o ./artifacts
-          echo "Packed:"
-          ls -1 ./artifacts
+      - name: Pack and verify every package
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: ./eng/pack.ps1 -Version $env:PACKAGE_VERSION
 
       - name: Upload packages
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v7
         with:
           name: nuget-packages

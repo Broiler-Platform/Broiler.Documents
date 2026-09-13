@@ -313,56 +313,97 @@ public abstract class DocumentInput : IDisposable
     private sealed class ReadOnlyMemoryStream : Stream
     {
         private readonly ReadOnlyMemory<byte> _bytes;
-        private int _position;
+        private long _position;
+        private bool _disposed;
 
         public ReadOnlyMemoryStream(ReadOnlyMemory<byte> bytes) => _bytes = bytes;
 
-        public override bool CanRead => true;
+        public override bool CanRead => !_disposed;
 
-        public override bool CanSeek => true;
+        public override bool CanSeek => !_disposed;
 
         public override bool CanWrite => false;
 
-        public override long Length => _bytes.Length;
+        public override long Length
+        {
+            get
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _bytes.Length;
+            }
+        }
 
         public override long Position
         {
-            get => _position;
-            set => _position = (int)Math.Clamp(value, 0, _bytes.Length);
+            get
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _position;
+            }
+            set
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                ArgumentOutOfRangeException.ThrowIfNegative(value);
+                _position = value;
+            }
         }
 
-        public override int Read(byte[] buffer, int offset, int count) =>
-            Read(buffer.AsSpan(offset, count));
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            ValidateBufferArguments(buffer, offset, count);
+            return Read(buffer.AsSpan(offset, count));
+        }
 
         public override int Read(Span<byte> buffer)
         {
-            int available = Math.Min(buffer.Length, _bytes.Length - _position);
-            if (available <= 0)
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_position >= _bytes.Length)
                 return 0;
-            _bytes.Span.Slice(_position, available).CopyTo(buffer);
+            int available = Math.Min(buffer.Length, _bytes.Length - (int)_position);
+            _bytes.Span.Slice((int)_position, available).CopyTo(buffer);
             _position += available;
             return available;
         }
 
         public override long Seek(long offset, SeekOrigin origin)
         {
-            long target = origin switch
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            long start = origin switch
             {
-                SeekOrigin.Begin => offset,
-                SeekOrigin.Current => _position + offset,
-                _ => _bytes.Length + offset,
+                SeekOrigin.Begin => 0,
+                SeekOrigin.Current => _position,
+                SeekOrigin.End => _bytes.Length,
+                _ => throw new ArgumentException("Invalid seek origin.", nameof(origin)),
             };
-            Position = target;
-            return _position;
+            long target;
+            try
+            {
+                target = checked(start + offset);
+            }
+            catch (OverflowException ex)
+            {
+                throw new IOException("The requested stream position is too large.", ex);
+            }
+            if (target < 0)
+                throw new IOException("Cannot seek before the beginning of the stream.");
+            return _position = target;
         }
 
         public override void Flush()
         {
+            ObjectDisposedException.ThrowIf(_disposed, this);
         }
 
         public override void SetLength(long value) => throw new NotSupportedException();
 
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                _disposed = true;
+            base.Dispose(disposing);
+        }
     }
 
     /// <summary>The buffered probe prefix followed by the remaining source.</summary>

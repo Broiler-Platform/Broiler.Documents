@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -22,8 +22,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Broiler.Dom" Version="0.1.0-preview.1" />
-    <PackageReference Include="Broiler.Dom.Html" Version="0.1.0-preview.1" />
+    <PackageReference Include="Broiler.Dom" />
+    <PackageReference Include="Broiler.Dom.Html" />
   </ItemGroup>
 
 </Project>

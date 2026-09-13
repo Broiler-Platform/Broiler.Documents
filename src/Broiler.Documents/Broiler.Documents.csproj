@@ -23,6 +23,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Broiler.Documents.Tests" />
+    <InternalsVisibleTo Include="Broiler.Documents.Docx" />
+    <InternalsVisibleTo Include="Broiler.Documents.Odt" />
   </ItemGroup>
 
 </Project>

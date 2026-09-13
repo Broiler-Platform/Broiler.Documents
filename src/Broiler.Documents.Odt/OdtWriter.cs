@@ -1,3 +1,4 @@
+using Broiler.Documents.Resources;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -1586,7 +1587,7 @@ public static class OdtWriter
                 return existing;
 
             int index = _pictureOrder.Count + 1;
-            string extension = OdtImageFormats.ExtensionForContentType(contentType);
+            string extension = DocumentImageFormats.ExtensionForContentType(contentType);
             var part = new OdtPicturePart(
                 index,
                 OdtNamespaces.PicturesDirectory + "image" +

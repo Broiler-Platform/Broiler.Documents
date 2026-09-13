@@ -3,6 +3,13 @@ using System;
 using System.Collections.Generic;
 using Broiler.Documents.Cli.Composition;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
+using Broiler.Graphics.Geometry;
+using Broiler.Graphics.Imaging;
+using Broiler.Graphics.Rendering;
+using Broiler.Graphics.RenderList;
+using Broiler.Graphics.Resources;
+using Broiler.Graphics.Text;
 
 namespace Broiler.Documents.Cli.Rendering;
 

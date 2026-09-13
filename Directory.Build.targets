@@ -1,0 +1,7 @@
+<Project>
+  <!-- Share test infrastructure without adding an assembly to the runtime graph. -->
+  <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)src\tests\Shared\RepositoryFiles.cs"
+             Link="TestSupport\RepositoryFiles.cs" />
+  </ItemGroup>
+</Project>

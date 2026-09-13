@@ -2,6 +2,8 @@ using System;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Cli.Comparison;
 

@@ -7,6 +7,7 @@ using Broiler.Documents.Markdown;
 using Broiler.Documents.Odt;
 using Broiler.Documents.Rtf;
 using Broiler.Graphics;
+using Broiler.Graphics.Imaging;
 using Broiler.Media;
 using Broiler.Media.Image.Managed;
 

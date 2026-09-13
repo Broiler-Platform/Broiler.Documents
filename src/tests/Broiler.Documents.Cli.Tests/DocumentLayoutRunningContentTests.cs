@@ -1,5 +1,6 @@
 using Broiler.Documents.Cli.Commands;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Cli.Rendering;
 

@@ -64,6 +64,10 @@ on:
 
 permissions:
   contents: read
+  packages: read
+
+env:
+  NuGetPackageSourceCredentials_broiler-github: Username=${{ github.actor }};Password=${{ secrets.GITHUB_TOKEN }};ValidAuthenticationTypes=Basic
 
 concurrency:
   group: office-conformance
@@ -87,16 +91,8 @@ jobs:
         shell: bash
 
     steps:
-      # One level only, and by name, matching ci.yml. `--recursive` is
-      # deliberately not used: Broiler.Media declares Broiler.Graphics as a
-      # submodule of its own and the recursion would not terminate.
       - name: Check out
         uses: actions/checkout@v7
-        with:
-          submodules: true
-
-      - name: Check out the graphics submodule's own dependency
-        run: git -C Broiler.Graphics submodule update --init --depth 1 Broiler.Media
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v6

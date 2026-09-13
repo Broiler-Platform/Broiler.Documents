@@ -6,6 +6,9 @@ using System.Text;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Model;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
+using Broiler.Graphics.Geometry;
+using Broiler.Graphics.Text;
 
 namespace Broiler.Documents.Cli.Rendering;
 
@@ -42,6 +45,7 @@ public sealed class DocumentLayout
 {
     private readonly LayoutSettings _settings;
     private readonly ImageStore _images;
+    private readonly LineWrapper _lineWrapper;
     private readonly List<string> _notes = new();
     private RunningContent _running = RunningContent.Empty;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
@@ -60,6 +64,7 @@ public sealed class DocumentLayout
     {
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _images = images ?? throw new ArgumentNullException(nameof(images));
+        _lineWrapper = new LineWrapper(settings.TabStopPoints);
     }
 
     /// <summary>Lays the document out onto pages of the given size.</summary>
@@ -709,7 +714,7 @@ public sealed class DocumentLayout
         double textLeft = columnLeft + hang;
         double textWidth = Math.Max(1.0, columnWidth - hang);
 
-        List<Token> tokens = Tokenize(paragraph);
+        List<LayoutToken> tokens = Tokenize(paragraph);
         var bands = new List<TextBand>();
         var skips = new List<double>();
         List<List<LayoutPiece>> rows;
@@ -722,7 +727,7 @@ public sealed class DocumentLayout
             // tall text can reach a little into a shape it only just cleared.
             double lineY = top;
             double estimate = BTextMeasurer.GetLineHeight(defaultFont);
-            rows = Wrap(
+            rows = _lineWrapper.Wrap(
                 tokens,
                 _ =>
                 {
@@ -736,7 +741,7 @@ public sealed class DocumentLayout
         }
         else
         {
-            rows = Wrap(tokens, textWidth);
+            rows = _lineWrapper.Wrap(tokens, textWidth);
         }
 
         var lines = new List<LayoutLine>(rows.Count);
@@ -877,203 +882,14 @@ public sealed class DocumentLayout
     }
 
     /// <summary>
-    /// Greedy first-fit wrapping. Break opportunities are whitespace runs; a
-    /// single token wider than the column is split by character so that one long
-    /// URL cannot push a page off its own right edge.
-    /// </summary>
-    private List<List<LayoutPiece>> Wrap(List<Token> tokens, double maxWidth) =>
-        Wrap(tokens, _ => new TextBand(0, maxWidth), bands: null);
-
-    /// <remarks>
-    /// The width is asked for per row rather than given once, because a wrapping
-    /// shape leaves each line a different amount of room depending on where the
-    /// line lands. <paramref name="bands"/> collects what each row was given, so
-    /// the caller can place it at the left edge it was wrapped to.
-    /// </remarks>
-    private List<List<LayoutPiece>> Wrap(
-        List<Token> tokens,
-        Func<int, TextBand> bandFor,
-        List<TextBand>? bands)
-    {
-        var rows = new List<List<LayoutPiece>>();
-        var current = new List<LayoutPiece>();
-        var pendingSpace = new List<Token>();
-        double currentWidth = 0;
-        double pendingWidth = 0;
-
-        TextBand band = bandFor(0);
-        bands?.Add(band);
-        double maxWidth = Math.Max(1, band.Width);
-
-        void Flush()
-        {
-            rows.Add(current);
-            current = new List<LayoutPiece>();
-            currentWidth = 0;
-            pendingSpace.Clear();
-            pendingWidth = 0;
-
-            band = bandFor(rows.Count);
-            bands?.Add(band);
-            maxWidth = Math.Max(1, band.Width);
-        }
-
-        foreach (Token token in tokens)
-        {
-            if (token.IsForcedBreak)
-            {
-                // The document says the line ends here, so it ends here even with
-                // room to spare. The whitespace held back in front of the break is
-                // dropped the way a wrapped line's trailing space is: it is the gap
-                // between two words that are no longer on the same line.
-                //
-                // Justification is deliberately not touched. The line before a
-                // forced break is stretched like any other non-final line, which
-                // is measured rather than assumed - LibreOffice does the same, and
-                // `isLastLine` below still names only the paragraph's final row.
-                pendingSpace.Clear();
-                pendingWidth = 0;
-                Flush();
-                continue;
-            }
-
-            if (token.IsWhitespace)
-            {
-                // Leading whitespace on a wrapped line is dropped; whitespace
-                // inside a line is held back until a word arrives to justify it,
-                // so a line never ends with a visible ragged space. A tab that
-                // opens the paragraph is not that space — it is the indent the
-                // author typed — so it is the one kind of leading gap that stays.
-                if (current.Count == 0 && !(token.IsTab && rows.Count == 0))
-                    continue;
-
-                if (token.IsTab)
-                {
-                    double reached = currentWidth + pendingWidth;
-                    token.ResolveTabWidth(NextTabStop(reached) - reached);
-                }
-
-                pendingSpace.Add(token);
-                pendingWidth += token.Width;
-                continue;
-            }
-
-            if (current.Count > 0 && currentWidth + pendingWidth + token.Width > maxWidth)
-                Flush();
-
-            if (current.Count == 0 && token.Width > maxWidth)
-            {
-                foreach (Token chunk in BreakToken(token, maxWidth))
-                {
-                    if (current.Count > 0 && currentWidth + chunk.Width > maxWidth)
-                        Flush();
-
-                    current.AddRange(chunk.Pieces);
-                    currentWidth += chunk.Width;
-                }
-
-                continue;
-            }
-
-            foreach (Token space in pendingSpace)
-            {
-                current.AddRange(space.Pieces);
-                currentWidth += space.Width;
-            }
-
-            pendingSpace.Clear();
-            pendingWidth = 0;
-
-            current.AddRange(token.Pieces);
-            currentWidth += token.Width;
-        }
-
-        rows.Add(current);
-        return rows;
-    }
-
-    /// <summary>Splits an over-wide token into chunks that fit, one character at a time.</summary>
-    private IEnumerable<Token> BreakToken(Token token, double maxWidth)
-    {
-        foreach (LayoutPiece piece in token.Pieces)
-        {
-            if (piece.IsImage)
-            {
-                // An image cannot be broken, so an over-wide one is scaled to the
-                // column instead. Letting it keep its size would put pixels past
-                // the right margin, where the page clip silently eats them.
-                yield return Token.Single(piece.Width > maxWidth ? ScaleToWidth(piece, maxWidth) : piece);
-                continue;
-            }
-
-            if (piece.Width <= maxWidth)
-            {
-                yield return Token.Single(piece);
-                continue;
-            }
-
-            var builder = new StringBuilder();
-            double width = 0;
-
-            foreach (char character in piece.Text)
-            {
-                double advance = BTextMeasurer.MeasureAdvance(character.ToString(), piece.Font);
-                if (builder.Length > 0 && width + advance > maxWidth)
-                {
-                    yield return Token.Single(Retext(piece, builder.ToString(), width));
-                    builder.Clear();
-                    width = 0;
-                }
-
-                builder.Append(character);
-                width += advance;
-            }
-
-            if (builder.Length > 0)
-                yield return Token.Single(Retext(piece, builder.ToString(), width));
-        }
-    }
-
-    /// <summary>The same image piece drawn narrower, keeping its aspect ratio.</summary>
-    private static LayoutPiece ScaleToWidth(LayoutPiece piece, double width)
-    {
-        double factor = width / piece.Width;
-        return new LayoutPiece(
-            piece.Text,
-            piece.Font,
-            piece.Color,
-            piece.Highlight,
-            piece.Underline,
-            piece.Strikethrough,
-            piece.Link,
-            piece.Image,
-            width,
-            piece.Ascent * factor,
-            piece.Descent * factor);
-    }
-
-    private static LayoutPiece Retext(LayoutPiece source, string text, double width) => new(
-        text,
-        source.Font,
-        source.Color,
-        source.Highlight,
-        source.Underline,
-        source.Strikethrough,
-        source.Link,
-        null,
-        width,
-        source.Ascent,
-        source.Descent);
-
-    /// <summary>
     /// Splits a paragraph into wrap tokens. A word that spans two runs - "very"
     /// in one and "**bold**" in the next - stays one token, because a break
     /// between them would be a break in the middle of a word.
     /// </summary>
-    private List<Token> Tokenize(RichTextParagraph paragraph)
+    private List<LayoutToken> Tokenize(RichTextParagraph paragraph)
     {
-        var tokens = new List<Token>();
-        Token? word = null;
+        var tokens = new List<LayoutToken>();
+        LayoutToken? word = null;
         int offset = 0;
 
         foreach (StyleRun run in paragraph.Runs)
@@ -1098,14 +914,14 @@ public sealed class DocumentLayout
                         word = null;
                     }
 
-                    tokens.Add(Token.ForcedBreak());
+                    tokens.Add(LayoutToken.ForcedBreak());
                     continue;
                 }
 
                 if (image)
                 {
                     LayoutPiece piece = MakeImagePiece(run.Style);
-                    word ??= Token.Empty();
+                    word ??= LayoutToken.Empty();
                     word.Add(piece);
                     tokens.Add(word);
                     word = null;
@@ -1120,7 +936,7 @@ public sealed class DocumentLayout
                         word = null;
                     }
 
-                    tokens.Add(Token.Single(MakeTabPiece(run.Style), isWhitespace: true));
+                    tokens.Add(LayoutToken.Single(MakeTabPiece(run.Style), isWhitespace: true));
                     continue;
                 }
 
@@ -1132,14 +948,14 @@ public sealed class DocumentLayout
                         word = null;
                     }
 
-                    Token space = Token.Empty(isWhitespace: true);
+                    LayoutToken space = LayoutToken.Empty(isWhitespace: true);
                     foreach (LayoutPiece piece in MakePieces(fragment, run.Style))
                         space.Add(piece);
                     tokens.Add(space);
                     continue;
                 }
 
-                word ??= Token.Empty();
+                word ??= LayoutToken.Empty();
                 foreach (LayoutPiece piece in MakePieces(fragment, run.Style))
                     word.Add(piece);
             }
@@ -1312,17 +1128,6 @@ public sealed class DocumentLayout
             isTab: true);
     }
 
-    /// <summary>
-    /// The width a line has used once a tab reaching <paramref name="used"/> has
-    /// landed: the first tab stop strictly past it, so a tab always moves the text
-    /// along even when it starts exactly on a stop.
-    /// </summary>
-    private double NextTabStop(double used)
-    {
-        double stop = _settings.TabStopPoints > 0 ? _settings.TabStopPoints : 36.0;
-        return (Math.Floor(Math.Max(0, used) / stop) + 1) * stop;
-    }
-
     private LayoutPiece MakeImagePiece(InlineStyle style)
     {
         InlineImage image = style.Image!;
@@ -1368,64 +1173,6 @@ public sealed class DocumentLayout
         public ParagraphLines(List<LayoutLine> lines) => Lines = lines;
 
         public List<LayoutLine> Lines { get; }
-    }
-
-    /// <summary>
-    /// An unbreakable run of pieces: one word, one whitespace gap, one tab, one
-    /// image - or the forced break, which is the one token that carries no pieces
-    /// at all and says only where the line ends.
-    /// </summary>
-    private sealed class Token
-    {
-        private Token(bool isWhitespace, bool isForcedBreak = false)
-        {
-            IsWhitespace = isWhitespace;
-            IsForcedBreak = isForcedBreak;
-        }
-
-        public bool IsWhitespace { get; }
-
-        /// <summary>True for the token U+2028 makes: end this line here.</summary>
-        public bool IsForcedBreak { get; }
-
-        public List<LayoutPiece> Pieces { get; } = new();
-
-        public double Width { get; private set; }
-
-        /// <summary>True for the single-piece token a tab makes.</summary>
-        public bool IsTab => Pieces.Count == 1 && Pieces[0].IsTab;
-
-        public static Token Empty(bool isWhitespace = false) => new(isWhitespace);
-
-        /// <summary>
-        /// The break itself. Not whitespace: the wrapping loop drops leading
-        /// whitespace, and a break that arrived as whitespace would be dropped
-        /// at the very place it is meant to act.
-        /// </summary>
-        public static Token ForcedBreak() => new(isWhitespace: false, isForcedBreak: true);
-
-        public static Token Single(LayoutPiece piece, bool isWhitespace = false)
-        {
-            var token = new Token(isWhitespace);
-            token.Add(piece);
-            return token;
-        }
-
-        public void Add(LayoutPiece piece)
-        {
-            Pieces.Add(piece);
-            Width += piece.Width;
-        }
-
-        /// <summary>
-        /// Sets a tab's width once wrapping knows where on its line it starts.
-        /// The piece is the same object the line will place, so both agree.
-        /// </summary>
-        public void ResolveTabWidth(double width)
-        {
-            Pieces[0].Width = width;
-            Width = width;
-        }
     }
 
     /// <summary>

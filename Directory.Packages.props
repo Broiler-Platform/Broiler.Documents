@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Broiler.Dom" Version="0.1.0-preview.1" />
+    <PackageVersion Include="Broiler.Dom.Html" Version="0.1.0-preview.1" />
+    <PackageVersion Include="Broiler.Graphics" Version="0.1.0-preview.2" />
+    <PackageVersion Include="Broiler.Media.Image" Version="0.1.0-preview.11" />
+    <PackageVersion Include="Broiler.Media.Image.Managed" Version="0.1.0-preview.11" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageVersion Include="xunit" Version="2.5.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.5.3" />
+    <PackageVersion Include="Xunit.SkippableFact" Version="1.5.85" />
+  </ItemGroup>
+</Project>

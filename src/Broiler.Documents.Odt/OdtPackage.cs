@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Xml;
 using System.Xml.Linq;
+using Broiler.Documents.Packaging;
 
 namespace Broiler.Documents.Odt;
 
@@ -44,67 +44,12 @@ internal static class OdtPackage
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics,
         string diagnosticCode,
-        LoadOptions loadOptions = LoadOptions.None)
-    {
-        byte[]? bytes = ReadEntryBytes(entry, limits.MaxBinBytes);
-        if (bytes is null)
-        {
-            diagnostics.Add(DocumentDiagnostic.Error(
-                diagnosticCode + ".limit",
-                "An ODT XML part exceeded MaxBinBytes and was skipped."));
-            return null;
-        }
+        LoadOptions loadOptions = LoadOptions.None) =>
+        DocumentPackage.LoadEntryXml(entry, limits.MaxBinBytes, diagnostics,
+            diagnosticCode, "An ODT XML part", loadOptions);
 
-        try
-        {
-            using var stream = new MemoryStream(bytes, writable: false);
-            // DtdProcessing.Prohibit is the point of going through XmlReader here:
-            // an ODF part is untrusted input and an inline DTD is an entity
-            // expansion vector (ADR 0004).
-            using XmlReader reader = XmlReader.Create(stream, new XmlReaderSettings
-            {
-                DtdProcessing = DtdProcessing.Prohibit,
-                XmlResolver = null,
-                IgnoreWhitespace = false,
-                IgnoreComments = true,
-                IgnoreProcessingInstructions = true,
-            });
-            return XDocument.Load(reader, loadOptions);
-        }
-        catch (Exception ex) when (ex is XmlException or InvalidDataException)
-        {
-            diagnostics.Add(DocumentDiagnostic.Error(
-                diagnosticCode,
-                "An ODT XML part could not be parsed: " + ex.GetType().Name + "."));
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Reads an entry with the limit applied to what actually decompresses, not
-    /// to the size its ZIP header claims — a compressed part can lie about its
-    /// length (ADR 0004). Returns null when the limit is hit.
-    /// </summary>
-    public static byte[]? ReadEntryBytes(ZipArchiveEntry entry, long maxBytes)
-    {
-        using Stream stream = entry.Open();
-        using var buffer = new MemoryStream();
-        byte[] chunk = new byte[8192];
-        long total = 0;
-
-        while (true)
-        {
-            int read = stream.Read(chunk, 0, chunk.Length);
-            if (read == 0)
-                return buffer.ToArray();
-
-            total += read;
-            if (total > maxBytes)
-                return null;
-
-            buffer.Write(chunk, 0, read);
-        }
-    }
+    public static byte[]? ReadEntryBytes(ZipArchiveEntry entry, long maxBytes) =>
+        DocumentPackage.ReadEntryBytes(entry, maxBytes);
 
     /// <summary>
     /// Normalizes a package path the way an <c>xlink:href</c> inside the package

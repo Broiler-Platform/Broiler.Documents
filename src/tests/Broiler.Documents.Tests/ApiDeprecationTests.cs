@@ -54,9 +54,11 @@ public sealed class ApiDeprecationTests
     [Fact]
     public void DecodeEmbeddedObjects_Is_Announced_And_Names_Its_Replacement()
     {
+#pragma warning disable CS0618 // This test deliberately verifies the obsolete member's announcement.
         ObsoleteAttribute? announcement = typeof(DocumentReadOptions)
             .GetProperty(nameof(DocumentReadOptions.DecodeEmbeddedObjects))!
             .GetCustomAttribute<ObsoleteAttribute>();
+#pragma warning restore CS0618
 
         Assert.NotNull(announcement);
         Assert.Contains("ResourcePolicy", announcement!.Message!, StringComparison.Ordinal);

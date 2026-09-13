@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -35,7 +35,7 @@
     <InternalsVisibleTo Include="Broiler.Documents.FormatCodes" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Broiler.Graphics" Version="0.1.0-preview.2" />
+    <PackageReference Include="Broiler.Graphics" />
   </ItemGroup>
 
 </Project>

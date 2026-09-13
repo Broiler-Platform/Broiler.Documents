@@ -1,18 +1,9 @@
 using System;
 
-namespace Broiler.Documents.Docx;
+namespace Broiler.Documents.Resources;
 
-/// <summary>
-/// The raster image formats the DOCX codec carries between a package's
-/// <c>word/media</c> parts and <see cref="Model.InlineImage"/>.
-/// </summary>
-/// <remarks>
-/// The list is deliberately raster-only. Word also embeds EMF/WMF metafiles —
-/// usually as the fallback branch beside a chart or a shape — and those cannot
-/// be decoded into pixels here, so they are reported rather than carried as an
-/// image that would draw as nothing.
-/// </remarks>
-internal static class DocxImageFormats
+/// <summary>Raster signatures, MIME types, and extensions shared by packaged document codecs.</summary>
+internal static class DocumentImageFormats
 {
     /// <summary>The media type for a media part's extension, or null when it is not a raster image.</summary>
     public static string? ContentTypeForExtension(string? extension)

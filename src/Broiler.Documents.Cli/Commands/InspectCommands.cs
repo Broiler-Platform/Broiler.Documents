@@ -253,7 +253,7 @@ public static class InspectCommands
         string tool = Describe(typeof(InspectCommands).Assembly);
         string documents = Describe(typeof(DocumentCodec).Assembly);
         string model = Describe(typeof(Broiler.Documents.Model.RichTextDocument).Assembly);
-        string graphics = Describe(typeof(Broiler.Graphics.BColor).Assembly);
+        string graphics = Describe(typeof(Broiler.Graphics.Color.BColor).Assembly);
         string fallbackFont = FontResolution.DescribeHostFallback();
 
         context.Report(HelpText.ToolName + " " + tool);

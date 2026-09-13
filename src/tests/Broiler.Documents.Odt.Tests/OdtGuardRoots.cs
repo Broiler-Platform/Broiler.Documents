@@ -1,3 +1,5 @@
+using Broiler.Documents.TestSupport;
+
 namespace Broiler.Documents.Odt.Tests;
 
 /// <summary>
@@ -19,26 +21,10 @@ internal static class OdtGuardRoots
     /// same way standalone and when this component is checked out inside the
     /// aggregate repository.
     /// </summary>
-    internal static string Component { get; } = FindComponent();
+    internal static string Component { get; } = RepositoryFiles.Root;
 
     /// <summary>Whether a path sits inside a <c>bin</c> or <c>obj</c> directory.</summary>
     internal static bool IsBuildOutput(string path) =>
-        path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            .Any(segment => segment is "bin" or "obj");
+        RepositoryFiles.IsBuildOutput(path);
 
-    private static string FindComponent()
-    {
-        DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")) &&
-                File.Exists(Path.Combine(
-                    directory.FullName, "src", "Broiler.Documents", "Broiler.Documents.csproj")))
-                return directory.FullName;
-
-            directory = directory.Parent;
-        }
-
-        throw new DirectoryNotFoundException("Broiler.Documents component root not found.");
-    }
 }

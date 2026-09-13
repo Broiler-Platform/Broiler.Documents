@@ -38,16 +38,13 @@ public sealed class PdfPhaseZeroGuardTests
     ];
 
     /// <summary>
-    /// Source trees that every Broiler head links, so a PDF-specific type
-    /// appearing in one of them would reach heads that never asked for it. The
-    /// last two arrive through the submodules at the repository root.
+    /// Component-owned source trees that every Broiler head links. External
+    /// Graphics and Media packages are checked through their public assemblies.
     /// </summary>
     private static readonly string[] SharedSourceRoots =
     [
         "src/Broiler.Documents",
         "src/Broiler.Documents.Model",
-        "Broiler.Graphics/src/Broiler.Graphics",
-        "Broiler.Graphics/Broiler.Media/src/Broiler.Media.Image",
     ];
 
     [Fact(Timeout = 600000)]
@@ -114,11 +111,8 @@ public sealed class PdfPhaseZeroGuardTests
         {
             string sourceRoot = Path.Combine(root, relativeRoot);
 
-            // A missing root means the submodules were not checked out. Fail
-            // rather than skip: silently covering two roots instead of four
-            // would report a pass this test did not earn.
             Assert.True(Directory.Exists(sourceRoot),
-                $"Shared source root '{relativeRoot}' is missing. Run: git submodule update --init");
+                $"Shared source root '{relativeRoot}' is missing.");
 
             foreach (string file in Directory.EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories)
                          .Where(path => !PdfGuardRoots.IsBuildOutput(path)))
@@ -137,5 +131,23 @@ public sealed class PdfPhaseZeroGuardTests
         }
 
         Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Shared_Packages_Do_Not_Expose_Pdf_Specific_Types_Or_References()
+    {
+        System.Reflection.Assembly[] assemblies =
+        [
+            typeof(Broiler.Graphics.Color.BColor).Assembly,
+            System.Reflection.Assembly.Load("Broiler.Media.Image"),
+        ];
+        foreach (var assembly in assemblies)
+        {
+            Assert.DoesNotContain(assembly.GetExportedTypes(), type =>
+                Regex.IsMatch(type.Name, @"^Pdf[A-Z]", RegexOptions.CultureInvariant) ||
+                (type.Namespace?.StartsWith("Broiler.Documents.Pdf", StringComparison.Ordinal) ?? false));
+            Assert.DoesNotContain(assembly.GetReferencedAssemblies(), reference =>
+                reference.Name?.StartsWith("Broiler.Documents.Pdf", StringComparison.Ordinal) ?? false);
+        }
     }
 }

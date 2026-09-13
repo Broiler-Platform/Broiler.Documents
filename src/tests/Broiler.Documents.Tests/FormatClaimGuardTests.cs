@@ -78,7 +78,7 @@ public sealed class FormatClaimGuardTests
 
     [Theory(Timeout = 600000)]
     [MemberData(nameof(Formats))]
-    public void No_Codec_Takes_A_Package_Reference(string format, string register, string extensions)
+    public void No_Codec_Takes_A_Third_Party_Package_Reference(string format, string register, string extensions)
     {
         _ = register;
         _ = extensions;
@@ -91,7 +91,10 @@ public sealed class FormatClaimGuardTests
             "Broiler.Documents." + format,
             "Broiler.Documents." + format + ".csproj"));
 
-        Assert.Empty(project.Descendants("PackageReference"));
+        string[] expected = format == "Html" ? ["Broiler.Dom", "Broiler.Dom.Html"] : [];
+        Assert.Equal(expected, project.Descendants("PackageReference")
+            .Select(reference => (string?)reference.Attribute("Include"))
+            .OrderBy(name => name, StringComparer.Ordinal));
     }
 
     [Theory(Timeout = 600000)]

@@ -1,3 +1,4 @@
+using Broiler.Documents.Resources;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -194,8 +195,8 @@ internal sealed class OdtImageLoader
 
         string? contentType =
             OdtImageFormats.ContentTypeForMediaType(_manifest.MediaTypeFor(path)) ??
-            OdtImageFormats.ContentTypeForExtension(Path.GetExtension(path)) ??
-            OdtImageFormats.ContentTypeForSignature(data);
+            DocumentImageFormats.ContentTypeForExtension(Path.GetExtension(path)) ??
+            DocumentImageFormats.ContentTypeForSignature(data);
         if (contentType is null)
         {
             // SVG, EMF, and WMF land here, as does anything stored under an
@@ -245,7 +246,7 @@ internal sealed class OdtImageLoader
             return null;
         }
 
-        string? contentType = OdtImageFormats.ContentTypeForSignature(data);
+        string? contentType = DocumentImageFormats.ContentTypeForSignature(data);
         if (contentType is null)
         {
             diagnostics.AddDiagnosticOnce(

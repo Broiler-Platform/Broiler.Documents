@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Graphics;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Cli.Rendering;
 

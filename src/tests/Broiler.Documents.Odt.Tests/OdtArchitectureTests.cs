@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Xml.Linq;
+using Broiler.Documents.TestSupport;
 
 namespace Broiler.Documents.Odt.Tests;
 
@@ -19,13 +20,13 @@ public sealed class OdtArchitectureTests
 
         Assert.Equal("net10.0", project.Descendants("TargetFramework").Single().Value);
         Assert.Empty(project.Descendants("PackageReference"));
-        Assert.Equal(ExpectedReferences, ProjectReferences(project));
+        Assert.Equal(ExpectedReferences, RepositoryFiles.ProjectReferences(project));
     }
 
     [Fact(Timeout = 600000)]
     public void Odt_Project_Does_Not_Reference_Ui_Dom_Input_Or_Windows()
     {
-        string[] references = ProjectReferences(XDocument.Load(OdtProjectPath()));
+        string[] references = RepositoryFiles.ProjectReferences(XDocument.Load(OdtProjectPath()));
 
         Assert.DoesNotContain(references, reference => reference.Contains("Broiler.UI", StringComparison.Ordinal));
         Assert.DoesNotContain(references, reference => reference.Contains("Broiler.DOM", StringComparison.Ordinal));
@@ -46,14 +47,5 @@ public sealed class OdtArchitectureTests
     }
 
     private static string OdtProjectPath() =>
-        Path.Combine(OdtGuardRoots.Component, "src", "Broiler.Documents.Odt", "Broiler.Documents.Odt.csproj");
-
-    private static string[] ProjectReferences(XDocument project) =>
-        project
-            .Descendants("ProjectReference")
-            .Select(reference => ((string?)reference.Attribute("Include"))?.Replace('\\', '/'))
-            .Where(reference => reference is not null)
-            .Cast<string>()
-            .OrderBy(reference => reference, StringComparer.Ordinal)
-            .ToArray();
+        RepositoryFiles.ProjectPath("Broiler.Documents.Odt");
 }

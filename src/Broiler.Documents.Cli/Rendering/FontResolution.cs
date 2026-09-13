@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Graphics;
+using Broiler.Graphics.Rendering;
+using Broiler.Graphics.Text;
 
 namespace Broiler.Documents.Cli.Rendering;
 

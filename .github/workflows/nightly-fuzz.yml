@@ -24,6 +24,10 @@ on:
 
 permissions:
   contents: read
+  packages: read
+
+env:
+  NuGetPackageSourceCredentials_broiler-github: Username=${{ github.actor }};Password=${{ secrets.GITHUB_TOKEN }};ValidAuthenticationTypes=Basic
 
 concurrency:
   group: nightly-fuzz
@@ -44,12 +48,7 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v6
-        with:
-          submodules: true
-
-      - name: Check out the graphics submodule's own dependency
-        run: git -C Broiler.Graphics submodule update --init --depth 1 Broiler.Media
+        uses: actions/checkout@v7
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v6

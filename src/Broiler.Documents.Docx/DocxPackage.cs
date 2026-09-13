@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Xml;
 using System.Xml.Linq;
+using Broiler.Documents.Packaging;
 
 namespace Broiler.Documents.Docx;
 
@@ -26,29 +26,9 @@ internal static class DocxPackage
         ZipArchiveEntry entry,
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics,
-        string diagnosticCode)
-    {
-        if (entry.Length > limits.MaxBinBytes)
-        {
-            diagnostics.Add(DocumentDiagnostic.Error(
-                diagnosticCode + ".limit",
-                "A DOCX XML part exceeded MaxBinBytes and was skipped."));
-            return null;
-        }
-
-        try
-        {
-            using Stream stream = entry.Open();
-            return XDocument.Load(stream, LoadOptions.None);
-        }
-        catch (Exception ex) when (ex is XmlException or InvalidDataException)
-        {
-            diagnostics.Add(DocumentDiagnostic.Error(
-                diagnosticCode,
-                "A DOCX XML part could not be parsed: " + ex.GetType().Name + "."));
-            return null;
-        }
-    }
+        string diagnosticCode) =>
+        DocumentPackage.LoadEntryXml(entry, limits.MaxBinBytes, diagnostics,
+            diagnosticCode, "A DOCX XML part");
 
     public static DocxRelationships ReadRelationships(
         ZipArchive archive,

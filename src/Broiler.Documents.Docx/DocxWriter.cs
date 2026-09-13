@@ -1,3 +1,4 @@
+using Broiler.Documents.Resources;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -1514,7 +1515,7 @@ public static class DocxWriter
                 return existing;
 
             int index = _imageOrder.Count + 1;
-            string extension = DocxImageFormats.ExtensionForContentType(contentType);
+            string extension = DocumentImageFormats.ExtensionForContentType(contentType);
             string fileName = "image" + index.ToString(CultureInfo.InvariantCulture) + "." + extension;
             var part = new DocxImagePart(
                 index,

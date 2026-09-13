@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
+using Broiler.Documents.TestSupport;
 
 namespace Broiler.Documents.Cli.Tests;
 
@@ -16,7 +18,7 @@ namespace Broiler.Documents.Cli.Tests;
 /// </remarks>
 public sealed class CliArchitectureTests
 {
-    private static readonly string ComponentRoot = FindComponentRoot();
+    private static readonly string ComponentRoot = RepositoryFiles.Root;
 
     private static string CliProjectPath =>
         Path.Combine(ComponentRoot, "src", "Broiler.Documents.Cli", "Broiler.Documents.Cli.csproj");
@@ -58,9 +60,9 @@ public sealed class CliArchitectureTests
     [Fact]
     public void The_Cli_Adds_No_Third_Party_Runtime_Dependency()
     {
-        string project = File.ReadAllText(CliProjectPath);
-
-        Assert.DoesNotContain("<PackageReference", project, StringComparison.Ordinal);
+        XDocument project = XDocument.Load(CliProjectPath);
+        Assert.Equal(["Broiler.Graphics", "Broiler.Media.Image.Managed"],
+            RepositoryFiles.PackageReferences(project));
     }
 
     [Fact]
@@ -99,24 +101,5 @@ public sealed class CliArchitectureTests
                 Path.Combine(ComponentRoot, "src", "Broiler.Documents.Cli"),
                 "*.cs",
                 SearchOption.AllDirectories)
-            .Where(path => !path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                .Any(segment => segment is "bin" or "obj"));
-
-    private static string FindComponentRoot()
-    {
-        DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")) &&
-                File.Exists(Path.Combine(
-                    directory.FullName, "src", "Broiler.Documents", "Broiler.Documents.csproj")))
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
-        }
-
-        throw new DirectoryNotFoundException("Broiler.Documents component root not found.");
-    }
+            .Where(path => !RepositoryFiles.IsBuildOutput(path));
 }

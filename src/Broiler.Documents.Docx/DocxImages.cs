@@ -1,3 +1,4 @@
+using Broiler.Documents.Resources;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -335,8 +336,8 @@ internal sealed class DocxImageLoader
         }
 
         string? contentType =
-            DocxImageFormats.ContentTypeForExtension(Path.GetExtension(partPath)) ??
-            DocxImageFormats.ContentTypeForSignature(data);
+            DocumentImageFormats.ContentTypeForExtension(Path.GetExtension(partPath)) ??
+            DocumentImageFormats.ContentTypeForSignature(data);
         if (contentType is null)
         {
             // EMF/WMF metafiles land here, as does anything Word stored under an
