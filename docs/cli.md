@@ -341,7 +341,7 @@ appears, every counter resets at the first non-list paragraph.
 Everything above is written for an automated caller, and two of them live in
 this repository. `src/tests/Broiler.Documents.Corpus` materialises a document
 corpus, runs this tool over it as a child process, and compares the result with a
-committed baseline; CI runs it on Linux on every push.
+committed baseline; CI runs it on Linux and Windows on every push.
 
 ```bash
 dotnet run --project src/tests/Broiler.Documents.Corpus

@@ -143,7 +143,7 @@ It is itself `IsPackable=false`, so the package table above is unchanged. See th
 [CLI guide](docs/cli.md) for the full command reference, the exit codes, the edit
 language, and what makes a render reproducible across machines.
 
-CI drives that tool over a document corpus on every push on Linux,
+CI drives that tool over a document corpus on every push on Linux and Windows,
 and holds what comes back against a committed baseline of what each
 format is expected to lose. See [the corpus suite](docs/corpus-suite.md) for what
 it checks, where the documents come from and why none of them is downloaded, and
@@ -242,8 +242,8 @@ MSBuild override without editing this file or changing dependency versions.
 
 ## Continuous integration and releases
 
-`.github/workflows/ci.yml` builds and tests Release on Ubuntu, runs the CLI corpus,
-and packs and verifies all eleven preview packages on the same Linux runner.
+`.github/workflows/ci.yml` builds and tests Release and runs the CLI corpus on
+Ubuntu and Windows. It packs and verifies all eleven preview packages only on Ubuntu.
 `eng/run-tests.ps1` also requires at least 1,400 executed tests and terminates a
 test host if a test hangs for ten minutes. Synchronous tests use this runner
 limit because xUnit's `Timeout` attribute only supports async tests. Unit and corpus
