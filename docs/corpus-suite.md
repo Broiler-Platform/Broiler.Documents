@@ -9,7 +9,7 @@ dotnet run --project src/tests/Broiler.Documents.Corpus
 ```
 
 It prints `N/M passed, K failed.` as its last line and exits with the number of
-failures. CI runs it on both legs and reads that line.
+failures. CI runs it on Linux and reads that line.
 
 ## Contents
 

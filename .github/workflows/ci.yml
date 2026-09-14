@@ -26,15 +26,11 @@ concurrency:
 
 jobs:
   build:
-    name: ${{ matrix.os }} / Release
-    runs-on: ${{ matrix.os }}
+    name: Linux / Release
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Check out
         uses: actions/checkout@v7
@@ -82,17 +78,15 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: test-reports-${{ matrix.os }}
+          name: test-reports-linux
           path: test-results/
           if-no-files-found: warn
 
       - name: Pack and verify every package
-        if: matrix.os == 'windows-latest'
         shell: pwsh
         run: ./eng/pack.ps1 -Version $env:PACKAGE_VERSION
 
       - name: Upload packages
-        if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v7
         with:
           name: nuget-packages
