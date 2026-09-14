@@ -548,12 +548,9 @@ internal static class HtmlReader
     private static string? StyleSheetText(DomDocument document)
     {
         StringBuilder? text = null;
-        foreach (DomElement element in document.Descendants().OfType<DomElement>())
+        foreach (DomElement element in document.GetElementsByTagName("style"))
         {
-            if (!element.LocalName.Equals("style", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            string content = string.Concat(element.Descendants().OfType<DomText>().Select(node => node.Data));
+            string content = element.TextContent;
             if (string.IsNullOrWhiteSpace(content))
                 continue;
 
