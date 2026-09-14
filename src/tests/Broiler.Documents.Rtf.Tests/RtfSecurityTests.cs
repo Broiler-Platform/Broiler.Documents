@@ -10,7 +10,7 @@ public sealed class RtfSecurityTests
 
     private static RichTextDocument Read(string rtf) => ReadResult(rtf).Document;
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Embedded_Objects_Are_Skipped_Not_Instantiated()
     {
         DocumentReadResult result = ReadResult(
@@ -20,7 +20,7 @@ public sealed class RtfSecurityTests
         Assert.Contains(result.Diagnostics, d => d.Code == "rtf.embedded");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Non_Hyperlink_Fields_Do_Not_Produce_A_Link()
     {
         // INCLUDEPICTURE points at a URL; it must never be fetched or turned into a link.
@@ -58,7 +58,7 @@ public sealed class RtfSecurityTests
         Assert.Equal(url, document.Paragraphs[0].StyleAt(0).LinkHref);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reading_Urls_Completes_Without_Blocking_On_The_Network()
     {
         // Completing at all proves nothing was fetched (the hosts do not resolve).

@@ -57,7 +57,8 @@ letterform proportions (register rows IP-021 and IP-022). Adobe's Standard 14
 metric files are not used, and output must never be described as using any
 vendor's metrics.
 
-**Implementation is not a claim.** The package is `IsPackable=false`, and its
+**Implementation is not a claim.** Preview library packaging is enabled under
+roadmap §4.1 (superseding the original `IsPackable=false` rule), and its
 registration is confined to the composition roots that have been opened to it —
 at the time of writing none, and since the roadmap §10.1 read-preview candidate
 the Windows and Linux Writer heads, for opening only — enforced by tests.

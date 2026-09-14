@@ -9,7 +9,7 @@ public sealed class RtfCatalogSelectionTests
     private static DocumentCodecCatalog Catalog() =>
         new(new DocumentCodec[] { new RtfDocumentCodec() });
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Catalog_Selects_Rtf_By_Signature()
     {
         DocumentCodecMatch? match = Catalog().Select(Bytes("{\\rtf1\\ansi\\par}"));
@@ -20,13 +20,13 @@ public sealed class RtfCatalogSelectionTests
         Assert.Equal("RTF", match.Result.FormatName);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Catalog_Does_Not_Select_Non_Rtf()
     {
         Assert.Null(Catalog().Select(Bytes("<html></html>")));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Catalog_Finds_Rtf_By_Extension_And_Mime_Type()
     {
         DocumentCodecCatalog catalog = Catalog();

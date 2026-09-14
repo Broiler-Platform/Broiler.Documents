@@ -8,7 +8,7 @@ namespace Broiler.Documents.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The codec is not a published capability: the package is not packed, and it
+/// The codec and its providers ship as preview packages. The codec
 /// reaches an application only where a composition root names it. It is now
 /// registered — for opening only — by the Windows and Linux Writer heads, which
 /// is the read-preview integration §10.1 describes. Everywhere else the old rule
@@ -63,15 +63,20 @@ public sealed class PdfDeliveryGuardTests
     private static string PdfProjectPath => Path.Combine(
         PdfGuardRoots.Component, "src", "Broiler.Documents.Pdf", "Broiler.Documents.Pdf.csproj");
 
-    [Fact(Timeout = 600000)]
-    public void The_Pdf_Package_Is_Not_Packable_Before_Its_Release_Gates_Pass()
+    [Theory]
+    [InlineData("Broiler.Documents.Pdf")]
+    [InlineData("Broiler.Documents.Pdf.Fonts")]
+    [InlineData("Broiler.Documents.Pdf.Images")]
+    public void The_Pdf_Libraries_Are_Packable(string packageId)
     {
-        string project = File.ReadAllText(PdfProjectPath);
+        string project = File.ReadAllText(Path.Combine(
+            PdfGuardRoots.Component, "src", packageId, packageId + ".csproj"));
 
-        Assert.Contains("<IsPackable>false</IsPackable>", project);
+        Assert.Contains("<IsPackable>true</IsPackable>", project);
+        Assert.Contains($"<PackageId>{packageId}</PackageId>", project);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Pdf_Codec_References_No_Third_Party_Runtime_Dependency()
     {
         string project = File.ReadAllText(PdfProjectPath);
@@ -88,7 +93,7 @@ public sealed class PdfDeliveryGuardTests
         }
     }
 
-    [SkippableFact(Timeout = 600000)]
+    [SkippableFact]
     public void Only_The_Enabled_Heads_Name_The_Pdf_Codec()
     {
         string root = PdfGuardRoots.RequireAggregate();
@@ -102,7 +107,7 @@ public sealed class PdfDeliveryGuardTests
         Assert.Empty(violations);
     }
 
-    [SkippableFact(Timeout = 600000)]
+    [SkippableFact]
     public void The_Shared_Writer_Core_And_The_Mobile_Heads_Cannot_Acquire_Pdf()
     {
         string root = PdfGuardRoots.RequireAggregate();
@@ -120,7 +125,7 @@ public sealed class PdfDeliveryGuardTests
         Assert.Empty(carriers);
     }
 
-    [SkippableFact(Timeout = 600000)]
+    [SkippableFact]
     public void No_Head_Registers_The_Pdf_Codec_For_Saving()
     {
         string root = PdfGuardRoots.RequireAggregate();
@@ -199,7 +204,7 @@ public sealed class PdfDeliveryGuardTests
             })
             .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'));
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Pdf_Fixture_Is_Committed_Outside_The_Rights_Aware_Corpus()
     {
         string root = PdfGuardRoots.Component;

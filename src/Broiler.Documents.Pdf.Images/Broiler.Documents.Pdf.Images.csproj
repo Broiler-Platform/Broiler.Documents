@@ -11,12 +11,10 @@
     <PackageId>Broiler.Documents.Pdf.Images</PackageId>
     <Description>Composable PDF image-filter implementations. Adapts the Broiler.Media managed image codecs to the Broiler.Documents.Pdf filter extension point; nothing here is composed by default.</Description>
     <!--
-      Delivery gate, as for the codec itself (pdf-support-roadmap.md §4.1). This
-      assembly is additionally gated on the IP/licensing register: it may only
-      implement a filter whose row is approved, which today is DCTDecode under
-      IP-005.
+      Ship the optional image filters as a preview package. Filter support claims
+      remain governed by the IP/licensing register and PDF support roadmap §4.1.
     -->
-    <IsPackable>false</IsPackable>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
 
   <!--

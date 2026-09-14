@@ -7,7 +7,7 @@ public sealed class DocxDocumentCodecProbeTests
 {
     private readonly DocxDocumentCodec _codec = new();
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Probe_Matches_Docx_Zip_With_File_Hint()
     {
         byte[] bytes = DocxDocumentCodec.WriteToArray(RichTextDocument.FromPlainText("hello"));
@@ -20,7 +20,7 @@ public sealed class DocxDocumentCodecProbeTests
         Assert.Equal("DOCX", result.FormatName);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Probe_Matches_WordprocessingML_Part_Without_File_Hint()
     {
         byte[] bytes = DocxDocumentCodec.WriteToArray(RichTextDocument.FromPlainText("hello"));
@@ -31,7 +31,7 @@ public sealed class DocxDocumentCodecProbeTests
         Assert.Equal(DocumentProbeConfidence.High, result.Confidence);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Probe_Does_Not_Claim_Unhinted_Generic_Zip()
     {
         byte[] zip = GenericZip();
@@ -41,7 +41,7 @@ public sealed class DocxDocumentCodecProbeTests
         Assert.False(result.IsMatch);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Probe_Does_Not_Claim_Unhinted_Opc_Package_Without_Word_Part()
     {
         byte[] zip = GenericZip("[Content_Types].xml", "<Types />");
@@ -51,7 +51,7 @@ public sealed class DocxDocumentCodecProbeTests
         Assert.False(result.IsMatch);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Filename_Hint_Without_Zip_Signature_Is_Low_Confidence()
     {
         DocumentProbeResult result = _codec.Probe(new DocumentProbeRequest(
@@ -62,7 +62,7 @@ public sealed class DocxDocumentCodecProbeTests
         Assert.Equal(DocumentProbeConfidence.Low, result.Confidence);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Codec_Can_Read_And_Write()
     {
         Assert.True(_codec.CanRead);

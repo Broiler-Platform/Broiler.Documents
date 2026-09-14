@@ -13,7 +13,7 @@ public sealed class OdtArchitectureTests
         "../Broiler.Documents/Broiler.Documents.csproj",
     ];
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Odt_Project_Targets_Net10_And_References_Only_Documents_Assemblies()
     {
         XDocument project = XDocument.Load(OdtProjectPath());
@@ -23,7 +23,7 @@ public sealed class OdtArchitectureTests
         Assert.Equal(ExpectedReferences, RepositoryFiles.ProjectReferences(project));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Odt_Project_Does_Not_Reference_Ui_Dom_Input_Or_Windows()
     {
         string[] references = RepositoryFiles.ProjectReferences(XDocument.Load(OdtProjectPath()));
@@ -34,7 +34,7 @@ public sealed class OdtArchitectureTests
         Assert.DoesNotContain(references, reference => reference.Contains("Windows", StringComparison.Ordinal));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Odt_Codec_Has_No_Module_Initializer()
     {
         MethodInfo[] initializers = typeof(OdtDocumentCodec).Assembly

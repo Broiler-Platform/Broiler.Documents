@@ -10,7 +10,7 @@
     <AssemblyName>Broiler.Documents.Pdf.Fonts</AssemblyName>
     <PackageId>Broiler.Documents.Pdf.Fonts</PackageId>
     <Description>Composable PDF font-program reader. Adapts the Broiler.Graphics font parser to the Broiler.Documents.Pdf font extension point; nothing here is composed by default.</Description>
-    <IsPackable>false</IsPackable>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
 
   <!--

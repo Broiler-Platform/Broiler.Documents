@@ -16,7 +16,7 @@ public sealed class RichTextDocumentSliceInsertTests
 
     // ---- Slice ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Slice_Within_A_Paragraph_Preserves_Runs()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(new[]
@@ -30,7 +30,7 @@ public sealed class RichTextDocumentSliceInsertTests
         Assert.True(slice.Paragraphs[0].StyleAt(0).Bold);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Slice_Across_Paragraphs_Keeps_Structure_And_Styles()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(new[]
@@ -46,7 +46,7 @@ public sealed class RichTextDocumentSliceInsertTests
         Assert.True(slice.Paragraphs[1].StyleAt(0).Bold);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Slice_Of_An_Empty_Range_Is_Empty()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("abc");
@@ -58,7 +58,7 @@ public sealed class RichTextDocumentSliceInsertTests
 
     // ---- InsertDocument (document level) ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void InsertDocument_Single_Paragraph_Merges_Into_The_Target()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("ac");
@@ -70,7 +70,7 @@ public sealed class RichTextDocumentSliceInsertTests
         Assert.True(result.Document.Paragraphs[0].StyleAt(1).Bold);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void InsertDocument_Multiple_Paragraphs_Splits_The_Target()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("aXc");
@@ -88,7 +88,7 @@ public sealed class RichTextDocumentSliceInsertTests
 
     // ---- RichTextEditor.InsertDocument (transactional) ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Editor_InsertDocument_Inserts_At_Caret_And_Is_Undoable()
     {
         var editor = new RichTextEditor(RichTextDocument.FromPlainText("abc"));
@@ -103,7 +103,7 @@ public sealed class RichTextDocumentSliceInsertTests
         Assert.Equal("abc", editor.Document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Editor_InsertDocument_Replaces_The_Selection()
     {
         var editor = new RichTextEditor(RichTextDocument.FromPlainText("abc"));
@@ -114,7 +114,7 @@ public sealed class RichTextDocumentSliceInsertTests
         Assert.Equal("aXYc", editor.Document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Editor_InsertDocument_Ignores_Empty_Content()
     {
         var editor = new RichTextEditor(RichTextDocument.FromPlainText("abc"));

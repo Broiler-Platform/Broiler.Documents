@@ -43,7 +43,7 @@ public sealed class RtfConformanceTests
         Assert.Equal("hello", Read("{\\rtf1 " + word + " hello}").PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Ignored_Line_Spacing_Leaves_The_Default()
     {
         // \sl is ignored, so LineSpacing stays at the ParagraphStyle default (1).

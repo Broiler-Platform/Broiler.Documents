@@ -75,7 +75,7 @@ public sealed class PdfTableRenderTests
         return fills;
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Puts_The_Cells_Of_A_Row_Beside_Each_Other()
     {
         string content = Write(Grid());
@@ -87,7 +87,7 @@ public sealed class PdfTableRenderTests
         Assert.Equal(left.X + 100, right.X, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Puts_The_Second_Row_Under_The_First()
     {
         string content = Write(Grid());
@@ -99,7 +99,7 @@ public sealed class PdfTableRenderTests
         Assert.Equal(OriginOf(content, "a1").X, OriginOf(content, "a2").X, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Paints_A_Cells_Shading_Before_Its_Text()
     {
         string content = Write(Grid(shading: BColor.FromArgb(0xFF, 0xAE, 0xCF, 0x00)));
@@ -110,7 +110,7 @@ public sealed class PdfTableRenderTests
             "the cell was painted over its own text");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Draws_Only_The_Edges_A_Cell_States()
     {
         // Top only. Each edge is its own filled rectangle, so a cell that turns
@@ -124,13 +124,13 @@ public sealed class PdfTableRenderTests
         Assert.Single(Fills(content));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Draws_All_Four_Edges_When_A_Cell_States_Them()
     {
         Assert.Equal(4, Fills(Write(Grid(borders: CellBorders.All(Hairline)))).Count);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_Without_Tables_Paints_Nothing()
     {
         Assert.Empty(Fills(Write(RichTextDocument.FromPlainText("body"))));

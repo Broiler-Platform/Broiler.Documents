@@ -216,7 +216,7 @@ public sealed class OdtTableTests
         Assert.DoesNotContain("<table:table", reader.ReadToEnd(), StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Minimum_Height_A_Row_States()
     {
         RichTextDocument document = ReadWithRowStyle(
@@ -228,7 +228,7 @@ public sealed class OdtTableTests
         Assert.Equal(0, table.Rows[1].MinHeight);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Fixed_Row_Height_Is_Read_As_A_Minimum_Too()
     {
         // ODF's style:row-height is a fixed height. Honoured exactly it would clip
@@ -242,7 +242,7 @@ public sealed class OdtTableTests
         Assert.Equal(72, Assert.Single(document.Tables).Rows[0].MinHeight, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Row_Stating_Both_Heights_Takes_The_Larger()
     {
         RichTextDocument document = ReadWithRowStyle(
@@ -252,7 +252,7 @@ public sealed class OdtTableTests
         Assert.Equal(90, Assert.Single(document.Tables).Rows[0].MinHeight, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Optimal_Height_Row_Asks_For_Nothing()
     {
         // Optimal is the height the content needs, which is what a row without a
@@ -264,7 +264,7 @@ public sealed class OdtTableTests
         Assert.Equal(0, Assert.Single(document.Tables).Rows[0].MinHeight);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Row_Height_Round_Trips()
     {
         RichTextDocument source = ReadWithRowStyle(
@@ -276,7 +276,7 @@ public sealed class OdtTableTests
         Assert.Equal(0, table.Rows[1].MinHeight);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Two_Writes_Of_A_Document_With_Row_Heights_Are_Still_Byte_Identical()
     {
         // The row styles are minted on first use and cached by their formatted

@@ -6,7 +6,7 @@ namespace Broiler.Documents.Markdown.Tests;
 
 public sealed class MarkdownDocumentCodecProbeTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Probe_Matches_Block_Syntax_Conservatively()
     {
         var codec = new MarkdownDocumentCodec();
@@ -18,7 +18,7 @@ public sealed class MarkdownDocumentCodecProbeTests
         Assert.Equal("text/markdown", result.MimeType);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Probe_Matches_File_And_Mime_Hints_For_Plain_Markdown()
     {
         var codec = new MarkdownDocumentCodec();
@@ -30,7 +30,7 @@ public sealed class MarkdownDocumentCodecProbeTests
         Assert.Equal(DocumentProbeConfidence.Low, result.Confidence);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Probe_Does_Not_Claim_Unhinted_Plain_Text()
     {
         var codec = new MarkdownDocumentCodec();
@@ -39,7 +39,7 @@ public sealed class MarkdownDocumentCodecProbeTests
         Assert.False(result.IsMatch);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Catalog_Selects_Markdown_Without_Catalog_Changes()
     {
         var catalog = new DocumentCodecCatalog(new DocumentCodec[]

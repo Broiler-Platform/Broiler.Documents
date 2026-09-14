@@ -6,7 +6,10 @@ Push-Location (Split-Path $PSScriptRoot -Parent)
 try {
     # A fresh directory prevents reports from earlier runs masking missing tests.
     $results = Join-Path 'test-results' ("unit-" + [guid]::NewGuid())
+    # xUnit's attribute Timeout only supports async tests. Bound synchronous
+    # parser/codec hangs at the test-host level instead, including theory cases.
     & dotnet test Broiler.Documents.slnx -c $Configuration --no-build --nologo `
+        --blame-hang-timeout 10m --blame-hang-dump-type none `
         --logger 'trx;LogFilePrefix=broiler' --results-directory $results
     if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed.' }
     $executed = 0

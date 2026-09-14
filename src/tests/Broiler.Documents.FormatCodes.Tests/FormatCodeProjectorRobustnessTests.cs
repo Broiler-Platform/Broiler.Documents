@@ -9,7 +9,7 @@ public sealed class FormatCodeProjectorRobustnessTests
 {
     private readonly FormatCodeProjector _projector = new();
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Pending_Formatting_Is_A_Separate_Noncanonical_Overlay()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("x");
@@ -32,7 +32,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         });
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Empty_Link_Is_Effectively_Default()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(
@@ -41,7 +41,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         Assert.Equal("x", _projector.Project(document).Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Unknown_And_OutOfDomain_Paragraph_State_Is_Preserved_With_Diagnostics()
     {
         ParagraphStyle style = ParagraphStyle.Default with
@@ -63,7 +63,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         Assert.Contains(projection.Diagnostics, diagnostic => diagnostic.Code == "FC1004");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Unpaired_Surrogate_Is_Escaped_With_A_Diagnostic()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("a\uD800b");
@@ -74,7 +74,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         Assert.Contains(projection.Diagnostics, diagnostic => diagnostic.Code == "FC1005");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Configured_Resource_Limits_Fail_Before_Expansion()
     {
         Assert.Throws<FormatCodeProjectionLimitException>(() => _projector.Project(
@@ -92,7 +92,7 @@ public sealed class FormatCodeProjectorRobustnessTests
             new FormatCodeProjectionOptions { MaxQuotedValueCharacters = 3 }));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Cancellation_Is_Observed()
     {
         using var cancellation = new CancellationTokenSource();
@@ -103,7 +103,7 @@ public sealed class FormatCodeProjectorRobustnessTests
             cancellationToken: cancellation.Token));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Equivalent_Normalized_Documents_Have_Identical_Output()
     {
         InlineStyle style = new() { Bold = true, Foreground = BColor.Blue };
@@ -116,7 +116,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         Assert.Single(mergedRuns.Paragraphs[0].Runs);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Deterministic_Randomized_Styles_Project_Identically_When_Rebuilt()
     {
         var random = new Random(0xB01);
@@ -141,7 +141,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Project_References_Only_The_Model_Project_And_No_Platform_Package()
     {
         XDocument project = XDocument.Load(ProjectPath());

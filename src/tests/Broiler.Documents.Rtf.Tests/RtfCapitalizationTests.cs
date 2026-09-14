@@ -13,7 +13,7 @@ public sealed class RtfCapitalizationTests
         return codec.Read(stream).Document;
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Caps_As_An_Attribute_Not_As_Uppercased_Text()
     {
         RichTextDocument document = Read(@"{\rtf1\ansi{\caps Elene Bartky}}");
@@ -23,7 +23,7 @@ public sealed class RtfCapitalizationTests
         Assert.Equal(TextCapitalization.AllCaps, paragraph.StyleAt(0).Capitalization);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Small_Caps()
     {
         RichTextDocument document = Read(@"{\rtf1\ansi{\scaps Kontakt}}");
@@ -33,7 +33,7 @@ public sealed class RtfCapitalizationTests
             Assert.Single(document.Paragraphs).StyleAt(0).Capitalization);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Caps0_Turns_Capitalization_Off()
     {
         RichTextDocument document = Read(@"{\rtf1\ansi{\caps\caps0 plain}}");
@@ -44,7 +44,7 @@ public sealed class RtfCapitalizationTests
     }
 
     /// <summary>Each control word clears only the kind it names.</summary>
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Scaps0_Leaves_An_Active_Caps_State_Alone()
     {
         RichTextDocument document = Read(@"{\rtf1\ansi{\caps\scaps0 loud}}");
@@ -54,7 +54,7 @@ public sealed class RtfCapitalizationTests
             Assert.Single(document.Paragraphs).StyleAt(0).Capitalization);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Plain_Resets_Capitalization()
     {
         RichTextDocument document = Read(@"{\rtf1\ansi{\caps\plain quiet}}");

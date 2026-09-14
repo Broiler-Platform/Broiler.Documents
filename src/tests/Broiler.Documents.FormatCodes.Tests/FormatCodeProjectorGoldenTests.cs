@@ -7,7 +7,7 @@ public sealed class FormatCodeProjectorGoldenTests
 {
     private readonly FormatCodeProjector _projector = new();
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Canonical_User_Example_Is_Exact()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(
@@ -19,7 +19,7 @@ public sealed class FormatCodeProjectorGoldenTests
         Assert.Equal("[Bold ON]Hello World![Bold OFF]", projection.Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Changed_Inline_Properties_Close_Reverse_Then_Open_Forward()
     {
         RichTextParagraph paragraph = RichTextParagraph
@@ -36,7 +36,7 @@ public sealed class FormatCodeProjectorGoldenTests
             projection.Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Inline_Field_Uses_The_Frozen_Vocabulary_And_Order()
     {
         var style = new InlineStyle
@@ -66,7 +66,7 @@ public sealed class FormatCodeProjectorGoldenTests
             projection.Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Capitalization_Projects_Its_Kind_And_Closes_As_One_Property()
     {
         RichTextParagraph paragraph = RichTextParagraph
@@ -81,7 +81,7 @@ public sealed class FormatCodeProjectorGoldenTests
             projection.Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Paragraph_Properties_Precede_Empty_Paragraph_Structure()
     {
         ParagraphStyle style = ParagraphStyle.Default with
@@ -108,7 +108,7 @@ public sealed class FormatCodeProjectorGoldenTests
         Assert.Equal(FormatCodeTokenKind.StructureCode, projection.Tokens[^1].Kind);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Content_Syntax_And_Nonprinting_Characters_Cannot_Be_Commands()
     {
         string content = "A" + "\\" + "[" + "]" + "\t" + "\u2028" + "\u0001" + "\u200E" + "\u2029" + "😀";
@@ -124,7 +124,7 @@ public sealed class FormatCodeProjectorGoldenTests
         Assert.Contains(projection.Tokens, token => token.DisplayText == "[Line Break]");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Embedded_Image_Projects_As_An_Image_Structure_Code()
     {
         var image = new InlineImage(new byte[] { 1, 2, 3 }, "image/png", 40, 20, "a logo");
@@ -144,7 +144,7 @@ public sealed class FormatCodeProjectorGoldenTests
         Assert.Equal(FormatCodeProperty.Image, token.EditDescriptor?.Property);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Paragraphs_Reset_Inline_State_And_Use_One_Canonical_Boundary()
     {
         InlineStyle bold = new() { Bold = true };
@@ -159,7 +159,7 @@ public sealed class FormatCodeProjectorGoldenTests
             _projector.Project(document).Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Canonical_Tokens_Concatenate_Exactly_To_Text()
     {
         FormatCodeProjection projection = _projector.Project(
@@ -169,7 +169,7 @@ public sealed class FormatCodeProjectorGoldenTests
         Assert.All(projection.Tokens, token => Assert.Equal(token.DisplayText.Length, token.ProjectedLength));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Projects_Justification_As_Its_Own_Code_Without_A_Diagnostic()
     {
         FormatCodeProjection projection = _projector.Project(

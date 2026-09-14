@@ -34,7 +34,7 @@ public sealed class CorpusControlGuardTests
     private static JsonDocument Load(string relative) =>
         JsonDocument.Parse(File.ReadAllText(Path.Combine(PdfGuardRoots.Component, relative)));
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Baseline_Row_Is_Classified_Merely_By_Being_Written_Down()
     {
         // A regenerated row starts as a suspected defect on purpose, and that
@@ -63,7 +63,7 @@ public sealed class CorpusControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Documented_Row_Cites_A_Document_That_Exists()
     {
         // A citation nobody can follow is the same as none, and this is the one
@@ -86,7 +86,7 @@ public sealed class CorpusControlGuardTests
             "Documented baseline rows citing a document that is not there: " + string.Join(", ", missing));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Baseline_Row_Names_A_Document_The_Corpus_Actually_Has()
     {
         // A renamed sample leaves its rows behind, and rows for a document
@@ -111,7 +111,7 @@ public sealed class CorpusControlGuardTests
             "The baseline holds rows for documents the corpus does not define: " + string.Join(", ", orphaned));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_External_Register_Is_Closed_And_Says_So()
     {
         // The register is the door an outside document would have to come
@@ -130,7 +130,7 @@ public sealed class CorpusControlGuardTests
             "the format's own IP register to have moved first, and this guard updated to say so.");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Corpus_Commits_No_Document_Of_Its_Own()
     {
         // The corpus materialises .docx, .odt, .rtf and .html, and
@@ -159,7 +159,7 @@ public sealed class CorpusControlGuardTests
             "workspace under the component root; --keep leaves it where it is rather than moving it here.");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Project_In_The_Tree_Is_In_The_Solution()
     {
         // The test-count guard in CI is a floor, so a project nobody registered

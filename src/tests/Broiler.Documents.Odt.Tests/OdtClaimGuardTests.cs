@@ -32,7 +32,7 @@ public sealed class OdtClaimGuardTests
     /// <summary>The documents a reader consults to learn what the ODT codec does.</summary>
     private static readonly string[] DescribingDocuments = [Conformance, Register];
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Diagnostic_Code_The_Codec_Declares_Is_Described_Somewhere()
     {
         string root = OdtGuardRoots.Component;
@@ -51,7 +51,7 @@ public sealed class OdtClaimGuardTests
         Assert.Empty(undocumented);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Register_Names_Only_Diagnostic_Codes_That_Exist()
     {
         string root = OdtGuardRoots.Component;
@@ -82,7 +82,7 @@ public sealed class OdtClaimGuardTests
         "ODF conformant", "OpenDocument conformant", "fully conforming",
     ];
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Shipped_Package_Description_Makes_No_Claim_The_Register_Declines()
     {
         string root = OdtGuardRoots.Component;
@@ -106,7 +106,7 @@ public sealed class OdtClaimGuardTests
         Assert.Empty(offending);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Format_Is_Named_As_The_Register_Approves()
     {
         string root = OdtGuardRoots.Component;
@@ -123,7 +123,7 @@ public sealed class OdtClaimGuardTests
         Assert.Contains("## Approved labels", register, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Data_File_Sits_Beside_The_Codec()
     {
         string root = OdtGuardRoots.Component;
@@ -143,7 +143,7 @@ public sealed class OdtClaimGuardTests
         Assert.Empty(dataFiles);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Codec_Takes_No_Package_Reference()
     {
         string root = OdtGuardRoots.Component;
@@ -159,7 +159,7 @@ public sealed class OdtClaimGuardTests
         Assert.Empty(project.Descendants("PackageReference"));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_OpenDocument_File_Is_Committed_Anywhere()
     {
         string root = OdtGuardRoots.Component;
@@ -181,7 +181,7 @@ public sealed class OdtClaimGuardTests
         Assert.Empty(documents);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Conformance_Document_Defers_To_The_Register_On_Rights()
     {
         string root = OdtGuardRoots.Component;

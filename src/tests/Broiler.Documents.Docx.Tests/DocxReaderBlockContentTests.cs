@@ -10,7 +10,7 @@ namespace Broiler.Documents.Docx.Tests;
 /// </summary>
 public sealed class DocxReaderBlockContentTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Paragraphs_Held_By_A_Table()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -23,7 +23,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Equal("right", result.Document.Paragraphs[1].Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Table_Cells_In_Row_Major_Order()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -41,7 +41,7 @@ public sealed class DocxReaderBlockContentTests
     /// the single empty paragraph Word requires before <c>w:sectPr</c>. Before the
     /// fix this read as one empty paragraph and no text at all.
     /// </summary>
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Cv_Shaped_Document_Whose_Body_Is_One_Layout_Table()
     {
         string body =
@@ -63,7 +63,7 @@ public sealed class DocxReaderBlockContentTests
             diagnostic => diagnostic.Code == "docx.document.empty");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Tables_Nested_Inside_A_Cell()
     {
         string inner = DocxTestPackage.Table([[DocxTestPackage.Paragraph("inner")]]);
@@ -75,7 +75,7 @@ public sealed class DocxReaderBlockContentTests
             result.Document.Paragraphs.Select(paragraph => paragraph.Text).ToArray());
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Paragraph_Styles_Inside_Table_Cells()
     {
         string cell =
@@ -91,7 +91,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Equal(ListKind.Bullet, paragraph.Style.ListKind);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Run_Styles_Inside_Table_Cells()
     {
         string cell =
@@ -105,7 +105,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Equal(18f, style.FontSize);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Block_Level_Structured_Document_Tags()
     {
         string body =
@@ -118,7 +118,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Equal("placeholder", Assert.Single(result.Document.Paragraphs).Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Table_Rows_Wrapped_In_A_Structured_Document_Tag()
     {
         string row =
@@ -131,7 +131,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Equal("row in a content control", Assert.Single(result.Document.Paragraphs).Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Inserted_Revisions_And_Skips_Deleted_Ones()
     {
         string body =
@@ -144,7 +144,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.revision.delete");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Only_One_Branch_Of_Alternate_Content()
     {
         string body =
@@ -158,7 +158,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Equal("choice", Assert.Single(result.Document.Paragraphs).Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Falls_Back_When_Alternate_Content_Has_No_Choice()
     {
         string body =
@@ -171,7 +171,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Equal("fallback", Assert.Single(result.Document.Paragraphs).Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Skips_Structural_Blocks_Without_A_Diagnostic()
     {
         string body =
@@ -188,7 +188,7 @@ public sealed class DocxReaderBlockContentTests
             diagnostic => diagnostic.Code == "docx.block.unsupported");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reports_An_Unsupported_Block_Once_Per_Element_Name()
     {
         string body =
@@ -207,7 +207,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Equal("text", Assert.Single(result.Document.Paragraphs).Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Warns_When_Block_Content_Produces_No_Paragraphs()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody("<w:tbl><w:tblPr/><w:tblGrid/></w:tbl>");
@@ -216,7 +216,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.document.empty");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Does_Not_Warn_When_The_Body_Is_Genuinely_Empty()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody("<w:sectPr/>");
@@ -224,7 +224,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.document.empty");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reports_A_Read_Summary_With_Paragraph_And_Table_Counts()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -239,7 +239,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Contains("1 table(s)", summary.Message, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Two_Tables_As_Two_Tables()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -252,7 +252,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.table.flattened");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Stops_At_MaxGroupDepth_Instead_Of_Recursing_Without_Bound()
     {
         var body = new StringBuilder(DocxTestPackage.Paragraph("deepest"));
@@ -267,7 +267,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.Equal(string.Empty, result.Document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Deeply_Nested_Tables_Within_MaxGroupDepth()
     {
         var body = new StringBuilder(DocxTestPackage.Paragraph("deepest"));
@@ -280,7 +280,7 @@ public sealed class DocxReaderBlockContentTests
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.limit.depth");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Unreferenced_Header_Part_Is_Not_Read()
     {
         var extraParts = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -310,7 +310,7 @@ public sealed class DocxReaderBlockContentTests
     }
 
     /// <summary>A DOCX Broiler wrote must still round-trip through the block walker.</summary>
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Round_Trips_A_Document_Written_By_The_Docx_Writer()
     {
         RichTextDocument original = RichTextDocument.FromParagraphs(

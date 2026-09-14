@@ -2,7 +2,7 @@ namespace Broiler.Documents.Markdown.Tests;
 
 public sealed class MarkdownReaderTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Headings_Paragraphs_And_Inline_Styles()
     {
         RichTextDocument document = Read("# Title\n\nHello **bold** *italic* `code` ~~gone~~");
@@ -18,7 +18,7 @@ public sealed class MarkdownReaderTests
         Assert.True(second.StyleAt(23).Strikethrough);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Links_And_Drops_Disallowed_Schemes()
     {
         DocumentReadResult result = ReadResult("[ok](https://example.test) [bad](javascript:alert(1))");
@@ -30,7 +30,7 @@ public sealed class MarkdownReaderTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.link");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Bullet_And_Numbered_Lists()
     {
         RichTextDocument document = Read("- One\n- Two\n\n1. First\n2. Second");
@@ -42,7 +42,7 @@ public sealed class MarkdownReaderTests
         Assert.Equal(ListKind.Numbered, document.Paragraphs[3].Style.ListKind);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Blockquotes_As_Indented_Paragraphs()
     {
         RichTextDocument document = Read("> quoted text");
@@ -51,7 +51,7 @@ public sealed class MarkdownReaderTests
         Assert.Equal(1, document.Paragraphs[0].Style.IndentLevel);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Hard_Line_Breaks_As_Soft_Breaks()
     {
         RichTextDocument document = Read("A  \nB");
@@ -59,7 +59,7 @@ public sealed class MarkdownReaderTests
         Assert.Equal("A" + (char)0x2028 + "B", document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Fenced_Code_As_Monospace_With_Soft_Breaks()
     {
         RichTextDocument document = Read("```\na\nb\n```");
@@ -77,7 +77,7 @@ public sealed class MarkdownReaderTests
         return codec.Read(stream);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Image_Becomes_Its_Description_And_Says_So()
     {
         // This reader builds no image - they are outside the subset - so the
@@ -93,7 +93,7 @@ public sealed class MarkdownReaderTests
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.link");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Image_With_No_Description_Leaves_Nothing_Behind()
     {
         // A decorative image is written with an empty description, and that is
@@ -105,7 +105,7 @@ public sealed class MarkdownReaderTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.image.dropped");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Writers_Own_Data_Uri_Image_Reads_Back_As_Its_Description()
     {
         // The round trip this codec actually performs on itself: the writer
@@ -117,7 +117,7 @@ public sealed class MarkdownReaderTests
         Assert.Equal("a square b", result.Document.Paragraphs[0].Text);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // Not images, and none of them should be mistaken for one.
     [InlineData(@"literal \!\[not an image\] here", "literal ![not an image] here")]
     [InlineData("Look! [label](https://example.test) after", "Look! label after")]

@@ -41,7 +41,7 @@ public sealed class DocxTableTests
         return new DocxDocumentCodec().Read(stream).Document;
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Table_As_A_Grid_Over_Its_Paragraphs()
     {
         RichTextDocument document = Read(SimpleTable());
@@ -56,7 +56,7 @@ public sealed class DocxTableTests
         Assert.Equal("a1\nb1\nc1\na2\nb2\nc2", document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Each_Cell_Names_The_Paragraphs_It_Holds()
     {
         DocumentTable table = Assert.Single(Read(SimpleTable()).Tables);
@@ -70,7 +70,7 @@ public sealed class DocxTableTests
         Assert.Equal(1, last.ParagraphCount);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Cell_Holding_Several_Paragraphs_Names_All_Of_Them()
     {
         RichTextDocument document = Read(Table(
@@ -89,7 +89,7 @@ public sealed class DocxTableTests
         Assert.Equal("one\ntwo\nright", document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Grid_In_Points()
     {
         DocumentTable table = Assert.Single(Read(SimpleTable()).Tables);
@@ -100,7 +100,7 @@ public sealed class DocxTableTests
         Assert.Equal(270, table.TotalWidth, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Horizontal_Span_And_The_Column_It_Starts_In()
     {
         RichTextDocument document = Read(Table(
@@ -118,7 +118,7 @@ public sealed class DocxTableTests
         Assert.Equal(1, row.Cells[1].ColumnSpan);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Vertical_Merge_As_A_Row_Span()
     {
         RichTextDocument document = Read(Table(
@@ -138,7 +138,7 @@ public sealed class DocxTableTests
         Assert.Equal(1, table.Rows[1].Cells[1].RowSpan);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Merge_Continuation_With_Nothing_Above_It_Is_Its_Own_Cell()
     {
         RichTextDocument document = Read(Table(
@@ -154,7 +154,7 @@ public sealed class DocxTableTests
         Assert.Equal(1, table.Rows[0].Cells[0].RowSpan);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Cell_Shading()
     {
         RichTextDocument document = Read(Table(
@@ -169,7 +169,7 @@ public sealed class DocxTableTests
         Assert.True(row.Cells[1].Shading.IsEmpty);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Cell_Inherits_The_Tables_Borders()
     {
         RichTextDocument document = Read(Table(
@@ -192,7 +192,7 @@ public sealed class DocxTableTests
         Assert.Equal(0xFF, borders.Top.Color.R);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Cells_Own_Borders_Win_Over_The_Tables()
     {
         RichTextDocument document = Read(Table(
@@ -205,7 +205,7 @@ public sealed class DocxTableTests
         Assert.True(row.Cells[1].Borders.Top.IsVisible);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Cell_Padding_The_Table_States()
     {
         DocumentTable table = Assert.Single(Read(Table(
@@ -216,7 +216,7 @@ public sealed class DocxTableTests
         Assert.Equal(10, table.CellPadding, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Table_Stating_No_Margins_Takes_Words_Default()
     {
         Assert.Equal(
@@ -225,7 +225,7 @@ public sealed class DocxTableTests
             3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Nested_Table_As_A_Table_Inside_The_Cell()
     {
         string inner = Table(string.Empty, "<w:tblGrid><w:gridCol w:w=\"900\"/></w:tblGrid>", Row(Cell("deep")));
@@ -246,7 +246,7 @@ public sealed class DocxTableTests
         Assert.Equal("deep\nafter\nright", document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reports_A_Table_Style_It_Cannot_Apply()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(Table(
@@ -257,7 +257,7 @@ public sealed class DocxTableTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.table.style");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Table_Round_Trips_With_Its_Grid_And_Text()
     {
         RichTextDocument actual = RoundTrip(Read(SimpleTable()));
@@ -269,7 +269,7 @@ public sealed class DocxTableTests
         Assert.Equal("a1\nb1\nc1\na2\nb2\nc2", actual.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Spans_Shading_And_Borders_Round_Trip()
     {
         RichTextDocument source = Read(Table(
@@ -290,7 +290,7 @@ public sealed class DocxTableTests
         Assert.Equal(0x12, table.Rows[0].Cells[0].Borders.Top.Color.R);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Nested_Table_Round_Trips_Inside_Its_Cell()
     {
         string inner = Table(string.Empty, "<w:tblGrid><w:gridCol w:w=\"900\"/></w:tblGrid>", Row(Cell("deep")));
@@ -306,7 +306,7 @@ public sealed class DocxTableTests
         Assert.Equal("deep\nafter\nright", actual.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Table_Written_Into_A_Package_Is_A_Table()
     {
         using var package = new System.IO.Compression.ZipArchive(
@@ -320,7 +320,7 @@ public sealed class DocxTableTests
         Assert.Contains("<w:tc>", xml, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_Without_Tables_Writes_None()
     {
         using var package = new System.IO.Compression.ZipArchive(
@@ -331,7 +331,7 @@ public sealed class DocxTableTests
         Assert.DoesNotContain("<w:tbl", reader.ReadToEnd(), StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Height_A_Row_States()
     {
         // 4032 twips is the first row of the CV template this was written for:
@@ -347,7 +347,7 @@ public sealed class DocxTableTests
         Assert.Equal(0, table.Rows[1].MinHeight);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Bare_Height_Is_A_Minimum_Even_Though_The_Rule_Defaults_To_Auto()
     {
         // The specification's default for w:hRule is auto, and no producer means
@@ -366,7 +366,7 @@ public sealed class DocxTableTests
             3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Explicit_Auto_Row_Asks_For_No_Height()
     {
         RichTextDocument document = Read(Table(
@@ -376,7 +376,7 @@ public sealed class DocxTableTests
         Assert.Equal(0, Assert.Single(document.Tables).Rows[0].MinHeight);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Exact_Height_Is_Applied_As_A_Minimum_And_Reported()
     {
         // Clipping a row's own text loses content the document has, so an exact
@@ -389,7 +389,7 @@ public sealed class DocxTableTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.table.rowheight");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Row_Height_Round_Trips()
     {
         RichTextDocument source = Read(Table(

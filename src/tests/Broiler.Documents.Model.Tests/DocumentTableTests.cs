@@ -30,7 +30,7 @@ public sealed class DocumentTableTests
 
     private static DocumentTable TableOf(RichTextDocument document) => Assert.Single(document.Tables);
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Splitting_A_Cells_Paragraph_Grows_That_Cell()
     {
         RichTextDocument document = Grid().SplitParagraph(new RichTextPosition(0, 1)).Document;
@@ -46,7 +46,7 @@ public sealed class DocumentTableTests
         Assert.Equal(4, table.Rows[1].Cells[1].ParagraphIndex);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Merging_Two_Paragraphs_In_A_Cell_Shrinks_It_Again()
     {
         RichTextDocument split = Grid().SplitParagraph(new RichTextPosition(0, 1)).Document;
@@ -58,7 +58,7 @@ public sealed class DocumentTableTests
         Assert.Equal(1, table.Rows[0].Cells[1].ParagraphIndex);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Typing_Inside_A_Cell_Leaves_Every_Range_Alone()
     {
         RichTextDocument document = Grid().InsertText(new RichTextPosition(1, 2), "!").Document;
@@ -69,7 +69,7 @@ public sealed class DocumentTableTests
         Assert.Equal("b1!", document.Paragraphs[1].Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Paragraph_Added_Before_The_Table_Moves_The_Whole_Grid()
     {
         RichTextDocument document = RichTextDocument
@@ -93,7 +93,7 @@ public sealed class DocumentTableTests
         Assert.Equal(2, table.Rows[0].Cells[0].ParagraphIndex);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Paragraph_Added_After_The_Table_Moves_Nothing()
     {
         RichTextDocument document = RichTextDocument
@@ -107,7 +107,7 @@ public sealed class DocumentTableTests
         Assert.Equal(4, table.ParagraphCount);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Deleting_A_Tables_Whole_Text_Leaves_The_Grid_Standing()
     {
         RichTextDocument document = Grid()
@@ -132,7 +132,7 @@ public sealed class DocumentTableTests
         Assert.Equal(document.ParagraphCount, held);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Nested_Table_Moves_With_The_Cell_It_Is_In()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs([
@@ -161,7 +161,7 @@ public sealed class DocumentTableTests
         Assert.Equal(2, Assert.Single(outer.Rows[0].Cells[0].Tables).ParagraphIndex);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Applying_A_Style_Keeps_The_Tables()
     {
         RichTextDocument document = Grid().ApplyInlineStyle(
@@ -171,7 +171,7 @@ public sealed class DocumentTableTests
         Assert.Equal(4, TableOf(document).ParagraphCount);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Table_Starting_At_A_Paragraph_Is_The_One_The_Body_Walks()
     {
         RichTextDocument document = Grid();
@@ -181,7 +181,7 @@ public sealed class DocumentTableTests
         Assert.Null(document.TableStartingAt(4));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Cell_With_No_Grid_Still_States_Where_It_Is()
     {
         var cell = new TableCell(3, 2, 1, columnSpan: 2, rowSpan: 3);
@@ -192,7 +192,7 @@ public sealed class DocumentTableTests
         Assert.Empty(cell.Tables);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Border_Draws_Only_When_It_Has_A_Width_And_A_Colour()
     {
         Assert.False(TableBorder.None.IsVisible);

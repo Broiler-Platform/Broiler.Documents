@@ -42,14 +42,14 @@ public sealed class PdfPageBreakTests
 
     private static string Latin1(byte[] bytes) => Encoding.Latin1.GetString(bytes);
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Starts_A_New_Page()
     {
         // Two short paragraphs that would otherwise share a page.
         Assert.Equal(2, Write(Document(false, true)).Result.PageCount);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Without_A_Break_They_Share_A_Page()
     {
         // The other half of the assertion, and the one that stops the test above
@@ -57,7 +57,7 @@ public sealed class PdfPageBreakTests
         Assert.Equal(1, Write(Document(false, false)).Result.PageCount);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Broken_Paragraph_Starts_At_The_Top_Of_Its_Page()
     {
         // A page count can be right while the text is in the wrong place. Both
@@ -72,7 +72,7 @@ public sealed class PdfPageBreakTests
             "without a break the second paragraph should sit below the first");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_On_The_First_Paragraph_Does_Not_Open_An_Empty_Page()
     {
         // A document that opens with a break is asking to start on a fresh page,
@@ -81,13 +81,13 @@ public sealed class PdfPageBreakTests
         Assert.Equal(1, Write(Document(true, false)).Result.PageCount);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Break_Is_Taken()
     {
         Assert.Equal(4, Write(Document(false, true, true, true)).Result.PageCount);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Consecutive_Breaks_Each_Open_A_Page()
     {
         // Three paragraphs, the last two both asking to start a page. The middle
@@ -96,7 +96,7 @@ public sealed class PdfPageBreakTests
         Assert.Equal(3, Write(Document(false, true, true)).Result.PageCount);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Empty_Paragraph_Can_Carry_A_Break()
     {
         // A break lives on the paragraph rather than in the text, so a paragraph
@@ -114,7 +114,7 @@ public sealed class PdfPageBreakTests
         Assert.Equal(2, Write(document).Result.PageCount);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Mapped_Boundary_Does_Not_Come_Back_As_A_Break()
     {
         // Pinning the limit rather than the capability, because the shape of this

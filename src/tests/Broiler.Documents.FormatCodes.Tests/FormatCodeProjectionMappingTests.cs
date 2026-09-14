@@ -4,7 +4,7 @@ public sealed class FormatCodeProjectionMappingTests
 {
     private readonly FormatCodeProjector _projector = new();
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Document_Boundary_Affinity_Selects_Earliest_And_Latest_Code_Carets()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(
@@ -24,7 +24,7 @@ public sealed class FormatCodeProjectionMappingTests
         Assert.Equal(0, after.OffsetWithinToken);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Literal_Text_Maps_Linearly_In_Both_Directions()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("abc");
@@ -39,7 +39,7 @@ public sealed class FormatCodeProjectionMappingTests
         Assert.Equal(afterA, mapped.DocumentPosition);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Expanded_Escape_Maps_First_Half_Before_And_Second_Half_After()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("[");
@@ -50,7 +50,7 @@ public sealed class FormatCodeProjectionMappingTests
         Assert.Equal(document.End, projection.MapProjectedOffset(2).DocumentPosition);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Literal_Surrogate_Interior_Collapses_To_The_Model_Boundary()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("😀");
@@ -60,7 +60,7 @@ public sealed class FormatCodeProjectionMappingTests
         Assert.Equal(document.End, projection.MapProjectedOffset(2).DocumentPosition);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Projected_Offset_Maps_To_A_Valid_Document_Position()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("a[\t]\nb\u2028c");
@@ -73,7 +73,7 @@ public sealed class FormatCodeProjectionMappingTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Empty_Paragraph_And_End_Of_Document_Are_Addressable()
     {
         RichTextDocument document = RichTextDocument.Empty;
@@ -85,7 +85,7 @@ public sealed class FormatCodeProjectionMappingTests
         Assert.Equal(0, projection.MapDocumentPosition(document.End).TokenIndex);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Paragraph_Break_Exposes_Both_Source_Boundaries()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("a\nb");

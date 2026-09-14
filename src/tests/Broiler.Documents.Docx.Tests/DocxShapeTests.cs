@@ -54,7 +54,7 @@ public sealed class DocxShapeTests
     private static RichTextDocument Read(string runXml) =>
         DocxTestPackage.ReadBody("<w:p>" + runXml + "<w:r><w:t>body</w:t></w:r></w:p>").Document;
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Gradient_Shape_With_Its_Colours_And_Angle()
     {
         DocumentShape shape = Assert.Single(Read(GradientShape).Shapes);
@@ -67,7 +67,7 @@ public sealed class DocxShapeTests
         Assert.Equal(60, shape.Fill.AngleDegrees, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Places_A_Shape_In_Points_From_The_Text_Column()
     {
         DocumentShape shape = Assert.Single(Read(GradientShape).Shapes);
@@ -79,7 +79,7 @@ public sealed class DocxShapeTests
         Assert.Equal(200, shape.Height, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Text_Inside_A_Text_Box()
     {
         DocumentShape shape = Assert.Single(Read(TextBoxShape).Shapes);
@@ -88,14 +88,14 @@ public sealed class DocxShapeTests
         Assert.True(shape.HasText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Keeps_A_Shape_Out_Of_The_Body_Flow()
     {
         // The words in a logo box belong to the box, not to the letter.
         Assert.Equal("body", Read(TextBoxShape).PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Solid_Fill_And_Its_Outline()
     {
         DocumentShape shape = Assert.Single(Read(TextBoxShape).Shapes);
@@ -106,13 +106,13 @@ public sealed class DocxShapeTests
         Assert.Equal(0x00, shape.Outline.R);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Outline_Turned_Off_Is_No_Outline()
     {
         Assert.True(Assert.Single(Read(GradientShape).Shapes).Outline.IsEmpty);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Anchors_A_Shape_To_The_Paragraph_It_Sits_In()
     {
         RichTextDocument document = DocxTestPackage.ReadBody(
@@ -122,7 +122,7 @@ public sealed class DocxShapeTests
         Assert.Equal(1, Assert.Single(document.Shapes).ParagraphIndex);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Shape_Reports_No_Missing_Picture()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody("<w:p>" + GradientShape + "</w:p>");
@@ -133,7 +133,7 @@ public sealed class DocxShapeTests
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.image.anchored");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Shapes_Survive_A_Round_Trip()
     {
         RichTextDocument source = Read(GradientShape + TextBoxShape);
@@ -147,7 +147,7 @@ public sealed class DocxShapeTests
         Assert.Contains(actual.Shapes, s => s.Paragraphs.Any(p => p.Text == "Put your LOGO here"));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Shape_That_States_No_Stacking_Is_Behind_The_Text()
     {
         // Neither fixture carries behindDoc, which is the letterhead case: the
@@ -155,7 +155,7 @@ public sealed class DocxShapeTests
         Assert.All(Read(GradientShape + TextBoxShape).Shapes, shape => Assert.True(shape.BehindText));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Shape_Stacked_In_Front_Of_The_Text_Keeps_That_Through_A_Round_Trip()
     {
         RichTextDocument source = Read(
@@ -172,7 +172,7 @@ public sealed class DocxShapeTests
         Assert.False(Assert.Single(actual.Shapes).BehindText);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("<wp:wrapSquare wrapText=\"bothSides\"/>", ShapeWrap.Square, WrapSide.Largest)]
     [InlineData("<wp:wrapSquare wrapText=\"left\"/>", ShapeWrap.Square, WrapSide.Left)]
     [InlineData("<wp:wrapSquare wrapText=\"right\"/>", ShapeWrap.Square, WrapSide.Right)]
@@ -191,7 +191,7 @@ public sealed class DocxShapeTests
         Assert.Equal(side, shape.WrapSide);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("<wp:wrapSquare wrapText=\"left\"/>", "wrapSquare")]
     [InlineData("<wp:wrapTopAndBottom/>", "wrapTopAndBottom")]
     public void A_Wrap_Survives_A_Round_Trip(string wrapXml, string expectedElement)
@@ -215,7 +215,7 @@ public sealed class DocxShapeTests
             Assert.Single(actual.Shapes).Wrap);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Anchors_Relative_Height_Is_The_Shapes_Z_Order()
     {
         // A letterhead states its stacking here and nowhere else: the stripe in
@@ -230,7 +230,7 @@ public sealed class DocxShapeTests
         Assert.Equal(7, Assert.Single(Read(shape).Shapes).ZOrder);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Anchor_That_States_No_Relative_Height_Reads_As_Zero()
     {
         // Zero is "the format said nothing", which leaves the order the shapes
@@ -238,7 +238,7 @@ public sealed class DocxShapeTests
         Assert.Equal(0, Assert.Single(Read(GradientShape).Shapes).ZOrder);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Z_Order_Round_Trips_Through_The_Writer()
     {
         RichTextDocument source = RichTextDocument
@@ -250,7 +250,7 @@ public sealed class DocxShapeTests
         Assert.Equal(4, Assert.Single(new DocxDocumentCodec().Read(stream).Document.Shapes).ZOrder);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Editing_The_Body_Keeps_The_Shapes()
     {
         RichTextDocument document = Read(TextBoxShape);

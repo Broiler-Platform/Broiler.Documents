@@ -2,7 +2,7 @@ namespace Broiler.Documents.Tests;
 
 public sealed class DocumentLimitsTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Default_Exposes_Positive_Bounds()
     {
         DocumentLimits limits = DocumentLimits.Default;
@@ -15,7 +15,7 @@ public sealed class DocumentLimitsTests
         Assert.True(limits.MaxBinBytes >= 0);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Non_Positive_Bounds_Are_Rejected()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new DocumentLimits(maxProbeBytes: 0));
@@ -26,7 +26,7 @@ public sealed class DocumentLimitsTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new DocumentLimits(maxBinBytes: -1));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Zero_Bin_Bytes_Is_Allowed()
     {
         var limits = new DocumentLimits(maxBinBytes: 0);

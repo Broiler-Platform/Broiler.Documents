@@ -86,8 +86,8 @@
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
-    <!-- In-solution only: IsPackable=false until the PDF delivery gates pass
-         (docs/pdf-support-roadmap.md 4.1). It still builds and tests here. -->
+    <!-- Preview PDF packages; application integration has separate delivery gates
+         (docs/pdf-support-roadmap.md 4.1). -->
     <Project Path="src/Broiler.Documents.Pdf/Broiler.Documents.Pdf.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
@@ -110,7 +110,7 @@
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
     <!-- Application head, not a published capability. IsPackable=false keeps the
-         component's package set at the eight libraries the README lists; see the
+         component's package set at the eleven libraries the README lists; see the
          project file for how to ship it as a dotnet tool. -->
     <Project Path="src/Broiler.Documents.Cli/Broiler.Documents.Cli.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />

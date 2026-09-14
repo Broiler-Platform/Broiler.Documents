@@ -18,7 +18,7 @@ public sealed class ImagePresentationTests
         return bitmap;
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Default_Presentation_Hands_Back_The_Same_Bitmap()
     {
         using BBitmap source = Opaque(8, 8);
@@ -28,7 +28,7 @@ public sealed class ImagePresentationTests
         Assert.Same(source, ImagePresentation.Default.Apply(source));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Crop_Selects_Its_Fraction_Of_The_Source()
     {
         var presentation = new ImagePresentation { CropTop = 0.25, CropLeft = 0.5 };
@@ -40,7 +40,7 @@ public sealed class ImagePresentationTests
         Assert.Equal(60, source.Height, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Crop_Produces_A_Smaller_Bitmap()
     {
         using BBitmap source = Opaque(100, 80);
@@ -50,7 +50,7 @@ public sealed class ImagePresentationTests
         Assert.Equal(60, cropped.Height);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData(0.7, 0.6)]
     [InlineData(1.0, 0.0)]
     [InlineData(0.5, 0.5)]
@@ -64,7 +64,7 @@ public sealed class ImagePresentationTests
         Assert.Equal(100, source.Width, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Negative_Crop_Asks_For_Nothing()
     {
         // Some formats allow a negative inset to pad a picture out. It is not
@@ -75,7 +75,7 @@ public sealed class ImagePresentationTests
         Assert.Equal(100, source.Width, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Ellipse_Clears_The_Corners_And_Keeps_The_Middle()
     {
         using BBitmap source = Opaque(64, 64);
@@ -95,7 +95,7 @@ public sealed class ImagePresentationTests
         Assert.Equal(0x60, middle.B);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Ellipse_Edge_Is_Sampled_Rather_Than_Stepped()
     {
         using BBitmap source = Opaque(64, 64);
@@ -120,7 +120,7 @@ public sealed class ImagePresentationTests
         Assert.True(partial, "the mask has a hard edge; no pixel is partially covered");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Ellipse_Is_Inscribed_In_The_Cropped_Box_Not_The_Source()
     {
         // Order matters. Masking first and cropping after would leave a slice of
@@ -140,7 +140,7 @@ public sealed class ImagePresentationTests
         Assert.Equal(0, presented.GetPixel(79, 39).A);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Images_Presentation_Survives_Resizing_And_Re_Identifying_It()
     {
         // Every With method has to carry it, or an edit silently un-crops a

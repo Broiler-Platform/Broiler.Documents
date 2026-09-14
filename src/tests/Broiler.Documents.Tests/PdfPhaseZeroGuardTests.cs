@@ -47,14 +47,14 @@ public sealed class PdfPhaseZeroGuardTests
         "src/Broiler.Documents.Model",
     ];
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Phase_Zero_Decisions_And_Registers_Are_Versioned()
     {
         string root = PdfGuardRoots.Component;
         Assert.All(RequiredDocuments, path => Assert.True(File.Exists(Path.Combine(root, path)), path));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Corpus_Starts_Empty_Instead_Of_Importing_Legacy_Fixtures()
     {
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
@@ -64,7 +64,7 @@ public sealed class PdfPhaseZeroGuardTests
         Assert.Empty(manifest.RootElement.GetProperty("samples").EnumerateArray());
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Cli_Has_No_Legacy_External_Pdf_Process_Surface()
     {
         // The command line this guards moved into this repository as
@@ -98,7 +98,7 @@ public sealed class PdfPhaseZeroGuardTests
             .ToArray());
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Shared_Components_Do_Not_Expose_Pdf_Specific_Types_Or_Namespaces()
     {
         string root = PdfGuardRoots.Component;

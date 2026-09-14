@@ -42,7 +42,7 @@ public sealed class ImageStoreTests
     private static InlineImage Decoded(int width, int height) =>
         new(BImageResource.FromPixels(Checkerboard(width, height)));
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Decoded_Payload_Needs_No_Decoding()
     {
         using var store = new ImageStore();
@@ -58,7 +58,7 @@ public sealed class ImageStoreTests
         Assert.Empty(store.Notes);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Decoded_Payload_Measures_From_Its_Own_Pixels()
     {
         using var store = new ImageStore();
@@ -71,7 +71,7 @@ public sealed class ImageStoreTests
         Assert.Equal(36, height, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Store_Does_Not_Alias_A_Shared_Resource()
     {
         // The resource is immutable and shared across the whole document, and
@@ -89,7 +89,7 @@ public sealed class ImageStoreTests
         Assert.Equal(0, pixels.Rgba[1]);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Bytes_That_Are_Not_An_Image_Are_Reported_Rather_Than_Thrown()
     {
         using var store = new ImageStore();

@@ -7,7 +7,7 @@ namespace Broiler.Documents.Docx.Tests;
 /// </summary>
 public sealed class DocxCapitalizationTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Caps_As_An_Attribute_Not_As_Uppercased_Text()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -18,7 +18,7 @@ public sealed class DocxCapitalizationTests
         Assert.Equal(TextCapitalization.AllCaps, paragraph.StyleAt(0).Capitalization);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_SmallCaps()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -29,7 +29,7 @@ public sealed class DocxCapitalizationTests
             Assert.Single(result.Document.Paragraphs).StyleAt(0).Capitalization);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Caps_Declared_By_A_Paragraph_Style()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -42,7 +42,7 @@ public sealed class DocxCapitalizationTests
         Assert.Equal(48f, paragraph.StyleAt(0).FontSize);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Run_Can_Turn_Off_The_Caps_Its_Style_Applied()
     {
         string paragraph =
@@ -59,7 +59,7 @@ public sealed class DocxCapitalizationTests
     }
 
     /// <summary>Turning one kind off must not disturb the other.</summary>
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Turning_SmallCaps_Off_Leaves_Inherited_AllCaps_Alone()
     {
         string paragraph =
@@ -76,7 +76,7 @@ public sealed class DocxCapitalizationTests
     }
 
     /// <summary>Word draws all caps when a run asks for both.</summary>
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void All_Caps_Wins_When_A_Run_Declares_Both()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(

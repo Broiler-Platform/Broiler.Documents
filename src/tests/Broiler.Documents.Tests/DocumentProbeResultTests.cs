@@ -2,7 +2,7 @@ namespace Broiler.Documents.Tests;
 
 public sealed class DocumentProbeResultTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void NoMatch_Is_Not_A_Match()
     {
         DocumentProbeResult result = DocumentProbeResult.NoMatch();
@@ -11,7 +11,7 @@ public sealed class DocumentProbeResultTests
         Assert.Equal(DocumentProbeConfidence.None, result.Confidence);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Match_Carries_Positive_Confidence_And_Format_Name()
     {
         DocumentProbeResult result = DocumentProbeResult.Match(DocumentProbeConfidence.High, "RTF", "application/rtf");
@@ -22,7 +22,7 @@ public sealed class DocumentProbeResultTests
         Assert.Equal("application/rtf", result.MimeType);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Match_Rejects_None_Confidence_And_Empty_Name()
     {
         Assert.Throws<ArgumentException>(() => DocumentProbeResult.Match(DocumentProbeConfidence.None, "RTF"));

@@ -27,7 +27,7 @@ namespace Broiler.Documents.Html.Tests;
 /// </remarks>
 public sealed class HtmlTransparentBackgroundTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Transparent_In_A_Type_Rule_Is_Not_A_Highlight()
     {
         // The LibreOffice shape, and the one that made this worth fixing.
@@ -38,7 +38,7 @@ public sealed class HtmlTransparentBackgroundTests
         Assert.True(OnlyStyle(document).Background.IsEmpty);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Transparent_In_An_Inline_Style_Is_Not_A_Highlight()
     {
         // The older path. It was wrong here first and nothing noticed, because a
@@ -48,7 +48,7 @@ public sealed class HtmlTransparentBackgroundTests
         Assert.True(OnlyStyle(document).Background.IsEmpty);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Real_Background_Is_Still_A_Highlight()
     {
         // The other half of the assertion. A fix that made every background
@@ -62,7 +62,7 @@ public sealed class HtmlTransparentBackgroundTests
         Assert.Equal(255, style.Background.A);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Foreground_Is_Untouched_By_This()
     {
         // Only the background is reinterpreted. `color: transparent` is invisible
@@ -74,7 +74,7 @@ public sealed class HtmlTransparentBackgroundTests
         Assert.Equal(0x12, OnlyStyle(document).Foreground.R);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Transparent_Background_Round_Trips_As_No_Background()
     {
         // The writer already emits nothing for an empty background, so the fix on

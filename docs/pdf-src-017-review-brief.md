@@ -150,9 +150,10 @@ and the brief deliberately stops short of joining them together.
   matters because it separates the question from any third party's licence: for
   SRC-017 the only rights-holder in view is the ITU. (For SRC-016 it is not —
   see §4a.)
-- **Nothing has been published.** The package is `IsPackable=false`, the fax
-  filter is not composed by default, and no capability claim exists. A decision
-  taken now is taken before distribution rather than after it.
+- **Publication state at the time of this review.** The package was
+  `IsPackable=false`, the fax filter was not composed by default, and no capability
+  claim existed. Preview packaging was subsequently enabled; see
+  [roadmap §4.1](pdf-support-roadmap.md#41-delivery-milestones-and-publication-state).
 
 ## 5a. Evidence gathered, 2026-09-02
 

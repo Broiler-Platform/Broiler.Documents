@@ -27,7 +27,7 @@ public sealed class DocxImageTests
         Assert.IsType<InlineImage>(
             Assert.Single(Assert.Single(document.Paragraphs).Runs).Style.Image);
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_An_Inline_Drawing_As_One_Image_Character()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -49,7 +49,7 @@ public sealed class DocxImageTests
         Assert.Equal(36, image.Height!.Value, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Alternative_Text_And_Keeps_Surrounding_Text_In_Order()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -67,7 +67,7 @@ public sealed class DocxImageTests
         Assert.Null(paragraph.Runs[2].Style.Image);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Keeps_The_Runs_Own_Formatting_On_An_Image()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -85,7 +85,7 @@ public sealed class DocxImageTests
         Assert.Equal("https://example.test/", run.Style.LinkHref);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Legacy_Vml_Picture_And_Its_Css_Size()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -99,7 +99,7 @@ public sealed class DocxImageTests
         Assert.Equal(45, image.Height!.Value, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_One_Media_Part_Once_When_Several_Runs_Share_It()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -122,7 +122,7 @@ public sealed class DocxImageTests
             paragraph.Runs[1].Style.Image!.Data.ToArray());
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Counts_Images_In_The_Read_Summary()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -135,7 +135,7 @@ public sealed class DocxImageTests
         Assert.Contains("embedded 1 image(s)", summary.Message, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reports_A_Picture_Whose_Media_Part_Is_Missing()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -147,7 +147,7 @@ public sealed class DocxImageTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.missing");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reports_A_Picture_Whose_Relationship_Is_Undefined()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -159,7 +159,7 @@ public sealed class DocxImageTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.relationship");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reports_An_Image_Format_It_Does_Not_Carry()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -171,7 +171,7 @@ public sealed class DocxImageTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.format");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Skips_An_Image_Part_Over_The_Binary_Limit()
     {
         // The limit has to clear the package's XML parts, which it also governs,
@@ -190,7 +190,7 @@ public sealed class DocxImageTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.limit");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Does_Not_Fetch_An_Externally_Linked_Picture()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -204,7 +204,7 @@ public sealed class DocxImageTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.external");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_An_Image_As_A_Media_Part_With_Its_Relationship_And_Content_Type()
     {
         var image = new InlineImage(DocxTestPackage.OnePixelPng, "image/png", 72, 36, "a logo");
@@ -242,7 +242,7 @@ public sealed class DocxImageTests
         Assert.DoesNotContain("￼", documentXml, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_One_Media_Part_For_An_Image_Used_Twice()
     {
         var image = new InlineImage(DocxTestPackage.OnePixelPng, "image/png", 72, 72);
@@ -261,7 +261,7 @@ public sealed class DocxImageTests
         Assert.Null(archive.GetEntry("word/media/image2.png"));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Round_Trips_An_Image_Through_Write_And_Read()
     {
         var image = new InlineImage(DocxTestPackage.OnePixelPng, "image/png", 120, 60, "a logo");
@@ -288,7 +288,7 @@ public sealed class DocxImageTests
         Assert.Equal("a logo", restored.AltText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Drops_A_Placeholder_Character_That_Carries_No_Image()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(
@@ -340,7 +340,7 @@ public sealed class DocxImageTests
     private static DocumentReadOptions RoundTripReadOptions { get; } =
         new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Source_Crop_A_Picture_States()
     {
         // 14330 is the CV template's own value: 14.33% off the top, which is how
@@ -358,7 +358,7 @@ public sealed class DocxImageTests
         Assert.True(presentation.HasCrop);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Ellipse_A_Picture_Is_Masked_To()
     {
         RichTextDocument document = Read(
@@ -368,7 +368,7 @@ public sealed class DocxImageTests
         Assert.Equal(ImageMask.Ellipse, SingleImage(document).Presentation.Mask);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Preset_Other_Than_Ellipse_Draws_As_The_Rectangle_It_Always_Did()
     {
         // Only the ellipse is represented. Every other preset is the rectangle
@@ -381,7 +381,7 @@ public sealed class DocxImageTests
         Assert.Equal(ImageMask.None, SingleImage(document).Presentation.Mask);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Picture_Stating_Neither_Carries_The_Default_Presentation()
     {
         RichTextDocument document = Read(
@@ -390,7 +390,7 @@ public sealed class DocxImageTests
         Assert.True(SingleImage(document).Presentation.IsDefault);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Crop_That_Leaves_Nothing_Is_Refused_Rather_Than_Drawn_Empty()
     {
         // Crops that meet leave no source rectangle. Honouring them would draw
@@ -402,7 +402,7 @@ public sealed class DocxImageTests
         Assert.Equal(100, source.Width, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Crop_And_The_Mask_Round_Trip()
     {
         // A write given no conversion context may pass no picture on, so a round

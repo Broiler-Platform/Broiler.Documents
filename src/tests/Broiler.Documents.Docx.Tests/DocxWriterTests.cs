@@ -7,7 +7,7 @@ namespace Broiler.Documents.Docx.Tests;
 
 public sealed class DocxWriterTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_A_Minimal_Docx_Package()
     {
         byte[] bytes = DocxDocumentCodec.WriteToArray(RichTextDocument.FromPlainText("hello"));
@@ -22,7 +22,7 @@ public sealed class DocxWriterTests
         Assert.Contains("wordprocessingml", documentXml);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_Hyperlink_Relationships_And_Numbering()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(new[]
@@ -43,7 +43,7 @@ public sealed class DocxWriterTests
         Assert.Contains("https://example.test", relationships);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Model_To_Docx_To_Model_RoundTrips_Supported_Subset()
     {
         RichTextDocument expected = RichTextDocument.FromParagraphs(new[]
@@ -83,7 +83,7 @@ public sealed class DocxWriterTests
         DocumentAssert.Equivalent(expected, actual);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Alpha_Color_Writes_Rgb_And_Reports_Diagnostic()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(new[]
@@ -128,7 +128,7 @@ public sealed class DocxWriterTests
     // and the RTF reader passes `\u7` through, so a document that read cleanly
     // could not be written.
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("a\u0001b", "ab")]
     [InlineData("a\u0007b", "ab")]
     [InlineData("a\u000Bb", "ab")]
@@ -145,7 +145,7 @@ public sealed class DocxWriterTests
         Assert.Equal(expected, RoundTrip(document).Paragraphs[0].Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Control_Character_In_A_Picture_Description_Is_Dropped_Too()
     {
         // An attribute is as much XML as an element, and the description comes
@@ -172,7 +172,7 @@ public sealed class DocxWriterTests
         Assert.Contains("xy", documentXml, StringComparison.Ordinal);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // What must survive: the characters XML does allow, including the ones that
     // arrive as surrogate pairs and would fail a naive per-char test.
     [InlineData("emoji \U0001F600 and \U0001D400")]
@@ -207,7 +207,7 @@ public sealed class DocxWriterTests
         return (admitted, new DocumentWriteOptions(resources: builder.Build()));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Fragment_Is_Written_As_An_Internal_Anchor()
     {
         // WordprocessingML spells a same-document reference as w:anchor, not as
@@ -224,7 +224,7 @@ public sealed class DocxWriterTests
         Assert.DoesNotContain("\"#chapter\"", documentXml, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Fragment_Round_Trips_Through_The_Package()
     {
         byte[] bytes = DocxDocumentCodec.WriteToArray(RichTextDocument.FromParagraphs(

@@ -62,7 +62,7 @@ public sealed class DocxPropertyOrderTests
         "eastAsianLayout", "specVanish", "oMath", "rPrChange",
     ];
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Paragraph_Carrying_Every_Property_Writes_Them_In_Ct_PPr_Order()
     {
         // Every paragraph property this writer emits, on one paragraph, because
@@ -90,7 +90,7 @@ public sealed class DocxPropertyOrderTests
     // of the two can be in any single written paragraph. They are adjacent in
     // the sequence, so neither placement is harder than the other - but neither
     // is covered by a test that only ever writes the other one.
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData(TextCapitalization.AllCaps, "caps")]
     [InlineData(TextCapitalization.SmallCaps, "smallCaps")]
     public void A_Run_Carrying_Every_Property_Writes_Them_In_Ct_RPr_Order(

@@ -1,6 +1,11 @@
 # PDF Phase 0 Status
 
 **Status date:** 2026-08-25  
+
+Packaging update (2026-09-14): the codec and font/image providers now generate
+preview packages under [roadmap §4.1](pdf-support-roadmap.md#41-delivery-milestones-and-publication-state).
+The unpacked state recorded below is historical; application and support gates remain.
+
 **Phase state:** Repository-controlled groundwork complete and the base
 implementation slice landed and every construct, filter, and codec register row
 is now decided; Phase 0 exit remains blocked on the remaining provenance and

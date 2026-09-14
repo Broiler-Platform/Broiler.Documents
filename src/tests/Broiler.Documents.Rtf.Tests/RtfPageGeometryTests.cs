@@ -14,7 +14,7 @@ public sealed class RtfPageGeometryTests
 
     private static string Ascii(byte[] bytes) => Encoding.ASCII.GetString(bytes);
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Section_Control_Words()
     {
         // A4 in twips, with a 4.5cm left margin.
@@ -29,7 +29,7 @@ public sealed class RtfPageGeometryTests
         Assert.Equal(127.55, geometry.MarginLeft, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Header_And_Footer_Distances()
     {
         RichTextDocument document = RtfReader.Read(Encoding.ASCII.GetBytes(
@@ -43,13 +43,13 @@ public sealed class RtfPageGeometryTests
         Assert.Equal(56.7, geometry.FooterDistance, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_Stating_No_Paper_Has_No_Page()
     {
         Assert.Null(RtfReader.Read("{\\rtf1 body\\par}"u8.ToArray()).Document.PageGeometry);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Margins_That_Leave_No_Column_Are_Refused_And_Reported()
     {
         DocumentReadResult result = RtfReader.Read(
@@ -59,7 +59,7 @@ public sealed class RtfPageGeometryTests
         Assert.Contains(result.Diagnostics, d => d.Code == "rtf.page.geometry");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Page_Survives_A_Round_Trip()
     {
         RichTextDocument source = RichTextDocument.FromPlainText("body").WithPageGeometry(A4Letterhead);
@@ -72,7 +72,7 @@ public sealed class RtfPageGeometryTests
         Assert.Equal(A4Letterhead.HeaderDistance, geometry.HeaderDistance, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_Without_A_Page_Writes_No_Section_Words()
     {
         string rtf = Ascii(RtfWriter.WriteToArray(RichTextDocument.FromPlainText("body")));
@@ -82,7 +82,7 @@ public sealed class RtfPageGeometryTests
         Assert.DoesNotContain("margl", rtf, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Section_Words_Precede_The_Body()
     {
         string rtf = Ascii(RtfWriter.WriteToArray(

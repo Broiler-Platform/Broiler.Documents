@@ -4,7 +4,7 @@ namespace Broiler.Documents.Docx.Tests;
 
 public sealed class DocxReaderTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Read_Invalid_Zip_Returns_Empty_Document_With_Error()
     {
         var codec = new DocxDocumentCodec();
@@ -17,7 +17,7 @@ public sealed class DocxReaderTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.package.zip");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Read_Over_MaxDocumentBytes_Returns_Limit_Error()
     {
         byte[] bytes = DocxDocumentCodec.WriteToArray(RichTextDocument.FromPlainText("hello"));

@@ -24,7 +24,7 @@ namespace Broiler.Documents.Html.Tests;
 /// </remarks>
 public sealed class HtmlPageBreakTests
 {
-    [Theory(Timeout = 600000)]
+    [Theory]
     // The CSS2 property, which is what LibreOffice writes, and the CSS3
     // replacement it is now an alias for. Both are current and both are read.
     [InlineData("page-break-before: always")]
@@ -39,7 +39,7 @@ public sealed class HtmlPageBreakTests
         Assert.True(document.Paragraphs[1].Style.PageBreakBefore);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("p")]
     [InlineData("h2")]
     [InlineData("li")]
@@ -51,7 +51,7 @@ public sealed class HtmlPageBreakTests
         Assert.True(Assert.Single(document.Paragraphs).Style.PageBreakBefore);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // auto is the initial value; avoid asks for the opposite; the column and
     // region values name a fragmentation into containers this model does not
     // have. None of them is a page break, and reading any of them as one would
@@ -71,7 +71,7 @@ public sealed class HtmlPageBreakTests
         Assert.False(Assert.Single(document.Paragraphs).Style.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Ordinary_Paragraph_States_No_Break()
     {
         RichTextDocument document = Read("<p>first</p><p>second</p>");
@@ -79,7 +79,7 @@ public sealed class HtmlPageBreakTests
         Assert.All(document.Paragraphs, paragraph => Assert.False(paragraph.Style.PageBreakBefore));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_To_A_Named_Side_Is_Kept_And_Its_Side_Is_Reported()
     {
         // The break is the larger half of what the document said and it survives;
@@ -91,7 +91,7 @@ public sealed class HtmlPageBreakTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.page-break");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Plain_Break_Reports_Nothing()
     {
         DocumentReadResult result = ReadResult("<p style='page-break-before: always'>second</p>");
@@ -99,7 +99,7 @@ public sealed class HtmlPageBreakTests
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "html.page-break");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void When_The_Two_Spellings_Disagree_The_Break_Wins()
     {
         // CSS settles this by source order, which the declaration parser does not
@@ -111,7 +111,7 @@ public sealed class HtmlPageBreakTests
         Assert.True(Assert.Single(document.Paragraphs).Style.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_On_A_Container_Is_Not_Inherited_By_The_Paragraphs_Inside_It()
     {
         // Alignment descends and a break does not. A div carrying one is one
@@ -125,7 +125,7 @@ public sealed class HtmlPageBreakTests
         Assert.All(document.Paragraphs, paragraph => Assert.Equal(TextAlignment.Center, paragraph.Style.Alignment));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Stated_In_A_Type_Rule_Reaches_The_Paragraphs_It_Names()
     {
         // This used to assert the opposite, and the reason it did was sound while
@@ -141,7 +141,7 @@ public sealed class HtmlPageBreakTests
         Assert.True(Assert.Single(document.Paragraphs).Style.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Stated_In_A_Class_Rule_Is_Still_Not_Read()
     {
         // The line moved from "no selector" to "one selector", not off the
@@ -154,7 +154,7 @@ public sealed class HtmlPageBreakTests
         Assert.False(Assert.Single(document.Paragraphs).Style.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Paragraph_Can_Refuse_The_Break_Its_Type_Rule_States()
     {
         // Inline beats type for this property as for every other, and the value
@@ -167,7 +167,7 @@ public sealed class HtmlPageBreakTests
         Assert.False(Assert.Single(document.Paragraphs).Style.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Writer_States_The_Break_On_The_Paragraph_That_Has_It()
     {
         string html = Write(RichTextDocument.FromParagraphs(
@@ -184,14 +184,14 @@ public sealed class HtmlPageBreakTests
             StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Writer_States_Nothing_For_A_Paragraph_That_Starts_No_Page()
     {
         Assert.DoesNotContain(
             "break", Write(RichTextDocument.FromPlainText("body")), StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Break_Joins_The_Declarations_The_Paragraph_Already_Makes()
     {
         // The declaration list is composed, not replaced. A paragraph that was
@@ -214,7 +214,7 @@ public sealed class HtmlPageBreakTests
         Assert.Contains("margin-top: 6pt", html, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Break_Survives_A_Round_Trip()
     {
         // Reading it and never writing it would move the loss rather than end it.
@@ -239,7 +239,7 @@ public sealed class HtmlPageBreakTests
         DocumentAssert.Equivalent(expected, actual);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_And_A_Tab_Do_Not_Displace_Each_Other()
     {
         // Two independent reasons to put a style attribute on the same paragraph,
@@ -267,7 +267,7 @@ public sealed class HtmlPageBreakTests
     /// LibreOffice actually produced for it - the seed that reported one page
     /// here against two there.
     /// </summary>
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Seed_That_Found_This_Reads_As_Two_Pages_Worth_Of_Paragraphs()
     {
         RichTextDocument document = Read(

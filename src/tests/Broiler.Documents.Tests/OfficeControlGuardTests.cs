@@ -43,7 +43,7 @@ public sealed class OfficeControlGuardTests
     private static JsonDocument Load(string relative) =>
         JsonDocument.Parse(File.ReadAllText(Path.Combine(PdfGuardRoots.Component, relative)));
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Both_Office_Controls_And_Their_Schemas_Parse()
     {
         // The cheapest guard in the file and the one most likely to fire. A
@@ -66,7 +66,7 @@ public sealed class OfficeControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Tool_Is_Approved_Merely_By_Being_Written_Down()
     {
         // The rule this component already operates for its PDF oracles, applied
@@ -97,7 +97,7 @@ public sealed class OfficeControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Registered_Tool_Is_A_Product_Reference()
     {
         // The other half of the register's promise, and the one a reader is
@@ -131,7 +131,7 @@ public sealed class OfficeControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Office_Baseline_Row_Is_Classified_Merely_By_Being_Written_Down()
     {
         using JsonDocument baseline = Load(BaselineFile);
@@ -159,7 +159,7 @@ public sealed class OfficeControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Documented_Office_Row_Cites_A_Document_That_Exists()
     {
         // A citation nobody can follow is the same as none, and this is the one
@@ -183,7 +183,7 @@ public sealed class OfficeControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Office_Baseline_Row_Names_A_Seed_The_Manifest_Has()
     {
         // A row for a seed nobody has any more is a row that can never
@@ -209,7 +209,7 @@ public sealed class OfficeControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Seed_Names_Only_Pinned_Fonts()
     {
         // The single most valuable guard here, because the failure it prevents
@@ -234,7 +234,7 @@ public sealed class OfficeControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Seed_Is_Written_In_Exactly_One_Language()
     {
         // The corpus holds two markup languages since a letterhead's constructs
@@ -263,7 +263,7 @@ public sealed class OfficeControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Schema_The_Runner_And_This_Guard_Agree_About_The_Seed_Languages()
     {
         // Three places name the seed languages and none of them can see the
@@ -325,7 +325,7 @@ public sealed class OfficeControlGuardTests
         return string.Empty;
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Office_Suite_Commits_No_Document_Of_Its_Own()
     {
         // A narrowing of FormatClaimGuardTests, and it exists to put the blame
@@ -353,7 +353,7 @@ public sealed class OfficeControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Baseline_Stamp_Says_Which_Toolchain_Produced_It()
     {
         // A number measured against an unrecorded LibreOffice is not evidence,
@@ -379,7 +379,7 @@ public sealed class OfficeControlGuardTests
             "The baseline holds rows and does not say which platform produced them.");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Schema_And_The_Runner_Agree_About_The_Band_Vocabulary()
     {
         // Both office-baseline.schema.json and the Bands class in the runner

@@ -11,12 +11,10 @@
     <PackageId>Broiler.Documents.Pdf</PackageId>
     <Description>PDF 1.7 (ISO 32000-1) document codec: syntax, object store, the stream filters this repository implements, logical text import, and a deterministic writer over the standard font names.</Description>
     <!--
-      Delivery gate (pdf-support-roadmap.md §4.1): the PDF codec is an in-solution
-      component only. It is not packed, not registered in any application catalog,
-      and not part of a release artifact until the read-preview and write-preview
-      gates pass on a composed candidate.
+      Ship the codec as a preview package. Application registration and support
+      claims retain their separate gates (pdf-support-roadmap.md §4.1).
     -->
-    <IsPackable>false</IsPackable>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
 
   <!--

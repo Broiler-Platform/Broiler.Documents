@@ -10,25 +10,25 @@ namespace Broiler.Documents.Docx.Tests;
 /// </summary>
 public sealed class DocxReaderIndentTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_An_Indent_Written_With_The_Left_Attribute()
     {
         Assert.Equal(2, IndentLevelOf("<w:ind w:left=\"720\"/>"));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_An_Indent_Written_With_The_Start_Attribute()
     {
         Assert.Equal(2, IndentLevelOf("<w:ind w:start=\"720\"/>"));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Prefers_The_Start_Attribute_When_A_Paragraph_Carries_Both()
     {
         Assert.Equal(8, IndentLevelOf("<w:ind w:start=\"2880\" w:left=\"720\"/>"));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Start_Attribute_Indent_From_A_Paragraph_Style()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(

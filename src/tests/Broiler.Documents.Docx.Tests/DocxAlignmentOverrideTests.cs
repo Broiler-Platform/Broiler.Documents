@@ -21,7 +21,7 @@ public sealed class DocxAlignmentOverrideTests
         return Assert.Single(result.Document.Paragraphs).Style;
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("<w:jc w:val=\"end\"/>")]
     [InlineData("<w:jc w:val=\"right\"/>")]
     [InlineData("<w:jc w:val=\"center\"/>")]
@@ -31,7 +31,7 @@ public sealed class DocxAlignmentOverrideTests
         Assert.Equal(TextAlignment.Left, Read(styleJc, "<w:jc w:val=\"left\"/>").Alignment);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("<w:jc w:val=\"end\"/>")]
     [InlineData("<w:jc w:val=\"center\"/>")]
     public void Start_Resets_An_Inherited_Alignment_The_Way_Left_Does(string styleJc)
@@ -41,13 +41,13 @@ public sealed class DocxAlignmentOverrideTests
         Assert.Equal(TextAlignment.Left, Read(styleJc, "<w:jc w:val=\"start\"/>").Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Paragraph_With_No_Jc_Keeps_What_Its_Style_Set()
     {
         Assert.Equal(TextAlignment.Right, Read("<w:jc w:val=\"end\"/>", string.Empty).Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Unknown_Jc_Value_Leaves_The_Inherited_Alignment_Alone()
     {
         // Not a guess at what the value meant: the style chain already decided,
@@ -57,7 +57,7 @@ public sealed class DocxAlignmentOverrideTests
             Read("<w:jc w:val=\"end\"/>", "<w:jc w:val=\"lowKashida\"/>").Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Paragraph_Can_Still_Override_Left_With_Another_Alignment()
     {
         Assert.Equal(

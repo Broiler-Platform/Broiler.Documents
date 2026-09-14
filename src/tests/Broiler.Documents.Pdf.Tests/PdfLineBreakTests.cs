@@ -33,7 +33,7 @@ public sealed class PdfLineBreakTests
             .Select(match => match.Groups[1].Value)
             .ToList();
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Puts_The_Next_Word_On_Its_Own_Line()
     {
         List<string> shown = Shown(Write("Sender Name" + Break + "Broiler Platform"));
@@ -43,14 +43,14 @@ public sealed class PdfLineBreakTests
         Assert.Equal("Broiler Platform", shown[1]);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Is_Not_A_Space()
     {
         Assert.Single(Shown(Write("alpha bravo")));
         Assert.Equal(2, Shown(Write("alpha" + Break + "bravo")).Count);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Break_Leaves_No_Mark_Of_Its_Own()
     {
         // U+2028 has no glyph in any of the standard fourteen, so one reaching a
@@ -61,7 +61,7 @@ public sealed class PdfLineBreakTests
         Assert.Equal("alphabravo", string.Concat(Shown(Write("alpha" + Break + "bravo"))));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Two_Breaks_In_A_Row_Leave_The_Blank_Line_Between_Them()
     {
         // Three shown strings would mean an empty line was drawn as an empty run;

@@ -82,7 +82,7 @@ is pending.
 
 | Capability | V1 status | Behavior today | Evidence required |
 |---|---|---|---|
-| In-process `Broiler.Documents.Pdf` codec | Candidate | Implemented; unpacked and unregistered | Architecture tests; package tests |
+| In-process `Broiler.Documents.Pdf` codec | Candidate | Preview library packaging enabled; application integration remains gated | Architecture tests; package tests |
 | Standalone `Broiler.Pdf` process | Rejected | Absent | Phase 0 removal guard |
 | PDF import to logical document | Candidate | Implemented for text, styling, links, and images inside the approved raw-sample subset | Reader corpus and semantic tests |
 | PDF export from logical document | Candidate | Implemented for the standard-font subset | Pagination, writer, and interoperability tests |

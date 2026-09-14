@@ -13,7 +13,7 @@ public sealed class DocxArchitectureTests
         "../Broiler.Documents/Broiler.Documents.csproj",
     ];
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Docx_Project_Targets_Net10_And_References_Only_Documents_Assemblies()
     {
         XDocument project = XDocument.Load(DocxProjectPath());
@@ -23,7 +23,7 @@ public sealed class DocxArchitectureTests
         Assert.Equal(ExpectedReferences, RepositoryFiles.ProjectReferences(project));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Docx_Project_Does_Not_Reference_Ui_Dom_Input_Or_Windows()
     {
         string[] references = RepositoryFiles.ProjectReferences(XDocument.Load(DocxProjectPath()));
@@ -34,7 +34,7 @@ public sealed class DocxArchitectureTests
         Assert.DoesNotContain(references, reference => reference.Contains("Windows", StringComparison.Ordinal));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Docx_Codec_Has_No_Module_Initializer()
     {
         MethodInfo[] initializers = typeof(DocxDocumentCodec).Assembly

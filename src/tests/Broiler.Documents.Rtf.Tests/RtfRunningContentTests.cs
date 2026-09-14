@@ -20,7 +20,7 @@ public sealed class RtfRunningContentTests
     private static string TextOf(IReadOnlyList<RichTextParagraph> paragraphs) =>
         string.Join("|", paragraphs.Select(p => p.Text));
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Header_Into_The_Running_Content()
     {
         RichTextDocument document = RtfReader.Read(
@@ -30,7 +30,7 @@ public sealed class RtfRunningContentTests
         Assert.Equal("Body", document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_First_Page_And_Even_Page_Destinations_Apart()
     {
         RichTextDocument document = RtfReader.Read(
@@ -42,7 +42,7 @@ public sealed class RtfRunningContentTests
         Assert.Empty(running.Header(PageSelection.Default));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Header_And_Footer_Round_Trip()
     {
         RichTextDocument source = WithRunning("letterhead", "pagefooter");
@@ -52,7 +52,7 @@ public sealed class RtfRunningContentTests
         Assert.Equal("pagefooter", TextOf(running.Footer(PageSelection.First)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Fields_Result_Stays_In_The_Footer_It_Is_In()
     {
         // The letterhead's footer, as LibreOffice writes it. \fldrslt used to
@@ -69,7 +69,7 @@ public sealed class RtfRunningContentTests
         Assert.Equal("Page 2", TextOf(document.RunningContent.Footer(PageSelection.Default)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Fields_Result_In_The_Body_Is_Still_Body_Text()
     {
         // The other side of the same rule: a field in the body puts its result
@@ -81,7 +81,7 @@ public sealed class RtfRunningContentTests
         Assert.Equal("Seen on 7", RtfReader.Read(System.Text.Encoding.ASCII.GetBytes(rtf)).Document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Footer_Keeps_The_Characters_That_Are_Spelled_Rather_Than_Carried()
     {
         // An escape, a hex byte and a \uN are handled apart from plain text, and
@@ -96,7 +96,7 @@ public sealed class RtfRunningContentTests
         Assert.Equal("Seite \u00e4 \u2014 \\", TextOf(running.Footer(PageSelection.Default)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Titlepg_Is_What_Makes_The_First_Page_Different()
     {
         // \titlepg is RTF's spelling of the fact w:titlePg carries in DOCX and a
@@ -114,7 +114,7 @@ public sealed class RtfRunningContentTests
         Assert.Equal("a page number", TextOf(running.EffectiveFooter(PageSelection.Default)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Different_First_Page_Round_Trips()
     {
         RichTextDocument source = RichTextDocument.FromPlainText("body").WithRunningContent(
@@ -131,7 +131,7 @@ public sealed class RtfRunningContentTests
         Assert.Empty(back.EffectiveFooter(PageSelection.First));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_Without_Running_Content_Writes_No_Destinations()
     {
         string rtf = System.Text.Encoding.ASCII.GetString(

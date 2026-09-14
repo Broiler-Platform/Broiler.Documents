@@ -5,7 +5,7 @@ namespace Broiler.Documents.Tests;
 /// </summary>
 public sealed class DocumentLinkTargetTests
 {
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("https://example.test/")]
     [InlineData("http://example.test/path?q=1&r=2#frag")]
     [InlineData("mailto:someone@example.test")]
@@ -14,7 +14,7 @@ public sealed class DocumentLinkTargetTests
     public void Absolute_Http_Https_And_Mailto_Are_Admitted(string target) =>
         Assert.True(DocumentLinkTarget.IsAllowed(target));
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // Another scheme: a link is inert metadata here, and writing one would hand
     // an active target to whatever opens the document.
     [InlineData("javascript:alert(1)")]
@@ -25,7 +25,7 @@ public sealed class DocumentLinkTargetTests
     public void Another_Scheme_Is_Refused(string target) =>
         Assert.False(DocumentLinkTarget.IsAllowed(target));
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // Nothing to resolve against: a document is not a page, it has no base, and
     // nothing here fetches.
     [InlineData("/docs/page")]
@@ -35,7 +35,7 @@ public sealed class DocumentLinkTargetTests
     public void A_Relative_Target_Is_Refused(string target) =>
         Assert.False(DocumentLinkTarget.IsAllowed(target));
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // A same-document reference is admitted everywhere, which is what DOCX and
     // ODT always did and what the other three now do too. What it points at is
     // not carried - no codec here reads or writes a bookmark and the model has
@@ -47,7 +47,7 @@ public sealed class DocumentLinkTargetTests
     public void A_Non_Empty_Fragment_Is_Admitted(string target) =>
         Assert.True(DocumentLinkTarget.IsAllowed(target));
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Bare_Hash_Is_Refused()
     {
         // It names no destination, so there is nothing for a round trip to
@@ -56,7 +56,7 @@ public sealed class DocumentLinkTargetTests
         Assert.False(DocumentLinkTarget.IsAllowed("#"));
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
@@ -64,7 +64,7 @@ public sealed class DocumentLinkTargetTests
     public void Nothing_And_Nonsense_Are_Refused(string? target) =>
         Assert.False(DocumentLinkTarget.IsAllowed(target));
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // Correctness rather than policy: the package formats put the target in an
     // XML attribute, XML 1.0 cannot represent a control character, and handing
     // one over threw - so the tool reported an internal error where a diagnostic
@@ -76,7 +76,7 @@ public sealed class DocumentLinkTargetTests
     public void A_Control_Character_In_The_Target_Is_Refused(string target) =>
         Assert.False(DocumentLinkTarget.IsAllowed(target));
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Length_Is_Not_Capped()
     {
         // PdfUriPolicy caps its own, because a PDF annotation is a different
@@ -86,7 +86,7 @@ public sealed class DocumentLinkTargetTests
         Assert.True(DocumentLinkTarget.IsAllowed("https://example.test/" + new string('a', 8000)));
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // Admitting a fragment without constraining it put the silent loss back.
     // RTF spells one as a quoted field argument and has no escape for a quote
     // inside one, so a quote in the name truncated the target there and still

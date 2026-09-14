@@ -5,7 +5,7 @@ namespace Broiler.Documents.Html.Tests;
 
 public sealed class HtmlDocumentCodecProbeTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Probe_Matches_Html_Document_Markers()
     {
         var codec = new HtmlDocumentCodec();
@@ -18,7 +18,7 @@ public sealed class HtmlDocumentCodecProbeTests
         Assert.Equal("text/html", result.MimeType);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Probe_Matches_Common_Html_Fragment_Markers()
     {
         var codec = new HtmlDocumentCodec();
@@ -29,7 +29,7 @@ public sealed class HtmlDocumentCodecProbeTests
         Assert.Equal(DocumentProbeConfidence.Medium, result.Confidence);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Probe_Falls_Back_To_File_And_Mime_Hints()
     {
         var codec = new HtmlDocumentCodec();
@@ -41,7 +41,7 @@ public sealed class HtmlDocumentCodecProbeTests
         Assert.Equal(DocumentProbeConfidence.Low, result.Confidence);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Catalog_Selects_Html_Without_Changing_The_Catalog()
     {
         var catalog = new DocumentCodecCatalog(new DocumentCodec[]

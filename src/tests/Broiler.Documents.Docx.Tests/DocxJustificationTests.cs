@@ -10,7 +10,7 @@ namespace Broiler.Documents.Docx.Tests;
 /// </summary>
 public sealed class DocxJustificationTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Jc_Both_As_Justified()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -21,7 +21,7 @@ public sealed class DocxJustificationTests
             Assert.Single(result.Document.Paragraphs).Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Justification_Declared_By_A_Paragraph_Style()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -33,7 +33,7 @@ public sealed class DocxJustificationTests
             Assert.Single(result.Document.Paragraphs).Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_Justification_Back_As_Jc_Both()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(
@@ -49,7 +49,7 @@ public sealed class DocxJustificationTests
         Assert.Contains("w:val=\"both\"", entry.ReadToEnd());
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Justified_Paragraph_Round_Trips_Through_Docx()
     {
         RichTextDocument expected = RichTextDocument.FromParagraphs(

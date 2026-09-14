@@ -55,7 +55,7 @@ public sealed class FormatClaimGuardTests
         "certified", "endorsed", "fully conforming", "compliant", "conformant",
     ];
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [MemberData(nameof(Formats))]
     public void No_Data_File_Sits_Beside_A_Codec(string format, string register, string extensions)
     {
@@ -76,7 +76,7 @@ public sealed class FormatClaimGuardTests
         Assert.Empty(dataFiles);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [MemberData(nameof(Formats))]
     public void No_Codec_Takes_A_Third_Party_Package_Reference(string format, string register, string extensions)
     {
@@ -97,7 +97,7 @@ public sealed class FormatClaimGuardTests
             .OrderBy(name => name, StringComparer.Ordinal));
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [MemberData(nameof(Formats))]
     public void The_Shipped_Package_Description_Makes_No_Claim_A_Register_Declines(
         string format, string register, string extensions)
@@ -128,7 +128,7 @@ public sealed class FormatClaimGuardTests
         Assert.Empty(offending);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [MemberData(nameof(Formats))]
     public void Every_Format_Has_A_Register_That_Bounds_Its_Wording(
         string format, string register, string extensions)
@@ -144,7 +144,7 @@ public sealed class FormatClaimGuardTests
         Assert.Contains("NO LAWYER HAS REVIEWED ANY OF THIS", text, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Document_Of_A_Supported_Format_Is_Committed()
     {
         // Possession is not permission to redistribute, and every register says so

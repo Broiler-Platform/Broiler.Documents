@@ -56,7 +56,7 @@ public sealed class PdfJustificationTests
         return values;
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Justified_Paragraph_Stretches_Its_Spaces()
     {
         List<double> spacings = WordSpacings(Latin1(Write(TextAlignment.Justify)));
@@ -67,13 +67,13 @@ public sealed class PdfJustificationTests
         Assert.Contains(spacings, value => value > 0);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Left_Aligned_Paragraph_Sets_No_Word_Spacing()
     {
         Assert.DoesNotContain(" Tw", Latin1(Write(TextAlignment.Left)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Last_Line_Of_A_Justified_Paragraph_Is_Not_Stretched()
     {
         string content = Latin1(Write(TextAlignment.Justify));
@@ -84,7 +84,7 @@ public sealed class PdfJustificationTests
         Assert.Contains("0 Tw", content);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Justification_Does_Not_Disturb_The_Text_On_The_Way_Back()
     {
         using var stream = new MemoryStream(Write(TextAlignment.Justify), writable: false);

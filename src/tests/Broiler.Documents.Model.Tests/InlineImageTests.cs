@@ -11,7 +11,7 @@ public sealed class InlineImageTests
     private static InlineImage Image(string? altText = null) =>
         new(Bytes, "image/png", 40, 20, altText);
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Image_Run_Occupies_Exactly_One_Character()
     {
         InlineImage image = Image();
@@ -25,7 +25,7 @@ public sealed class InlineImageTests
         Assert.Equal(1, paragraph.Runs[1].Length);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Two_Different_Images_Stay_In_Separate_Runs()
     {
         RichTextParagraph paragraph = RichTextParagraph.Empty
@@ -37,7 +37,7 @@ public sealed class InlineImageTests
         Assert.Equal(2, paragraph.Runs.Count);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Deleting_The_Image_Character_Removes_The_Image()
     {
         RichTextParagraph paragraph = RichTextParagraph.Create("ab", InlineStyle.Default)
@@ -48,7 +48,7 @@ public sealed class InlineImageTests
         Assert.DoesNotContain(paragraph.Runs, run => run.Style.IsImage);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Clearing_Formatting_Over_An_Image_Keeps_The_Image()
     {
         InlineImage image = Image();
@@ -62,7 +62,7 @@ public sealed class InlineImageTests
         Assert.False(run.Style.Bold);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Slicing_A_Range_Carries_The_Image_With_It()
     {
         InlineImage image = Image();
@@ -79,14 +79,14 @@ public sealed class InlineImageTests
         Assert.Same(image, run.Style.Image);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Image_Reports_Whether_Its_Size_Was_Stated()
     {
         Assert.True(Image().HasExplicitSize);
         Assert.False(new InlineImage(Bytes, "image/png", 0, 0).HasExplicitSize);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Resizing_Keeps_The_Bytes_And_The_Description()
     {
         InlineImage resized = Image("a logo").WithSize(80, 40);
@@ -97,7 +97,7 @@ public sealed class InlineImageTests
         Assert.Equal(Bytes, resized.Data.ToArray());
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Image_Needs_A_Content_Type_And_A_Non_Negative_Size()
     {
         Assert.Throws<ArgumentException>(() => new InlineImage(Bytes, " ", 1, 1));

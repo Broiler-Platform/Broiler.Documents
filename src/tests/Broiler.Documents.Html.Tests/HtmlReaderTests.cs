@@ -6,7 +6,7 @@ namespace Broiler.Documents.Html.Tests;
 
 public sealed class HtmlReaderTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Paragraphs_And_Common_Inline_Formatting()
     {
         RichTextDocument document = Read(
@@ -21,7 +21,7 @@ public sealed class HtmlReaderTests
         Assert.True(first.StyleAt(24).Strikethrough);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Style_Attributes_For_Model_Inline_And_Paragraph_Styles()
     {
         RichTextDocument document = Read(
@@ -48,7 +48,7 @@ public sealed class HtmlReaderTests
         Assert.Equal(BColor.FromName("yellow"), style.Background);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Links_And_Drops_Disallowed_Schemes()
     {
         DocumentReadResult result = ReadResult(
@@ -61,7 +61,7 @@ public sealed class HtmlReaderTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.link");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Br_As_Soft_Line_Break_And_Decodes_Entities()
     {
         RichTextDocument document = Read("<p>A&amp;B<br>C</p>");
@@ -69,7 +69,7 @@ public sealed class HtmlReaderTests
         Assert.Equal("A&B" + (char)0x2028 + "C", document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_List_Items_As_List_Paragraphs()
     {
         RichTextDocument document = Read("<ol><li>One</li><li>Two</li></ol>");
@@ -80,7 +80,7 @@ public sealed class HtmlReaderTests
         Assert.Equal(1, document.Paragraphs[0].Style.IndentLevel);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Skips_Script_Style_And_External_Content()
     {
         DocumentReadResult result = ReadResult(
@@ -91,7 +91,7 @@ public sealed class HtmlReaderTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.skip.external");
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("pre")]
     [InlineData("pre-wrap")]
     [InlineData("PRE-WRAP")]
@@ -103,7 +103,7 @@ public sealed class HtmlReaderTests
         Assert.Equal("Name\tRole", document.PlainText);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("normal")]
     [InlineData("nowrap")]
     [InlineData("pre-line")]

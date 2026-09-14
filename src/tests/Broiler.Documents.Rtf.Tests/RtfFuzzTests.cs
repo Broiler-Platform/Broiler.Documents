@@ -9,7 +9,7 @@ public sealed class RtfFuzzTests
         "{\\colortbl ;\\red255\\green0\\blue0;}\\pard\\f0\\fs22 Hello \\b bold\\b0  and " +
         "{\\field{\\*\\fldinst{HYPERLINK \"https://x.com\"}}{\\fldrslt \\cf1 link}}.\\par More.\\par}";
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Random_Bytes_Never_Throw()
     {
         var random = new Random(1234567);
@@ -25,7 +25,7 @@ public sealed class RtfFuzzTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Rtf_Flavoured_Random_Bytes_Never_Throw()
     {
         // Bias the alphabet toward RTF structure so more control paths are exercised.
@@ -41,7 +41,7 @@ public sealed class RtfFuzzTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Read_Write_Read_Is_Stable_On_Random_Inputs()
     {
         byte[] alphabet = Encoding.ASCII.GetBytes("\\{}bicfsul0123456789 abpar\\'uc*;xyz");
@@ -59,7 +59,7 @@ public sealed class RtfFuzzTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Truncations_Of_Valid_Rtf_Never_Throw()
     {
         byte[] full = Encoding.Latin1.GetBytes(ValidSample);
@@ -70,7 +70,7 @@ public sealed class RtfFuzzTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Single_Byte_Flips_Of_Valid_Rtf_Never_Throw()
     {
         byte[] full = Encoding.Latin1.GetBytes(ValidSample);
@@ -84,7 +84,7 @@ public sealed class RtfFuzzTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Nesting_Bomb_Is_Bounded_And_Does_Not_Overflow()
     {
         byte[] bomb = Encoding.ASCII.GetBytes("{\\rtf1" + new string('{', 200_000) + "x");
@@ -97,7 +97,7 @@ public sealed class RtfFuzzTests
         Assert.NotNull(document);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Huge_Control_Word_Parameter_Does_Not_Overflow()
     {
         RichTextDocument document = RtfReader.Read(
@@ -107,7 +107,7 @@ public sealed class RtfFuzzTests
         Assert.Contains("x", document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Very_Long_Text_Run_Is_Handled()
     {
         byte[] payload = Encoding.ASCII.GetBytes("{\\rtf1 " + new string('a', 500_000) + "}");

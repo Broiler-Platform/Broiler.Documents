@@ -32,7 +32,7 @@ public sealed class PdfRunningContentTests
 
     private static string Latin1(byte[] bytes) => Encoding.Latin1.GetString(bytes);
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Header_And_Footer_Are_Drawn()
     {
         string content = Latin1(Write(Document("body", "letterhead", "pagefooter")).Bytes);
@@ -41,7 +41,7 @@ public sealed class PdfRunningContentTests
         Assert.Contains("pagefooter", content);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Header_Sits_Above_The_Body_And_The_Footer_Below_It()
     {
         string content = Latin1(Write(Document("bodytext", "letterhead", "pagefooter")).Bytes);
@@ -56,7 +56,7 @@ public sealed class PdfRunningContentTests
         Assert.True(footer < body, $"footer baseline {footer} was not below the body at {body}");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void They_Repeat_On_Every_Page()
     {
         (byte[] bytes, PdfWriteResult result) = Write(Document("body", "letterhead", null, paragraphs: 400));
@@ -66,7 +66,7 @@ public sealed class PdfRunningContentTests
         Assert.Equal(result.PageCount, drawn);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_With_No_Running_Content_Is_Unchanged()
     {
         string plain = Latin1(Write(RichTextDocument.FromPlainText("body")).Bytes);
@@ -75,7 +75,7 @@ public sealed class PdfRunningContentTests
         Assert.Equal(plain.Length, decorated.Length);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Header_Taller_Than_Its_Margin_Is_Reported_Rather_Than_Drawn()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("body").WithRunningContent(

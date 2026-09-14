@@ -47,7 +47,7 @@ public sealed class FormatCodeInsertPaletteTests
         _ => null,
     };
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Declared_Entry_Can_Be_Created()
     {
         RichTextRange range = Caret();
@@ -68,7 +68,7 @@ public sealed class FormatCodeInsertPaletteTests
         Assert.True(refused.Count == 0, "the palette refused " + string.Join("; ", refused));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Page_Break_Is_A_Paragraph_Intent_That_Takes_No_Value()
     {
         ApplyFormatCodeParagraphIntent intent = Assert.IsType<ApplyFormatCodeParagraphIntent>(
@@ -77,7 +77,7 @@ public sealed class FormatCodeInsertPaletteTests
         Assert.True(intent.Delta.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Inserting_A_Page_Break_Mirrors_The_Removal_The_Projector_Offers()
     {
         // The two halves of one code. The projector draws [Page Break] on a
@@ -102,7 +102,7 @@ public sealed class FormatCodeInsertPaletteTests
         Assert.True(insertion.Delta.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Inserted_Page_Break_Passes_Validation()
     {
         // A created intent that the validator then refuses would be no better
@@ -115,7 +115,7 @@ public sealed class FormatCodeInsertPaletteTests
         Assert.True(FormatCodeEditValidator.Validate(document, intent).IsValid);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Entry_Needing_A_Value_Still_Refuses_One_Without()
     {
         // The default arm is not dead: it is what an entry that genuinely takes a

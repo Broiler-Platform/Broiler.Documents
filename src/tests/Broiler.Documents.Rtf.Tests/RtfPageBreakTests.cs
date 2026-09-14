@@ -35,7 +35,7 @@ public sealed class RtfPageBreakTests
 
     // ---- reading \page, which RTF states in the text ----
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // The break between the two paragraphs, written both ways round. A \page
     // that interrupts a paragraph has to end it, or the break would land in
     // front of the text it was written after instead of the text it precedes.
@@ -52,7 +52,7 @@ public sealed class RtfPageBreakTests
         Assert.True(BreaksAt(document, 1));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Page_Before_Any_Text_Belongs_To_The_First_Paragraph()
     {
         RichTextDocument document = Read("{\\rtf1\\page only\\par}");
@@ -62,7 +62,7 @@ public sealed class RtfPageBreakTests
         Assert.True(BreaksAt(document, 0));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Page_Between_Two_Pars_Keeps_The_Blank_Paragraph_And_Breaks_On_It()
     {
         RichTextDocument document = Read("{\\rtf1 a\\par\\page\\par b\\par}");
@@ -73,7 +73,7 @@ public sealed class RtfPageBreakTests
         Assert.False(BreaksAt(document, 2));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void One_Page_Breaks_Once()
     {
         // The flag is spent by the paragraph that takes it. Left set, one break
@@ -86,7 +86,7 @@ public sealed class RtfPageBreakTests
 
     // ---- reading \pagebb, the paragraph property ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Pagebb_Breaks_Before_Its_Own_Paragraph()
     {
         RichTextDocument document = Read("{\\rtf1 first\\par\\pagebb second\\par}");
@@ -96,7 +96,7 @@ public sealed class RtfPageBreakTests
         Assert.True(BreaksAt(document, 1));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Pard_Resets_Pagebb_As_It_Resets_Every_Paragraph_Property()
     {
         RichTextDocument document = Read("{\\rtf1\\pagebb a\\par\\pard b\\par}");
@@ -105,13 +105,13 @@ public sealed class RtfPageBreakTests
         Assert.False(BreaksAt(document, 1));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Pagebb0_Turns_The_Break_Off()
     {
         Assert.False(BreaksAt(Read("{\\rtf1\\pagebb\\pagebb0 a\\par}"), 0));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Break_Out_Of_A_Writer_Style_Paragraph_Block()
     {
         // The shape LibreOffice exports it in: \pagebb sits among the other
@@ -128,7 +128,7 @@ public sealed class RtfPageBreakTests
 
     // ---- no false positives ----
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("{\\rtf1 a\\par b\\par}")]
     // The word in the text is text, and the two control words that merely begin
     // with it are not this one.
@@ -141,7 +141,7 @@ public sealed class RtfPageBreakTests
         Assert.All(document.Paragraphs, p => Assert.False(p.Style.PageBreakBefore));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Pagebb_Is_Not_Read_As_A_Page_Followed_By_Text()
     {
         // \pagebb is one control word. Split into \page and "bb" it would both
@@ -154,7 +154,7 @@ public sealed class RtfPageBreakTests
 
     // ---- a break with no paragraph to land on ----
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // At the end of the document, and twice over with nothing in between. Both
     // ask for a blank page, which a flag on a paragraph cannot express.
     [InlineData("{\\rtf1 a\\par\\page}")]
@@ -169,7 +169,7 @@ public sealed class RtfPageBreakTests
         Assert.False(BreaksAt(result.Document, 0));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Two_Breaks_In_A_Row_Still_Break_Once_Before_What_Follows()
     {
         RichTextDocument document = Read("{\\rtf1 a\\par\\page\\page b\\par}");
@@ -178,7 +178,7 @@ public sealed class RtfPageBreakTests
         Assert.True(BreaksAt(document, 1));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_With_A_Break_That_Lands_Says_Nothing()
     {
         DocumentReadResult result = ReadResult("{\\rtf1 a\\par\\page b\\par}");
@@ -189,7 +189,7 @@ public sealed class RtfPageBreakTests
 
     // ---- writing ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Is_Written_As_Page_In_The_Paragraph_It_Precedes()
     {
         string rtf = Write(Doc(Para("first"), Para("second", breaks: true)));
@@ -200,7 +200,7 @@ public sealed class RtfPageBreakTests
         Assert.True(page < rtf.IndexOf("second", StringComparison.Ordinal));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_On_The_First_Paragraph_Is_Written_As_Pagebb()
     {
         // \page at the head of the body would draw a blank first page in a reader
@@ -211,7 +211,7 @@ public sealed class RtfPageBreakTests
         Assert.DoesNotContain("\\page ", rtf, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_Without_A_Break_Writes_Neither_Word()
     {
         string rtf = Write(Doc(Para("first"), Para("second")));
@@ -219,7 +219,7 @@ public sealed class RtfPageBreakTests
         Assert.DoesNotContain("\\page", rtf, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_In_A_Header_Is_Read_Even_Though_It_Cannot_Be_Written_Back()
     {
         // The asymmetry the conformance document records. \pagebb is a paragraph
@@ -232,7 +232,7 @@ public sealed class RtfPageBreakTests
         Assert.False(BreaksAt(document, 0));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_On_A_Header_Paragraph_Is_Dropped_And_Reported()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("body")
@@ -250,7 +250,7 @@ public sealed class RtfPageBreakTests
 
     // ---- round trip ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Break_Survives_A_Round_Trip()
     {
         RichTextDocument document = Doc(Para("first"), Para("second", breaks: true), Para("third"));
@@ -261,7 +261,7 @@ public sealed class RtfPageBreakTests
         Assert.True(BreaksAt(round, 1));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_On_The_First_Paragraph_Survives_A_Round_Trip()
     {
         RichTextDocument document = Doc(Para("only", breaks: true), Para("next"));
@@ -272,7 +272,7 @@ public sealed class RtfPageBreakTests
         Assert.True(BreaksAt(round, 0));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_With_No_Break_Round_Trips_Without_Gaining_One()
     {
         RichTextDocument document = Doc(Para("first"), Para("second"));
@@ -280,7 +280,7 @@ public sealed class RtfPageBreakTests
         DocumentAssert.Equivalent(document, RoundTrip(document));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Keeps_The_Rest_Of_The_Paragraph_Style()
     {
         RichTextDocument document = Doc(

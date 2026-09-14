@@ -22,7 +22,7 @@ namespace Broiler.Documents.Html.Tests;
 /// </remarks>
 public sealed class HtmlPageGeometryTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Page_Is_Read_From_An_At_Page_Rule()
     {
         // Centimetres, because that is what a word processor writing HTML emits
@@ -39,7 +39,7 @@ public sealed class HtmlPageGeometryTests
         Assert.Equal(72, page.MarginLeft, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_With_No_Rule_States_No_Page()
     {
         // The distinction the model keeps, and the reason this is not simply
@@ -48,7 +48,7 @@ public sealed class HtmlPageGeometryTests
         Assert.Null(Read("<p>body</p>").PageGeometry);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("a4", 595.276, 841.89)]
     [InlineData("letter", 612, 792)]
     [InlineData("legal", 612, 1008)]
@@ -61,7 +61,7 @@ public sealed class HtmlPageGeometryTests
         Assert.Equal(height, page.Height, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Landscape_Turns_The_Page_It_Names()
     {
         PageGeometry page = PageOf("@page { size: a4 landscape }");
@@ -71,7 +71,7 @@ public sealed class HtmlPageGeometryTests
         Assert.True(page.IsLandscape);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void One_Length_Is_A_Square_Page()
     {
         PageGeometry page = PageOf("@page { size: 10in }");
@@ -80,7 +80,7 @@ public sealed class HtmlPageGeometryTests
         Assert.Equal(720, page.Height, 1);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // top right bottom left, in each of the shorthand's four arities.
     [InlineData("10pt", 10, 10, 10, 10)]
     [InlineData("10pt 20pt", 10, 20, 10, 20)]
@@ -97,7 +97,7 @@ public sealed class HtmlPageGeometryTests
         Assert.Equal(left, page.MarginLeft, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Longhand_Overrides_The_Shorthand_Beside_It()
     {
         PageGeometry page = PageOf("@page { size: a4; margin: 10pt; margin-left: 99pt }");
@@ -106,7 +106,7 @@ public sealed class HtmlPageGeometryTests
         Assert.Equal(99, page.MarginLeft, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Margins_Alone_Are_Honoured_Without_A_Size()
     {
         // What a document says when it cares about its margins and not its paper.
@@ -116,7 +116,7 @@ public sealed class HtmlPageGeometryTests
         Assert.Equal(PageGeometry.A4.Width, page.Width, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Rule_Leaving_No_Column_To_Write_In_Is_Refused()
     {
         // A producer stating nonsense is better ignored than honoured, which is
@@ -127,7 +127,7 @@ public sealed class HtmlPageGeometryTests
             "<body><p>body</p></body></html>").PageGeometry);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Size_This_Codec_Does_Not_Know_Leaves_The_Page_Unread()
     {
         // Half a size is not a size. Guessing would produce a page nobody stated
@@ -137,7 +137,7 @@ public sealed class HtmlPageGeometryTests
             "<body><p>body</p></body></html>").PageGeometry);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Named_Page_Selector_Is_Not_Read_As_The_Whole_Document()
     {
         // `@page cover` states the page for part of a document. Reading it as the
@@ -147,7 +147,7 @@ public sealed class HtmlPageGeometryTests
             "<body><p>body</p></body></html>").PageGeometry);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Margin_Boxes_Do_Not_End_The_Rule_Early()
     {
         // A real @page can nest rules inside it. A scan that stopped at the first
@@ -159,7 +159,7 @@ public sealed class HtmlPageGeometryTests
         Assert.Equal(18, page.MarginTop, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Writer_States_The_Page_The_Document_Has()
     {
         string html = Write(RichTextDocument.FromPlainText("body")
@@ -170,13 +170,13 @@ public sealed class HtmlPageGeometryTests
         Assert.Contains("margin: 72pt 72pt 72pt 72pt", html, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Writer_States_Nothing_For_A_Document_That_States_Nothing()
     {
         Assert.DoesNotContain("@page", Write(RichTextDocument.FromPlainText("body")), StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Page_Survives_A_Round_Trip()
     {
         // The half that makes the other half worth having. Reading the page and
@@ -194,7 +194,7 @@ public sealed class HtmlPageGeometryTests
         Assert.Equal(stated.MarginLeft, page.MarginLeft, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Style_Element_Is_Still_Not_Read_As_Text()
     {
         // The skip that hid the page is still the right skip. A stylesheet in the

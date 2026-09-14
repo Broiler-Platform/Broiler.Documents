@@ -34,7 +34,7 @@ public sealed class PdfClaimGuardTests
         "docs/pdf-ip-licensing-register.md",
     ];
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Diagnostic_Code_The_Codec_Declares_Is_Described_Somewhere()
     {
         string root = PdfGuardRoots.Component;
@@ -52,7 +52,7 @@ public sealed class PdfClaimGuardTests
         Assert.Empty(undocumented);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Feature_Matrix_Entry_Claims_Support_While_A_Register_Row_Is_Pending()
     {
         string root = PdfGuardRoots.Component;
@@ -73,7 +73,7 @@ public sealed class PdfClaimGuardTests
             "The feature matrix marks an entry Supported while the IP/licensing register still has a pending or blocked row.");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Register_Names_Only_Diagnostic_Codes_That_Exist()
     {
         string root = PdfGuardRoots.Component;
@@ -102,7 +102,7 @@ public sealed class PdfClaimGuardTests
         "patent-free", "patent free", "royalty-free", "certified", "endorsed", "Acrobat",
     ];
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Shipped_Package_Description_Makes_A_Claim_The_Register_Declines()
     {
         string root = PdfGuardRoots.Component;
@@ -126,7 +126,7 @@ public sealed class PdfClaimGuardTests
         Assert.Empty(offending);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Format_Is_Named_As_IP_018_Approved()
     {
         string root = PdfGuardRoots.Component;
@@ -150,7 +150,7 @@ public sealed class PdfClaimGuardTests
         "src/Broiler.Documents.Pdf.Fonts",
     ];
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Data_File_Sits_Beside_The_Codec()
     {
         string root = PdfGuardRoots.Component;

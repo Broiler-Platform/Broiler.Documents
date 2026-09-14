@@ -17,7 +17,7 @@ public sealed class HtmlCapitalizationTests
     private static string Write(RichTextDocument document) =>
         System.Text.Encoding.UTF8.GetString(HtmlWriter.WriteToArray(document));
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Text_Transform_Uppercase()
     {
         RichTextDocument document = Read(
@@ -28,7 +28,7 @@ public sealed class HtmlCapitalizationTests
         Assert.Equal(TextCapitalization.AllCaps, paragraph.StyleAt(0).Capitalization);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Font_Variant_Small_Caps()
     {
         RichTextDocument document = Read(
@@ -39,7 +39,7 @@ public sealed class HtmlCapitalizationTests
             Assert.Single(document.Paragraphs).StyleAt(0).Capitalization);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_Text_Transform_For_All_Caps_And_Leaves_The_Text_Alone()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(

@@ -62,8 +62,9 @@ to packages owned by another repository.
 
 ## Packages
 
-Eight packages ship. All target `net10.0`, ship XML documentation and a `.snupkg`
-symbol package, and are built deterministically with SourceLink.
+Eleven preview packages are generated. All target `net10.0`, ship XML
+documentation and a `.snupkg` symbol package, and are built deterministically
+with SourceLink.
 
 | Package | Role |
 | --- | --- |
@@ -75,13 +76,18 @@ symbol package, and are built deterministically with SourceLink.
 | `Broiler.Documents.Odt` | ODT reader/writer for a safe OASIS OpenDocument text subset. |
 | `Broiler.Documents.Html` | HTML document/fragment codec over `Broiler.Dom` and `Broiler.Dom.Html`. |
 | `Broiler.Documents.Markdown` | Markdown codec for a safe CommonMark-oriented subset. |
+| `Broiler.Documents.Pdf` | Preview PDF codec for logical text import and deterministic PDF 1.7 writing. |
+| `Broiler.Documents.Pdf.Fonts` | Optional PDF font-program reader over `Broiler.Graphics`. |
+| `Broiler.Documents.Pdf.Images` | Optional PDF image filters over the managed `Broiler.Media` image codecs. |
 
-`Broiler.Documents.Pdf` is **deliberately not published**. It is a base PDF codec —
+`Broiler.Documents.Pdf` is a **preview package**. It is a base PDF codec —
 logical text import from ISO 32000-1 files and a deterministic PDF 1.7 writer,
 built only from what this repository implements itself, with every remaining PDF
 technology detected, skipped, and reachable through a composed extension point. It
-builds and tests in this solution, but it is `IsPackable=false` and is registered
-in no application catalog until the read-preview and write-preview gates pass; see
+and its optional font and image providers are included in the normal pack and
+publish workflows. Package generation does not enable application features or
+certify PDF conformance. Application integration retains the read-preview and
+write-preview gates; see
 the [PDF support roadmap](docs/pdf-support-roadmap.md) §4.1 and the
 [PDF extension points](docs/pdf-extension-points.md).
 
@@ -95,10 +101,13 @@ Broiler.Documents.Markdown -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Html     -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Html     -> Broiler.Dom, Broiler.Dom.Html
 Broiler.Documents.FormatCodes                   -> Broiler.Documents.Model
-Broiler.Documents.Pdf      -> Broiler.Documents -> Broiler.Documents.Model   (not packed)
+Broiler.Documents.Pdf      -> Broiler.Documents -> Broiler.Documents.Model
+Broiler.Documents.Pdf.Fonts  -> Broiler.Documents.Pdf, Broiler.Graphics
+Broiler.Documents.Pdf.Images -> Broiler.Documents.Pdf, Broiler.Media.Image, Broiler.Media.Image.Managed
 ```
 
-`Broiler.Graphics`, `Broiler.Dom`, and `Broiler.Dom.Html` are packaged by their own
+`Broiler.Graphics`, `Broiler.Dom`, `Broiler.Dom.Html`, `Broiler.Media.Image`, and
+`Broiler.Media.Image.Managed` are packaged by their own
 repositories and appear as package dependencies at the versions pinned here, so
 they must be on the feed a consumer restores from.
 
@@ -128,8 +137,8 @@ broilerdoc roundtrip report.docx --via docx --via odt --via rtf --via html --via
 broilerdoc compare a.docx b.docx --render --continuous --diff diff.png --tolerance 2
 ```
 
-The head does **not** compose `Broiler.Documents.Pdf`: that package is gated, and
-a CLI that registered it would ship the capability the gates exist to hold back.
+The head does **not** compose `Broiler.Documents.Pdf`: CLI PDF integration still
+has to pass the application delivery gates.
 It is itself `IsPackable=false`, so the package table above is unchanged. See the
 [CLI guide](docs/cli.md) for the full command reference, the exit codes, the edit
 language, and what makes a render reproducible across machines.
@@ -234,8 +243,10 @@ MSBuild override without editing this file or changing dependency versions.
 ## Continuous integration and releases
 
 `.github/workflows/ci.yml` builds and tests Release on Ubuntu and Windows, runs the
-CLI corpus on both, and packs and verifies all eight shipping packages on Windows.
-`eng/run-tests.ps1` also requires at least 1,400 executed tests. Unit and corpus
+CLI corpus on both, and packs and verifies all eleven preview packages on Windows.
+`eng/run-tests.ps1` also requires at least 1,400 executed tests and terminates a
+test host if a test hangs for ten minutes. Synchronous tests use this runner
+limit because xUnit's `Timeout` attribute only supports async tests. Unit and corpus
 reports are uploaded even on failure. Dependency projects run their own suites in
 their own repositories.
 

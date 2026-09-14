@@ -24,7 +24,7 @@ public sealed class RtfShapeTests
     private static string Ascii(RichTextDocument document, DocumentWriteOptions? options = null) =>
         Encoding.ASCII.GetString(RtfWriter.WriteToArray(document, options));
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Shape_Round_Trips_With_Its_Box()
     {
         DocumentShape shape = Assert.Single(
@@ -36,7 +36,7 @@ public sealed class RtfShapeTests
         Assert.Equal(779.5, shape.Height, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Colour_Survives_Its_Reversed_Packing()
     {
         // RTF packs a shape colour as blue, green and red in that order, which is
@@ -51,7 +51,7 @@ public sealed class RtfShapeTests
         Assert.Equal(0x00, shape.Fill.Start.B);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Gradient_Round_Trips_With_Its_Angle()
     {
         DocumentShape shape = Assert.Single(
@@ -61,7 +61,7 @@ public sealed class RtfShapeTests
         Assert.Equal(60, shape.Fill.AngleDegrees, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Outline_Round_Trips_And_Its_Absence_Does_Too()
     {
         DocumentShape outlined = Assert.Single(RoundTrip(WithShapes(
@@ -73,7 +73,7 @@ public sealed class RtfShapeTests
         Assert.True(bare.Outline.IsEmpty);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Shapes_Text_Round_Trips_And_Stays_Out_Of_The_Body()
     {
         RichTextDocument actual = RoundTrip(WithShapes(new DocumentShape(
@@ -86,7 +86,7 @@ public sealed class RtfShapeTests
         Assert.Equal("body", actual.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Shape_Is_Read_Once_Rather_Than_Once_Per_Group()
     {
         // \shp and \shpinst are two nested groups around one drawing. If both
@@ -96,7 +96,7 @@ public sealed class RtfShapeTests
             new DocumentShape(0, -40, 0, 30, 30, ShapeFill.Solid(BColor.Black)))).Shapes);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Understood_Ignorable_Destination_Is_Not_Skipped()
     {
         // A shape arrives as {\*\shpinst ...}. The star says to ignore what the
@@ -107,13 +107,13 @@ public sealed class RtfShapeTests
         Assert.NotEmpty(RtfReader.Read(Encoding.ASCII.GetBytes(rtf)).Document.Shapes);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_Without_Shapes_Writes_None()
     {
         Assert.DoesNotContain("shpinst", Ascii(RichTextDocument.FromPlainText("body")), StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Floating_Picture_Is_Written_Into_Its_Paragraph()
     {
         // A picture inside a shape is a pib property this reader does not know,
@@ -135,7 +135,7 @@ public sealed class RtfShapeTests
         Assert.Contains("\\pichgoal400", rtf, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Floating_Picture_Says_Its_Position_Was_Not_Kept()
     {
         (InlineImage picture, DocumentWriteOptions writeOptions) =
@@ -176,7 +176,7 @@ public sealed class RtfShapeTests
     private static DocumentReadOptions RoundTripReadOptions { get; } =
         new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Shpz_Is_The_Shapes_Z_Order()
     {
         // RTF is the one target where a letterhead's two shapes both land in the
@@ -188,7 +188,7 @@ public sealed class RtfShapeTests
         Assert.Equal(6, Assert.Single(RtfReader.Read(Encoding.ASCII.GetBytes(rtf)).Document.Shapes).ZOrder);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Z_Order_Round_Trips_Through_The_Writer()
     {
         RichTextDocument source = WithShapes(new DocumentShape(0, -40, 0, 30, 200, Green, zOrder: 4));

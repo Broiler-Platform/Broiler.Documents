@@ -19,7 +19,7 @@ public sealed class DocxPageBreakTests
     /// <summary>The line separator a <c>w:br</c> that is not a page break becomes.</summary>
     private const string LineBreak = "\u2028";
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Paragraph_Property()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -28,7 +28,7 @@ public sealed class DocxPageBreakTests
         Assert.True(Assert.Single(result.Document.Paragraphs).Style.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Page_Break_A_Paragraph_Style_States()
     {
         // Where a template actually keeps it: the heading style starts the
@@ -44,7 +44,7 @@ public sealed class DocxPageBreakTests
     // the one heading that must not start a page is spelled by turning the
     // style's break off in the paragraph's own w:pPr.
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("<w:pageBreakBefore w:val=\"false\"/>", false)]
     [InlineData("<w:pageBreakBefore w:val=\"0\"/>", false)]
     [InlineData("<w:pageBreakBefore w:val=\"off\"/>", false)]
@@ -61,7 +61,7 @@ public sealed class DocxPageBreakTests
         Assert.Equal(expected, Assert.Single(result.Document.Paragraphs).Style.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_That_States_No_Break_Starts_No_Page()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -73,7 +73,7 @@ public sealed class DocxPageBreakTests
             diagnostic => diagnostic.Code.StartsWith("docx.pagebreak", StringComparison.Ordinal));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Run_Starts_The_Following_Paragraph_And_Not_Its_Own()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -88,7 +88,7 @@ public sealed class DocxPageBreakTests
         Assert.Equal("page one", result.Document.Paragraphs[0].Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Run_In_A_Paragraph_Of_Its_Own_Still_Starts_The_Next_One()
     {
         // How Word writes Ctrl+Enter on an empty line: the break is the whole
@@ -103,7 +103,7 @@ public sealed class DocxPageBreakTests
         Assert.True(result.Document.Paragraphs[2].Style.PageBreakBefore);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("<w:br/>")]
     [InlineData("<w:br w:type=\"textWrapping\"/>")]
     [InlineData("<w:br w:type=\"column\"/>")]
@@ -117,7 +117,7 @@ public sealed class DocxPageBreakTests
         Assert.False(result.Document.Paragraphs[1].Style.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_In_The_Last_Paragraph_Is_Dropped_And_Reported()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -128,7 +128,7 @@ public sealed class DocxPageBreakTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.trailing");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_With_Text_After_It_Becomes_A_Line_Break_And_Says_So()
     {
         // Word splits the paragraph across the boundary. One flag on one
@@ -143,7 +143,7 @@ public sealed class DocxPageBreakTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.split");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_With_Text_After_It_Does_Not_Consume_The_Next_Break()
     {
         // The demoted break must not leave the paragraph latched: the second
@@ -157,7 +157,7 @@ public sealed class DocxPageBreakTests
         Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Two_Breaks_With_Nothing_Between_Them_Report_The_Blank_Page_They_Lose()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -168,7 +168,7 @@ public sealed class DocxPageBreakTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.repeated");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Both_Spellings_Of_One_Boundary_Are_One_Break()
     {
         // A file that states the break in the run before and in the property
@@ -181,7 +181,7 @@ public sealed class DocxPageBreakTests
         Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Run_Does_Not_Escape_The_Table_Cell_It_Is_In()
     {
         // Every cell's paragraphs are in the one flat list, so the paragraph
@@ -198,7 +198,7 @@ public sealed class DocxPageBreakTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.table");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_The_Property_Ahead_Of_Every_Other_Paragraph_Property()
     {
         // CT_PPr is a sequence and Word refuses a file whose pPr children are
@@ -230,7 +230,7 @@ public sealed class DocxPageBreakTests
         Assert.Empty(properties.Element(W + "pageBreakBefore")!.Attributes());
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_Nothing_For_A_Paragraph_That_Starts_No_Page()
     {
         string documentXml = DocumentXml(
@@ -239,7 +239,7 @@ public sealed class DocxPageBreakTests
         Assert.DoesNotContain("pageBreakBefore", documentXml, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Round_Trips_Through_The_Package()
     {
         RichTextDocument expected = RichTextDocument.FromParagraphs(
@@ -255,7 +255,7 @@ public sealed class DocxPageBreakTests
         DocumentAssert.Equivalent(expected, new DocxDocumentCodec().Read(stream).Document);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Read_From_A_Run_Is_Written_Back_As_The_Property()
     {
         // The two spellings converge on write. What a Ctrl+Enter document

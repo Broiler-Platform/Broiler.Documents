@@ -6,7 +6,7 @@ namespace Broiler.Documents.Rtf.Tests;
 
 public sealed class RtfWriterTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_An_Embedded_Png_As_A_Pict_Destination()
     {
         var image = new InlineImage(new byte[] { 0xDE, 0xAD }, "image/png", 40, 20);
@@ -24,7 +24,7 @@ public sealed class RtfWriterTests
         Assert.Contains("dead}", rtf, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Drops_An_Image_Format_Rtf_Cannot_Name()
     {
         var image = new InlineImage(new byte[] { 1, 2 }, "image/webp", 40, 20);
@@ -50,7 +50,7 @@ public sealed class RtfWriterTests
             RichTextParagraph.Create(string.Empty, InlineStyle.Default).InsertText(0, text, style),
         });
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Output_Is_A_Wrapped_Rtf_Group()
     {
         string rtf = Write(RichTextDocument.FromPlainText("hello"));
@@ -60,7 +60,7 @@ public sealed class RtfWriterTests
         Assert.Contains("\\par", rtf);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Special_Characters_Are_Escaped()
     {
         string rtf = Write(RichTextDocument.FromPlainText("a{b}\\c"));
@@ -68,7 +68,7 @@ public sealed class RtfWriterTests
         Assert.Contains("a\\{b\\}\\\\c", rtf);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Bold_And_Foreground_Emit_Control_Words_And_A_Color_Table()
     {
         var style = new InlineStyle { Bold = true, Foreground = new BColor(255, 0, 0) };
@@ -79,7 +79,7 @@ public sealed class RtfWriterTests
         Assert.Contains("\\cf1", rtf);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Font_Family_Emits_A_Font_Table_Entry()
     {
         string rtf = Write(OneRun("hi", new InlineStyle { FontFamily = "Arial" }));
@@ -88,7 +88,7 @@ public sealed class RtfWriterTests
         Assert.Contains("\\f1", rtf);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Non_Ascii_Is_Escaped_As_Unicode()
     {
         // é == U+00E9 == 233
@@ -97,7 +97,7 @@ public sealed class RtfWriterTests
         Assert.Contains("\\u233?", rtf);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Hyperlink_Run_Emits_A_Field()
     {
         string rtf = Write(OneRun("click", new InlineStyle { LinkHref = "https://x.com" }));
@@ -106,7 +106,7 @@ public sealed class RtfWriterTests
         Assert.Contains("\\fldrslt", rtf);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Output_Is_Pure_Ascii()
     {
         byte[] bytes = RtfWriter.WriteToArray(RtfReader.Read(
@@ -147,7 +147,7 @@ public sealed class RtfWriterTests
     // the same schemes, so a document that wrote the link and one that dropped
     // it both read back without it. These assert the bytes.
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("javascript:alert(1)")]
     [InlineData("vbscript:msgbox")]
     [InlineData("file:///etc/passwd")]
@@ -160,7 +160,7 @@ public sealed class RtfWriterTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "rtf.link");
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("https://example.test/page")]
     [InlineData("http://example.test/page")]
     [InlineData("mailto:someone@example.test")]
@@ -182,7 +182,7 @@ public sealed class RtfWriterTests
         return (Encoding.ASCII.GetString(stream.ToArray()), result);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Fragment_Is_Written_As_The_Local_Switch()
     {
         // Not as "#chapter" inside the quotes: a word processor reads that as
@@ -194,7 +194,7 @@ public sealed class RtfWriterTests
         Assert.DoesNotContain("\"#chapter\"", written, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Fragment_Round_Trips_Through_The_Field()
     {
         string written = Write(OneRun("click", new InlineStyle { LinkHref = "#chapter" }));

@@ -8,7 +8,7 @@ namespace Broiler.Documents.Docx.Tests;
 /// </summary>
 public sealed class DocxReaderStyleTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Applies_Run_Properties_From_A_Named_Paragraph_Style()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -20,7 +20,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal(48f, style.FontSize);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Applies_Paragraph_Properties_From_A_Named_Paragraph_Style()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -34,7 +34,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal(12f, style.SpacingAfter);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Walks_The_BasedOn_Chain_Root_First()
     {
         string styles =
@@ -50,7 +50,7 @@ public sealed class DocxReaderStyleTests
         Assert.True(style.Italic);          // and inherits what it does not set
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Applies_Document_Defaults_To_Unstyled_Paragraphs()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -60,7 +60,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal(12f, Assert.Single(result.Document.Paragraphs).StyleAt(0).FontSize);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Applies_The_Default_Paragraph_Style_When_No_Style_Is_Named()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -75,7 +75,7 @@ public sealed class DocxReaderStyleTests
     /// style. A paragraph naming its own style picks up the default only when
     /// its <c>w:basedOn</c> chain leads there.
     /// </summary>
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Does_Not_Apply_The_Default_Paragraph_Style_To_A_Paragraph_That_Names_One()
     {
         string styles =
@@ -91,7 +91,7 @@ public sealed class DocxReaderStyleTests
         Assert.Null(style.FontSize);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Direct_Run_Properties_Override_The_Paragraph_Style()
     {
         string paragraph =
@@ -107,7 +107,7 @@ public sealed class DocxReaderStyleTests
         Assert.True(style.Bold);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Direct_Paragraph_Properties_Override_The_Paragraph_Style()
     {
         string paragraph =
@@ -121,7 +121,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal(TextAlignment.Right, Assert.Single(result.Document.Paragraphs).Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Applies_A_Character_Style_Named_By_RStyle()
     {
         string paragraph =
@@ -134,7 +134,7 @@ public sealed class DocxReaderStyleTests
         Assert.True(Assert.Single(result.Document.Paragraphs).StyleAt(0).Italic);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Character_Style_Overrides_The_Paragraph_Style_And_Yields_To_Direct_Formatting()
     {
         string styles =
@@ -155,7 +155,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal(14f, read.StyleAt(read.Text.IndexOf("direct", StringComparison.Ordinal)).FontSize);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Resolves_Theme_Fonts_Referenced_By_A_Style()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -166,7 +166,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal("Century Gothic", Assert.Single(result.Document.Paragraphs).StyleAt(0).FontFamily);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Resolves_The_Minor_Theme_Font_For_Body_Text()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -177,7 +177,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal("Calibri", Assert.Single(result.Document.Paragraphs).StyleAt(0).FontFamily);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Explicit_Font_Name_Wins_Over_A_Theme_Reference()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -190,7 +190,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal("Georgia", Assert.Single(result.Document.Paragraphs).StyleAt(0).FontFamily);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Applies_List_Numbering_Declared_By_A_Paragraph_Style()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -204,7 +204,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal(2, style.IndentLevel);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Zero_NumId_Opts_A_Paragraph_Out_Of_Its_Styles_List()
     {
         string paragraph =
@@ -219,7 +219,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal(ListKind.None, Assert.Single(result.Document.Paragraphs).Style.ListKind);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Resolves_Styles_For_Paragraphs_Inside_Table_Cells()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -231,7 +231,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal(48f, paragraph.StyleAt(0).FontSize);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reports_A_Style_Reference_That_Names_An_Undefined_Style()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(
@@ -247,7 +247,7 @@ public sealed class DocxReaderStyleTests
         Assert.Equal("text", result.Document.Paragraphs[0].Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Cuts_A_Cyclic_BasedOn_Chain_Short()
     {
         string styles =
@@ -266,7 +266,7 @@ public sealed class DocxReaderStyleTests
     }
 
     /// <summary>A missing style table is one fact about the package, not one note per style reference.</summary>
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reports_A_Missing_Styles_Part_Once()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -278,7 +278,7 @@ public sealed class DocxReaderStyleTests
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.styles.unknown");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_An_Unstyled_Document_With_No_Styles_Part_Without_Notes()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(DocxTestPackage.Paragraph("text"));
@@ -289,7 +289,7 @@ public sealed class DocxReaderStyleTests
             diagnostic => diagnostic.Code.StartsWith("docx.styles", StringComparison.Ordinal));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reports_The_Resolved_Style_Count_In_The_Read_Summary()
     {
         DocumentReadResult result = DocxTestPackage.ReadStyled(

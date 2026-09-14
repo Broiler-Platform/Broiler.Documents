@@ -14,13 +14,13 @@ public sealed class RtfReaderTests
 
     // ---- text and paragraph structure ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Plain_Text()
     {
         Assert.Equal("Hello World", Read("{\\rtf1\\ansi\\deff0 Hello World}").PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Par_Separates_Paragraphs()
     {
         RichTextDocument document = Read("{\\rtf1 A\\par B}");
@@ -29,7 +29,7 @@ public sealed class RtfReaderTests
         Assert.Equal("A\nB", document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Trailing_Par_Does_Not_Add_An_Empty_Paragraph()
     {
         RichTextDocument document = Read("{\\rtf1 A\\par B\\par}");
@@ -37,7 +37,7 @@ public sealed class RtfReaderTests
         Assert.Equal(2, document.ParagraphCount);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Consecutive_Pars_Preserve_A_Blank_Paragraph()
     {
         RichTextDocument document = Read("{\\rtf1 A\\par\\par B}");
@@ -46,7 +46,7 @@ public sealed class RtfReaderTests
         Assert.Equal("A\n\nB", document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Empty_Body_Yields_One_Empty_Paragraph()
     {
         RichTextDocument document = Read("{\\rtf1}");
@@ -57,7 +57,7 @@ public sealed class RtfReaderTests
 
     // ---- inline formatting ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Bold_Toggle_Applies_To_The_Enclosed_Run()
     {
         RichTextDocument document = Read("{\\rtf1 normal \\b bold \\b0 again}");
@@ -69,7 +69,7 @@ public sealed class RtfReaderTests
         Assert.False(p.StyleAt(p.Text.IndexOf('g')).Bold);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Italic_Underline_And_Strike_Are_Read()
     {
         RichTextParagraph p = Read("{\\rtf1\\i\\ul\\strike X}").Paragraphs[0];
@@ -80,7 +80,7 @@ public sealed class RtfReaderTests
         Assert.True(style.Strikethrough);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Font_Size_Is_Half_Points()
     {
         InlineStyle style = Read("{\\rtf1\\fs24 Test}").Paragraphs[0].StyleAt(0);
@@ -88,7 +88,7 @@ public sealed class RtfReaderTests
         Assert.Equal(12f, style.FontSize ?? 0f);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Plain_Resets_Character_Formatting()
     {
         RichTextParagraph p = Read("{\\rtf1\\b B\\plain N}").Paragraphs[0];
@@ -97,7 +97,7 @@ public sealed class RtfReaderTests
         Assert.False(p.StyleAt(1).Bold);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Color_Table_Resolves_Cf()
     {
         InlineStyle style = Read("{\\rtf1{\\colortbl;\\red255\\green0\\blue0;}\\cf1 Red}")
@@ -106,7 +106,7 @@ public sealed class RtfReaderTests
         Assert.Equal(new BColor(255, 0, 0), style.Foreground);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Font_Table_Resolves_Family_Name()
     {
         InlineStyle style = Read("{\\rtf1{\\fonttbl{\\f0\\fswiss Arial;}}\\f0 Hi}")
@@ -117,7 +117,7 @@ public sealed class RtfReaderTests
 
     // ---- encoding ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Hex_Escape_Decodes_Windows_1252()
     {
         // caf\'e9 -> "café" (0xE9 == é in both CP1252 and Latin-1)
@@ -127,7 +127,7 @@ public sealed class RtfReaderTests
         Assert.Equal(0x00E9, (int)text[3]);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Hex_Escape_Decodes_Cp1252_Smart_Quote()
     {
         // \'92 is U+2019 (right single quote) in Windows-1252, not Latin-1.
@@ -136,7 +136,7 @@ public sealed class RtfReaderTests
         Assert.Equal(0x2019, (int)text[2]);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Unicode_Escape_Decodes_And_Honours_Uc_Skip()
     {
         // \u233 -> é, then uc1 skips the single fallback char '?'.
@@ -147,7 +147,7 @@ public sealed class RtfReaderTests
         Assert.Equal('z', text[1]);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Uc0_Skips_No_Fallback_Characters()
     {
         string text = Read("{\\rtf1\\uc0\\u233 ?z}").PlainText;
@@ -158,7 +158,7 @@ public sealed class RtfReaderTests
 
     // ---- paragraph formatting ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Center_Alignment_Is_Read()
     {
         RichTextDocument document = Read("{\\rtf1\\qc Centered\\par}");
@@ -166,7 +166,7 @@ public sealed class RtfReaderTests
         Assert.Equal(TextAlignment.Center, document.Paragraphs[0].Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Line_Is_A_Soft_Break_Inside_One_Paragraph()
     {
         RichTextDocument document = Read("{\\rtf1 A\\line B}");
@@ -176,7 +176,7 @@ public sealed class RtfReaderTests
         Assert.Equal(0x2028, (int)text[1]);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Tab_Control_Word_Emits_A_Tab()
     {
         Assert.Equal("A\tB", Read("{\\rtf1 A\\tab B}").PlainText);
@@ -184,19 +184,19 @@ public sealed class RtfReaderTests
 
     // ---- destinations ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Ignorable_Destination_Is_Skipped()
     {
         Assert.Equal("Hello", Read("{\\rtf1{\\*\\generator Foo}Hello}").PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Info_Group_Is_Skipped()
     {
         Assert.Equal("Body", Read("{\\rtf1{\\info{\\author Me}}Body}").PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Embedded_Picture_Is_Skipped_And_Reported()
     {
         DocumentReadResult result = ReadResult("{\\rtf1{\\pict\\wmetafile8 010203}Text}");
@@ -207,7 +207,7 @@ public sealed class RtfReaderTests
 
     // ---- hyperlink fields ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Hyperlink_Field_Sets_Link_On_The_Result_Text()
     {
         InlineStyle style = Read("{\\rtf1{\\field{\\*\\fldinst{HYPERLINK \"https://x.com\"}}{\\fldrslt click}}}")
@@ -217,7 +217,7 @@ public sealed class RtfReaderTests
         Assert.Equal("https://x.com", style.LinkHref);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Hyperlink_With_Disallowed_Scheme_Is_Dropped()
     {
         DocumentReadResult result = ReadResult(
@@ -230,7 +230,7 @@ public sealed class RtfReaderTests
 
     // ---- robustness ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Unbalanced_Groups_Do_Not_Throw()
     {
         Assert.Equal("A", Read("{\\rtf1 A").PlainText);
@@ -253,7 +253,7 @@ public sealed class RtfReaderTests
 
     // ---- a representative document ----
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Representative_WordPad_Style_Document()
     {
         string rtf =
@@ -279,7 +279,7 @@ public sealed class RtfReaderTests
         Assert.Equal(11f, first.StyleAt(0).FontSize ?? 0f);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // How Word spells a same-document reference. The instruction carries the
     // switch as an escaped backslash, and the reader used to discard escapes in
     // a field instruction -- so the bookmark name arrived alone, failed the
@@ -296,7 +296,7 @@ public sealed class RtfReaderTests
         Assert.Equal("#chapter", style.LinkHref);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Hyperlink_Without_The_Local_Switch_Keeps_Its_Target()
     {
         // The switch scan must not see the 'l' in a URL.

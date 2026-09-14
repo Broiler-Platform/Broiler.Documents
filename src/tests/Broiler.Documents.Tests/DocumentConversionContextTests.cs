@@ -36,7 +36,7 @@ public sealed class DocumentConversionContextTests
         DocumentResourceDisposition disposition = DocumentResourceDisposition.Embedded) =>
         new(resource, provenance, disposition);
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Id_Alone_Does_Not_Authorize_Anything()
     {
         // The property the whole design rests on. An entry is bound to the
@@ -55,7 +55,7 @@ public sealed class DocumentConversionContextTests
             Pixels(4, 4, 0x20)), StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Id_From_Another_Conversion_Matches_Nothing()
     {
         // What makes "authorization never transfers automatically" a property of
@@ -77,7 +77,7 @@ public sealed class DocumentConversionContextTests
             resource), StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Same_Payload_Is_Admitted_Once()
     {
         // Asking a policy twice about identical bytes invites two answers inside
@@ -92,7 +92,7 @@ public sealed class DocumentConversionContextTests
         Assert.Single(builder.Build().Entries);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Unknown_Provenance_Denies_Even_Under_A_Permissive_Policy()
     {
         var builder = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
@@ -103,7 +103,7 @@ public sealed class DocumentConversionContextTests
         Assert.Equal(DocumentResourceOperations.None, entry.Permitted);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reading_Into_The_Model_Is_Not_Permission_To_Write()
     {
         // The roadmap's asymmetry, which is why the read default is not the write
@@ -116,7 +116,7 @@ public sealed class DocumentConversionContextTests
         Assert.False(entry.Allows(DocumentResourceOperations.Redistribute));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Empty_Context_Permits_Nothing()
     {
         BImageResource resource = Pixels(2, 2);
@@ -128,7 +128,7 @@ public sealed class DocumentConversionContextTests
             resource));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Continued_Context_Keeps_Its_Ids_And_Mints_Past_Them()
     {
         // An edit is one conversion with two sources of resources. Re-minting
@@ -150,7 +150,7 @@ public sealed class DocumentConversionContextTests
         Assert.Equal(2, combined.Entries.Count);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Gate_Tells_A_Refusal_Apart_From_An_Absent_Encoding()
     {
         // Both drop the picture and only one is about permission. A host that
@@ -182,7 +182,7 @@ public sealed class DocumentConversionContextTests
         Assert.Contains("no context id", refused!, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Image_Resolves_Its_Display_Size_From_The_Resource()
     {
         // 96 pixels per inch into 72 points per inch: a 96-pixel picture is one
@@ -199,7 +199,7 @@ public sealed class DocumentConversionContextTests
         Assert.Equal(18, halfHeight, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Unplaceable_Image_Reports_Rather_Than_Defaulting()
     {
         // Bytes no codec recognizes: the picture is still carried, and the size
@@ -214,7 +214,7 @@ public sealed class DocumentConversionContextTests
         Assert.False(image.HasExplicitSize);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Dimension_Is_Positive_Finite_Or_Absent()
     {
         BImageResource resource = Pixels(2, 2);

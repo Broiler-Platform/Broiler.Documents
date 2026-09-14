@@ -41,7 +41,7 @@ public sealed class RtfRoundTripTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Plain_Paragraphs()
     {
         RichTextDocument document = Doc(
@@ -52,7 +52,7 @@ public sealed class RtfRoundTripTests
         AssertEquivalent(document, RoundTrip(document));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Inline_Styles()
     {
         var bold = new InlineStyle { Bold = true };
@@ -70,7 +70,7 @@ public sealed class RtfRoundTripTests
         AssertEquivalent(document, RoundTrip(document));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Colors_Fonts_And_Highlight()
     {
         var red = new InlineStyle { Foreground = new BColor(255, 0, 0) };
@@ -85,7 +85,7 @@ public sealed class RtfRoundTripTests
         AssertEquivalent(document, RoundTrip(document));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Alignment_Indent_And_Spacing()
     {
         ParagraphStyle style = ParagraphStyle.Default with
@@ -101,7 +101,7 @@ public sealed class RtfRoundTripTests
         AssertEquivalent(document, RoundTrip(document));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Unicode_Including_A_Supplementary_Character()
     {
         string text = "caf" + (char)0x00E9 + (char)0x2019 + char.ConvertFromUtf32(0x1F600);
@@ -113,7 +113,7 @@ public sealed class RtfRoundTripTests
         AssertEquivalent(document, round);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Hyperlink()
     {
         var link = new InlineStyle { LinkHref = "https://example.com" };
@@ -125,13 +125,13 @@ public sealed class RtfRoundTripTests
         AssertEquivalent(document, round);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Empty_Document()
     {
         AssertEquivalent(RichTextDocument.Empty, RoundTrip(RichTextDocument.Empty));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Tabs_In_Running_Text_And_In_An_Indented_Paragraph()
     {
         var indented = ParagraphStyle.Default with { IndentLevel = 1 };
@@ -148,7 +148,7 @@ public sealed class RtfRoundTripTests
         AssertEquivalent(document, round);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Tab_Keeps_The_Style_Of_The_Run_It_Sits_In()
     {
         var bold = new InlineStyle { Bold = true };
@@ -160,7 +160,7 @@ public sealed class RtfRoundTripTests
         AssertEquivalent(document, round);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Trailing_Empty_Paragraph_Is_Preserved()
     {
         RichTextDocument document = Doc(Para(("A", InlineStyle.Default)), RichTextParagraph.Empty);
@@ -171,7 +171,7 @@ public sealed class RtfRoundTripTests
         AssertEquivalent(document, round);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Read_Write_Read_Is_Stable_On_A_Fixture()
     {
         string fixture =
@@ -187,7 +187,7 @@ public sealed class RtfRoundTripTests
         AssertEquivalent(first, second);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Justified_Paragraph_Round_Trips_As_Justified()
     {
         RichTextDocument document = Doc(Para(

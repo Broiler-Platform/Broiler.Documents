@@ -20,7 +20,7 @@ public sealed class DocxPageGeometryTests
     private static RichTextDocument Read(string sectPr) =>
         DocxTestPackage.ReadBody(DocxTestPackage.Paragraph("body") + sectPr).Document;
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Page_Size_In_Points()
     {
         PageGeometry geometry = Assert.IsType<PageGeometry>(Read(A4Section).PageGeometry);
@@ -31,7 +31,7 @@ public sealed class DocxPageGeometryTests
         Assert.False(geometry.IsLandscape);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Margins_A_Letterhead_Depends_On()
     {
         PageGeometry geometry = Assert.IsType<PageGeometry>(Read(A4Section).PageGeometry);
@@ -43,7 +43,7 @@ public sealed class DocxPageGeometryTests
         Assert.Equal(56.7, geometry.MarginBottom, 2);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Header_And_Footer_Distances()
     {
         PageGeometry geometry = Assert.IsType<PageGeometry>(Read(A4Section).PageGeometry);
@@ -52,13 +52,13 @@ public sealed class DocxPageGeometryTests
         Assert.Equal(56.7, geometry.FooterDistance, 2);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_Stating_No_Page_Size_Has_No_Geometry()
     {
         Assert.Null(Read("<w:sectPr/>").PageGeometry);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Margins_That_Leave_No_Column_Are_Refused()
     {
         RichTextDocument document = Read(
@@ -69,7 +69,7 @@ public sealed class DocxPageGeometryTests
         Assert.Null(document.PageGeometry);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reports_A_Page_It_Refused()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -80,7 +80,7 @@ public sealed class DocxPageGeometryTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.section.geometry");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Landscape_Is_A_Page_Wider_Than_It_Is_Tall()
     {
         RichTextDocument document = Read(
@@ -90,7 +90,7 @@ public sealed class DocxPageGeometryTests
         Assert.True(Assert.IsType<PageGeometry>(document.PageGeometry).IsLandscape);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Page_Survives_A_Round_Trip()
     {
         RichTextDocument source = Read(A4Section);
@@ -104,7 +104,7 @@ public sealed class DocxPageGeometryTests
         Assert.Equal(source.PageGeometry.HeaderDistance, geometry.HeaderDistance, 2);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_The_Section_A_Reader_Needs()
     {
         byte[] bytes = DocxDocumentCodec.WriteToArray(Read(A4Section));
@@ -116,7 +116,7 @@ public sealed class DocxPageGeometryTests
         Assert.Contains("w:left=\"2551\"", xml, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_With_No_Geometry_Writes_No_Page()
     {
         byte[] bytes = DocxDocumentCodec.WriteToArray(RichTextDocument.FromPlainText("body"));

@@ -37,7 +37,7 @@ public sealed class PdfShapeRenderTests
         return fills;
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Solid_Shape_Is_Filled_Once()
     {
         string content = Write(WithShape(Stripe(ShapeFill.Solid(BColor.FromArgb(0xFF, 0xAE, 0xCF, 0x00)))));
@@ -47,7 +47,7 @@ public sealed class PdfShapeRenderTests
         Assert.Contains("0.68", content, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Gradient_Shape_Is_Banded()
     {
         var fill = new ShapeFill(BColor.FromArgb(0xFF, 0xAE, 0xCF, 0x00), BColor.White, 90);
@@ -57,7 +57,7 @@ public sealed class PdfShapeRenderTests
         Assert.True(Fills(content).Count > 100, $"expected the gradient to be banded, got {Fills(content).Count} fill(s)");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Shape_Is_Painted_Before_Any_Text()
     {
         string content = Write(WithShape(Stripe(ShapeFill.Solid(BColor.Black))));
@@ -69,7 +69,7 @@ public sealed class PdfShapeRenderTests
         Assert.True(fill < text, "the shape was painted over the text instead of under it");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Outlined_Shape_Strokes_Its_Box()
     {
         string content = Write(WithShape(Stripe(ShapeFill.Solid(BColor.White), BColor.Black)));
@@ -78,13 +78,13 @@ public sealed class PdfShapeRenderTests
         Assert.Contains(" RG", content, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Shape_Without_A_Fill_Paints_Nothing()
     {
         Assert.Empty(Fills(Write(WithShape(Stripe(fill: null)))));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Shapes_Own_Text_Is_Drawn()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("body").WithShapes(
@@ -99,7 +99,7 @@ public sealed class PdfShapeRenderTests
         Assert.Contains("logohere", Write(document), StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_Without_Shapes_Is_Unchanged()
     {
         string plain = Write(RichTextDocument.FromPlainText("body"));

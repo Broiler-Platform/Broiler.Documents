@@ -24,7 +24,7 @@ public sealed class PdfFontProvisioningTests
         "FallbackSystemFont",
     ];
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Writer_Never_Reaches_For_A_Font_The_Machine_Happens_To_Have()
     {
         // §11.3 forbids ambient selection for export and forbids substituting an
@@ -49,14 +49,14 @@ public sealed class PdfFontProvisioningTests
         Assert.Empty(offenders);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Empty_Font_Set_Is_The_Default_And_Not_An_Error()
     {
         Assert.True(DocumentWriteOptions.Default.Fonts.IsEmpty);
         Assert.Empty(DocumentWriteOptions.Default.Fonts.Fonts);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Font_Reaches_A_Write_Because_The_Caller_Put_It_There()
     {
         var font = new DocumentFontResource(

@@ -33,7 +33,7 @@ public sealed class DocumentLayoutLineBreakTests
             .Select(line => string.Concat(line.Pieces.Select(piece => piece.Text)).Trim())
             .ToList();
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Ends_The_Line_With_Room_To_Spare()
     {
         // Five short lines that would otherwise fit two or three to a row, which
@@ -47,7 +47,7 @@ public sealed class DocumentLayoutLineBreakTests
             lines);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Is_Not_A_Space()
     {
         // The regression itself, stated as the difference it makes: the same two
@@ -56,7 +56,7 @@ public sealed class DocumentLayoutLineBreakTests
         Assert.Single(Lines(Layout("alpha bravo")));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Two_Breaks_In_A_Row_Leave_The_Blank_Line_Between_Them()
     {
         List<string> lines = Lines(Layout("alpha" + Break + Break + "bravo"));
@@ -64,7 +64,7 @@ public sealed class DocumentLayoutLineBreakTests
         Assert.Equal(["alpha", string.Empty, "bravo"], lines);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Draws_No_Glyph_Of_Its_Own()
     {
         // U+2028 has no glyph in any pinned face, so one reaching a piece would
@@ -77,7 +77,7 @@ public sealed class DocumentLayoutLineBreakTests
         Assert.False(present, "the break character should not survive into a drawn piece");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Break_Still_Wraps_What_Does_Not_Fit()
     {
         // A forced break ends a line early; it does not turn wrapping off for the

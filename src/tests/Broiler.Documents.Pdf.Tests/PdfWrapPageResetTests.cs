@@ -80,7 +80,7 @@ public sealed class PdfWrapPageResetTests
         return Encoding.Latin1.GetString(stream.ToArray());
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Wrap_Does_Not_Follow_The_Text_Onto_The_Next_Page()
     {
         // The line is the first on page two either way, so the two runs are the
@@ -91,7 +91,7 @@ public sealed class PdfWrapPageResetTests
         Assert.Equal(plain, wrapped, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Wrap_Still_Applies_On_The_Page_The_Shape_Is_On()
     {
         // The other half, and the one that stops the test above passing because
@@ -102,7 +102,7 @@ public sealed class PdfWrapPageResetTests
         Assert.True(wrapped > plain + 100, $"the shape moved the line to {wrapped} from {plain}");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Overflowing_Document_Regains_Its_Column_After_The_Break()
     {
         // The other page-starting site: no explicit break, just text running out
@@ -116,7 +116,7 @@ public sealed class PdfWrapPageResetTests
         Assert.Contains(wrapped, x => x > column + 100);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Paragraph_That_Straddles_A_Break_Keeps_Its_Bands()
     {
         // The limit of the reset, pinned rather than left to be met by surprise

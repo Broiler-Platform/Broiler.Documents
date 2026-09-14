@@ -1,4 +1,4 @@
-# Pack and verify every shipping project; PDF providers and the CLI remain gated.
+# Pack and verify every shipping library, including the PDF codec and providers.
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release')][string] $Configuration = 'Release',

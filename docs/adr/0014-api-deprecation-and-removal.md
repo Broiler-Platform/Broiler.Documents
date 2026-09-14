@@ -15,7 +15,7 @@ than being blocked on a decision somebody had declined to take: there was nothin
 to disagree with and nothing to point at. This ADR writes the policy so the
 blockage becomes a decision again.
 
-The component publishes eight packages. A public member removed without notice
+The component generates eleven preview packages. A public member removed without notice
 breaks a consumer's build on an upgrade with no warning and no migration text,
 and this project has no way of knowing who those consumers are. That is the
 constraint the policy has to respect; everything else follows from it.
@@ -53,11 +53,10 @@ noise in their build until removal, which is the only part that helps them. Such
 a member is either documented as narrow — which is a different problem — or
 removed on its own merits under the two-step rule.
 
-**Nothing here applies to the PDF codec's surface while its package is
-unpublished.** `Broiler.Documents.Pdf` is `IsPackable=false` and has no consumers
-to break, so its API moves freely until the delivery gates in the PDF roadmap
-§4.1 open. The moment it is published, it is under this policy like everything
-else.
+**PDF preview packages follow this policy from their first publication.** The
+codec and its font/image providers are now packable (PDF roadmap §4.1), so a
+published PDF API must receive the same deprecation treatment as the other
+libraries, even while application integration remains gated.
 
 ## Consequences
 

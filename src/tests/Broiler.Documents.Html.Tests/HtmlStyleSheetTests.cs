@@ -29,7 +29,7 @@ namespace Broiler.Documents.Html.Tests;
 /// </remarks>
 public sealed class HtmlStyleSheetTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Type_Rule_Reaches_An_Element_That_States_No_Style_Of_Its_Own()
     {
         RichTextDocument document = Read(
@@ -39,7 +39,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Equal(TextAlignment.Center, Assert.Single(document.Paragraphs).Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Inline_Style_Wins_Over_The_Type_Rule_Under_It()
     {
         // The whole of this codec's specificity: one comparison with one answer.
@@ -50,7 +50,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Equal(TextAlignment.Right, Assert.Single(document.Paragraphs).Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Property_The_Inline_Style_Does_Not_State_Still_Applies()
     {
         // The half of "inline wins" that is easy to get wrong: overriding one
@@ -66,7 +66,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Equal(2f, paragraph.Style.LineSpacing);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Type_Rule_Reaches_An_Inline_Element_Too()
     {
         RichTextDocument document = Read(
@@ -79,7 +79,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Equal(BColor.FromArgb(0x33, 0x66, 0x99), paragraph.StyleAt(6).Foreground);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Type_Rule_On_A_Container_Feeds_The_Descent_This_Reader_Already_Had()
     {
         // Not a computed-style inheritance pass. The rule contributes to the
@@ -95,7 +95,7 @@ public sealed class HtmlStyleSheetTests
             paragraph => Assert.Equal(TextAlignment.Center, paragraph.Style.Alignment));
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // Everything on the far side of the line. Each of these selects something a
     // browser can work out and this codec deliberately cannot.
     [InlineData(".lead")]
@@ -116,7 +116,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.css.rule");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Selector_List_Of_Type_Selectors_Applies_To_Each_Of_Them()
     {
         RichTextDocument document = Read(
@@ -130,7 +130,7 @@ public sealed class HtmlStyleSheetTests
         Assert.NotEqual(blue, document.Paragraphs[3].StyleAt(0).Foreground);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Selector_List_With_One_Item_This_Codec_Cannot_Match_Is_Skipped_Whole()
     {
         // Not applied to the h1 and dropped for the .lead. Two elements an author
@@ -146,7 +146,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.css.rule");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Rule_For_An_Element_The_Document_Does_Not_Have_Changes_Nothing()
     {
         DocumentReadResult result = ReadResult(
@@ -159,7 +159,7 @@ public sealed class HtmlStyleSheetTests
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "html.css.rule");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Ordinary_Document_With_Type_Rules_Reports_Nothing()
     {
         DocumentReadResult result = ReadResult(
@@ -169,7 +169,7 @@ public sealed class HtmlStyleSheetTests
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "html.css.rule");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Later_Of_Two_Rules_Wins_The_Property_They_Share()
     {
         // Source order, which is what CSS says for two rules of one specificity -
@@ -181,7 +181,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Equal(TextAlignment.Right, Assert.Single(document.Paragraphs).Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Rules_In_Separate_Style_Elements_Are_Both_Read()
     {
         // A producer may split its sheet, which is already why the page is looked
@@ -196,7 +196,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Equal(2f, paragraph.Style.LineSpacing);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Rule_Inside_A_Media_Query_Is_Not_Applied()
     {
         // @media asks about the device, and this codec is not one. The block is
@@ -210,7 +210,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.css.rule");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Statement_At_Rule_Does_Not_Swallow_The_Rule_After_It()
     {
         // @charset ends at its semicolon and has no block. Scanning to the next
@@ -223,7 +223,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Equal(TextAlignment.Center, Assert.Single(document.Paragraphs).Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Comment_Does_Not_Take_The_Rule_Beside_It()
     {
         RichTextDocument document = Read(
@@ -233,7 +233,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Equal(TextAlignment.Center, Assert.Single(document.Paragraphs).Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Sheet_Wrapped_In_Html_Comment_Delimiters_Is_Still_Read()
     {
         // The habit of hiding a stylesheet from a browser too old to know the
@@ -248,7 +248,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Equal(TextAlignment.Center, Assert.Single(document.Paragraphs).Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Nested_Block_Does_Not_Swallow_The_Declaration_After_It()
     {
         // The trap the @page reader documents, met again: the declaration splitter
@@ -263,7 +263,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Equal(TextAlignment.Center, paragraph.Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_At_Page_Rule_Is_Still_Read_Beside_The_Type_Rules()
     {
         // Both halves come out of one gathering of the style elements, and the
@@ -278,7 +278,7 @@ public sealed class HtmlStyleSheetTests
         Assert.Equal(TextAlignment.Center, Assert.Single(document.Paragraphs).Style.Alignment);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Style_Element_Is_Still_Not_Read_As_Text()
     {
         // Reading the sheet is not letting it into the prose. The skip that hid
@@ -296,7 +296,7 @@ public sealed class HtmlStyleSheetTests
     /// the document the office conformance suite scored HTML down on, and every
     /// property in it used to arrive as the model default.
     /// </summary>
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Shape_Libreoffice_Writes_Arrives_Whole()
     {
         DocumentReadResult result = ReadResult(

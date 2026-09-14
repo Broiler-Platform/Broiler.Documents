@@ -144,8 +144,9 @@ of the three states a given technology is in and why.
 
 Residual work owned here:
 
-- The package stays `IsPackable=false` and unregistered until the roadmap's
-  read-preview and write-preview gates pass. Implementation is not a capability
+- The PDF codec, font provider, and image provider generate preview packages.
+  Application integration retains the roadmap's read-preview and write-preview
+  gates. Implementation is not a capability
   claim, and no feature-matrix entry may reach `Supported` while its
   IP/licensing row is pending.
 - The Phase 1 §6.1 contracts are built: `DocumentInput` (replayable probing over

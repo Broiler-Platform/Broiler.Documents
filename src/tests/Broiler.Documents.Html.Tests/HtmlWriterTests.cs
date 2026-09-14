@@ -6,7 +6,7 @@ namespace Broiler.Documents.Html.Tests;
 
 public sealed class HtmlWriterTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_A_Deterministic_Html_Document()
     {
         string html = Write(RichTextDocument.FromPlainText("hello"));
@@ -16,7 +16,7 @@ public sealed class HtmlWriterTests
         Assert.Contains("<p>hello</p>", html);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_Inline_Styles_Links_And_Soft_Breaks()
     {
         RichTextDocument document = SingleParagraph(
@@ -47,7 +47,7 @@ public sealed class HtmlWriterTests
         Assert.Contains("<a href=\"https://example.test\">link</a>", html);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Model_To_Html_To_Model_RoundTrips_Supported_Subset()
     {
         RichTextDocument expected = RichTextDocument.FromParagraphs(new[]
@@ -82,7 +82,7 @@ public sealed class HtmlWriterTests
         DocumentAssert.Equivalent(expected, actual);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Paragraph_Holding_A_Tab_Keeps_It_Through_Html()
     {
         // HTML collapses a tab to a space unless the paragraph says otherwise, so
@@ -99,7 +99,7 @@ public sealed class HtmlWriterTests
         DocumentAssert.Equivalent(expected, actual);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Paragraph_With_No_Tab_Is_Not_Given_A_Whitespace_Declaration()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(
@@ -108,7 +108,7 @@ public sealed class HtmlWriterTests
         Assert.DoesNotContain("white-space", Write(document), StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writing_ListKind_Reports_A_Predictable_Diagnostic()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(new[]
@@ -122,7 +122,7 @@ public sealed class HtmlWriterTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.list");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_An_Embedded_Image_As_A_Data_Uri()
     {
         var image = new InlineImage(new byte[] { 1, 2, 3 }, "image/png", 40, 20, "a logo");
@@ -161,7 +161,7 @@ public sealed class HtmlWriterTests
         return paragraph;
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Justified_Paragraph_Keeps_Its_Alignment_Through_Html()
     {
         RichTextDocument expected = RichTextDocument.FromParagraphs(
@@ -214,7 +214,7 @@ public sealed class HtmlWriterTests
     // bare and read back one character shorter - with nothing reported, because
     // from the writer's side nothing had gone wrong.
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("Lead and  gap and trail.")]
     [InlineData("  leading kept")]
     [InlineData("trailing kept  ")]
@@ -237,7 +237,7 @@ public sealed class HtmlWriterTests
         Assert.Equal(text, actual.Paragraphs[0].Text);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Paragraph_That_Needs_No_Help_Does_Not_Ask_For_It()
     {
         // The declaration is not free - it changes how a browser lays the
@@ -249,7 +249,7 @@ public sealed class HtmlWriterTests
         Assert.DoesNotContain(HtmlWriter.PreserveWhitespaceDeclaration, html, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Paragraph_Whose_Spaces_Would_Collapse_Asks_To_Keep_Them()
     {
         string html = Write(RichTextDocument.FromPlainText("two  spaces"));
@@ -257,7 +257,7 @@ public sealed class HtmlWriterTests
         Assert.Contains(HtmlWriter.PreserveWhitespaceDeclaration, html, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Ordinary_Html_Still_Collapses_Its_Source_Formatting()
     {
         // The other half of the same rule, and the one a change here could
@@ -278,7 +278,7 @@ public sealed class HtmlWriterTests
     // the same schemes, so a document that wrote the link and one that dropped
     // it both read back without it. These assert the bytes.
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("javascript:alert(1)")]
     [InlineData("vbscript:msgbox")]
     [InlineData("file:///etc/passwd")]
@@ -291,7 +291,7 @@ public sealed class HtmlWriterTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.link");
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("https://example.test/page")]
     [InlineData("http://example.test/page")]
     [InlineData("mailto:someone@example.test")]

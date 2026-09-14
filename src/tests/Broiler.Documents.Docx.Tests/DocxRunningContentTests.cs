@@ -68,7 +68,7 @@ public sealed class DocxRunningContentTests
     private static string TextOf(IReadOnlyList<RichTextParagraph> paragraphs) =>
         string.Join("\n", paragraphs.Select(p => p.Text));
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Header_And_Footer_A_Section_Names()
     {
         DocumentReadResult result = Read(
@@ -80,7 +80,7 @@ public sealed class DocxRunningContentTests
         Assert.Equal("page one", TextOf(running.Footer(PageSelection.Default)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Keeps_The_Header_Out_Of_The_Body_Flow()
     {
         DocumentReadResult result = Read(
@@ -90,7 +90,7 @@ public sealed class DocxRunningContentTests
         Assert.Equal("body", result.Document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Keeps_The_Type_A_Reference_Declares()
     {
         DocumentReadResult result = Read(
@@ -101,7 +101,7 @@ public sealed class DocxRunningContentTests
         Assert.Empty(running.Header(PageSelection.Default));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Falls_Back_To_The_Default_For_A_Selection_With_No_Part()
     {
         DocumentReadResult result = Read(
@@ -113,13 +113,13 @@ public sealed class DocxRunningContentTests
             TextOf(result.Document.RunningContent.EffectiveHeader(PageSelection.Even)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_With_No_Section_References_Has_No_Running_Content()
     {
         Assert.True(Read("<w:sectPr/>").Document.RunningContent.IsEmpty);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Warns_When_A_Reference_Names_A_Relationship_The_Package_Lacks()
     {
         DocumentReadResult result = Read(
@@ -128,7 +128,7 @@ public sealed class DocxRunningContentTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.part.reference");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Header_Shape_Onto_The_Running_Content()
     {
         // It used to be handed to the body and anchored to a paragraph there,
@@ -145,7 +145,7 @@ public sealed class DocxRunningContentTests
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.shape.fromheader");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Header_That_Holds_Only_A_Shape()
     {
         // A part with no words used to report nothing at all, so a letterhead
@@ -160,7 +160,7 @@ public sealed class DocxRunningContentTests
         Assert.Single(running.HeaderShapes(PageSelection.Default));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Keeps_A_Header_And_Its_Shapes_On_The_Same_Selection()
     {
         // The fallback is resolved once for the whole part. Resolving shapes and
@@ -176,7 +176,7 @@ public sealed class DocxRunningContentTests
         Assert.Empty(running.EffectiveHeaderShapes(PageSelection.Default));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Keeps_A_Header_And_A_Footer_Shape_Apart()
     {
         var parts = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -202,7 +202,7 @@ public sealed class DocxRunningContentTests
         Assert.Single(document.RunningContent.FooterShapes(PageSelection.Default));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Header_Shape_Survives_A_Round_Trip()
     {
         RichTextDocument source = Read(
@@ -217,7 +217,7 @@ public sealed class DocxRunningContentTests
         Assert.Equal("letterhead", TextOf(actual.RunningContent.Header(PageSelection.Default)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Editing_The_Body_Does_Not_Lose_The_Running_Content()
     {
         RichTextDocument document = Read(
@@ -232,7 +232,7 @@ public sealed class DocxRunningContentTests
             TextOf(edited.RunningContent.Header(PageSelection.Default)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Header_And_Footer_Survive_A_Round_Trip()
     {
         RichTextDocument source = Read(
@@ -246,7 +246,7 @@ public sealed class DocxRunningContentTests
         Assert.Equal("page one", TextOf(running.Footer(PageSelection.Default)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_The_Parts_And_Declares_Them_In_The_Package()
     {
         RichTextDocument source = Read(
@@ -266,7 +266,7 @@ public sealed class DocxRunningContentTests
         Assert.Contains("titlePg", xml);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void TitlePg_Is_What_Makes_The_First_Page_Different()
     {
         // The letterhead's section: a first-page header, a default footer, and
@@ -284,7 +284,7 @@ public sealed class DocxRunningContentTests
         Assert.Equal("page one", TextOf(running.EffectiveFooter(PageSelection.Default)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Without_TitlePg_The_First_Page_Takes_The_Default_Footer()
     {
         // The other half of the same rule, and the reason it is a flag rather
@@ -299,7 +299,7 @@ public sealed class DocxRunningContentTests
         Assert.Equal("page one", TextOf(running.EffectiveFooter(PageSelection.First)));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void TitlePg_Turned_Off_Is_Off()
     {
         RunningContent running = Read(
@@ -310,7 +310,7 @@ public sealed class DocxRunningContentTests
         Assert.False(running.DifferentFirstPage);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Different_First_Page_Round_Trips_Through_The_Writer()
     {
         RichTextDocument source = RichTextDocument.FromPlainText("body").WithRunningContent(

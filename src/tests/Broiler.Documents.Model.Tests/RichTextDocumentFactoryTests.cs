@@ -2,7 +2,7 @@ namespace Broiler.Documents.Model.Tests;
 
 public sealed class RichTextDocumentFactoryTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void FromParagraphs_Assembles_A_Document_Preserving_Styles()
     {
         RichTextParagraph one = RichTextParagraph.Create("one", InlineStyle.Default);
@@ -15,7 +15,7 @@ public sealed class RichTextDocumentFactoryTests
         Assert.True(document.Paragraphs[1].StyleAt(0).Bold);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void FromParagraphs_Empty_Yields_A_Single_Empty_Paragraph()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(Array.Empty<RichTextParagraph>());
@@ -24,7 +24,7 @@ public sealed class RichTextDocumentFactoryTests
         Assert.Equal(string.Empty, document.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void FromParagraphs_Rejects_Null()
     {
         Assert.Throws<ArgumentNullException>(() => RichTextDocument.FromParagraphs(null!));

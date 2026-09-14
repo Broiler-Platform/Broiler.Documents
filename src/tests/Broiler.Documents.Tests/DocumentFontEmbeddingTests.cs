@@ -35,7 +35,7 @@ public sealed class DocumentFontEmbeddingTests
         return (entry.Id, builder.Build());
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Installable_Font_A_Caller_Approved_May_Be_Embedded()
     {
         DocumentFontResource font = Font(0);
@@ -45,7 +45,7 @@ public sealed class DocumentFontEmbeddingTests
         Assert.Null(refusal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Caller_Decision_Does_Not_Override_A_Restricted_Font()
     {
         // The policy says yes to everything it is asked about. The font still
@@ -58,7 +58,7 @@ public sealed class DocumentFontEmbeddingTests
         Assert.Contains("restricted-licence", refusal!, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Permissive_Font_Without_A_Caller_Decision_Is_Refused()
     {
         // The other half. A font whose table permits everything is still not a
@@ -71,7 +71,7 @@ public sealed class DocumentFontEmbeddingTests
         Assert.Contains("EmbedOrSubset", refusal!, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Silence_Is_Refused_Rather_Than_Read_As_Permission()
     {
         var font = new DocumentFontResource(
@@ -84,7 +84,7 @@ public sealed class DocumentFontEmbeddingTests
         Assert.Contains("no embedding permission", refusal!, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Subsetting_Refuses_Only_The_Subsetting()
     {
         DocumentFontResource font = Font(0x0100);
@@ -95,7 +95,7 @@ public sealed class DocumentFontEmbeddingTests
         Assert.Contains("forbids subsetting", refusal!, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Bitmap_Only_Embedding_Is_Refused_Because_None_Is_Emitted()
     {
         DocumentFontResource font = Font(0x0200);
@@ -105,7 +105,7 @@ public sealed class DocumentFontEmbeddingTests
         Assert.Contains("bitmap", refusal!, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Swapping_The_Program_For_Another_Of_The_Same_Family_Fails_The_Check()
     {
         // What binding the declaration into the entry is for. Approving a
@@ -123,7 +123,7 @@ public sealed class DocumentFontEmbeddingTests
         Assert.Contains("not the one that was approved", refusal!, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Font_Read_From_A_Document_Is_Not_Export_Authority()
     {
         Assert.False(DocumentFontEmbedding.MayReExport(DocumentResourceProvenance.ReadFromSource));

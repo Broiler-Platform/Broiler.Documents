@@ -2,7 +2,7 @@ namespace Broiler.Documents.Markdown.Tests;
 
 public sealed class MarkdownWriterTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_Deterministic_Markdown()
     {
         string markdown = Write(RichTextDocument.FromPlainText("hello\nworld"));
@@ -10,7 +10,7 @@ public sealed class MarkdownWriterTests
         Assert.Equal("hello\n\nworld\n", markdown);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_Inline_Styles_Links_Lists_And_Soft_Breaks()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(new[]
@@ -28,7 +28,7 @@ public sealed class MarkdownWriterTests
         Assert.Contains("  \n[link](https://example.test)", markdown);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Model_To_Markdown_To_Model_RoundTrips_Supported_Subset()
     {
         RichTextDocument expected = RichTextDocument.FromParagraphs(new[]
@@ -54,7 +54,7 @@ public sealed class MarkdownWriterTests
         DocumentAssert.Equivalent(expected, actual);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writing_Unsupported_Styles_Reports_Diagnostics()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(new[]
@@ -71,7 +71,7 @@ public sealed class MarkdownWriterTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.inline-style");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writing_A_Page_Break_Says_Markdown_Cannot_Express_One()
     {
         // Markdown has no page and so no page break, and there is no fallback
@@ -94,7 +94,7 @@ public sealed class MarkdownWriterTests
         Assert.Equal("first\n\nsecond\n", System.Text.Encoding.UTF8.GetString(stream.ToArray()));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Document_That_Breaks_No_Page_Reports_No_Page_Break()
     {
         // The other half of the same claim. A diagnostic every document carries
@@ -106,7 +106,7 @@ public sealed class MarkdownWriterTests
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.page-break");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_An_Embedded_Image_As_A_Data_Uri()
     {
         var image = new InlineImage(new byte[] { 1, 2, 3 }, "image/png", 40, 20, "a logo");
@@ -169,7 +169,7 @@ public sealed class MarkdownWriterTests
     private static DocumentReadOptions RoundTripReadOptions { get; } =
         new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("Pipe | tilde ~~s~~ backtick `c`")]
     [InlineData("approx ~5 items")]
     [InlineData("~~~")]
@@ -189,7 +189,7 @@ public sealed class MarkdownWriterTests
         Assert.False(actual.Paragraphs[0].StyleAt(0).Strikethrough);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Struck_Run_Still_Writes_The_Delimiter_It_Means()
     {
         // The escape must not reach the delimiters the writer emits itself.
@@ -209,7 +209,7 @@ public sealed class MarkdownWriterTests
     // the same schemes, so a document that wrote the link and one that dropped
     // it both read back without it. These assert the bytes.
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("javascript:alert(1)")]
     [InlineData("vbscript:msgbox")]
     [InlineData("file:///etc/passwd")]
@@ -222,7 +222,7 @@ public sealed class MarkdownWriterTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.link");
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("https://example.test/page")]
     [InlineData("http://example.test/page")]
     [InlineData("mailto:someone@example.test")]
@@ -244,7 +244,7 @@ public sealed class MarkdownWriterTests
         return (System.Text.Encoding.UTF8.GetString(stream.ToArray()), result);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void An_Empty_Href_Is_Not_A_Link_And_Is_Not_A_Diagnostic()
     {
         // The other four writers guard on IsNullOrEmpty and say nothing; this

@@ -2,7 +2,7 @@ namespace Broiler.Documents.Tests;
 
 public sealed class DocumentFormatDescriptorTests
 {
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Extensions_Are_Normalized_To_Leading_Dot_Lower_Case_And_Deduplicated()
     {
         var descriptor = new DocumentFormatDescriptor("RTF", null, new[] { "rtf", ".RTF", "*.rtf" });
@@ -35,13 +35,13 @@ public sealed class DocumentFormatDescriptorTests
         Assert.Equal(expected, descriptor.MatchesMimeType(mimeType));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Empty_Name_Is_Rejected()
     {
         Assert.Throws<ArgumentException>(() => new DocumentFormatDescriptor("  "));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Null_Lists_Become_Empty()
     {
         var descriptor = new DocumentFormatDescriptor("RTF");

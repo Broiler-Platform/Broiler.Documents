@@ -32,7 +32,7 @@ public sealed class PdfTestControlGuardTests
     private static JsonDocument Load(string relativePath) =>
         JsonDocument.Parse(File.ReadAllText(Path.Combine(PdfGuardRoots.Component, relativePath)));
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Both_Controls_And_Their_Schemas_Parse()
     {
         foreach (string path in new[] { ToolManifest, ToolSchema, Baseline, BaselineSchema })
@@ -42,7 +42,7 @@ public sealed class PdfTestControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Tool_Is_Approved_Merely_By_Being_Written_Down()
     {
         // A row is evidence that somebody wrote the tool's details down. The
@@ -68,7 +68,7 @@ public sealed class PdfTestControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void No_Tool_Is_A_Product_Reference()
     {
         // §6.6's hard rule: independent tools run out of process in CI and stay
@@ -102,7 +102,7 @@ public sealed class PdfTestControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Baseline_Runner_Matches_The_Runners_CI_Actually_Uses()
     {
         // A threshold measured on a machine the project does not run is not
@@ -125,7 +125,7 @@ public sealed class PdfTestControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Scenario_Cannot_Pass_A_Gate_By_Being_Recorded()
     {
         // Recording a measurement is not passing one. An approved scenario has to
@@ -143,7 +143,7 @@ public sealed class PdfTestControlGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_Fuzz_Harness_Is_Wired_To_A_Nightly_Job()
     {
         // The pull-request campaign runs as an ordinary test; the long one needs

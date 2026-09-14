@@ -45,7 +45,7 @@ public sealed class PdfWriterConformanceGuardTests
     private static IEnumerable<JsonElement> Constructs(JsonDocument checklist) =>
         checklist.RootElement.GetProperty("constructs").EnumerateArray();
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Key_The_Writer_Emits_Is_On_The_Checklist()
     {
         // The binding that matters. Add a key to the writer without a row here
@@ -84,7 +84,7 @@ public sealed class PdfWriterConformanceGuardTests
             string.Join(", ", unlisted));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Row_Cites_A_Source_That_Exists()
     {
         string source = File.ReadAllText(Path.Combine(PdfGuardRoots.Component, Writer));
@@ -108,7 +108,7 @@ public sealed class PdfWriterConformanceGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Row_Cites_Evidence_That_Exists()
     {
         string tests = File.ReadAllText(Path.Combine(
@@ -130,7 +130,7 @@ public sealed class PdfWriterConformanceGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Every_Row_Carries_Evidence_At_All()
     {
         using JsonDocument checklist = Load();
@@ -143,7 +143,7 @@ public sealed class PdfWriterConformanceGuardTests
         }
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Recorded_Clause_Names_Who_Recorded_It()
     {
         // The one thing worth checking about the clause half: that a row which

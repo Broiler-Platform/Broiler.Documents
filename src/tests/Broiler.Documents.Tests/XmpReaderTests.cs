@@ -20,7 +20,7 @@ public sealed class XmpReaderTests
 
     // ---- the two forms a packet is written in ---------------------------------
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Properties_Written_As_Child_Elements()
     {
         XmpReadResult result = XmpReader.Read(Packet(
@@ -48,7 +48,7 @@ public sealed class XmpReaderTests
         Assert.Equal(8, metadata.FieldCount);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_Properties_Written_As_Description_Attributes()
     {
         // The abbreviated form. Producers use it freely, sometimes alongside the
@@ -64,7 +64,7 @@ public sealed class XmpReaderTests
         Assert.Equal("Some Producer", result.Metadata.Producer);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Simple_Property_That_Skips_Its_Container()
     {
         XmpReadResult result = XmpReader.Read(Packet("<dc:title>Bare Title</dc:title>"), Ceiling);
@@ -72,7 +72,7 @@ public sealed class XmpReaderTests
         Assert.Equal("Bare Title", result.Metadata.Title);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Packet_That_Has_No_Xmpmeta_Wrapper()
     {
         // x:xmpmeta is conventional, not required. A packet may start at rdf:RDF.
@@ -91,7 +91,7 @@ public sealed class XmpReaderTests
 
     // ---- resolving containers -------------------------------------------------
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Prefers_The_Default_Language_Alternative_Over_Serialization_Order()
     {
         XmpReadResult result = XmpReader.Read(Packet(
@@ -107,7 +107,7 @@ public sealed class XmpReaderTests
         Assert.Equal("Title", result.Metadata.Title);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Falls_Back_To_The_First_Alternative_When_None_Is_Default()
     {
         XmpReadResult result = XmpReader.Read(Packet(
@@ -121,7 +121,7 @@ public sealed class XmpReaderTests
         Assert.Equal("Titel", result.Metadata.Title);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void The_First_Statement_Of_A_Property_Wins()
     {
         XmpReadResult result = XmpReader.Read(Packet(
@@ -134,7 +134,7 @@ public sealed class XmpReaderTests
         Assert.Equal(1, result.IgnoredProperties);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Properties_Outside_The_Allowlist_Are_Counted_And_Dropped()
     {
         XmpReadResult result = XmpReader.Read(Packet(
@@ -152,7 +152,7 @@ public sealed class XmpReaderTests
 
     // ---- untrusted input ------------------------------------------------------
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Packet_Carrying_A_Dtd_Is_Refused_Without_Expanding_It()
     {
         // The billion-laughs shape. Prohibiting the DTD is what makes this a
@@ -180,7 +180,7 @@ public sealed class XmpReaderTests
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"took {clock.Elapsed}");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Packet_Over_The_Byte_Ceiling_Is_Refused_Before_It_Is_Parsed()
     {
         byte[] packet = Packet("<dc:title>Small enough on its own</dc:title>");
@@ -191,7 +191,7 @@ public sealed class XmpReaderTests
         Assert.True(result.Metadata.IsEmpty);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Malformed_Packet_Reports_Only_A_Structural_Reason()
     {
         XmpReadResult result = XmpReader.Read(
@@ -205,7 +205,7 @@ public sealed class XmpReaderTests
         Assert.Equal("XmlException", result.Failure);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Packet_Nested_Past_The_Depth_Ceiling_Is_Refused()
     {
         var deep = new StringBuilder();
@@ -220,7 +220,7 @@ public sealed class XmpReaderTests
         Assert.Equal(nameof(XmpReader.MaxDepth), result.Failure);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Very_Long_Value_Is_Clamped_Rather_Than_Kept()
     {
         XmpReadResult result = XmpReader.Read(
@@ -230,7 +230,7 @@ public sealed class XmpReaderTests
         Assert.Equal(XmpReader.MaxValueLength, result.Metadata.Title?.Length);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Utf16_Packet_Reads_Through_Its_Byte_Order_Mark()
     {
         string xml = Wrap($"""
@@ -249,7 +249,7 @@ public sealed class XmpReaderTests
 
     // ---- dates ----------------------------------------------------------------
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("2026-09-01T09:30:00Z")]
     [InlineData("2026-09-01T09:30:00+02:00")]
     [InlineData("2026-09-01T09:30-05:00")]
@@ -260,7 +260,7 @@ public sealed class XmpReaderTests
         Assert.True(date.HasUtcOffset);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("2026")]
     [InlineData("2026-09")]
     [InlineData("2026-09-01")]
@@ -275,7 +275,7 @@ public sealed class XmpReaderTests
         Assert.False(date.HasUtcOffset);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("yesterday")]
@@ -287,7 +287,7 @@ public sealed class XmpReaderTests
         Assert.False(XmpReader.TryParseDate(value, out _));
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Property_Whose_Date_Does_Not_Parse_Simply_Has_No_Value()
     {
         XmpReadResult result = XmpReader.Read(

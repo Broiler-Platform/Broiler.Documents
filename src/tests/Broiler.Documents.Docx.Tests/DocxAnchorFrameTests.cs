@@ -45,7 +45,7 @@ public sealed class DocxAnchorFrameTests
     private static DocumentReadResult Read(string runXml, string sectPr = A4Section) =>
         DocxTestPackage.ReadBody("<w:p>" + runXml + "<w:r><w:t>body</w:t></w:r></w:p>" + sectPr);
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     // The page's left edge and the left margin's both sit a left margin to the
     // left of the column, so an offset of nothing is the column's negative.
     [InlineData("page", -MarginLeft)]
@@ -62,7 +62,7 @@ public sealed class DocxAnchorFrameTests
         Assert.Equal(expected, shape.OffsetX, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Converts_A_Horizontal_Offset_Along_With_Its_Frame()
     {
         // An inch from the page's left edge, on a page whose margin is wider than
@@ -73,7 +73,7 @@ public sealed class DocxAnchorFrameTests
         Assert.Equal(72 - MarginLeft, shape.OffsetX, 1);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("insideMargin", -MarginLeft)]
     [InlineData("outsideMargin", PageWidth - MarginRight - MarginLeft)]
     public void Reads_A_Mirrored_Margin_As_An_Odd_Page_And_Says_So(string from, double expected)
@@ -84,7 +84,7 @@ public sealed class DocxAnchorFrameTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.anchor.relativefrom");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Takes_An_Offset_As_Column_Relative_When_The_Document_States_No_Page()
     {
         // Nothing to convert with, so the offset is read the way every anchor
@@ -95,7 +95,7 @@ public sealed class DocxAnchorFrameTests
         Assert.Equal(40, shape.OffsetX, 1);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("paragraph")]
     [InlineData("line")]
     public void Keeps_A_Paragraph_Relative_Vertical_Offset_Without_A_Note(string from)
@@ -106,7 +106,7 @@ public sealed class DocxAnchorFrameTests
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.anchor.relativefrom");
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("page")]
     [InlineData("margin")]
     [InlineData("topMargin")]
@@ -123,7 +123,7 @@ public sealed class DocxAnchorFrameTests
         Assert.Contains("vertical", note.Message, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Page_Relative_Position_Survives_A_Round_Trip_Where_It_Was_Read()
     {
         // The bug this covers: the offset was kept as stated and then written
@@ -138,7 +138,7 @@ public sealed class DocxAnchorFrameTests
         Assert.Equal(-MarginLeft, Assert.Single(actual.Shapes).OffsetX, 1);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reports_The_Frame_Once_However_Many_Objects_State_One()
     {
         DocumentReadResult result = Read(

@@ -39,7 +39,7 @@ public sealed class DocxFloatingPictureTests
             altText,
             behindDoc);
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_An_Anchored_Picture_As_A_Floating_Shape()
     {
         DocumentShape shape = Assert.Single(Read(Anchored()).Document.Shapes);
@@ -50,7 +50,7 @@ public sealed class DocxFloatingPictureTests
         Assert.Equal(DocxTestPackage.OnePixelPng, image.Data.ToArray());
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Places_A_Floating_Picture_In_Points_From_The_Text_Column()
     {
         DocumentShape shape = Assert.Single(Read(Anchored()).Document.Shapes);
@@ -62,7 +62,7 @@ public sealed class DocxFloatingPictureTests
         Assert.Equal(36, shape.Height, 3);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Keeps_A_Floating_Picture_Out_Of_The_Text()
     {
         RichTextDocument document = Read(Anchored()).Document;
@@ -75,7 +75,7 @@ public sealed class DocxFloatingPictureTests
             run => run.Style.Image is not null);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Anchors_A_Floating_Picture_To_The_Paragraph_It_Sits_In()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -86,7 +86,7 @@ public sealed class DocxFloatingPictureTests
         Assert.Equal(1, Assert.Single(result.Document.Shapes).ParagraphIndex);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Says_Only_What_Is_Still_Approximated()
     {
         DocumentDiagnostic note = Assert.Single(
@@ -101,7 +101,7 @@ public sealed class DocxFloatingPictureTests
         Assert.DoesNotContain("not represented", note.Message, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_The_Square_Wrap_The_Anchor_States()
     {
         // The fixture's anchor states wrapSquare with wrapText="bothSides".
@@ -111,19 +111,19 @@ public sealed class DocxFloatingPictureTests
         Assert.Equal(WrapSide.Largest, shape.WrapSide);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Picture_Stacked_Behind_The_Text_As_Behind_It()
     {
         Assert.True(Assert.Single(Read(Anchored(behindDoc: "1")).Document.Shapes).BehindText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_A_Picture_Stacked_In_Front_Of_The_Text_As_In_Front_Of_It()
     {
         Assert.False(Assert.Single(Read(Anchored(behindDoc: "0")).Document.Shapes).BehindText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Reads_An_Anchor_That_States_No_Stacking_As_Behind_The_Text()
     {
         // behindDoc is required on wp:anchor, so this is a malformed producer. The
@@ -131,7 +131,7 @@ public sealed class DocxFloatingPictureTests
         Assert.True(Assert.Single(Read(Anchored(behindDoc: null)).Document.Shapes).BehindText);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("1", true)]
     [InlineData("0", false)]
     public void Keeps_The_Stacking_Of_A_Floating_Picture_Through_A_Round_Trip(
@@ -152,7 +152,7 @@ public sealed class DocxFloatingPictureTests
         Assert.Equal(expected, Assert.Single(actual.Shapes).BehindText);
     }
 
-    [Theory(Timeout = 600000)]
+    [Theory]
     [InlineData("1")]
     [InlineData("0")]
     public void Writes_The_Stacking_It_Read_Into_The_Anchor(string behindDoc)
@@ -170,7 +170,7 @@ public sealed class DocxFloatingPictureTests
         Assert.Contains("behindDoc=\"" + behindDoc + "\"", documentXml, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Counts_A_Floating_Picture_As_An_Image()
     {
         DocumentDiagnostic summary = Assert.Single(
@@ -179,7 +179,7 @@ public sealed class DocxFloatingPictureTests
         Assert.Contains("embedded 1 image(s)", summary.Message, StringComparison.Ordinal);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Keeps_Alternative_Text_On_A_Floating_Picture()
     {
         DocumentShape shape = Assert.Single(Read(Anchored(altText: "the logo")).Document.Shapes);
@@ -187,7 +187,7 @@ public sealed class DocxFloatingPictureTests
         Assert.Equal("the logo", shape.Image!.AltText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Leaves_An_Inline_Picture_In_The_Text()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
@@ -200,7 +200,7 @@ public sealed class DocxFloatingPictureTests
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.image.anchored");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Keeps_An_Anchored_Picture_In_The_Text_When_It_States_No_Box()
     {
         // wp:extent is where the box comes from. Without one there is nothing to
@@ -213,7 +213,7 @@ public sealed class DocxFloatingPictureTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.anchored");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Floating_Picture_Survives_A_Round_Trip()
     {
         DocumentReadResult read = Read(Anchored(altText: "the logo"));
@@ -233,7 +233,7 @@ public sealed class DocxFloatingPictureTests
         Assert.Equal("body", actual.PlainText);
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void Writes_A_Floating_Picture_As_An_Anchored_Picture()
     {
         DocumentReadResult read = Read(Anchored());

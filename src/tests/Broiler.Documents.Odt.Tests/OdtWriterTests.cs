@@ -372,7 +372,7 @@ public sealed class OdtWriterTests
         return ReadText(archive, "content.xml");
     }
 
-    [Fact(Timeout = 600000)]
+    [Fact]
     public void A_Control_Character_In_A_Picture_Description_Is_Dropped_Too()
     {
         // The run-text path has guarded this for a long time; the description
