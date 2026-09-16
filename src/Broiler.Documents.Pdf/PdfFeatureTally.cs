@@ -163,6 +163,7 @@ internal sealed class PdfFeatureTally
     private readonly PageSet _tablePages = new();
     private readonly SortedSet<string> _tableShapes = new(StringComparer.Ordinal);
     private int _tables;
+    private int _artworkReadAsTable;
     private int _inferredTables;
     private int _continuedTables;
     private int _tableCells;
@@ -175,6 +176,7 @@ internal sealed class PdfFeatureTally
     private int _denied;
     private string? _deniedReason;
     private readonly List<PdfFontProgram> _fontPrograms = [];
+    private readonly Dictionary<string, int> _fontProgramDeclined = new(StringComparer.Ordinal);
     private int _fontProgramOverflow;
     private readonly PageSet _uriRejectedPages = new();
     private readonly Dictionary<string, int> _uriRejectedReasons = new(StringComparer.Ordinal);
@@ -305,6 +307,30 @@ internal sealed class PdfFeatureTally
     {
         _continuedTables++;
         _tablePages.Add(page);
+    }
+
+    /// <summary>
+    /// Records how many painted paths a page's grids were read from, so the
+    /// artwork note can report what was dropped rather than what was drawn.
+    /// </summary>
+    public void NoteArtworkReadAsTable(int paths) => _artworkReadAsTable += paths;
+
+    /// <summary>
+    /// Records why the composed reader declined one embedded font program.
+    /// </summary>
+    /// <remarks>
+    /// Distinct reasons are kept and counted rather than collapsed, for the
+    /// reason the URI refusals are: "the composed reader did not read it" is the
+    /// same sentence for a program with no character map, which nothing can fix,
+    /// and a format this reader does not parse, which composing a different one
+    /// would.
+    /// </remarks>
+    public void NoteFontProgramDeclined(string reason)
+    {
+        if (_fontProgramDeclined.TryGetValue(reason, out int seen))
+            _fontProgramDeclined[reason] = seen == int.MaxValue ? seen : seen + 1;
+        else if (_fontProgramDeclined.Count < MaxDistinctVariants)
+            _fontProgramDeclined[reason] = 1;
     }
 
     /// <summary>Records one dropped path-painting operation.</summary>
@@ -584,9 +610,27 @@ internal sealed class PdfFeatureTally
         int paths = Count(PdfArtworkKind.Path);
         int total = rules + blocks + shadings + paths;
 
+        // What the grids were read from is not artwork this document lost, and
+        // counting it as lost was the whole of what this sentence used to get
+        // wrong: it reported every path painted, under a verb that said none of
+        // them survived, on a page whose tables had just been carried.
+        int taken = Math.Min(_artworkReadAsTable, total);
+        int lost = total - taken;
+
         var text = new StringBuilder();
-        text.Append("The page draws vector artwork, which a logical rich-text document cannot represent. It was dropped. ");
-        text.Append(CultureInfo.InvariantCulture, $"{total} path-painting operation{S(total)} {Were(total)} dropped: ");
+        text.Append(taken > 0
+            ? "The page draws vector artwork. What formed a grid was read as a table; the rest, which a logical rich-text document cannot represent, was dropped. "
+            : "The page draws vector artwork, which a logical rich-text document cannot represent. It was dropped. ");
+
+        if (taken > 0)
+        {
+            text.Append(CultureInfo.InvariantCulture,
+                $"Of {total} path-painting operation{S(total)}, {taken} {Were(taken)} read as a table's rules and shades and {lost} {Were(lost)} dropped: ");
+        }
+        else
+        {
+            text.Append(CultureInfo.InvariantCulture, $"{total} path-painting operation{S(total)} {Were(total)} dropped: ");
+        }
 
         var parts = new List<string>(4);
         if (rules > 0)
@@ -601,17 +645,14 @@ internal sealed class PdfFeatureTally
         // Each class names the structure it usually stood for, so the split
         // between "lost a table's rules" and "lost a chart" reads off the
         // sentence without a paragraph of rationale attached to every document.
-        text.Append(string.Join("; ", parts)).Append('.');
+        text.Append(string.Join("; ", parts));
+        text.Append(taken > 0 ? ", counted over everything painted." : ".");
 
         // Said here rather than only in the other note, because this is the
         // sentence a reader reaches first and "it was dropped" is no longer the
         // whole truth once some of those bars turned out to bound cells.
         if (_tables > 0)
-        {
-            text.Append(
-                " Some of it was not lost: the rules that formed a complete grid were read as a table instead, " +
-                "reported under pdf.import.table-reconstructed.");
-        }
+            text.Append(" The tables are reported under pdf.import.table-reconstructed.");
 
         _artworkPages.Append(text);
 
@@ -769,6 +810,18 @@ internal sealed class PdfFeatureTally
         else if (symbolic > 0 && inspected == 0)
         {
             text.Append(CultureInfo.InvariantCulture, $" {symbolic} {Is(symbolic)} marked symbolic, but every one supplies a ToUnicode map, so the text was mapped from it rather than guessed.");
+        }
+
+        if (unread > 0 && _fontProgramDeclined.Count > 0)
+        {
+            var reasons = new List<string>(_fontProgramDeclined.Keys);
+            reasons.Sort(StringComparer.Ordinal);
+
+            var parts = new List<string>(reasons.Count);
+            foreach (string reason in reasons)
+                parts.Add(string.Create(CultureInfo.InvariantCulture, $"{_fontProgramDeclined[reason]} because {reason}"));
+
+            text.Append(" The reader declined them: ").Append(string.Join("; ", parts)).Append('.');
         }
 
         Report(diagnostics, text);

@@ -158,6 +158,41 @@ public sealed class PdfComposedFontTests
     }
 
     [Fact]
+    public void A_Refusal_Says_Which_Refusal_It_Was()
+    {
+        // "The composed reader did not read it" is the same sentence for a
+        // program this build will not parse, one with no character map to read,
+        // and one that is not a font at all. They are answered by different work,
+        // or by none, and the inspector distinguishes them - the reason was just
+        // being thrown away at the call site.
+        PdfReadResult result = Read(
+            Document("ABC", Glyphs(1, 2, 3), program: "this is not a font program"u8.ToArray()),
+            composed: true);
+
+        DocumentDiagnostic note = Assert.Single(
+            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+
+        Assert.Contains("The reader declined them", note.Message, StringComparison.Ordinal);
+        Assert.Contains("not an sfnt", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Type_1_Program_Is_Declined_By_Name()
+    {
+        // Type 1 is a capability limit rather than a defect in the document, and
+        // saying so is the difference between a host waiting for a fix and one
+        // knowing there is nothing to wait for.
+        PdfReadResult result = Read(
+            Document("ABC", Glyphs(1, 2, 3), programKey: "FontFile", program: "%!PS-AdobeFont-1.0"u8.ToArray()),
+            composed: true);
+
+        DocumentDiagnostic note = Assert.Single(
+            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+
+        Assert.Contains("Type 1 program", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_Program_Past_The_Ceiling_Is_Not_Inspected()
     {
         PdfReadResult result = Read(
