@@ -160,6 +160,10 @@ internal sealed class PdfFeatureTally
 
     private readonly Dictionary<PdfArtworkKind, int> _artwork = [];
     private readonly PageSet _artworkPages = new();
+    private readonly PageSet _tablePages = new();
+    private readonly SortedSet<string> _tableShapes = new(StringComparer.Ordinal);
+    private int _tables;
+    private int _tableCells;
     private readonly Dictionary<string, ImageGroup> _images = new(StringComparer.Ordinal);
     private readonly DecodedImageGroup _decodedImages = new();
     private readonly SortedSet<int> _notProjectedPages = [];
@@ -277,6 +281,19 @@ internal sealed class PdfFeatureTally
         _droppedDestinationPages.Add(page);
     }
 
+    /// <summary>
+    /// Records one table read back out of a page's rules.
+    /// </summary>
+    public void NoteTable(int rows, int columns, int? page)
+    {
+        _tables++;
+        _tableCells += rows * columns;
+        _tablePages.Add(page);
+
+        if (_tableShapes.Count < MaxDistinctVariants)
+            _tableShapes.Add(string.Create(CultureInfo.InvariantCulture, $"{rows}x{columns}"));
+    }
+
     /// <summary>Records one dropped path-painting operation.</summary>
     public void NoteArtwork(PdfArtworkKind kind, int? page)
     {
@@ -384,6 +401,7 @@ internal sealed class PdfFeatureTally
         ReportDecodedImages(diagnostics);
         ReportFontPrograms(diagnostics);
         ReportAnnotations(diagnostics);
+        ReportTables(diagnostics);
     }
 
     /// <summary>
@@ -495,6 +513,30 @@ internal sealed class PdfFeatureTally
         }
     }
 
+    /// <summary>
+    /// Reports what was read back out of the artwork, as information rather than
+    /// a skip: nothing was lost here, and the sentence exists because a
+    /// reconstruction is a claim a reader should be able to check.
+    /// </summary>
+    private void ReportTables(PdfDiagnosticSink diagnostics)
+    {
+        if (_tables == 0)
+            return;
+
+        var text = new StringBuilder();
+        text.Append(CultureInfo.InvariantCulture,
+            $"{_tables} fully ruled grid{S(_tables)} {Were(_tables)} read as {(_tables == 1 ? "a table" : "tables")} and carried into the document, ");
+        text.Append(CultureInfo.InvariantCulture, $"{_tableCells} cell{S(_tableCells)} in all ({string.Join(", ", _tableShapes)}). ");
+        text.Append(
+            "PDF draws a table as lines and text at coordinates and says nowhere that it is one, so this is a " +
+            "reconstruction: the rules were complete enough to describe a grid, the text inside was arranged into " +
+            "the cells they bound, and each cell's borders and shading are the paths that were painted. A grid " +
+            "missing any of its rules is not claimed and stays reported as dropped artwork.");
+        _tablePages.Append(text);
+
+        diagnostics.Info(PdfDiagnosticCodes.TableReconstructed, text.ToString());
+    }
+
     private void ReportArtwork(PdfDiagnosticSink diagnostics)
     {
         if (_artwork.Count == 0)
@@ -524,6 +566,17 @@ internal sealed class PdfFeatureTally
         // between "lost a table's rules" and "lost a chart" reads off the
         // sentence without a paragraph of rationale attached to every document.
         text.Append(string.Join("; ", parts)).Append('.');
+
+        // Said here rather than only in the other note, because this is the
+        // sentence a reader reaches first and "it was dropped" is no longer the
+        // whole truth once some of those bars turned out to bound cells.
+        if (_tables > 0)
+        {
+            text.Append(
+                " Some of it was not lost: the rules that formed a complete grid were read as a table instead, " +
+                "reported under pdf.import.table-reconstructed.");
+        }
+
         _artworkPages.Append(text);
 
         diagnostics.Skipped(PdfDiagnosticCodes.VectorArtworkDropped, text.ToString());

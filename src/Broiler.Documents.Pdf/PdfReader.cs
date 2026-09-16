@@ -138,6 +138,7 @@ internal static class PdfReader
         int declaredOrderPages = 0;
         int inferredOrderPages = 0;
         int artifactOrderPages = 0;
+        var tables = new List<DocumentTable>();
 
         for (int i = 0; i < pages.Count; i++)
         {
@@ -191,8 +192,21 @@ internal static class PdfReader
             }
 
             bool pageBreak = options.MapPageBreaks && i < pages.Count - 1;
-            paragraphs.AddRange(
-                PdfModelProjector.Project(lines, images, pageBreak, options.Limits.MaxParagraphCount));
+
+            // A fully ruled grid is the one arrangement of dropped artwork the
+            // model can carry, and it settles this page's reading order as well:
+            // cells are read row-major, which is what the geometric pass cannot
+            // infer and what a table defeats it with.
+            List<PdfTableGrid> grids = PdfTableGrid.Detect(interpreter.PaintedPaths);
+
+            paragraphs.AddRange(grids.Count > 0
+                ? PdfTableProjector.Project(
+                    fragments, links, images, grids, pageBreak,
+                    options.Limits.MaxParagraphCount, paragraphs.Count, tables)
+                : PdfModelProjector.Project(lines, images, pageBreak, options.Limits.MaxParagraphCount));
+
+            foreach (PdfTableGrid grid in grids)
+                store.Features.NoteTable(grid.Rows, grid.Columns, i + 1);
         }
 
         // Back to document scope, and the one point where the constructs the
@@ -271,6 +285,9 @@ internal static class PdfReader
         RichTextDocument document = paragraphs.Count == 0
             ? RichTextDocument.Empty
             : RichTextDocument.FromParagraphs(paragraphs);
+
+        if (tables.Count > 0)
+            document = document.WithTables(tables);
 
         DocumentResultStatus status = paragraphs.Count == 0
             ? DocumentResultStatus.Partial
