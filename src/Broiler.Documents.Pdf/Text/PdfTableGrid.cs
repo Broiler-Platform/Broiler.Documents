@@ -109,6 +109,13 @@ internal sealed class PdfTableGrid
     }
 
     /// <summary>
+    /// The grids drawn inside this one's cells, in the order they start. A table
+    /// nested in a cell is held by that cell in the model, so the tree is built
+    /// here and walked by the projector rather than worked out from the ranges.
+    /// </summary>
+    public List<PdfTableGrid> Children { get; } = [];
+
+    /// <summary>
     /// True where some of the grid's divisions were read off the text rather
     /// than off a painted rule. A reader that wants only what the document drew
     /// can tell the two apart, and the diagnostic reports them separately.
@@ -285,42 +292,70 @@ internal sealed class PdfTableGrid
             grids.Add(inferred);
 
         grids.Sort(static (left, right) => right.Top.CompareTo(left.Top));
-        Unnest(grids);
-        return grids;
+        return Nest(grids);
     }
 
     /// <summary>
-    /// Drops a grid drawn inside another one's cell.
+    /// Arranges the grids found on a page into the tree their geometry
+    /// describes, and returns the ones nothing contains.
     /// </summary>
     /// <remarks>
-    /// Separating rules by region made nested tables findable, and findable is
-    /// not the same as carried: the model nests a table inside the cell that
-    /// holds it, and this projects cells from one flat pass down the page. Kept
-    /// as a sibling it would be a second table claiming paragraphs the outer
-    /// one already holds, so the inner grid is dropped and its text stays in the
-    /// cell it was drawn in - which is where a reader finds it either way. The
-    /// rules it was drawn with are still reported as artwork.
+    /// <para>
+    /// A grid drawn inside another one's cell is that cell's table. Separating
+    /// rules by region is what makes it findable at all - its rules touch none
+    /// of the outer table's - and the model already says where it goes:
+    /// <c>TableCell.Tables</c>, with the cell's paragraph range covering the
+    /// nested table's paragraphs as well as its own.
+    /// </para>
+    /// <para>
+    /// The parent is the <em>smallest</em> grid that contains it, so a table
+    /// three deep attaches to the one immediately around it rather than to the
+    /// outermost. Grids are kept in top-to-bottom order at every level, which is
+    /// the order their cells are read in.
+    /// </para>
     /// </remarks>
-    private static void Unnest(List<PdfTableGrid> grids)
+    private static List<PdfTableGrid> Nest(List<PdfTableGrid> grids)
     {
-        for (int inner = grids.Count - 1; inner >= 0; inner--)
+        var roots = new List<PdfTableGrid>(grids.Count);
+
+        for (int i = 0; i < grids.Count; i++)
         {
-            for (int outer = 0; outer < grids.Count; outer++)
+            PdfTableGrid grid = grids[i];
+            PdfTableGrid? parent = null;
+
+            for (int j = 0; j < grids.Count; j++)
             {
-                if (outer == inner)
+                if (i == j || !Contains(grids[j], grid))
                     continue;
 
-                if (grids[inner].Left >= grids[outer].Left - EdgeTolerance &&
-                    grids[inner].Right <= grids[outer].Right + EdgeTolerance &&
-                    grids[inner].Top <= grids[outer].Top + EdgeTolerance &&
-                    grids[inner].Bottom >= grids[outer].Bottom - EdgeTolerance)
-                {
-                    grids.RemoveAt(inner);
-                    break;
-                }
+                // Two grids drawn to the same box each contain the other, which
+                // would make the relation a cycle rather than a tree. Position
+                // breaks the tie: the earlier one is the parent, and the later
+                // one nests inside it.
+                if (Contains(grid, grids[j]) && j > i)
+                    continue;
+
+                if (parent is null || Area(grids[j]) < Area(parent))
+                    parent = grids[j];
             }
+
+            if (parent is null)
+                roots.Add(grid);
+            else
+                parent.Children.Add(grid);
         }
+
+        return roots;
     }
+
+    /// <summary>Whether the outer grid's box holds the inner one's.</summary>
+    private static bool Contains(PdfTableGrid outer, PdfTableGrid inner) =>
+        inner.Left >= outer.Left - EdgeTolerance &&
+        inner.Right <= outer.Right + EdgeTolerance &&
+        inner.Top <= outer.Top + EdgeTolerance &&
+        inner.Bottom >= outer.Bottom - EdgeTolerance;
+
+    private static double Area(PdfTableGrid grid) => (grid.Right - grid.Left) * (grid.Top - grid.Bottom);
 
     /// <summary>
     /// Splits a page's rules into the groups that touch one another. A vertical

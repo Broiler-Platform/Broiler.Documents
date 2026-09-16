@@ -124,17 +124,58 @@ public sealed class PdfTableSpanTests
     }
 
     [Fact]
-    public void A_Grid_Inside_A_Cell_Does_Not_Become_A_Second_Table()
+    public void A_Grid_Inside_A_Cell_Is_That_Cells_Table()
     {
-        // Separating rules by region made a nested grid findable, and findable is
-        // not carried: kept as a sibling it would be a table claiming paragraphs
-        // the outer one already holds. It is dropped, and its text stays in the
-        // cell it was drawn in.
+        // Held by the cell rather than listed beside it: a sibling would be a
+        // second table claiming paragraphs the outer one already covers.
         PdfReadResult result = Read(Nested());
-        DocumentTable table = Assert.Single(result.Document.Tables);
+        DocumentTable outer = Assert.Single(result.Document.Tables);
 
-        Assert.Equal(2, table.Rows.Count);
-        Assert.Contains("Inner", Text(result, table.Rows[0].Cells[0]), StringComparison.Ordinal);
+        Assert.Equal(2, outer.Rows.Count);
+        DocumentTable inner = Assert.Single(outer.Rows[0].Cells[0].Tables);
+        Assert.Equal(2, inner.Rows.Count);
+        Assert.Equal(2, inner.Rows[0].Cells.Count);
+    }
+
+    [Fact]
+    public void A_Nested_Tables_Text_Is_In_Its_Own_Cell()
+    {
+        PdfReadResult result = Read(Nested());
+        DocumentTable inner = Assert.Single(
+            Assert.Single(result.Document.Tables).Rows[0].Cells[0].Tables);
+
+        // The run is inside both grids; it belongs to the innermost one, in the
+        // cell its own baseline falls in - the lower band of the inner grid.
+        Assert.Equal("Inner", Text(result, inner.Rows[1].Cells[0]));
+        Assert.Equal(string.Empty, Text(result, inner.Rows[0].Cells[0]));
+    }
+
+    [Fact]
+    public void A_Nested_Table_Sits_Inside_The_Range_Of_The_Cell_That_Holds_It()
+    {
+        // The convention the other codecs write and the writer reads back: the
+        // cell's range covers its own text and its nested tables together.
+        PdfReadResult result = Read(Nested());
+        DocumentTable outer = Assert.Single(result.Document.Tables);
+        TableCell holder = outer.Rows[0].Cells[0];
+        DocumentTable inner = Assert.Single(holder.Tables);
+
+        Assert.True(inner.ParagraphIndex >= holder.ParagraphIndex, "The nested table starts inside its cell.");
+        Assert.True(inner.ParagraphEnd <= holder.ParagraphIndex + holder.ParagraphCount, "And ends inside it.");
+        Assert.True(holder.ParagraphIndex >= outer.ParagraphIndex, "Which is inside the outer table.");
+        Assert.True(inner.ParagraphEnd <= outer.ParagraphEnd, "As is everything it holds.");
+    }
+
+    [Fact]
+    public void The_Outer_Cells_Keep_Their_Own_Text()
+    {
+        // Nesting must not cost the cell that holds it, nor its neighbours.
+        PdfReadResult result = Read(Nested());
+        DocumentTable outer = Assert.Single(result.Document.Tables);
+
+        Assert.Equal("B1", Text(result, outer.Rows[0].Cells[1]));
+        Assert.Equal("A2", Text(result, outer.Rows[1].Cells[0]));
+        Assert.Equal("B2", Text(result, outer.Rows[1].Cells[1]));
     }
 
     // ---- fixtures -------------------------------------------------------------
