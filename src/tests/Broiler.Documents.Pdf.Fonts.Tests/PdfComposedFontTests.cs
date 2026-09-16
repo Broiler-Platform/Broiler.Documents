@@ -105,6 +105,69 @@ public sealed class PdfComposedFontTests
         Assert.DoesNotContain("this build does not inspect", note.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_Font_That_Lost_Nothing_Does_Not_Report_A_Skip()
+    {
+        // A skip claims the document lost something, and it is what makes a read
+        // Partial - which the Writer shows as "parts of it were skipped or
+        // approximated". Every font here supplies ToUnicode, so the reader was
+        // never needed and nothing was lost; saying otherwise told a reader their
+        // document came out incomplete on the strength of fonts that did exactly
+        // what they should.
+        PdfReadResult result = Read(
+            Document("ABC", Glyphs(1, 2, 3), toUnicode: ToUnicodeMappingToXyz),
+            composed: true);
+
+        DocumentDiagnostic note = Assert.Single(
+            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+
+        Assert.Equal(DocumentDiagnosticSeverity.Info, note.Severity);
+        Assert.NotEqual(DocumentResultStatus.Partial, result.Status);
+    }
+
+    [Fact]
+    public void A_Program_The_Reader_Read_Does_Not_Report_A_Skip_Either()
+    {
+        // The other outcome that loses nothing: the reader was offered the
+        // program and recovered the text from it, which is the capability
+        // working rather than a gap in it.
+        PdfReadResult result = Read(Document("ABC", Glyphs(1, 2, 3)), composed: true);
+
+        DocumentDiagnostic note = Assert.Single(
+            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+
+        Assert.Equal(DocumentDiagnosticSeverity.Info, note.Severity);
+    }
+
+    [Fact]
+    public void A_Program_The_Reader_Could_Not_Read_Still_Reports_A_Skip()
+    {
+        // And the outcome that does cost something keeps its warning, because
+        // the text of that font rests on the declared encoding alone.
+        PdfReadResult result = Read(
+            Document("ABC", Glyphs(1, 2, 3), program: "this is not a font program"u8.ToArray()),
+            composed: true);
+
+        DocumentDiagnostic note = Assert.Single(
+            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+
+        Assert.Equal(DocumentDiagnosticSeverity.Warning, note.Severity);
+        Assert.Equal(DocumentResultStatus.Partial, result.Status);
+    }
+
+    [Fact]
+    public void A_Build_With_No_Reader_Still_Reports_A_Skip()
+    {
+        // Composing nothing is a gap in the build, and a program it cannot read
+        // is text it may have got wrong. That one was always a skip and stays one.
+        PdfReadResult result = Read(Document("ABC", Glyphs(1, 2, 3)), composed: false);
+
+        DocumentDiagnostic note = Assert.Single(
+            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+
+        Assert.Equal(DocumentDiagnosticSeverity.Warning, note.Severity);
+    }
+
     // ---- the formats the composed reader does not inspect ---------------------
 
     [Fact]
