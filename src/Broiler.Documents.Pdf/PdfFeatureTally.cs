@@ -163,6 +163,7 @@ internal sealed class PdfFeatureTally
     private readonly PageSet _tablePages = new();
     private readonly SortedSet<string> _tableShapes = new(StringComparer.Ordinal);
     private int _tables;
+    private int _inferredTables;
     private int _tableCells;
     private readonly Dictionary<string, ImageGroup> _images = new(StringComparer.Ordinal);
     private readonly DecodedImageGroup _decodedImages = new();
@@ -284,9 +285,11 @@ internal sealed class PdfFeatureTally
     /// <summary>
     /// Records one table read back out of a page's rules.
     /// </summary>
-    public void NoteTable(int rows, int columns, int? page)
+    public void NoteTable(int rows, int columns, bool inferred, int? page)
     {
         _tables++;
+        if (inferred)
+            _inferredTables++;
         _tableCells += rows * columns;
         _tablePages.Add(page);
 
@@ -529,9 +532,26 @@ internal sealed class PdfFeatureTally
         text.Append(CultureInfo.InvariantCulture, $"{_tableCells} cell{S(_tableCells)} in all ({string.Join(", ", _tableShapes)}). ");
         text.Append(
             "PDF draws a table as lines and text at coordinates and says nowhere that it is one, so this is a " +
-            "reconstruction: the rules were complete enough to describe a grid, the text inside was arranged into " +
-            "the cells they bound, and each cell's borders and shading are the paths that were painted. A grid " +
-            "missing any of its rules is not claimed and stays reported as dropped artwork.");
+            "reconstruction: the text was arranged into the cells the grid bounds, and each cell's borders and " +
+            "shading are the paths that were painted, so an unruled edge carries no border. ");
+
+        // The split a host acts on. One of these is the document's own lattice;
+        // the other is the document's rules plus this build's reading of the
+        // text between them, and they are not the same claim.
+        if (_inferredTables == 0)
+        {
+            text.Append("Every one was fully ruled: each cell edge was painted.");
+        }
+        else if (_inferredTables == _tables)
+        {
+            text.Append(CultureInfo.InvariantCulture,
+                $"{_inferredTables} of them {Were(_inferredTables)} only partly ruled - the document stacked enough rules to divide the region in one direction, and the remaining divisions were read off the alignment of the text inside it.");
+        }
+        else
+        {
+            text.Append(CultureInfo.InvariantCulture,
+                $"{_tables - _inferredTables} {Were(_tables - _inferredTables)} fully ruled and {_inferredTables} only partly, the remaining divisions there being read off the alignment of the text inside the region.");
+        }
         _tablePages.Append(text);
 
         diagnostics.Info(PdfDiagnosticCodes.TableReconstructed, text.ToString());

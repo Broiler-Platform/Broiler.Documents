@@ -197,7 +197,7 @@ internal static class PdfReader
             // model can carry, and it settles this page's reading order as well:
             // cells are read row-major, which is what the geometric pass cannot
             // infer and what a table defeats it with.
-            List<PdfTableGrid> grids = PdfTableGrid.Detect(interpreter.PaintedPaths);
+            List<PdfTableGrid> grids = PdfTableGrid.Detect(interpreter.PaintedPaths, fragments);
 
             paragraphs.AddRange(grids.Count > 0
                 ? PdfTableProjector.Project(
@@ -206,7 +206,7 @@ internal static class PdfReader
                 : PdfModelProjector.Project(lines, images, pageBreak, options.Limits.MaxParagraphCount));
 
             foreach (PdfTableGrid grid in grids)
-                store.Features.NoteTable(grid.Rows, grid.Columns, i + 1);
+                store.Features.NoteTable(grid.Rows, grid.Columns, grid.IsInferred, i + 1);
         }
 
         // Back to document scope, and the one point where the constructs the
