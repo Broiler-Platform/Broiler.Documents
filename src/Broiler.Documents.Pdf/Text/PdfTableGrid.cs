@@ -90,6 +90,9 @@ internal sealed class PdfTableGrid
     private readonly double[] _rows;
     private readonly BColor[] _shading;
     private readonly CellBorders[] _borders;
+    private int[] _columnSpans = [];
+    private int[] _rowSpans = [];
+    private int[] _anchors = [];
 
     private PdfTableGrid(
         double[] columns,
@@ -132,6 +135,41 @@ internal sealed class PdfTableGrid
     public double Bottom => _rows[^1];
 
     public BColor ShadingAt(int row, int column) => _shading[(row * Columns) + column];
+
+    /// <summary>How many columns the cell anchored here covers.</summary>
+    public int ColumnSpanAt(int row, int column) => _columnSpans[(row * Columns) + column];
+
+    /// <summary>How many rows the cell anchored here covers.</summary>
+    public int RowSpanAt(int row, int column) => _rowSpans[(row * Columns) + column];
+
+    /// <summary>
+    /// Where the cell covering this position starts, which is the position
+    /// itself unless a merge swallowed it.
+    /// </summary>
+    public (int Row, int Column) AnchorAt(int row, int column)
+    {
+        int at = _anchors[(row * Columns) + column];
+        return (at / Columns, at % Columns);
+    }
+
+    /// <summary>Gives every position its own single-square cell.</summary>
+    private void Unmerged()
+    {
+        int cells = Columns * Rows;
+        _anchors = new int[cells];
+        _columnSpans = new int[cells];
+        _rowSpans = new int[cells];
+
+        for (int i = 0; i < cells; i++)
+        {
+            _anchors[i] = i;
+            _columnSpans[i] = 1;
+            _rowSpans[i] = 1;
+        }
+    }
+
+    /// <summary>True where a merge above or to the left covers this position.</summary>
+    public bool IsCovered(int row, int column) => _anchors[(row * Columns) + column] != (row * Columns) + column;
 
     public CellBorders BordersAt(int row, int column) => _borders[(row * Columns) + column];
 
@@ -193,14 +231,141 @@ internal sealed class PdfTableGrid
         if (horizontal.Count < 2 && vertical.Count < 2)
             return grids;
 
-        PdfTableGrid? grid = Lattice(vertical, horizontal, fills)
-            ?? Infer(vertical, horizontal, fills, fragments);
+        // Ruled tables are found one region at a time. A page with two of them
+        // used to yield neither: the edges of both went into one candidate
+        // lattice, and a lattice spanning two tables is never complete. Rules
+        // that touch each other belong to the same table; rules that touch
+        // nothing of the other's do not.
+        foreach ((List<Segment> regionVertical, List<Segment> regionHorizontal) in Regions(vertical, horizontal))
+        {
+            if (Lattice(regionVertical, regionHorizontal, fills) is { } ruled)
+                grids.Add(ruled);
+        }
 
-        if (grid is not null)
-            grids.Add(grid);
+        // Whatever no lattice claimed is offered to the inference, which anchors
+        // on a stack of parallel rules rather than on rules that meet - so it
+        // cannot be split by region the same way, and stays one grid per page.
+        if (grids.Count == 0 && Infer(vertical, horizontal, fills, fragments) is { } inferred)
+            grids.Add(inferred);
 
+        grids.Sort(static (left, right) => right.Top.CompareTo(left.Top));
+        Unnest(grids);
         return grids;
     }
+
+    /// <summary>
+    /// Drops a grid drawn inside another one's cell.
+    /// </summary>
+    /// <remarks>
+    /// Separating rules by region made nested tables findable, and findable is
+    /// not the same as carried: the model nests a table inside the cell that
+    /// holds it, and this projects cells from one flat pass down the page. Kept
+    /// as a sibling it would be a second table claiming paragraphs the outer
+    /// one already holds, so the inner grid is dropped and its text stays in the
+    /// cell it was drawn in - which is where a reader finds it either way. The
+    /// rules it was drawn with are still reported as artwork.
+    /// </remarks>
+    private static void Unnest(List<PdfTableGrid> grids)
+    {
+        for (int inner = grids.Count - 1; inner >= 0; inner--)
+        {
+            for (int outer = 0; outer < grids.Count; outer++)
+            {
+                if (outer == inner)
+                    continue;
+
+                if (grids[inner].Left >= grids[outer].Left - EdgeTolerance &&
+                    grids[inner].Right <= grids[outer].Right + EdgeTolerance &&
+                    grids[inner].Top <= grids[outer].Top + EdgeTolerance &&
+                    grids[inner].Bottom >= grids[outer].Bottom - EdgeTolerance)
+                {
+                    grids.RemoveAt(inner);
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Splits a page's rules into the groups that touch one another. A vertical
+    /// and a horizontal rule are in the same group when they cross or meet;
+    /// everything else follows from that transitively, so a table's four sides
+    /// and all its interior rules arrive as one group and the table below it as
+    /// another.
+    /// </summary>
+    /// <remarks>
+    /// Touching is the right test because it is what a grid is made of. Parallel
+    /// rules that merely line up are not grouped: two tables stacked on a page
+    /// usually share their column positions exactly, and grouping on alignment
+    /// would put them back together again.
+    /// </remarks>
+    private static List<(List<Segment> Vertical, List<Segment> Horizontal)> Regions(
+        List<Segment> vertical,
+        List<Segment> horizontal)
+    {
+        int count = vertical.Count + horizontal.Count;
+        var parent = new int[count];
+        for (int i = 0; i < count; i++)
+            parent[i] = i;
+
+        int Find(int i)
+        {
+            while (parent[i] != i)
+                i = parent[i] = parent[parent[i]];
+            return i;
+        }
+
+        void Union(int a, int b)
+        {
+            int ra = Find(a);
+            int rb = Find(b);
+            if (ra != rb)
+                parent[ra] = rb;
+        }
+
+        for (int v = 0; v < vertical.Count; v++)
+        {
+            for (int h = 0; h < horizontal.Count; h++)
+            {
+                if (Meets(vertical[v], horizontal[h]))
+                    Union(v, vertical.Count + h);
+            }
+        }
+
+        var byRoot = new Dictionary<int, (List<Segment> Vertical, List<Segment> Horizontal)>();
+
+        for (int v = 0; v < vertical.Count; v++)
+        {
+            int root = Find(v);
+            if (!byRoot.TryGetValue(root, out var group))
+                byRoot[root] = group = ([], []);
+            group.Vertical.Add(vertical[v]);
+        }
+
+        for (int h = 0; h < horizontal.Count; h++)
+        {
+            int root = Find(vertical.Count + h);
+            if (!byRoot.TryGetValue(root, out var group))
+                byRoot[root] = group = ([], []);
+            group.Horizontal.Add(horizontal[h]);
+        }
+
+        var regions = new List<(List<Segment>, List<Segment>)>(byRoot.Count);
+        foreach (var group in byRoot.Values)
+        {
+            if (group.Vertical.Count >= 2 && group.Horizontal.Count >= 2)
+                regions.Add((group.Vertical, group.Horizontal));
+        }
+
+        return regions;
+    }
+
+    /// <summary>Whether a vertical rule and a horizontal one cross or meet.</summary>
+    private static bool Meets(Segment vertical, Segment horizontal) =>
+        vertical.At >= horizontal.From - CoverTolerance &&
+        vertical.At <= horizontal.To + CoverTolerance &&
+        horizontal.At >= vertical.From - CoverTolerance &&
+        horizontal.At <= vertical.To + CoverTolerance;
 
     /// <summary>
     /// The fully ruled case: every edge of every cell was painted.
@@ -227,7 +392,7 @@ internal sealed class PdfTableGrid
         if (columns.Length - 1 < MinimumCells || rows.Length - 1 < MinimumCells)
             return null;
 
-        return IsComplete(columns, rows, vertical, horizontal)
+        return IsBounded(columns, rows, vertical, horizontal)
             ? Build(columns, rows, vertical, horizontal, fills, inferred: false)
             : null;
     }
@@ -246,14 +411,29 @@ internal sealed class PdfTableGrid
         var borders = new CellBorders[cells];
         var grid = new PdfTableGrid(columns, rows, shading, borders, inferred);
 
+        // Only a ruled grid can have merged cells, because a merge is a rule the
+        // document did not draw. Where the divisions were inferred, every one of
+        // them is a division this build decided on and there is nothing to read
+        // an absence as: merging there would collapse the whole grid into a
+        // single cell, every interior edge being unruled by construction.
+        if (inferred)
+            grid.Unmerged();
+        else
+            Merge(grid, columns, rows, vertical, horizontal);
+
         for (int row = 0; row < grid.Rows; row++)
         {
             for (int column = 0; column < grid.Columns; column++)
             {
+                // A merged cell is bounded by the outside of the block it covers,
+                // not by the lattice line its top-left corner sits on.
                 double left = columns[column];
-                double right = columns[column + 1];
+                double right = columns[column + grid.ColumnSpanAt(row, column)];
                 double top = rows[row];
-                double bottom = rows[row + 1];
+                double bottom = rows[row + grid.RowSpanAt(row, column)];
+
+                if (grid.IsCovered(row, column))
+                    continue;
 
                 // An unruled edge gets no border, which is what the page shows.
                 // Inferring a division is not the same as inventing a line.
@@ -639,36 +819,113 @@ internal sealed class PdfTableGrid
     }
 
     /// <summary>
-    /// Whether every edge of every cell was painted. This is the whole test that
-    /// separates a table from an accident of alignment, so it is required in
-    /// full rather than by proportion.
+    /// Whether the region is closed: all four outer sides painted along their
+    /// whole length.
     /// </summary>
-    private static bool IsComplete(
+    /// <remarks>
+    /// <para>
+    /// The boundary is what is required in full, and it is what separates a
+    /// table from an accident of alignment: a closed box the document drew, with
+    /// at least one rule dividing it in each direction (which is what asking for
+    /// two columns by two rows amounts to).
+    /// </para>
+    /// <para>
+    /// Interior edges are not required, because a missing one is not a hole in
+    /// the evidence - it is a merged cell. Demanding them refused every table
+    /// with a header spanning its columns, which is a great many of them. Where
+    /// an interior edge is absent the cells either side of it are one cell, and
+    /// that is read as the span it is rather than as a reason to give up.
+    /// </para>
+    /// </remarks>
+    private static bool IsBounded(
         double[] columns,
         double[] rows,
         List<Segment> vertical,
         List<Segment> horizontal)
     {
-        for (int row = 0; row < rows.Length - 1; row++)
+        double top = rows[0];
+        double bottom = rows[^1];
+        double left = columns[0];
+        double right = columns[^1];
+
+        return Covers(vertical, left, bottom, top)
+            && Covers(vertical, right, bottom, top)
+            && Covers(horizontal, top, left, right)
+            && Covers(horizontal, bottom, left, right);
+    }
+
+    /// <summary>
+    /// Works out which cells a missing interior edge merges, and which cell each
+    /// position belongs to. A cell grows right while no rule divides it, then
+    /// down while no rule divides any column it now covers.
+    /// </summary>
+    private static void Merge(
+        PdfTableGrid grid,
+        double[] columns,
+        double[] rows,
+        List<Segment> vertical,
+        List<Segment> horizontal)
+    {
+        int width = grid.Columns;
+        int height = grid.Rows;
+        var anchors = new int[width * height];
+        var columnSpans = new int[width * height];
+        var rowSpans = new int[width * height];
+        var taken = new bool[width * height];
+
+        for (int row = 0; row < height; row++)
         {
-            double top = rows[row];
-            double bottom = rows[row + 1];
-            foreach (double x in columns)
+            for (int column = 0; column < width; column++)
             {
-                if (!Covers(vertical, x, bottom, top))
-                    return false;
+                if (taken[(row * width) + column])
+                    continue;
+
+                int columnSpan = 1;
+                while (column + columnSpan < width &&
+                       !Covers(vertical, columns[column + columnSpan], rows[row + 1], rows[row]))
+                {
+                    columnSpan++;
+                }
+
+                int rowSpan = 1;
+                while (row + rowSpan < height && Undivided(
+                           horizontal, rows[row + rowSpan], columns, column, column + columnSpan))
+                {
+                    rowSpan++;
+                }
+
+                int anchor = (row * width) + column;
+                for (int r = row; r < row + rowSpan; r++)
+                {
+                    for (int c = column; c < column + columnSpan; c++)
+                    {
+                        anchors[(r * width) + c] = anchor;
+                        taken[(r * width) + c] = true;
+                    }
+                }
+
+                columnSpans[anchor] = columnSpan;
+                rowSpans[anchor] = rowSpan;
             }
         }
 
-        for (int column = 0; column < columns.Length - 1; column++)
+        grid._anchors = anchors;
+        grid._columnSpans = columnSpans;
+        grid._rowSpans = rowSpans;
+    }
+
+    /// <summary>Whether no rule at <paramref name="at"/> crosses any of these columns.</summary>
+    private static bool Undivided(
+        List<Segment> horizontal,
+        double at,
+        double[] columns,
+        int from,
+        int to)
+    {
+        for (int column = from; column < to; column++)
         {
-            double left = columns[column];
-            double right = columns[column + 1];
-            foreach (double y in rows)
-            {
-                if (!Covers(horizontal, y, left, right))
-                    return false;
-            }
+            if (Covers(horizontal, at, columns[column], columns[column + 1]))
+                return false;
         }
 
         return true;

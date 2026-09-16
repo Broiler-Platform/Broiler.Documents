@@ -64,46 +64,134 @@ internal static class PdfTableProjector
         int paragraphBase,
         List<DocumentTable> tables)
     {
-        PdfTableGrid grid = grids[0];
+        // Grids arrive top to bottom. Each fragment goes to the first grid that
+        // holds it, and everything else waits for the point in the walk down the
+        // page where it belongs.
+        var owner = new int[fragments.Count];
+        var cells = new List<PdfTextFragment>?[grids.Count][];
+        for (int g = 0; g < grids.Count; g++)
+            cells[g] = new List<PdfTextFragment>?[grids[g].Rows * grids[g].Columns];
 
-        var above = new List<PdfTextFragment>();
-        var below = new List<PdfTextFragment>();
-        var cells = new List<PdfTextFragment>?[grid.Rows * grid.Columns];
-
-        foreach (PdfTextFragment fragment in fragments)
+        for (int f = 0; f < fragments.Count; f++)
         {
-            // The left end of the baseline is where the run was placed, so it is
-            // what decides which cell holds it. A run wider than its cell has
-            // overflowed the rules, and belongs to the cell it started in.
-            (int Row, int Column)? at = grid.CellAt(fragment.X + Inset, fragment.Y);
-            if (at is null)
-            {
-                (fragment.Y > grid.Top ? above : below).Add(fragment);
-                continue;
-            }
+            PdfTextFragment fragment = fragments[f];
+            owner[f] = -1;
 
-            int index = (at.Value.Row * grid.Columns) + at.Value.Column;
-            (cells[index] ??= []).Add(fragment);
+            for (int g = 0; g < grids.Count; g++)
+            {
+                // The left end of the baseline is where the run was placed, so it
+                // is what decides which cell holds it. A run wider than its cell
+                // has overflowed the rules, and belongs to the cell it started in.
+                if (grids[g].CellAt(fragment.X + Inset, fragment.Y) is not { } square)
+                    continue;
+
+                // A merge makes several lattice squares one cell, and the text in
+                // any of them belongs to the cell that covers them all.
+                (int Row, int Column) at = grids[g].AnchorAt(square.Row, square.Column);
+                owner[f] = g;
+                int index = (at.Row * grids[g].Columns) + at.Column;
+                (cells[g][index] ??= []).Add(fragment);
+                break;
+            }
         }
 
-        var imagesAbove = new List<PdfPlacedImage>();
-        var imagesBelow = new List<PdfPlacedImage>();
-        foreach (PdfPlacedImage image in images)
-            (image.Top > grid.Top ? imagesAbove : imagesBelow).Add(image);
-
         var paragraphs = new List<RichTextParagraph>();
+        var pendingImages = new List<PdfPlacedImage>(images);
+
+        for (int g = 0; g < grids.Count; g++)
+        {
+            PdfTableGrid grid = grids[g];
+
+            // Everything drawn above this grid and not inside an earlier one.
+            var before = new List<PdfTextFragment>();
+            for (int f = 0; f < fragments.Count; f++)
+            {
+                if (owner[f] == -1 && fragments[f].Y > grid.Top)
+                {
+                    before.Add(fragments[f]);
+                    owner[f] = -2;
+                }
+            }
+
+            var imagesBefore = new List<PdfPlacedImage>();
+            for (int i = pendingImages.Count - 1; i >= 0; i--)
+            {
+                if (pendingImages[i].Top > grid.Top)
+                {
+                    imagesBefore.Add(pendingImages[i]);
+                    pendingImages.RemoveAt(i);
+                }
+            }
+
+            paragraphs.AddRange(PdfModelProjector.Project(
+                PdfReadingOrder.BuildLines(before, links),
+                imagesBefore,
+                false,
+                Remaining(maxParagraphs, paragraphs.Count)));
+
+            AddTable(grid, cells[g], links, paragraphs, maxParagraphs, paragraphBase, tables);
+        }
+
+        var after = new List<PdfTextFragment>();
+        for (int f = 0; f < fragments.Count; f++)
+        {
+            if (owner[f] == -1)
+                after.Add(fragments[f]);
+        }
 
         paragraphs.AddRange(PdfModelProjector.Project(
-            PdfReadingOrder.BuildLines(above, links), imagesAbove, false, maxParagraphs));
+            PdfReadingOrder.BuildLines(after, links),
+            pendingImages,
+            false,
+            Remaining(maxParagraphs, paragraphs.Count)));
 
+        if (insertPageBreak && paragraphs.Count > 0)
+            paragraphs.Add(RichTextParagraph.Empty);
+
+        return paragraphs;
+    }
+
+    /// <summary>
+    /// Appends one grid's cells as paragraphs, row-major, and records the table
+    /// over the range they occupy.
+    /// </summary>
+    private static void AddTable(
+        PdfTableGrid grid,
+        List<PdfTextFragment>?[] cells,
+        IReadOnlyList<PdfLinkRegion> links,
+        List<RichTextParagraph> paragraphs,
+        int maxParagraphs,
+        int paragraphBase,
+        List<DocumentTable> tables)
+    {
         int tableStart = paragraphs.Count;
         var rows = new List<TableRow>(grid.Rows);
 
         for (int row = 0; row < grid.Rows; row++)
         {
             var rowCells = new List<TableCell>(grid.Columns);
-            for (int column = 0; column < grid.Columns; column++)
+            int column = 0;
+
+            while (column < grid.Columns)
             {
+                (int Row, int Column) anchor = grid.AnchorAt(row, column);
+                int columnSpan = grid.ColumnSpanAt(anchor.Row, anchor.Column);
+
+                if (anchor.Row != row)
+                {
+                    // The lower half of a vertical merge. The row carries a cell
+                    // so its column count is right; the cell above holds the text
+                    // and draws the box.
+                    rowCells.Add(new TableCell(
+                        paragraphBase + paragraphs.Count,
+                        0,
+                        column,
+                        columnSpan,
+                        isRowSpanContinuation: true));
+                    column += columnSpan;
+                    continue;
+                }
+
                 int start = paragraphBase + paragraphs.Count;
                 List<PdfTextFragment>? cellFragments = cells[(row * grid.Columns) + column];
 
@@ -125,8 +213,12 @@ internal static class PdfTableProjector
                     start,
                     cell.Count,
                     column,
-                    shading: grid.ShadingAt(row, column),
-                    borders: grid.BordersAt(row, column)));
+                    columnSpan,
+                    grid.RowSpanAt(row, column),
+                    grid.ShadingAt(row, column),
+                    grid.BordersAt(row, column)));
+
+                column += columnSpan;
             }
 
             rows.Add(new TableRow(rowCells, minHeight: grid.RowEdges[row] - grid.RowEdges[row + 1]));
@@ -137,17 +229,6 @@ internal static class PdfTableProjector
             paragraphs.Count - tableStart,
             rows,
             grid.ColumnWidths()));
-
-        paragraphs.AddRange(PdfModelProjector.Project(
-            PdfReadingOrder.BuildLines(below, links),
-            imagesBelow,
-            false,
-            Remaining(maxParagraphs, paragraphs.Count)));
-
-        if (insertPageBreak && paragraphs.Count > 0)
-            paragraphs.Add(RichTextParagraph.Empty);
-
-        return paragraphs;
     }
 
     /// <summary>
