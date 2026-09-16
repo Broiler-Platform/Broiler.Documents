@@ -185,9 +185,11 @@ public sealed class PdfTableReconstructionTests
         DocumentDiagnostic note = Assert.Single(
             Read(Ruled()).Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.VectorArtworkDropped));
 
-        // Six rules drawn, all six of them the grid's, so none was dropped.
-        Assert.Contains("6 were read as a table's rules and shades and 0 were dropped", note.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("6 path-painting operations were dropped", note.Message, StringComparison.Ordinal);
+        // Six rules drawn, all six of them the grid's, so none was dropped - and
+        // with nothing dropped there is no breakdown to give, rather than a
+        // breakdown of everything painted hung off a count of nothing.
+        Assert.Contains("All 6 path-painting operations were read as a table's rules and shades; none was dropped", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("were dropped:", note.Message, StringComparison.Ordinal);
         Assert.Contains("pdf.import.table-reconstructed", note.Message, StringComparison.Ordinal);
     }
 

@@ -84,6 +84,27 @@ public sealed class PdfComposedFontTests
         Assert.DoesNotContain("ABC", result.Document.PlainText, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_Program_The_Reader_Was_Never_Offered_Is_Not_Reported_As_One_It_Failed()
+    {
+        // Four outcomes, and the note used to have three sentences for them. A
+        // font that supplies ToUnicode has already said what its codes mean, so
+        // the program is left alone rather than consulted - and reporting that
+        // as "the composed reader did not read" describes an attempt that was
+        // never made, sending a reader after a parser that was never the
+        // obstacle.
+        PdfReadResult result = Read(
+            Document("ABC", Glyphs(1, 2, 3), toUnicode: ToUnicodeMappingToXyz),
+            composed: true);
+
+        DocumentDiagnostic note = Assert.Single(
+            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+
+        Assert.Contains("never offered", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("did not read", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("this build does not inspect", note.Message, StringComparison.Ordinal);
+    }
+
     // ---- the formats the composed reader does not inspect ---------------------
 
     [Fact]
@@ -116,6 +137,11 @@ public sealed class PdfComposedFontTests
         // offered a program — and the note used to key its opening sentence on
         // "nothing was inspected", which reads as "no reader is composed" and was
         // false in exactly this case.
+        //
+        // The first fix for that moved the sentence to "the composed reader did
+        // not read", which this test then pinned. That was better and still not
+        // right: it describes an attempt, and none was made. The four outcomes
+        // now have four sentences, and this asserts the one that happened.
         PdfReadResult result = Read(
             Document("ABC", Glyphs(1, 2, 3), toUnicode: ToUnicodeMappingToXyz),
             composed: true);
@@ -124,7 +150,8 @@ public sealed class PdfComposedFontTests
             result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
 
         Assert.DoesNotContain("this build does not inspect", note.Message, StringComparison.Ordinal);
-        Assert.Contains("the composed reader did not read", note.Message, StringComparison.Ordinal);
+        Assert.Contains("never offered", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("did not read", note.Message, StringComparison.Ordinal);
 
         // Never offered is not offered and refused, so the refusal sentence stays
         // off a note where nothing was refused.
