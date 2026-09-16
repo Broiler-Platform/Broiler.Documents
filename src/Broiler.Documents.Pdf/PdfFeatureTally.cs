@@ -836,7 +836,7 @@ internal sealed class PdfFeatureTally
             int stranded = withoutToUnicode - inspected;
             if (stranded <= 0)
             {
-                Report(diagnostics, text);
+                Report(diagnostics, text, unread, notComposed);
                 return;
             }
 
@@ -862,11 +862,42 @@ internal sealed class PdfFeatureTally
             text.Append(" The reader declined them: ").Append(string.Join("; ", parts)).Append('.');
         }
 
-        Report(diagnostics, text);
+        Report(diagnostics, text, unread, notComposed);
     }
 
-    private static void Report(PdfDiagnosticSink diagnostics, StringBuilder text) =>
-        diagnostics.Skipped(PdfDiagnosticCodes.FontProgramNotComposed, text.ToString());
+    /// <summary>
+    /// Files the font-program note at the severity the outcome deserves.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A skip is a claim that the document lost something, and it is what makes
+    /// a read Partial - which the Writer shows as "parts of it were skipped or
+    /// approximated". Two of the four outcomes lose nothing: a program a
+    /// composed reader read, and a program it was never offered because the
+    /// font's own ToUnicode map already said what its codes mean. Reporting
+    /// either as a skip told a reader their document came out incomplete on the
+    /// strength of fonts that did exactly what they should.
+    /// </para>
+    /// <para>
+    /// The other two do cost something and stay skips: no reader composed for
+    /// the program, and a reader that was offered one and recovered nothing.
+    /// Programs past the recording limit count as a loss too, because nothing
+    /// classified them and the note cannot say they were fine.
+    /// </para>
+    /// <para>
+    /// The code stays <c>pdf.font.program-not-composed</c>. A code is API and is
+    /// never renamed or reused, so it outlives the sentence that first described
+    /// it; the message and the severity are what carry which of the four
+    /// happened.
+    /// </para>
+    /// </remarks>
+    private void Report(PdfDiagnosticSink diagnostics, StringBuilder text, int unread, int notComposed)
+    {
+        if (unread > 0 || notComposed > 0 || _fontProgramOverflow > 0)
+            diagnostics.Skipped(PdfDiagnosticCodes.FontProgramNotComposed, text.ToString());
+        else
+            diagnostics.Info(PdfDiagnosticCodes.FontProgramNotComposed, text.ToString());
+    }
 
     /// <summary>The plural "s" for a count, so an inventory reads as English.</summary>
     private static string S(int count) => count == 1 ? string.Empty : "s";

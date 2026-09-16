@@ -163,7 +163,21 @@ public static class PdfDiagnosticCodes
     /// <summary>A page carried no extractable text; it may be a scan needing OCR, which is out of scope.</summary>
     public const string TextOcrRequired = "pdf.text.ocr-required";
 
-    /// <summary>An embedded font program was detected; no font-program reader is composed.</summary>
+    /// <summary>
+    /// An embedded font program was detected, and the note says which of four
+    /// things became of it: no reader composed to read it; a composed reader
+    /// never offered it, because the font's own <c>ToUnicode</c> map already
+    /// says what its codes mean; a reader offered it that recovered nothing; or
+    /// a reader that read it.
+    /// </summary>
+    /// <remarks>
+    /// The severity separates them into the two that cost the document text and
+    /// the two that do not: the first and third are raised as skips and make the
+    /// read partial, the second and fourth as information. The name is the one
+    /// the first of the four was given, and a code is API - never renamed, never
+    /// reused - so it has outlived the sentence that described it. The message
+    /// and the severity carry which one happened.
+    /// </remarks>
     public const string FontProgramNotComposed = "pdf.font.program-not-composed";
 
     /// <summary>A Type 3 font was detected; its glyph procedures are never executed.</summary>
