@@ -173,6 +173,32 @@ internal sealed class PdfTableGrid
 
     public CellBorders BordersAt(int row, int column) => _borders[(row * Columns) + column];
 
+    /// <summary>
+    /// Whether <paramref name="next"/> is this grid carried on, judged by the
+    /// only thing a continued table reliably keeps: its columns.
+    /// </summary>
+    /// <remarks>
+    /// Column count and column positions both have to match, because either
+    /// alone is weak - two unrelated three-column tables are common, and so are
+    /// two tables that happen to start at the same margin. The rest of the test
+    /// is not here: the caller also requires that nothing was drawn below the
+    /// first or above the second, which is what a table broken by a page
+    /// boundary looks like and what two separate tables usually do not.
+    /// </remarks>
+    public bool Continues(PdfTableGrid next)
+    {
+        if (next.Columns != Columns)
+            return false;
+
+        for (int i = 0; i < _columns.Length; i++)
+        {
+            if (Math.Abs(_columns[i] - next._columns[i]) > EdgeTolerance)
+                return false;
+        }
+
+        return true;
+    }
+
     /// <summary>The width of each column, for the model's grid.</summary>
     public List<double> ColumnWidths()
     {

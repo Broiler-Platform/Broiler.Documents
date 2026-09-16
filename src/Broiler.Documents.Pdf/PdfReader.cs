@@ -139,6 +139,9 @@ internal static class PdfReader
         int inferredOrderPages = 0;
         int artifactOrderPages = 0;
         var tables = new List<DocumentTable>();
+        PdfTableGrid? openGrid = null;
+        int openTable = -1;
+        bool pendingBreak = false;
 
         for (int i = 0; i < pages.Count; i++)
         {
@@ -191,23 +194,54 @@ internal static class PdfReader
                     inferredOrderPages++;
             }
 
-            bool pageBreak = options.MapPageBreaks && i < pages.Count - 1;
-
-            // A fully ruled grid is the one arrangement of dropped artwork the
-            // model can carry, and it settles this page's reading order as well:
-            // cells are read row-major, which is what the geometric pass cannot
-            // infer and what a table defeats it with.
+            // A ruled grid is the one arrangement of dropped artwork the model
+            // can carry, and it settles this page's reading order as well: cells
+            // are read row-major, which is what the geometric pass cannot infer
+            // and what a table defeats it with.
             List<PdfTableGrid> grids = PdfTableGrid.Detect(interpreter.PaintedPaths, fragments);
 
+            // A table broken by a page boundary is one table, and the model
+            // holds a table as one contiguous run of paragraphs - so the join
+            // has to be decided before anything is emitted between the halves,
+            // including the empty paragraph a mapped page break would be.
+            bool joins = openGrid is not null &&
+                grids.Count > 0 &&
+                Opens(fragments, images, grids[0]) &&
+                openGrid.Continues(grids[0]);
+
+            if (pendingBreak && !joins)
+                paragraphs.Add(RichTextParagraph.Empty);
+
+            pendingBreak = false;
+
+            int before = tables.Count;
             paragraphs.AddRange(grids.Count > 0
                 ? PdfTableProjector.Project(
-                    fragments, links, images, grids, pageBreak,
+                    fragments, links, images, grids,
                     options.Limits.MaxParagraphCount, paragraphs.Count, tables)
-                : PdfModelProjector.Project(lines, images, pageBreak, options.Limits.MaxParagraphCount));
+                : PdfModelProjector.Project(lines, images, false, options.Limits.MaxParagraphCount));
+
+            if (joins && tables.Count > before)
+            {
+                tables[openTable] = Join(tables[openTable], tables[before]);
+                tables.RemoveAt(before);
+                store.Features.NoteTableContinued(i + 1);
+            }
 
             foreach (PdfTableGrid grid in grids)
                 store.Features.NoteTable(grid.Rows, grid.Columns, grid.IsInferred, i + 1);
+
+            // What the next page would have to continue: a grid with nothing
+            // drawn below it, which is what a table cut off by the page edge
+            // looks like and what a table the page finished with does not.
+            bool closes = grids.Count > 0 && Closes(fragments, images, grids[^1]);
+            openGrid = closes ? grids[^1] : null;
+            openTable = closes ? tables.Count - 1 : -1;
+            pendingBreak = options.MapPageBreaks && i < pages.Count - 1;
         }
+
+        if (pendingBreak && paragraphs.Count > 0)
+            paragraphs.Add(RichTextParagraph.Empty);
 
         // Back to document scope, and the one point where the constructs the
         // pages recognized but did not implement become diagnostics. Draining
@@ -304,6 +338,77 @@ internal static class PdfReader
             extensions,
             diagnostics.Build(),
             resources.Build());
+    }
+
+    /// <summary>
+    /// Whether this grid is the first thing on its page: nothing drawn above it.
+    /// </summary>
+    private static bool Opens(
+        IReadOnlyList<PdfTextFragment> fragments,
+        IReadOnlyList<PdfPlacedImage> images,
+        PdfTableGrid grid)
+    {
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            if (fragment.Y > grid.Top)
+                return false;
+        }
+
+        foreach (PdfPlacedImage image in images)
+        {
+            if (image.Top > grid.Top)
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether this grid is the last thing on its page: nothing drawn below it.
+    /// </summary>
+    private static bool Closes(
+        IReadOnlyList<PdfTextFragment> fragments,
+        IReadOnlyList<PdfPlacedImage> images,
+        PdfTableGrid grid)
+    {
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            if (fragment.Y < grid.Bottom)
+                return false;
+        }
+
+        foreach (PdfPlacedImage image in images)
+        {
+            if (image.Top < grid.Bottom)
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Joins a table to the one continuing it on the next page. The ranges are
+    /// adjacent by construction - nothing was emitted between them - so the
+    /// joined table covers both, and the second half's rows follow the first's.
+    /// </summary>
+    /// <remarks>
+    /// The column widths are the first half's. A continued table is drawn to the
+    /// same grid on both pages, which is what <c>Continues</c> checked; where
+    /// they differ by a fraction the first page's are as right as the second's,
+    /// and picking one beats averaging two measurements of the same thing.
+    /// </remarks>
+    private static DocumentTable Join(DocumentTable first, DocumentTable second)
+    {
+        var rows = new List<TableRow>(first.Rows.Count + second.Rows.Count);
+        rows.AddRange(first.Rows);
+        rows.AddRange(second.Rows);
+
+        return new DocumentTable(
+            first.ParagraphIndex,
+            first.ParagraphCount + second.ParagraphCount,
+            rows,
+            first.ColumnWidths,
+            first.CellPadding);
     }
 
     /// <summary>Whether any run on the page was drawn as an artifact.</summary>
