@@ -68,18 +68,49 @@ internal sealed class PdfTableGrid
     /// <summary>Most lattice lines considered on one page, in each direction.</summary>
     private const int MaxEdges = 256;
 
+    /// <summary>Parallel rules a region must stack before its divisions may be inferred.</summary>
+    private const int MinimumAnchorRules = 3;
+
+    /// <summary>How much of their length stacked rules must share to be one table's.</summary>
+    private const double MinimumOverlapShare = 0.6;
+
+    /// <summary>Narrowest region worth reading a grid out of, in points.</summary>
+    private const double MinimumSpan = 24;
+
+    /// <summary>How far apart two baselines may be and still be one line of a row.</summary>
+    private const double BaselineTolerance = 2.0;
+
+    /// <summary>Narrowest empty lane that may be read as a column boundary, in points.</summary>
+    private const int MinimumCorridor = 4;
+
+    /// <summary>Widest region the occupancy scan will bin, in points.</summary>
+    private const int MaxBins = 20_000;
+
     private readonly double[] _columns;
     private readonly double[] _rows;
     private readonly BColor[] _shading;
     private readonly CellBorders[] _borders;
 
-    private PdfTableGrid(double[] columns, double[] rows, BColor[] shading, CellBorders[] borders)
+    private PdfTableGrid(
+        double[] columns,
+        double[] rows,
+        BColor[] shading,
+        CellBorders[] borders,
+        bool inferred)
     {
         _columns = columns;
         _rows = rows;
         _shading = shading;
         _borders = borders;
+        IsInferred = inferred;
     }
+
+    /// <summary>
+    /// True where some of the grid's divisions were read off the text rather
+    /// than off a painted rule. A reader that wants only what the document drew
+    /// can tell the two apart, and the diagnostic reports them separately.
+    /// </summary>
+    public bool IsInferred { get; }
 
     /// <summary>Column boundaries, left to right. One more than <see cref="Columns"/>.</summary>
     public IReadOnlyList<double> ColumnEdges => _columns;
@@ -142,10 +173,13 @@ internal sealed class PdfTableGrid
     }
 
     /// <summary>
-    /// Finds every fully ruled grid on a page. Grids are returned top to bottom,
-    /// which is the order their text is read in.
+    /// Finds the grid a page drew, if it drew one. A fully ruled lattice is
+    /// preferred; where the rules only partly divide the table, the rest is read
+    /// off the text under the conditions <see cref="Infer"/> sets out.
     /// </summary>
-    public static List<PdfTableGrid> Detect(IReadOnlyList<PdfPaintedPath> paths)
+    public static List<PdfTableGrid> Detect(
+        IReadOnlyList<PdfPaintedPath> paths,
+        IReadOnlyList<PdfTextFragment> fragments)
     {
         var grids = new List<PdfTableGrid>();
         if (paths is null || paths.Count == 0)
@@ -156,28 +190,61 @@ internal sealed class PdfTableGrid
         var fills = new List<PdfPaintedPath>();
         Collect(paths, vertical, horizontal, fills);
 
-        if (vertical.Count < 2 || horizontal.Count < 2)
+        if (horizontal.Count < 2 && vertical.Count < 2)
             return grids;
 
-        // One lattice per page is the case that matters and the case that is
-        // safe: two tables side by side share no edges, so a single lattice over
-        // all of them would claim cells neither drew. Candidate edges are taken
-        // from the whole page and then the lattice is required to be complete,
-        // which a pair of separate tables fails.
+        PdfTableGrid? grid = Lattice(vertical, horizontal, fills)
+            ?? Infer(vertical, horizontal, fills, fragments);
+
+        if (grid is not null)
+            grids.Add(grid);
+
+        return grids;
+    }
+
+    /// <summary>
+    /// The fully ruled case: every edge of every cell was painted.
+    /// </summary>
+    /// <remarks>
+    /// One lattice per page is the case that matters and the case that is safe:
+    /// two tables side by side share no edges, so a single lattice over all of
+    /// them would claim cells neither drew. Candidate edges are taken from the
+    /// whole page and the lattice is then required to be complete, which a pair
+    /// of separate tables fails.
+    /// </remarks>
+    private static PdfTableGrid? Lattice(
+        List<Segment> vertical,
+        List<Segment> horizontal,
+        List<PdfPaintedPath> fills)
+    {
+        if (vertical.Count < 2 || horizontal.Count < 2)
+            return null;
+
         double[] columns = Cluster(vertical, s => s.At);
         double[] rows = Cluster(horizontal, s => s.At);
         Array.Reverse(rows);
 
         if (columns.Length - 1 < MinimumCells || rows.Length - 1 < MinimumCells)
-            return grids;
+            return null;
 
-        if (!IsComplete(columns, rows, vertical, horizontal))
-            return grids;
+        return IsComplete(columns, rows, vertical, horizontal)
+            ? Build(columns, rows, vertical, horizontal, fills, inferred: false)
+            : null;
+    }
 
+    /// <summary>Fills in a grid's borders and shading from what was painted.</summary>
+    private static PdfTableGrid Build(
+        double[] columns,
+        double[] rows,
+        List<Segment> vertical,
+        List<Segment> horizontal,
+        List<PdfPaintedPath> fills,
+        bool inferred)
+    {
         int cells = (columns.Length - 1) * (rows.Length - 1);
         var shading = new BColor[cells];
         var borders = new CellBorders[cells];
-        var grid = new PdfTableGrid(columns, rows, shading, borders);
+        var grid = new PdfTableGrid(columns, rows, shading, borders, inferred);
 
         for (int row = 0; row < grid.Rows; row++)
         {
@@ -188,6 +255,8 @@ internal sealed class PdfTableGrid
                 double top = rows[row];
                 double bottom = rows[row + 1];
 
+                // An unruled edge gets no border, which is what the page shows.
+                // Inferring a division is not the same as inventing a line.
                 borders[(row * grid.Columns) + column] = new CellBorders(
                     Edge(vertical, left, bottom, top),
                     Edge(horizontal, top, left, right),
@@ -199,8 +268,292 @@ internal sealed class PdfTableGrid
             }
         }
 
-        grids.Add(grid);
-        return grids;
+        return grid;
+    }
+
+    /// <summary>
+    /// The partly ruled case: the document drew enough rules to say where a
+    /// table is and how it divides in one direction, and the other direction is
+    /// read off the text inside it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>What makes this safe is the anchor, not the inference.</strong>
+    /// Alignment alone finds tables everywhere - every two-column page, every
+    /// caption beside a figure, every tab-aligned list - which is why the fully
+    /// ruled path refuses to use it. What is required here instead is a stack of
+    /// at least three parallel rules that overlap each other along their length,
+    /// which puts at least one of them strictly inside the region. That is the
+    /// visual signature of a table and it is drawn in ink: a rule above and
+    /// below an article is two, a box around a callout is a rectangle, and
+    /// neither becomes a table. Only once the document has divided a region does
+    /// this read the divisions it left out.
+    /// </para>
+    /// <para>
+    /// Inferred divisions carry no borders. An edge gets a border where a rule
+    /// was painted along it and none otherwise, so a header-ruled table comes
+    /// back with the rule under its header and nothing between its columns,
+    /// which is what the page shows. Inferring where a column starts is not the
+    /// same as inventing a line down it.
+    /// </para>
+    /// <para>
+    /// The residual risk is honest rather than eliminated: a page that stacks
+    /// three full-width rules across ordinary two-column prose can still be read
+    /// as a table. <see cref="IsInferred"/> and a diagnostic of its own say
+    /// which grids were arrived at this way, so a host that wants only what was
+    /// drawn can tell them apart.
+    /// </para>
+    /// </remarks>
+    private static PdfTableGrid? Infer(
+        List<Segment> vertical,
+        List<Segment> horizontal,
+        List<PdfPaintedPath> fills,
+        IReadOnlyList<PdfTextFragment> fragments)
+    {
+        if (fragments is null || fragments.Count == 0)
+            return null;
+
+        double[] bands = Stack(horizontal);
+        if (bands.Length < MinimumAnchorRules)
+            return null;
+
+        Array.Reverse(bands);
+        double top = bands[0];
+        double bottom = bands[^1];
+
+        (double left, double right) = Extent(horizontal, bands);
+        if (right - left < MinimumSpan)
+            return null;
+
+        var inside = new List<PdfTextFragment>();
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            if (fragment.Y <= top + EdgeTolerance && fragment.Y >= bottom - EdgeTolerance &&
+                fragment.EndX >= left - EdgeTolerance && fragment.X <= right + EdgeTolerance)
+            {
+                inside.Add(fragment);
+            }
+        }
+
+        if (inside.Count == 0)
+            return null;
+
+        double[] rows = InferRows(bands, inside);
+        double[] columns = InferColumns(vertical, inside, left, right, top, bottom);
+
+        return rows.Length - 1 < MinimumCells || columns.Length - 1 < MinimumCells
+            ? null
+            : Build(columns, rows, vertical, horizontal, fills, inferred: true);
+    }
+
+    /// <summary>
+    /// The largest set of parallel rules that all overlap one another along
+    /// their length, as their clustered positions. Overlap is what separates a
+    /// stack of dividers from rules that merely share a page.
+    /// </summary>
+    private static double[] Stack(List<Segment> segments)
+    {
+        if (segments.Count < MinimumAnchorRules)
+            return [];
+
+        double[] positions = Cluster(segments, s => s.At);
+        if (positions.Length < MinimumAnchorRules)
+            return [];
+
+        // The common run every rule in the stack covers, against the full run
+        // they cover between them. Rules that barely meet are not a table's.
+        (double from, double to) = Overlap(segments, positions);
+        (double left, double right) = Extent(segments, positions);
+        double span = right - left;
+
+        return span > 0 && (to - from) >= span * MinimumOverlapShare ? positions : [];
+    }
+
+    /// <summary>The run shared by every rule sitting on one of these positions.</summary>
+    private static (double From, double To) Overlap(List<Segment> segments, double[] positions)
+    {
+        double from = double.MinValue;
+        double to = double.MaxValue;
+
+        foreach (double at in positions)
+        {
+            double widest = double.MaxValue;
+            double narrowest = double.MinValue;
+            foreach (Segment segment in segments)
+            {
+                if (Math.Abs(segment.At - at) > EdgeTolerance)
+                    continue;
+
+                widest = Math.Min(widest, segment.From);
+                narrowest = Math.Max(narrowest, segment.To);
+            }
+
+            if (widest == double.MaxValue)
+                continue;
+
+            from = Math.Max(from, widest);
+            to = Math.Min(to, narrowest);
+        }
+
+        return (from, to);
+    }
+
+    /// <summary>The full run the rules on these positions cover between them.</summary>
+    private static (double Left, double Right) Extent(List<Segment> segments, double[] positions)
+    {
+        double left = double.MaxValue;
+        double right = double.MinValue;
+
+        foreach (double at in positions)
+        {
+            foreach (Segment segment in segments)
+            {
+                if (Math.Abs(segment.At - at) > EdgeTolerance)
+                    continue;
+
+                left = Math.Min(left, segment.From);
+                right = Math.Max(right, segment.To);
+            }
+        }
+
+        return (left, right);
+    }
+
+    /// <summary>
+    /// Row boundaries: every rule the document drew, plus a split between each
+    /// pair of text baselines that a rule did not already separate. A band of
+    /// several lines is several rows, which is what a table ruled only under its
+    /// header actually is.
+    /// </summary>
+    private static double[] InferRows(double[] bands, List<PdfTextFragment> inside)
+    {
+        var baselines = new List<double>(inside.Count);
+        foreach (PdfTextFragment fragment in inside)
+            baselines.Add(fragment.Y);
+
+        baselines.Sort();
+        baselines.Reverse();
+
+        var lines = new List<double>();
+        foreach (double baseline in baselines)
+        {
+            if (lines.Count == 0 || lines[^1] - baseline > BaselineTolerance)
+                lines.Add(baseline);
+        }
+
+        // One row per line of text, and the boundary between two of them is the
+        // rule the document drew there if it drew one. Taking the rule rather
+        // than adding it is what keeps a rule and the midpoint beside it from
+        // becoming two boundaries with an empty sliver of a row between them.
+        var edges = new List<double> { bands[0] };
+        for (int i = 1; i < lines.Count && edges.Count < MaxEdges; i++)
+        {
+            double above = lines[i - 1];
+            double below = lines[i];
+            double boundary = (above + below) / 2;
+
+            foreach (double band in bands)
+            {
+                if (band < above && band > below)
+                {
+                    boundary = band;
+                    break;
+                }
+            }
+
+            if (edges[^1] - boundary > EdgeTolerance && boundary - bands[^1] > EdgeTolerance)
+                edges.Add(boundary);
+        }
+
+        edges.Add(bands[^1]);
+        return [.. edges];
+    }
+
+    /// <summary>
+    /// Column boundaries: the interior vertical rules if the document drew any,
+    /// and otherwise the vertical corridors no glyph crosses. A corridor has to
+    /// run the whole height of the region, which is what makes it a column
+    /// boundary rather than a gap between two words.
+    /// </summary>
+    private static double[] InferColumns(
+        List<Segment> vertical,
+        List<PdfTextFragment> inside,
+        double left,
+        double right,
+        double top,
+        double bottom)
+    {
+        var edges = new List<double> { left };
+
+        foreach (Segment segment in vertical)
+        {
+            if (segment.At <= left + EdgeTolerance || segment.At >= right - EdgeTolerance)
+                continue;
+            if (segment.From > bottom + CoverTolerance || segment.To < top - CoverTolerance)
+                continue;
+
+            edges.Add(segment.At);
+        }
+
+        if (edges.Count == 1)
+            edges.AddRange(Corridors(inside, left, right));
+
+        edges.Sort();
+
+        var distinct = new List<double> { edges[0] };
+        for (int i = 1; i < edges.Count && distinct.Count < MaxEdges; i++)
+        {
+            if (edges[i] - distinct[^1] > EdgeTolerance)
+                distinct.Add(edges[i]);
+        }
+
+        if (right - distinct[^1] > EdgeTolerance)
+            distinct.Add(right);
+
+        return [.. distinct];
+    }
+
+    /// <summary>
+    /// The middles of the vertical lanes no glyph occupies. Occupancy is counted
+    /// in one-point bins, which is finer than any gap that could be a column
+    /// boundary and coarse enough that a page of text costs a few thousand.
+    /// </summary>
+    private static List<double> Corridors(List<PdfTextFragment> inside, double left, double right)
+    {
+        var found = new List<double>();
+        int width = (int)Math.Ceiling(right - left);
+        if (width <= 0 || width > MaxBins)
+            return found;
+
+        var occupied = new bool[width + 1];
+        foreach (PdfTextFragment fragment in inside)
+        {
+            int from = (int)Math.Floor(Math.Max(0, fragment.X - left));
+            int to = (int)Math.Ceiling(Math.Min(width, fragment.EndX - left));
+            for (int i = from; i <= to && i < occupied.Length; i++)
+            {
+                if (i >= 0)
+                    occupied[i] = true;
+            }
+        }
+
+        int run = 0;
+        for (int i = 0; i <= width; i++)
+        {
+            if (!occupied[i])
+            {
+                run++;
+                continue;
+            }
+
+            // A lane touching either end is the table's margin, not a division.
+            if (run >= MinimumCorridor && i - run > 0)
+                found.Add(left + i - (run / 2.0));
+
+            run = 0;
+        }
+
+        return found;
     }
 
     /// <summary>
