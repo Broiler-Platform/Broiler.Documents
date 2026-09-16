@@ -29,7 +29,8 @@ internal sealed class PdfTextFragment
         bool italic,
         BColor color,
         int renderMode,
-        int mcid = -1)
+        int mcid = -1,
+        bool artifact = false)
     {
         Text = text;
         X = x;
@@ -43,6 +44,7 @@ internal sealed class PdfTextFragment
         Color = color;
         RenderMode = renderMode;
         Mcid = mcid;
+        IsArtifact = artifact;
     }
 
     public string Text { get; }
@@ -91,6 +93,20 @@ internal sealed class PdfTextFragment
     /// like every other coordinate here it stops at model projection.
     /// </remarks>
     public int Mcid { get; }
+
+    /// <summary>
+    /// True for a run drawn inside an <c>/Artifact</c> marked-content sequence:
+    /// a running head, a folio, a table rule, a watermark.
+    /// </summary>
+    /// <remarks>
+    /// Carried for one reason. PDF 32000-1 &#167;14.8.2.2 defines an artifact as
+    /// content that is <em>not</em> part of the author's logical content, and a
+    /// structure tree therefore never places one. A page's tagged runs can be
+    /// fully accounted for while its header is not, so a coverage test that
+    /// counted artifacts would fail on almost every real tagged document and
+    /// send the page back to geometry that the tree could have ordered.
+    /// </remarks>
+    public bool IsArtifact { get; }
 
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"'{Text}' @ ({X:F1},{Y:F1}) {FontSize:F1}pt");

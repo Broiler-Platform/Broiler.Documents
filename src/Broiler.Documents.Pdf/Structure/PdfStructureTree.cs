@@ -90,23 +90,48 @@ internal sealed class PdfStructureTree
         mcid >= 0 && _order.TryGetValue((page, mcid), out int order) ? order : -1;
 
     /// <summary>
-    /// Whether every fragment on this page is placed by the tree. A page the tree
-    /// only partly accounts for falls back to geometry whole, because mixing a
-    /// declared order with an inferred one produces a sequence neither the
-    /// document nor the heuristic asked for.
+    /// Whether every fragment on this page that the tree is supposed to place is
+    /// placed by it. A page the tree only partly accounts for falls back to
+    /// geometry whole, because mixing a declared order with an inferred one
+    /// produces a sequence neither the document nor the heuristic asked for.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Artifacts do not count against coverage. PDF 32000-1 &#167;14.8.2.2 defines
+    /// an artifact as content outside the author's logical content — a running
+    /// head, a folio, a table rule — and a structure tree is required not to
+    /// place one. Counting them made this test fail on essentially every real
+    /// tagged document: a page needs only a page number in its footer to be
+    /// "partly covered" forever, and the declared order it went to the trouble
+    /// of stating would never once be used.
+    /// </para>
+    /// <para>
+    /// Untagged content is a different thing and still disqualifies a page. A run
+    /// drawn outside any marked content is content the document neither placed in
+    /// its tree nor declared to be furniture, so the tree's silence about it is a
+    /// gap rather than a statement, and an honest heuristic beats a partial order.
+    /// </para>
+    /// </remarks>
     public bool Covers(int page, IReadOnlyList<Text.PdfTextFragment> fragments)
     {
         if (IsTruncated || fragments.Count == 0)
             return false;
 
+        bool placed = false;
         foreach (Text.PdfTextFragment fragment in fragments)
         {
+            if (fragment.IsArtifact)
+                continue;
+
             if (OrderOf(page, fragment.Mcid) < 0)
                 return false;
+
+            placed = true;
         }
 
-        return true;
+        // A page of pure furniture states no order to take. Returning true would
+        // claim the tree ordered a page it says nothing about.
+        return placed;
     }
 
     /// <summary>

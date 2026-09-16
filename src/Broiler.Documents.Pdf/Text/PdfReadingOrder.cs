@@ -72,8 +72,11 @@ internal sealed class PdfTextLine
 /// not trustworthy logical structure — determined the order.
 /// </para>
 /// <para>
-/// Tagged PDF would supply real logical structure and is out of scope for this
-/// release; when it arrives it belongs ahead of this pass, not inside it.
+/// A tagged document supplies the sequence instead of leaving it to be inferred,
+/// and that path sits ahead of this one rather than inside it: see
+/// <see cref="BuildLinesInDeclaredOrder"/>. This pass still runs for every page
+/// the tree does not fully account for, and for the artifacts it never accounts
+/// for anywhere.
 /// </para>
 /// </remarks>
 internal static class PdfReadingOrder
@@ -113,6 +116,15 @@ internal static class PdfReadingOrder
     /// order the page did not state; a page that states one has already answered
     /// it, and re-deriving it could only disagree.
     /// </para>
+    /// <para>
+    /// Artifacts are the exception, because the tree declares nothing about them
+    /// — by specification it cannot. They are kept, because a running head is
+    /// text the document draws and a reader expects to find, and they are placed
+    /// geometrically: above the declared body if they sit above its topmost
+    /// baseline, below it otherwise. That reproduces a header and a footer
+    /// exactly, which is what almost every artifact is, and it never interleaves
+    /// furniture into a sequence the document stated.
+    /// </para>
     /// </remarks>
     public static List<PdfTextLine> BuildLinesInDeclaredOrder(
         IReadOnlyList<PdfTextFragment> fragments,
@@ -126,8 +138,19 @@ internal static class PdfReadingOrder
         // One group per marked-content item, in declared order. Fragments inside
         // a group keep their own relative order for the geometric pass to sort.
         var groups = new SortedDictionary<int, List<PdfTextFragment>>();
+        var artifacts = new List<PdfTextFragment>();
+        double bodyTop = double.NegativeInfinity;
+
         foreach (PdfTextFragment fragment in fragments)
         {
+            if (fragment.IsArtifact)
+            {
+                artifacts.Add(fragment);
+                continue;
+            }
+
+            bodyTop = Math.Max(bodyTop, fragment.Y);
+
             int at = order(fragment);
             if (!groups.TryGetValue(at, out List<PdfTextFragment>? group))
             {
@@ -141,7 +164,22 @@ internal static class PdfReadingOrder
         foreach (List<PdfTextFragment> group in groups.Values)
             lines.AddRange(BuildColumnLines(group, links));
 
-        return lines;
+        if (artifacts.Count == 0)
+            return lines;
+
+        // y increases upward, so an artifact above the body's topmost baseline is
+        // a running head and everything else — folios, footers, furniture level
+        // with the text — reads after it.
+        var above = new List<PdfTextFragment>();
+        var below = new List<PdfTextFragment>();
+        foreach (PdfTextFragment fragment in artifacts)
+            (fragment.Y > bodyTop ? above : below).Add(fragment);
+
+        var placed = new List<PdfTextLine>(lines.Count + artifacts.Count);
+        placed.AddRange(BuildLines(above, links));
+        placed.AddRange(lines);
+        placed.AddRange(BuildLines(below, links));
+        return placed;
     }
 
     /// <summary>

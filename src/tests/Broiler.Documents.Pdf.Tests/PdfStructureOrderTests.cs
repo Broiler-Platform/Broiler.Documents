@@ -111,6 +111,109 @@ public sealed class PdfStructureOrderTests
         Assert.DoesNotContain("structure tree", note.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void An_Artifact_Header_Does_Not_Cost_The_Page_Its_Declared_Order()
+    {
+        // The regression this whole group exists for. A running head is marked
+        // /Artifact, and PDF 32000-1 14.8.2.2 forbids a structure tree from
+        // placing one - so counting it against coverage meant every real tagged
+        // document with a header fell back to geometry and the declared order it
+        // stated was never once used.
+        string text = Text(Read(Tagged(artifactHeader: true)));
+
+        Assert.True(
+            text.IndexOf("First", StringComparison.Ordinal) < text.IndexOf("Second", StringComparison.Ordinal),
+            $"Expected the declared order, got: {text}");
+    }
+
+    [Fact]
+    public void An_Artifact_Header_Is_Kept_And_Read_Above_The_Declared_Body()
+    {
+        // Kept, because a running head is text the document draws and a reader
+        // expects to find; above, because that is where the page puts it.
+        string text = Text(Read(Tagged(artifactHeader: true)));
+
+        Assert.Contains("Running head", text, StringComparison.Ordinal);
+        Assert.True(
+            text.IndexOf("Running head", StringComparison.Ordinal) < text.IndexOf("First", StringComparison.Ordinal),
+            $"Expected the header first, got: {text}");
+    }
+
+    [Fact]
+    public void An_Artifact_Folio_Is_Read_Below_The_Declared_Body()
+    {
+        // The other half. A folio sits under the body whatever the tree says
+        // about the body's own order, and it must not be hoisted to the top by
+        // sorting on an order key the tree never assigned it.
+        string text = Text(Read(Tagged(artifactFolio: true)));
+
+        Assert.Contains("Page 7", text, StringComparison.Ordinal);
+        Assert.True(
+            text.IndexOf("Second", StringComparison.Ordinal) < text.IndexOf("Page 7", StringComparison.Ordinal),
+            $"Expected the folio last, got: {text}");
+    }
+
+    [Fact]
+    public void An_Artifact_Marked_With_A_Property_List_Counts_The_Same()
+    {
+        // `/Artifact << /Type /Pagination >> BDC` is the other spelling, and it
+        // arrives through a different operator than `/Artifact BMC`.
+        string text = Text(Read(Tagged(artifactHeader: true, artifactAsBdc: true)));
+
+        Assert.True(
+            text.IndexOf("First", StringComparison.Ordinal) < text.IndexOf("Second", StringComparison.Ordinal),
+            $"Expected the declared order, got: {text}");
+        Assert.Contains("Running head", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Untagged_Content_Still_Costs_The_Page_Its_Declared_Order()
+    {
+        // The line the exemption must not cross. An artifact is a declaration
+        // that content is furniture; a bare run outside all marked content is
+        // the document saying nothing at all, and the tree's silence about it
+        // stays a gap rather than a statement.
+        string text = Text(Read(Tagged(artifactHeader: true, untaggedExtra: true)));
+
+        Assert.True(
+            text.IndexOf("Second", StringComparison.Ordinal) < text.IndexOf("First", StringComparison.Ordinal),
+            $"Expected the geometric order, got: {text}");
+    }
+
+    [Fact]
+    public void A_Page_Of_Nothing_But_Artifacts_Claims_No_Declared_Order()
+    {
+        // Coverage over an empty set is vacuous truth. Reporting that the tree
+        // ordered a page it says nothing about would be a false claim about
+        // where the order came from.
+        DocumentDiagnostic note = Only(
+            Read(Tagged(artifactOnly: true)),
+            PdfDiagnosticCodes.ReadingOrderHeuristic);
+
+        Assert.Contains("inferred from page geometry", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("came from the document's own structure tree", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_Diagnostic_Says_The_Artifacts_Were_Kept_And_Placed_Geometrically()
+    {
+        DocumentDiagnostic note = Only(
+            Read(Tagged(artifactHeader: true)),
+            PdfDiagnosticCodes.ReadingOrderHeuristic);
+
+        Assert.Contains("came from the document's own structure tree", note.Message, StringComparison.Ordinal);
+        Assert.Contains("runs marked as artifacts", note.Message, StringComparison.Ordinal);
+        Assert.Contains("geometrically", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Tagged_Page_Without_Artifacts_Does_Not_Mention_Them()
+    {
+        DocumentDiagnostic note = Only(Read(Tagged()), PdfDiagnosticCodes.ReadingOrderHeuristic);
+
+        Assert.DoesNotContain("artifact", note.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     // ---- fixtures -------------------------------------------------------------
 
     private static PdfReadResult Read(byte[] pdf)
@@ -134,7 +237,11 @@ public sealed class PdfStructureOrderTests
         bool untaggedExtra = false,
         bool nestSpan = false,
         bool useMcr = false,
-        bool cycle = false)
+        bool cycle = false,
+        bool artifactHeader = false,
+        bool artifactFolio = false,
+        bool artifactAsBdc = false,
+        bool artifactOnly = false)
     {
         var builder = new PdfFileBuilder();
         int catalog = builder.Reserve();
@@ -149,9 +256,29 @@ public sealed class PdfStructureOrderTests
             ? "/Span BMC\n" + PdfFileBuilder.ShowText("Nested", y: 580) + "\nEMC\n"
             : string.Empty;
 
+        // Page furniture: drawn outside the tree, and declared to be furniture
+        // rather than merely left out of it. The header sits above both tagged
+        // runs and the folio below them, which is the geometry that decides
+        // where each is read.
+        string open = artifactAsBdc ? "/Artifact << /Type /Pagination >> BDC" : "/Artifact BMC";
+
+        string header = artifactHeader || artifactOnly
+            ? open + "\n" + PdfFileBuilder.ShowText("Running head", y: 750) + "EMC\n"
+            : string.Empty;
+
+        string folio = artifactFolio
+            ? open + "\n" + PdfFileBuilder.ShowText("Page 7", y: 50) + "EMC\n"
+            : string.Empty;
+
+        string tagged = artifactOnly
+            ? string.Empty
+            : "/P << /MCID 0 >> BDC\n" + PdfFileBuilder.ShowText("Second", y: 700) + "\nEMC\n" +
+              "/P << /MCID 1 >> BDC\n" + PdfFileBuilder.ShowText("First", y: 600) + "\n" + nested + "EMC\n";
+
         string body =
-            "/P << /MCID 0 >> BDC\n" + PdfFileBuilder.ShowText("Second", y: 700) + "\nEMC\n" +
-            "/P << /MCID 1 >> BDC\n" + PdfFileBuilder.ShowText("First", y: 600) + "\n" + nested + "EMC\n" +
+            header +
+            tagged +
+            folio +
             (untaggedExtra ? PdfFileBuilder.ShowText("Untagged", y: 500) + "\n" : string.Empty);
 
         int content = builder.AddStream(string.Empty, body);
