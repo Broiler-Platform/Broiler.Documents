@@ -231,6 +231,28 @@ internal static class PdfReader
             foreach (PdfTableGrid grid in grids)
                 store.Features.NoteTable(grid.Rows, grid.Columns, grid.IsInferred, i + 1);
 
+            // What the grids took, so the artwork note can stop counting it as
+            // lost. A path inside a grid is one of the rules or shades the grid
+            // was read from; one beside it is artwork the model still cannot
+            // carry.
+            if (grids.Count > 0)
+            {
+                int taken = 0;
+                foreach (PdfPaintedPath path in interpreter.PaintedPaths)
+                {
+                    foreach (PdfTableGrid grid in grids)
+                    {
+                        if (grid.Covers(path))
+                        {
+                            taken++;
+                            break;
+                        }
+                    }
+                }
+
+                store.Features.NoteArtworkReadAsTable(taken);
+            }
+
             // What the next page would have to continue: a grid with nothing
             // drawn below it, which is what a table cut off by the page edge
             // looks like and what a table the page finished with does not.

@@ -176,12 +176,18 @@ public sealed class PdfTableReconstructionTests
     }
 
     [Fact]
-    public void The_Artwork_Note_Stops_Claiming_Everything_Was_Lost()
+    public void The_Artwork_Note_Counts_What_Was_Dropped_Not_What_Was_Drawn()
     {
+        // Saying "some of it was not lost" while still reporting every path as
+        // dropped was the wrong half of the fix: on a real document it read
+        // "372 path-painting operations were dropped" on the same page as five
+        // tables it had just carried. The number has to move, not only the prose.
         DocumentDiagnostic note = Assert.Single(
             Read(Ruled()).Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.VectorArtworkDropped));
 
-        Assert.Contains("Some of it was not lost", note.Message, StringComparison.Ordinal);
+        // Six rules drawn, all six of them the grid's, so none was dropped.
+        Assert.Contains("6 were read as a table's rules and shades and 0 were dropped", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("6 path-painting operations were dropped", note.Message, StringComparison.Ordinal);
         Assert.Contains("pdf.import.table-reconstructed", note.Message, StringComparison.Ordinal);
     }
 

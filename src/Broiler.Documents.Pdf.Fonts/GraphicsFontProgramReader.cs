@@ -71,28 +71,47 @@ public sealed class GraphicsFontProgramReader : IPdfFontProgramReader
         ReadOnlySpan<byte> program,
         string descriptorKey,
         string? subtype,
-        PdfFontProgramContext context)
+        PdfFontProgramContext context) =>
+        Read(program, descriptorKey, subtype, context, out _);
+
+    public PdfFontProgramMap? Read(
+        ReadOnlySpan<byte> program,
+        string descriptorKey,
+        string? subtype,
+        PdfFontProgramContext context,
+        out string? declined)
     {
         ArgumentNullException.ThrowIfNull(descriptorKey);
         ArgumentNullException.ThrowIfNull(context);
+        declined = null;
 
         context.CancellationToken.ThrowIfCancellationRequested();
 
         if (program.Length == 0 || program.Length > context.MaxBytes)
+        {
+            declined = program.Length == 0 ? "the program is empty" : "the program is past the read's font ceiling";
             return null;
+        }
 
         // A bare CFF names its glyphs rather than mapping them from characters,
         // so it is read for names and the codec decides what they say.
         if (CffFormat(descriptorKey, subtype) is string cff)
         {
-            return CffGlyphNames.Read(program, context.CancellationToken) is IReadOnlyDictionary<int, string> names
-                ? new PdfFontProgramMap(cff, new Dictionary<int, string>(), names)
-                : null;
+            if (CffGlyphNames.Read(program, context.CancellationToken) is IReadOnlyDictionary<int, string> names)
+                return new PdfFontProgramMap(cff, new Dictionary<int, string>(), names);
+
+            declined = "the CFF charset could not be read";
+            return null;
         }
 
         string? format = SfntFormat(descriptorKey, subtype);
         if (format is null)
+        {
+            declined = string.Equals(descriptorKey, "FontFile", StringComparison.Ordinal)
+                ? "it is a Type 1 program, which this reader does not parse"
+                : "it is not a format this reader parses";
             return null;
+        }
 
         var limits = new BFontInspectionLimits
         {
@@ -110,16 +129,47 @@ public sealed class GraphicsFontProgramReader : IPdfFontProgramReader
         // boundary — it just costs this font's text rather than the read.
         try
         {
-            if (!BFontProgramInspector.TryInspect(program, limits, out BFontProgramInspection? font, out _))
+            if (!BFontProgramInspector.TryInspect(
+                    program, limits, out BFontProgramInspection? font, out BFontProgramRejection rejection))
+            {
+                declined = Describe(rejection);
                 return null;
+            }
 
             return new PdfFontProgramMap(format, BuildGlyphText(font!, context));
         }
         catch (Exception ex) when (ex is not (OutOfMemoryException or StackOverflowException or OperationCanceledException))
         {
+            declined = "the inspector faulted on it (" + ex.GetType().Name + ")";
             return null;
         }
     }
+
+    /// <summary>
+    /// The inspector's refusal as a phrase a reader can act on - or know not to.
+    /// </summary>
+    /// <remarks>
+    /// The distinction that matters most here is <c>NoCharacterMap</c>. A
+    /// subsetted symbolic font is routinely shipped without one, because the PDF
+    /// maps its codes through the font dictionary's encoding and the program is
+    /// never asked what its glyphs spell. Nothing composed into this codec can
+    /// recover text a program does not carry, so a host meeting that reason
+    /// knows the answer is in the document's ToUnicode map or nowhere - which is
+    /// a different fact from a program this reader merely declines to parse.
+    /// </remarks>
+    private static string Describe(BFontProgramRejection rejection) => rejection switch
+    {
+        BFontProgramRejection.Empty => "the program is empty",
+        BFontProgramRejection.TooLarge => "the program is past the inspector's ceiling",
+        BFontProgramRejection.NotSfnt => "the program is not an sfnt",
+        BFontProgramRejection.UnsupportedContainer => "the program is in a container this build does not open",
+        BFontProgramRejection.MalformedDirectory => "the program's table directory is malformed",
+        BFontProgramRejection.TableOutOfBounds => "a table lies outside the program",
+        BFontProgramRejection.ExcludedTable => "the program uses a table outside the approved subset",
+        BFontProgramRejection.NoCharacterMap => "the program carries no character map, so it says nothing about what its glyphs spell",
+        BFontProgramRejection.MalformedCharacterMap => "the program's character map is malformed",
+        _ => "the inspector declined it",
+    };
 
     /// <summary>The sfnt format this descriptor key names, or null when it is not one.</summary>
     private static string? SfntFormat(string descriptorKey, string? subtype) => descriptorKey switch

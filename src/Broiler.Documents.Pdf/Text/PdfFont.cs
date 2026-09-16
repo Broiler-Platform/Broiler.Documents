@@ -727,7 +727,13 @@ internal sealed class PdfFont
 
         try
         {
-            return programReader.Read(bytes, key, subtype, new PdfFontProgramContext(ceiling, store.Budget.Cancellation));
+            PdfFontProgramMap? map = programReader.Read(
+                bytes, key, subtype, new PdfFontProgramContext(ceiling, store.Budget.Cancellation), out string? declined);
+
+            if (map is null && declined is not null)
+                store.Features.NoteFontProgramDeclined(declined);
+
+            return map;
         }
         catch (Exception ex) when (ex is not (OutOfMemoryException or StackOverflowException or OperationCanceledException))
         {

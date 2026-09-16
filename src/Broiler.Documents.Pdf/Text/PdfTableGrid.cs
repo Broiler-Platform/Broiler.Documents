@@ -199,6 +199,16 @@ internal sealed class PdfTableGrid
         return true;
     }
 
+    /// <summary>
+    /// Whether this painted path lies inside the grid, and so was one of the
+    /// rules or shades the grid was read from rather than artwork beside it.
+    /// </summary>
+    public bool Covers(in PdfPaintedPath path) =>
+        path.MinX >= Left - CoverTolerance &&
+        path.MaxX <= Right + CoverTolerance &&
+        path.MinY >= Bottom - CoverTolerance &&
+        path.MaxY <= Top + CoverTolerance;
+
     /// <summary>The width of each column, for the model's grid.</summary>
     public List<double> ColumnWidths()
     {

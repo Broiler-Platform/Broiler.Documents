@@ -115,6 +115,29 @@ public sealed class PdfFontProgramMap
 /// </remarks>
 public interface IPdfFontProgramReader
 {
+
+    /// <summary>
+    /// Reads the program, and says why when it declines.
+    /// </summary>
+    /// <remarks>
+    /// A reader that refuses tells the caller nothing useful by returning null:
+    /// "the composed reader did not read it" is the same sentence for a program
+    /// this build will not parse, a program with no character map to read, and a
+    /// program that is not a font at all. They are answered by different work, or
+    /// by none, and a host that cannot tell them apart cannot act on any of them.
+    /// The default implementation keeps existing readers working and supplies no
+    /// reason, which is honest about what they can say.
+    /// </remarks>
+    PdfFontProgramMap? Read(
+        ReadOnlySpan<byte> program,
+        string descriptorKey,
+        string? subtype,
+        PdfFontProgramContext context,
+        out string? declined)
+    {
+        declined = null;
+        return Read(program, descriptorKey, subtype, context);
+    }
     /// <summary>
     /// Reads one embedded program, or returns null when it is not a format this
     /// reader inspects.
