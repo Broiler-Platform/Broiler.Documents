@@ -163,7 +163,8 @@ internal sealed class PdfFeatureTally
     private readonly PageSet _tablePages = new();
     private readonly SortedSet<string> _tableShapes = new(StringComparer.Ordinal);
     private int _tables;
-    private int _artworkReadAsTable;
+    private int _artworkReadAsTableRules;
+    private int _artworkReadAsTableBlocks;
     private int _inferredTables;
     private int _continuedTables;
     private int _tableCells;
@@ -313,7 +314,11 @@ internal sealed class PdfFeatureTally
     /// Records how many painted paths a page's grids were read from, so the
     /// artwork note can report what was dropped rather than what was drawn.
     /// </summary>
-    public void NoteArtworkReadAsTable(int paths) => _artworkReadAsTable += paths;
+    public void NoteArtworkReadAsTable(int rules, int blocks)
+    {
+        _artworkReadAsTableRules += rules;
+        _artworkReadAsTableBlocks += blocks;
+    }
 
     /// <summary>
     /// Records why the composed reader declined one embedded font program.
@@ -610,22 +615,41 @@ internal sealed class PdfFeatureTally
         int paths = Count(PdfArtworkKind.Path);
         int total = rules + blocks + shadings + paths;
 
-        // What the grids were read from is not artwork this document lost, and
-        // counting it as lost was the whole of what this sentence used to get
-        // wrong: it reported every path painted, under a verb that said none of
-        // them survived, on a page whose tables had just been carried.
-        int taken = Math.Min(_artworkReadAsTable, total);
+        // Only bars and areas can be a grid's; a shading and a curve never are.
+        // Subtracting per kind is what lets the breakdown describe the dropped
+        // paths rather than every path painted - which is the number a reader
+        // wants, and the one the sentence claimed to be giving all along.
+        int takenRules = Math.Min(_artworkReadAsTableRules, rules);
+        int takenBlocks = Math.Min(_artworkReadAsTableBlocks, blocks);
+        int taken = takenRules + takenBlocks;
         int lost = total - taken;
 
+        rules -= takenRules;
+        blocks -= takenBlocks;
+
         var text = new StringBuilder();
-        text.Append(taken > 0
-            ? "The page draws vector artwork. What formed a grid was read as a table; the rest, which a logical rich-text document cannot represent, was dropped. "
+        text.Append(
+            lost == 0 ? "The page draws vector artwork, and all of it formed a grid that was read as a table. "
+            : taken > 0 ? "The page draws vector artwork. What formed a grid was read as a table; the rest, which a logical rich-text document cannot represent, was dropped. "
             : "The page draws vector artwork, which a logical rich-text document cannot represent. It was dropped. ");
+
+        if (lost == 0)
+        {
+            // Every path the page painted turned out to be a table's. There is
+            // no breakdown to give, because nothing was dropped to break down.
+            text.Append(CultureInfo.InvariantCulture,
+                $"All {total} path-painting operation{S(total)} {Were(total)} read as a table's rules and shades; none was dropped.");
+            text.Append(" The tables are reported under pdf.import.table-reconstructed.");
+            _artworkPages.Append(text);
+            diagnostics.Skipped(PdfDiagnosticCodes.VectorArtworkDropped, text.ToString());
+            return;
+        }
 
         if (taken > 0)
         {
             text.Append(CultureInfo.InvariantCulture,
-                $"Of {total} path-painting operation{S(total)}, {taken} {Were(taken)} read as a table's rules and shades and {lost} {Were(lost)} dropped: ");
+                $"Of {total} path-painting operation{S(total)}, {taken} {Were(taken)} read as a table's rules and shades. ");
+            text.Append(CultureInfo.InvariantCulture, $"The other {lost} {Were(lost)} dropped: ");
         }
         else
         {
@@ -645,8 +669,7 @@ internal sealed class PdfFeatureTally
         // Each class names the structure it usually stood for, so the split
         // between "lost a table's rules" and "lost a chart" reads off the
         // sentence without a paragraph of rationale attached to every document.
-        text.Append(string.Join("; ", parts));
-        text.Append(taken > 0 ? ", counted over everything painted." : ".");
+        text.Append(string.Join("; ", parts)).Append('.');
 
         // Said here rather than only in the other note, because this is the
         // sentence a reader reaches first and "it was dropped" is no longer the
@@ -727,6 +750,7 @@ internal sealed class PdfFeatureTally
         int composite = 0;
         int inspected = 0;
         int unread = 0;
+        int notOffered = 0;
         int notComposed = 0;
 
         foreach (PdfFontProgram program in _fontPrograms)
@@ -748,6 +772,9 @@ internal sealed class PdfFeatureTally
                 case PdfFontProgramInspection.Unread:
                     unread++;
                     break;
+                case PdfFontProgramInspection.NotOffered:
+                    notOffered++;
+                    break;
                 case PdfFontProgramInspection.NotComposed:
                     notComposed++;
                     break;
@@ -757,15 +784,20 @@ internal sealed class PdfFeatureTally
         int total = _fontPrograms.Count + _fontProgramOverflow;
         var text = new StringBuilder();
 
-        // Whether a reader is composed is a fact about the build, so it is the
-        // same for every program a read classified. Saying "this build does not
+        // Four outcomes, and the lead sentence has to name the one that happened.
+        // Whether a reader is composed is a fact about the build; whether it was
+        // offered a program is a fact about the font. Saying "this build does not
         // inspect" where one is composed named a gap the build did not have, and
-        // hid the real reason the program went unread.
+        // saying "did not read" where the reader was never asked describes an
+        // attempt that was never made - which is the shape a reader acts on, and
+        // would send them looking for a parser that was never the obstacle.
         text.Append(inspected > 0
             ? "A font embeds a program a composed reader inspected for the text its glyphs stand for. "
             : notComposed == _fontPrograms.Count
                 ? "A font embeds a program this build does not inspect; text was mapped from ToUnicode and the declared encoding only. "
-                : "A font embeds a program the composed reader did not read; text was mapped from ToUnicode and the declared encoding only. ");
+                : unread > 0
+                    ? "A font embeds a program the composed reader did not read; text was mapped from ToUnicode and the declared encoding only. "
+                    : "A font embeds a program the composed reader was never offered: the font's own ToUnicode map already says what its codes mean, so the program was left alone rather than consulted. ");
         text.Append(CultureInfo.InvariantCulture, $"{total} embedded font program{S(total)} {Were(total)} detected");
         if (composite > 0)
             text.Append(CultureInfo.InvariantCulture, $", {composite} of them on a composite font");
@@ -778,6 +810,12 @@ internal sealed class PdfFeatureTally
         {
             text.Append(CultureInfo.InvariantCulture,
                 $" {inspected} of them {Were(inspected)} read for a glyph-to-text map, which is where the text of those fonts came from.");
+        }
+
+        if (notOffered > 0 && (inspected > 0 || unread > 0 || notComposed > 0))
+        {
+            text.Append(CultureInfo.InvariantCulture,
+                $" {notOffered} of them {Were(notOffered)} never offered to it, their own ToUnicode map having already answered.");
         }
 
         // Offered and refused is not the same as never offered, and only this

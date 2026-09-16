@@ -237,20 +237,21 @@ internal static class PdfReader
             // carry.
             if (grids.Count > 0)
             {
-                int taken = 0;
+                int takenRules = 0;
+                int takenBlocks = 0;
+
                 foreach (PdfPaintedPath path in interpreter.PaintedPaths)
                 {
-                    foreach (PdfTableGrid grid in grids)
-                    {
-                        if (grid.Covers(path))
-                        {
-                            taken++;
-                            break;
-                        }
-                    }
+                    if (!Inside(grids, path))
+                        continue;
+
+                    if (path.Kind == PdfArtworkKind.Rule)
+                        takenRules++;
+                    else
+                        takenBlocks++;
                 }
 
-                store.Features.NoteArtworkReadAsTable(taken);
+                store.Features.NoteArtworkReadAsTable(takenRules, takenBlocks);
             }
 
             // What the next page would have to continue: a grid with nothing
@@ -431,6 +432,21 @@ internal static class PdfReader
             rows,
             first.ColumnWidths,
             first.CellPadding);
+    }
+
+    /// <summary>
+    /// Whether a painted path lies inside any of the page's grids, including a
+    /// grid nested in a cell - those rules were read as a table too.
+    /// </summary>
+    private static bool Inside(IReadOnlyList<PdfTableGrid> grids, in PdfPaintedPath path)
+    {
+        foreach (PdfTableGrid grid in grids)
+        {
+            if (grid.Covers(path))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>Whether any run on the page was drawn as an artifact.</summary>
