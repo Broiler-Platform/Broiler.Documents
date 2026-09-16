@@ -164,6 +164,7 @@ internal sealed class PdfFeatureTally
     private readonly SortedSet<string> _tableShapes = new(StringComparer.Ordinal);
     private int _tables;
     private int _inferredTables;
+    private int _continuedTables;
     private int _tableCells;
     private readonly Dictionary<string, ImageGroup> _images = new(StringComparer.Ordinal);
     private readonly DecodedImageGroup _decodedImages = new();
@@ -295,6 +296,15 @@ internal sealed class PdfFeatureTally
 
         if (_tableShapes.Count < MaxDistinctVariants)
             _tableShapes.Add(string.Create(CultureInfo.InvariantCulture, $"{rows}x{columns}"));
+    }
+
+    /// <summary>
+    /// Records one table joined to the one it continued from the page before.
+    /// </summary>
+    public void NoteTableContinued(int? page)
+    {
+        _continuedTables++;
+        _tablePages.Add(page);
     }
 
     /// <summary>Records one dropped path-painting operation.</summary>
@@ -552,6 +562,12 @@ internal sealed class PdfFeatureTally
             text.Append(CultureInfo.InvariantCulture,
                 $"{_tables - _inferredTables} {Were(_tables - _inferredTables)} fully ruled and {_inferredTables} only partly, the remaining divisions there being read off the alignment of the text inside the region.");
         }
+        if (_continuedTables > 0)
+        {
+            text.Append(CultureInfo.InvariantCulture,
+                $" {_continuedTables} grid{S(_continuedTables)} continued a table from the page before and {Were(_continuedTables)} joined to it: the columns matched and neither page drew anything between them. A mapped page break is not inserted inside a table that was joined.");
+        }
+
         _tablePages.Append(text);
 
         diagnostics.Info(PdfDiagnosticCodes.TableReconstructed, text.ToString());

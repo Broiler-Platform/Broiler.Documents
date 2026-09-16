@@ -59,7 +59,6 @@ internal static class PdfTableProjector
         IReadOnlyList<PdfLinkRegion> links,
         IReadOnlyList<PdfPlacedImage> images,
         IReadOnlyList<PdfTableGrid> grids,
-        bool insertPageBreak,
         int maxParagraphs,
         int paragraphBase,
         List<DocumentTable> tables)
@@ -144,9 +143,6 @@ internal static class PdfTableProjector
             pendingImages,
             false,
             Remaining(maxParagraphs, paragraphs.Count)));
-
-        if (insertPageBreak && paragraphs.Count > 0)
-            paragraphs.Add(RichTextParagraph.Empty);
 
         return paragraphs;
     }
