@@ -195,6 +195,16 @@ public static class PdfDiagnosticCodes
     public const string VectorArtworkDropped = "pdf.import.vector-artwork-dropped";
 
     /// <summary>
+    /// A grid of rules was read as a table and carried into the document. PDF
+    /// draws a table as lines and text at coordinates and says nowhere that it
+    /// is one, so this reports a reconstruction: the rules were complete enough
+    /// to describe a grid, and the text inside it was arranged into the cells
+    /// they bound. Only a fully ruled grid qualifies, and the cells' borders and
+    /// shading come from the paths that were painted, not from a declaration.
+    /// </summary>
+    public const string TableReconstructed = "pdf.import.table-reconstructed";
+
+    /// <summary>
     /// Content belonging to an optional-content group the document's own default
     /// configuration turns off was met. Distinct from
     /// <see cref="TextVisibilityUncertain"/>, which is a rendering question this

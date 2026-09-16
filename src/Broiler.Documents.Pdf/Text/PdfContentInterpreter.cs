@@ -133,6 +133,16 @@ internal sealed class PdfContentInterpreter
     private bool _pathOpen;
     private bool _pathIrregular;
 
+    /// <summary>
+    /// The rules and areas this page painted, kept rather than only counted. A
+    /// table is a grid of them, and a grid is the one arrangement of vector
+    /// artwork a logical model can carry.
+    /// </summary>
+    private readonly List<PdfPaintedPath> _paintedPaths = [];
+
+    /// <summary>How many painted paths one page keeps before it stops keeping them.</summary>
+    private const int MaxPaintedPaths = 4096;
+
     // The run being accumulated; flushed when style, baseline, or spacing breaks.
     private readonly StringBuilder _runText = new();
     private double _runStartX;
@@ -163,11 +173,15 @@ internal sealed class PdfContentInterpreter
     public IReadOnlyList<PdfPlacedImage> PlacedImages => _placedImages;
 
     /// <summary>Runs a page's content and returns the text runs it placed.</summary>
+    /// <summary>The rules and filled areas the last page painted, in paint order.</summary>
+    public IReadOnlyList<PdfPaintedPath> PaintedPaths => _paintedPaths;
+
     public IReadOnlyList<PdfTextFragment> Run(PdfPage page)
     {
         ArgumentNullException.ThrowIfNull(page);
         _fragments.Clear();
         _placedImages.Clear();
+        _paintedPaths.Clear();
         _state = GraphicsState.Initial;
         _stack.Clear();
         ResetPath();
@@ -417,7 +431,16 @@ internal sealed class PdfContentInterpreter
                     // this document dropped: reporting it would inflate the count
                     // with shapes the default configuration never showed.
                     if (!Hidden)
-                        NoteVectorArtwork(ClassifyPath());
+                    {
+                        PdfArtworkKind painted = ClassifyPath();
+                        NoteVectorArtwork(painted);
+
+                        // Whether the operator filled decides what the shape can
+                        // mean: a stroked rectangle is four rules, a filled one is
+                        // a shade. S and s stroke and nothing else.
+                        KeepPaintedPath(painted, filled: token.Text is not ("S" or "s"));
+                    }
+
                     ResetPath();
                     break;
                 case "sh":
@@ -1090,6 +1113,23 @@ internal sealed class PdfContentInterpreter
 
     private void NoteVectorArtwork(PdfArtworkKind kind) =>
         _store.Features.NoteArtwork(kind, _store.CurrentPage);
+
+    /// <summary>
+    /// Keeps the geometry of a shape a table could have been drawn with. Only
+    /// the two axis-aligned classes are kept: a curve or a diagonal cannot be a
+    /// cell boundary, and keeping it would only cost memory on a page of charts.
+    /// </summary>
+    private void KeepPaintedPath(PdfArtworkKind kind, bool filled)
+    {
+        if (kind is not (PdfArtworkKind.Rule or PdfArtworkKind.Block))
+            return;
+
+        if (!_pathOpen || _paintedPaths.Count >= MaxPaintedPaths)
+            return;
+
+        _paintedPaths.Add(new PdfPaintedPath(
+            _pathMinX, _pathMinY, _pathMaxX, _pathMaxY, kind, filled, _state.Color));
+    }
 
     /// <summary>
     /// Reports one character code that could not be mapped. Every one is
