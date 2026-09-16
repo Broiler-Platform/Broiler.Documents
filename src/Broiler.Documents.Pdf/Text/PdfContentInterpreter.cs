@@ -1599,7 +1599,16 @@ internal sealed class PdfContentInterpreter
             return;
         }
 
-        if (dictionary["SMask"] is not null || dictionary["Mask"] is not null)
+        // Resolved, not merely present. The indexer hands back the raw entry, so
+        // `/SMask null` - which PDF 32000-1 7.3.9 defines as equivalent to the
+        // key being absent - and a reference to a free object both arrived here
+        // as something non-null and refused an image that carries no
+        // transparency at all. Resolve normalizes both to null. What it does not
+        // do is judge the value: a mask of a kind this build cannot read is
+        // still the document declaring one, and projecting it opaque would put a
+        // solid box where a transparent ground belongs.
+        if (_store.Resolve(dictionary["SMask"]) is not null ||
+            _store.Resolve(dictionary["Mask"]) is not null)
         {
             NotProjected("transparency this build does not composite");
             return;
