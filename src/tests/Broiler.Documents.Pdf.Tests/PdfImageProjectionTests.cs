@@ -235,6 +235,86 @@ public sealed class PdfImageProjectionTests
     }
 
     [Fact]
+    public void A_Null_Soft_Mask_Is_The_Key_Being_Absent()
+    {
+        // PDF 32000-1 7.3.9: a key whose value is the null object is equivalent
+        // to the key not being there. The test was a presence check on the raw
+        // entry, so the null object read as "there is a mask" and refused an
+        // image that carries no transparency at all.
+        PdfReadResult result = Read(Document(
+            "/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask null",
+            [1, 2, 3]));
+
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
+        Assert.Single(ImagesIn(result));
+    }
+
+    [Fact]
+    public void A_Null_Colour_Key_Mask_Is_The_Key_Being_Absent()
+    {
+        PdfReadResult result = Read(Document(
+            "/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Mask null",
+            [1, 2, 3]));
+
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
+        Assert.Single(ImagesIn(result));
+    }
+
+    [Fact]
+    public void A_Soft_Mask_Reference_To_A_Free_Object_Is_Not_A_Soft_Mask()
+    {
+        // The other way the raw entry lied: a reference is always non-null as an
+        // entry, whatever it resolves to. This one resolves to nothing, so the
+        // document declares a mask it does not carry.
+        PdfReadResult result = Read(Document(
+            "/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask 9999 0 R",
+            [1, 2, 3]));
+
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
+        Assert.Single(ImagesIn(result));
+    }
+
+    [Fact]
+    public void A_Colour_Key_Mask_Array_Is_Still_Refused()
+    {
+        // Resolving the entry must not narrow what counts as transparency. A
+        // colour-key mask is an array rather than a stream, and it makes ranges
+        // of colour transparent just as a soft mask does.
+        Assert.Contains(
+            "transparency this build does not composite",
+            Refusal(Read(Document(
+                "/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Mask [0 0 0 0 0 0]",
+                [1, 2, 3]))),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Soft_Mask_Reached_Through_A_Reference_Is_Still_Refused()
+    {
+        // The regression guard for the fix itself: the ordinary spelling of a
+        // soft mask is an indirect reference, and resolving it must still find
+        // the stream it points at.
+        var builder = new PdfFileBuilder();
+        int mask = builder.AddStream(
+            "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            new byte[] { 0x80 });
+
+        Assert.Contains(
+            "transparency this build does not composite",
+            Refusal(Read(Document(
+                $"/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask {mask} 0 R",
+                [1, 2, 3],
+                extra: builder))),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_Colour_Space_Outside_The_Subset_Is_Refused_By_Name()
     {
         Assert.Contains(

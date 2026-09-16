@@ -45,6 +45,15 @@ internal sealed class PdfLinkRegion
 /// Redact unapplied and the JavaScript in the file - so the inventory is taken
 /// on every layer, and only the link, the destination note and the URI refusal
 /// are withheld with it.
+/// <para>
+/// What this page counts goes into the document's feature tally rather than
+/// straight to the sink. The sink holds one entry per code and keeps the first
+/// message it was given, so a per-page sentence carrying a per-page count
+/// described whichever page was read first and then merely counted the others -
+/// two pages refusing one target each reported "1 link targets" with "Seen 2
+/// times" after it. Accumulating is also what gives the refusal reason somewhere
+/// to live, since two pages can refuse on different grounds.
+/// </para>
 /// </remarks>
 internal static class PdfAnnotationReader
 {
@@ -61,9 +70,13 @@ internal static class PdfAnnotationReader
         store.Budget.ChargeAnnotations(annotations.Count);
 
         PdfOptionalContent layers = optionalContent ?? PdfOptionalContent.None;
-        int activeContent = 0;
-        int rejectedUris = 0;
-        int droppedDestinations = 0;
+
+        // Counted for the document, not for this page. Each code the sink holds
+        // keeps one entry and the first message wins, so a per-page sentence
+        // carrying a per-page count described the first page read and then
+        // counted the rest.
+        PdfFeatureTally tally = store.Features;
+        int? at = store.CurrentPage;
 
         foreach (PdfObject entry in annotations)
         {
@@ -112,7 +125,7 @@ internal static class PdfAnnotationReader
                 case "Movie":
                 case "RichMedia":
                 case "3D":
-                    activeContent++;
+                    tally.NoteActiveContent(at);
                     continue;
             }
 
@@ -126,9 +139,9 @@ internal static class PdfAnnotationReader
                 // reported Success. /A and /Dest are alternatives, so the action is
                 // decided first and a damaged one is never read as a destination.
                 if (annotation["A"] is not null and not PdfNull)
-                    activeContent++;
+                    tally.NoteActiveContent(at);
                 else if (!hiddenLayer && subtype == "Link" && annotation["Dest"] is not null and not PdfNull)
-                    droppedDestinations++;
+                    tally.NoteLinkDestinationDropped(at);
 
                 continue;
             }
@@ -148,7 +161,7 @@ internal static class PdfAnnotationReader
                 // was not projected, and on a layer the configuration turns off
                 // there is no run left for the jump to have been kept as.
                 if (!hiddenLayer)
-                    droppedDestinations++;
+                    tally.NoteLinkDestinationDropped(at);
 
                 continue;
             }
@@ -160,7 +173,7 @@ internal static class PdfAnnotationReader
                 // projected. An action dictionary with no /S, or an /S that is not a
                 // name, is counted here too - it was falling past the old length
                 // guard uncounted, and that is the shape a broken producer emits.
-                activeContent++;
+                tally.NoteActiveContent(at);
                 continue;
             }
 
@@ -171,7 +184,7 @@ internal static class PdfAnnotationReader
                 // projected, because only a Link is a link - but leaving here
                 // without a counter meant the same javascript: target was reported
                 // on a /Link and silent on a /Widget.
-                activeContent++;
+                tally.NoteActiveContent(at);
                 continue;
             }
 
@@ -185,40 +198,18 @@ internal static class PdfAnnotationReader
                 continue;
 
             string? raw = ReadUriValue(store, action);
-            if (!policy.TryAdmit(raw, out string canonical, out _))
+            if (!policy.TryAdmit(raw, out string canonical, out string? reason))
             {
-                rejectedUris++;
+                // The reason is the actionable half. "It failed the policy" is
+                // the same sentence for a mailto target a caller can admit by
+                // configuring one and for a value that is not a URI at all, and
+                // the write side has always carried it.
+                tally.NoteUriRejected(at, reason);
                 continue;
             }
 
             if (ReadRectangle(store, annotation["Rect"]) is { } bounds)
                 regions.Add(new PdfLinkRegion(bounds, canonical));
-        }
-
-        if (activeContent > 0)
-        {
-            store.Diagnostics.Skipped(
-                PdfDiagnosticCodes.ActiveContentRemoved,
-                $"{activeContent} active annotations or actions were detected. None was executed, fetched, or projected into the document.");
-        }
-
-        if (rejectedUris > 0)
-        {
-            store.Diagnostics.Skipped(
-                PdfDiagnosticCodes.UriRejected,
-                $"{rejectedUris} link targets did not pass the active URI policy and remain inert source data.");
-        }
-
-        if (droppedDestinations > 0)
-        {
-            // Skipped, not Info: the same visible loss - a run that stays plain
-            // text - is Skipped when the policy refuses a URI, and a table of
-            // contents that came back with every entry as text used to report
-            // Success. The destination value is never read, so nothing the file
-            // named reaches the message.
-            store.Diagnostics.Skipped(
-                PdfDiagnosticCodes.LinkDestinationDropped,
-                $"{droppedDestinations} annotations name a place inside the document rather than a URI. The text was kept and no link was projected: this build carries no bookmark or anchor for an internal jump to land on.");
         }
 
         return regions;

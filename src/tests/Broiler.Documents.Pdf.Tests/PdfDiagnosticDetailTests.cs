@@ -503,6 +503,119 @@ public sealed class PdfDiagnosticDetailTests
         return output.ToArray();
     }
 
+    // ---- annotations ----------------------------------------------------------
+
+    [Fact]
+    public void One_Refused_Link_Target_Is_Reported_As_One()
+    {
+        // "1 link targets" was hardcoded plural, and this file's whole premise is
+        // that the sentence is contract too.
+        DocumentDiagnostic note = Only(
+            Read(PagesWithOneLinkEach("mailto:someone@example.org")),
+            PdfDiagnosticCodes.UriRejected);
+
+        Assert.Contains("1 link target did not pass", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("1 link targets", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Refused_Link_Targets_Are_Counted_Across_Pages_Not_Per_Page()
+    {
+        // The defect this section exists for. The count was per page and the sink
+        // keeps one entry per code, so two pages each refusing one target
+        // produced "1 link targets ... Seen 2 times" - which reads as one target
+        // met twice, and undercounts by exactly the number of pages involved.
+        DocumentDiagnostic note = Only(
+            Read(PagesWithOneLinkEach("mailto:a@example.org", "mailto:b@example.org")),
+            PdfDiagnosticCodes.UriRejected);
+
+        Assert.Contains("2 link targets did not pass", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Seen ", note.Message, StringComparison.Ordinal);
+        Assert.Contains("On pages 1, 2.", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Refused_Link_Target_Says_Why_It_Was_Refused()
+    {
+        // The read side discarded the reason while the write side carried it, so
+        // the same policy refusing the same value said one thing on the way in
+        // and another on the way out.
+        DocumentDiagnostic note = Only(
+            Read(PagesWithOneLinkEach("mailto:someone@example.org")),
+            PdfDiagnosticCodes.UriRejected);
+
+        Assert.Contains("because the mailto scheme is not admitted", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Distinct_Refusal_Reasons_Are_Kept_Apart_And_Counted()
+    {
+        // One is answered by configuring a policy and the other by nothing at
+        // all, so collapsing them into a single number tells a caller which work
+        // to do only by accident.
+        DocumentDiagnostic note = Only(
+            Read(PagesWithOneLinkEach("mailto:a@example.org", "chapter-two", "mailto:b@example.org")),
+            PdfDiagnosticCodes.UriRejected);
+
+        Assert.Contains("3 link targets did not pass", note.Message, StringComparison.Ordinal);
+        Assert.Contains("2 because the mailto scheme is not admitted", note.Message, StringComparison.Ordinal);
+        Assert.Contains("1 because the value is not an absolute URI", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Refused_Link_Target_Never_Carries_The_Value()
+    {
+        // Naming the reason must not become a way to leak the target: the reason
+        // is the policy's own sentence, and nothing the file wrote reaches it.
+        PdfReadResult result = Read(PagesWithOneLinkEach("mailto:someone@example.org"));
+
+        Assert.All(
+            result.Diagnostics,
+            d => Assert.DoesNotContain("someone@example.org", d.Message, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void One_Active_Annotation_Is_Reported_As_One()
+    {
+        DocumentDiagnostic note = Only(
+            Read(PagesWithOneAnnotationEach(JavaScriptAnnotation)),
+            PdfDiagnosticCodes.ActiveContentRemoved);
+
+        Assert.Contains("1 active annotation or action was detected", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Active_Annotations_Are_Counted_Across_Pages()
+    {
+        DocumentDiagnostic note = Only(
+            Read(PagesWithOneAnnotationEach(JavaScriptAnnotation, JavaScriptAnnotation)),
+            PdfDiagnosticCodes.ActiveContentRemoved);
+
+        Assert.Contains("2 active annotations or actions were detected", note.Message, StringComparison.Ordinal);
+        Assert.Contains("On pages 1, 2.", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void One_Dropped_Destination_Is_Reported_As_One()
+    {
+        DocumentDiagnostic note = Only(
+            Read(PagesWithOneAnnotationEach(DestinationAnnotation)),
+            PdfDiagnosticCodes.LinkDestinationDropped);
+
+        Assert.Contains("1 annotation named a place inside the document", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Dropped_Destinations_Are_Counted_Across_Pages()
+    {
+        DocumentDiagnostic note = Only(
+            Read(PagesWithOneAnnotationEach(DestinationAnnotation, DestinationAnnotation)),
+            PdfDiagnosticCodes.LinkDestinationDropped);
+
+        Assert.Contains("2 annotations named a place inside the document", note.Message, StringComparison.Ordinal);
+        Assert.Contains("On pages 1, 2.", note.Message, StringComparison.Ordinal);
+    }
+
     private static byte[] PagesDrawingOneImage(int pageCount)
     {
         var builder = new PdfFileBuilder();
@@ -525,6 +638,57 @@ public sealed class PdfDiagnosticDetailTests
 
         builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
         builder.SetObject(pages, $"<< /Type /Pages /Kids [{string.Join(' ', kids)}] /Count {pageCount} >>");
+        return builder.Build(catalog);
+    }
+
+    private const string JavaScriptAnnotation =
+        "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] /A << /S /JavaScript /JS (x) >> >>";
+
+    private const string DestinationAnnotation =
+        "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] /Dest (chapter-two) >>";
+
+    /// <summary>One page per target, each carrying a single URI link annotation.</summary>
+    private static byte[] PagesWithOneLinkEach(params string[] targets)
+    {
+        var annotations = new List<string>(targets.Length);
+        foreach (string target in targets)
+        {
+            annotations.Add(
+                "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] " +
+                $"/A << /S /URI /URI ({target}) >> >>");
+        }
+
+        return PagesWithOneAnnotationEach([.. annotations]);
+    }
+
+    /// <summary>
+    /// One page per annotation, so that a per-page count and a document-wide one
+    /// cannot agree by accident.
+    /// </summary>
+    private static byte[] PagesWithOneAnnotationEach(params string[] annotations)
+    {
+        var builder = new PdfFileBuilder();
+        int catalog = builder.Reserve();
+        int pages = builder.Reserve();
+        int font = builder.AddObject(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+
+        var kids = new List<string>(annotations.Length);
+        foreach (string annotation in annotations)
+        {
+            int content = builder.AddStream(string.Empty, PdfFileBuilder.ShowText("Body"));
+            int annot = builder.AddObject(annotation);
+            int page = builder.AddObject(
+                $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] " +
+                $"/Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R " +
+                $"/Annots [{annot} 0 R] >>");
+            kids.Add($"{page} 0 R");
+        }
+
+        builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
+        builder.SetObject(
+            pages,
+            $"<< /Type /Pages /Kids [{string.Join(" ", kids)}] /Count {annotations.Length} >>");
         return builder.Build(catalog);
     }
 

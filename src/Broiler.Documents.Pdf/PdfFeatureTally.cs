@@ -170,6 +170,14 @@ internal sealed class PdfFeatureTally
     private string? _deniedReason;
     private readonly List<PdfFontProgram> _fontPrograms = [];
     private int _fontProgramOverflow;
+    private readonly PageSet _uriRejectedPages = new();
+    private readonly Dictionary<string, int> _uriRejectedReasons = new(StringComparer.Ordinal);
+    private int _uriRejected;
+    private int _uriRejectedOverflow;
+    private readonly PageSet _activeContentPages = new();
+    private int _activeContent;
+    private readonly PageSet _droppedDestinationPages = new();
+    private int _droppedDestinations;
     private readonly PageSet _hiddenLayerPages = new();
     private int _hiddenLayers;
     private int _undecidableLayers;
@@ -215,6 +223,58 @@ internal sealed class PdfFeatureTally
     {
         _optionalContentGroups = groups;
         _optionalContentOff = off;
+    }
+
+    /// <summary>
+    /// Records one link target the active URI policy refused, and the reason it
+    /// gave for refusing it.
+    /// </summary>
+    /// <remarks>
+    /// Accumulated for the document rather than reported per page, because the
+    /// sink keeps one entry per code and the first message wins. A page-by-page
+    /// report of "1 link target" on two pages produced one sentence saying 1
+    /// with "Seen 2 times" appended after it, which reads as one target met
+    /// twice rather than two targets refused. The reason had nowhere to go for
+    /// the same reason - two pages refusing on different grounds could not both
+    /// be said - so the call site discarded it. Both fit here.
+    /// </remarks>
+    public void NoteUriRejected(int? page, string? reason)
+    {
+        _uriRejected++;
+        _uriRejectedPages.Add(page);
+
+        if (reason is null)
+            return;
+
+        // Distinct reasons are kept and counted rather than collapsed: "the
+        // mailto scheme is not admitted" is answered by configuring a policy and
+        // "the value is not an absolute URI" is answered by nothing at all.
+        if (_uriRejectedReasons.TryGetValue(reason, out int seen))
+            _uriRejectedReasons[reason] = seen == int.MaxValue ? seen : seen + 1;
+        else if (_uriRejectedReasons.Count < MaxDistinctVariants)
+            _uriRejectedReasons[reason] = 1;
+        else
+            _uriRejectedOverflow++;
+    }
+
+    /// <summary>
+    /// Records one annotation or action that would reach outside this document if
+    /// anything executed it.
+    /// </summary>
+    public void NoteActiveContent(int? page)
+    {
+        _activeContent++;
+        _activeContentPages.Add(page);
+    }
+
+    /// <summary>
+    /// Records one annotation naming a place inside this document that the
+    /// logical model has no anchor for.
+    /// </summary>
+    public void NoteLinkDestinationDropped(int? page)
+    {
+        _droppedDestinations++;
+        _droppedDestinationPages.Add(page);
     }
 
     /// <summary>Records one dropped path-painting operation.</summary>
@@ -323,6 +383,7 @@ internal sealed class PdfFeatureTally
         ReportImages(diagnostics);
         ReportDecodedImages(diagnostics);
         ReportFontPrograms(diagnostics);
+        ReportAnnotations(diagnostics);
     }
 
     /// <summary>
@@ -371,6 +432,67 @@ internal sealed class PdfFeatureTally
         _hiddenLayerPages.Append(text);
 
         diagnostics.Skipped(PdfDiagnosticCodes.OptionalContentOmitted, text.ToString());
+    }
+
+    /// <summary>
+    /// Reports what a page's annotations carried: targets a policy refused,
+    /// constructs that would leave the document, and jumps with nowhere to land.
+    /// </summary>
+    private void ReportAnnotations(PdfDiagnosticSink diagnostics)
+    {
+        if (_activeContent > 0)
+        {
+            var text = new StringBuilder();
+            text.Append(CultureInfo.InvariantCulture,
+                $"{_activeContent} active annotation{S(_activeContent)} or action{S(_activeContent)} {Were(_activeContent)} detected. ");
+            text.Append("None was executed, fetched, or projected into the document.");
+            _activeContentPages.Append(text);
+
+            diagnostics.Skipped(PdfDiagnosticCodes.ActiveContentRemoved, text.ToString());
+        }
+
+        if (_uriRejected > 0)
+        {
+            var text = new StringBuilder();
+            text.Append(CultureInfo.InvariantCulture,
+                $"{_uriRejected} link target{S(_uriRejected)} did not pass the active URI policy and {Were(_uriRejected)} left as inert source data");
+
+            if (_uriRejectedReasons.Count > 0)
+            {
+                var reasons = new List<string>(_uriRejectedReasons.Keys);
+                reasons.Sort(StringComparer.Ordinal);
+
+                var parts = new List<string>(reasons.Count + 1);
+                foreach (string reason in reasons)
+                    parts.Add(string.Create(CultureInfo.InvariantCulture, $"{_uriRejectedReasons[reason]} because {reason}"));
+
+                if (_uriRejectedOverflow > 0)
+                    parts.Add(string.Create(CultureInfo.InvariantCulture, $"{_uriRejectedOverflow} on further grounds not listed here"));
+
+                text.Append(": ").Append(string.Join("; ", parts));
+            }
+
+            text.Append('.');
+            _uriRejectedPages.Append(text);
+
+            diagnostics.Skipped(PdfDiagnosticCodes.UriRejected, text.ToString());
+        }
+
+        if (_droppedDestinations > 0)
+        {
+            // Skipped, not Info: the same visible loss - a run that stays plain
+            // text - is Skipped when the policy refuses a URI, and a table of
+            // contents that came back with every entry as text used to report
+            // Success. The destination value is never read, so nothing the file
+            // named reaches the message.
+            var text = new StringBuilder();
+            text.Append(CultureInfo.InvariantCulture,
+                $"{_droppedDestinations} annotation{S(_droppedDestinations)} named a place inside the document rather than a URI. ");
+            text.Append("The text was kept and no link was projected: this build carries no bookmark or anchor for an internal jump to land on.");
+            _droppedDestinationPages.Append(text);
+
+            diagnostics.Skipped(PdfDiagnosticCodes.LinkDestinationDropped, text.ToString());
+        }
     }
 
     private void ReportArtwork(PdfDiagnosticSink diagnostics)

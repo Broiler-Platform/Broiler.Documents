@@ -110,6 +110,16 @@ internal sealed class PdfContentInterpreter
     /// <summary>The innermost marked-content id, or -1 outside any.</summary>
     private int Mcid => _mcidStack.Count > 0 ? _mcidStack[^1] : -1;
 
+    /// <summary>
+    /// Whether each open level is artifact content. An <c>/Artifact</c> sequence
+    /// makes every level inside it one too: a tag nested in page furniture is
+    /// still page furniture, and the structure tree covers none of it.
+    /// </summary>
+    private readonly List<bool> _artifactStack = [];
+
+    /// <summary>True while the interpreter is inside an <c>/Artifact</c> sequence.</summary>
+    private bool IsArtifact => _artifactStack.Count > 0 && _artifactStack[^1];
+
     // Path construction state. The geometry is never rendered — it is tracked
     // only so that a paint operator can say what shape it dropped.
     private double _pathMinX;
@@ -132,6 +142,7 @@ internal sealed class PdfContentInterpreter
     private double _runFontSize;
     private double _runSpaceWidth;
     private int _runMcid = -1;
+    private bool _runArtifact;
     private bool _runOpen;
 
     public PdfContentInterpreter(
@@ -166,6 +177,7 @@ internal sealed class PdfContentInterpreter
         _markedContentDepth = 0;
         _hiddenDepth = NotHidden;
         _mcidStack.Clear();
+        _artifactStack.Clear();
 
         byte[]? content = ReadPageContent(page);
         if (content is null || content.Length == 0)
@@ -353,8 +365,10 @@ internal sealed class PdfContentInterpreter
                     // Nothing is tagged here, but the level still counts: a plain
                     // sequence inside a hidden one would otherwise close it at its
                     // own EMC and let the rest of the layer back into the text.
-                    _markedContentDepth++;
-                    _mcidStack.Add(Mcid);
+                    // The tag is still read, because `/Artifact BMC` — furniture
+                    // with no property list — is the commonest artifact of all.
+                    PushMarkedContentLevel(
+                        operands.Count >= 1 && operands[^1] is PdfName bmcTag ? bmcTag.Value : string.Empty);
                     break;
                 case "EMC":
                     // Flush first: the run inside the marked-content sequence is
@@ -534,6 +548,7 @@ internal sealed class PdfContentInterpreter
             _runFontSize = effectiveSize;
             _runSpaceWidth = SpaceWidth(effectiveSize);
             _runMcid = Mcid;
+            _runArtifact = IsArtifact;
         }
 
         _store.Budget.ChargeCharacters(text.Length);
@@ -613,7 +628,8 @@ internal sealed class PdfContentInterpreter
             _runState.Font.IsItalic,
             _runState.Color,
             _runState.RenderMode,
-            _runMcid));
+            _runMcid,
+            _runArtifact));
 
         // Reported per run rather than once per document: the sink keeps a single
         // entry either way, and letting it count tells a reader whether one
@@ -628,19 +644,40 @@ internal sealed class PdfContentInterpreter
 
     // ---- marked content, XObjects and inline images ---------------------------
 
+    /// <summary>
+    /// Opens one marked-content level, whichever operator opened it, and records
+    /// whether the level is artifact content.
+    /// </summary>
+    private void PushMarkedContentLevel(string tag)
+    {
+        _markedContentDepth++;
+        _mcidStack.Add(Mcid);
+
+        // Read before the push, so `inherited` is the enclosing level's answer.
+        bool inherited = IsArtifact;
+        bool artifact = inherited || string.Equals(tag, "Artifact", StringComparison.Ordinal);
+
+        // A run never straddles the boundary, for the reason an MCID change
+        // flushes one: the flag is recorded per fragment, and a run that began
+        // in the body and ended in a folio would have to claim to be one or the
+        // other.
+        if (artifact != inherited)
+            FlushRun();
+
+        _artifactStack.Add(artifact);
+    }
+
     private void BeginMarkedContent(List<PdfObject> operands, PdfDictionary? resources)
     {
         // BDC carries a tag and either an inline dictionary or a name into
         // /Properties. ActualText on it replaces the glyphs it encloses; an /OC
         // tag names the layer they belong to.
-        _markedContentDepth++;
-
         PdfObject? properties = operands.Count >= 1 ? operands[^1] : null;
         string tag = operands.Count >= 2 && operands[^2] is PdfName tagName ? tagName.Value : string.Empty;
 
         // Pushed before the property dictionary is examined so that every exit
         // from here leaves the stack matching the depth an EMC will pop.
-        _mcidStack.Add(Mcid);
+        PushMarkedContentLevel(tag);
 
         // The property entry is resolved through /Properties as it stands rather
         // than as a resolved dictionary, because an optional-content group is
@@ -720,6 +757,11 @@ internal sealed class PdfContentInterpreter
 
         if (_mcidStack.Count > 0)
             _mcidStack.RemoveAt(_mcidStack.Count - 1);
+
+        // The EMC operator flushes the run before it gets here, so leaving an
+        // artifact sequence needs no flush of its own.
+        if (_artifactStack.Count > 0)
+            _artifactStack.RemoveAt(_artifactStack.Count - 1);
     }
 
     private static string DecodeTextString(byte[] bytes)
@@ -1557,7 +1599,16 @@ internal sealed class PdfContentInterpreter
             return;
         }
 
-        if (dictionary["SMask"] is not null || dictionary["Mask"] is not null)
+        // Resolved, not merely present. The indexer hands back the raw entry, so
+        // `/SMask null` - which PDF 32000-1 7.3.9 defines as equivalent to the
+        // key being absent - and a reference to a free object both arrived here
+        // as something non-null and refused an image that carries no
+        // transparency at all. Resolve normalizes both to null. What it does not
+        // do is judge the value: a mask of a kind this build cannot read is
+        // still the document declaring one, and projecting it opaque would put a
+        // solid box where a transparent ground belongs.
+        if (_store.Resolve(dictionary["SMask"]) is not null ||
+            _store.Resolve(dictionary["Mask"]) is not null)
         {
             NotProjected("transparency this build does not composite");
             return;

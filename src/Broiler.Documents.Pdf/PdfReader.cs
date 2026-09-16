@@ -137,6 +137,7 @@ internal static class PdfReader
         int emptyPages = 0;
         int declaredOrderPages = 0;
         int inferredOrderPages = 0;
+        int artifactOrderPages = 0;
 
         for (int i = 0; i < pages.Count; i++)
         {
@@ -179,6 +180,8 @@ internal static class PdfReader
                 lines = PdfReadingOrder.BuildLinesInDeclaredOrder(
                     fragments, links, fragment => structure.OrderOf(i, fragment.Mcid));
                 declaredOrderPages++;
+                if (HasArtifact(fragments))
+                    artifactOrderPages++;
             }
             else
             {
@@ -220,6 +223,15 @@ internal static class PdfReader
                     $"Reading order on {declaredOrderPages} page{plural} came from the document's own structure tree, which states it. ");
                 order.Append(
                     "Only the sequence was taken from it: the order of glyphs within a block is still geometric, and no role was read. ");
+
+                // Said because it is the part a reader would otherwise have to
+                // infer from a silence: the tree covered the page's content, and
+                // what it did not cover it is not supposed to cover.
+                if (artifactOrderPages > 0)
+                {
+                    order.Append(CultureInfo.InvariantCulture,
+                        $"On {artifactOrderPages} of those pages, runs marked as artifacts - running heads, folios, page furniture a structure tree does not place by design - were kept and set around the declared body geometrically. ");
+                }
             }
 
             if (inferredOrderPages > 0)
@@ -275,6 +287,18 @@ internal static class PdfReader
             extensions,
             diagnostics.Build(),
             resources.Build());
+    }
+
+    /// <summary>Whether any run on the page was drawn as an artifact.</summary>
+    private static bool HasArtifact(IReadOnlyList<PdfTextFragment> fragments)
+    {
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            if (fragment.IsArtifact)
+                return true;
+        }
+
+        return false;
     }
 
     private static IReadOnlyList<PdfTextFragment> FilterVisible(IReadOnlyList<PdfTextFragment> fragments)
