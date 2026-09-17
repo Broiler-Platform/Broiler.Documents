@@ -3,9 +3,9 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Broiler.Dom" Version="0.1.0-preview.2" />
-    <PackageVersion Include="Broiler.Dom.Html" Version="0.1.0-preview.2" />
-    <PackageVersion Include="Broiler.Graphics" Version="0.1.0-preview.2" />
+    <PackageVersion Include="Broiler.Dom" Version="0.1.0-preview.3" />
+    <PackageVersion Include="Broiler.Dom.Html" Version="0.1.0-preview.3" />
+    <PackageVersion Include="Broiler.Graphics" Version="0.1.0-preview.4" />
     <PackageVersion Include="Broiler.Media" Version="0.1.0-preview.12" />
     <PackageVersion Include="Broiler.Media.Image" Version="0.1.0-preview.12" />
     <PackageVersion Include="Broiler.Media.Image.Managed" Version="0.1.0-preview.12" />
