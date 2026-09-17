@@ -55,11 +55,12 @@
   -->
 
   <ItemGroup>
-    <InternalsVisibleTo Include="Broiler.Documents.Cli.Tests" />
+    <PackageReference Include="Broiler.Graphics" />
+    <PackageReference Include="Broiler.Media.Image.Managed" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Broiler.Media.Image.Managed" />
+    <InternalsVisibleTo Include="Broiler.Documents.Cli.Tests" />
   </ItemGroup>
 
 </Project>
