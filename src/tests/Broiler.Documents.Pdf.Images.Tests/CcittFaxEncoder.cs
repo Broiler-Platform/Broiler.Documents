@@ -1,3 +1,5 @@
+using Broiler.Media.Image.Managed.CcittFax;
+
 namespace Broiler.Documents.Pdf.Images.Tests;
 
 /// <summary>

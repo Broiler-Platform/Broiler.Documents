@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using Broiler.Documents.Pdf.Filters;
+using Broiler.Media.Image.Managed.CcittFax;
 
 namespace Broiler.Documents.Pdf.Images;
 

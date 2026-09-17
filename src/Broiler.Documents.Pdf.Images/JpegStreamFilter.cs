@@ -116,7 +116,7 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
 
         context.CancellationToken.ThrowIfCancellationRequested();
 
-        if (!JpegFrameReader.TryRead(input, out JpegFrameHeader frame, out string? malformed))
+        if (!JpegImageCodec.TryReadFrameHeader(input, out JpegFrameInfo frame, out string? malformed))
             return PdfFilterResult.Malformed(malformed!);
 
         if (Refuse(frame, parameters) is PdfFilterResult refusal)
@@ -166,7 +166,7 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
     /// actually has: which tuples does the corpus in front of me use, and which
     /// approval would each one need?
     /// </remarks>
-    private static PdfFilterResult? Refuse(in JpegFrameHeader frame, PdfFilterParameters parameters)
+    private static PdfFilterResult? Refuse(in JpegFrameInfo frame, PdfFilterParameters parameters)
     {
         if (frame.FrameMarker is not (BaselineSequentialFrame or ExtendedSequentialFrame or ProgressiveFrame))
         {
@@ -211,7 +211,7 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
     /// YCbCr, one component has nothing to transform.
     /// </para>
     /// </remarks>
-    private static PdfFilterResult? RefuseColour(in JpegFrameHeader frame, PdfFilterParameters parameters)
+    private static PdfFilterResult? RefuseColour(in JpegFrameInfo frame, PdfFilterParameters parameters)
     {
         (int? fromMarker, int? fromParameters) = Declarations(frame, parameters);
 
@@ -249,7 +249,7 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
 
     /// <summary>The two places a colour transform can be declared, either absent.</summary>
     private static (int? FromMarker, int? FromParameters) Declarations(
-        in JpegFrameHeader frame,
+        in JpegFrameInfo frame,
         PdfFilterParameters parameters) =>
         (frame.HasAdobeMarker ? frame.AdobeTransform : null,
             parameters.ContainsKey("ColorTransform")
@@ -261,7 +261,7 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
     /// reached once <see cref="RefuseColour"/> has admitted the frame, so the
     /// declarations are known to agree or to be absent.
     /// </summary>
-    private static int Resolve(in JpegFrameHeader frame, int? fromMarker, int? fromParameters) =>
+    private static int Resolve(in JpegFrameInfo frame, int? fromMarker, int? fromParameters) =>
         fromMarker ?? fromParameters ?? DefaultTransform(frame.Components);
 
     /// <summary>
@@ -274,7 +274,7 @@ public sealed class JpegStreamFilter : IPdfStreamFilter
     /// are two rules that can drift tomorrow.
     /// </remarks>
     private static JpegColorTransform ColorTransformOf(
-        in JpegFrameHeader frame,
+        in JpegFrameInfo frame,
         PdfFilterParameters parameters)
     {
         (int? fromMarker, int? fromParameters) = Declarations(frame, parameters);

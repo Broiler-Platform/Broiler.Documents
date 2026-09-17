@@ -1,5 +1,6 @@
 using System.Text;
 using Broiler.Documents.Pdf.Text;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Text;
 

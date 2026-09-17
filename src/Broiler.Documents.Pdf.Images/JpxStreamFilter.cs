@@ -1,5 +1,6 @@
 using System;
 using Broiler.Documents.Pdf.Filters;
+using Broiler.Media.Image.Managed.Jpx;
 
 namespace Broiler.Documents.Pdf.Images;
 

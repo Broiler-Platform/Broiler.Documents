@@ -218,7 +218,7 @@ public static class DocumentCommands
                 break;
 
             case "codes":
-                FormatCodeProjection projection = new FormatCodeProjector().Project(loaded.Document);
+                FormatCodeProjection projection = FormatCodeProjector.Project(loaded.Document);
                 payload = projection.Text;
                 context.Result["grammarVersion"] = FormatCodeProjection.GrammarVersion;
                 context.Result["tokenCount"] = projection.Tokens.Count;
