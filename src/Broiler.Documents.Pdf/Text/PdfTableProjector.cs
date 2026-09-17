@@ -95,8 +95,8 @@ internal static class PdfTableProjector
                 continue;
             }
 
-            (int Row, int Column) square = owner.CellAt(fragment.X + Inset, fragment.Y)!.Value;
-            (int Row, int Column) at = owner.AnchorAt(square.Row, square.Column);
+            (int Row, int Column) = owner.CellAt(fragment.X + Inset, fragment.Y)!.Value;
+            (int Row, int Column) at = owner.AnchorAt(Row, Column);
 
             if (!buckets.TryGetValue(owner, out List<PdfTextFragment>?[]? cells))
                 buckets[owner] = cells = new List<PdfTextFragment>?[owner.Rows * owner.Columns];
@@ -201,10 +201,10 @@ internal static class PdfTableProjector
 
             while (column < grid.Columns)
             {
-                (int Row, int Column) anchor = grid.AnchorAt(row, column);
-                int columnSpan = grid.ColumnSpanAt(anchor.Row, anchor.Column);
+                (int Row, int Column) = grid.AnchorAt(row, column);
+                int columnSpan = grid.ColumnSpanAt(Row, Column);
 
-                if (anchor.Row != row)
+                if (Row != row)
                 {
                     // The lower half of a vertical merge. The row carries a cell
                     // so its column count is right; the cell above holds the text
@@ -280,8 +280,8 @@ internal static class PdfTableProjector
         if (grid.CellAt(centreX, centreY) is not { } square)
             return false;
 
-        (int Row, int Column) at = grid.AnchorAt(square.Row, square.Column);
-        return at.Row == row && at.Column == column;
+        (int Row, int Column) = grid.AnchorAt(square.Row, square.Column);
+        return Row == row && Column == column;
     }
 
     /// <summary>

@@ -6,16 +6,10 @@ using System.Linq;
 namespace Broiler.Documents.Cli.Infrastructure;
 
 /// <summary>Raised when the command line itself is wrong. Always exit code <see cref="ExitCode.Usage"/>.</summary>
-public sealed class UsageException : Exception
+public sealed class UsageException(string message, string? commandName = null) : Exception(message)
 {
-    public UsageException(string message, string? commandName = null)
-        : base(message)
-    {
-        CommandName = commandName;
-    }
-
     /// <summary>The command whose help to show alongside the message, when one was identified.</summary>
-    public string? CommandName { get; }
+    public string? CommandName { get; } = commandName;
 }
 
 /// <summary>
@@ -40,10 +34,7 @@ public sealed class CommandLine
     private readonly Dictionary<string, List<string>> _options;
     private readonly List<string> _positionals;
 
-    private CommandLine(
-        CommandSpec spec,
-        Dictionary<string, List<string>> options,
-        List<string> positionals)
+    private CommandLine(CommandSpec spec, Dictionary<string, List<string>> options, List<string> positionals)
     {
         Spec = spec;
         _options = options;
@@ -184,11 +175,7 @@ public sealed class CommandLine
         }
     }
 
-    private static void Add(
-        Dictionary<string, List<string>> options,
-        OptionSpec option,
-        string value,
-        string commandName)
+    private static void Add(Dictionary<string, List<string>> options, OptionSpec option, string value, string commandName)
     {
         if (!options.TryGetValue(option.Name, out List<string>? values))
         {
@@ -204,6 +191,5 @@ public sealed class CommandLine
         values.Add(value);
     }
 
-    private static bool IsTruthy(string value) =>
-        value is "1" || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    private static bool IsTruthy(string value) => value is "1" || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
 }

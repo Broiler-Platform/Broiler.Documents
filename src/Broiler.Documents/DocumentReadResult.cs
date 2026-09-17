@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using Broiler.Documents.Model;
+using Broiler.Documents.Resources;
 
 namespace Broiler.Documents;
 
@@ -26,28 +27,14 @@ namespace Broiler.Documents;
 /// still be missing a page.
 /// </para>
 /// </remarks>
-public class DocumentReadResult
+public class DocumentReadResult(RichTextDocument document, IEnumerable<DocumentDiagnostic>? diagnostics = null,
+    DocumentResultStatus status = DocumentResultStatus.Success, DocumentConversionContext? resources = null,
+    DocumentMetadata? metadata = null)
 {
     private static readonly ReadOnlyCollection<DocumentDiagnostic> EmptyDiagnostics =
         Array.AsReadOnly(Array.Empty<DocumentDiagnostic>());
 
-    public DocumentReadResult(
-        RichTextDocument document,
-        IEnumerable<DocumentDiagnostic>? diagnostics = null,
-        DocumentResultStatus status = DocumentResultStatus.Success,
-        DocumentConversionContext? resources = null,
-        DocumentMetadata? metadata = null)
-    {
-        Document = document ?? throw new ArgumentNullException(nameof(document));
-        Diagnostics = diagnostics is null
-            ? EmptyDiagnostics
-            : Array.AsReadOnly(diagnostics.ToArray());
-        Status = status;
-        Resources = resources ?? DocumentConversionContext.Empty;
-        Metadata = metadata ?? DocumentMetadata.Empty;
-    }
-
-    public RichTextDocument Document { get; }
+    public RichTextDocument Document { get; } = document ?? throw new ArgumentNullException(nameof(document));
 
     /// <summary>
     /// What the read's resource policy decided about each resource it met.
@@ -58,7 +45,7 @@ public class DocumentReadResult
     /// that keeps the model but drops this has thrown away the difference between
     /// a picture it may pass on and one it may only look at.
     /// </remarks>
-    public DocumentConversionContext Resources { get; }
+    public DocumentConversionContext Resources { get; } = resources ?? DocumentConversionContext.Empty;
 
     /// <summary>
     /// What the document says about itself, normalized to the shared allowlist.
@@ -70,12 +57,14 @@ public class DocumentReadResult
     /// a writer takes its metadata from the caller, and nothing here copies this
     /// into a write.
     /// </remarks>
-    public DocumentMetadata Metadata { get; }
+    public DocumentMetadata Metadata { get; } = metadata ?? DocumentMetadata.Empty;
 
-    public IReadOnlyList<DocumentDiagnostic> Diagnostics { get; }
+    public IReadOnlyList<DocumentDiagnostic> Diagnostics { get; } = diagnostics is null
+            ? EmptyDiagnostics
+            : Array.AsReadOnly(diagnostics.ToArray());
 
     /// <summary>Whether a host may use <see cref="Document"/>, and on what terms.</summary>
-    public DocumentResultStatus Status { get; }
+    public DocumentResultStatus Status { get; } = status;
 
     /// <summary>True when a host may present the document at all.</summary>
     public bool IsUsable => Status != DocumentResultStatus.Rejected;

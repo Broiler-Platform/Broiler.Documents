@@ -224,7 +224,7 @@ public sealed class DocxRunningContentTests
             "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"default\"/></w:sectPr>").Document;
 
         RichTextDocument edited = document.ApplyParagraphStyle(
-            new RichTextRange(document.Start, document.End),
+            new RichTextRange(RichTextDocument.Start, document.End),
             ParagraphStyleDelta.WithAlignment(TextAlignment.Center));
 
         Assert.Equal(

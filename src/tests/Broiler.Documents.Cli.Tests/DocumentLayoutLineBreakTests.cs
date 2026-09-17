@@ -28,10 +28,9 @@ public sealed class DocumentLayoutLineBreakTests
     }
 
     private static List<string> Lines(LayoutResult result) =>
-        result.Pages
+        [.. result.Pages
             .SelectMany(page => page.Lines)
-            .Select(line => string.Concat(line.Pieces.Select(piece => piece.Text)).Trim())
-            .ToList();
+            .Select(line => string.Concat(line.Pieces.Select(piece => piece.Text)).Trim())];
 
     [Fact]
     public void A_Break_Ends_The_Line_With_Room_To_Spare()

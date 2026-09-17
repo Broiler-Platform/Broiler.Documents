@@ -24,26 +24,18 @@ namespace Broiler.Documents.Cli.Infrastructure;
 /// harness that captures only stderr still sees every problem.</item>
 /// </list>
 /// </remarks>
-public sealed class CommandContext
+public sealed class CommandContext(CommandLine line, TextWriter output, TextWriter error)
 {
-    private readonly List<string> _capturedReport = new();
+    private readonly List<string> _capturedReport = [];
 
-    public CommandContext(CommandLine line, TextWriter output, TextWriter error)
-    {
-        Line = line ?? throw new ArgumentNullException(nameof(line));
-        Out = output ?? throw new ArgumentNullException(nameof(output));
-        Error = error ?? throw new ArgumentNullException(nameof(error));
-        Result = new JsonObject();
-    }
+    public CommandLine Line { get; } = line ?? throw new ArgumentNullException(nameof(line));
 
-    public CommandLine Line { get; }
+    public TextWriter Out { get; } = output ?? throw new ArgumentNullException(nameof(output));
 
-    public TextWriter Out { get; }
-
-    public TextWriter Error { get; }
+    public TextWriter Error { get; } = error ?? throw new ArgumentNullException(nameof(error));
 
     /// <summary>The object <c>--json</c> prints. Commands fill it in whatever mode they run in.</summary>
-    public JsonObject Result { get; }
+    public JsonObject Result { get; } = [];
 
     public bool Json => Line.Json;
 

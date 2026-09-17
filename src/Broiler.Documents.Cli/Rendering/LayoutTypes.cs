@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Geometry;
 using Broiler.Graphics.Text;
@@ -19,55 +18,26 @@ namespace Broiler.Documents.Cli.Rendering;
 /// cannot disagree, and small capitals arrive as two pieces at two sizes rather
 /// than as a flag someone has to remember to honour.
 /// </remarks>
-public sealed class LayoutPiece
+public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BColor highlight, bool underline, bool strikethrough,
+    string? link, InlineImage? image, double width, double ascent, double descent, bool oblique = false, bool isTab = false)
 {
-    public LayoutPiece(
-        string text,
-        BFontStyle font,
-        BColor color,
-        BColor highlight,
-        bool underline,
-        bool strikethrough,
-        string? link,
-        InlineImage? image,
-        double width,
-        double ascent,
-        double descent,
-        bool oblique = false,
-        bool isTab = false)
-    {
-        IsTab = isTab;
-        Text = text;
-        Font = font;
-        Color = color;
-        Highlight = highlight;
-        Underline = underline;
-        Strikethrough = strikethrough;
-        Link = link;
-        Image = image;
-        Width = width;
-        Ascent = ascent;
-        Descent = descent;
-        Oblique = oblique;
-    }
+    public string Text { get; } = text;
 
-    public string Text { get; }
+    public BFontStyle Font { get; } = font;
 
-    public BFontStyle Font { get; }
-
-    public BColor Color { get; }
+    public BColor Color { get; } = color;
 
     /// <summary>The highlight behind this piece, or <see cref="BColor.Empty"/> for none.</summary>
-    public BColor Highlight { get; }
+    public BColor Highlight { get; } = highlight;
 
-    public bool Underline { get; }
+    public bool Underline { get; } = underline;
 
-    public bool Strikethrough { get; }
+    public bool Strikethrough { get; } = strikethrough;
 
-    public string? Link { get; }
+    public string? Link { get; } = link;
 
     /// <summary>The image this piece draws instead of text, or null.</summary>
-    public InlineImage? Image { get; }
+    public InlineImage? Image { get; } = image;
 
     public bool IsImage => Image is not null;
 
@@ -75,22 +45,22 @@ public sealed class LayoutPiece
     /// True for a tab: a gap of measured width that draws no glyphs. Its width is
     /// only known once wrapping knows how far along its line it starts.
     /// </summary>
-    public bool IsTab { get; }
+    public bool IsTab { get; } = isTab;
 
     /// <summary>Horizontal advance in points.</summary>
-    public double Width { get; internal set; }
+    public double Width { get; internal set; } = width;
 
     /// <summary>Height above the baseline in points.</summary>
-    public double Ascent { get; }
+    public double Ascent { get; } = ascent;
 
     /// <summary>Height below the baseline in points.</summary>
-    public double Descent { get; }
+    public double Descent { get; } = descent;
 
     /// <summary>
     /// True when this piece is italic but will be drawn with an upright face, so
     /// the rasterizer shears it. See <see cref="LayoutSettings.SynthesizeItalic"/>.
     /// </summary>
-    public bool Oblique { get; }
+    public bool Oblique { get; } = oblique;
 
     /// <summary>Where this piece starts, relative to the page's left edge. Filled in during placement.</summary>
     public double X { get; internal set; }
@@ -142,14 +112,8 @@ public sealed class LayoutLine
 /// </summary>
 public sealed class LayoutShape
 {
-    internal LayoutShape(
-        BRect bounds,
-        ShapeFill? fill,
-        BColor outline,
-        IReadOnlyList<LayoutLine> lines,
-        InlineImage? image = null,
-        bool behindText = true,
-        int zOrder = 0)
+    internal LayoutShape(BRect bounds, ShapeFill? fill, BColor outline, IReadOnlyList<LayoutLine> lines,
+        InlineImage? image = null, bool behindText = true, int zOrder = 0)
     {
         Bounds = bounds;
         Fill = fill;
@@ -211,13 +175,8 @@ public sealed class LayoutPage
     private readonly List<LayoutShape> _shapes;
     private readonly List<LayoutCell> _cells;
 
-    internal LayoutPage(
-        int number,
-        double widthPoints,
-        double heightPoints,
-        List<LayoutLine> lines,
-        List<LayoutShape>? shapes = null,
-        List<LayoutCell>? cells = null)
+    internal LayoutPage(int number, double widthPoints, double heightPoints,
+        List<LayoutLine> lines, List<LayoutShape>? shapes = null, List<LayoutCell>? cells = null)
     {
         Number = number;
         WidthPoints = widthPoints;
@@ -246,17 +205,13 @@ public sealed class LayoutPage
 /// <summary>A document laid out onto pages, ready to rasterize.</summary>
 public sealed class LayoutResult
 {
-    internal LayoutResult(
-        IReadOnlyList<LayoutPage> pages,
-        PageSetup setup,
-        LayoutSettings settings,
-        IReadOnlyList<string> notes,
-        bool truncated)
+    internal LayoutResult(IReadOnlyList<LayoutPage> pages, PageSetup setup, LayoutSettings settings, 
+        IReadOnlyList<string> notes, bool truncated)
     {
         Pages = pages;
         Setup = setup;
         Settings = settings;
-        Notes = new ReadOnlyCollection<string>(new List<string>(notes));
+        Notes = new ReadOnlyCollection<string>([.. notes]);
         Truncated = truncated;
     }
 

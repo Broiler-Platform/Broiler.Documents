@@ -1,5 +1,5 @@
 using System.Text;
-using Broiler.Graphics;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Rtf.Tests;

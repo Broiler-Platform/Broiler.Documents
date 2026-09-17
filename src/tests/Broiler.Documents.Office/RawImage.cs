@@ -193,7 +193,7 @@ internal sealed class RawImage
         long height = declaredHeight == int.MinValue ? -(long)int.MinValue : Math.Abs(declaredHeight);
 
         long stride = (((long)width * bitCount + 31L) / 32L) * 4L;
-        long pixels = (long)width * height;
+        long pixels = width * height;
         if (pixels > int.MaxValue)
             throw new InvalidDataException(
                 path + ": " + width + "x" + height + " is more pixels than this reader " +

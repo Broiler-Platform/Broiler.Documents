@@ -21,7 +21,7 @@ public sealed class DocumentLayoutTabTests
         Assert.Single(result.Pages
             .SelectMany(page => page.Lines)
             .SelectMany(line => line.Pieces)
-            .Where(piece => piece.Text == text));
+, piece => piece.Text == text);
 
     [Fact]
     public void Text_After_A_Tab_Starts_At_The_Next_Tab_Stop()

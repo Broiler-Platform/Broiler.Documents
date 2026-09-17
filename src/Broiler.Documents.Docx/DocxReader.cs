@@ -7,9 +7,8 @@ using System.Linq;
 using System.Xml;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Color;
-using static Broiler.Documents.Docx.DocxValueReader;
 
 namespace Broiler.Documents.Docx;
 
@@ -80,7 +79,6 @@ internal static class DocxReader
                 archive,
                 documentXml,
                 documentRelationships,
-                baseDirectory,
                 numbering,
                 styles,
                 images,
@@ -270,7 +268,6 @@ internal static class DocxReader
         ZipArchive archive,
         XDocument documentXml,
         DocxRelationships documentRelationships,
-        string baseDirectory,
         DocxNumbering numbering,
         DocxStyles styles,
         DocxImageLoader images,
@@ -362,14 +359,14 @@ internal static class DocxReader
 
         XElement? margin = sectPr!.Element(DocxNamespaces.Wordprocessing + "pgMar");
         var geometry = new PageGeometry(
-            Twips(size, "w"),
-            Twips(size, "h"),
-            Twips(margin, "left"),
-            Twips(margin, "right"),
-            Twips(margin, "top"),
-            Twips(margin, "bottom"),
-            Twips(margin, "header"),
-            Twips(margin, "footer"));
+            DocxValueReader.Twips(size, "w"),
+            DocxValueReader.Twips(size, "h"),
+            DocxValueReader.Twips(margin, "left"),
+            DocxValueReader.Twips(margin, "right"),
+            DocxValueReader.Twips(margin, "top"),
+            DocxValueReader.Twips(margin, "bottom"),
+            DocxValueReader.Twips(margin, "header"),
+            DocxValueReader.Twips(margin, "footer"));
 
         if (geometry.IsUsable)
             return geometry;
@@ -449,7 +446,7 @@ internal static class DocxReader
     private static void ReadParagraph(XElement paragraph, DocxReadContext context)
     {
         XElement? pPr = paragraph.Element(DocxNamespaces.Wordprocessing + "pPr");
-        string? paragraphStyleId = WordValue(pPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
+        string? paragraphStyleId = DocxValueReader.WordValue(pPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
 
         ParagraphStyle paragraphStyle = ReadParagraphStyle(pPr, paragraphStyleId, context);
         context.Builder.StartParagraph(paragraphStyle);
@@ -514,13 +511,13 @@ internal static class DocxReader
 
     private static void ReadRun(XElement run, DocxReadContext context, InlineStyle inherited)
     {
-        DocxDocumentBuilder builder = context.Builder;
+        _ = context.Builder;
         XElement? rPr = run.Element(DocxNamespaces.Wordprocessing + "rPr");
 
         // ECMA-376 §17.7.2: the character style named by w:rStyle applies over
         // the paragraph's inherited formatting, and the run's own w:rPr over that.
         InlineStyle style = inherited;
-        string? characterStyleId = WordValue(rPr?.Element(DocxNamespaces.Wordprocessing + "rStyle"));
+        string? characterStyleId = DocxValueReader.WordValue(rPr?.Element(DocxNamespaces.Wordprocessing + "rStyle"));
         foreach (XElement styleRunProperties in context.Styles.RunPropertiesForCharacterStyle(characterStyleId))
             style = ApplyRunProperties(styleRunProperties, style, context.Styles.Theme);
 
@@ -668,7 +665,7 @@ internal static class DocxReader
         if (!image.TryGetDisplaySize(out double boxWidth, out double boxHeight))
             return false;
 
-        (ShapeWrap Wrap, WrapSide Side, double Distance) wrap = ReadWrap(anchor);
+        (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
             HorizontalOffset(anchor, context),
@@ -680,9 +677,9 @@ internal static class DocxReader
             paragraphs: null,
             image: image,
             behindText: BehindDoc(anchor),
-            wrap: wrap.Wrap,
-            wrapSide: wrap.Side,
-            wrapDistance: wrap.Distance,
+            wrap: Wrap,
+            wrapSide: Side,
+            wrapDistance: Distance,
             zOrder: RelativeHeight(anchor)));
         return true;
     }
@@ -721,7 +718,7 @@ internal static class DocxReader
         if (fill is null && paragraphs.Count == 0)
             return false;
 
-        (ShapeWrap Wrap, WrapSide Side, double Distance) shapeWrap = ReadWrap(anchor);
+        (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
             HorizontalOffset(anchor, context),
@@ -733,9 +730,9 @@ internal static class DocxReader
             paragraphs,
             image: null,
             behindText: BehindDoc(anchor),
-            wrap: shapeWrap.Wrap,
-            wrapSide: shapeWrap.Side,
-            wrapDistance: shapeWrap.Distance,
+            wrap: Wrap,
+            wrapSide: Side,
+            wrapDistance: Distance,
             zOrder: RelativeHeight(anchor)));
         return true;
     }
@@ -969,10 +966,9 @@ internal static class DocxReader
         XElement? gradient = spPr.Element(DocxNamespaces.Drawing + "gradFill");
         if (gradient is not null)
         {
-            List<XElement> stops = gradient
+            List<XElement> stops = [.. gradient
                 .Elements(DocxNamespaces.Drawing + "gsLst")
-                .Elements(DocxNamespaces.Drawing + "gs")
-                .ToList();
+                .Elements(DocxNamespaces.Drawing + "gs")];
             if (stops.Count > 2)
             {
                 builder.AddDiagnosticOnce(
@@ -1012,7 +1008,7 @@ internal static class DocxReader
     }
 
     private static bool TryReadShapeColor(XElement parent, out BColor color) =>
-        TryParseHexColor(
+        DocxValueReader.TryParseHexColor(
             (string?)parent.Element(DocxNamespaces.Drawing + "srgbClr")?.Attribute("val"),
             out color);
 
@@ -1070,7 +1066,7 @@ internal static class DocxReader
         // right-aligned - the one case where direct formatting is ignored. An
         // absent w:jc, and only an absent one, keeps what the style chain set.
         XElement? jc = pPr.Element(DocxNamespaces.Wordprocessing + "jc");
-        string? alignment = WordValue(jc);
+        string? alignment = DocxValueReader.WordValue(jc);
         style = alignment switch
         {
             "left" or "start" => style with { Alignment = TextAlignment.Left },
@@ -1101,7 +1097,7 @@ internal static class DocxReader
 
             string? lineRule = (string?)spacing.Attribute(DocxNamespaces.Wordprocessing + "lineRule");
             if ((lineRule is null || lineRule == "auto") &&
-                TryReadInt(spacing.Attribute(DocxNamespaces.Wordprocessing + "line"), out int line) &&
+                DocxValueReader.TryReadInt(spacing.Attribute(DocxNamespaces.Wordprocessing + "line"), out int line) &&
                 line > 0)
             {
                 style = style with { LineSpacing = line / 240f };
@@ -1115,7 +1111,7 @@ internal static class DocxReader
         XElement? numPr = pPr.Element(DocxNamespaces.Wordprocessing + "numPr");
         if (numPr is not null)
         {
-            bool hasNumId = TryReadInt(
+            bool hasNumId = DocxValueReader.TryReadInt(
                 numPr.Element(DocxNamespaces.Wordprocessing + "numId")?.Attribute(DocxNamespaces.Wordprocessing + "val"),
                 out int numId);
 
@@ -1127,7 +1123,7 @@ internal static class DocxReader
             else
             {
                 int indent = style.IndentLevel;
-                if (TryReadInt(numPr.Element(DocxNamespaces.Wordprocessing + "ilvl")?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int ilvl))
+                if (DocxValueReader.TryReadInt(numPr.Element(DocxNamespaces.Wordprocessing + "ilvl")?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int ilvl))
                     indent = Math.Max(indent, ilvl + 1);
 
                 ListKind kind = hasNumId ? numbering.KindFor(numId) : ListKind.Bullet;
@@ -1187,7 +1183,7 @@ internal static class DocxReader
         XElement? underline = rPr.Element(DocxNamespaces.Wordprocessing + "u");
         if (underline is not null)
         {
-            string? value = WordValue(underline);
+            string? value = DocxValueReader.WordValue(underline);
             style = style with { Underline = !string.Equals(value, "none", StringComparison.OrdinalIgnoreCase) };
         }
 
@@ -1205,21 +1201,21 @@ internal static class DocxReader
             style = style with { FontFamily = fontFamily };
 
         XElement? size = rPr.Element(DocxNamespaces.Wordprocessing + "sz");
-        if (TryReadInt(size?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int halfPoints) && halfPoints > 0)
+        if (DocxValueReader.TryReadInt(size?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int halfPoints) && halfPoints > 0)
             style = style with { FontSize = halfPoints / 2f };
 
         XElement? color = rPr.Element(DocxNamespaces.Wordprocessing + "color");
-        string? colorValue = WordValue(color);
-        if (TryParseHexColor(colorValue, out BColor foreground))
+        string? colorValue = DocxValueReader.WordValue(color);
+        if (DocxValueReader.TryParseHexColor(colorValue, out BColor foreground))
             style = style with { Foreground = foreground };
 
         XElement? shade = rPr.Element(DocxNamespaces.Wordprocessing + "shd");
         string? fill = (string?)shade?.Attribute(DocxNamespaces.Wordprocessing + "fill");
-        if (TryParseHexColor(fill, out BColor shadeColor))
+        if (DocxValueReader.TryParseHexColor(fill, out BColor shadeColor))
             style = style with { Background = shadeColor };
 
         XElement? highlight = rPr.Element(DocxNamespaces.Wordprocessing + "highlight");
-        string? highlightValue = WordValue(highlight);
+        string? highlightValue = DocxValueReader.WordValue(highlight);
         if (TryParseHighlight(highlightValue, out BColor highlightColor))
             style = style with { Background = highlightColor };
 
@@ -1302,7 +1298,7 @@ internal static class DocxReader
 
     private static bool ReadOnOff(XElement element)
     {
-        string? value = WordValue(element);
+        string? value = DocxValueReader.WordValue(element);
         return value is null ||
             !(value.Equals("false", StringComparison.OrdinalIgnoreCase) ||
               value.Equals("0", StringComparison.OrdinalIgnoreCase) ||
@@ -1341,13 +1337,13 @@ internal static class DocxReader
     /// both, the newer name wins.
     /// </summary>
     private static bool TryReadStartIndent(XElement ind, out int twips) =>
-        TryReadInt(ind.Attribute(DocxNamespaces.Wordprocessing + "start"), out twips) ||
-        TryReadInt(ind.Attribute(DocxNamespaces.Wordprocessing + "left"), out twips);
+        DocxValueReader.TryReadInt(ind.Attribute(DocxNamespaces.Wordprocessing + "start"), out twips) ||
+        DocxValueReader.TryReadInt(ind.Attribute(DocxNamespaces.Wordprocessing + "left"), out twips);
 
     private static bool TryReadTwips(XAttribute? attribute, out float points)
     {
         points = 0f;
-        if (!TryReadInt(attribute, out int twips))
+        if (!DocxValueReader.TryReadInt(attribute, out int twips))
             return false;
 
         points = twips / 20f;

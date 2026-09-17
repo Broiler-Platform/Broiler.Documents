@@ -2,47 +2,31 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Pdf.Text;
 
 /// <summary>A styled span within an assembled line.</summary>
-internal sealed class PdfTextSpan
+internal sealed class PdfTextSpan(string text, InlineStyle style)
 {
-    public PdfTextSpan(string text, InlineStyle style)
-    {
-        Text = text;
-        Style = style;
-    }
+    public string Text { get; } = text;
 
-    public string Text { get; }
-
-    public InlineStyle Style { get; }
+    public InlineStyle Style { get; } = style;
 }
 
 /// <summary>One assembled line of text, with the geometry paragraph grouping needs.</summary>
-internal sealed class PdfTextLine
+internal sealed class PdfTextLine(List<PdfTextSpan> spans, double left, double right, double baseline, double height)
 {
-    public PdfTextLine(List<PdfTextSpan> spans, double left, double right, double baseline, double height)
-    {
-        Spans = spans;
-        Left = left;
-        Right = right;
-        Baseline = baseline;
-        Height = height;
-    }
+    public List<PdfTextSpan> Spans { get; } = spans;
 
-    public List<PdfTextSpan> Spans { get; }
+    public double Left { get; } = left;
 
-    public double Left { get; }
+    public double Right { get; } = right;
 
-    public double Right { get; }
-
-    public double Baseline { get; }
+    public double Baseline { get; } = baseline;
 
     /// <summary>The largest font size on the line, used as its nominal height.</summary>
-    public double Height { get; }
+    public double Height { get; } = height;
 
     public string Text
     {

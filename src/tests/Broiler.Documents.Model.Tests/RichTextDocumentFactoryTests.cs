@@ -8,7 +8,7 @@ public sealed class RichTextDocumentFactoryTests
         RichTextParagraph one = RichTextParagraph.Create("one", InlineStyle.Default);
         RichTextParagraph two = RichTextParagraph.Create("two", new InlineStyle { Bold = true });
 
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[] { one, two });
+        RichTextDocument document = RichTextDocument.FromParagraphs([one, two]);
 
         Assert.Equal(2, document.ParagraphCount);
         Assert.Equal("one\ntwo", document.PlainText);
@@ -18,7 +18,7 @@ public sealed class RichTextDocumentFactoryTests
     [Fact]
     public void FromParagraphs_Empty_Yields_A_Single_Empty_Paragraph()
     {
-        RichTextDocument document = RichTextDocument.FromParagraphs(Array.Empty<RichTextParagraph>());
+        RichTextDocument document = RichTextDocument.FromParagraphs([]);
 
         Assert.Equal(1, document.ParagraphCount);
         Assert.Equal(string.Empty, document.PlainText);

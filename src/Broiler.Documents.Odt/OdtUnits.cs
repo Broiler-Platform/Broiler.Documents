@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Odt;

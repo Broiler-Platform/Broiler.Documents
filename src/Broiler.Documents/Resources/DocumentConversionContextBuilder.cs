@@ -4,9 +4,8 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Threading;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 
-namespace Broiler.Documents;
+namespace Broiler.Documents.Resources;
 
 /// <summary>
 /// Runs a caller's resource policy while a codec reads, and closes into an
@@ -68,9 +67,7 @@ public sealed class DocumentConversionContextBuilder
     /// the conversion is the same one; there it is not.
     /// </para>
     /// </remarks>
-    public static DocumentConversionContextBuilder Continuing(
-        DocumentConversionContext context,
-        DocumentResourcePolicy policy)
+    public static DocumentConversionContextBuilder Continuing(DocumentConversionContext context, DocumentResourcePolicy policy)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -119,15 +116,14 @@ public sealed class DocumentConversionContextBuilder
                 "The resource request names no kind this context understands.",
                 nameof(request)),
         };
+
         if (_byPayload.TryGetValue(binding, out DocumentResourceId existing))
             return _entries[existing];
 
         DocumentResourceDecision decision = _policy.Decide(request)
             ?? DocumentResourceDecision.Denied("The resource policy returned no decision.");
 
-        var id = new DocumentResourceId(
-            Namespace,
-            _nextLocalId.ToString(CultureInfo.InvariantCulture));
+        var id = new DocumentResourceId(Namespace, _nextLocalId.ToString(CultureInfo.InvariantCulture));
         _nextLocalId++;
 
         var entry = new DocumentResourceEntry(
@@ -148,11 +144,8 @@ public sealed class DocumentConversionContextBuilder
     /// caller intends are permitted, which is the shape a reader wants: it is
     /// about to construct something, and needs one answer.
     /// </summary>
-    public bool TryAdmit(
-        DocumentResourceRequest request,
-        DocumentResourceOperations intended,
-        out DocumentResourceId id,
-        out string? denial)
+    public bool TryAdmit(DocumentResourceRequest request, DocumentResourceOperations intended,
+        out DocumentResourceId id, out string? denial)
     {
         DocumentResourceEntry entry = Admit(request);
         id = entry.Id;
@@ -179,11 +172,8 @@ public sealed class DocumentConversionContextBuilder
     /// mistake shows up as a reported omission rather than as silent
     /// misbehaviour.
     /// </remarks>
-    public InlineImage AdmitImage(
-        InlineImage image,
-        DocumentResourceProvenance provenance,
-        DocumentResourceDisposition disposition,
-        string? sourceFormat = null)
+    public InlineImage AdmitImage(InlineImage image, DocumentResourceProvenance provenance, 
+        DocumentResourceDisposition disposition, string? sourceFormat = null)
     {
         ArgumentNullException.ThrowIfNull(image);
 

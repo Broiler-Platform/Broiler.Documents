@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text;
 using Broiler.Documents.Model;
 
 namespace Broiler.Documents.Html;
@@ -43,13 +42,7 @@ public sealed class HtmlDocumentCodec : DocumentCodec
         "<article",
     ];
 
-    public HtmlDocumentCodec()
-        : base(new DocumentFormatDescriptor(
-            "HTML",
-            new[] { TextHtml, "application/xhtml+xml" },
-            new[] { ".html", ".htm" }))
-    {
-    }
+    public HtmlDocumentCodec() : base(new DocumentFormatDescriptor("HTML", [TextHtml, "application/xhtml+xml"], [".html", ".htm"])) { }
 
     public override bool CanRead => true;
 

@@ -1,5 +1,4 @@
 using System.Text;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Html.Tests;

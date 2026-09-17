@@ -5,7 +5,7 @@ using Broiler.Documents.Model;
 using Broiler.Documents.Pdf.Filters;
 using Broiler.Documents.Pdf.Structure;
 using Broiler.Documents.Pdf.Syntax;
-using Broiler.Graphics;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Imaging;
 
@@ -30,7 +30,10 @@ namespace Broiler.Documents.Pdf.Text;
 /// budget.
 /// </para>
 /// </remarks>
-internal sealed class PdfContentInterpreter
+internal sealed class PdfContentInterpreter(
+    PdfObjectStore store,
+    DocumentConversionContextBuilder? resources = null,
+    PdfOptionalContent? optionalContent = null)
 {
     /// <summary>
     /// How thin an axis-aligned shape has to be, in points, before it reads as a
@@ -61,14 +64,14 @@ internal sealed class PdfContentInterpreter
     /// </summary>
     private const int MaxInlineImageParameters = 32;
 
-    private readonly PdfObjectStore _store;
+    private readonly PdfObjectStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly List<PdfTextFragment> _fragments = [];
-    private readonly Dictionary<PdfDictionary, PdfFont> _fontCache = new();
+    private readonly Dictionary<PdfDictionary, PdfFont> _fontCache = [];
     private readonly HashSet<PdfDictionary> _activeForms = [];
 
     private readonly Stack<GraphicsState> _stack = new();
     private GraphicsState _state = GraphicsState.Initial;
-    private readonly DocumentConversionContextBuilder? _resources;
+    private readonly DocumentConversionContextBuilder? _resources = resources;
     private readonly List<PdfPlacedImage> _placedImages = [];
     private PdfMatrix _textMatrix = PdfMatrix.Identity;
     private PdfMatrix _lineMatrix = PdfMatrix.Identity;
@@ -77,7 +80,7 @@ internal sealed class PdfContentInterpreter
     /// <summary>The value of <see cref="_hiddenDepth"/> when nothing is hidden.</summary>
     private const int NotHidden = -1;
 
-    private readonly PdfOptionalContent _optionalContent;
+    private readonly PdfOptionalContent _optionalContent = optionalContent ?? PdfOptionalContent.None;
 
     /// <summary>
     /// How many marked-content sequences are open. Counted for both `BMC` and
@@ -155,16 +158,6 @@ internal sealed class PdfContentInterpreter
     private bool _runArtifact;
     private bool _runOpen;
 
-    public PdfContentInterpreter(
-        PdfObjectStore store,
-        DocumentConversionContextBuilder? resources = null,
-        PdfOptionalContent? optionalContent = null)
-    {
-        _store = store ?? throw new ArgumentNullException(nameof(store));
-        _resources = resources;
-        _optionalContent = optionalContent ?? PdfOptionalContent.None;
-    }
-
     /// <summary>
     /// The images this page drew that the caller's policy allowed into the model,
     /// with the box each is drawn in. Empty when no policy permits extraction, or
@@ -227,7 +220,7 @@ internal sealed class PdfContentInterpreter
             joined.Add((byte)'\n');
         }
 
-        return joined.ToArray();
+        return [.. joined];
     }
 
     private byte[]? DecodeContent(PdfStream stream)

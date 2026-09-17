@@ -21,25 +21,17 @@ namespace Broiler.Documents.Odt;
 /// <c>office:binary-data</c> payload (what a flattened or clipboard-sourced
 /// document carries).
 /// </remarks>
-internal sealed class OdtImageLoader
+internal sealed class OdtImageLoader(
+    ZipArchive archive,
+    OdtManifest manifest,
+    DocumentLimits limits,
+    DocumentConversionContextBuilder resources)
 {
-    private readonly ZipArchive _archive;
-    private readonly OdtManifest _manifest;
-    private readonly DocumentLimits _limits;
-    private readonly DocumentConversionContextBuilder _resources;
+    private readonly ZipArchive _archive = archive;
+    private readonly OdtManifest _manifest = manifest;
+    private readonly DocumentLimits _limits = limits;
+    private readonly DocumentConversionContextBuilder _resources = resources;
     private readonly Dictionary<string, PicturePart?> _parts = new(StringComparer.OrdinalIgnoreCase);
-
-    public OdtImageLoader(
-        ZipArchive archive,
-        OdtManifest manifest,
-        DocumentLimits limits,
-        DocumentConversionContextBuilder resources)
-    {
-        _archive = archive;
-        _manifest = manifest;
-        _limits = limits;
-        _resources = resources;
-    }
 
     /// <summary>How many pictures this read turned into inline images.</summary>
     public int ImageCount { get; private set; }

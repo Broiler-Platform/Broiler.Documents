@@ -36,11 +36,8 @@ public static class DocumentTimestamp
 
         if (StatesZone(value))
         {
-            if (!DateTimeOffset.TryParse(
-                    value,
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.None,
-                    out DateTimeOffset offset))
+            if (!DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out DateTimeOffset offset))
             {
                 return false;
             }

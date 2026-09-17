@@ -1,5 +1,3 @@
-using Broiler.Documents.Model;
-
 namespace Broiler.Documents.Tests;
 
 /// <summary>
@@ -45,11 +43,9 @@ public sealed class DocumentContractTests
     /// <summary>A codec with its own option type, which it validates.</summary>
     private sealed class TypedCodec : DocumentCodec
     {
-        public sealed class Options : DocumentReadOptions
+        public sealed class Options(string marker = "typed") : DocumentReadOptions
         {
-            public Options(string marker = "typed") => Marker = marker;
-
-            public string Marker { get; }
+            public string Marker { get; } = marker;
         }
 
         public sealed class WriteOptions : DocumentWriteOptions;
@@ -346,11 +342,9 @@ public sealed class DocumentContractTests
     }
 
     /// <summary>A non-seekable stream, so the selection path is exercised honestly.</summary>
-    private sealed class DocumentInputTests_ForwardOnly : Stream
+    private sealed class DocumentInputTests_ForwardOnly(byte[] data) : Stream
     {
-        private readonly MemoryStream _inner;
-
-        public DocumentInputTests_ForwardOnly(byte[] data) => _inner = new MemoryStream(data);
+        private readonly MemoryStream _inner = new MemoryStream(data);
 
         public override bool CanRead => true;
 

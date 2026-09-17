@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Xml.Linq;
@@ -18,24 +17,14 @@ internal static class DocxPackage
     public static ZipArchiveEntry? FindEntry(ZipArchive archive, string path)
     {
         string normalized = path.TrimStart('/').Replace('\\', '/');
-        return archive.Entries.FirstOrDefault(entry =>
-            entry.FullName.Replace('\\', '/').Equals(normalized, StringComparison.OrdinalIgnoreCase));
+        return archive.Entries.FirstOrDefault(entry => entry.FullName.Replace('\\', '/').Equals(normalized, StringComparison.OrdinalIgnoreCase));
     }
 
-    public static XDocument? LoadEntryXml(
-        ZipArchiveEntry entry,
-        DocumentLimits limits,
-        List<DocumentDiagnostic> diagnostics,
-        string diagnosticCode) =>
-        DocumentPackage.LoadEntryXml(entry, limits.MaxBinBytes, diagnostics,
-            diagnosticCode, "A DOCX XML part");
+    public static XDocument? LoadEntryXml(ZipArchiveEntry entry, DocumentLimits limits, List<DocumentDiagnostic> diagnostics, string diagnosticCode) =>
+        DocumentPackage.LoadEntryXml(entry, limits.MaxBinBytes, diagnostics, diagnosticCode, "A DOCX XML part");
 
-    public static DocxRelationships ReadRelationships(
-        ZipArchive archive,
-        string path,
-        string baseDirectory,
-        DocumentLimits limits,
-        List<DocumentDiagnostic> diagnostics)
+    public static DocxRelationships ReadRelationships(ZipArchive archive, string path, string baseDirectory,
+        DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
     {
         ZipArchiveEntry? entry = FindEntry(archive, path);
         if (entry is null)
@@ -87,7 +76,7 @@ internal static class DocxPackage
     public static string NormalizePackagePath(string baseDirectory, string target)
     {
         target = target.Replace('\\', '/');
-        if (target.StartsWith("/", StringComparison.Ordinal))
+        if (target.StartsWith('/'))
             return target.TrimStart('/');
 
         var parts = new List<string>();
@@ -116,11 +105,7 @@ internal static class DocxPackage
     /// to the conventional file name beside the main document when the
     /// relationship is absent.
     /// </summary>
-    public static string ResolvePartPath(
-        DocxRelationships relationships,
-        string relationshipType,
-        string baseDirectory,
-        string conventionalName)
+    public static string ResolvePartPath(DocxRelationships relationships, string relationshipType, string baseDirectory, string conventionalName)
     {
         foreach (DocxRelationship relationship in relationships.All)
         {
@@ -138,22 +123,17 @@ internal sealed class DocxRelationships
 
     public DocxRelationships(IEnumerable<DocxRelationship> relationships)
     {
-        All = relationships.ToArray();
+        All = [.. relationships];
         _byId = new Dictionary<string, DocxRelationship>(StringComparer.Ordinal);
         foreach (DocxRelationship relationship in All)
             _byId[relationship.Id] = relationship;
     }
 
-    public static DocxRelationships Empty { get; } = new(Array.Empty<DocxRelationship>());
+    public static DocxRelationships Empty { get; } = new([]);
 
     public IReadOnlyList<DocxRelationship> All { get; }
 
-    public bool TryGet(string id, out DocxRelationship? relationship) =>
-        _byId.TryGetValue(id, out relationship);
+    public bool TryGet(string id, out DocxRelationship? relationship) => _byId.TryGetValue(id, out relationship);
 }
 
-internal sealed record DocxRelationship(
-    string Id,
-    string Type,
-    string Target,
-    bool TargetModeExternal);
+internal sealed record DocxRelationship(string Id, string Type, string Target, bool TargetModeExternal);

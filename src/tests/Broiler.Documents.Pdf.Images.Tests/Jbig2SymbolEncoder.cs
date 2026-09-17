@@ -101,16 +101,10 @@ internal sealed class Jbig2IntegerEncoder
 }
 
 /// <summary>The IAID procedure's encoding half: a fixed-width walk down the same tree.</summary>
-internal sealed class Jbig2SymbolIdEncoder
+internal sealed class Jbig2SymbolIdEncoder(int codeLength)
 {
-    private readonly MqContexts _contexts;
-    private readonly int _codeLength;
-
-    public Jbig2SymbolIdEncoder(int codeLength)
-    {
-        _codeLength = codeLength;
-        _contexts = new MqContexts(codeLength + 1);
-    }
+    private readonly MqContexts _contexts = new MqContexts(codeLength + 1);
+    private readonly int _codeLength = codeLength;
 
     public void Encode(MqEncoder encoder, int id)
     {

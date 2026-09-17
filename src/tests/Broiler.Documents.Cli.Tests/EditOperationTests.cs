@@ -1,5 +1,4 @@
 using Broiler.Documents.Cli.Documents;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Cli.Tests;
@@ -42,7 +41,7 @@ public sealed class EditOperationTests
     {
         RichTextDocument document = Apply("one\ntwo", "insert:1:middle");
 
-        Assert.Equal(new[] { "one", "middle", "two" }, document.Paragraphs.Select(p => p.Text));
+        Assert.Equal(["one", "middle", "two"], document.Paragraphs.Select(p => p.Text));
     }
 
     [Fact]
@@ -50,7 +49,7 @@ public sealed class EditOperationTests
     {
         RichTextDocument document = Apply("a\nb\nc\nd", "delete:1-2");
 
-        Assert.Equal(new[] { "a", "d" }, document.Paragraphs.Select(p => p.Text));
+        Assert.Equal(["a", "d"], document.Paragraphs.Select(p => p.Text));
     }
 
     [Fact]

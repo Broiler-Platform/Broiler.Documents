@@ -84,9 +84,7 @@ internal static class Program
             // An asset is one render of one character. If that failed, every
             // sample depending on it degrades to a skip and the run still prints
             // a clean line - so it stops the run instead.
-            CheckResult[] assets = materialised
-                .Where(result => result.Group == "asset" && result.Outcome == CheckOutcome.Failed)
-                .ToArray();
+            CheckResult[] assets = [.. materialised.Where(result => result.Group == "asset" && result.Outcome == CheckOutcome.Failed)];
 
             if (assets.Length > 0)
             {

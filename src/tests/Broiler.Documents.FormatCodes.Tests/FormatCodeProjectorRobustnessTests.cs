@@ -1,6 +1,4 @@
-using System.Reflection;
 using System.Xml.Linq;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.FormatCodes.Tests;
@@ -16,11 +14,11 @@ public sealed class FormatCodeProjectorRobustnessTests
         var options = new FormatCodeProjectionOptions
         {
             PendingStyle = new FormatCodePendingStyle(
-                document.Start,
+                RichTextDocument.Start,
                 new InlineStyle { Bold = true, Italic = true }),
         };
 
-        FormatCodeProjection projection = _projector.Project(document, options);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, options);
 
         Assert.Equal("x", projection.Text);
         Assert.Equal(["[Pending Bold ON]", "[Pending Italic ON]"],
@@ -38,7 +36,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("x", new InlineStyle { LinkHref = string.Empty })]);
 
-        Assert.Equal("x", _projector.Project(document).Text);
+        Assert.Equal("x", FormatCodeProjector.Project(document).Text);
     }
 
     [Fact]
@@ -54,7 +52,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("x", InlineStyle.Default, style)]);
 
-        FormatCodeProjection projection = _projector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
 
         Assert.StartsWith("[Align UNKNOWN 99][List UNKNOWN 88][Indent -2][Line Spacing NAN]", projection.Text);
         Assert.Contains(projection.Diagnostics, diagnostic => diagnostic.Code == "FC1001");
@@ -68,7 +66,7 @@ public sealed class FormatCodeProjectorRobustnessTests
     {
         RichTextDocument document = RichTextDocument.FromPlainText("a\uD800b");
 
-        FormatCodeProjection projection = _projector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
 
         Assert.Equal("a\\u{D800}b", projection.Text);
         Assert.Contains(projection.Diagnostics, diagnostic => diagnostic.Code == "FC1005");
@@ -77,16 +75,16 @@ public sealed class FormatCodeProjectorRobustnessTests
     [Fact]
     public void Configured_Resource_Limits_Fail_Before_Expansion()
     {
-        Assert.Throws<FormatCodeProjectionLimitException>(() => _projector.Project(
+        Assert.Throws<FormatCodeProjectionLimitException>(() => FormatCodeProjector.Project(
             RichTextDocument.FromPlainText("abcd"),
             new FormatCodeProjectionOptions { MaxOutputCharacters = 3 }));
 
-        Assert.Throws<FormatCodeProjectionLimitException>(() => _projector.Project(
+        Assert.Throws<FormatCodeProjectionLimitException>(() => FormatCodeProjector.Project(
             RichTextDocument.FromParagraphs(
                 [RichTextParagraph.Create("x", new InlineStyle { Bold = true })]),
             new FormatCodeProjectionOptions { MaxTokens = 1 }));
 
-        Assert.Throws<FormatCodeProjectionLimitException>(() => _projector.Project(
+        Assert.Throws<FormatCodeProjectionLimitException>(() => FormatCodeProjector.Project(
             RichTextDocument.FromParagraphs(
                 [RichTextParagraph.Create("x", new InlineStyle { FontFamily = "long" })]),
             new FormatCodeProjectionOptions { MaxQuotedValueCharacters = 3 }));
@@ -98,7 +96,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
 
-        Assert.Throws<OperationCanceledException>(() => _projector.Project(
+        Assert.Throws<OperationCanceledException>(() => FormatCodeProjector.Project(
             RichTextDocument.FromPlainText(new string('x', 1000)),
             cancellationToken: cancellation.Token));
     }
@@ -112,7 +110,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         RichTextDocument mergedRuns = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("a", style).Append(RichTextParagraph.Create("b", style))]);
 
-        Assert.Equal(_projector.Project(oneRun).Text, _projector.Project(mergedRuns).Text);
+        Assert.Equal(FormatCodeProjector.Project(oneRun).Text, FormatCodeProjector.Project(mergedRuns).Text);
         Assert.Single(mergedRuns.Paragraphs[0].Runs);
     }
 
@@ -129,9 +127,9 @@ public sealed class FormatCodeProjectorRobustnessTests
             RichTextParagraph paragraphTwo = RichTextParagraph.Create("left", first)
                 .Append(RichTextParagraph.Create("right", second));
 
-            FormatCodeProjection projectionOne = _projector.Project(
+            FormatCodeProjection projectionOne = FormatCodeProjector.Project(
                 RichTextDocument.FromParagraphs([paragraphOne]));
-            FormatCodeProjection projectionTwo = _projector.Project(
+            FormatCodeProjection projectionTwo = FormatCodeProjector.Project(
                 RichTextDocument.FromParagraphs([paragraphTwo]));
 
             Assert.Equal(projectionOne.Text, projectionTwo.Text);
@@ -145,21 +143,19 @@ public sealed class FormatCodeProjectorRobustnessTests
     public void Project_References_Only_The_Model_Project_And_No_Platform_Package()
     {
         XDocument project = XDocument.Load(ProjectPath());
-        string[] references = project.Descendants("ProjectReference")
+        string[] references = [.. project.Descendants("ProjectReference")
             .Select(reference => (string?)reference.Attribute("Include"))
             .Where(reference => reference is not null)
             .Cast<string>()
-            .Select(reference => reference.Replace('\\', '/'))
-            .ToArray();
+            .Select(reference => reference.Replace('\\', '/'))];
 
         Assert.Equal(["../Broiler.Documents.Model/Broiler.Documents.Model.csproj"], references);
         Assert.Empty(project.Descendants("PackageReference"));
 
-        string[] broilerAssemblies = typeof(FormatCodeProjector).Assembly
+        string[] broilerAssemblies = [.. typeof(FormatCodeProjector).Assembly
             .GetReferencedAssemblies()
             .Select(name => name.Name ?? string.Empty)
-            .Where(name => name.StartsWith("Broiler.", StringComparison.Ordinal))
-            .ToArray();
+            .Where(name => name.StartsWith("Broiler.", StringComparison.Ordinal))];
         Assert.DoesNotContain(broilerAssemblies, name =>
             name.Contains("UI", StringComparison.OrdinalIgnoreCase) ||
             name.Contains("Dom", StringComparison.OrdinalIgnoreCase) ||

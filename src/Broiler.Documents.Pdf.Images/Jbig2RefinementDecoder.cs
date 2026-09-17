@@ -155,8 +155,8 @@ internal static class Jbig2RefinementDecoder
 
         return sum switch
         {
-            0 => (byte)0,
-            9 => (byte)1,
+            0 => 0,
+            9 => 1,
             _ => null,
         };
     }

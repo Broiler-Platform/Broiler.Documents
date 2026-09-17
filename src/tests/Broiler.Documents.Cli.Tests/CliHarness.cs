@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace Broiler.Documents.Cli.Tests;
@@ -46,7 +45,7 @@ public sealed class CliHarness : IDisposable
     /// <summary>A path inside the scratch directory.</summary>
     public string Path(string name) => System.IO.Path.Combine(Directory, name);
 
-    public CliRun Run(params string[] arguments)
+    public static CliRun Run(params string[] arguments)
     {
         using var output = new StringWriter();
         using var error = new StringWriter();
@@ -55,7 +54,7 @@ public sealed class CliHarness : IDisposable
     }
 
     /// <summary>Runs and asserts the exit code, reporting both streams when it does not match.</summary>
-    public CliRun RunExpecting(int expected, params string[] arguments)
+    public static CliRun RunExpecting(int expected, params string[] arguments)
     {
         CliRun run = Run(arguments);
         Assert.True(
@@ -77,7 +76,7 @@ public sealed class CliHarness : IDisposable
             arguments.Add(operation);
         }
 
-        RunExpecting(ExitCode.Ok, arguments.ToArray());
+        RunExpecting(ExitCode.Ok, [.. arguments]);
         return path;
     }
 

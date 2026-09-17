@@ -10,16 +10,11 @@ namespace Broiler.Documents.Pdf;
 /// <c>Rejected</c> result rather than a truncated document: a limit must never
 /// silently downgrade into a successful-but-empty read (PDF roadmap §6.3).
 /// </summary>
-public sealed class PdfLimitExceededException : Exception
+public sealed class PdfLimitExceededException(string limitName, string message) : Exception(message)
 {
-    public PdfLimitExceededException(string limitName, string message)
-        : base(message)
-    {
-        LimitName = limitName;
-    }
 
     /// <summary>The budget that was exhausted, for the diagnostic message.</summary>
-    public string LimitName { get; }
+    public string LimitName { get; } = limitName;
 }
 
 /// <summary>
@@ -28,10 +23,10 @@ public sealed class PdfLimitExceededException : Exception
 /// work units. It is owned by a single read or write, never shared or reset, so
 /// delegated work cannot restart the accounting (PDF roadmap §6.3).
 /// </summary>
-internal sealed class PdfWorkBudget
+internal sealed class PdfWorkBudget(PdfLimits limits, CancellationToken cancellation = default)
 {
-    private readonly PdfLimits _limits;
-    private readonly CancellationToken _cancellation;
+    private readonly PdfLimits _limits = limits ?? throw new ArgumentNullException(nameof(limits));
+    private readonly CancellationToken _cancellation = cancellation;
     private long _decodedBytes;
     private long _workUnits;
     private long _operators;
@@ -40,12 +35,6 @@ internal sealed class PdfWorkBudget
     private int _cmapEntries;
     private int _fonts;
     private int _annotations;
-
-    public PdfWorkBudget(PdfLimits limits, CancellationToken cancellation = default)
-    {
-        _limits = limits ?? throw new ArgumentNullException(nameof(limits));
-        _cancellation = cancellation;
-    }
 
     public PdfLimits Limits => _limits;
 
@@ -181,7 +170,7 @@ internal sealed class PdfWorkBudget
 /// the reason — never document text, a metadata value, or a path — still holds.
 /// </para>
 /// </remarks>
-internal sealed class PdfDiagnosticSink
+internal sealed class PdfDiagnosticSink(int maxDiagnostics)
 {
     /// <summary>
     /// How many distinct page numbers one entry names before it stops listing
@@ -192,13 +181,8 @@ internal sealed class PdfDiagnosticSink
 
     private readonly List<Entry> _entries = [];
     private readonly Dictionary<string, Entry> _byCode = new(StringComparer.Ordinal);
-    private readonly int _maxDiagnostics;
+    private readonly int _maxDiagnostics = maxDiagnostics > 0 ? maxDiagnostics : PdfLimits.DefaultMaxDiagnostics;
     private int _suppressed;
-
-    public PdfDiagnosticSink(int maxDiagnostics)
-    {
-        _maxDiagnostics = maxDiagnostics > 0 ? maxDiagnostics : PdfLimits.DefaultMaxDiagnostics;
-    }
 
     /// <summary>True when at least one error-severity diagnostic was recorded.</summary>
     public bool HasErrors { get; private set; }

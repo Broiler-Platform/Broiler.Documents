@@ -9,7 +9,6 @@ using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Odt;
@@ -1137,7 +1136,7 @@ public static class OdtWriter
         // it outright.
         int shapesBefore = context.ShapeStyles.Count;
         int gradientsBefore = context.Gradients.Count;
-        List<XElement> runningParts = BuildRunningParts(running, context).ToList();
+        List<XElement> runningParts = [.. BuildRunningParts(running, context)];
         var runningStyles = new List<XElement>();
         for (int i = shapesBefore; i < context.ShapeStyles.Count; i++)
             runningStyles.Add(context.ShapeStyles[i]);
@@ -1262,16 +1261,14 @@ public static class OdtWriter
     /// full text, so the end can be recognized, and whether anything has been
     /// written into it yet.
     /// </summary>
-    private sealed class ParagraphState
+    private sealed class ParagraphState(string text)
     {
-        public ParagraphState(string text) => Text = text;
-
-        public string Text { get; }
+        public string Text { get; } = text;
 
         public bool HasContent { get; set; }
     }
 
-    private sealed class OdtWriteContext
+    private sealed class OdtWriteContext(DocumentConversionContext resources)
     {
         private readonly Dictionary<string, string> _paragraphStyleNames = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _textStyleNames = new(StringComparer.Ordinal);
@@ -1290,16 +1287,11 @@ public static class OdtWriter
         private int _tableCount;
         private readonly List<XElement> _gradients = [];
 
-        public OdtWriteContext(DocumentConversionContext resources)
-        {
-            Resources = resources;
-        }
-
         /// <summary>
         /// What the caller's policy decided about this document's resources. A
         /// picture is not written unless this says it may be.
         /// </summary>
-        public DocumentConversionContext Resources { get; }
+        public DocumentConversionContext Resources { get; } = resources;
 
         /// <summary>The graphic styles the document's shapes are painted by.</summary>
         public IReadOnlyList<XElement> ShapeStyles => _shapeStyles;

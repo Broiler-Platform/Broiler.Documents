@@ -1,12 +1,11 @@
 using System.Text;
 using Broiler.Documents.Pdf.Text;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Text;
 
 namespace Broiler.Documents.Pdf.Tests;
 
-public sealed class PdfWriterTests
+public sealed partial class PdfWriterTests
 {
     private static (byte[] Bytes, PdfWriteResult Result) Write(
         RichTextDocument document,
@@ -397,7 +396,7 @@ public sealed class PdfWriterTests
         // The marker and the first word share a style, so they emit as one run.
         Assert.Contains("(1. first)", text);
         Assert.Contains("(2. second)", text);
-        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(text, @"\(1\. ").Count);
+        Assert.Equal(2, MyRegex().Matches(text).Count);
     }
 
     /// <summary>
@@ -502,4 +501,7 @@ public sealed class PdfWriterTests
         public override void Write(byte[] buffer, int offset, int count) =>
             throw new IOException("The destination is unavailable.");
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\(1\. ")]
+    private static partial System.Text.RegularExpressions.Regex MyRegex();
 }

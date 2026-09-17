@@ -37,7 +37,7 @@ internal static class Jbig2Streams
         var bytes = new List<byte>();
         foreach (byte[] segment in segments)
             bytes.AddRange(segment);
-        return bytes.ToArray();
+        return [.. bytes];
     }
 
     /// <summary>One segment header in the sequential organisation, plus its data.</summary>
@@ -61,7 +61,7 @@ internal static class Jbig2Streams
         bytes.Add(1);                   // page association
         AddUInt32(bytes, data.Length);
         bytes.AddRange(data);
-        return bytes.ToArray();
+        return [.. bytes];
     }
 
     /// <summary>The filter's output, back into pixels.</summary>

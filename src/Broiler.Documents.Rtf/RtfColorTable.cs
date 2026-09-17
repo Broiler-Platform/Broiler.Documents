@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Rtf;

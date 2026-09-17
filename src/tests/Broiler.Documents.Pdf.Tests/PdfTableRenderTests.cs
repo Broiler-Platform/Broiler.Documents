@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Pdf.Tests;
@@ -80,11 +79,11 @@ public sealed class PdfTableRenderTests
     {
         string content = Write(Grid());
 
-        (double X, double Y) left = OriginOf(content, "a1");
+        (double X, double Y) = OriginOf(content, "a1");
         (double X, double Y) right = OriginOf(content, "b1");
 
-        Assert.Equal(left.Y, right.Y, 3);
-        Assert.Equal(left.X + 100, right.X, 3);
+        Assert.Equal(Y, right.Y, 3);
+        Assert.Equal(X + 100, right.X, 3);
     }
 
     [Fact]

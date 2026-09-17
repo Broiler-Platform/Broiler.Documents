@@ -2,8 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using Broiler.Documents.Model;
-using Broiler.Graphics;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents;
@@ -14,12 +13,8 @@ namespace Broiler.Documents;
 /// </summary>
 public sealed class DocumentResourceRequest
 {
-    public DocumentResourceRequest(
-        BImageResource resource,
-        DocumentResourceProvenance provenance,
-        DocumentResourceDisposition disposition,
-        string? name = null,
-        string? sourceFormat = null)
+    public DocumentResourceRequest(BImageResource resource, DocumentResourceProvenance provenance, DocumentResourceDisposition disposition,
+        string? name = null, string? sourceFormat = null)
     {
         Resource = resource ?? throw new ArgumentNullException(nameof(resource));
         Kind = DocumentResourceKind.Image;
@@ -29,10 +24,7 @@ public sealed class DocumentResourceRequest
         SourceFormat = sourceFormat;
     }
 
-    public DocumentResourceRequest(
-        DocumentFontResource font,
-        DocumentResourceProvenance provenance,
-        DocumentResourceDisposition disposition,
+    public DocumentResourceRequest(DocumentFontResource font, DocumentResourceProvenance provenance, DocumentResourceDisposition disposition,
         string? sourceFormat = null)
     {
         Font = font ?? throw new ArgumentNullException(nameof(font));
@@ -74,38 +66,29 @@ public sealed class DocumentResourceRequest
 /// A policy's answer: which operations are permitted, and what obligations
 /// travel with the resource if it is used.
 /// </summary>
-public sealed class DocumentResourceDecision
+public sealed class DocumentResourceDecision(DocumentResourceOperations permitted, 
+    IEnumerable<string>? obligations = null, string? reason = null)
 {
     private static readonly ReadOnlyCollection<string> NoObligations =
         Array.AsReadOnly(Array.Empty<string>());
-
-    public DocumentResourceDecision(
-        DocumentResourceOperations permitted,
-        IEnumerable<string>? obligations = null,
-        string? reason = null)
-    {
-        Permitted = permitted;
-        Obligations = obligations is null
-            ? NoObligations
-            : Array.AsReadOnly(obligations.Where(o => !string.IsNullOrWhiteSpace(o)).ToArray());
-        Reason = reason;
-    }
 
     /// <summary>Denies everything, which is what an unrecognized resource gets.</summary>
     public static DocumentResourceDecision Denied(string? reason = null) =>
         new(DocumentResourceOperations.None, null, reason);
 
-    public DocumentResourceOperations Permitted { get; }
+    public DocumentResourceOperations Permitted { get; } = permitted;
 
     /// <summary>
     /// Attribution, licence-copy, or naming duties a generated document must
     /// fulfil if this resource reaches it. Carried rather than discharged: the
     /// writer that emits the resource is what owes them.
     /// </summary>
-    public IReadOnlyList<string> Obligations { get; }
+    public IReadOnlyList<string> Obligations { get; } = obligations is null
+            ? NoObligations
+            : Array.AsReadOnly(obligations.Where(o => !string.IsNullOrWhiteSpace(o)).ToArray());
 
     /// <summary>Why, for a diagnostic. Never required, and never load-bearing.</summary>
-    public string? Reason { get; }
+    public string? Reason { get; } = reason;
 }
 
 /// <summary>

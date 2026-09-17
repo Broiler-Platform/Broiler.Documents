@@ -6,13 +6,14 @@ namespace Broiler.Documents.Cli.Tests;
 public sealed class CommandTests : IDisposable
 {
     private readonly CliHarness _cli = new();
+    private static readonly string[] expected = ["DOCX", "ODT", "RTF", "HTML", "Markdown"];
 
     public void Dispose() => _cli.Dispose();
 
     [Fact]
     public void Help_Lists_Every_Command_And_Exits_Zero()
     {
-        CliRun run = _cli.RunExpecting(ExitCode.Ok, "--help");
+        CliRun run = CliHarness.RunExpecting(ExitCode.Ok, "--help");
 
         foreach (string command in new[]
                  {
@@ -29,7 +30,7 @@ public sealed class CommandTests : IDisposable
     {
         // Help on stdout so it is readable, but a non-zero exit so a script that
         // forgot its arguments does not look like it succeeded.
-        CliRun run = _cli.RunExpecting(ExitCode.Usage);
+        CliRun run = CliHarness.RunExpecting(ExitCode.Usage);
 
         Assert.Contains("usage:", run.Output, StringComparison.Ordinal);
     }
@@ -37,7 +38,7 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public void An_Unknown_Command_Suggests_The_Closest_Match()
     {
-        CliRun run = _cli.RunExpecting(ExitCode.Usage, "compair", "a", "b");
+        CliRun run = CliHarness.RunExpecting(ExitCode.Usage, "compair", "a", "b");
 
         Assert.Contains("compare", run.Error, StringComparison.Ordinal);
     }
@@ -45,14 +46,14 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public void Formats_Reports_The_Five_Composed_Codecs_And_No_Pdf()
     {
-        CliRun run = _cli.RunExpecting(ExitCode.Ok, "formats", "--json");
+        CliRun run = CliHarness.RunExpecting(ExitCode.Ok, "formats", "--json");
         JsonObject json = run.Json();
 
         var names = json["formats"]!.AsArray()
             .Select(entry => entry!["name"]!.GetValue<string>())
             .ToArray();
 
-        Assert.Equal(new[] { "DOCX", "ODT", "RTF", "HTML", "Markdown" }, names);
+        Assert.Equal(expected, names);
 
         // The PDF codec is gated by docs/pdf-support-roadmap.md 4.1 and must not
         // reach an application catalog. This is the assertion that keeps a future
@@ -66,7 +67,7 @@ public sealed class CommandTests : IDisposable
     {
         string path = _cli.MakeDocument("hello.docx", "Hello world");
 
-        CliRun info = _cli.RunExpecting(ExitCode.Ok, "info", path, "--json");
+        CliRun info = CliHarness.RunExpecting(ExitCode.Ok, "info", path, "--json");
         JsonObject json = info.Json();
 
         Assert.Equal("DOCX", json["format"]!.GetValue<string>());
@@ -82,10 +83,10 @@ public sealed class CommandTests : IDisposable
     public void New_Writes_Every_Composed_Format(string extension)
     {
         string path = _cli.Path("sample." + extension);
-        _cli.RunExpecting(ExitCode.Ok, "new", "--out", path, "--text", "Hello world", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "new", "--out", path, "--text", "Hello world", "--quiet");
 
         Assert.True(File.Exists(path));
-        CliRun dump = _cli.RunExpecting(ExitCode.Ok, "dump", path, "--as", "text");
+        CliRun dump = CliHarness.RunExpecting(ExitCode.Ok, "dump", path, "--as", "text");
         Assert.Contains("Hello world", dump.Output, StringComparison.Ordinal);
     }
 
@@ -94,7 +95,7 @@ public sealed class CommandTests : IDisposable
     {
         string path = _cli.MakeDocument("hello.docx", "Hello");
 
-        JsonObject json = _cli.RunExpecting(ExitCode.Ok, "probe", path, "--json").Json();
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Ok, "probe", path, "--json").Json();
 
         Assert.Equal("DOCX", json["selected"]!.GetValue<string>());
         Assert.Equal(5, json["probes"]!.AsArray().Count);
@@ -104,9 +105,9 @@ public sealed class CommandTests : IDisposable
     public void Probe_Exits_Three_When_Nothing_Recognizes_The_Content()
     {
         string path = _cli.Path("junk.bin");
-        File.WriteAllBytes(path, new byte[] { 0x00, 0x01, 0x02, 0x03 });
+        File.WriteAllBytes(path, [0x00, 0x01, 0x02, 0x03]);
 
-        _cli.RunExpecting(ExitCode.Read, "probe", path);
+        CliHarness.RunExpecting(ExitCode.Read, "probe", path);
     }
 
     [Fact]
@@ -114,7 +115,7 @@ public sealed class CommandTests : IDisposable
     {
         // The distinction a harness depends on: "the export did not happen" is
         // not the same finding as "the export changed".
-        CliRun run = _cli.RunExpecting(ExitCode.Input, "info", _cli.Path("absent.docx"));
+        CliRun run = CliHarness.RunExpecting(ExitCode.Input, "info", _cli.Path("absent.docx"));
 
         Assert.Contains("not found", run.Error, StringComparison.OrdinalIgnoreCase);
     }
@@ -124,8 +125,8 @@ public sealed class CommandTests : IDisposable
     {
         string path = _cli.MakeDocument("styled.docx", "Hello world", "inline:0:0-5:bold=on");
 
-        string first = _cli.RunExpecting(ExitCode.Ok, "dump", path, "--as", "json").Output;
-        string second = _cli.RunExpecting(ExitCode.Ok, "dump", path, "--as", "json").Output;
+        string first = CliHarness.RunExpecting(ExitCode.Ok, "dump", path, "--as", "json").Output;
+        string second = CliHarness.RunExpecting(ExitCode.Ok, "dump", path, "--as", "json").Output;
 
         Assert.Equal(first, second);
         Assert.Contains("\"bold\": true", first, StringComparison.Ordinal);
@@ -136,7 +137,7 @@ public sealed class CommandTests : IDisposable
     {
         string path = _cli.MakeDocument("bold.docx", "Hello World!", "inline:0:*:bold=on");
 
-        CliRun run = _cli.RunExpecting(ExitCode.Ok, "dump", path, "--as", "codes");
+        CliRun run = CliHarness.RunExpecting(ExitCode.Ok, "dump", path, "--as", "codes");
 
         // The signed-off example from the grammar document.
         Assert.Contains("[Bold ON]Hello World![Bold OFF]", run.Output, StringComparison.Ordinal);
@@ -148,9 +149,9 @@ public sealed class CommandTests : IDisposable
         string source = _cli.MakeDocument("source.docx", "First\nSecond");
         string destination = _cli.Path("converted.rtf");
 
-        _cli.RunExpecting(ExitCode.Ok, "convert", source, "--out", destination, "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "convert", source, "--out", destination, "--quiet");
 
-        CliRun dump = _cli.RunExpecting(ExitCode.Ok, "dump", destination, "--as", "text");
+        CliRun dump = CliHarness.RunExpecting(ExitCode.Ok, "dump", destination, "--as", "text");
         Assert.Contains("First", dump.Output, StringComparison.Ordinal);
         Assert.Contains("Second", dump.Output, StringComparison.Ordinal);
     }
@@ -160,8 +161,7 @@ public sealed class CommandTests : IDisposable
     {
         string source = _cli.MakeDocument("source.docx", "Body");
 
-        JsonObject json = _cli
-            .RunExpecting(ExitCode.Ok, "convert", source, "--out", _cli.Path("out.md"), "--json")
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Ok, "convert", source, "--out", _cli.Path("out.md"), "--json")
             .Json();
 
         Assert.Equal("Markdown", json["destinationFormat"]!.GetValue<string>());
@@ -172,7 +172,7 @@ public sealed class CommandTests : IDisposable
     {
         string source = _cli.MakeDocument("source.docx", "Body");
 
-        _cli.RunExpecting(ExitCode.Usage, "convert", source, "--out", _cli.Path("output"));
+        CliHarness.RunExpecting(ExitCode.Usage, "convert", source, "--out", _cli.Path("output"));
     }
 
     [Fact]
@@ -180,9 +180,9 @@ public sealed class CommandTests : IDisposable
     {
         string path = _cli.MakeDocument("draft.docx", "Status: DRAFT");
 
-        _cli.RunExpecting(ExitCode.Ok, "edit", path, "--in-place", "--op", "replace:DRAFT:FINAL", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "edit", path, "--in-place", "--op", "replace:DRAFT:FINAL", "--quiet");
 
-        CliRun dump = _cli.RunExpecting(ExitCode.Ok, "dump", path, "--as", "text");
+        CliRun dump = CliHarness.RunExpecting(ExitCode.Ok, "dump", path, "--as", "text");
         Assert.Contains("FINAL", dump.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("DRAFT", dump.Output, StringComparison.Ordinal);
     }
@@ -192,18 +192,18 @@ public sealed class CommandTests : IDisposable
     {
         string path = _cli.MakeDocument("draft.docx", "one\ntwo");
         string script = _cli.Path("edits.txt");
-        File.WriteAllLines(script, new[]
-        {
+        File.WriteAllLines(script,
+        [
             "# comments and blank lines are skipped",
             string.Empty,
             "append:three",
             "para:*:align=center",
-        });
+        ]);
 
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(
             ExitCode.Ok, "edit", path, "--out", path, "--script", script, "--quiet");
 
-        JsonObject json = _cli.RunExpecting(ExitCode.Ok, "info", path, "--json").Json();
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Ok, "info", path, "--json").Json();
         Assert.Equal(3, json["statistics"]!["paragraphs"]!.GetValue<int>());
         Assert.Equal(3, json["statistics"]!["alignedParagraphs"]!.GetValue<int>());
     }
@@ -213,7 +213,7 @@ public sealed class CommandTests : IDisposable
     {
         string path = _cli.MakeDocument("draft.docx", "text");
 
-        _cli.RunExpecting(ExitCode.Usage, "edit", path, "--out", _cli.Path("out.docx"));
+        CliHarness.RunExpecting(ExitCode.Usage, "edit", path, "--out", _cli.Path("out.docx"));
     }
 
     [Fact]
@@ -223,14 +223,14 @@ public sealed class CommandTests : IDisposable
 
         // Without the threshold the same run succeeds; with it, the informational
         // diagnostic the DOCX reader emits is enough to fail.
-        _cli.RunExpecting(ExitCode.Ok, "info", path, "--quiet");
-        _cli.RunExpecting(ExitCode.Diagnostics, "info", path, "--fail-on", "info", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "info", path, "--quiet");
+        CliHarness.RunExpecting(ExitCode.Diagnostics, "info", path, "--fail-on", "info", "--quiet");
     }
 
     [Fact]
     public void Version_Reports_The_Font_The_Renderer_Falls_Back_To()
     {
-        JsonObject json = _cli.RunExpecting(ExitCode.Ok, "version", "--json").Json();
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Ok, "version", "--json").Json();
 
         Assert.False(string.IsNullOrWhiteSpace(json["fallbackTextFont"]!.GetValue<string>()));
         Assert.False(string.IsNullOrWhiteSpace(json["broilerDocuments"]!.GetValue<string>()));
@@ -239,7 +239,7 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public void Json_Output_Always_Carries_The_Exit_Code()
     {
-        JsonObject json = _cli.RunExpecting(ExitCode.Input, "info", _cli.Path("absent.docx"), "--json").Json();
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Input, "info", _cli.Path("absent.docx"), "--json").Json();
 
         Assert.Equal(ExitCode.Input, json["exitCode"]!.GetValue<int>());
         Assert.False(json["ok"]!.GetValue<bool>());
@@ -249,7 +249,7 @@ public sealed class CommandTests : IDisposable
     [Fact]
     public void Command_Help_Exits_Zero_And_Shows_The_Command_Options()
     {
-        CliRun run = _cli.RunExpecting(ExitCode.Ok, "render", "--help");
+        CliRun run = CliHarness.RunExpecting(ExitCode.Ok, "render", "--help");
 
         Assert.Contains("--dpi", run.Output, StringComparison.Ordinal);
         Assert.Contains("--continuous", run.Output, StringComparison.Ordinal);

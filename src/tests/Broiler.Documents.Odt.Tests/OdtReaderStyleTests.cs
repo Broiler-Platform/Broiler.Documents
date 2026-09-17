@@ -1,4 +1,3 @@
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Odt.Tests;

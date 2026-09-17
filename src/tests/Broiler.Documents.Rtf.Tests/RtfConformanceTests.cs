@@ -26,7 +26,7 @@ public sealed class RtfConformanceTests
     {
         string text = Read("{\\rtf1 " + word + " x}").Paragraphs[0].Text;
 
-        Assert.Equal(expected, (int)text[0]);
+        Assert.Equal(expected, text[0]);
         Assert.Equal('x', text[^1]);
     }
 

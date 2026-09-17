@@ -4,7 +4,6 @@ using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
-using static Broiler.Documents.Docx.DocxValueReader;
 
 namespace Broiler.Documents.Docx;
 
@@ -165,7 +164,7 @@ internal static class DocxTableReader
         if (string.Equals(rule, "exact", StringComparison.Ordinal))
             exactHeightSeen = true;
 
-        return Math.Max(0, Twips(height, "val"));
+        return Math.Max(0, DocxValueReader.Twips(height, "val"));
     }
 
     private static TableRow BuildRow(RowDraft row) =>
@@ -244,7 +243,7 @@ internal static class DocxTableReader
     /// The grid's column widths in points, from <c>w:tblGrid</c>. Widths are in
     /// twentieths of a point, which is what the rest of the format measures in.
     /// </summary>
-    private static IReadOnlyList<double> ReadTableGrid(XElement table)
+    private static List<double> ReadTableGrid(XElement table)
     {
         XElement? grid = table.Element(DocxNamespaces.Wordprocessing + "tblGrid");
         if (grid is null)
@@ -253,7 +252,7 @@ internal static class DocxTableReader
         var widths = new List<double>();
         foreach (XElement column in grid.Elements(DocxNamespaces.Wordprocessing + "gridCol"))
         {
-            widths.Add(TryReadInt(column.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) && twips > 0
+            widths.Add(DocxValueReader.TryReadInt(column.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) && twips > 0
                 ? twips / 20.0
                 : 0);
         }
@@ -272,7 +271,7 @@ internal static class DocxTableReader
         XElement? left = margins?.Element(DocxNamespaces.Wordprocessing + "left") ??
             margins?.Element(DocxNamespaces.Wordprocessing + "start");
         if (left is null ||
-            !TryReadInt(left.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) ||
+            !DocxValueReader.TryReadInt(left.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) ||
             twips < 0)
         {
             return DocumentTable.DefaultCellPadding;
@@ -291,7 +290,7 @@ internal static class DocxTableReader
         if (merge is null)
             return VerticalMerge.None;
 
-        return string.Equals(WordValue(merge), "restart", StringComparison.OrdinalIgnoreCase)
+        return string.Equals(DocxValueReader.WordValue(merge), "restart", StringComparison.OrdinalIgnoreCase)
             ? VerticalMerge.Start
             : VerticalMerge.Continue;
     }
@@ -304,7 +303,7 @@ internal static class DocxTableReader
             return BColor.Empty;
 
         string? fill = (string?)shading.Attribute(DocxNamespaces.Wordprocessing + "fill");
-        return TryParseHexColor(fill, out BColor color) ? color : BColor.Empty;
+        return DocxValueReader.TryParseHexColor(fill, out BColor color) ? color : BColor.Empty;
     }
 
     /// <summary>The four edges a table states in <c>w:tblBorders</c>, for its cells to inherit.</summary>
@@ -356,21 +355,21 @@ internal static class DocxTableReader
         if (element is null)
             return null;
 
-        string? kind = WordValue(element);
+        string? kind = DocxValueReader.WordValue(element);
         if (string.Equals(kind, "none", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(kind, "nil", StringComparison.OrdinalIgnoreCase))
         {
             return TableBorder.None;
         }
 
-        double width = TryReadInt(element.Attribute(DocxNamespaces.Wordprocessing + "sz"), out int eighths) && eighths > 0
+        double width = DocxValueReader.TryReadInt(element.Attribute(DocxNamespaces.Wordprocessing + "sz"), out int eighths) && eighths > 0
             ? Math.Min(eighths / 8.0, MaxBorderWidth)
             : DefaultBorderWidth;
 
         string? color = (string?)element.Attribute(DocxNamespaces.Wordprocessing + "color");
         // "auto" is the format's way of saying the reader chooses; Word draws black.
         return new TableBorder(
-            TryParseHexColor(color, out BColor parsed) ? parsed : BColor.Black,
+            DocxValueReader.TryParseHexColor(color, out BColor parsed) ? parsed : BColor.Black,
             width);
     }
 
@@ -396,7 +395,7 @@ internal static class DocxTableReader
     private static int WordInt(XElement? properties, string localName, int fallback)
     {
         XElement? element = properties?.Element(DocxNamespaces.Wordprocessing + localName);
-        return TryReadInt(element?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int value)
+        return DocxValueReader.TryReadInt(element?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int value)
             ? value
             : fallback;
     }

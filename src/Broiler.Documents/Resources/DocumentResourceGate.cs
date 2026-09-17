@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using Broiler.Documents.Model;
 
-namespace Broiler.Documents;
+namespace Broiler.Documents.Resources;
 
 /// <summary>
 /// The one place a writer asks whether it may put a resource's bytes into its
@@ -34,13 +34,8 @@ public static class DocumentResourceGate
     /// Null on success. Otherwise a phrase naming why, suitable for the message
     /// of a diagnostic: it describes the decision and never the content.
     /// </param>
-    public static bool TryTakeEncodedBytes(
-        InlineImage image,
-        DocumentConversionContext context,
-        DocumentResourceOperations intended,
-        out ReadOnlyMemory<byte> data,
-        [NotNullWhen(true)] out string? contentType,
-        [NotNullWhen(false)] out string? denial)
+    public static bool TryTakeEncodedBytes(InlineImage image, DocumentConversionContext context, DocumentResourceOperations intended,
+        out ReadOnlyMemory<byte> data, [NotNullWhen(true)] out string? contentType, [NotNullWhen(false)] out string? denial)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(context);
@@ -79,9 +74,6 @@ public static class DocumentResourceGate
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(context);
 
-        return context.IsAllowed(
-            image.ResourceId,
-            DocumentResourceOperations.SemanticProjection,
-            image.Resource);
+        return context.IsAllowed(image.ResourceId, DocumentResourceOperations.SemanticProjection, image.Resource);
     }
 }

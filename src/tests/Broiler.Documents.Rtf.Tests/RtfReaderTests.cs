@@ -1,5 +1,4 @@
 using System.Text;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Rtf.Tests;
@@ -124,7 +123,7 @@ public sealed class RtfReaderTests
         string text = Read("{\\rtf1 caf\\'e9}").PlainText;
 
         Assert.Equal(4, text.Length);
-        Assert.Equal(0x00E9, (int)text[3]);
+        Assert.Equal(0x00E9, text[3]);
     }
 
     [Fact]
@@ -133,7 +132,7 @@ public sealed class RtfReaderTests
         // \'92 is U+2019 (right single quote) in Windows-1252, not Latin-1.
         string text = Read("{\\rtf1 it\\'92s}").PlainText;
 
-        Assert.Equal(0x2019, (int)text[2]);
+        Assert.Equal(0x2019, text[2]);
     }
 
     [Fact]
@@ -143,7 +142,7 @@ public sealed class RtfReaderTests
         string text = Read("{\\rtf1\\u233 ?z}").PlainText;
 
         Assert.Equal(2, text.Length);
-        Assert.Equal(0x00E9, (int)text[0]);
+        Assert.Equal(0x00E9, text[0]);
         Assert.Equal('z', text[1]);
     }
 
@@ -153,7 +152,7 @@ public sealed class RtfReaderTests
         string text = Read("{\\rtf1\\uc0\\u233 ?z}").PlainText;
 
         Assert.Equal(3, text.Length);
-        Assert.Equal(0x00E9, (int)text[0]);
+        Assert.Equal(0x00E9, text[0]);
     }
 
     // ---- paragraph formatting ----
@@ -173,7 +172,7 @@ public sealed class RtfReaderTests
 
         Assert.Equal(1, document.ParagraphCount);
         string text = document.Paragraphs[0].Text;
-        Assert.Equal(0x2028, (int)text[1]);
+        Assert.Equal(0x2028, text[1]);
     }
 
     [Fact]

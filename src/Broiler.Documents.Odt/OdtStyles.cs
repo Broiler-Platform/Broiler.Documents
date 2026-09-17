@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
-using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 
@@ -166,9 +165,7 @@ internal sealed class OdtStyles
                     rowProperties,
                     gradients);
                 masterStyles = stylesXml.Root.Element(OdtNamespaces.Office + "master-styles");
-                pageLayouts = stylesXml.Root
-                    .Descendants(OdtNamespaces.Style + "page-layout")
-                    .ToList();
+                pageLayouts = [.. stylesXml.Root.Descendants(OdtNamespaces.Style + "page-layout")];
             }
         }
 
@@ -337,7 +334,7 @@ internal sealed class OdtStyles
     public IReadOnlyList<XElement> TextPropertiesForSpan(string? styleName)
     {
         if (string.IsNullOrEmpty(styleName))
-            return Array.Empty<XElement>();
+            return [];
 
         return Resolve("st:" + styleName, () =>
         {
@@ -427,12 +424,12 @@ internal sealed class OdtStyles
         return style.KindAt(level);
     }
 
-    private IReadOnlyList<XElement> Resolve(string key, Func<List<XElement>> build)
+    private XElement[] Resolve(string key, Func<List<XElement>> build)
     {
         if (_chainCache.TryGetValue(key, out XElement[]? cached))
             return cached;
 
-        XElement[] resolved = build().ToArray();
+        XElement[] resolved = [.. build()];
         _chainCache[key] = resolved;
         return resolved;
     }

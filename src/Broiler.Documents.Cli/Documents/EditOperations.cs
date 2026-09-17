@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Model;
+using Broiler.Documents.Resources;
 
 namespace Broiler.Documents.Cli.Documents;
 
@@ -37,8 +38,8 @@ namespace Broiler.Documents.Cli.Documents;
 public static class EditOperations
 {
     /// <summary>Human-readable grammar, printed by <c>edit --help</c>.</summary>
-    public static IReadOnlyList<string> GrammarHelp { get; } = new[]
-    {
+    public static IReadOnlyList<string> GrammarHelp { get; } =
+    [
         "  append:TEXT                        Add a paragraph at the end.",
         "  insert:P:TEXT                      Insert a paragraph before paragraph P.",
         "  text:P:TEXT                        Replace paragraph P's text, keeping its paragraph style.",
@@ -71,7 +72,7 @@ public static class EditOperations
         "  Escapes      \\n newline, \\t tab, \\r return, \\: literal colon, \\\\ literal backslash.",
         "               A backslash before anything else keeps both characters. The image",
         "               props field is exempt entirely: it is taken exactly as written.",
-    };
+    ];
 
     /// <summary>Reads operations from <c>--op</c> values and <c>--script</c> files, in that order.</summary>
     public static IReadOnlyList<string> Collect(CommandLine line)
@@ -98,10 +99,7 @@ public static class EditOperations
     }
 
     /// <summary>Applies every operation in order and returns the resulting document.</summary>
-    public static RichTextDocument Apply(
-        RichTextDocument document,
-        IEnumerable<string> operations,
-        DocumentConversionContextBuilder? resources = null)
+    public static RichTextDocument Apply(RichTextDocument document, IEnumerable<string> operations, DocumentConversionContextBuilder? resources = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(operations);
@@ -126,10 +124,7 @@ public static class EditOperations
         return RichTextDocument.FromParagraphs(paragraphs);
     }
 
-    private static void ApplyOne(
-        List<RichTextParagraph> paragraphs,
-        string operation,
-        DocumentConversionContextBuilder? resources)
+    private static void ApplyOne(List<RichTextParagraph> paragraphs, string operation, DocumentConversionContextBuilder? resources)
     {
         string[] fields = SplitFields(operation);
         string verb = fields[0].Trim().ToLowerInvariant();
@@ -302,11 +297,7 @@ public static class EditOperations
         }
     }
 
-    private static void ApplyInline(
-        List<RichTextParagraph> paragraphs,
-        (int Start, int End) range,
-        string charRange,
-        InlineStyleDelta delta)
+    private static void ApplyInline(List<RichTextParagraph> paragraphs, (int Start, int End) range, string charRange, InlineStyleDelta delta)
     {
         for (int i = range.Start; i <= range.End; i++)
         {
@@ -328,11 +319,7 @@ public static class EditOperations
     /// and a writer that has to state a size falls back to the encoded pixel
     /// size the same way a renderer does.
     /// </remarks>
-    private static void InsertImage(
-        List<RichTextParagraph> paragraphs,
-        int index,
-        string offsetToken,
-        string properties,
+    private static void InsertImage(List<RichTextParagraph> paragraphs, int index, string offsetToken, string properties,
         DocumentConversionContextBuilder? resources)
     {
         string? file = null;
@@ -440,10 +427,7 @@ public static class EditOperations
         };
     }
 
-    private static void ApplyParagraph(
-        List<RichTextParagraph> paragraphs,
-        (int Start, int End) range,
-        ParagraphStyleDelta delta)
+    private static void ApplyParagraph(List<RichTextParagraph> paragraphs, (int Start, int End) range, ParagraphStyleDelta delta)
     {
         for (int i = range.Start; i <= range.End; i++)
             paragraphs[i] = paragraphs[i].WithParagraphStyle(delta.Apply(paragraphs[i].Style));
@@ -455,47 +439,34 @@ public static class EditOperations
 
         foreach ((string key, string value) in ParseProperties(properties))
         {
-            switch (key)
+            delta = key switch
             {
-                case "bold": delta = delta with { Bold = Switch(key, value) }; break;
-                case "italic": delta = delta with { Italic = Switch(key, value) }; break;
-                case "underline": delta = delta with { Underline = Switch(key, value) }; break;
-                case "strike":
-                case "strikethrough": delta = delta with { Strikethrough = Switch(key, value) }; break;
-                case "caps":
-                case "capitalization": delta = delta with { Capitalization = Capitalization(value) }; break;
-                case "color":
-                case "foreground": delta = delta with { Foreground = ColorText.Parse(value, "color") }; break;
-                case "highlight":
-                case "background": delta = delta with { Background = ColorText.Parse(value, "highlight") }; break;
-                case "font":
-                case "fontfamily":
-                    delta = delta with
-                    {
-                        SetFontFamily = true,
-                        FontFamily = IsDefault(value) ? null : value,
-                    };
-                    break;
-                case "size":
-                case "fontsize":
-                    delta = delta with
-                    {
-                        SetFontSize = true,
-                        FontSize = IsDefault(value) ? null : Points(key, value),
-                    };
-                    break;
-                case "link":
-                    delta = delta with
-                    {
-                        SetLink = true,
-                        LinkHref = IsOff(value) || IsDefault(value) ? null : value,
-                    };
-                    break;
-                default:
-                    throw new UsageException(
-                        "Unknown inline property \"" + key + "\". Known: bold, italic, underline, strike, " +
-                        "caps, color, highlight, font, size, link.");
-            }
+                "bold" => delta with { Bold = Switch(key, value) },
+                "italic" => delta with { Italic = Switch(key, value) },
+                "underline" => delta with { Underline = Switch(key, value) },
+                "strike" or "strikethrough" => delta with { Strikethrough = Switch(key, value) },
+                "caps" or "capitalization" => delta with { Capitalization = Capitalization(value) },
+                "color" or "foreground" => delta with { Foreground = ColorText.Parse(value, "color") },
+                "highlight" or "background" => delta with { Background = ColorText.Parse(value, "highlight") },
+                "font" or "fontfamily" => delta with
+                {
+                    SetFontFamily = true,
+                    FontFamily = IsDefault(value) ? null : value,
+                },
+                "size" or "fontsize" => delta with
+                {
+                    SetFontSize = true,
+                    FontSize = IsDefault(value) ? null : Points(key, value),
+                },
+                "link" => delta with
+                {
+                    SetLink = true,
+                    LinkHref = IsOff(value) || IsDefault(value) ? null : value,
+                },
+                _ => throw new UsageException(
+                    "Unknown inline property \"" + key + "\". Known: bold, italic, underline, strike, " +
+                    "caps, color, highlight, font, size, link."),
+            };
         }
 
         return delta;
@@ -507,28 +478,18 @@ public static class EditOperations
 
         foreach ((string key, string value) in ParseProperties(properties))
         {
-            switch (key)
+            delta = key switch
             {
-                case "align":
-                case "alignment": delta = delta with { Alignment = Alignment(value) }; break;
-                case "list":
-                case "listkind": delta = delta with { ListKind = List(value) }; break;
-                case "indent":
-                case "indentlevel": delta = delta with { IndentLevel = NonNegativeInt(key, value) }; break;
-                case "linespacing": delta = delta with { LineSpacing = PositivePoints(key, value) }; break;
-                case "before":
-                case "spacingbefore": delta = delta with { SpacingBefore = Points(key, value) }; break;
-                case "after":
-                case "spacingafter": delta = delta with { SpacingAfter = Points(key, value) }; break;
-                case "pagebreak":
-                case "pagebreakbefore":
-                    delta = delta with { PageBreakBefore = Switch(key, value) };
-                    break;
-                default:
-                    throw new UsageException(
-                        "Unknown paragraph property \"" + key + "\". Known: align, list, indent, " +
-                        "linespacing, before, after, pagebreak.");
-            }
+                "align" or "alignment" => delta with { Alignment = Alignment(value) },
+                "list" or "listkind" => delta with { ListKind = List(value) },
+                "indent" or "indentlevel" => delta with { IndentLevel = NonNegativeInt(key, value) },
+                "linespacing" => delta with { LineSpacing = PositivePoints(key, value) },
+                "before" or "spacingbefore" => delta with { SpacingBefore = Points(key, value) },
+                "after" or "spacingafter" => delta with { SpacingAfter = Points(key, value) },
+                "pagebreak" or "pagebreakbefore" => delta with { PageBreakBefore = Switch(key, value) },
+                _ => throw new UsageException("Unknown paragraph property \"" + key + "\". Known: align, list, indent, " +
+                                        "linespacing, before, after, pagebreak."),
+            };
         }
 
         return delta;
@@ -790,7 +751,7 @@ public static class EditOperations
             start = colon + 1;
         }
 
-        return fields.ToArray();
+        return [.. fields];
     }
 
     private static int IndexOfUnescapedColon(string value, int start)

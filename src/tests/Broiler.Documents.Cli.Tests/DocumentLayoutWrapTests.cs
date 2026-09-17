@@ -1,5 +1,4 @@
 using Broiler.Documents.Cli.Rendering;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Cli.Tests;
@@ -29,7 +28,7 @@ public sealed class DocumentLayoutWrapTests
     }
 
     private static List<LayoutLine> BodyLines(LayoutResult result) =>
-        result.Pages.SelectMany(page => page.Lines).ToList();
+        [.. result.Pages.SelectMany(page => page.Lines)];
 
     /// <summary>The rightmost edge any piece of the line reaches.</summary>
     private static double Right(LayoutLine line) =>

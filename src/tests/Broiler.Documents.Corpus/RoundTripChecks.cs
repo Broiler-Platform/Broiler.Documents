@@ -94,10 +94,9 @@ internal static class RoundTripChecks
         // A hop that never reported is not a pass. Without this a `roundtrip`
         // that silently stopped emitting one of its `--via` results would leave
         // the whole matrix green.
-        string[] absent = CorpusFormat.All
+        string[] absent = [.. CorpusFormat.All
             .Select(format => format.Key)
-            .Except(outcomes.Select(outcome => outcome.Via), StringComparer.Ordinal)
-            .ToArray();
+            .Except(outcomes.Select(outcome => outcome.Via), StringComparer.Ordinal)];
 
         checks.Add(absent.Length == 0
             ? CheckResult.Pass(Group, "roundtrip/" + label + "/complete", run.Duration)
@@ -112,12 +111,11 @@ internal static class RoundTripChecks
     {
         JsonElement comparison = result.GetProperty("comparison");
 
-        string[] differences = comparison.GetProperty("differences").EnumerateArray()
+        string[] differences = [.. comparison.GetProperty("differences").EnumerateArray()
             .Select(difference =>
                 (difference.GetProperty("kind").GetString() ?? "?") + "@p" +
                 Paragraph(difference) + ": " +
-                (difference.GetProperty("detail").GetString() ?? string.Empty))
-            .ToArray();
+                (difference.GetProperty("detail").GetString() ?? string.Empty))];
 
         // The read summaries are excluded and nothing else is. Every package
         // reader emits one at info severity on every document, so carrying them
@@ -129,11 +127,10 @@ internal static class RoundTripChecks
         // this component asks of it - and a baseline that hid those made a
         // documented, tested, reported behaviour look like a silent loss. It was
         // classified as a defect on that basis.
-        string[] diagnostics = Codes(result, "writeDiagnostics")
+        string[] diagnostics = [.. Codes(result, "writeDiagnostics")
             .Concat(Codes(result, "readDiagnostics"))
             .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         return new RoundTripOutcome(
             document.Id,
@@ -182,10 +179,10 @@ internal static class RoundTripChecks
 
         var differences = new List<string>();
 
-        string[] newDifferences = outcome.Differences.Except(row.Differences, StringComparer.Ordinal).ToArray();
-        string[] goneDifferences = row.Differences.Except(outcome.Differences, StringComparer.Ordinal).ToArray();
-        string[] newDiagnostics = outcome.Diagnostics.Except(row.Diagnostics, StringComparer.Ordinal).ToArray();
-        string[] goneDiagnostics = row.Diagnostics.Except(outcome.Diagnostics, StringComparer.Ordinal).ToArray();
+        string[] newDifferences = [.. outcome.Differences.Except(row.Differences, StringComparer.Ordinal)];
+        string[] goneDifferences = [.. row.Differences.Except(outcome.Differences, StringComparer.Ordinal)];
+        string[] newDiagnostics = [.. outcome.Diagnostics.Except(row.Diagnostics, StringComparer.Ordinal)];
+        string[] goneDiagnostics = [.. row.Diagnostics.Except(outcome.Diagnostics, StringComparer.Ordinal)];
 
         if (newDifferences.Length > 0)
             differences.Add("new difference(s): " + string.Join("; ", newDifferences));

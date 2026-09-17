@@ -11,12 +11,6 @@ internal enum RunningBand
 }
 
 /// <summary>Everything a read needs to turn one element into document content.</summary>
-internal sealed record DocxReadContext(
-    DocxRelationships Relationships,
-    DocxNumbering Numbering,
-    DocxStyles Styles,
-    DocxImageLoader Images,
-    DocxDocumentBuilder Builder,
-    PageGeometry? Page = null,
-    RunningBand Band = RunningBand.Body);
+internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumbering Numbering, DocxStyles Styles,
+    DocxImageLoader Images, DocxDocumentBuilder Builder, PageGeometry? Page = null, RunningBand Band = RunningBand.Body);
 

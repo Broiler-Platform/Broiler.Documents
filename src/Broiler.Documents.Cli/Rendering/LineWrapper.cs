@@ -25,10 +25,7 @@ internal sealed class LineWrapper(double tabStopPoints)
     /// line lands. <paramref name="bands"/> collects what each row was given, so
     /// the caller can place it at the left edge it was wrapped to.
     /// </remarks>
-    internal List<List<LayoutPiece>> Wrap(
-        List<LayoutToken> tokens,
-        Func<int, TextBand> bandFor,
-        List<TextBand>? bands)
+    internal List<List<LayoutPiece>> Wrap(List<LayoutToken> tokens, Func<int, TextBand> bandFor, List<TextBand>? bands)
     {
         var rows = new List<List<LayoutPiece>>();
         var current = new List<LayoutPiece>();
@@ -43,7 +40,7 @@ internal sealed class LineWrapper(double tabStopPoints)
         void Flush()
         {
             rows.Add(current);
-            current = new List<LayoutPiece>();
+            current = [];
             currentWidth = 0;
             pendingSpace.Clear();
             pendingWidth = 0;
@@ -128,7 +125,7 @@ internal sealed class LineWrapper(double tabStopPoints)
     }
 
     /// <summary>Splits an over-wide token into chunks that fit, one character at a time.</summary>
-    private IEnumerable<LayoutToken> BreakToken(LayoutToken token, double maxWidth)
+    private static IEnumerable<LayoutToken> BreakToken(LayoutToken token, double maxWidth)
     {
         foreach (LayoutPiece piece in token.Pieces)
         {
@@ -173,32 +170,13 @@ internal sealed class LineWrapper(double tabStopPoints)
     private static LayoutPiece ScaleToWidth(LayoutPiece piece, double width)
     {
         double factor = width / piece.Width;
-        return new LayoutPiece(
-            piece.Text,
-            piece.Font,
-            piece.Color,
-            piece.Highlight,
-            piece.Underline,
-            piece.Strikethrough,
-            piece.Link,
-            piece.Image,
-            width,
-            piece.Ascent * factor,
-            piece.Descent * factor);
+        return new LayoutPiece(piece.Text, piece.Font, piece.Color, piece.Highlight, piece.Underline,
+            piece.Strikethrough, piece.Link, piece.Image, width, piece.Ascent * factor, piece.Descent * factor);
     }
 
-    private static LayoutPiece Retext(LayoutPiece source, string text, double width) => new(
-        text,
-        source.Font,
-        source.Color,
-        source.Highlight,
-        source.Underline,
-        source.Strikethrough,
-        source.Link,
-        null,
-        width,
-        source.Ascent,
-        source.Descent);
+    private static LayoutPiece Retext(LayoutPiece source, string text, double width) =>
+        new(text, source.Font, source.Color, source.Highlight, source.Underline, 
+            source.Strikethrough, source.Link, null, width, source.Ascent, source.Descent);
 
     /// <summary>
     /// The width a line has used once a tab reaching <paramref name="used"/> has

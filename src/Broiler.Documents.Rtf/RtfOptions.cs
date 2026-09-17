@@ -1,5 +1,3 @@
-using System;
-
 namespace Broiler.Documents.Rtf;
 
 /// <summary>
@@ -22,19 +20,14 @@ namespace Broiler.Documents.Rtf;
 /// option type is a structured rejection rather than a silent fallback.
 /// </para>
 /// </remarks>
-public sealed class RtfReadOptions : DocumentReadOptions
+public sealed class RtfReadOptions(
+    DocumentLimits? limits = null,
+    int defaultCodePage = RtfReadOptions.Windows1252CodePage) : DocumentReadOptions(limits, defaultCodePage)
 {
     /// <summary>Windows-1252, the RTF default when no <c>\ansicpg</c> is present.</summary>
     public new const int Windows1252CodePage = DocumentReadOptions.Windows1252CodePage;
 
     public static new RtfReadOptions Default { get; } = new();
-
-    public RtfReadOptions(
-        DocumentLimits? limits = null,
-        int defaultCodePage = Windows1252CodePage)
-        : base(limits, defaultCodePage)
-    {
-    }
 }
 
 /// <summary>

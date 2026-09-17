@@ -22,7 +22,7 @@ public sealed class RichTextEditor
 
         MaxHistoryDepth = maxHistoryDepth;
         Document = document ?? RichTextDocument.Empty;
-        Selection = RichTextRange.Caret(Document.Start);
+        Selection = RichTextRange.Caret(RichTextDocument.Start);
     }
 
     public RichTextDocument Document { get; private set; }
@@ -63,7 +63,7 @@ public sealed class RichTextEditor
 
     public void SetCaret(RichTextPosition caret) => SetSelection(RichTextRange.Caret(caret));
 
-    public void SelectAll() => SetSelection(new RichTextRange(Document.Start, Document.End));
+    public void SelectAll() => SetSelection(new RichTextRange(RichTextDocument.Start, Document.End));
 
     public void MoveTo(RichTextPosition target, bool extend)
     {
@@ -81,7 +81,7 @@ public sealed class RichTextEditor
 
     public void MoveToParagraphEnd(bool extend) => MoveTo(Document.ParagraphEnd(Selection.Focus), extend);
 
-    public void MoveToDocumentStart(bool extend) => MoveTo(Document.Start, extend);
+    public void MoveToDocumentStart(bool extend) => MoveTo(RichTextDocument.Start, extend);
 
     public void MoveToDocumentEnd(bool extend) => MoveTo(Document.End, extend);
 
@@ -257,7 +257,7 @@ public sealed class RichTextEditor
         }
 
         RichTextDocument document = Document.ApplyInlineStyle(Selection, delta);
-        Commit(document, Selection, new[] { (RichTextOperation)new ApplyInlineStyleOperation(Selection, delta) });
+        Commit(document, Selection, [(new ApplyInlineStyleOperation(Selection, delta))]);
         return true;
     }
 
@@ -282,7 +282,7 @@ public sealed class RichTextEditor
             ? ClampRange(document, requested)
             : range;
         Commit(document, resolvedAfter,
-            new[] { (RichTextOperation)new ApplyInlineStyleOperation(range, delta) });
+            [(new ApplyInlineStyleOperation(range, delta))]);
         return true;
     }
 
@@ -302,7 +302,7 @@ public sealed class RichTextEditor
             delta = delta with { IndentLevel = 0 };
 
         RichTextDocument document = Document.ApplyParagraphStyle(Selection, delta);
-        Commit(document, Selection, new[] { (RichTextOperation)new ApplyParagraphStyleOperation(Selection, delta) });
+        Commit(document, Selection, [(new ApplyParagraphStyleOperation(Selection, delta))]);
         return true;
     }
 
@@ -318,7 +318,7 @@ public sealed class RichTextEditor
             ? ClampRange(document, requested)
             : range;
         Commit(document, resolvedAfter,
-            new[] { (RichTextOperation)new ApplyParagraphStyleOperation(range, delta) });
+            [(new ApplyParagraphStyleOperation(range, delta))]);
         return true;
     }
 
@@ -379,7 +379,7 @@ public sealed class RichTextEditor
     public void LoadDocument(RichTextDocument document)
     {
         Document = document ?? RichTextDocument.Empty;
-        Selection = RichTextRange.Caret(Document.Start);
+        Selection = RichTextRange.Caret(RichTextDocument.Start);
         _undo.Clear();
         _redo.Clear();
         _pendingInline = null;
@@ -389,7 +389,7 @@ public sealed class RichTextEditor
     public void LoadPlainText(string? text)
     {
         Document = RichTextDocument.FromPlainText(text);
-        Selection = RichTextRange.Caret(Document.Start);
+        Selection = RichTextRange.Caret(RichTextDocument.Start);
         _undo.Clear();
         _redo.Clear();
         _pendingInline = null;
@@ -401,7 +401,7 @@ public sealed class RichTextEditor
     {
         RichTextRange range = Selection;
         RichTextEditResult deletion = Document.DeleteRange(range);
-        Commit(deletion.Document, RichTextRange.Caret(deletion.Caret), new[] { (RichTextOperation)new DeleteRangeOperation(range) });
+        Commit(deletion.Document, RichTextRange.Caret(deletion.Caret), [(new DeleteRangeOperation(range))]);
         return true;
     }
 
@@ -409,14 +409,14 @@ public sealed class RichTextEditor
     {
         var range = new RichTextRange(from, to);
         RichTextEditResult deletion = Document.DeleteRange(range);
-        Commit(deletion.Document, RichTextRange.Caret(deletion.Caret), new[] { (RichTextOperation)new DeleteRangeOperation(range) });
+        Commit(deletion.Document, RichTextRange.Caret(deletion.Caret), [(new DeleteRangeOperation(range))]);
         return true;
     }
 
     private bool MergeAt(int firstParagraphIndex)
     {
         RichTextEditResult merge = Document.MergeParagraphs(firstParagraphIndex);
-        Commit(merge.Document, RichTextRange.Caret(merge.Caret), new[] { (RichTextOperation)new MergeParagraphsOperation(firstParagraphIndex) });
+        Commit(merge.Document, RichTextRange.Caret(merge.Caret), [(new MergeParagraphsOperation(firstParagraphIndex))]);
         return true;
     }
 

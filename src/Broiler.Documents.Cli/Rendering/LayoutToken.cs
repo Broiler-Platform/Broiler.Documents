@@ -20,7 +20,7 @@ internal sealed class LayoutToken
     /// <summary>True for the token U+2028 makes: end this line here.</summary>
     public bool IsForcedBreak { get; }
 
-    public List<LayoutPiece> Pieces { get; } = new();
+    public List<LayoutPiece> Pieces { get; } = [];
 
     public double Width { get; private set; }
 

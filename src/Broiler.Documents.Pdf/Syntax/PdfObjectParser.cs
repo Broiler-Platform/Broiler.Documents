@@ -13,19 +13,12 @@ namespace Broiler.Documents.Pdf.Syntax;
 /// cannot start an object is consumed and reported, never used as the cue to
 /// scan the file for something that looks like an object.
 /// </remarks>
-internal sealed class PdfObjectParser
+internal sealed class PdfObjectParser(PdfLexer lexer, PdfWorkBudget budget)
 {
-    private readonly PdfLexer _lexer;
-    private readonly PdfLimits _limits;
-    private readonly PdfWorkBudget _budget;
+    private readonly PdfLexer _lexer = lexer ?? throw new ArgumentNullException(nameof(lexer));
+    private readonly PdfLimits _limits = budget.Limits;
+    private readonly PdfWorkBudget _budget = budget ?? throw new ArgumentNullException(nameof(budget));
     private readonly Queue<PdfToken> _lookahead = new();
-
-    public PdfObjectParser(PdfLexer lexer, PdfWorkBudget budget)
-    {
-        _lexer = lexer ?? throw new ArgumentNullException(nameof(lexer));
-        _budget = budget ?? throw new ArgumentNullException(nameof(budget));
-        _limits = budget.Limits;
-    }
 
     public PdfLexer Lexer => _lexer;
 
@@ -321,7 +314,7 @@ internal sealed class PdfObjectParser
         /// <summary>True while resynchronizing past a malformed dictionary key.</summary>
         public bool DiscardNextValue { get; }
 
-        public static Frame ForArray() => new(new PdfArray(), null, null, false);
+        public static Frame ForArray() => new([], null, null, false);
 
         public static Frame ForDictionary() => new(null, new PdfDictionary(), null, false);
 

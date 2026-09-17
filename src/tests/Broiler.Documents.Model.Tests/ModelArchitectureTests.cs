@@ -33,11 +33,10 @@ public sealed class ModelArchitectureTests
     [Fact]
     public void Model_Assembly_Only_References_Graphics_At_Runtime()
     {
-        string[] referenced = typeof(RichTextDocument).Assembly
+        string[] referenced = [.. typeof(RichTextDocument).Assembly
             .GetReferencedAssemblies()
             .Select(name => name.Name ?? string.Empty)
-            .Where(name => name.StartsWith("Broiler.", StringComparison.Ordinal))
-            .ToArray();
+            .Where(name => name.StartsWith("Broiler.", StringComparison.Ordinal))];
 
         Assert.Equal(["Broiler.Graphics"], referenced);
     }

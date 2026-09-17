@@ -1,5 +1,4 @@
 using System.IO.Compression;
-using Broiler.Graphics;
 using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Pdf.Tests;
@@ -223,7 +222,7 @@ public sealed class PdfImageProjectionTests
         var builder = new PdfFileBuilder();
         int mask = builder.AddStream(
             "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8",
-            new byte[] { 0x80 });
+            [0x80]);
 
         Assert.Contains(
             "transparency this build does not composite",
@@ -303,7 +302,7 @@ public sealed class PdfImageProjectionTests
         var builder = new PdfFileBuilder();
         int mask = builder.AddStream(
             "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8",
-            new byte[] { 0x80 });
+            [0x80]);
 
         Assert.Contains(
             "transparency this build does not composite",

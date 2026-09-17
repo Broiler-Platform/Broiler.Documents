@@ -10,11 +10,9 @@ public sealed class DocumentInputTests
     private static byte[] Bytes(string text) => System.Text.Encoding.ASCII.GetBytes(text);
 
     /// <summary>A stream that refuses to seek, like a pipe or a network body.</summary>
-    private sealed class ForwardOnlyStream : Stream
+    private sealed class ForwardOnlyStream(byte[] data) : Stream
     {
-        private readonly MemoryStream _inner;
-
-        public ForwardOnlyStream(byte[] data) => _inner = new MemoryStream(data);
+        private readonly MemoryStream _inner = new MemoryStream(data);
 
         public int ReadCalls { get; private set; }
 

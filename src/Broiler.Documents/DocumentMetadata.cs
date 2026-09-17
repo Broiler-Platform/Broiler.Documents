@@ -88,7 +88,8 @@ public readonly struct DocumentDate : IEquatable<DocumentDate>
 /// options object holding it and no longer.
 /// </para>
 /// </remarks>
-public sealed class DocumentMetadata
+public sealed class DocumentMetadata(string? title = null, IEnumerable<string>? authors = null, string? subject = null, IEnumerable<string>? keywords = null,
+    string? language = null, string? creatorApplication = null, string? producer = null, DocumentDate? creationDate = null, DocumentDate? modificationDate = null)
 {
     // Declared before Empty: static field initializers run in textual order, and
     // Empty's constructor reads this one.
@@ -97,58 +98,36 @@ public sealed class DocumentMetadata
     /// <summary>Metadata that states nothing at all.</summary>
     public static DocumentMetadata Empty { get; } = new();
 
-    public DocumentMetadata(
-        string? title = null,
-        IEnumerable<string>? authors = null,
-        string? subject = null,
-        IEnumerable<string>? keywords = null,
-        string? language = null,
-        string? creatorApplication = null,
-        string? producer = null,
-        DocumentDate? creationDate = null,
-        DocumentDate? modificationDate = null)
-    {
-        Title = title;
-        Authors = Freeze(authors);
-        Subject = subject;
-        Keywords = Freeze(keywords);
-        Language = language;
-        CreatorApplication = creatorApplication;
-        Producer = producer;
-        CreationDate = creationDate;
-        ModificationDate = modificationDate;
-    }
-
-    public string? Title { get; }
+    public string? Title { get; } = title;
 
     /// <summary>
     /// Authors in source order. Formats state this in incompatible shapes — one
     /// delimited string in a PDF Info dictionary, a repeated element in ODT — and
     /// the list is the shape that loses nothing either way.
     /// </summary>
-    public IReadOnlyList<string> Authors { get; }
+    public IReadOnlyList<string> Authors { get; } = Freeze(authors);
 
-    public string? Subject { get; }
+    public string? Subject { get; } = subject;
 
     /// <summary>Keywords in source order.</summary>
-    public IReadOnlyList<string> Keywords { get; }
+    public IReadOnlyList<string> Keywords { get; } = Freeze(keywords);
 
     /// <summary>The document's natural language.</summary>
-    public string? Language { get; }
+    public string? Language { get; } = language;
 
     /// <summary>
     /// The application that authored the original document, where the format
     /// distinguishes that from the one that produced the file. Most do not, and
     /// leave this absent rather than repeating <see cref="Producer"/>.
     /// </summary>
-    public string? CreatorApplication { get; }
+    public string? CreatorApplication { get; } = creatorApplication;
 
     /// <summary>The application that produced the file being read or written.</summary>
-    public string? Producer { get; }
+    public string? Producer { get; } = producer;
 
-    public DocumentDate? CreationDate { get; }
+    public DocumentDate? CreationDate { get; } = creationDate;
 
-    public DocumentDate? ModificationDate { get; }
+    public DocumentDate? ModificationDate { get; } = modificationDate;
 
     /// <summary>True when every normalized field is absent.</summary>
     public bool IsEmpty =>
@@ -167,17 +146,9 @@ public sealed class DocumentMetadata
     /// alone and reads better as constructing the envelope you actually want, so
     /// it is deliberately not expressible here.
     /// </remarks>
-    public DocumentMetadata With(
-        string? title = null,
-        IEnumerable<string>? authors = null,
-        string? subject = null,
-        IEnumerable<string>? keywords = null,
-        string? language = null,
-        string? creatorApplication = null,
-        string? producer = null,
-        DocumentDate? creationDate = null,
-        DocumentDate? modificationDate = null) =>
-        new(
+    public DocumentMetadata With(string? title = null, IEnumerable<string>? authors = null, string? subject = null,
+        IEnumerable<string>? keywords = null, string? language = null, string? creatorApplication = null,
+        string? producer = null, DocumentDate? creationDate = null, DocumentDate? modificationDate = null) => new(
             title ?? Title,
             authors ?? Authors,
             subject ?? Subject,

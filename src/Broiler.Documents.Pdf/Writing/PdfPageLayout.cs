@@ -5,71 +5,54 @@ using System.Text;
 using System.Threading;
 using Broiler.Documents.Model;
 using Broiler.Documents.Pdf.Text;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Pdf.Writing;
 
 /// <summary>A run of text placed at a definite position on a page.</summary>
-internal sealed class PdfPlacedRun
+internal sealed class PdfPlacedRun(
+    string text,
+    double x,
+    double baseline,
+    double width,
+    double fontSize,
+    PdfStandardFont font,
+    BColor color,
+    BColor background,
+    bool underline,
+    bool strikethrough,
+    string? linkHref,
+    double wordSpacing = 0)
 {
-    public PdfPlacedRun(
-        string text,
-        double x,
-        double baseline,
-        double width,
-        double fontSize,
-        PdfStandardFont font,
-        BColor color,
-        BColor background,
-        bool underline,
-        bool strikethrough,
-        string? linkHref,
-        double wordSpacing = 0)
-    {
-        Text = text;
-        X = x;
-        Baseline = baseline;
-        Width = width;
-        FontSize = fontSize;
-        Font = font;
-        Color = color;
-        Background = background;
-        Underline = underline;
-        Strikethrough = strikethrough;
-        LinkHref = linkHref;
-        WordSpacing = wordSpacing;
-    }
+    public string Text { get; } = text;
 
-    public string Text { get; }
+    public double X { get; } = x;
 
-    public double X { get; }
+    public double Baseline { get; } = baseline;
 
-    public double Baseline { get; }
+    public double Width { get; } = width;
 
-    public double Width { get; }
+    public double FontSize { get; } = fontSize;
 
-    public double FontSize { get; }
+    public PdfStandardFont Font { get; } = font;
 
-    public PdfStandardFont Font { get; }
+    public BColor Color { get; } = color;
 
-    public BColor Color { get; }
+    public BColor Background { get; } = background;
 
-    public BColor Background { get; }
+    public bool Underline { get; } = underline;
 
-    public bool Underline { get; }
-
-    public bool Strikethrough { get; }
+    public bool Strikethrough { get; } = strikethrough;
 
     /// <summary>The admitted link target, or null. Revalidated again at emission.</summary>
-    public string? LinkHref { get; }
+    public string? LinkHref { get; } = linkHref;
 
     /// <summary>
     /// Extra width given to every space in this run, as PDF's <c>Tw</c>. Non-zero
     /// only on a justified line, where the slack is spread into the spaces rather
     /// than left at one end.
     /// </summary>
-    public double WordSpacing { get; }
+    public double WordSpacing { get; } = wordSpacing;
 }
 
 /// <summary>A floating shape's painted box, in PDF user space.</summary>
@@ -106,7 +89,12 @@ internal sealed class PdfLayoutPage
 /// not metrically exact, which the writer reports once per document.
 /// </para>
 /// </remarks>
-internal sealed class PdfPageLayout
+internal sealed class PdfPageLayout(
+    PdfWriteOptions options,
+    IPdfFontMetricsProvider metrics,
+    PdfUriPolicy uriPolicy,
+    PdfDiagnosticSink diagnostics,
+    CancellationToken cancellationToken)
 {
     /// <summary>The width of one indent level, in points.</summary>
     private const double IndentWidth = 24d;
@@ -118,11 +106,11 @@ internal sealed class PdfPageLayout
     /// </summary>
     private const double TabStopWidth = 48d;
 
-    private readonly PdfWriteOptions _options;
-    private readonly IPdfFontMetricsProvider _metrics;
-    private readonly PdfUriPolicy _uriPolicy;
-    private readonly PdfDiagnosticSink _diagnostics;
-    private readonly CancellationToken _cancellationToken;
+    private readonly PdfWriteOptions _options = options;
+    private readonly IPdfFontMetricsProvider _metrics = metrics;
+    private readonly PdfUriPolicy _uriPolicy = uriPolicy;
+    private readonly PdfDiagnosticSink _diagnostics = diagnostics;
+    private readonly CancellationToken _cancellationToken = cancellationToken;
 
     /// <summary>
     /// The boxes wrapping shapes keep this layout's lines out of, for the page
@@ -131,20 +119,6 @@ internal sealed class PdfPageLayout
     /// shapes are elsewhere.
     /// </summary>
     private TextWrapExclusions _wrap = new();
-
-    public PdfPageLayout(
-        PdfWriteOptions options,
-        IPdfFontMetricsProvider metrics,
-        PdfUriPolicy uriPolicy,
-        PdfDiagnosticSink diagnostics,
-        CancellationToken cancellationToken)
-    {
-        _options = options;
-        _metrics = metrics;
-        _uriPolicy = uriPolicy;
-        _diagnostics = diagnostics;
-        _cancellationToken = cancellationToken;
-    }
 
     public List<PdfLayoutPage> Build(RichTextDocument document)
     {
@@ -203,7 +177,7 @@ internal sealed class PdfPageLayout
                     if (y - row.Height < bottom && page.Runs.Count > 0)
                         BreakPage();
 
-                    row.PlaceOn(page, y, this, anchors);
+                    row.PlaceOn(page, y, anchors);
                     y -= row.Height;
                 }
 
@@ -422,7 +396,7 @@ internal sealed class PdfPageLayout
     {
         foreach (PdfLayoutPage page in pages)
         {
-            List<PdfPlacedShape> ordered = page.Shapes.OrderBy(shape => shape.ZOrder).ToList();
+            List<PdfPlacedShape> ordered = [.. page.Shapes.OrderBy(shape => shape.ZOrder)];
             page.Shapes.Clear();
             page.Shapes.AddRange(ordered);
         }
@@ -668,24 +642,16 @@ internal sealed class PdfPageLayout
         bool IsLastLine);
 
     /// <summary>A cell's box, before the row it belongs to is placed on a page.</summary>
-    private sealed class CellBoxDraft
+    private sealed class CellBoxDraft(double left, double width, TableCell cell, double offset = 0)
     {
-        public CellBoxDraft(double left, double width, TableCell cell, double offset = 0)
-        {
-            Left = left;
-            Width = width;
-            Cell = cell;
-            Offset = offset;
-        }
+        public double Left { get; } = left;
 
-        public double Left { get; }
+        public double Width { get; } = width;
 
-        public double Width { get; }
-
-        public TableCell Cell { get; }
+        public TableCell Cell { get; } = cell;
 
         /// <summary>How far below the content's top the box starts.</summary>
-        public double Offset { get; }
+        public double Offset { get; } = offset;
 
         /// <summary>The height of the row the box is in, known once the row is composed.</summary>
         public double RowHeight { get; set; }
@@ -789,7 +755,6 @@ internal sealed class PdfPageLayout
         public void PlaceOn(
             PdfLayoutPage page,
             double top,
-            PdfPageLayout layout,
             Dictionary<int, (PdfLayoutPage Page, double Top)> anchors)
         {
             foreach (CellBoxDraft box in Boxes)
@@ -800,7 +765,7 @@ internal sealed class PdfPageLayout
 
             foreach (PlacedLine line in Lines)
             {
-                layout.Place(
+                Place(
                     page,
                     line.Line,
                     line.Left,
@@ -981,7 +946,7 @@ internal sealed class PdfPageLayout
         return band;
     }
 
-    private void Place(
+    private static void Place(
         PdfLayoutPage page,
         LayoutLine line,
         double left,
@@ -1492,39 +1457,28 @@ internal sealed class PdfPageLayout
 
     // ---- layout value types ---------------------------------------------------
 
-    private readonly struct RunStyle
+    private readonly struct RunStyle(
+        PdfStandardFont font,
+        double fontSize,
+        BColor color,
+        BColor background,
+        bool underline,
+        bool strikethrough,
+        string? linkHref)
     {
-        public RunStyle(
-            PdfStandardFont font,
-            double fontSize,
-            BColor color,
-            BColor background,
-            bool underline,
-            bool strikethrough,
-            string? linkHref)
-        {
-            Font = font;
-            FontSize = fontSize;
-            Color = color;
-            Background = background;
-            Underline = underline;
-            Strikethrough = strikethrough;
-            LinkHref = linkHref;
-        }
+        public PdfStandardFont Font { get; } = font;
 
-        public PdfStandardFont Font { get; }
+        public double FontSize { get; } = fontSize;
 
-        public double FontSize { get; }
+        public BColor Color { get; } = color;
 
-        public BColor Color { get; }
+        public BColor Background { get; } = background;
 
-        public BColor Background { get; }
+        public bool Underline { get; } = underline;
 
-        public bool Underline { get; }
+        public bool Strikethrough { get; } = strikethrough;
 
-        public bool Strikethrough { get; }
-
-        public string? LinkHref { get; }
+        public string? LinkHref { get; } = linkHref;
 
         public bool Matches(RunStyle other) =>
             Font == other.Font && FontSize.Equals(other.FontSize) && Color == other.Color &&
@@ -1533,23 +1487,14 @@ internal sealed class PdfPageLayout
             string.Equals(LinkHref, other.LinkHref, StringComparison.Ordinal);
     }
 
-    private readonly struct Word
+    private readonly struct Word(
+        string text,
+        double width,
+RunStyle style,
+        bool isSpace,
+        bool isTab = false,
+        bool isForcedBreak = false)
     {
-        public Word(
-            string text,
-            double width,
-            RunStyle style,
-            bool isSpace,
-            bool isTab = false,
-            bool isForcedBreak = false)
-        {
-            Text = text;
-            Width = width;
-            Style = style;
-            IsSpace = isSpace;
-            IsTab = isTab;
-            IsForcedBreak = isForcedBreak;
-        }
 
         /// <summary>
         /// A tab, carrying its style and no width yet: the line it lands on is what
@@ -1565,20 +1510,20 @@ internal sealed class PdfPageLayout
         public static Word ForcedBreak(RunStyle style) =>
             new(string.Empty, 0, style, isSpace: false, isTab: false, isForcedBreak: true);
 
-        public string Text { get; }
+        public string Text { get; } = text;
 
-        public double Width { get; }
+        public double Width { get; } = width;
 
-        public RunStyle Style { get; }
+        public RunStyle Style { get; } = style;
 
         /// <summary>True when the word is only whitespace.</summary>
-        public bool IsSpace { get; }
+        public bool IsSpace { get; } = isSpace;
 
         /// <summary>True for a tab: a gap of measured width that draws no glyphs.</summary>
-        public bool IsTab { get; }
+        public bool IsTab { get; } = isTab;
 
         /// <summary>True for the break U+2028 makes: end this line here.</summary>
-        public bool IsForcedBreak { get; }
+        public bool IsForcedBreak { get; } = isForcedBreak;
 
         public PdfStandardFont Font => Style.Font;
 
@@ -1590,24 +1535,16 @@ internal sealed class PdfPageLayout
         public LayoutPiece ToPiece() => new(Text, Width, Style, IsTab);
     }
 
-    private sealed class LayoutPiece
+    private sealed class LayoutPiece(string text, double width, RunStyle style, bool isTab = false)
     {
-        public LayoutPiece(string text, double width, RunStyle style, bool isTab = false)
-        {
-            Text = text;
-            Width = width;
-            Style = style;
-            IsTab = isTab;
-        }
-
-        public string Text { get; }
+        public string Text { get; } = text;
 
         /// <summary>True for a tab: a gap of measured width that draws no glyphs.</summary>
-        public bool IsTab { get; }
+        public bool IsTab { get; } = isTab;
 
-        public double Width { get; }
+        public double Width { get; } = width;
 
-        public RunStyle Style { get; }
+        public RunStyle Style { get; } = style;
 
         public PdfStandardFont Font => Style.Font;
 

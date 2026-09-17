@@ -1,8 +1,5 @@
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Text;
-using System;
-using System.IO;
-using System.Linq;
-using Xunit;
 
 namespace Broiler.Documents.Tests;
 

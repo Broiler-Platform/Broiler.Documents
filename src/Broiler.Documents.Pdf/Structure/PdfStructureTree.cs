@@ -138,18 +138,12 @@ internal sealed class PdfStructureTree
     /// The depth-first walk. Held as a type rather than a closure so the cycle
     /// set, the node budget, and the inherited page travel together.
     /// </summary>
-    private sealed class Walk
+    private sealed class Walk(PdfObjectStore store, Dictionary<PdfDictionary, int> pages)
     {
-        private readonly PdfObjectStore _store;
-        private readonly Dictionary<PdfDictionary, int> _pages;
+        private readonly PdfObjectStore _store = store;
+        private readonly Dictionary<PdfDictionary, int> _pages = pages;
         private readonly HashSet<PdfDictionary> _visited = [];
         private int _nodes;
-
-        public Walk(PdfObjectStore store, Dictionary<PdfDictionary, int> pages)
-        {
-            _store = store;
-            _pages = pages;
-        }
 
         public Dictionary<(int Page, int Mcid), int> Order { get; } = [];
 

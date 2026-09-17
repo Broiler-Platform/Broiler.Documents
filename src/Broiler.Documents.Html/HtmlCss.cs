@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Net;
 using System.Text;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Html;
@@ -109,7 +108,7 @@ internal static class HtmlCss
             return TryParseHexColor(value, out color);
 
         if (value.StartsWith("rgb(", StringComparison.OrdinalIgnoreCase) &&
-            value.EndsWith(")", StringComparison.Ordinal))
+            value.EndsWith(')'))
         {
             string inner = value[4..^1];
             string[] components = inner.Split(',');
@@ -204,7 +203,7 @@ internal static class HtmlCss
             trimmed = trimmed[..^2].Trim();
             multiplier = 12f;
         }
-        else if (trimmed.EndsWith("q", StringComparison.Ordinal))
+        else if (trimmed.EndsWith('q'))
         {
             trimmed = trimmed[..^1].Trim();
             multiplier = 72f / 101.6f;
@@ -230,7 +229,7 @@ internal static class HtmlCss
             return true;
         }
 
-        if (trimmed.EndsWith("%", StringComparison.Ordinal) &&
+        if (trimmed.EndsWith('%') &&
             float.TryParse(trimmed[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out float percent))
         {
             spacing = Math.Max(0, percent / 100f);
@@ -267,7 +266,7 @@ internal static class HtmlCss
         value.EndsWith("cm", StringComparison.Ordinal) ||
         value.EndsWith("mm", StringComparison.Ordinal) ||
         value.EndsWith("pc", StringComparison.Ordinal) ||
-        value.EndsWith("q", StringComparison.Ordinal);
+        value.EndsWith('q');
 
     private static bool TryParseHexColor(string value, out BColor color)
     {
@@ -292,7 +291,7 @@ internal static class HtmlCss
     {
         result = 0;
         string trimmed = value.Trim();
-        if (trimmed.EndsWith("%", StringComparison.Ordinal))
+        if (trimmed.EndsWith('%'))
         {
             if (!float.TryParse(trimmed[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out float percent))
                 return false;

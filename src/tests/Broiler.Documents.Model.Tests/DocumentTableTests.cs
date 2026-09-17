@@ -1,5 +1,4 @@
-﻿using Broiler.Graphics;
-using Broiler.Graphics.Color;
+﻿using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Model.Tests;
 

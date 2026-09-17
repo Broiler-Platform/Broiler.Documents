@@ -189,7 +189,7 @@ public sealed class JpxStreamFilterTests
 
         bytes.Add(0xFF);
         bytes.Add(0xD9);
-        return bytes.ToArray();
+        return [.. bytes];
     }
 
     /// <summary>The JP2 signature and file-type boxes, then the codestream box.</summary>
@@ -208,7 +208,7 @@ public sealed class JpxStreamFilterTests
         AddBox(bytes, "ftyp", ftyp);
 
         AddBox(bytes, "jp2c", [.. codestream]);
-        return bytes.ToArray();
+        return [.. bytes];
     }
 
     private static void AddBox(List<byte> target, string type, List<byte> body)

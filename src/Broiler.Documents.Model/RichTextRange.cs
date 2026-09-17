@@ -8,17 +8,11 @@ namespace Broiler.Documents.Model;
 /// <see cref="End"/>. An empty range is a caret. This is also the document's
 /// selection representation for Phase 1.
 /// </summary>
-public readonly struct RichTextRange : IEquatable<RichTextRange>
+public readonly struct RichTextRange(RichTextPosition anchor, RichTextPosition focus) : IEquatable<RichTextRange>
 {
-    public RichTextRange(RichTextPosition anchor, RichTextPosition focus)
-    {
-        Anchor = anchor;
-        Focus = focus;
-    }
+    public RichTextPosition Anchor { get; } = anchor;
 
-    public RichTextPosition Anchor { get; }
-
-    public RichTextPosition Focus { get; }
+    public RichTextPosition Focus { get; } = focus;
 
     /// <summary>The earlier of anchor and focus.</summary>
     public RichTextPosition Start => Anchor <= Focus ? Anchor : Focus;

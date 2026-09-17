@@ -22,7 +22,7 @@ public sealed class DocumentCodecCatalog
     {
         ArgumentNullException.ThrowIfNull(codecs);
 
-        DocumentCodec[] array = codecs.ToArray();
+        DocumentCodec[] array = [.. codecs];
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (DocumentCodec codec in array)
         {
@@ -47,10 +47,7 @@ public sealed class DocumentCodecCatalog
         _codecs.FirstOrDefault(codec => codec.Descriptor.MatchesMimeType(mimeType));
 
     /// <summary>Select the highest-confidence codec for a stream's leading bytes.</summary>
-    public DocumentCodecMatch? Select(
-        Stream source,
-        DocumentSourceHints? hints = null,
-        DocumentLimits? limits = null)
+    public DocumentCodecMatch? Select(Stream source, DocumentSourceHints? hints = null, DocumentLimits? limits = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         DocumentLimits effective = limits ?? DocumentLimits.Default;
@@ -59,10 +56,7 @@ public sealed class DocumentCodecCatalog
     }
 
     /// <summary>Select the highest-confidence codec for an in-memory prefix.</summary>
-    public DocumentCodecMatch? Select(
-        ReadOnlyMemory<byte> prefix,
-        DocumentSourceHints? hints = null,
-        DocumentLimits? limits = null)
+    public DocumentCodecMatch? Select(ReadOnlyMemory<byte> prefix, DocumentSourceHints? hints = null, DocumentLimits? limits = null)
     {
         var request = new DocumentProbeRequest(prefix, hints, limits ?? DocumentLimits.Default);
 
@@ -90,11 +84,8 @@ public sealed class DocumentCodecCatalog
     /// selects and opens separately has to solve that itself, usually by
     /// buffering the whole source.
     /// </remarks>
-    public DocumentCodecSelection SelectAndRead(
-        DocumentInput input,
-        DocumentReadOptions? options = null,
-        DocumentSourceHints? hints = null,
-        CancellationToken cancellationToken = default)
+    public DocumentCodecSelection SelectAndRead(DocumentInput input, DocumentReadOptions? options = null,
+        DocumentSourceHints? hints = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
         DocumentReadOptions effective = options ?? DocumentReadOptions.Default;
@@ -104,20 +95,14 @@ public sealed class DocumentCodecCatalog
 
         if (match is null)
         {
-            return new DocumentCodecSelection(
-                null,
-                DocumentReadResult.Rejected(
-                    DocumentDiagnosticCodes.InputUnreadable,
+            return new DocumentCodecSelection(null, DocumentReadResult.Rejected(DocumentDiagnosticCodes.InputUnreadable,
                     "No composed codec recognized the source. The catalog holds " +
                     $"{_codecs.Count} codecs; none matched its content signature, filename, or MIME hint."));
         }
 
         if (!match.Codec.CanRead)
         {
-            return new DocumentCodecSelection(
-                match,
-                DocumentReadResult.Rejected(
-                    DocumentDiagnosticCodes.CapabilityNotComposed,
+            return new DocumentCodecSelection(match, DocumentReadResult.Rejected(DocumentDiagnosticCodes.CapabilityNotComposed,
                     $"The {match.Codec.Name} codec recognized the source but does not implement reading."));
         }
 
@@ -126,11 +111,8 @@ public sealed class DocumentCodecCatalog
     }
 
     /// <summary>The asynchronous form of <see cref="SelectAndRead"/>.</summary>
-    public async ValueTask<DocumentCodecSelection> SelectAndReadAsync(
-        DocumentInput input,
-        DocumentReadOptions? options = null,
-        DocumentSourceHints? hints = null,
-        CancellationToken cancellationToken = default)
+    public async ValueTask<DocumentCodecSelection> SelectAndReadAsync(DocumentInput input, DocumentReadOptions? options = null, 
+        DocumentSourceHints? hints = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
         DocumentReadOptions effective = options ?? DocumentReadOptions.Default;
@@ -151,8 +133,7 @@ public sealed class DocumentCodecCatalog
 
     private static byte[] ReadPrefix(Stream stream, int maxBytes)
     {
-        if (maxBytes <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxBytes));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxBytes);
 
         long? originalPosition = stream.CanSeek ? stream.Position : null;
         byte[] buffer = new byte[maxBytes];

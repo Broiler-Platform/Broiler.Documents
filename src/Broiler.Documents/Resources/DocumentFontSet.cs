@@ -4,7 +4,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
-namespace Broiler.Documents;
+namespace Broiler.Documents.Resources;
 
 /// <summary>
 /// The fonts a caller has explicitly provisioned for writing, and the only place
@@ -46,7 +46,7 @@ public sealed class DocumentFontSet
     /// No fonts provisioned. The default for every write, and what a host that
     /// has not been configured passes.
     /// </summary>
-    public static DocumentFontSet None { get; } = new(Array.Empty<DocumentFontResource>());
+    public static DocumentFontSet None { get; } = new([]);
 
     /// <summary>The provisioned fonts, in the order the caller supplied them.</summary>
     public IReadOnlyList<DocumentFontResource> Fonts => _fonts;

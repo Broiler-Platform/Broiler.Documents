@@ -37,11 +37,10 @@ public sealed class DocxArchitectureTests
     [Fact]
     public void Docx_Codec_Has_No_Module_Initializer()
     {
-        MethodInfo[] initializers = typeof(DocxDocumentCodec).Assembly
+        MethodInfo[] initializers = [.. typeof(DocxDocumentCodec).Assembly
             .GetTypes()
             .SelectMany(type => type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
-            .Where(method => method.GetCustomAttribute<ModuleInitializerAttribute>() is not null)
-            .ToArray();
+            .Where(method => method.GetCustomAttribute<ModuleInitializerAttribute>() is not null)];
 
         Assert.Empty(initializers);
     }

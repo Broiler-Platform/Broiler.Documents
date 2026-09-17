@@ -1,5 +1,3 @@
-using Broiler.Documents.Model;
-
 namespace Broiler.Documents.Pdf.Tests;
 
 /// <summary>

@@ -1,8 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using Broiler.Documents.Model;
-
 namespace Broiler.Documents.Pdf.Tests.Fuzzing;
 
 /// <summary>

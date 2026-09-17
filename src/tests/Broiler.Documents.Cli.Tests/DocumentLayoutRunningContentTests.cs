@@ -1,7 +1,5 @@
 using Broiler.Documents.Cli.Commands;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
-using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Cli.Rendering;
 
 namespace Broiler.Documents.Cli.Tests;
@@ -126,7 +124,7 @@ public sealed class DocumentLayoutRunningContentTests
         // Continuous collapses the document to one tall page. There is no page for
         // a header to repeat on, and no bottom margin for a footer to sit in.
         PageSetup continuous = PageSetup.FromCommandLine(
-            CommandLine.Parse(RenderCommand.Create().Spec, new[] { "in.docx", "--continuous" }));
+            CommandLine.Parse(RenderCommand.Create().Spec, ["in.docx", "--continuous"]));
 
         LayoutResult result = Layout(WithRunning("body", "letterhead", "page one"), continuous);
 
@@ -142,7 +140,7 @@ public sealed class DocumentLayoutRunningContentTests
         RichTextDocument document = RichTextDocument.FromPlainText("body").WithRunningContent(
             RunningContent.Empty.WithHeader(
                 PageSelection.Default,
-                Enumerable.Range(0, 40).Select(_ => RichTextParagraph.Plain(tall)).ToList()));
+                [.. Enumerable.Range(0, 40).Select(_ => RichTextParagraph.Plain(tall))]));
 
         LayoutResult result = Layout(document);
 

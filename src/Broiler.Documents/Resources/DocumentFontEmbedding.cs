@@ -1,10 +1,9 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Text;
 
-namespace Broiler.Documents;
+namespace Broiler.Documents.Resources;
 
 /// <summary>
 /// The preflight a writer runs before embedding a font, and the one place the
@@ -46,11 +45,7 @@ public static class DocumentFontEmbedding
     /// Null when permitted. Otherwise a phrase naming what refused, suitable for
     /// a diagnostic: it describes the decision and never the font's contents.
     /// </param>
-    public static bool MayEmbed(
-        DocumentFontResource font,
-        DocumentResourceId id,
-        DocumentConversionContext context,
-        bool subsetting,
+    public static bool MayEmbed(DocumentFontResource font, DocumentResourceId id, DocumentConversionContext context, bool subsetting, 
         [NotNullWhen(false)] out string? refusal)
     {
         ArgumentNullException.ThrowIfNull(font);

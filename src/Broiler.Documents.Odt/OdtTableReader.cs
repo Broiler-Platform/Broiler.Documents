@@ -126,7 +126,7 @@ internal static class OdtTableReader
     /// style. A column that states none contributes zero, which a renderer reads
     /// as "share what is left".
     /// </summary>
-    private static IReadOnlyList<double> ReadColumnWidths(XElement table, OdtStyles styles, int depth)
+    private static List<double> ReadColumnWidths(XElement table, OdtStyles styles, int depth)
     {
         var widths = new List<double>();
         foreach (XElement column in EnumerateColumns(table, depth))

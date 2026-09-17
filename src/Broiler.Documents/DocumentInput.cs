@@ -57,8 +57,8 @@ public abstract class DocumentInput : IDisposable
     public ReadOnlyMemory<byte> Peek(int byteCount)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (byteCount < 0)
-            throw new ArgumentOutOfRangeException(nameof(byteCount));
+        ArgumentOutOfRangeException.ThrowIfNegative(byteCount);
+
         return byteCount == 0 ? ReadOnlyMemory<byte>.Empty : PeekCore(byteCount);
     }
 
@@ -85,8 +85,7 @@ public abstract class DocumentInput : IDisposable
     public ReadOnlyMemory<byte> Materialize(long maxBytes)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (maxBytes <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxBytes));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxBytes);
 
         if (KnownLength is { } length && length > maxBytes)
             throw TooLarge(maxBytes);
@@ -98,8 +97,7 @@ public abstract class DocumentInput : IDisposable
     public ValueTask<ReadOnlyMemory<byte>> MaterializeAsync(long maxBytes, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (maxBytes <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxBytes));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxBytes);
 
         if (KnownLength is { } length && length > maxBytes)
             throw TooLarge(maxBytes);
@@ -142,29 +140,21 @@ public abstract class DocumentInput : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    protected virtual void Dispose(bool disposing) { }
+
+    private sealed class MemoryDocumentInput(ReadOnlyMemory<byte> bytes) : DocumentInput
     {
-    }
-
-    // ---- implementations ------------------------------------------------------
-
-    private sealed class MemoryDocumentInput : DocumentInput
-    {
-        private readonly ReadOnlyMemory<byte> _bytes;
-
-        public MemoryDocumentInput(ReadOnlyMemory<byte> bytes) => _bytes = bytes;
-
-        public override long? KnownLength => _bytes.Length;
+        public override long? KnownLength => bytes.Length;
 
         public override bool CanSeek => true;
 
         protected override ReadOnlyMemory<byte> PeekCore(int byteCount) =>
-            _bytes[..Math.Min(byteCount, _bytes.Length)];
+            bytes[..Math.Min(byteCount, bytes.Length)];
 
-        protected override Stream OpenStreamCore() => new ReadOnlyMemoryStream(_bytes);
+        protected override Stream OpenStreamCore() => new ReadOnlyMemoryStream(bytes);
 
         protected override ReadOnlyMemory<byte> MaterializeCore(long maxBytes) =>
-            _bytes.Length > maxBytes ? throw TooLarge(maxBytes) : _bytes;
+            bytes.Length > maxBytes ? throw TooLarge(maxBytes) : bytes;
 
         protected override ValueTask<ReadOnlyMemory<byte>> MaterializeAsyncCore(long maxBytes, CancellationToken cancellationToken)
         {
@@ -173,29 +163,21 @@ public abstract class DocumentInput : IDisposable
         }
     }
 
-    private sealed class StreamDocumentInput : DocumentInput
+    private sealed class StreamDocumentInput(Stream source, bool leaveOpen) : DocumentInput
     {
-        private readonly Stream _source;
-        private readonly bool _leaveOpen;
         private byte[] _prefix = [];
         private int _prefixLength;
         private int _prefixConsumed;
-
-        public StreamDocumentInput(Stream source, bool leaveOpen)
-        {
-            _source = source;
-            _leaveOpen = leaveOpen;
-        }
 
         public override long? KnownLength
         {
             get
             {
-                if (!_source.CanSeek)
+                if (!source.CanSeek)
                     return null;
                 try
                 {
-                    return _source.Length - _source.Position + (_prefixLength - _prefixConsumed);
+                    return source.Length - source.Position + (_prefixLength - _prefixConsumed);
                 }
                 catch (NotSupportedException)
                 {
@@ -204,7 +186,7 @@ public abstract class DocumentInput : IDisposable
             }
         }
 
-        public override bool CanSeek => _source.CanSeek;
+        public override bool CanSeek => source.CanSeek;
 
         protected override ReadOnlyMemory<byte> PeekCore(int byteCount)
         {
@@ -226,7 +208,7 @@ public abstract class DocumentInput : IDisposable
 
             while (needed > 0)
             {
-                int read = _source.Read(_prefix, _prefixLength, needed);
+                int read = source.Read(_prefix, _prefixLength, needed);
                 if (read == 0)
                     break;
                 _prefixLength += read;
@@ -239,17 +221,17 @@ public abstract class DocumentInput : IDisposable
             ReadOnlyMemory<byte> replay = _prefix.AsMemory(_prefixConsumed, _prefixLength - _prefixConsumed);
             _prefixConsumed = _prefixLength;
 
-            if (_source.CanSeek && replay.Length > 0)
+            if (source.CanSeek && replay.Length > 0)
             {
                 // A seekable source needs no replay buffer: rewinding past the
                 // probed bytes is cheaper and keeps one stream in play.
-                _source.Position -= replay.Length;
+                source.Position -= replay.Length;
                 replay = ReadOnlyMemory<byte>.Empty;
             }
 
             return replay.Length == 0
-                ? new NonClosingStream(_source)
-                : new PrefixedStream(replay, _source);
+                ? new NonClosingStream(source)
+                : new PrefixedStream(replay, source);
         }
 
         protected override ReadOnlyMemory<byte> MaterializeCore(long maxBytes)
@@ -304,19 +286,16 @@ public abstract class DocumentInput : IDisposable
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && !_leaveOpen)
-                _source.Dispose();
+            if (disposing && !leaveOpen)
+                source.Dispose();
         }
     }
 
     /// <summary>A read-only stream over memory the caller owns.</summary>
-    private sealed class ReadOnlyMemoryStream : Stream
+    private sealed class ReadOnlyMemoryStream(ReadOnlyMemory<byte> bytes) : Stream
     {
-        private readonly ReadOnlyMemory<byte> _bytes;
         private long _position;
         private bool _disposed;
-
-        public ReadOnlyMemoryStream(ReadOnlyMemory<byte> bytes) => _bytes = bytes;
 
         public override bool CanRead => !_disposed;
 
@@ -329,7 +308,7 @@ public abstract class DocumentInput : IDisposable
             get
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                return _bytes.Length;
+                return bytes.Length;
             }
         }
 
@@ -357,10 +336,10 @@ public abstract class DocumentInput : IDisposable
         public override int Read(Span<byte> buffer)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_position >= _bytes.Length)
+            if (_position >= bytes.Length)
                 return 0;
-            int available = Math.Min(buffer.Length, _bytes.Length - (int)_position);
-            _bytes.Span.Slice((int)_position, available).CopyTo(buffer);
+            int available = Math.Min(buffer.Length, bytes.Length - (int)_position);
+            bytes.Span.Slice((int)_position, available).CopyTo(buffer);
             _position += available;
             return available;
         }
@@ -372,7 +351,7 @@ public abstract class DocumentInput : IDisposable
             {
                 SeekOrigin.Begin => 0,
                 SeekOrigin.Current => _position,
-                SeekOrigin.End => _bytes.Length,
+                SeekOrigin.End => bytes.Length,
                 _ => throw new ArgumentException("Invalid seek origin.", nameof(origin)),
             };
             long target;
@@ -389,10 +368,7 @@ public abstract class DocumentInput : IDisposable
             return _position = target;
         }
 
-        public override void Flush()
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-        }
+        public override void Flush() => ObjectDisposedException.ThrowIf(_disposed, this);
 
         public override void SetLength(long value) => throw new NotSupportedException();
 
@@ -407,17 +383,9 @@ public abstract class DocumentInput : IDisposable
     }
 
     /// <summary>The buffered probe prefix followed by the remaining source.</summary>
-    private sealed class PrefixedStream : Stream
+    private sealed class PrefixedStream(ReadOnlyMemory<byte> prefix, Stream source) : Stream
     {
-        private readonly ReadOnlyMemory<byte> _prefix;
-        private readonly Stream _source;
         private int _prefixPosition;
-
-        public PrefixedStream(ReadOnlyMemory<byte> prefix, Stream source)
-        {
-            _prefix = prefix;
-            _source = source;
-        }
 
         public override bool CanRead => true;
 
@@ -437,33 +405,31 @@ public abstract class DocumentInput : IDisposable
 
         public override int Read(Span<byte> buffer)
         {
-            if (_prefixPosition < _prefix.Length)
+            if (_prefixPosition < prefix.Length)
             {
-                int available = Math.Min(buffer.Length, _prefix.Length - _prefixPosition);
-                _prefix.Span.Slice(_prefixPosition, available).CopyTo(buffer);
+                int available = Math.Min(buffer.Length, prefix.Length - _prefixPosition);
+                prefix.Span.Slice(_prefixPosition, available).CopyTo(buffer);
                 _prefixPosition += available;
                 return available;
             }
 
-            return _source.Read(buffer);
+            return source.Read(buffer);
         }
 
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            if (_prefixPosition < _prefix.Length)
+            if (_prefixPosition < prefix.Length)
             {
-                int available = Math.Min(buffer.Length, _prefix.Length - _prefixPosition);
-                _prefix.Slice(_prefixPosition, available).CopyTo(buffer);
+                int available = Math.Min(buffer.Length, prefix.Length - _prefixPosition);
+                prefix.Slice(_prefixPosition, available).CopyTo(buffer);
                 _prefixPosition += available;
                 return available;
             }
 
-            return await _source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            return await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
         }
 
-        public override void Flush()
-        {
-        }
+        public override void Flush() { }
 
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
 
@@ -473,36 +439,32 @@ public abstract class DocumentInput : IDisposable
     }
 
     /// <summary>Wraps a stream so the caller's stream survives the reader disposing it.</summary>
-    private sealed class NonClosingStream : Stream
+    private sealed class NonClosingStream(Stream inner) : Stream
     {
-        private readonly Stream _inner;
+        public override bool CanRead => inner.CanRead;
 
-        public NonClosingStream(Stream inner) => _inner = inner;
-
-        public override bool CanRead => _inner.CanRead;
-
-        public override bool CanSeek => _inner.CanSeek;
+        public override bool CanSeek => inner.CanSeek;
 
         public override bool CanWrite => false;
 
-        public override long Length => _inner.Length;
+        public override long Length => inner.Length;
 
         public override long Position
         {
-            get => _inner.Position;
-            set => _inner.Position = value;
+            get => inner.Position;
+            set => inner.Position = value;
         }
 
-        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
 
-        public override int Read(Span<byte> buffer) => _inner.Read(buffer);
+        public override int Read(Span<byte> buffer) => inner.Read(buffer);
 
         public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
-            _inner.ReadAsync(buffer, cancellationToken);
+            inner.ReadAsync(buffer, cancellationToken);
 
-        public override void Flush() => _inner.Flush();
+        public override void Flush() => inner.Flush();
 
-        public override long Seek(long offset, SeekOrigin origin) => _inner.Seek(offset, origin);
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
 
         public override void SetLength(long value) => throw new NotSupportedException();
 

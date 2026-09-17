@@ -1,11 +1,10 @@
 using System;
 using System.Globalization;
 using System.Security.Cryptography;
-using Broiler.Graphics;
 using Broiler.Graphics.Imaging;
 using Broiler.Graphics.Text;
 
-namespace Broiler.Documents;
+namespace Broiler.Documents.Resources;
 
 /// <summary>Where a resource came from. Unknown denies.</summary>
 public enum DocumentResourceProvenance
@@ -71,15 +70,8 @@ public enum DocumentResourceDisposition
 /// </remarks>
 public sealed class DocumentResourceBinding : IEquatable<DocumentResourceBinding>
 {
-    private DocumentResourceBinding(
-        DocumentResourceKind kind,
-        string payloadDigest,
-        BImagePayloadKind payloadKind,
-        string? mediaType,
-        int? pixelWidth,
-        int? pixelHeight,
-        string? fontFamily = null,
-        BFontEmbeddingRights declaredRights = default)
+    private DocumentResourceBinding(DocumentResourceKind kind, string payloadDigest, BImagePayloadKind payloadKind,
+        string? mediaType, int? pixelWidth, int? pixelHeight, string? fontFamily = null, BFontEmbeddingRights declaredRights = default)
     {
         Kind = kind;
         PayloadDigest = payloadDigest;
@@ -145,13 +137,8 @@ public sealed class DocumentResourceBinding : IEquatable<DocumentResourceBinding
             throw new ArgumentException("The image resource carries no payload to bind to.", nameof(resource));
         }
 
-        return new DocumentResourceBinding(
-            DocumentResourceKind.Image,
-            digest,
-            resource.Kind,
-            resource.MediaType,
-            resource.PixelWidth,
-            resource.PixelHeight);
+        return new DocumentResourceBinding(DocumentResourceKind.Image, digest, resource.Kind,
+            resource.MediaType, resource.PixelWidth, resource.PixelHeight);
     }
 
     /// <summary>Describes <paramref name="font"/> so an entry can be bound to it.</summary>
@@ -159,15 +146,8 @@ public sealed class DocumentResourceBinding : IEquatable<DocumentResourceBinding
     {
         ArgumentNullException.ThrowIfNull(font);
 
-        return new DocumentResourceBinding(
-            DocumentResourceKind.Font,
-            Digest(font.Program.Span),
-            BImagePayloadKind.Encoded,
-            mediaType: null,
-            pixelWidth: null,
-            pixelHeight: null,
-            font.Family,
-            font.DeclaredRights);
+        return new DocumentResourceBinding(DocumentResourceKind.Font, Digest(font.Program.Span), BImagePayloadKind.Encoded,
+            mediaType: null, pixelWidth: null, pixelHeight: null, font.Family, font.DeclaredRights);
     }
 
     /// <summary>

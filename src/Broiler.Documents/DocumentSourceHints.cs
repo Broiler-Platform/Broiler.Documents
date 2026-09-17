@@ -5,17 +5,11 @@ namespace Broiler.Documents;
 /// MIME type) that a codec probe may use to raise or lower confidence. Hints are
 /// advisory only; content signatures remain authoritative.
 /// </summary>
-public sealed class DocumentSourceHints
+public sealed class DocumentSourceHints(string? fileName = null, string? mimeType = null)
 {
     public static DocumentSourceHints Empty { get; } = new();
 
-    public DocumentSourceHints(string? fileName = null, string? mimeType = null)
-    {
-        FileName = fileName;
-        MimeType = mimeType;
-    }
+    public string? FileName { get; } = fileName;
 
-    public string? FileName { get; }
-
-    public string? MimeType { get; }
+    public string? MimeType { get; } = mimeType;
 }

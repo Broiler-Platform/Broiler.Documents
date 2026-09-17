@@ -142,12 +142,12 @@ internal static class MarkdownReader
     }
 
     private static bool IsHardBreakLine(string line) =>
-        line.EndsWith("  ", StringComparison.Ordinal) || line.EndsWith("\\", StringComparison.Ordinal);
+        line.EndsWith("  ", StringComparison.Ordinal) || line.EndsWith('\\');
 
     private static string TrimHardBreakMarker(string line)
     {
         line = line.TrimEnd();
-        if (line.EndsWith("\\", StringComparison.Ordinal))
+        if (line.EndsWith('\\'))
             line = line[..^1].TrimEnd();
         return line;
     }
@@ -187,7 +187,7 @@ internal static class MarkdownReader
     {
         depth = 0;
         string current = line.TrimStart();
-        while (current.StartsWith(">", StringComparison.Ordinal))
+        while (current.StartsWith('>'))
         {
             depth++;
             current = current[1..].TrimStart();

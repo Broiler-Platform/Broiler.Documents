@@ -6,13 +6,8 @@ using Broiler.Documents.Pdf.Syntax;
 namespace Broiler.Documents.Pdf.Structure;
 
 /// <summary>A PDF version declaration, such as 1.7 or 2.0.</summary>
-public readonly struct PdfVersion : IEquatable<PdfVersion>, IComparable<PdfVersion>
+public readonly struct PdfVersion(int major, int minor) : IEquatable<PdfVersion>, IComparable<PdfVersion>
 {
-    public PdfVersion(int major, int minor)
-    {
-        Major = major;
-        Minor = minor;
-    }
 
     /// <summary>No usable declaration was found.</summary>
     public static PdfVersion Unknown => default;
@@ -20,9 +15,9 @@ public readonly struct PdfVersion : IEquatable<PdfVersion>, IComparable<PdfVersi
     /// <summary>The version this codec reads and writes.</summary>
     public static PdfVersion Pdf17 => new(1, 7);
 
-    public int Major { get; }
+    public int Major { get; } = major;
 
-    public int Minor { get; }
+    public int Minor { get; } = minor;
 
     public bool IsKnown => Major > 0;
 
@@ -107,21 +102,15 @@ public readonly struct PdfVersion : IEquatable<PdfVersion>, IComparable<PdfVersi
 /// document claims so a diagnostic can name it, and dispatch stays keyed to the
 /// approved feature matrix alone (PDF roadmap §8.1).
 /// </remarks>
-public sealed class PdfExtensionDeclaration
+public sealed class PdfExtensionDeclaration(string prefix, PdfVersion baseVersion, int extensionLevel)
 {
-    public PdfExtensionDeclaration(string prefix, PdfVersion baseVersion, int extensionLevel)
-    {
-        Prefix = prefix ?? throw new ArgumentNullException(nameof(prefix));
-        BaseVersion = baseVersion;
-        ExtensionLevel = extensionLevel;
-    }
 
     /// <summary>The registered developer prefix, for example <c>ADBE</c>.</summary>
-    public string Prefix { get; }
+    public string Prefix { get; } = prefix ?? throw new ArgumentNullException(nameof(prefix));
 
-    public PdfVersion BaseVersion { get; }
+    public PdfVersion BaseVersion { get; } = baseVersion;
 
-    public int ExtensionLevel { get; }
+    public int ExtensionLevel { get; } = extensionLevel;
 
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"{Prefix} (base {BaseVersion}, level {ExtensionLevel})");
@@ -149,7 +138,7 @@ internal static class PdfVersionResolver
     public static IReadOnlyList<PdfExtensionDeclaration> ReadExtensions(PdfObjectStore store, PdfDictionary catalog)
     {
         if (store.Resolve(catalog["Extensions"]) is not PdfDictionary extensions)
-            return Array.Empty<PdfExtensionDeclaration>();
+            return [];
 
         var declarations = new List<PdfExtensionDeclaration>();
         foreach (string prefix in extensions.Keys)

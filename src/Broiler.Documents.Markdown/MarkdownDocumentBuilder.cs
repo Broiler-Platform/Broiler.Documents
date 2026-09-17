@@ -3,26 +3,19 @@ using Broiler.Documents.Model;
 
 namespace Broiler.Documents.Markdown;
 
-internal sealed class MarkdownDocumentBuilder
+internal sealed class MarkdownDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
 {
-    private readonly DocumentLimits _limits;
     private readonly List<RichTextParagraph> _paragraphs = [];
     private readonly HashSet<string> _diagnosticOnce = new(System.StringComparer.Ordinal);
 
-    public MarkdownDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
-    {
-        _limits = limits;
-        Diagnostics = diagnostics;
-    }
-
-    public List<DocumentDiagnostic> Diagnostics { get; }
+    public List<DocumentDiagnostic> Diagnostics { get; } = diagnostics;
 
     public void AddParagraph(string text, InlineStyle style, ParagraphStyle paragraphStyle) =>
         AddInlineParagraph([new MarkdownSegment(text, style)], paragraphStyle);
 
     public void AddInlineParagraph(IReadOnlyList<MarkdownSegment> segments, ParagraphStyle paragraphStyle)
     {
-        if (_paragraphs.Count >= _limits.MaxParagraphCount)
+        if (_paragraphs.Count >= limits.MaxParagraphCount)
         {
             AddDiagnosticOnce("markdown.limit.paragraphs", "Markdown input exceeded MaxParagraphCount; remaining paragraphs were dropped.");
             return;
@@ -33,9 +26,9 @@ internal sealed class MarkdownDocumentBuilder
         foreach (MarkdownSegment segment in segments)
         {
             string text = segment.Text;
-            if (text.Length > _limits.MaxRunLength)
+            if (text.Length > limits.MaxRunLength)
             {
-                text = text[.._limits.MaxRunLength];
+                text = text[..limits.MaxRunLength];
                 AddDiagnosticOnce("markdown.limit.run", "A Markdown text run exceeded MaxRunLength and was truncated.");
             }
 

@@ -369,12 +369,12 @@ internal static class PdfMetadataReader
     /// with no normative separator, so only unambiguous separators are honoured
     /// and a value containing none stays a single entry.
     /// </summary>
-    private static IReadOnlyList<string>? SplitList(string? value)
+    private static string[]? SplitList(string? value)
     {
         if (value is null)
             return null;
         if (value.Length == 0)
-            return Array.Empty<string>();
+            return [];
 
         string[] parts = value.Split([';', ',', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return parts.Length == 0 ? [value] : parts;

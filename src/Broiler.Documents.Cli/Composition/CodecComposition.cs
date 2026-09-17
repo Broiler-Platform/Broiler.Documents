@@ -6,7 +6,6 @@ using Broiler.Documents.Html;
 using Broiler.Documents.Markdown;
 using Broiler.Documents.Odt;
 using Broiler.Documents.Rtf;
-using Broiler.Graphics;
 using Broiler.Graphics.Imaging;
 using Broiler.Media;
 using Broiler.Media.Image.Managed;
@@ -38,14 +37,13 @@ public static class CodecComposition
 {
     /// <summary>The formats this tool reads and writes, in the order help lists them.</summary>
     public static DocumentCodecCatalog CreateCatalog() =>
-        new(new DocumentCodec[]
-        {
+        new([
             new DocxDocumentCodec(),
             new OdtDocumentCodec(),
             new RtfDocumentCodec(),
             new HtmlDocumentCodec(),
             new MarkdownDocumentCodec(),
-        });
+        ]);
 
     /// <summary>
     /// Registers the managed image codecs with Broiler.Graphics. Idempotent, and

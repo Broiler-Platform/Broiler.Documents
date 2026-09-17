@@ -76,16 +76,9 @@ public sealed class XmpMetadata
     /// <summary>A packet that supplied nothing this build normalizes.</summary>
     public static XmpMetadata Empty { get; } = new();
 
-    internal XmpMetadata(
-        string? title = null,
-        IReadOnlyList<string>? authors = null,
-        string? description = null,
-        IReadOnlyList<string>? keywords = null,
-        string? language = null,
-        string? creatorTool = null,
-        string? producer = null,
-        XmpDate? createDate = null,
-        XmpDate? modifyDate = null)
+    internal XmpMetadata(string? title = null, IReadOnlyList<string>? authors = null, string? description = null,
+        IReadOnlyList<string>? keywords = null, string? language = null, string? creatorTool = null,
+        string? producer = null, XmpDate? createDate = null, XmpDate? modifyDate = null)
     {
         Title = title;
         Authors = authors ?? EmptyList;
@@ -173,12 +166,8 @@ public enum XmpReadOutcome
 /// <summary>The outcome of reading one XMP packet, with what it cost to say so.</summary>
 public sealed class XmpReadResult
 {
-    internal XmpReadResult(
-        XmpReadOutcome outcome,
-        XmpMetadata metadata,
-        int ignoredProperties = 0,
-        bool propertiesTruncated = false,
-        string? failure = null)
+    internal XmpReadResult(XmpReadOutcome outcome, XmpMetadata metadata, int ignoredProperties = 0,
+        bool propertiesTruncated = false, string? failure = null)
     {
         Outcome = outcome;
         Metadata = metadata;
@@ -571,16 +560,8 @@ public static class XmpReader
 
         public XmpReadResult Build()
         {
-            var metadata = new XmpMetadata(
-                Alternative("dc:title"),
-                Ordered("dc:creator"),
-                Alternative("dc:description"),
-                Ordered("dc:subject"),
-                First("dc:language"),
-                Simple("xmp:CreatorTool"),
-                Simple("pdf:Producer"),
-                Date("xmp:CreateDate"),
-                Date("xmp:ModifyDate"));
+            var metadata = new XmpMetadata(Alternative("dc:title"), Ordered("dc:creator"), Alternative("dc:description"), Ordered("dc:subject"),
+                First("dc:language"), Simple("xmp:CreatorTool"), Simple("pdf:Producer"), Date("xmp:CreateDate"), Date("xmp:ModifyDate"));
 
             return new XmpReadResult(XmpReadOutcome.Read, metadata, _ignored, _truncated);
         }
@@ -621,7 +602,7 @@ public static class XmpReader
         }
 
         /// <summary>An ordered or unordered container, flattened in source order.</summary>
-        private IReadOnlyList<string>? Ordered(string key)
+        private ReadOnlyCollection<string>? Ordered(string key)
         {
             if (!_properties.TryGetValue(key, out Property property))
                 return null;

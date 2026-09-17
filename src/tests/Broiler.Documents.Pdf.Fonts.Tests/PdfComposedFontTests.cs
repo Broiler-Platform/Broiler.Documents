@@ -564,7 +564,7 @@ public sealed class PdfComposedFontTests
         bytes.AddRange(Latin1($"<< {dictionary} /Length {data.Length} >>\nstream\n"));
         bytes.AddRange(data);
         bytes.AddRange(Latin1("\nendstream"));
-        return bytes.ToArray();
+        return [.. bytes];
     }
 
     private static byte[] Build(List<byte[]> objects, int rootObject)

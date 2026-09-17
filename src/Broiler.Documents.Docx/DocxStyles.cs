@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO.Compression;
-using System.Linq;
 using System.Xml.Linq;
 
 namespace Broiler.Documents.Docx;
@@ -182,10 +181,10 @@ internal sealed class DocxStyles
     /// least specific first. Applied over the paragraph's inherited formatting
     /// and before the run's own <c>w:rPr</c>.
     /// </summary>
-    public IReadOnlyList<XElement> RunPropertiesForCharacterStyle(string? characterStyleId)
+    public XElement[] RunPropertiesForCharacterStyle(string? characterStyleId)
     {
         if (string.IsNullOrEmpty(characterStyleId))
-            return Array.Empty<XElement>();
+            return [];
 
         return Resolve("cr:" + characterStyleId, () =>
         {
@@ -200,12 +199,12 @@ internal sealed class DocxStyles
         });
     }
 
-    private IReadOnlyList<XElement> Resolve(string key, Func<List<XElement>> build)
+    private XElement[] Resolve(string key, Func<List<XElement>> build)
     {
         if (_chainCache.TryGetValue(key, out XElement[]? cached))
             return cached;
 
-        XElement[] resolved = build().ToArray();
+        XElement[] resolved = [.. build()];
         _chainCache[key] = resolved;
         return resolved;
     }

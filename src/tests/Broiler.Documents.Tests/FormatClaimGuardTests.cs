@@ -29,7 +29,7 @@ namespace Broiler.Documents.Tests;
 /// was chosen.
 /// </para>
 /// </remarks>
-public sealed class FormatClaimGuardTests
+public sealed partial class FormatClaimGuardTests
 {
     /// <summary>Each format: its codec project, its register, and the documents it reads.</summary>
     public static TheoryData<string, string, string> Formats => new()
@@ -65,13 +65,12 @@ public sealed class FormatClaimGuardTests
         // Every register's provenance row states this, and a committed table or
         // fixture would be the shape of the thing it rules out.
         string root = PdfGuardRoots.Component;
-        string[] dataFiles = Directory
+        string[] dataFiles = [.. Directory
             .EnumerateFiles(Path.Combine(root, "src", "Broiler.Documents." + format), "*", SearchOption.AllDirectories)
             .Where(path => !PdfGuardRoots.IsBuildOutput(path))
             .Where(path => Path.GetExtension(path) is not (".cs" or ".csproj"))
             .Select(path => Path.GetRelativePath(root, path))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         Assert.Empty(dataFiles);
     }
@@ -114,16 +113,11 @@ public sealed class FormatClaimGuardTests
             "Broiler.Documents." + format,
             "Broiler.Documents." + format + ".csproj"));
 
-        string description = Regex.Match(
-            project,
-            @"<Description>(.*?)</Description>",
-            RegexOptions.Singleline | RegexOptions.CultureInvariant).Groups[1].Value;
+        string description = MyRegex().Match(project).Groups[1].Value;
 
         Assert.NotEqual(string.Empty, description);
 
-        string[] offending = ProhibitedClaims
-            .Where(claim => description.Contains(claim, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
+        string[] offending = [.. ProhibitedClaims.Where(claim => description.Contains(claim, StringComparison.OrdinalIgnoreCase))];
 
         Assert.Empty(offending);
     }
@@ -162,17 +156,18 @@ public sealed class FormatClaimGuardTests
         string root = PdfGuardRoots.Component;
         string[] extensions = [".rtf", ".docx", ".dotx", ".html", ".htm", ".odt", ".ott", ".fodt"];
 
-        string[] documents = Directory
+        string[] documents = [.. Directory
             .EnumerateFiles(root, "*", SearchOption.AllDirectories)
             .Where(path => !PdfGuardRoots.IsBuildOutput(path))
             .Where(path => !path.Contains(
                 $"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .Where(path => extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
             .Select(path => Path.GetRelativePath(root, path))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         Assert.Empty(documents);
     }
 
+    [GeneratedRegex(@"<Description>(.*?)</Description>", RegexOptions.Singleline | RegexOptions.CultureInvariant)]
+    private static partial Regex MyRegex();
 }

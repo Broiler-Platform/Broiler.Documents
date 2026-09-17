@@ -14,13 +14,7 @@ public sealed class OdtDocumentCodec : DocumentCodec
 {
     private static readonly byte[] ZipLocalHeader = [0x50, 0x4B, 0x03, 0x04];
 
-    public OdtDocumentCodec()
-        : base(new DocumentFormatDescriptor(
-            "ODT",
-            new[] { OdtNamespaces.PackageMediaType },
-            new[] { ".odt" }))
-    {
-    }
+    public OdtDocumentCodec() : base(new DocumentFormatDescriptor("ODT", [OdtNamespaces.PackageMediaType], [".odt"])) { }
 
     public override bool CanRead => true;
 
@@ -119,12 +113,11 @@ public sealed class OdtDocumentCodec : DocumentCodec
         {
             return new DocumentReadResult(
                 RichTextDocument.Empty,
-                new[]
-                {
+                [
                     DocumentDiagnostic.Error(
                         "odt.limit.bytes",
                         "ODT input exceeded MaxDocumentBytes and was not parsed."),
-                },
+                ],
                 DocumentResultStatus.Rejected);
         }
 
@@ -218,7 +211,7 @@ public sealed class OdtDocumentCodec : DocumentCodec
             if ((flags & 0x0008) != 0)
                 break;
 
-            long next = (long)dataOffset + compressedSize;
+            long next = dataOffset + compressedSize;
             if (next <= offset || next > int.MaxValue)
                 break;
             offset = (int)next;

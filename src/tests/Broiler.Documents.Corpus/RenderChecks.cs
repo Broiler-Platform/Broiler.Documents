@@ -105,7 +105,7 @@ internal static class RenderChecks
         return results;
     }
 
-    private static IEnumerable<CheckResult> Manifest(JsonElement render, string label, ToolRun run)
+    private static List<CheckResult> Manifest(JsonElement render, string label, ToolRun run)
     {
         var results = new List<CheckResult>();
 

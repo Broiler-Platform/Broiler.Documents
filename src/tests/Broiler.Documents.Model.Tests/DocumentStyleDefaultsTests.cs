@@ -77,7 +77,7 @@ public sealed class DocumentStyleDefaultsTests
             .WithStyleDefaults(new DocumentStyleDefaults { FontSizePoints = 9f, FontFamily = "Georgia" });
 
         RichTextDocument edited = document.ApplyInlineStyle(
-            new RichTextRange(document.Start, document.End),
+            new RichTextRange(RichTextDocument.Start, document.End),
             new InlineStyleDelta { Bold = true });
 
         Assert.Equal(9f, edited.StyleDefaults.FontSizePoints);

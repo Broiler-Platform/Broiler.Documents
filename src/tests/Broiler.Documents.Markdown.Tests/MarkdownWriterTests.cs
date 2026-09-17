@@ -1,3 +1,5 @@
+using Broiler.Documents.Resources;
+
 namespace Broiler.Documents.Markdown.Tests;
 
 public sealed class MarkdownWriterTests
@@ -13,14 +15,14 @@ public sealed class MarkdownWriterTests
     [Fact]
     public void Writes_Inline_Styles_Links_Lists_And_Soft_Breaks()
     {
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             MakeParagraph(
                 ParagraphStyle.Default with { ListKind = ListKind.Bullet, IndentLevel = 1 },
                 ("Hi", InlineStyle.Default with { Bold = true, Italic = true }),
                 (((char)0x2028).ToString(), InlineStyle.Default),
                 ("link", InlineStyle.Default with { LinkHref = "https://example.test" })),
-        });
+        ]);
 
         string markdown = Write(document);
 
@@ -31,8 +33,8 @@ public sealed class MarkdownWriterTests
     [Fact]
     public void Model_To_Markdown_To_Model_RoundTrips_Supported_Subset()
     {
-        RichTextDocument expected = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument expected = RichTextDocument.FromParagraphs(
+        [
             MakeParagraph(
                 ParagraphStyle.Default,
                 ("Hello ", InlineStyle.Default),
@@ -45,7 +47,7 @@ public sealed class MarkdownWriterTests
             MakeParagraph(
                 ParagraphStyle.Default with { ListKind = ListKind.Numbered, IndentLevel = 1 },
                 ("Item", InlineStyle.Default)),
-        });
+        ]);
 
         byte[] bytes = MarkdownDocumentCodec.WriteToArray(expected);
         using var stream = new MemoryStream(bytes);
@@ -57,12 +59,12 @@ public sealed class MarkdownWriterTests
     [Fact]
     public void Writing_Unsupported_Styles_Reports_Diagnostics()
     {
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             MakeParagraph(
                 ParagraphStyle.Default with { Alignment = TextAlignment.Center },
                 ("styled", InlineStyle.Default with { Underline = true, FontSize = 16f })),
-        });
+        ]);
 
         using var stream = new MemoryStream();
         DocumentWriteResult result = new MarkdownDocumentCodec().Write(document, stream);
@@ -79,13 +81,13 @@ public sealed class MarkdownWriterTests
         // a character in the prose. What is left is to say so, which is the only
         // thing that separates a codec that dropped something from one that was
         // never given it.
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             MakeParagraph(ParagraphStyle.Default, ("first", InlineStyle.Default)),
             MakeParagraph(
                 ParagraphStyle.Default with { PageBreakBefore = true },
                 ("second", InlineStyle.Default)),
-        });
+        ]);
 
         using var stream = new MemoryStream();
         DocumentWriteResult result = new MarkdownDocumentCodec().Write(document, stream);
@@ -111,13 +113,13 @@ public sealed class MarkdownWriterTests
     {
         var image = new InlineImage(new byte[] { 1, 2, 3 }, "image/png", 40, 20, "a logo");
         (image, DocumentWriteOptions writeOptions) = Writable(image);
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             MakeParagraph(
                 ParagraphStyle.Default,
                 ("before ", InlineStyle.Default),
                 (InlineImage.PlaceholderText, InlineStyle.Default with { Image = image })),
-        });
+        ]);
 
         string markdown = Write(document, writeOptions);
 
@@ -193,12 +195,12 @@ public sealed class MarkdownWriterTests
     public void A_Struck_Run_Still_Writes_The_Delimiter_It_Means()
     {
         // The escape must not reach the delimiters the writer emits itself.
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             MakeParagraph(
                 ParagraphStyle.Default,
                 ("gone", InlineStyle.Default with { Strikethrough = true })),
-        });
+        ]);
 
         Assert.Contains("~~gone~~", Write(document), StringComparison.Ordinal);
     }

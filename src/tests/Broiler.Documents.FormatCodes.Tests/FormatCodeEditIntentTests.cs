@@ -1,4 +1,3 @@
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.FormatCodes.Tests;
@@ -11,7 +10,7 @@ public sealed class FormatCodeEditIntentTests
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("x", new InlineStyle { Bold = true })]);
 
-        FormatCodeToken token = new FormatCodeProjector().Project(document).Tokens[0];
+        FormatCodeToken token = FormatCodeProjector.Project(document).Tokens[0];
 
         Assert.Equal(FormatCodeProperty.Bold, token.EditDescriptor?.Property);
         ApplyFormatCodeInlineIntent intent = Assert.IsType<ApplyFormatCodeInlineIntent>(
@@ -29,7 +28,7 @@ public sealed class FormatCodeEditIntentTests
     {
         RichTextDocument document = RichTextDocument.FromPlainText("link");
         var intent = new ApplyFormatCodeInlineIntent(
-            new RichTextRange(document.Start, document.End),
+            new RichTextRange(RichTextDocument.Start, document.End),
             InlineStyleDelta.WithLink(href));
 
         Assert.Equal(expected, FormatCodeEditValidator.Validate(document, intent).IsValid);
@@ -40,7 +39,7 @@ public sealed class FormatCodeEditIntentTests
     {
         RichTextDocument document = RichTextDocument.FromPlainText("x");
         var size = new ApplyFormatCodeInlineIntent(
-            new RichTextRange(document.Start, document.End),
+            new RichTextRange(RichTextDocument.Start, document.End),
             InlineStyleDelta.WithFontSize(float.PositiveInfinity));
         var text = new ReplaceFormatCodeTextIntent(
             RichTextRange.Caret(document.End),
@@ -92,6 +91,6 @@ public sealed class FormatCodeEditIntentTests
         FormatCodeEditValidator.Validate(
             document,
             new ApplyFormatCodeInlineIntent(
-                new RichTextRange(document.Start, document.End),
+                new RichTextRange(RichTextDocument.Start, document.End),
                 InlineStyleDelta.WithLink(href)));
 }

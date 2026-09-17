@@ -11,7 +11,7 @@ namespace Broiler.Documents.Pdf.Tests;
 /// stretching a short closing line across the column is the one thing no
 /// typesetter does.
 /// </summary>
-public sealed class PdfJustificationTests
+public sealed partial class PdfJustificationTests
 {
     private const string Long =
         "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod " +
@@ -41,7 +41,7 @@ public sealed class PdfJustificationTests
     private static List<double> WordSpacings(string content)
     {
         var values = new List<double>();
-        foreach (Match match in Regex.Matches(content, @"(-?[0-9.]+) Tw"))
+        foreach (Match match in MyRegex().Matches(content))
         {
             if (double.TryParse(
                     match.Groups[1].Value,
@@ -96,4 +96,7 @@ public sealed class PdfJustificationTests
         Assert.Contains("consectetur adipiscing elit", actual.PlainText);
         Assert.DoesNotContain("  ", actual.PlainText);
     }
+
+    [GeneratedRegex(@"(-?[0-9.]+) Tw")]
+    private static partial Regex MyRegex();
 }

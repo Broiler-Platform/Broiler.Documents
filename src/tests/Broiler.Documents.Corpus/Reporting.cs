@@ -26,8 +26,8 @@ internal static class Reporting
     /// </remarks>
     public static void WriteConsole(TextWriter output, IReadOnlyList<CheckResult> results, bool verbose)
     {
-        CheckResult[] failed = results.Where(result => result.Outcome == CheckOutcome.Failed).ToArray();
-        CheckResult[] skipped = results.Where(result => result.Outcome == CheckOutcome.Skipped).ToArray();
+        CheckResult[] failed = [.. results.Where(result => result.Outcome == CheckOutcome.Failed)];
+        CheckResult[] skipped = [.. results.Where(result => result.Outcome == CheckOutcome.Skipped)];
         int passed = results.Count - failed.Length - skipped.Length;
 
         if (failed.Length > 0)

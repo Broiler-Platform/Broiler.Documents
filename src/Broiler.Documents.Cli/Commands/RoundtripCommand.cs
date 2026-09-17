@@ -41,8 +41,7 @@ public static class RoundtripCommand
             "roundtrip",
             "Write a document to a format, read it back, and report what changed.",
             "roundtrip <input> --via <format>... [--render] [--keep <directory>]",
-            new[]
-            {
+            [
                 OptionSpec.Many("via", "format", "A format to round-trip through. Give more than one to test several."),
                 OptionSpec.Value("keep", "directory", "Keep the intermediate files instead of working in memory."),
                 OptionSpec.Flag("render", "Also render both sides and compare the pixels."),
@@ -54,18 +53,16 @@ public static class RoundtripCommand
                 OptionSpec.Flag("ignore-inline-style", "Compare text and paragraph structure only."),
                 OptionSpec.Flag("ignore-paragraph-style", "Compare text and run formatting only."),
                 OptionSpec.Value("max-differences", "n", "Stop listing differences after this many per format.", "50"),
-            }
-            .Concat(RenderPipeline.Specs)
-            .Concat(DocumentOptions.Specs)
-            .Concat(DocumentOptions.WriteSpecs)
-            .ToArray(),
-            new[]
-            {
+                .. RenderPipeline.Specs,
+                .. DocumentOptions.Specs,
+                .. DocumentOptions.WriteSpecs,
+            ],
+            [
                 "roundtrip report.docx --via docx",
                 "roundtrip report.docx --via docx --via rtf --via html --via markdown --json",
                 "roundtrip report.docx --via rtf --render --diff rtf-diff.png",
                 "roundtrip report.docx --via docx --keep ./artifacts",
-            },
+            ],
             "Exit 0 when every format round-tripped without a difference, 5 when any did not.\n" +
             "\n" +
             "A difference is not automatically a defect: the document model is normalized, and\n" +
@@ -213,13 +210,8 @@ public static class RoundtripCommand
         DocumentComparison comparison = DocumentComparison.Compare(
             original.Document, reread.Document, comparisonOptions);
 
-        context.Report(string.Format(
-            CultureInfo.InvariantCulture,
-            "  {0} bytes, plain text {1}, format codes {2}, {3} structural difference(s)",
-            bytes.Length,
-            comparison.TextEqual ? "same" : "DIFFERENT",
-            comparison.FormatCodesEqual ? "same" : "DIFFERENT",
-            comparison.Differences.Count));
+        context.Report(
+            $"  {bytes.Length} bytes, plain text {(comparison.TextEqual ? "same" : "DIFFERENT")}, format codes {(comparison.FormatCodesEqual ? "same" : "DIFFERENT")}, {comparison.Differences.Count} structural difference(s)");
 
         foreach (DocumentDifference difference in comparison.Differences)
             context.Report("    " + difference);
@@ -282,13 +274,7 @@ public static class RoundtripCommand
                 bool passes = comparison.Passes(0, maxRatio, requireSameSize: true);
                 equal &= passes;
 
-                context.Report(string.Format(
-                    CultureInfo.InvariantCulture,
-                    "  page {0,-11} {1} differing pixel(s), max delta {2}{3}",
-                    i + 1,
-                    comparison.DifferingPixels,
-                    comparison.MaxChannelDelta,
-                    passes ? string.Empty : "   DIFFERENT"));
+                context.Report($"  page {i + 1,-11} {comparison.DifferingPixels} differing pixel(s), max delta {comparison.MaxChannelDelta}{(passes ? string.Empty : "   DIFFERENT")}");
 
                 JsonObject json = comparison.ToJson();
                 json["page"] = i + 1;

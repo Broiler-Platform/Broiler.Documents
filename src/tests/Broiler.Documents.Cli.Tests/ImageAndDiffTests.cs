@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using Broiler.Documents.Cli.Documents;
 
 namespace Broiler.Documents.Cli.Tests;
 
@@ -19,17 +18,17 @@ public sealed class ImageAndDiffTests : IDisposable
         string image = WriteCheckerboard("dot.png", 48);
         string document = _cli.Path("pic.docx");
 
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(
             ExitCode.Ok,
             "new", "--out", document,
             "--text", "before after",
             "--op", "image:0:7:file=" + image + ",width=36,height=36,alt=a chequerboard",
             "--quiet");
 
-        JsonObject json = _cli.RunExpecting(ExitCode.Ok, "info", document, "--json").Json();
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Ok, "info", document, "--json").Json();
         Assert.Equal(1, json["statistics"]!["images"]!.GetValue<int>());
 
-        JsonObject dump = _cli.RunExpecting(ExitCode.Ok, "dump", document, "--as", "json", "--json").Json();
+        JsonObject dump = CliHarness.RunExpecting(ExitCode.Ok, "dump", document, "--as", "json", "--json").Json();
         string content = dump["content"]!.GetValue<string>();
         Assert.Contains("image/png", content, StringComparison.Ordinal);
         Assert.Contains("a chequerboard", content, StringComparison.Ordinal);
@@ -44,14 +43,13 @@ public sealed class ImageAndDiffTests : IDisposable
         File.WriteAllBytes(mislabelled, File.ReadAllBytes(WriteCheckerboard("real.png", 16)));
 
         string document = _cli.Path("pic.docx");
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(
             ExitCode.Ok,
             "new", "--out", document, "--text", "x",
             "--op", "image:0:$:file=" + mislabelled,
             "--quiet");
 
-        string content = _cli
-            .RunExpecting(ExitCode.Ok, "dump", document, "--as", "json", "--json")
+        string content = CliHarness.RunExpecting(ExitCode.Ok, "dump", document, "--as", "json", "--json")
             .Json()["content"]!.GetValue<string>();
 
         Assert.Contains("image/png", content, StringComparison.Ordinal);
@@ -64,7 +62,7 @@ public sealed class ImageAndDiffTests : IDisposable
         // alone would silently discard it.
         string image = WriteCheckerboard("dot.png", 16);
 
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(
             ExitCode.Usage,
             "new", "--out", _cli.Path("pic.docx"), "--text", "x",
             "--op", "image:0:$:file=" + image + ",width=36");
@@ -73,7 +71,7 @@ public sealed class ImageAndDiffTests : IDisposable
     [Fact]
     public void A_Missing_Image_File_Exits_Two()
     {
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(
             ExitCode.Input,
             "new", "--out", _cli.Path("pic.docx"), "--text", "x",
             "--op", "image:0:$:file=" + _cli.Path("absent.png"));
@@ -84,7 +82,7 @@ public sealed class ImageAndDiffTests : IDisposable
     {
         string image = WriteCheckerboard("dot.png", 48);
         string document = _cli.Path("pic.docx");
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(
             ExitCode.Ok,
             "new", "--out", document, "--text", "before after",
             "--op", "image:0:7:file=" + image + ",width=36,height=36",
@@ -111,7 +109,7 @@ public sealed class ImageAndDiffTests : IDisposable
         string a = _cli.MakeDocument("a.docx", "one\ntwo\nthree");
         string b = _cli.MakeDocument("b.docx", "one\ntwo changed\nthree");
 
-        JsonObject json = _cli.RunExpecting(ExitCode.Different, "compare", a, b, "--json").Json();
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Different, "compare", a, b, "--json").Json();
         JsonArray differences = json["document"]!["differences"]!.AsArray();
 
         Assert.Single(differences);
@@ -128,11 +126,11 @@ public sealed class ImageAndDiffTests : IDisposable
     {
         string a = _cli.MakeDocument("a.docx", "hello world");
         string b = _cli.MakeDocument("b.docx", "hello worlds");
-        _cli.RunExpecting(ExitCode.Ok, "render", a, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
-        _cli.RunExpecting(ExitCode.Ok, "render", b, "--out", _cli.Path("b.png"), "--continuous", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "render", a, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "render", b, "--out", _cli.Path("b.png"), "--continuous", "--quiet");
 
         string diff = _cli.Path(style + ".png");
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(
             ExitCode.Different,
             "compare", _cli.Path("a.png"), _cli.Path("b.png"),
             "--diff", diff, "--diff-style", style, "--quiet");
@@ -145,11 +143,10 @@ public sealed class ImageAndDiffTests : IDisposable
     {
         string a = _cli.MakeDocument("a.docx", "one line");
         string b = _cli.MakeDocument("b.docx", "one line\ntwo lines\nthree lines");
-        _cli.RunExpecting(ExitCode.Ok, "render", a, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
-        _cli.RunExpecting(ExitCode.Ok, "render", b, "--out", _cli.Path("b.png"), "--continuous", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "render", a, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "render", b, "--out", _cli.Path("b.png"), "--continuous", "--quiet");
 
-        JsonObject json = _cli
-            .RunExpecting(ExitCode.Different, "compare", _cli.Path("a.png"), _cli.Path("b.png"), "--json")
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Different, "compare", _cli.Path("a.png"), _cli.Path("b.png"), "--json")
             .Json();
 
         Assert.True(json["image"]!["sizeDiffers"]!.GetValue<bool>());
@@ -163,14 +160,13 @@ public sealed class ImageAndDiffTests : IDisposable
         // picture, and what comes back has lost the placeholder character.
         string image = WriteCheckerboard("dot.png", 32);
         string document = _cli.Path("pic.docx");
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(
             ExitCode.Ok,
             "new", "--out", document, "--text", "text around  the image",
             "--op", "image:0:12:file=" + image + ",width=24,height=24",
             "--quiet");
 
-        JsonObject json = _cli
-            .RunExpecting(ExitCode.Different, "roundtrip", document, "--via", "rtf", "--json")
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Different, "roundtrip", document, "--via", "rtf", "--json")
             .Json();
 
         JsonObject comparison = json["results"]![0]!["comparison"]!.AsObject();
@@ -181,8 +177,7 @@ public sealed class ImageAndDiffTests : IDisposable
 
     private int RenderHeight(string document, string name)
     {
-        JsonObject json = _cli
-            .RunExpecting(
+        JsonObject json = CliHarness.RunExpecting(
                 ExitCode.Ok, "render", document, "--out", _cli.Path(name), "--continuous", "--json")
             .Json();
 
@@ -209,26 +204,26 @@ public sealed class ImageAndDiffTests : IDisposable
         }
 
         using var stream = new MemoryStream();
-        stream.Write(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+        stream.Write([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
 
         var header = new List<byte>();
         header.AddRange(BigEndian(size));
         header.AddRange(BigEndian(size));
-        header.AddRange(new byte[] { 8, 2, 0, 0, 0 });
-        WriteChunk(stream, "IHDR", header.ToArray());
+        header.AddRange([8, 2, 0, 0, 0]);
+        WriteChunk(stream, "IHDR", [.. header]);
 
-        WriteChunk(stream, "IDAT", Deflate(raw.ToArray()));
-        WriteChunk(stream, "IEND", Array.Empty<byte>());
+        WriteChunk(stream, "IDAT", Deflate([.. raw]));
+        WriteChunk(stream, "IEND", []);
 
         string path = _cli.Path(name);
         File.WriteAllBytes(path, stream.ToArray());
         return path;
     }
 
-    private static byte[] BigEndian(int value) => new[]
-    {
+    private static byte[] BigEndian(int value) =>
+    [
         (byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value,
-    };
+    ];
 
     private static byte[] Deflate(byte[] data)
     {

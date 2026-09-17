@@ -1,5 +1,5 @@
 using System.Text;
-using Broiler.Graphics;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Html.Tests;
@@ -50,8 +50,8 @@ public sealed class HtmlWriterTests
     [Fact]
     public void Model_To_Html_To_Model_RoundTrips_Supported_Subset()
     {
-        RichTextDocument expected = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument expected = RichTextDocument.FromParagraphs(
+        [
             MakeParagraph(
                 new ParagraphStyle
                 {
@@ -73,7 +73,7 @@ public sealed class HtmlWriterTests
                 }),
                 (" link", InlineStyle.Default with { LinkHref = "mailto:test@example.test" })),
             RichTextParagraph.Create("Second", InlineStyle.Default),
-        });
+        ]);
 
         byte[] bytes = HtmlDocumentCodec.WriteToArray(expected);
         using var stream = new MemoryStream(bytes);
@@ -111,10 +111,10 @@ public sealed class HtmlWriterTests
     [Fact]
     public void Writing_ListKind_Reports_A_Predictable_Diagnostic()
     {
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             RichTextParagraph.Create("item", InlineStyle.Default, ParagraphStyle.Default with { ListKind = ListKind.Bullet, IndentLevel = 1 }),
-        });
+        ]);
 
         using var stream = new MemoryStream();
         DocumentWriteResult result = new HtmlDocumentCodec().Write(document, stream);
@@ -144,7 +144,7 @@ public sealed class HtmlWriterTests
         Encoding.UTF8.GetString(HtmlDocumentCodec.WriteToArray(document, options));
 
     private static RichTextDocument SingleParagraph(params (string Text, InlineStyle Style)[] segments) =>
-        RichTextDocument.FromParagraphs(new[] { MakeParagraph(ParagraphStyle.Default, segments) });
+        RichTextDocument.FromParagraphs([MakeParagraph(ParagraphStyle.Default, segments)]);
 
     private static RichTextParagraph MakeParagraph(
         ParagraphStyle paragraphStyle,

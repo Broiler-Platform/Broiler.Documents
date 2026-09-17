@@ -96,7 +96,7 @@ internal static class PixelChecks
         // The pinned set plus the faces the office suite brings with it. Both
         // are permitted in an exported PDF; only the second arrives without a
         // seed having asked.
-        string[] permittedFonts = pinnedFonts.Concat(toolFonts).ToArray();
+        string[] permittedFonts = [.. pinnedFonts, .. toolFonts];
 
         LibreOfficeRun pdf = space.ExportPdf(document);
         CheckResult exported = OfficeWorkspace.Validate(
@@ -141,13 +141,12 @@ internal static class PixelChecks
         }
         else
         {
-            string[] strangers = embedded
+            string[] strangers = [.. embedded
                 .Where(font => !permittedFonts.Any(pinned =>
                     font.Replace(" ", string.Empty, StringComparison.Ordinal)
                         .Contains(pinned.Replace(" ", string.Empty, StringComparison.Ordinal),
                             StringComparison.OrdinalIgnoreCase)))
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
+                .Distinct(StringComparer.Ordinal)];
 
             results.Add(strangers.Length == 0
                 ? CheckResult.Pass("pixel", prefix + "/fonts")
@@ -218,7 +217,7 @@ internal static class PixelChecks
 
         arguments.AddRange(fontArguments);
 
-        ToolRun rendered = await tool.RunAsync(arguments.ToArray()).ConfigureAwait(false);
+        ToolRun rendered = await tool.RunAsync([.. arguments]).ConfigureAwait(false);
         if (rendered.ExitCode != 0)
         {
             results.Add(CheckResult.Fail("pixel", prefix,
@@ -270,10 +269,9 @@ internal static class PixelChecks
             results.Add(CheckResult.Pass("pixel", prefix + "/mapping"));
         }
 
-        string[] ourPages = Directory
+        string[] ourPages = [.. Directory
             .GetFiles(ourDirectory, id + "-*.bmp")
-            .OrderBy(path => Ordinal(path), Comparer<int>.Default)
-            .ToArray();
+            .OrderBy(path => Ordinal(path), Comparer<int>.Default)];
 
         // Page count first. It is a small integer that does not drift, and a
         // document that came out with the wrong number of pages makes every
@@ -540,10 +538,9 @@ internal static class PixelChecks
             return [];
         }
 
-        return families.EnumerateArray()
+        return [.. families.EnumerateArray()
             .Where(family => family.ValueKind == JsonValueKind.String)
-            .Select(family => family.GetString()!)
-            .ToArray();
+            .Select(family => family.GetString()!)];
     }
 
     private static int? Number(JsonElement? json, string property)

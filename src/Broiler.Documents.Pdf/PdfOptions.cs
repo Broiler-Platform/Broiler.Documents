@@ -1,5 +1,6 @@
 using System;
 using Broiler.Documents.Pdf.Text;
+using Broiler.Documents.Resources;
 
 namespace Broiler.Documents.Pdf;
 
@@ -15,36 +16,26 @@ namespace Broiler.Documents.Pdf;
 /// precedence question the contract refuses to answer. Options carry settings;
 /// the request carries the operation (PDF roadmap §6.1).
 /// </remarks>
-public sealed class PdfReadOptions : DocumentReadOptions
+public sealed class PdfReadOptions(
+    DocumentLimits? limits = null,
+    PdfLimits? pdfLimits = null,
+    bool mapPageBreaks = false,
+    bool includeInvisibleText = true,
+    PdfUriPolicy? uriPolicy = null,
+    DocumentResourcePolicy? resourcePolicy = null,
+    bool includeHiddenOptionalContent = false) : DocumentReadOptions(limits, resourcePolicy: resourcePolicy)
 {
     public static new PdfReadOptions Default { get; } = new();
 
-    public PdfReadOptions(
-        DocumentLimits? limits = null,
-        PdfLimits? pdfLimits = null,
-        bool mapPageBreaks = false,
-        bool includeInvisibleText = true,
-        PdfUriPolicy? uriPolicy = null,
-        DocumentResourcePolicy? resourcePolicy = null,
-        bool includeHiddenOptionalContent = false)
-        : base(limits, resourcePolicy: resourcePolicy)
-    {
-        PdfLimits = pdfLimits ?? PdfLimits.Default;
-        MapPageBreaks = mapPageBreaks;
-        IncludeInvisibleText = includeInvisibleText;
-        UriPolicy = uriPolicy;
-        IncludeHiddenOptionalContent = includeHiddenOptionalContent;
-    }
-
     /// <summary>The PDF-specific budgets, composed with the shared limits.</summary>
-    public PdfLimits PdfLimits { get; }
+    public PdfLimits PdfLimits { get; } = pdfLimits ?? PdfLimits.Default;
 
     /// <summary>
     /// When true, a source page boundary becomes a paragraph break in the model.
     /// Off by default: page boundaries are extraction boundaries, and mapping them
     /// would imply a layout fidelity that re-pagination cannot keep.
     /// </summary>
-    public bool MapPageBreaks { get; }
+    public bool MapPageBreaks { get; } = mapPageBreaks;
 
     /// <summary>
     /// When true (the default), text drawn in an invisible or clipping-only
@@ -52,13 +43,13 @@ public sealed class PdfReadOptions : DocumentReadOptions
     /// which is <em>not</em> the same as proving it is invisible — this release
     /// makes no visibility claim in either direction.
     /// </summary>
-    public bool IncludeInvisibleText { get; }
+    public bool IncludeInvisibleText { get; } = includeInvisibleText;
 
     /// <summary>
     /// Overrides the codec's composed URI policy for this read. Null uses the
     /// policy from <see cref="PdfCodecServices"/>.
     /// </summary>
-    public PdfUriPolicy? UriPolicy { get; }
+    public PdfUriPolicy? UriPolicy { get; } = uriPolicy;
 
     /// <summary>
     /// When true, content is extracted from every optional-content group
@@ -81,7 +72,7 @@ public sealed class PdfReadOptions : DocumentReadOptions
     /// still reports which layers the configuration had turned off.
     /// </para>
     /// </remarks>
-    public bool IncludeHiddenOptionalContent { get; }
+    public bool IncludeHiddenOptionalContent { get; } = includeHiddenOptionalContent;
 }
 
 /// <summary>Options for writing a PDF.</summary>

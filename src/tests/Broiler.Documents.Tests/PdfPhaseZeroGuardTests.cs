@@ -15,7 +15,7 @@ namespace Broiler.Documents.Tests;
 /// repository is built standalone, because the head simply is not there to
 /// inspect; see <see cref="PdfGuardRoots"/>.
 /// </remarks>
-public sealed class PdfPhaseZeroGuardTests
+public sealed partial class PdfPhaseZeroGuardTests
 {
     /// <summary>Component-relative paths that must exist and stay versioned.</summary>
     private static readonly string[] RequiredDocuments =
@@ -103,9 +103,7 @@ public sealed class PdfPhaseZeroGuardTests
     {
         string root = PdfGuardRoots.Component;
         var violations = new List<string>();
-        var pdfType = new Regex(
-            @"\b(?:class|record|struct|interface|enum)\s+Pdf[A-Z]",
-            RegexOptions.CultureInvariant);
+        var pdfType = MyRegex();
 
         foreach (string relativeRoot in SharedSourceRoots)
         {
@@ -138,7 +136,7 @@ public sealed class PdfPhaseZeroGuardTests
     {
         System.Reflection.Assembly[] assemblies =
         [
-            typeof(Broiler.Graphics.Color.BColor).Assembly,
+            typeof(Graphics.Color.BColor).Assembly,
             System.Reflection.Assembly.Load("Broiler.Media.Image"),
         ];
         foreach (var assembly in assemblies)
@@ -150,4 +148,7 @@ public sealed class PdfPhaseZeroGuardTests
                 reference.Name?.StartsWith("Broiler.Documents.Pdf", StringComparison.Ordinal) ?? false);
         }
     }
+
+    [GeneratedRegex(@"\b(?:class|record|struct|interface|enum)\s+Pdf[A-Z]", RegexOptions.CultureInvariant)]
+    private static partial Regex MyRegex();
 }

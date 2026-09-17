@@ -9,6 +9,7 @@ using Broiler.Documents.Pdf.Filters;
 using Broiler.Documents.Pdf.Structure;
 using Broiler.Documents.Pdf.Syntax;
 using Broiler.Documents.Pdf.Text;
+using Broiler.Documents.Resources;
 
 namespace Broiler.Documents.Pdf;
 
@@ -72,8 +73,7 @@ internal static class PdfReader
 
         var pipeline = new PdfFilterPipeline(services.StreamFilters, cancellationToken);
         PdfObjectStore? store = PdfObjectStore.Load(data, budget, diagnostics, pipeline);
-        if (store is not null)
-            store.FontProgramReader = services.FontProgramReader;
+        store?.FontProgramReader = services.FontProgramReader;
         if (store is null)
         {
             diagnostics.Error(PdfDiagnosticCodes.HeaderMissing, "The input does not begin with a PDF header.");
@@ -89,8 +89,7 @@ internal static class PdfReader
             return Rejected(diagnostics);
         }
 
-        PdfDictionary? catalog = store.Resolve(store.Trailer["Root"]) as PdfDictionary;
-        if (catalog is null)
+        if (store.Resolve(store.Trailer["Root"]) is not PdfDictionary catalog)
         {
             diagnostics.Error(PdfDiagnosticCodes.StructureMalformed, "The document has no usable catalog.");
             return Rejected(diagnostics);
@@ -461,7 +460,7 @@ internal static class PdfReader
         return false;
     }
 
-    private static IReadOnlyList<PdfTextFragment> FilterVisible(IReadOnlyList<PdfTextFragment> fragments)
+    private static List<PdfTextFragment> FilterVisible(IReadOnlyList<PdfTextFragment> fragments)
     {
         var visible = new List<PdfTextFragment>(fragments.Count);
         foreach (PdfTextFragment fragment in fragments)
@@ -576,7 +575,7 @@ internal static class PdfReader
             DocumentMetadata.Empty,
             PdfVersion.Unknown,
             0,
-            Array.Empty<PdfExtensionDeclaration>(),
+            [],
             diagnostics.Build());
 
     /// <summary>

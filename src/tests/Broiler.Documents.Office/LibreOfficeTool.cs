@@ -631,14 +631,13 @@ internal sealed class LibreOfficeTool
     /// </remarks>
     private static void Scrub(ProcessStartInfo start)
     {
-        List<string> doomed = start.Environment.Keys
+        List<string> doomed = [.. start.Environment.Keys
             .Where(name =>
                 name.Equals("PYTHONHOME", StringComparison.OrdinalIgnoreCase)
                 || name.Equals("PYTHONPATH", StringComparison.OrdinalIgnoreCase)
                 || name.Equals("URE_BOOTSTRAP", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("SAL_", StringComparison.OrdinalIgnoreCase)
-                || name.StartsWith("OOO_", StringComparison.OrdinalIgnoreCase))
-            .ToList();
+                || name.StartsWith("OOO_", StringComparison.OrdinalIgnoreCase))];
 
         foreach (string name in doomed)
             start.Environment.Remove(name);

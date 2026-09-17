@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Broiler.Documents.Pdf.Text;
-using Broiler.Graphics;
 using Broiler.Graphics.Text;
 
 namespace Broiler.Documents.Pdf.Fonts;

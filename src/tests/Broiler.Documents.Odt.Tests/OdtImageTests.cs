@@ -1,3 +1,4 @@
+using Broiler.Documents.Resources;
 using System.IO.Compression;
 using System.Xml.Linq;
 

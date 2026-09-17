@@ -1,5 +1,3 @@
-using System.Buffers.Binary;
-
 namespace Broiler.Documents.Pdf.Images.Tests;
 
 /// <summary>

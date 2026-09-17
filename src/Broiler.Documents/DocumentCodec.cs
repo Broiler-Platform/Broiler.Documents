@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
 using Broiler.Documents.Model;
 
@@ -31,14 +30,9 @@ namespace Broiler.Documents;
 /// UI thread deadlocks.
 /// </para>
 /// </remarks>
-public abstract class DocumentCodec
+public abstract class DocumentCodec(DocumentFormatDescriptor descriptor)
 {
-    protected DocumentCodec(DocumentFormatDescriptor descriptor)
-    {
-        Descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
-    }
-
-    public DocumentFormatDescriptor Descriptor { get; }
+    public DocumentFormatDescriptor Descriptor { get; } = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
 
     public string Name => Descriptor.Name;
 
@@ -59,10 +53,7 @@ public abstract class DocumentCodec
     public abstract DocumentReadResult Read(Stream source, DocumentReadOptions? options = null);
 
     /// <summary>Write a model document to the destination in this format.</summary>
-    public abstract DocumentWriteResult Write(
-        RichTextDocument document,
-        Stream destination,
-        DocumentWriteOptions? options = null);
+    public abstract DocumentWriteResult Write(RichTextDocument document, Stream destination, DocumentWriteOptions? options = null);
 
     /// <summary>
     /// Read through the request contract. The default implementation opens the
@@ -76,11 +67,7 @@ public abstract class DocumentCodec
         ArgumentNullException.ThrowIfNull(request);
 
         if (request.CancellationToken.IsCancellationRequested)
-        {
-            return DocumentReadResult.Rejected(
-                DocumentDiagnosticCodes.Cancelled,
-                "The read was cancelled before it began.");
-        }
+            return DocumentReadResult.Rejected(DocumentDiagnosticCodes.Cancelled, "The read was cancelled before it began.");
 
         try
         {
@@ -93,8 +80,7 @@ public abstract class DocumentCodec
         }
         catch (OperationCanceledException)
         {
-            return DocumentReadResult.Rejected(
-                DocumentDiagnosticCodes.Cancelled,
+            return DocumentReadResult.Rejected(DocumentDiagnosticCodes.Cancelled,
                 "The read was cancelled before it produced a usable document.");
         }
     }
@@ -109,8 +95,7 @@ public abstract class DocumentCodec
 
         if (request.CancellationToken.IsCancellationRequested)
         {
-            return DocumentWriteResult.Rejected(
-                DocumentDiagnosticCodes.Cancelled,
+            return DocumentWriteResult.Rejected(DocumentDiagnosticCodes.Cancelled,
                 "The write was cancelled before any byte reached the destination.");
         }
 
@@ -120,8 +105,7 @@ public abstract class DocumentCodec
         }
         catch (OperationCanceledException)
         {
-            return DocumentWriteResult.Rejected(
-                DocumentDiagnosticCodes.Cancelled,
+            return DocumentWriteResult.Rejected(DocumentDiagnosticCodes.Cancelled,
                 "The write was cancelled before any byte reached the destination.");
         }
     }
@@ -157,12 +141,8 @@ public abstract class DocumentCodec
     /// codec fills in its own defaults for the rest. Only an object of a
     /// <em>different</em> codec's option type is a rejection.
     /// </remarks>
-    protected static bool TryValidateOptions<TOptions>(
-        DocumentReadOptions options,
-        string codecName,
-        out TOptions? typed,
-        out DocumentReadResult? rejection)
-        where TOptions : DocumentReadOptions
+    protected static bool TryValidateOptions<TOptions>(DocumentReadOptions options, string codecName,
+        out TOptions? typed, out DocumentReadResult? rejection) where TOptions : DocumentReadOptions
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -189,12 +169,8 @@ public abstract class DocumentCodec
     }
 
     /// <summary>The write-side counterpart of <see cref="TryValidateOptions{TOptions}(DocumentReadOptions, string, out TOptions, out DocumentReadResult)"/>.</summary>
-    protected static bool TryValidateOptions<TOptions>(
-        DocumentWriteOptions options,
-        string codecName,
-        out TOptions? typed,
-        out DocumentWriteResult? rejection)
-        where TOptions : DocumentWriteOptions
+    protected static bool TryValidateOptions<TOptions>(DocumentWriteOptions options, string codecName,
+        out TOptions? typed, out DocumentWriteResult? rejection) where TOptions : DocumentWriteOptions
     {
         ArgumentNullException.ThrowIfNull(options);
 

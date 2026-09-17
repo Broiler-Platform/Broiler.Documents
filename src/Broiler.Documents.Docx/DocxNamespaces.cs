@@ -17,8 +17,7 @@ internal static class DocxNamespaces
     public static readonly XNamespace Drawing = "http://schemas.openxmlformats.org/drawingml/2006/main";
 
     /// <summary>WordprocessingML drawing, the <c>wp:inline</c>/<c>wp:anchor</c> wrapper around a picture.</summary>
-    public static readonly XNamespace WordDrawing =
-        "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
+    public static readonly XNamespace WordDrawing = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
 
     /// <summary>DrawingML picture, the <c>pic:pic</c> shape a drawing embeds.</summary>
     public static readonly XNamespace Picture = "http://schemas.openxmlformats.org/drawingml/2006/picture";
@@ -27,45 +26,31 @@ internal static class DocxNamespaces
     public static readonly XNamespace Vml = "urn:schemas-microsoft-com:vml";
 
     /// <summary>The shape namespace Word writes a text box or a drawn box in.</summary>
-    public static readonly XNamespace WordShape =
-        "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
+    public static readonly XNamespace WordShape = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
 
-    public const string OfficeDocumentRelationship =
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
+    public const string OfficeDocumentRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
 
-    public const string HyperlinkRelationship =
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
+    public const string HyperlinkRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
 
-    public const string NumberingRelationship =
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering";
+    public const string NumberingRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering";
 
-    public const string StylesRelationship =
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
+    public const string StylesRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles";
 
-    public const string ThemeRelationship =
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme";
+    public const string ThemeRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme";
 
-    public const string HeaderRelationship =
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header";
+    public const string HeaderRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/header";
 
-    public const string FooterRelationship =
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer";
+    public const string FooterRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer";
 
-    public const string ImageRelationship =
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
+    public const string ImageRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
 
-    public const string DocumentContentType =
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
+    public const string DocumentContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
 
-    public const string NumberingContentType =
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml";
+    public const string NumberingContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml";
 
-    public const string HeaderContentType =
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
+    public const string HeaderContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
 
-    public const string FooterContentType =
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml";
+    public const string FooterContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml";
 
-    public const string PackageContentType =
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    public const string PackageContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 }

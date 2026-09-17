@@ -1,9 +1,8 @@
 using System;
-using System.Globalization;
 using System.Text.Json.Nodes;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Imaging;
+using System.Collections.Generic;
 
 namespace Broiler.Documents.Cli.Comparison;
 
@@ -154,8 +153,7 @@ public sealed class ImageComparison
                     boundsBottom = Math.Max(boundsBottom, y);
                 }
 
-                if (diff is not null)
-                    diff.SetPixel(x, y, DiffPixel(style!.Value, differs, worst, leftPixels, l));
+                diff?.SetPixel(x, y, DiffPixel(style!.Value, differs, worst, leftPixels, l));
             }
         }
 
@@ -222,41 +220,21 @@ public sealed class ImageComparison
     /// <summary>The comparison as report lines.</summary>
     public string[] Describe()
     {
-        var lines = new System.Collections.Generic.List<string>
+        var lines = new List<string>
         {
-            string.Format(
-                CultureInfo.InvariantCulture,
-                "  size          {0}x{1} vs {2}x{3}{4}",
-                LeftWidth,
-                LeftHeight,
-                RightWidth,
-                RightHeight,
-                SizeDiffers ? "   (DIFFERENT)" : string.Empty),
-            string.Format(
-                CultureInfo.InvariantCulture,
-                "  differing     {0} of {1} pixels ({2:P4})",
-                DifferingPixels,
-                ComparedPixels,
-                DifferingRatio),
-            string.Format(CultureInfo.InvariantCulture, "  max delta     {0} of 255", MaxChannelDelta),
-            string.Format(CultureInfo.InvariantCulture, "  mean error    {0:F4}", MeanAbsoluteError),
-            string.Format(CultureInfo.InvariantCulture, "  rms error     {0:F4}", RootMeanSquareError),
+            $"  size          {LeftWidth}x{LeftHeight} vs {RightWidth}x{RightHeight}{(SizeDiffers ? "   (DIFFERENT)" : string.Empty)}",
+            $"  differing     {DifferingPixels} of {ComparedPixels} pixels ({DifferingRatio:P4})",
+            $"  max delta     {MaxChannelDelta} of 255",
+            $"  mean error    {MeanAbsoluteError:F4}",
+            $"  rms error     {RootMeanSquareError:F4}",
         };
 
         if (DifferenceBounds is (int left, int top, int right, int bottom))
         {
-            lines.Add(string.Format(
-                CultureInfo.InvariantCulture,
-                "  bounds        ({0},{1}) to ({2},{3}), {4}x{5} pixels",
-                left,
-                top,
-                right,
-                bottom,
-                right - left + 1,
-                bottom - top + 1));
+            lines.Add($"  bounds        ({left},{top}) to ({right},{bottom}), {right - left + 1}x{bottom - top + 1} pixels");
         }
 
-        return lines.ToArray();
+        return [.. lines];
     }
 
     private static BColor DiffPixel(DiffStyle style, bool differs, int delta, byte[] leftPixels, int index)

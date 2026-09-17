@@ -44,11 +44,11 @@ public sealed class HtmlDocumentCodecProbeTests
     [Fact]
     public void Catalog_Selects_Html_Without_Changing_The_Catalog()
     {
-        var catalog = new DocumentCodecCatalog(new DocumentCodec[]
-        {
+        var catalog = new DocumentCodecCatalog(
+        [
             new RtfDocumentCodec(),
             new HtmlDocumentCodec(),
-        });
+        ]);
 
         DocumentCodecMatch? match = catalog.Select(Encoding.UTF8.GetBytes("<html><body>x</body></html>"));
 

@@ -47,24 +47,18 @@ namespace Broiler.Documents.Pdf;
 /// register.
 /// </para>
 /// </remarks>
-public sealed class PdfDocumentCodec : DocumentCodec
+/// <remarks>Creates a codec over an explicitly composed service graph.</remarks>
+public sealed class PdfDocumentCodec(PdfCodecServices services) : DocumentCodec(new DocumentFormatDescriptor("PDF", [ApplicationPdf], [".pdf"]))
 {
     private const string ApplicationPdf = "application/pdf";
     private static readonly byte[] Signature = "%PDF-"u8.ToArray();
 
-    private readonly PdfCodecServices _services;
+    private readonly PdfCodecServices _services = services ?? throw new ArgumentNullException(nameof(services));
 
     /// <summary>Creates a codec with the base service graph.</summary>
     public PdfDocumentCodec()
         : this(PdfCodecServices.Base)
     {
-    }
-
-    /// <summary>Creates a codec over an explicitly composed service graph.</summary>
-    public PdfDocumentCodec(PdfCodecServices services)
-        : base(new DocumentFormatDescriptor("PDF", [ApplicationPdf], [".pdf"]))
-    {
-        _services = services ?? throw new ArgumentNullException(nameof(services));
     }
 
     /// <summary>The services this instance was composed with.</summary>
@@ -171,7 +165,7 @@ public sealed class PdfDocumentCodec : DocumentCodec
                 DocumentMetadata.Empty,
                 Structure.PdfVersion.Unknown,
                 0,
-                Array.Empty<Structure.PdfExtensionDeclaration>(),
+                [],
                 sink.Build());
         }
 
@@ -223,7 +217,7 @@ public sealed class PdfDocumentCodec : DocumentCodec
             DocumentMetadata.Empty,
             Structure.PdfVersion.Unknown,
             0,
-            Array.Empty<Structure.PdfExtensionDeclaration>(),
+            [],
             sink.Build());
     }
 

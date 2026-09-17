@@ -18,26 +18,15 @@ public sealed class DocumentLimits
 
     public static DocumentLimits Default { get; } = new();
 
-    public DocumentLimits(
-        int maxProbeBytes = DefaultMaxProbeBytes,
-        long maxDocumentBytes = DefaultMaxDocumentBytes,
-        int maxGroupDepth = DefaultMaxGroupDepth,
-        int maxRunLength = DefaultMaxRunLength,
-        int maxParagraphCount = DefaultMaxParagraphCount,
-        long maxBinBytes = DefaultMaxBinBytes)
+    public DocumentLimits(int maxProbeBytes = DefaultMaxProbeBytes, long maxDocumentBytes = DefaultMaxDocumentBytes, int maxGroupDepth = DefaultMaxGroupDepth,
+        int maxRunLength = DefaultMaxRunLength, int maxParagraphCount = DefaultMaxParagraphCount, long maxBinBytes = DefaultMaxBinBytes)
     {
-        if (maxProbeBytes <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxProbeBytes));
-        if (maxDocumentBytes <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxDocumentBytes));
-        if (maxGroupDepth <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxGroupDepth));
-        if (maxRunLength <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxRunLength));
-        if (maxParagraphCount <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxParagraphCount));
-        if (maxBinBytes < 0)
-            throw new ArgumentOutOfRangeException(nameof(maxBinBytes));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxProbeBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDocumentBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxGroupDepth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxRunLength);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxParagraphCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBinBytes);
 
         MaxProbeBytes = maxProbeBytes;
         MaxDocumentBytes = maxDocumentBytes;

@@ -368,7 +368,7 @@ public sealed class JpegStreamFilterTests
         bytes.Add(0x7F);
 
         bytes.AddRange([0xFF, 0xD9]);
-        return bytes.ToArray();
+        return [.. bytes];
     }
 
     /// <summary>
@@ -399,7 +399,7 @@ public sealed class JpegStreamFilterTests
             bytes.AddRange([(byte)(i + 1), 0x11, 0x00]);
 
         bytes.AddRange([0xFF, 0xD9]);
-        return bytes.ToArray();
+        return [.. bytes];
     }
 
     /// <summary>
@@ -438,7 +438,7 @@ public sealed class JpegStreamFilterTests
         bytes.AddRange(jpeg.AsSpan(0, 2).ToArray());
         bytes.AddRange(AdobeMarker(transform));
         bytes.AddRange(jpeg.AsSpan(2).ToArray());
-        return bytes.ToArray();
+        return [.. bytes];
     }
 
     private static byte[] AdobeMarker(int transform)
@@ -446,7 +446,7 @@ public sealed class JpegStreamFilterTests
         var bytes = new List<byte> { 0xFF, 0xEE, 0x00, 0x0E };
         bytes.AddRange(Encoding.ASCII.GetBytes("Adobe"));
         bytes.AddRange([0x00, 0x64, 0x00, 0x00, 0x00, 0x00, (byte)transform]);
-        return bytes.ToArray();
+        return [.. bytes];
     }
 
     private static byte[] BigEndian(int value) => [(byte)(value >> 8), (byte)(value & 0xFF)];

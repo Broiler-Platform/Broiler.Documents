@@ -57,10 +57,8 @@ public sealed class PdfFilterContext
 {
     public PdfFilterContext(long maxDecodedBytes, int maxExpansionRatio, CancellationToken cancellationToken = default)
     {
-        if (maxDecodedBytes <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxDecodedBytes));
-        if (maxExpansionRatio <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxExpansionRatio));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDecodedBytes);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxExpansionRatio);
 
         MaxDecodedBytes = maxDecodedBytes;
         MaxExpansionRatio = maxExpansionRatio;

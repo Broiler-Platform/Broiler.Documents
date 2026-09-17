@@ -1,4 +1,3 @@
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.FormatCodes.Tests;
@@ -29,7 +28,7 @@ public sealed class FormatCodeInsertPaletteTests
     private static RichTextRange Caret()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("text");
-        return RichTextRange.Caret(document.Start);
+        return RichTextRange.Caret(RichTextDocument.Start);
     }
 
     /// <summary>The typed value an entry needs, or null for the ones that take none.</summary>
@@ -110,7 +109,7 @@ public sealed class FormatCodeInsertPaletteTests
         RichTextDocument document = RichTextDocument.FromPlainText("text");
         FormatCodeEditIntent intent = FormatCodeInsertPalette.Create(
             FormatCodePaletteEntry.PageBreakBefore,
-            RichTextRange.Caret(document.Start));
+            RichTextRange.Caret(RichTextDocument.Start));
 
         Assert.True(FormatCodeEditValidator.Validate(document, intent).IsValid);
     }

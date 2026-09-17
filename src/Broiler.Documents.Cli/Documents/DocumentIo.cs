@@ -9,28 +9,17 @@ using Broiler.Documents.Model;
 namespace Broiler.Documents.Cli.Documents;
 
 /// <summary>A document that was read, together with how it was read and what the codec said about it.</summary>
-public sealed class LoadedDocument
+public sealed class LoadedDocument(string source, DocumentCodec codec, DocumentProbeResult probe, DocumentReadResult result)
 {
-    public LoadedDocument(
-        string source,
-        DocumentCodec codec,
-        DocumentProbeResult probe,
-        DocumentReadResult result)
-    {
-        Source = source;
-        Codec = codec;
-        Probe = probe;
-        Result = result;
-    }
 
     /// <summary>The path this came from, or <c>-</c> for standard input.</summary>
-    public string Source { get; }
+    public string Source { get; } = source;
 
-    public DocumentCodec Codec { get; }
+    public DocumentCodec Codec { get; } = codec;
 
-    public DocumentProbeResult Probe { get; }
+    public DocumentProbeResult Probe { get; } = probe;
 
-    public DocumentReadResult Result { get; }
+    public DocumentReadResult Result { get; } = result;
 
     public RichTextDocument Document => Result.Document;
 
@@ -42,15 +31,9 @@ public sealed class LoadedDocument
 }
 
 /// <summary>Raised when a document could not be read. Carries the exit code the caller should use.</summary>
-public sealed class DocumentIoException : Exception
+public sealed class DocumentIoException(int exitCode, string message) : Exception(message)
 {
-    public DocumentIoException(int exitCode, string message)
-        : base(message)
-    {
-        ExitCode = exitCode;
-    }
-
-    public int ExitCode { get; }
+    public int ExitCode { get; } = exitCode;
 }
 
 /// <summary>
@@ -75,11 +58,7 @@ public static class DocumentIo
     /// still runs and is still reported, so a mismatch between what the caller
     /// declared and what the bytes look like is visible rather than silent.
     /// </remarks>
-    public static LoadedDocument Load(
-        string source,
-        DocumentCodecCatalog catalog,
-        DocumentReadOptions options,
-        string? formatOverride = null)
+    public static LoadedDocument Load(string source, DocumentCodecCatalog catalog, DocumentReadOptions options, string? formatOverride = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(options);
@@ -106,29 +85,20 @@ public static class DocumentIo
         }
 
         DocumentCodec codec = CodecComposition.Resolve(catalog, formatOverride)
-            ?? throw new UsageException(
-                "Unknown format \"" + formatOverride + "\". Known formats: " +
-                string.Join(", ", CodecComposition.FormatNames(catalog)) + ".");
+            ?? throw new UsageException("Unknown format \"" + formatOverride + "\". Known formats: " +
+            string.Join(", ", CodecComposition.FormatNames(catalog)) + ".");
 
         if (!codec.CanRead)
             throw new DocumentIoException(ExitCode.Read, "The " + codec.Name + " codec does not implement reading.");
 
-        DocumentProbeResult probe = codec.Probe(
-            new DocumentProbeRequest(
-                input.Peek(options.Limits.MaxProbeBytes),
-                hints,
-                options.Limits));
+        DocumentProbeResult probe = codec.Probe(new DocumentProbeRequest(input.Peek(options.Limits.MaxProbeBytes), hints, options.Limits));
 
         DocumentReadResult result = codec.Read(new DocumentReadRequest(input, options));
         return new LoadedDocument(source, codec, probe, result);
     }
 
     /// <summary>Reads a document and fails the run when the result is unusable.</summary>
-    public static LoadedDocument LoadOrThrow(
-        string source,
-        DocumentCodecCatalog catalog,
-        DocumentReadOptions options,
-        string? formatOverride = null)
+    public static LoadedDocument LoadOrThrow(string source, DocumentCodecCatalog catalog, DocumentReadOptions options, string? formatOverride = null)
     {
         LoadedDocument loaded = Load(source, catalog, options, formatOverride);
         if (loaded.Result.Status == DocumentResultStatus.Rejected)
@@ -148,10 +118,7 @@ public static class DocumentIo
     /// Chooses the codec to write with: an explicit format name if one was
     /// given, otherwise the destination's file extension.
     /// </summary>
-    public static DocumentCodec ResolveWriteCodec(
-        DocumentCodecCatalog catalog,
-        string destination,
-        string? formatOverride)
+    public static DocumentCodec ResolveWriteCodec(DocumentCodecCatalog catalog, string destination, string? formatOverride)
     {
         ArgumentNullException.ThrowIfNull(catalog);
 
@@ -186,11 +153,7 @@ public static class DocumentIo
     /// most in the loop this tool is built for: an overnight conversion sweep
     /// that fails on file 400 should not have eaten file 400.
     /// </remarks>
-    public static DocumentWriteResult Save(
-        RichTextDocument document,
-        string destination,
-        DocumentCodec codec,
-        DocumentWriteOptions options)
+    public static DocumentWriteResult Save(RichTextDocument document, string destination, DocumentCodec codec, DocumentWriteOptions options)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(codec);
@@ -225,8 +188,7 @@ public static class DocumentIo
             var info = new FileInfo(source);
             if (info.Length > maxBytes)
             {
-                throw new DocumentIoException(
-                    ExitCode.Input,
+                throw new DocumentIoException(ExitCode.Input,
                     Describe(source) + " is " + info.Length + " bytes, over the " + maxBytes +
                     " byte limit. Raise it with --max-bytes.");
             }

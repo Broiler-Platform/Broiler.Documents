@@ -16,7 +16,7 @@ namespace Broiler.Documents.Cli.Tests;
 /// come to depend on, so a PDF capability composed here by accident would be
 /// hard to withdraw later.
 /// </remarks>
-public sealed class CliArchitectureTests
+public sealed partial class CliArchitectureTests
 {
     private static readonly string ComponentRoot = RepositoryFiles.Root;
 
@@ -31,11 +31,9 @@ public sealed class CliArchitectureTests
         // The project file names the PDF codec in a comment explaining why it is
         // absent, and that comment is worth keeping. What must not exist is a
         // reference, so the assertion is about references.
-        string[] referenced = Regex
-            .Matches(project, @"<(?:Project|Package)Reference\s+Include=""(?<path>[^""]+)""")
+        string[] referenced = [.. MyRegex().Matches(project)
             .Select(match => match.Groups["path"].Value)
-            .Where(path => path.Contains("Broiler.Documents.Pdf", StringComparison.OrdinalIgnoreCase))
-            .ToArray();
+            .Where(path => path.Contains("Broiler.Documents.Pdf", StringComparison.OrdinalIgnoreCase))];
 
         Assert.Empty(referenced);
     }
@@ -48,11 +46,10 @@ public sealed class CliArchitectureTests
         // the word appearing.
         var composed = new Regex(@"new\s+PdfDocumentCodec\s*\(", RegexOptions.CultureInvariant);
 
-        string[] offenders = SourceFiles()
+        string[] offenders = [.. SourceFiles()
             .Where(path => composed.IsMatch(File.ReadAllText(path)) ||
                 File.ReadAllText(path).Contains("using Broiler.Documents.Pdf", StringComparison.Ordinal))
-            .Select(path => Path.GetRelativePath(ComponentRoot, path))
-            .ToArray();
+            .Select(path => Path.GetRelativePath(ComponentRoot, path))];
 
         Assert.Empty(offenders);
     }
@@ -81,7 +78,7 @@ public sealed class CliArchitectureTests
         // The codes are a published contract; two of them meaning the same thing
         // would make a harness unable to tell two outcomes apart.
         int[] codes =
-        {
+        [
             ExitCode.Ok,
             ExitCode.Usage,
             ExitCode.Input,
@@ -90,7 +87,7 @@ public sealed class CliArchitectureTests
             ExitCode.Different,
             ExitCode.Diagnostics,
             ExitCode.Internal,
-        };
+        ];
 
         Assert.Equal(codes.Length, codes.Distinct().Count());
     }
@@ -102,4 +99,6 @@ public sealed class CliArchitectureTests
                 "*.cs",
                 SearchOption.AllDirectories)
             .Where(path => !RepositoryFiles.IsBuildOutput(path));
+    [GeneratedRegex(@"<(?:Project|Package)Reference\s+Include=""(?<path>[^""]+)""")]
+    private static partial Regex MyRegex();
 }

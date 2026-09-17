@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using Broiler.Documents.Model;
+using Broiler.Documents.Resources;
 using Broiler.Dom;
 using Broiler.Dom.Html;
 

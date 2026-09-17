@@ -6,7 +6,6 @@ using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Dom;
 using Broiler.Dom.Html;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Html;
@@ -568,22 +567,15 @@ internal static class HtmlReader
         return text.Length > 0 && text[0] == '\uFEFF' ? text[1..] : text;
     }
 
-    private sealed class HtmlDocumentBuilder
+    private sealed class HtmlDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
     {
-        private readonly DocumentLimits _limits;
         private readonly List<RichTextParagraph> _paragraphs = [];
         private readonly List<Segment> _segments = [];
         private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
         private bool _paragraphOpen;
         private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
 
-        public HtmlDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
-        {
-            _limits = limits;
-            Diagnostics = diagnostics;
-        }
-
-        public List<DocumentDiagnostic> Diagnostics { get; }
+        public List<DocumentDiagnostic> Diagnostics { get; } = diagnostics;
 
         public void AddDiagnosticOnce(string code, string message)
         {
@@ -627,9 +619,9 @@ internal static class HtmlReader
             if (normalized.Length == 0)
                 return;
 
-            if (normalized.Length > _limits.MaxRunLength)
+            if (normalized.Length > limits.MaxRunLength)
             {
-                normalized = normalized[.._limits.MaxRunLength];
+                normalized = normalized[..limits.MaxRunLength];
                 AddDiagnosticOnce("html.limit.run", "An HTML text run exceeded MaxRunLength and was truncated.");
             }
 
@@ -654,7 +646,7 @@ internal static class HtmlReader
                 return;
             }
 
-            if (_paragraphs.Count >= _limits.MaxParagraphCount)
+            if (_paragraphs.Count >= limits.MaxParagraphCount)
             {
                 AddDiagnosticOnce("html.limit.paragraphs", "HTML input exceeded MaxParagraphCount; remaining paragraphs were dropped.");
                 _segments.Clear();

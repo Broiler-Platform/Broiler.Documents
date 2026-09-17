@@ -8,31 +8,21 @@ namespace Broiler.Documents.Pdf.Text;
 /// XObject placement (clause 8.3.3), stored in the format's own <c>[a b c d e f]</c>
 /// order.
 /// </summary>
-internal readonly struct PdfMatrix : IEquatable<PdfMatrix>
+internal readonly struct PdfMatrix(double a, double b, double c, double d, double e, double f) : IEquatable<PdfMatrix>
 {
-    public PdfMatrix(double a, double b, double c, double d, double e, double f)
-    {
-        A = a;
-        B = b;
-        C = c;
-        D = d;
-        E = e;
-        F = f;
-    }
-
     public static PdfMatrix Identity => new(1, 0, 0, 1, 0, 0);
 
-    public double A { get; }
+    public double A { get; } = a;
 
-    public double B { get; }
+    public double B { get; } = b;
 
-    public double C { get; }
+    public double C { get; } = c;
 
-    public double D { get; }
+    public double D { get; } = d;
 
-    public double E { get; }
+    public double E { get; } = e;
 
-    public double F { get; }
+    public double F { get; } = f;
 
     public static PdfMatrix Translation(double x, double y) => new(1, 0, 0, 1, x, y);
 

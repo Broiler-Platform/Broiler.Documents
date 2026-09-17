@@ -1,10 +1,6 @@
-using System;
 using Broiler.Documents.Cli.Rendering;
-using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Imaging;
-using Xunit;
 
 namespace Broiler.Documents.Cli.Tests;
 

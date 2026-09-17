@@ -39,7 +39,7 @@ internal sealed class CcittFaxEncoder
     {
         var encoder = new CcittFaxEncoder(image[0].Length);
         encoder.Run(image, k, byteAlign);
-        return encoder._output.ToArray();
+        return [.. encoder._output];
     }
 
     private void Run(bool[][] image, int k, bool byteAlign)

@@ -7,10 +7,7 @@ namespace Broiler.Documents.Markdown;
 
 internal static class MarkdownInlineParser
 {
-    public static IReadOnlyList<MarkdownSegment> Parse(
-        string text,
-        InlineStyle baseStyle,
-        ICollection<DocumentDiagnostic> diagnostics)
+    public static IReadOnlyList<MarkdownSegment> Parse(string text, InlineStyle baseStyle, ICollection<DocumentDiagnostic> diagnostics)
     {
         var segments = new List<MarkdownSegment>();
         var plain = new StringBuilder();

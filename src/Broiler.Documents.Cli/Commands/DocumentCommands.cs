@@ -10,6 +10,7 @@ using Broiler.Documents.Cli.Documents;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.FormatCodes;
 using Broiler.Documents.Model;
+using Broiler.Documents.Resources;
 
 namespace Broiler.Documents.Cli.Commands;
 
@@ -17,31 +18,28 @@ namespace Broiler.Documents.Cli.Commands;
 public static class DocumentCommands
 {
     private static readonly OptionSpec[] EditingSpecs =
-    {
+    [
         OptionSpec.Many("op", "operation", "One edit operation. Applied in the order given."),
         OptionSpec.Many("script", "path", "A file of edit operations, one per line; # starts a comment."),
-    };
+    ];
 
     public static CommandEntry New() => new(
         new CommandSpec(
             "new",
             "Create a document from text and write it in any supported format.",
             "new --out <path> [--text <text> | --from-file <path>] [--op <operation>]...",
-            new[]
-            {
+            [
                 OptionSpec.Value("out", "path", "Where to write the document. Use - for standard output."),
                 OptionSpec.Value("text", "text", "The body text. Newlines start new paragraphs."),
                 OptionSpec.Value("from-file", "path", "Read the body text from a UTF-8 file, or - for standard input."),
-            }
-            .Concat(EditingSpecs)
-            .Concat(DocumentOptions.WriteSpecs)
-            .ToArray(),
-            new[]
-            {
+                .. EditingSpecs,
+                .. DocumentOptions.WriteSpecs,
+            ],
+            [
                 "new --out hello.docx --text \"Hello world\"",
                 "new --out styled.rtf --text \"Title\\nBody\" --op \"inline:0:*:bold=on,size=18\" --op \"para:0:align=center\"",
                 "new --out list.html --from-file items.txt --op \"para:*:list=bullet\"",
-            },
+            ],
             "The body is plain text split into paragraphs on newlines; --op then applies\n" +
             "formatting. Run 'broilerdoc edit --help' for the operation grammar."),
         RunNew);
@@ -51,21 +49,18 @@ public static class DocumentCommands
             "edit",
             "Apply edit operations to an existing document.",
             "edit <input> --out <path> [--op <operation>]... [--script <path>]...",
-            new[]
-            {
+            [
                 OptionSpec.Value("out", "path", "Where to write the result. Use - for standard output."),
                 OptionSpec.Flag("in-place", "Write the result back over the input."),
-            }
-            .Concat(EditingSpecs)
-            .Concat(DocumentOptions.Specs)
-            .Concat(DocumentOptions.WriteSpecs)
-            .ToArray(),
-            new[]
-            {
+                .. EditingSpecs,
+                .. DocumentOptions.Specs,
+                .. DocumentOptions.WriteSpecs,
+            ],
+            [
                 "edit report.docx --out report.docx --op \"replace:DRAFT:FINAL\"",
                 "edit notes.md --out notes.rtf --op \"para:0:align=center\" --op \"inline:0:*:bold=on\"",
                 "edit report.docx --in-place --script fixes.txt",
-            },
+            ],
             "operations\n" + string.Join("\n", EditOperations.GrammarHelp)),
         RunEdit);
 
@@ -74,19 +69,16 @@ public static class DocumentCommands
             "convert",
             "Read a document in one format and write it in another.",
             "convert <input> --out <path> [--to <format>]",
-            new[]
-            {
+            [
                 OptionSpec.Value("out", "path", "Where to write the result. Use - for standard output."),
-            }
-            .Concat(DocumentOptions.Specs)
-            .Concat(DocumentOptions.WriteSpecs)
-            .ToArray(),
-            new[]
-            {
+                .. DocumentOptions.Specs,
+                .. DocumentOptions.WriteSpecs,
+            ],
+            [
                 "convert report.docx --out report.rtf",
                 "convert report.docx --out - --to markdown",
                 "convert page.html --out page.docx --fail-on warning",
-            },
+            ],
             "Both sides report their diagnostics. What a conversion drops is usually said on\n" +
             "the read side, the write side, or both, and --fail-on turns that into an exit\n" +
             "code a harness can branch on."),
@@ -97,19 +89,16 @@ public static class DocumentCommands
             "dump",
             "Print a document's content in a form that diffs cleanly.",
             "dump <input> [--as text|json|codes|outline]",
-            new[]
-            {
+            [
                 OptionSpec.Value("as", "form", "text, json, codes, or outline.", "text"),
                 OptionSpec.Value("out", "path", "Write to a file instead of standard output."),
-            }
-            .Concat(DocumentOptions.Specs)
-            .ToArray(),
-            new[]
-            {
+                .. DocumentOptions.Specs,
+            ],
+            [
                 "dump report.docx --as json > before.json",
                 "dump report.docx --as codes",
                 "dump report.docx --as outline",
-            },
+            ],
             "forms\n" +
             "  text     The plain text, paragraphs separated by newlines.\n" +
             "  json     Every paragraph, run, and resolved style. Lossless and stable, so two\n" +
@@ -137,7 +126,7 @@ public static class DocumentCommands
         if (operations.Count > 0)
             document = EditOperations.Apply(document, operations, resources);
 
-        return WriteDocument(context, document, destination, Array.Empty<DocumentDiagnostic>(), resources.Build());
+        return WriteDocument(context, document, destination, [], resources.Build());
     }
 
     private static int RunEdit(CommandContext context)
@@ -231,7 +220,7 @@ public static class DocumentCommands
             case "codes":
                 FormatCodeProjection projection = new FormatCodeProjector().Project(loaded.Document);
                 payload = projection.Text;
-                context.Result["grammarVersion"] = projection.GrammarVersion;
+                context.Result["grammarVersion"] = FormatCodeProjection.GrammarVersion;
                 context.Result["tokenCount"] = projection.Tokens.Count;
                 context.Result["projectionDiagnostics"] = ProjectionDiagnostics(projection);
                 break;
@@ -296,13 +285,7 @@ public static class DocumentCommands
             return ExitCode.Write;
         }
 
-        context.Report(string.Format(
-            CultureInfo.InvariantCulture,
-            "wrote {0} as {1} ({2} bytes, {3})",
-            destination,
-            codec.Descriptor.Name,
-            result.BytesWritten,
-            result.Status));
+        context.Report($"wrote {destination} as {codec.Descriptor.Name} ({result.BytesWritten} bytes, {result.Status})");
 
         return DocumentReport.ApplyFailOn(
             readDiagnostics.Concat(result.Diagnostics),

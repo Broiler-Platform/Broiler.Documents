@@ -7,7 +7,7 @@ using System.Linq;
 using System.Xml;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Odt;
@@ -545,7 +545,7 @@ internal static class OdtReader
                 TryColor((string?)gradient.Attribute(OdtNamespaces.Draw + "start-color"), out BColor start) &&
                 TryColor((string?)gradient.Attribute(OdtNamespaces.Draw + "end-color"), out BColor end))
             {
-                OdtUnits.TryParseAngle(
+                _ = OdtUnits.TryParseAngle(
                     (string?)gradient.Attribute(OdtNamespaces.Draw + "angle"),
                     out double odfDegrees);
                 fill = new ShapeFill(start, end, OdtGradientAngle.ToModel(odfDegrees));

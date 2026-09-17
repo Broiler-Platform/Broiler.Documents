@@ -93,14 +93,9 @@ internal sealed class PdfNumber : PdfObject
 /// A PDF name object. The stored <see cref="Value"/> is the decoded form, with
 /// <c>#xx</c> escapes already resolved, and never includes the leading solidus.
 /// </summary>
-internal sealed class PdfName : PdfObject, IEquatable<PdfName>
+internal sealed class PdfName(string value) : PdfObject, IEquatable<PdfName>
 {
-    public PdfName(string value)
-    {
-        Value = value ?? throw new ArgumentNullException(nameof(value));
-    }
-
-    public string Value { get; }
+    public string Value { get; } = value ?? throw new ArgumentNullException(nameof(value));
 
     public bool Equals(PdfName? other) => other is not null && string.Equals(Value, other.Value, StringComparison.Ordinal);
 
@@ -116,18 +111,12 @@ internal sealed class PdfName : PdfObject, IEquatable<PdfName>
 /// or UTF-16BE) are applied by the caller that knows the context, because the
 /// same bytes mean different things in a content stream and in an Info value.
 /// </summary>
-internal sealed class PdfString : PdfObject
+internal sealed class PdfString(byte[] bytes, bool hexadecimal = false) : PdfObject
 {
-    public PdfString(byte[] bytes, bool hexadecimal = false)
-    {
-        Bytes = bytes ?? throw new ArgumentNullException(nameof(bytes));
-        IsHexadecimal = hexadecimal;
-    }
-
-    public byte[] Bytes { get; }
+    public byte[] Bytes { get; } = bytes ?? throw new ArgumentNullException(nameof(bytes));
 
     /// <summary>True when the source form was <c>&lt;hex&gt;</c> rather than <c>(literal)</c>.</summary>
-    public bool IsHexadecimal { get; }
+    public bool IsHexadecimal { get; } = hexadecimal;
 
     public override string ToString() => $"<string:{Bytes.Length} bytes>";
 }
@@ -195,34 +184,22 @@ internal sealed class PdfDictionary : PdfObject, IEnumerable<KeyValuePair<string
 /// Decoding runs through <see cref="Filters.PdfFilterPipeline"/> so every decode
 /// is charged against the document's byte and work budgets.
 /// </summary>
-internal sealed class PdfStream : PdfObject
+internal sealed class PdfStream(PdfDictionary dictionary, byte[] rawData) : PdfObject
 {
-    public PdfStream(PdfDictionary dictionary, byte[] rawData)
-    {
-        Dictionary = dictionary ?? throw new ArgumentNullException(nameof(dictionary));
-        RawData = rawData ?? throw new ArgumentNullException(nameof(rawData));
-    }
-
-    public PdfDictionary Dictionary { get; }
+    public PdfDictionary Dictionary { get; } = dictionary ?? throw new ArgumentNullException(nameof(dictionary));
 
     /// <summary>The bytes between <c>stream</c> and <c>endstream</c>, before filters.</summary>
-    public byte[] RawData { get; }
+    public byte[] RawData { get; } = rawData ?? throw new ArgumentNullException(nameof(rawData));
 
     public override string ToString() => $"<<stream:{RawData.Length} raw bytes>>";
 }
 
 /// <summary>An indirect reference (<c>n g R</c>), resolved through the object store.</summary>
-internal sealed class PdfReference : PdfObject, IEquatable<PdfReference>
+internal sealed class PdfReference(int objectNumber, int generation) : PdfObject, IEquatable<PdfReference>
 {
-    public PdfReference(int objectNumber, int generation)
-    {
-        ObjectNumber = objectNumber;
-        Generation = generation;
-    }
+    public int ObjectNumber { get; } = objectNumber;
 
-    public int ObjectNumber { get; }
-
-    public int Generation { get; }
+    public int Generation { get; } = generation;
 
     public bool Equals(PdfReference? other) =>
         other is not null && other.ObjectNumber == ObjectNumber && other.Generation == Generation;

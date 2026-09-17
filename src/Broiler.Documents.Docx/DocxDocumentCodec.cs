@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using Broiler.Documents.Model;
 
@@ -14,13 +13,7 @@ public sealed class DocxDocumentCodec : DocumentCodec
 {
     private static readonly byte[] ZipLocalHeader = [0x50, 0x4B, 0x03, 0x04];
 
-    public DocxDocumentCodec()
-        : base(new DocumentFormatDescriptor(
-            "DOCX",
-            new[] { DocxNamespaces.PackageContentType },
-            new[] { ".docx" }))
-    {
-    }
+    public DocxDocumentCodec() : base(new DocumentFormatDescriptor("DOCX", [DocxNamespaces.PackageContentType], [".docx"])) { }
 
     public override bool CanRead => true;
 
@@ -32,8 +25,7 @@ public sealed class DocxDocumentCodec : DocumentCodec
 
         ReadOnlySpan<byte> span = request.Prefix.Span;
         DocumentSourceHints hints = request.Hints;
-        bool hasDocxHint = Descriptor.MatchesExtension(GetExtension(hints.FileName)) ||
-            Descriptor.MatchesMimeType(hints.MimeType);
+        bool hasDocxHint = Descriptor.MatchesExtension(GetExtension(hints.FileName)) || Descriptor.MatchesMimeType(hints.MimeType);
 
         if (StartsWith(span, ZipLocalHeader))
         {
@@ -80,24 +72,14 @@ public sealed class DocxDocumentCodec : DocumentCodec
         DocxReadInput input = ReadAllBytes(source, effective.Limits.MaxDocumentBytes);
         if (input.Truncated)
         {
-            return new DocumentReadResult(
-                RichTextDocument.Empty,
-                new[]
-                {
-                    DocumentDiagnostic.Error(
-                        "docx.limit.bytes",
-                        "DOCX input exceeded MaxDocumentBytes and was not parsed."),
-                },
-                DocumentResultStatus.Rejected);
+            return new DocumentReadResult(RichTextDocument.Empty,
+                [DocumentDiagnostic.Error("docx.limit.bytes", "DOCX input exceeded MaxDocumentBytes and was not parsed.")], DocumentResultStatus.Rejected);
         }
 
         return DocxReader.Read(input.Bytes, effective);
     }
 
-    public override DocumentWriteResult Write(
-        RichTextDocument document,
-        Stream destination,
-        DocumentWriteOptions? options = null) =>
+    public override DocumentWriteResult Write(RichTextDocument document, Stream destination, DocumentWriteOptions? options = null) =>
         DocxWriter.Write(document, destination, options);
 
     public static byte[] WriteToArray(RichTextDocument document, DocumentWriteOptions? options = null) =>

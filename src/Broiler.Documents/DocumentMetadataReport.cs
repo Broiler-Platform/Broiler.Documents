@@ -36,11 +36,8 @@ public static class DocumentMetadataReport
     /// stripped nothing.
     /// </param>
     /// <param name="diagnostics">The write's diagnostic list.</param>
-    public static void Describe(
-        DocumentMetadata metadata,
-        IEnumerable<string> unsupportedFields,
-        ICollection<DocumentDiagnostic> diagnostics) =>
-        Describe(metadata, unsupportedFields, [], diagnostics);
+    public static void Describe(DocumentMetadata metadata, IEnumerable<string> unsupportedFields, ICollection<DocumentDiagnostic> diagnostics)
+        => Describe(metadata, unsupportedFields, [], diagnostics);
 
     /// <summary>
     /// The same, for a format that can state a field but not all of it.
@@ -52,10 +49,7 @@ public static class DocumentMetadataReport
     /// with three entries and left with one looks exactly like a list that only
     /// ever had one.
     /// </param>
-    public static void Describe(
-        DocumentMetadata metadata,
-        IEnumerable<string> unsupportedFields,
-        IEnumerable<string> narrowedFields,
+    public static void Describe(DocumentMetadata metadata, IEnumerable<string> unsupportedFields, IEnumerable<string> narrowedFields,
         ICollection<DocumentDiagnostic> diagnostics)
     {
         ArgumentNullException.ThrowIfNull(metadata);
@@ -67,31 +61,20 @@ public static class DocumentMetadataReport
             return;
 
         var stated = new HashSet<string>(StatedFields(metadata), StringComparer.Ordinal);
-        string[] stripped = unsupportedFields
-            .Where(stated.Contains)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
 
-        string[] narrowed = narrowedFields
-            .Where(stated.Contains)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-
-        string[] emitted = stated.Except(stripped, StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+        string[] stripped = [.. unsupportedFields.Where(stated.Contains).Order(StringComparer.Ordinal)];
+        string[] narrowed = [.. narrowedFields.Where(stated.Contains).Order(StringComparer.Ordinal)];
+        string[] emitted = [.. stated.Except(stripped, StringComparer.Ordinal).Order(StringComparer.Ordinal)];
 
         if (emitted.Length > 0)
         {
-            diagnostics.Add(DocumentDiagnostic.Info(
-                DocumentDiagnosticCodes.MetadataEmitted,
+            diagnostics.Add(DocumentDiagnostic.Info(DocumentDiagnosticCodes.MetadataEmitted,
                 "Document properties written: " + string.Join(", ", emitted) + "."));
         }
 
         if (narrowed.Length > 0)
         {
-            diagnostics.Add(DocumentDiagnostic.Warning(
-                DocumentDiagnosticCodes.MetadataNarrowed,
+            diagnostics.Add(DocumentDiagnostic.Warning(DocumentDiagnosticCodes.MetadataNarrowed,
                 "The target format states a narrower form of these document properties, " +
                 "so part of what the caller supplied did not reach the output: " +
                 string.Join(", ", narrowed) + "."));
@@ -99,8 +82,7 @@ public static class DocumentMetadataReport
 
         if (stripped.Length > 0)
         {
-            diagnostics.Add(DocumentDiagnostic.Warning(
-                DocumentDiagnosticCodes.MetadataDropped,
+            diagnostics.Add(DocumentDiagnostic.Warning(DocumentDiagnosticCodes.MetadataDropped,
                 "The target format states no equivalent for these document properties, " +
                 "so they were dropped rather than written somewhere they do not belong: " +
                 string.Join(", ", stripped) + "."));

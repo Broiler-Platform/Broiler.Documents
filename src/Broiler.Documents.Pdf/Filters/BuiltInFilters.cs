@@ -190,11 +190,8 @@ public sealed class Ascii85DecodeFilter : IPdfStreamFilter
         // Five characters make four bytes, and a 'z' makes four from one, so four
         // times the input length bounds the output.
         long ceiling = context.CeilingFor(input.Length);
-        long worstCase = (long)input.Length * 4 + 4;
-        if (worstCase > ceiling)
-            worstCase = ceiling;
 
-        var output = new System.IO.MemoryStream();
+        var output = new MemoryStream();
         uint tuple = 0;
         int count = 0;
         int index = 0;
@@ -262,7 +259,7 @@ public sealed class Ascii85DecodeFilter : IPdfStreamFilter
         return PdfFilterResult.Success(output.ToArray());
     }
 
-    private static void WriteBigEndian(System.IO.MemoryStream output, uint value, int byteCount)
+    private static void WriteBigEndian(MemoryStream output, uint value, int byteCount)
     {
         Span<byte> bytes =
         [
@@ -293,7 +290,7 @@ public sealed class RunLengthDecodeFilter : IPdfStreamFilter
         ArgumentNullException.ThrowIfNull(context);
 
         long ceiling = context.CeilingFor(input.Length);
-        var output = new System.IO.MemoryStream();
+        var output = new MemoryStream();
         int index = 0;
 
         while (index < input.Length)

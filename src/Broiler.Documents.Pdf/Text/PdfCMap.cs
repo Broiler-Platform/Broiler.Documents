@@ -24,7 +24,7 @@ namespace Broiler.Documents.Pdf.Text;
 internal sealed class PdfCMap
 {
     private readonly List<CodespaceRange> _codespaces = [];
-    private readonly Dictionary<uint, string> _singles = new();
+    private readonly Dictionary<uint, string> _singles = [];
     private readonly List<BfRange> _ranges = [];
 
     private PdfCMap()
@@ -285,7 +285,7 @@ internal sealed class PdfCMap
                         break;
                 }
 
-                map._ranges.Add(new BfRange(lowCode, highCode, string.Empty, destinations.ToArray()));
+                map._ranges.Add(new BfRange(lowCode, highCode, string.Empty, [.. destinations]));
                 budget.ChargeCMapEntries(destinations.Count);
                 continue;
             }
@@ -332,39 +332,24 @@ internal sealed class PdfCMap
         return code;
     }
 
-    private readonly struct CodespaceRange
+    private readonly struct CodespaceRange(int byteLength, uint low, uint high)
     {
-        public CodespaceRange(int byteLength, uint low, uint high)
-        {
-            ByteLength = byteLength;
-            Low = low;
-            High = high;
-        }
+        public int ByteLength { get; } = byteLength;
 
-        public int ByteLength { get; }
+        public uint Low { get; } = low;
 
-        public uint Low { get; }
-
-        public uint High { get; }
+        public uint High { get; } = high;
     }
 
-    private readonly struct BfRange
+    private readonly struct BfRange(uint low, uint high, string baseText, string[]? destinations)
     {
-        public BfRange(uint low, uint high, string baseText, string[]? destinations)
-        {
-            Low = low;
-            High = high;
-            BaseText = baseText;
-            Destinations = destinations;
-        }
+        public uint Low { get; } = low;
 
-        public uint Low { get; }
+        public uint High { get; } = high;
 
-        public uint High { get; }
-
-        public string BaseText { get; }
+        public string BaseText { get; } = baseText;
 
         /// <summary>Explicit per-code destinations, when the range used an array form.</summary>
-        public string[]? Destinations { get; }
+        public string[]? Destinations { get; } = destinations;
     }
 }

@@ -1,5 +1,3 @@
-using System;
-using System.Linq;
 using System.Reflection;
 
 namespace Broiler.Documents.Tests;
@@ -16,14 +14,13 @@ namespace Broiler.Documents.Tests;
 public sealed class ApiDeprecationTests
 {
     private static ObsoleteAttribute[] Announcements =>
-        typeof(DocumentReadOptions).Assembly
+        [.. typeof(DocumentReadOptions).Assembly
             .GetExportedTypes()
             .SelectMany(static type => type.GetMembers(
                 BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
             .Select(static member => member.GetCustomAttribute<ObsoleteAttribute>())
             .Where(static attribute => attribute is not null)
-            .Select(static attribute => attribute!)
-            .ToArray();
+            .Select(static attribute => attribute!)];
 
     [Fact]
     public void An_Announcement_Never_Breaks_The_Callers_Build()

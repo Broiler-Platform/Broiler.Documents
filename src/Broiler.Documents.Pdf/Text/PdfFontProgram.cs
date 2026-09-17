@@ -18,8 +18,7 @@ public sealed class PdfFontProgramContext
 {
     public PdfFontProgramContext(long maxBytes, CancellationToken cancellationToken = default)
     {
-        if (maxBytes <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxBytes));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxBytes);
 
         MaxBytes = maxBytes;
         CancellationToken = cancellationToken;

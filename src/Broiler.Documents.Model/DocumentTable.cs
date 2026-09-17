@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Model;
@@ -42,45 +41,37 @@ namespace Broiler.Documents.Model;
 /// it walks the document's, so it never has to know how deep it is.
 /// </para>
 /// </remarks>
-public sealed class DocumentTable
+public sealed class DocumentTable(
+    int paragraphIndex,
+    int paragraphCount,
+    IReadOnlyList<TableRow> rows,
+    IReadOnlyList<double>? columnWidths = null,
+    double cellPadding = DocumentTable.DefaultCellPadding)
 {
-    public DocumentTable(
-        int paragraphIndex,
-        int paragraphCount,
-        IReadOnlyList<TableRow> rows,
-        IReadOnlyList<double>? columnWidths = null,
-        double cellPadding = DefaultCellPadding)
-    {
-        ParagraphIndex = Math.Max(0, paragraphIndex);
-        ParagraphCount = Math.Max(0, paragraphCount);
-        Rows = rows is null || rows.Count == 0 ? [] : [.. rows];
-        ColumnWidths = columnWidths is null || columnWidths.Count == 0 ? [] : [.. columnWidths];
-        CellPadding = Math.Max(0, cellPadding);
-    }
 
     /// <summary>Word's own default cell margin: 0.08 inch on the left and right.</summary>
     public const double DefaultCellPadding = 5.4;
 
     /// <summary>The document paragraph the table starts at.</summary>
-    public int ParagraphIndex { get; }
+    public int ParagraphIndex { get; } = Math.Max(0, paragraphIndex);
 
     /// <summary>How many paragraphs the table covers, cells and nested tables together.</summary>
-    public int ParagraphCount { get; }
+    public int ParagraphCount { get; } = Math.Max(0, paragraphCount);
 
     /// <summary>One past the last paragraph the table covers.</summary>
     public int ParagraphEnd => ParagraphIndex + ParagraphCount;
 
-    public IReadOnlyList<TableRow> Rows { get; }
+    public IReadOnlyList<TableRow> Rows { get; } = rows is null || rows.Count == 0 ? [] : [.. rows];
 
     /// <summary>
     /// The grid's column widths in points, empty when the document stated none.
     /// A renderer with no widths divides the space it has evenly, which is what a
     /// word processor does with a table that states no grid.
     /// </summary>
-    public IReadOnlyList<double> ColumnWidths { get; }
+    public IReadOnlyList<double> ColumnWidths { get; } = columnWidths is null || columnWidths.Count == 0 ? [] : [.. columnWidths];
 
     /// <summary>The space between a cell's edge and its text, in points.</summary>
-    public double CellPadding { get; }
+    public double CellPadding { get; } = Math.Max(0, cellPadding);
 
     /// <summary>The sum of the stated column widths; zero when there are none.</summary>
     public double TotalWidth
@@ -181,19 +172,12 @@ public sealed class DocumentTable
 }
 
 /// <summary>One row of a <see cref="DocumentTable"/>.</summary>
-public sealed class TableRow
+public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = false, double minHeight = 0)
 {
-    public TableRow(IReadOnlyList<TableCell> cells, bool isHeader = false, double minHeight = 0)
-    {
-        Cells = cells is null || cells.Count == 0 ? [] : [.. cells];
-        IsHeader = isHeader;
-        MinHeight = double.IsFinite(minHeight) && minHeight > 0 ? minHeight : 0;
-    }
-
-    public IReadOnlyList<TableCell> Cells { get; }
+    public IReadOnlyList<TableCell> Cells { get; } = cells is null || cells.Count == 0 ? [] : [.. cells];
 
     /// <summary>True for a row the document marks as repeating at the top of a page.</summary>
-    public bool IsHeader { get; }
+    public bool IsHeader { get; } = isHeader;
 
     /// <summary>
     /// The height in points the row asks for, or zero when it asks for none.
@@ -213,7 +197,7 @@ public sealed class TableRow
     /// content and everything below rides up.
     /// </para>
     /// </remarks>
-    public double MinHeight { get; }
+    public double MinHeight { get; } = double.IsFinite(minHeight) && minHeight > 0 ? minHeight : 0;
 
     internal TableRow Shifted(int at, int removed, int inserted)
     {
@@ -228,62 +212,50 @@ public sealed class TableRow
 /// One cell: which paragraphs it holds, where it sits in the grid, and how it is
 /// bounded and painted.
 /// </summary>
-public sealed class TableCell
+public sealed class TableCell(
+    int paragraphIndex,
+    int paragraphCount,
+    int columnIndex,
+    int columnSpan = 1,
+    int rowSpan = 1,
+    BColor shading = default,
+    CellBorders borders = default,
+    bool isRowSpanContinuation = false,
+    IReadOnlyList<DocumentTable>? tables = null)
 {
-    public TableCell(
-        int paragraphIndex,
-        int paragraphCount,
-        int columnIndex,
-        int columnSpan = 1,
-        int rowSpan = 1,
-        BColor shading = default,
-        CellBorders borders = default,
-        bool isRowSpanContinuation = false,
-        IReadOnlyList<DocumentTable>? tables = null)
-    {
-        ParagraphIndex = Math.Max(0, paragraphIndex);
-        ParagraphCount = Math.Max(0, paragraphCount);
-        ColumnIndex = Math.Max(0, columnIndex);
-        ColumnSpan = Math.Max(1, columnSpan);
-        RowSpan = Math.Max(1, rowSpan);
-        Shading = shading;
-        Borders = borders;
-        IsRowSpanContinuation = isRowSpanContinuation;
-        Tables = tables is null || tables.Count == 0 ? [] : [.. tables];
-    }
 
     /// <summary>The document paragraph this cell's text starts at.</summary>
-    public int ParagraphIndex { get; }
+    public int ParagraphIndex { get; } = Math.Max(0, paragraphIndex);
 
     /// <summary>How many paragraphs the cell holds; zero for a cell with no content of its own.</summary>
-    public int ParagraphCount { get; }
+    public int ParagraphCount { get; } = Math.Max(0, paragraphCount);
 
     /// <summary>One past the last paragraph the cell holds.</summary>
     public int ParagraphEnd => ParagraphIndex + ParagraphCount;
 
     /// <summary>The grid column the cell starts in.</summary>
-    public int ColumnIndex { get; }
+    public int ColumnIndex { get; } = Math.Max(0, columnIndex);
 
     /// <summary>How many grid columns the cell covers.</summary>
-    public int ColumnSpan { get; }
+    public int ColumnSpan { get; } = Math.Max(1, columnSpan);
 
     /// <summary>How many rows the cell covers, counting its own.</summary>
-    public int RowSpan { get; }
+    public int RowSpan { get; } = Math.Max(1, rowSpan);
 
     /// <summary>The cell's background, or <see cref="BColor.Empty"/> for none.</summary>
-    public BColor Shading { get; }
+    public BColor Shading { get; } = shading;
 
-    public CellBorders Borders { get; }
+    public CellBorders Borders { get; } = borders;
 
     /// <summary>
     /// True for the lower half of a vertical merge: a cell the document writes so
     /// the row has the right number of columns, whose box the cell above covers.
     /// It is drawn by no one and holds, by the format's own rule, no text.
     /// </summary>
-    public bool IsRowSpanContinuation { get; }
+    public bool IsRowSpanContinuation { get; } = isRowSpanContinuation;
 
     /// <summary>The tables nested directly in this cell, in the order they start.</summary>
-    public IReadOnlyList<DocumentTable> Tables { get; }
+    public IReadOnlyList<DocumentTable> Tables { get; } = tables is null || tables.Count == 0 ? [] : [.. tables];
 
     internal TableCell Shifted(int at, int removed, int inserted)
     {

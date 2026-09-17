@@ -242,7 +242,7 @@ internal sealed class LzwEncoder
     {
         var encoder = new LzwEncoder(earlyChange);
         encoder.Run(data);
-        return encoder._output.ToArray();
+        return [.. encoder._output];
     }
 
     private void Run(ReadOnlySpan<byte> data)

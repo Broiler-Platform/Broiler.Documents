@@ -13,12 +13,8 @@ public sealed class FormatCodeProjection
     private readonly ReadOnlyCollection<FormatCodeToken> _pendingTokens;
     private readonly ReadOnlyCollection<FormatCodeDiagnostic> _diagnostics;
 
-    internal FormatCodeProjection(
-        RichTextDocument document,
-        string text,
-        IReadOnlyList<FormatCodeToken> tokens,
-        IReadOnlyList<FormatCodeToken> pendingTokens,
-        IReadOnlyList<FormatCodeDiagnostic> diagnostics)
+    internal FormatCodeProjection(RichTextDocument document, string text,
+        IReadOnlyList<FormatCodeToken> tokens, IReadOnlyList<FormatCodeToken> pendingTokens, IReadOnlyList<FormatCodeDiagnostic> diagnostics)
     {
         _document = document;
         Text = text;
@@ -27,7 +23,7 @@ public sealed class FormatCodeProjection
         _diagnostics = new List<FormatCodeDiagnostic>(diagnostics).AsReadOnly();
     }
 
-    public int GrammarVersion => 1;
+    public static int GrammarVersion => 1;
 
     public string Text { get; }
 
@@ -40,9 +36,7 @@ public sealed class FormatCodeProjection
     public IReadOnlyList<FormatCodeDiagnostic> Diagnostics => _diagnostics;
 
     /// <summary>Maps a document position to the earliest or latest projected caret at that boundary.</summary>
-    public FormatCodeCaret MapDocumentPosition(
-        RichTextPosition position,
-        FormatCodeBoundaryAffinity affinity = FormatCodeBoundaryAffinity.After)
+    public FormatCodeCaret MapDocumentPosition(RichTextPosition position, FormatCodeBoundaryAffinity affinity = FormatCodeBoundaryAffinity.After)
     {
         if (!_document.IsValid(position))
             throw new ArgumentOutOfRangeException(nameof(position), "Position is not valid for the projected document.");
@@ -57,9 +51,7 @@ public sealed class FormatCodeProjection
         {
             FormatCodeToken token = _tokens[i];
             AddCandidateIfEqual(token.SourceBefore, new FormatCodeCaret(i, 0, FormatCodeBoundaryAffinity.Before));
-            AddCandidateIfEqual(
-                token.SourceAfter,
-                new FormatCodeCaret(i, token.ProjectedLength, FormatCodeBoundaryAffinity.After));
+            AddCandidateIfEqual(token.SourceAfter, new FormatCodeCaret(i, token.ProjectedLength, FormatCodeBoundaryAffinity.After));
 
             if (token.MappingMode == FormatCodeMappingMode.Linear &&
                 position.ParagraphIndex == token.SourceBefore.ParagraphIndex &&
@@ -108,8 +100,8 @@ public sealed class FormatCodeProjection
         {
             return new FormatCodeMappedPosition(
                 new FormatCodeCaret(-1, 0, FormatCodeBoundaryAffinity.After),
-                _document.Start,
-                RichTextRange.Caret(_document.Start));
+                RichTextDocument.Start,
+                RichTextRange.Caret(RichTextDocument.Start));
         }
 
         int tokenIndex = FindToken(projectedOffset);

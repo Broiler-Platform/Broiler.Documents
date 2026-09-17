@@ -1,10 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Xunit;
 
 namespace Broiler.Documents.Tests;
 
@@ -27,7 +22,7 @@ namespace Broiler.Documents.Tests;
 /// document that was accurate on the day it was written.
 /// </para>
 /// </remarks>
-public sealed class OfficeControlGuardTests
+public sealed partial class OfficeControlGuardTests
 {
     private const string Corpus = "tests/office/office-corpus.json";
     private const string BaselineFile = "tests/office/office-baseline.json";
@@ -105,10 +100,9 @@ public sealed class OfficeControlGuardTests
         // project is no longer an independent oracle, and its licence has
         // stopped being a question about CI.
         using JsonDocument manifest = Load(Tools);
-        string[] names = manifest.RootElement.GetProperty("tools").EnumerateArray()
+        string[] names = [.. manifest.RootElement.GetProperty("tools").EnumerateArray()
             .Select(tool => tool.GetProperty("identity").GetProperty("name").GetString() ?? string.Empty)
-            .Where(name => name.Length > 0)
-            .ToArray();
+            .Where(name => name.Length > 0)];
 
         foreach (string project in Directory.EnumerateFiles(
                      Path.Combine(PdfGuardRoots.Component, "src"), "*.csproj", SearchOption.AllDirectories))
@@ -248,11 +242,10 @@ public sealed class OfficeControlGuardTests
         foreach (JsonElement seed in corpus.RootElement.GetProperty("seeds").EnumerateArray())
         {
             string id = seed.GetProperty("id").GetString() ?? "?";
-            string[] present = SeedLanguages
+            string[] present = [.. SeedLanguages
                 .Where(language => seed.TryGetProperty(language, out JsonElement value) &&
                                    value.ValueKind == JsonValueKind.String &&
-                                   !string.IsNullOrWhiteSpace(value.GetString()))
-                .ToArray();
+                                   !string.IsNullOrWhiteSpace(value.GetString()))];
 
             Assert.True(present.Length == 1,
                 "The seed '" + id + "' carries " +
@@ -282,18 +275,15 @@ public sealed class OfficeControlGuardTests
         string runner = File.ReadAllText(Path.Combine(
             PdfGuardRoots.Component, "src/tests/Broiler.Documents.Office/OfficeManifest.cs"));
 
-        string[] declared = Regex
-            .Matches(runner, "\\[\"([a-z]+)\"\\] = \\(")
-            .Select(match => match.Groups[1].Value)
-            .ToArray();
+        string[] declared = [.. MyRegex().Matches(runner)
+            .Select(match => match.Groups[1].Value)];
         Assert.True(declared.Length > 0,
             "OfficeManifest.cs no longer declares a family-spelling table, so this guard cannot " +
             "check what the runner accepts.");
 
-        string[] permitted = schema.RootElement
+        string[] permitted = [.. schema.RootElement
             .GetProperty("$defs").GetProperty("seed").GetProperty("oneOf").EnumerateArray()
-            .Select(branch => branch.GetProperty("required").EnumerateArray().First().GetString() ?? string.Empty)
-            .ToArray();
+            .Select(branch => branch.GetProperty("required").EnumerateArray().First().GetString() ?? string.Empty)];
 
         Assert.True(
             declared.Order(StringComparer.Ordinal).SequenceEqual(
@@ -338,14 +328,13 @@ public sealed class OfficeControlGuardTests
             if (!Directory.Exists(directory))
                 continue;
 
-            string[] documents = Directory
+            string[] documents = [.. Directory
                 .EnumerateFiles(directory, "*", SearchOption.AllDirectories)
                 .Where(path => !PdfGuardRoots.IsBuildOutput(path))
                 .Where(path => DocumentExtensions.Contains(
                     Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
                 .Select(path => Path.GetRelativePath(PdfGuardRoots.Component, path).Replace('\\', '/'))
-                .Order(StringComparer.Ordinal)
-                .ToArray();
+                .Order(StringComparer.Ordinal)];
 
             Assert.True(documents.Length == 0,
                 "The office suite writes documents into a temporary workspace and commits none. " +
@@ -433,10 +422,9 @@ public sealed class OfficeControlGuardTests
         if (open < 0 || close < 0)
             return [];
 
-        return source[(open + 1)..close]
+        return [.. source[(open + 1)..close]
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(word => word.Trim('"'))
-            .ToArray();
+            .Select(word => word.Trim('"'))];
     }
 
     /// <summary>The enum a band field is constrained to, wherever the schema states it.</summary>
@@ -444,7 +432,7 @@ public sealed class OfficeControlGuardTests
     {
         var found = new List<string>();
         Walk(schema.RootElement, field, found);
-        return found.ToArray();
+        return [.. found];
     }
 
     private static void Walk(JsonElement node, string field, List<string> found)
@@ -481,4 +469,6 @@ public sealed class OfficeControlGuardTests
         (row.TryGetProperty("check", out JsonElement check)
             ? "/" + (check.GetString() ?? "?")
             : string.Empty);
+    [GeneratedRegex("\\[\"([a-z]+)\"\\] = \\(")]
+    private static partial Regex MyRegex();
 }

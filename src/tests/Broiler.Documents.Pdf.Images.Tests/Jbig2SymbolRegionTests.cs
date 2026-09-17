@@ -349,7 +349,7 @@ public sealed class Jbig2SymbolRegionTests
 
         var body = new List<byte>();
         AddUInt16(body, 0);
-        body.AddRange(new byte[] { 3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE });
+        body.AddRange([3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE]);
         AddUInt32(body, 1);
         AddUInt32(body, 1);
         body.AddRange(encoder.Flush());

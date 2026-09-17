@@ -35,7 +35,7 @@ public sealed class RtfDocumentCodecProbeTests
     [Fact]
     public void Utf8_Bom_Before_The_Signature_Still_Matches()
     {
-        byte[] prefix = new byte[] { 0xEF, 0xBB, 0xBF }.Concat(Bytes("{\\rtf1}")).ToArray();
+        byte[] prefix = [0xEF, 0xBB, 0xBF, .. Bytes("{\\rtf1}")];
 
         Assert.Equal(DocumentProbeConfidence.Certain, Probe(prefix).Confidence);
     }

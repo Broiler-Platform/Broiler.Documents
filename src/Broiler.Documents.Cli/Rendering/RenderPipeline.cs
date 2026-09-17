@@ -8,7 +8,6 @@ using Broiler.Documents.Cli.Composition;
 using Broiler.Documents.Cli.Documents;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Imaging;
 using Broiler.Media.Image;
 
@@ -35,7 +34,7 @@ public sealed class RenderOutcome : IDisposable
     public IReadOnlyList<string> Notes { get; }
 
     /// <summary>Paths written, filled in by <see cref="RenderPipeline.Write"/>.</summary>
-    public IList<string> WrittenPaths { get; } = new List<string>();
+    public IList<string> WrittenPaths { get; } = [];
 
     public void Dispose()
     {
@@ -70,15 +69,8 @@ public sealed class RenderPipeline
     private readonly int _quality;
     private readonly IReadOnlyList<(int First, int Last)>? _pageRanges;
 
-    private RenderPipeline(
-        PageSetup setup,
-        bool pageWasAskedFor,
-        bool fontWasAskedFor,
-        LayoutSettings settings,
-        FontResolution fonts,
-        ImageEncodeFormat format,
-        int quality,
-        IReadOnlyList<(int First, int Last)>? pageRanges)
+    private RenderPipeline(PageSetup setup, bool pageWasAskedFor, bool fontWasAskedFor, LayoutSettings settings, FontResolution fonts,
+        ImageEncodeFormat format, int quality, IReadOnlyList<(int First, int Last)>? pageRanges)
     {
         _setup = setup;
         _pageWasAskedFor = pageWasAskedFor;
@@ -97,30 +89,17 @@ public sealed class RenderPipeline
 
     /// <summary>The options that control how a document is drawn.</summary>
     public static OptionSpec[] Specs { get; } =
-    {
-        OptionSpec.Value(
-            "page-size",
-            "size",
-            "Paper size: " + string.Join(", ", PageSetup.NamedSizeNames) + ", or WxH with a unit (210x297mm).",
-            "a4"),
+    [
+        OptionSpec.Value("page-size","size","Paper size: " + string.Join(", ", PageSetup.NamedSizeNames) + ", or WxH with a unit (210x297mm).","a4"),
         OptionSpec.Flag("landscape", "Swap the page width and height."),
         OptionSpec.Value("margin", "length", "Page margin: one, two, or four comma-separated lengths.", "1in"),
         OptionSpec.Value("dpi", "n", "Output resolution. 96 makes a point 1.333 pixels.", "96"),
-        OptionSpec.Flag(
-            "continuous",
-            "Render the whole document as one tall page instead of paginating. Localizes a difference to where it is."),
+        OptionSpec.Flag("continuous","Render the whole document as one tall page instead of paginating. Localizes a difference to where it is."),
         OptionSpec.Value("background", "color", "Page colour.", "#FFFFFF"),
         OptionSpec.Value("font", "family", "Family for runs that name none.", "sans-serif"),
-        OptionSpec.Value(
-            "font-size",
-            "points",
-            "Size for runs that name none. Defaults to what the document states, or 12.",
-            "document"),
+        OptionSpec.Value("font-size","points","Size for runs that name none. Defaults to what the document states, or 12.","document"),
         OptionSpec.Value("text-color", "color", "Colour for runs that name none.", "#000000"),
-        OptionSpec.Many(
-            "font-file",
-            "family=path",
-            "Pin a font family to a file. Add :bold, :italic, or :bolditalic to the family for one face."),
+        OptionSpec.Many("font-file","family=path","Pin a font family to a file. Add :bold, :italic, or :bolditalic to the family for one face."),
         OptionSpec.Many("font-dir", "path", "Scan a directory and map every font file it finds by filename."),
         OptionSpec.Value("indent-step", "points", "Width of one indent level.", "18"),
         OptionSpec.Value("tab-stop", "points", "Distance between the default tab stops.", "36"),
@@ -130,10 +109,8 @@ public sealed class RenderPipeline
         OptionSpec.Value("quality", "n", "Encoder quality for lossy formats, 1-100.", "90"),
         OptionSpec.Flag("show-content-box", "Outline the content area. A layout debugging aid."),
         OptionSpec.Flag("no-link-style", "Draw link runs exactly as the model styles them, with no added underline or colour."),
-        OptionSpec.Flag(
-            "no-synthetic-italic",
-            "Do not shear italic runs that have no real italic face. They then draw upright and are invisible in a diff."),
-    };
+        OptionSpec.Flag("no-synthetic-italic","Do not shear italic runs that have no real italic face. They then draw upright and are invisible in a diff."),
+    ];
 
     /// <summary>
     /// Builds a pipeline and installs the font mapping. The mapping is
@@ -203,15 +180,7 @@ public sealed class RenderPipeline
         if (quality is < 1 or > 100)
             throw new UsageException("--quality must be between 1 and 100.");
 
-        return new RenderPipeline(
-            setup,
-            pageWasAskedFor,
-            fontWasAskedFor,
-            settings,
-            fonts,
-            format,
-            quality,
-            ParsePages(line.Get("pages")));
+        return new RenderPipeline(setup, pageWasAskedFor, fontWasAskedFor, settings, fonts, format, quality, ParsePages(line.Get("pages")));
     }
 
     /// <summary>
@@ -280,10 +249,7 @@ public sealed class RenderPipeline
         ArgumentNullException.ThrowIfNull(outcome);
         ArgumentNullException.ThrowIfNull(destination);
 
-        IReadOnlyList<int> numbers = outcome.Layout.Pages
-            .Where(page => IsSelected(page.Number))
-            .Select(page => page.Number)
-            .ToArray();
+        int[] numbers = [.. outcome.Layout.Pages.Where(page => IsSelected(page.Number)).Select(page => page.Number)];
 
         // Several images concatenated on one stream is not a file anything can
         // open. Say so rather than producing one.
@@ -395,7 +361,7 @@ public sealed class RenderPipeline
         return directory.Length == 0 ? name : Path.Combine(directory, name);
     }
 
-    private static IReadOnlyList<(int First, int Last)>? ParsePages(string? value)
+    private static List<(int First, int Last)>? ParsePages(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return null;

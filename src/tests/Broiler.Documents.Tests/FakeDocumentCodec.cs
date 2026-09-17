@@ -1,19 +1,13 @@
 namespace Broiler.Documents.Tests;
 
 /// <summary>A minimal codec that reports a fixed probe confidence — for catalog tests.</summary>
-internal sealed class FakeDocumentCodec : DocumentCodec
+internal sealed class FakeDocumentCodec(
+    string name,
+    DocumentProbeConfidence confidence,
+    string extension,
+    string mimeType) : DocumentCodec(new DocumentFormatDescriptor(name, [mimeType], [extension]))
 {
-    private readonly DocumentProbeConfidence _confidence;
-
-    public FakeDocumentCodec(
-        string name,
-        DocumentProbeConfidence confidence,
-        string extension,
-        string mimeType)
-        : base(new DocumentFormatDescriptor(name, new[] { mimeType }, new[] { extension }))
-    {
-        _confidence = confidence;
-    }
+    private readonly DocumentProbeConfidence _confidence = confidence;
 
     public override bool CanRead => false;
 

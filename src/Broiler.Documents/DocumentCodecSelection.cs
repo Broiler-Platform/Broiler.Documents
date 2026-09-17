@@ -12,19 +12,13 @@ namespace Broiler.Documents;
 /// rejected <see cref="Result"/>, but only the second has a <see cref="Match"/>,
 /// so a host can name the format it declined to open.
 /// </remarks>
-public sealed class DocumentCodecSelection
+public sealed class DocumentCodecSelection(DocumentCodecMatch? match, DocumentReadResult result)
 {
-    public DocumentCodecSelection(DocumentCodecMatch? match, DocumentReadResult result)
-    {
-        Match = match;
-        Result = result ?? throw new ArgumentNullException(nameof(result));
-    }
-
     /// <summary>The chosen codec and its probe verdict, or null when none matched.</summary>
-    public DocumentCodecMatch? Match { get; }
+    public DocumentCodecMatch? Match { get; } = match;
 
     /// <summary>The read outcome.</summary>
-    public DocumentReadResult Result { get; }
+    public DocumentReadResult Result { get; } = result ?? throw new ArgumentNullException(nameof(result));
 
     /// <summary>The chosen codec, or null when none matched.</summary>
     public DocumentCodec? Codec => Match?.Codec;

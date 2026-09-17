@@ -37,26 +37,18 @@ public sealed class ComparisonOptions
 }
 
 /// <summary>One way in which two documents disagree.</summary>
-public sealed class DocumentDifference
+public sealed class DocumentDifference(string kind, int? leftParagraph, int? rightParagraph, string detail)
 {
-    public DocumentDifference(string kind, int? leftParagraph, int? rightParagraph, string detail)
-    {
-        Kind = kind;
-        LeftParagraph = leftParagraph;
-        RightParagraph = rightParagraph;
-        Detail = detail;
-    }
-
     /// <summary>What sort of difference: <c>text</c>, <c>paragraph-style</c>, <c>inline-style</c>, <c>missing</c>, or <c>extra</c>.</summary>
-    public string Kind { get; }
+    public string Kind { get; } = kind;
 
     /// <summary>The paragraph on the left, or null when the paragraph exists only on the right.</summary>
-    public int? LeftParagraph { get; }
+    public int? LeftParagraph { get; } = leftParagraph;
 
     /// <summary>The paragraph on the right, or null when the paragraph exists only on the left.</summary>
-    public int? RightParagraph { get; }
+    public int? RightParagraph { get; } = rightParagraph;
 
-    public string Detail { get; }
+    public string Detail { get; } = detail;
 
     public JsonObject ToJson() => new()
     {
@@ -110,7 +102,7 @@ public sealed class DocumentDifference
 /// </remarks>
 public sealed class DocumentComparison
 {
-    private readonly List<DocumentDifference> _differences = new();
+    private readonly List<DocumentDifference> _differences = [];
 
     private DocumentComparison(ComparisonOptions options) => Options = options;
 
@@ -160,8 +152,8 @@ public sealed class DocumentComparison
 
         var projector = new FormatCodeProjector();
         comparison.FormatCodesEqual = string.Equals(
-            projector.Project(left).Text,
-            projector.Project(right).Text,
+            FormatCodeProjector.Project(left).Text,
+            FormatCodeProjector.Project(right).Text,
             StringComparison.Ordinal);
 
         comparison.CompareParagraphs(left, right);
@@ -170,8 +162,8 @@ public sealed class DocumentComparison
 
     private void CompareParagraphs(RichTextDocument left, RichTextDocument right)
     {
-        string[] leftKeys = left.Paragraphs.Select(p => Normalize(p.Text)).ToArray();
-        string[] rightKeys = right.Paragraphs.Select(p => Normalize(p.Text)).ToArray();
+        string[] leftKeys = [.. left.Paragraphs.Select(p => Normalize(p.Text))];
+        string[] rightKeys = [.. right.Paragraphs.Select(p => Normalize(p.Text))];
 
         IReadOnlyList<(int? Left, int? Right)> pairs;
         if ((long)leftKeys.Length * rightKeys.Length > Options.MaxAlignmentCells)
@@ -364,7 +356,7 @@ public sealed class DocumentComparison
     /// Aligns two paragraph sequences by longest common subsequence, so a single
     /// insertion does not make everything after it look different.
     /// </summary>
-    private static IReadOnlyList<(int? Left, int? Right)> Align(string[] left, string[] right)
+    private static List<(int? Left, int? Right)> Align(string[] left, string[] right)
     {
         int[,] lengths = new int[left.Length + 1, right.Length + 1];
         for (int i = left.Length - 1; i >= 0; i--)
@@ -417,8 +409,7 @@ public sealed class DocumentComparison
     /// the one comparison a reader wants - old text against new - and also
     /// restores the style comparison, which only runs on a matched pair.
     /// </remarks>
-    private static IReadOnlyList<(int? Left, int? Right)> Coalesce(
-        IReadOnlyList<(int? Left, int? Right)> pairs)
+    private static List<(int? Left, int? Right)> Coalesce(List<(int? Left, int? Right)> pairs)
     {
         var coalesced = new List<(int?, int?)>(pairs.Count);
 
@@ -441,14 +432,12 @@ public sealed class DocumentComparison
         return coalesced;
     }
 
-    private static IReadOnlyList<(int? Left, int? Right)> AlignByIndex(int leftCount, int rightCount)
+    private static List<(int? Left, int? Right)> AlignByIndex(int leftCount, int rightCount)
     {
         var pairs = new List<(int?, int?)>(Math.Max(leftCount, rightCount));
         for (int i = 0; i < Math.Max(leftCount, rightCount); i++)
         {
-            pairs.Add((
-                i < leftCount ? i : (int?)null,
-                i < rightCount ? i : (int?)null));
+            pairs.Add((i < leftCount ? i : null, i < rightCount ? i : null));
         }
 
         return pairs;
@@ -554,8 +543,7 @@ public sealed class DocumentComparison
     /// <summary>The counts that differ between the two documents, as report lines.</summary>
     public IEnumerable<string> DescribeStatistics()
     {
-        Dictionary<string, long> right = RightStatistics.Counts()
-            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        Dictionary<string, long> right = RightStatistics.Counts().ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
 
         foreach (KeyValuePair<string, long> entry in LeftStatistics.Counts())
         {
@@ -563,13 +551,7 @@ public sealed class DocumentComparison
             if (entry.Value == other)
                 continue;
 
-            yield return string.Format(
-                CultureInfo.InvariantCulture,
-                "  {0,-20} {1,10} {2,10}   {3:+#;-#;0}",
-                entry.Key,
-                entry.Value,
-                other,
-                other - entry.Value);
+            yield return $"  {entry.Key,-20} {entry.Value,10} {other,10}   {other - entry.Value:+#;-#;0}";
         }
     }
 }

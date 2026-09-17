@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -56,10 +55,9 @@ internal static class ContractChecks
                 ? list.EnumerateArray().Select(entry => entry.GetProperty("name").GetString()).ToHashSet(StringComparer.Ordinal)
                 : [];
 
-            string[] missing = CorpusFormat.All
+            string[] missing = [.. CorpusFormat.All
                 .Where(format => !named.Contains(format.ToolName))
-                .Select(format => format.ToolName)
-                .ToArray();
+                .Select(format => format.ToolName)];
 
             results.Add(missing.Length == 0
                 ? CheckResult.Pass(Group, "formats/composed")
@@ -90,7 +88,7 @@ internal static class ContractChecks
         else
         {
             string[] required = ["tool", "broilerDocuments", "broilerDocumentsModel", "broilerGraphics", "runtime", "os"];
-            string[] absent = required.Where(key => !versionJson.Value.TryGetProperty(key, out _)).ToArray();
+            string[] absent = [.. required.Where(key => !versionJson.Value.TryGetProperty(key, out _))];
             results.Add(absent.Length == 0
                 ? CheckResult.Pass(Group, "version/keys")
                 : CheckResult.Fail(Group, "version/keys",
@@ -128,22 +126,21 @@ internal static class ContractChecks
 
     private static async Task<IReadOnlyList<CheckResult>> RefusalsAsync(BroilerDocTool tool, CorpusWorkspace workspace)
     {
-        var results = new List<CheckResult>();
+        var results = new List<CheckResult>
+        {
+            CheckResult.ExpectExit(Group, "usage/help", 0,
+            await tool.RunAsync("--help").ConfigureAwait(false)),
+            CheckResult.ExpectExit(Group, "usage/unknown-command", 1,
+            await tool.RunAsync("frobnicate").ConfigureAwait(false)),
 
-        results.Add(CheckResult.ExpectExit(Group, "usage/help", 0,
-            await tool.RunAsync("--help").ConfigureAwait(false)));
-
-        results.Add(CheckResult.ExpectExit(Group, "usage/unknown-command", 1,
-            await tool.RunAsync("frobnicate").ConfigureAwait(false)));
-
-        // The one docs/cli.md argues for by name: a harness that writes
-        // --tolerence must fail loudly, because comparing at the default
-        // tolerance would report a pass nobody earned.
-        results.Add(CheckResult.ExpectExit(Group, "usage/misspelt-option", 1,
-            await tool.RunAsync("compare", "a.docx", "b.docx", "--tolerence", "2").ConfigureAwait(false)));
-
-        results.Add(CheckResult.ExpectExit(Group, "usage/missing-argument", 1,
-            await tool.RunAsync("convert", "--out").ConfigureAwait(false)));
+            // The one docs/cli.md argues for by name: a harness that writes
+            // --tolerence must fail loudly, because comparing at the default
+            // tolerance would report a pass nobody earned.
+            CheckResult.ExpectExit(Group, "usage/misspelt-option", 1,
+            await tool.RunAsync("compare", "a.docx", "b.docx", "--tolerence", "2").ConfigureAwait(false)),
+            CheckResult.ExpectExit(Group, "usage/missing-argument", 1,
+            await tool.RunAsync("convert", "--out").ConfigureAwait(false))
+        };
 
         CorpusDocument? sample = workspace.Documents.FirstOrDefault(document => document.Format.Key == "docx");
         if (sample is null)

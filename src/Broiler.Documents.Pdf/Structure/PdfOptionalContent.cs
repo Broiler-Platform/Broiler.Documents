@@ -91,7 +91,7 @@ internal sealed class PdfOptionalContent
         // and nothing here changes what is extracted.
         if (configuration is not null)
         {
-            if ((store.Resolve(configuration["BaseState"]) as PdfName)?.Value == "OFF")
+            if (store.Resolve(configuration["BaseState"]) is PdfName { Value: "OFF" })
             {
                 foreach (PdfDictionary group in groups)
                     off.Add(group);

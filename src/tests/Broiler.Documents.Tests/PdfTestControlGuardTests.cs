@@ -1,6 +1,3 @@
-using System;
-using System.IO;
-using System.Linq;
 using System.Text.Json;
 
 namespace Broiler.Documents.Tests;
@@ -76,10 +73,9 @@ public sealed class PdfTestControlGuardTests
         // containers. Checked against the project files rather than against
         // intent, because intent does not survive a merge.
         using JsonDocument manifest = Load(ToolManifest);
-        string[] names = manifest.RootElement.GetProperty("tools").EnumerateArray()
+        string[] names = [.. manifest.RootElement.GetProperty("tools").EnumerateArray()
             .Select(tool => tool.GetProperty("identity").GetProperty("name").GetString() ?? string.Empty)
-            .Where(name => name.Length > 0)
-            .ToArray();
+            .Where(name => name.Length > 0)];
 
         if (names.Length == 0)
             return;
@@ -109,10 +105,9 @@ public sealed class PdfTestControlGuardTests
         // evidence about anything. This is the drift check: change the workflow's
         // runners and this says so.
         using JsonDocument baseline = Load(Baseline);
-        string[] declared = baseline.RootElement.GetProperty("runner").GetProperty("images")
+        string[] declared = [.. baseline.RootElement.GetProperty("runner").GetProperty("images")
             .EnumerateArray()
-            .Select(image => image.GetString() ?? string.Empty)
-            .ToArray();
+            .Select(image => image.GetString() ?? string.Empty)];
 
         string workflow = File.ReadAllText(
             Path.Combine(PdfGuardRoots.Component, ".github/workflows/ci.yml"));

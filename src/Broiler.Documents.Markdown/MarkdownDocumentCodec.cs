@@ -13,13 +13,7 @@ public sealed class MarkdownDocumentCodec : DocumentCodec
 {
     private const string TextMarkdown = "text/markdown";
 
-    public MarkdownDocumentCodec()
-        : base(new DocumentFormatDescriptor(
-            "Markdown",
-            new[] { TextMarkdown, "text/x-markdown" },
-            new[] { ".md", ".markdown" }))
-    {
-    }
+    public MarkdownDocumentCodec() : base(new DocumentFormatDescriptor("Markdown", [TextMarkdown, "text/x-markdown"], [".md", ".markdown"])) { }
 
     public override bool CanRead => true;
 

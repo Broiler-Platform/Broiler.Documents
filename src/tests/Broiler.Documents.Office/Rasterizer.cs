@@ -216,16 +216,15 @@ internal sealed class Rasterizer
             prefix,
         ];
 
-        (int ExitCode, string Output, string Error, TimeSpan Duration, bool TimedOut) run =
+        (int ExitCode, string Output, string Error, TimeSpan Duration, bool TimedOut) =
             Run(Executable, arguments, timeout);
 
         string[] pages;
         try
         {
-            pages = Directory.GetFiles(directory, pattern)
+            pages = [.. Directory.GetFiles(directory, pattern)
                 .OrderBy(PageNumber)
-                .ThenBy(page => page, StringComparer.Ordinal)
-                .ToArray();
+                .ThenBy(page => page, StringComparer.Ordinal)];
         }
         catch (IOException)
         {
@@ -236,9 +235,9 @@ internal sealed class Rasterizer
             pages = [];
         }
 
-        return new RasterRun(arguments, run.ExitCode, run.Output, run.Error, run.Duration, pages)
+        return new RasterRun(arguments, ExitCode, Output, Error, Duration, pages)
         {
-            TimedOut = run.TimedOut,
+            TimedOut = TimedOut,
         };
     }
 
@@ -289,25 +288,24 @@ internal sealed class Rasterizer
             prefix,
         ];
 
-        (int ExitCode, string Output, string Error, TimeSpan Duration, bool TimedOut) run =
+        (int ExitCode, string Output, string Error, TimeSpan Duration, bool TimedOut) =
             Run(Executable, arguments, timeout);
 
         string[] pages;
         try
         {
-            pages = Directory.GetFiles(directory, prefixName + "-*.png")
+            pages = [.. Directory.GetFiles(directory, prefixName + "-*.png")
                 .OrderBy(PageNumber)
-                .ThenBy(name => name, StringComparer.Ordinal)
-                .ToArray();
+                .ThenBy(name => name, StringComparer.Ordinal)];
         }
         catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
         {
             pages = [];
         }
 
-        return new RasterRun(arguments, run.ExitCode, run.Output, run.Error, run.Duration, pages)
+        return new RasterRun(arguments, ExitCode, Output, Error, Duration, pages)
         {
-            TimedOut = run.TimedOut,
+            TimedOut = TimedOut,
         };
     }
 
@@ -347,16 +345,16 @@ internal sealed class Rasterizer
         if (FontLister is null)
             return null;
 
-        (int ExitCode, string Output, string Error, TimeSpan Duration, bool TimedOut) run =
+        (int ExitCode, string Output, string Error, TimeSpan Duration, bool TimedOut) =
             Run(FontLister, [Path.GetFullPath(pdfPath)], timeout);
 
-        if (run.TimedOut || run.ExitCode != 0)
+        if (TimedOut || ExitCode != 0)
             return null;
 
         // A fixed width table behind two header lines: a column heading row and
         // a row of dashes. The first whitespace delimited column is the font
         // name, which is a PostScript name and so cannot itself contain a space.
-        string[] lines = run.Output.Split('\n');
+        string[] lines = Output.Split('\n');
         if (lines.Length <= 2)
             return [];
 
@@ -420,7 +418,7 @@ internal sealed class Rasterizer
     /// </remarks>
     private static string? ProbeVersion(string executable, params string[] markers)
     {
-        (int ExitCode, string Output, string Error, TimeSpan Duration, bool TimedOut) run =
+        (int ExitCode, string Output, string Error, TimeSpan Duration, bool TimedOut) =
             Run(executable, ["-v"], TimeSpan.FromSeconds(10));
 
         // The exit code is checked before the text, and that order is the whole
@@ -429,10 +427,10 @@ internal sealed class Rasterizer
         // on the error stream. Searching that text for the marker "pdftoppm"
         // then finds it, and a missing rasteriser probes as a present one. The
         // run has to have succeeded before its output is evidence of anything.
-        if (run.TimedOut || run.ExitCode != 0)
+        if (TimedOut || ExitCode != 0)
             return null;
 
-        string text = run.Error + "\n" + run.Output;
+        string text = Error + "\n" + Output;
         foreach (string marker in markers)
         {
             if (text.Contains(marker, StringComparison.OrdinalIgnoreCase))

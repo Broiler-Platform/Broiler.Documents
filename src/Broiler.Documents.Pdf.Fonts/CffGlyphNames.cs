@@ -94,7 +94,7 @@ internal static class CffGlyphNames
 
     // ---- charset ---------------------------------------------------------------
 
-    private static IReadOnlyDictionary<int, string>? ReadCharset(
+    private static Dictionary<int, string>? ReadCharset(
         ReadOnlySpan<byte> program,
         int position,
         int glyphs,
@@ -132,32 +132,32 @@ internal static class CffGlyphNames
             // that count.
             case 1:
             case 2:
-            {
-                int countWidth = format == 1 ? 1 : 2;
-                while (glyph < glyphs)
                 {
-                    if (position + 1 + countWidth >= program.Length)
-                        return Done(names);
-
-                    int first = (program[position] << 8) | program[position + 1];
-                    position += 2;
-
-                    int left = countWidth == 1
-                        ? program[position]
-                        : (program[position] << 8) | program[position + 1];
-                    position += countWidth;
-
-                    for (int i = 0; i <= left && glyph < glyphs; i++)
+                    int countWidth = format == 1 ? 1 : 2;
+                    while (glyph < glyphs)
                     {
-                        Add(names, glyph++, first + i, strings, program);
+                        if (position + 1 + countWidth >= program.Length)
+                            return Done(names);
 
-                        if ((glyph & CancellationCheckMask) == 0)
-                            cancellation.ThrowIfCancellationRequested();
+                        int first = (program[position] << 8) | program[position + 1];
+                        position += 2;
+
+                        int left = countWidth == 1
+                            ? program[position]
+                            : (program[position] << 8) | program[position + 1];
+                        position += countWidth;
+
+                        for (int i = 0; i <= left && glyph < glyphs; i++)
+                        {
+                            Add(names, glyph++, first + i, strings, program);
+
+                            if ((glyph & CancellationCheckMask) == 0)
+                                cancellation.ThrowIfCancellationRequested();
+                        }
                     }
-                }
 
-                break;
-            }
+                    break;
+                }
 
             default:
                 return null;
@@ -166,8 +166,7 @@ internal static class CffGlyphNames
         return Done(names);
     }
 
-    private static IReadOnlyDictionary<int, string>? Done(Dictionary<int, string> names) =>
-        names.Count > 0 ? names : null;
+    private static Dictionary<int, string>? Done(Dictionary<int, string> names) => names.Count > 0 ? names : null;
 
     private static void Add(
         Dictionary<int, string> names,

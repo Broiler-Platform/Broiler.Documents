@@ -1,6 +1,4 @@
-using System.Text;
-using Broiler.Documents.Model;
-using Broiler.Graphics;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Pdf.Images.Tests;
@@ -303,7 +301,7 @@ public sealed class PdfComposedImageTests
         bytes.AddRange(Latin1($"<< {dictionary} /Length {data.Length} >>\nstream\n"));
         bytes.AddRange(data);
         bytes.AddRange(Latin1("\nendstream"));
-        return bytes.ToArray();
+        return [.. bytes];
     }
 
     private static byte[] Build(List<byte[]> objects, int rootObject)

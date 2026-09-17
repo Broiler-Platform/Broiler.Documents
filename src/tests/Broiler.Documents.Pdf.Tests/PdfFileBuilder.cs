@@ -58,7 +58,7 @@ internal sealed class PdfFileBuilder
         bytes.AddRange(Latin1(header.ToString()));
         bytes.AddRange(data);
         bytes.AddRange(Latin1("\nendstream"));
-        _objects.Add(bytes.ToArray());
+        _objects.Add([.. bytes]);
         return _objects.Count - 1;
     }
 

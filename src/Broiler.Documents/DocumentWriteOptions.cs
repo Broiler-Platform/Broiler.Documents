@@ -1,3 +1,7 @@
+using Broiler.Documents.Resources;
+using Broiler.Documents.Model;
+using System.IO;
+
 namespace Broiler.Documents;
 
 /// <summary>
@@ -7,23 +11,12 @@ namespace Broiler.Documents;
 /// <remarks>
 /// Open for derivation for the same reason as <see cref="DocumentReadOptions"/>:
 /// a codec carries its own immutable options through the shared
-/// <see cref="DocumentCodec.Write(Model.RichTextDocument, System.IO.Stream, DocumentWriteOptions)"/> signature (PDF roadmap §6.1).
+/// <see cref="DocumentCodec.Write(RichTextDocument, Stream, DocumentWriteOptions)"/> signature (PDF roadmap §6.1).
 /// </remarks>
-public class DocumentWriteOptions
+public class DocumentWriteOptions(bool asciiOnly = true, DocumentConversionContext? resources = null,
+    DocumentFontSet? fonts = null, DocumentMetadata? metadata = null)
 {
     public static DocumentWriteOptions Default { get; } = new();
-
-    public DocumentWriteOptions(
-        bool asciiOnly = true,
-        DocumentConversionContext? resources = null,
-        DocumentFontSet? fonts = null,
-        DocumentMetadata? metadata = null)
-    {
-        AsciiOnly = asciiOnly;
-        Resources = resources ?? DocumentConversionContext.Empty;
-        Fonts = fonts ?? DocumentFontSet.None;
-        Metadata = metadata ?? DocumentMetadata.Empty;
-    }
 
     /// <summary>
     /// When true, non-ASCII characters are escaped into the format's portable
@@ -35,7 +28,7 @@ public class DocumentWriteOptions
     /// not consult it at all. A writer asked for the unimplemented value reports
     /// it rather than quietly doing the opposite; see <c>RtfWriteOptions</c>.
     /// </remarks>
-    public bool AsciiOnly { get; }
+    public bool AsciiOnly { get; } = asciiOnly;
 
     /// <summary>
     /// The decisions made about the resources in the document being written.
@@ -56,7 +49,7 @@ public class DocumentWriteOptions
     /// so the empty context omits them and reports each one.
     /// </para>
     /// </remarks>
-    public DocumentConversionContext Resources { get; }
+    public DocumentConversionContext Resources { get; } = resources ?? DocumentConversionContext.Empty;
 
     /// <summary>
     /// The fonts the caller provisioned for this write. Defaults to
@@ -69,7 +62,7 @@ public class DocumentWriteOptions
     /// not write rather than one that reaches for whatever the machine has
     /// installed.
     /// </remarks>
-    public DocumentFontSet Fonts { get; }
+    public DocumentFontSet Fonts { get; } = fonts ?? DocumentFontSet.None;
 
     /// <summary>
     /// The metadata to emit. Defaults to <see cref="DocumentMetadata.Empty"/>,
@@ -83,5 +76,5 @@ public class DocumentWriteOptions
     /// writes it out, and may correct any field with
     /// <see cref="DocumentMetadata.With"/> first.
     /// </remarks>
-    public DocumentMetadata Metadata { get; }
+    public DocumentMetadata Metadata { get; } = metadata ?? DocumentMetadata.Empty;
 }

@@ -150,7 +150,7 @@ internal static class CcittFaxDecoder
     done:
         return rows == 0
             ? Failed("No fax line could be decoded from the stream.")
-            : new CcittFaxResult(CcittFaxOutcome.Decoded, output.ToArray(), rows, null);
+            : new CcittFaxResult(CcittFaxOutcome.Decoded, [.. output], rows, null);
     }
 
     /// <summary>

@@ -19,10 +19,10 @@ public sealed class RichTextDocumentSliceInsertTests
     [Fact]
     public void Slice_Within_A_Paragraph_Preserves_Runs()
     {
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             Para(("a", InlineStyle.Default), ("B", Bold), ("c", InlineStyle.Default)),
-        });
+        ]);
 
         RichTextDocument slice = document.Slice(new RichTextRange(Pos(0, 1), Pos(0, 2)));
 
@@ -33,11 +33,11 @@ public sealed class RichTextDocumentSliceInsertTests
     [Fact]
     public void Slice_Across_Paragraphs_Keeps_Structure_And_Styles()
     {
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             Para(("Hello", InlineStyle.Default)),
             Para(("World", Bold)),
-        });
+        ]);
 
         RichTextDocument slice = document.Slice(new RichTextRange(Pos(0, 2), Pos(1, 3)));
 
@@ -62,7 +62,7 @@ public sealed class RichTextDocumentSliceInsertTests
     public void InsertDocument_Single_Paragraph_Merges_Into_The_Target()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("ac");
-        RichTextDocument content = RichTextDocument.FromParagraphs(new[] { Para(("B", Bold)) });
+        RichTextDocument content = RichTextDocument.FromParagraphs([Para(("B", Bold))]);
 
         RichTextEditResult result = document.InsertDocument(Pos(0, 1), content);
 
@@ -74,11 +74,11 @@ public sealed class RichTextDocumentSliceInsertTests
     public void InsertDocument_Multiple_Paragraphs_Splits_The_Target()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("aXc");
-        RichTextDocument content = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument content = RichTextDocument.FromParagraphs(
+        [
             Para(("1", InlineStyle.Default)),
             Para(("2", InlineStyle.Default)),
-        });
+        ]);
 
         RichTextEditResult result = document.InsertDocument(Pos(0, 1), content);
 
@@ -93,7 +93,7 @@ public sealed class RichTextDocumentSliceInsertTests
     {
         var editor = new RichTextEditor(RichTextDocument.FromPlainText("abc"));
         editor.SetCaret(Pos(0, 1));
-        RichTextDocument content = RichTextDocument.FromParagraphs(new[] { Para(("X", Bold)) });
+        RichTextDocument content = RichTextDocument.FromParagraphs([Para(("X", Bold))]);
 
         Assert.True(editor.InsertDocument(content));
         Assert.Equal("aXbc", editor.Document.PlainText);
@@ -108,7 +108,7 @@ public sealed class RichTextDocumentSliceInsertTests
     {
         var editor = new RichTextEditor(RichTextDocument.FromPlainText("abc"));
         editor.SetSelection(new RichTextRange(Pos(0, 1), Pos(0, 2)));
-        RichTextDocument content = RichTextDocument.FromParagraphs(new[] { Para(("XY", InlineStyle.Default)) });
+        RichTextDocument content = RichTextDocument.FromParagraphs([Para(("XY", InlineStyle.Default))]);
 
         Assert.True(editor.InsertDocument(content));
         Assert.Equal("aXYc", editor.Document.PlainText);

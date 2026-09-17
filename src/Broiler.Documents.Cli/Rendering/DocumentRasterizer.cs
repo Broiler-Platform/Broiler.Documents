@@ -2,7 +2,6 @@ using Broiler.Documents.Model;
 using System;
 using System.Collections.Generic;
 using Broiler.Documents.Cli.Composition;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Geometry;
 using Broiler.Graphics.Imaging;
@@ -10,6 +9,7 @@ using Broiler.Graphics.Rendering;
 using Broiler.Graphics.RenderList;
 using Broiler.Graphics.Resources;
 using Broiler.Graphics.Text;
+using Broiler.Media.Image;
 
 namespace Broiler.Documents.Cli.Rendering;
 
@@ -58,14 +58,8 @@ public sealed class DocumentRasterizer : IDisposable
 
         if (_settings.ShowContentBox)
         {
-            list.StrokeRect(
-                new BRect(
-                    setup.ContentLeftPoints,
-                    setup.ContentTopPoints,
-                    setup.ContentWidthPoints,
-                    setup.ContentHeightPoints),
-                new BColor(0xC0, 0xC0, 0xC0),
-                0.5);
+            list.StrokeRect(new BRect(setup.ContentLeftPoints, setup.ContentTopPoints, setup.ContentWidthPoints, setup.ContentHeightPoints),
+                new BColor(0xC0, 0xC0, 0xC0), 0.5);
         }
 
         // A letterhead's stripe goes down first, under everything it is a
@@ -92,14 +86,9 @@ public sealed class DocumentRasterizer : IDisposable
                 DrawShape(list, shape);
         }
 
-        var descriptor = new BSurfaceDescriptor(
-            new BSize(page.WidthPoints, page.HeightPoints),
-            setup.DpiScale);
+        var descriptor = new BSurfaceDescriptor(new BSize(page.WidthPoints, page.HeightPoints), setup.DpiScale);
 
-        return _renderer.RenderToImage(
-            list,
-            descriptor,
-            new BFrameContext(setup.Background, page.Number, BRenderOptions.Default));
+        return _renderer.RenderToImage(list, descriptor, new BFrameContext(setup.Background, page.Number, BRenderOptions.Default));
     }
 
     public void Dispose()
@@ -186,21 +175,15 @@ public sealed class DocumentRasterizer : IDisposable
         CellBorders borders = cell.Borders;
         if (borders.Top.IsVisible)
             list.FillRect(new BRect(bounds.Left, bounds.Top, bounds.Width, borders.Top.Width), borders.Top.Color);
+
         if (borders.Bottom.IsVisible)
-        {
-            list.FillRect(
-                new BRect(bounds.Left, bounds.Bottom - borders.Bottom.Width, bounds.Width, borders.Bottom.Width),
-                borders.Bottom.Color);
-        }
+            list.FillRect(new BRect(bounds.Left, bounds.Bottom - borders.Bottom.Width, bounds.Width, borders.Bottom.Width), borders.Bottom.Color);
 
         if (borders.Left.IsVisible)
             list.FillRect(new BRect(bounds.Left, bounds.Top, borders.Left.Width, bounds.Height), borders.Left.Color);
+
         if (borders.Right.IsVisible)
-        {
-            list.FillRect(
-                new BRect(bounds.Right - borders.Right.Width, bounds.Top, borders.Right.Width, bounds.Height),
-                borders.Right.Color);
-        }
+            list.FillRect(new BRect(bounds.Right - borders.Right.Width, bounds.Top, borders.Right.Width, bounds.Height), borders.Right.Color);
     }
 
     /// <summary>
@@ -215,16 +198,12 @@ public sealed class DocumentRasterizer : IDisposable
         {
             var missing = new BColor(0xB0, 0xB0, 0xB0);
             list.StrokeRect(destination, missing, 1.0);
-            list.FillRect(
-                new BRect(destination.X, destination.Y + (destination.Height / 2), destination.Width, 1),
-                missing);
+            list.FillRect(new BRect(destination.X, destination.Y + (destination.Height / 2), destination.Width, 1), missing);
+
             return;
         }
 
-        list.DrawImage(
-            decoded,
-            new BRect(0, 0, decoded.PixelSize.Width, decoded.PixelSize.Height),
-            destination);
+        list.DrawImage(decoded, new BRect(0, 0, decoded.PixelSize.Width, decoded.PixelSize.Height), destination);
     }
 
     private static BColor Mix(BColor from, BColor to, double t) =>
@@ -316,26 +295,23 @@ public sealed class DocumentRasterizer : IDisposable
             return;
         }
 
-        list.DrawImage(
-            image,
-            new BRect(0, 0, image.PixelSize.Width, image.PixelSize.Height),
-            destination);
+        list.DrawImage(image, new BRect(0, 0, image.PixelSize.Width, image.PixelSize.Height), destination);
     }
 
     /// <summary>Encodes a bitmap as PNG bytes.</summary>
     public static byte[] EncodePng(BBitmap bitmap)
     {
         ArgumentNullException.ThrowIfNull(bitmap);
-        return bitmap.Encode(Broiler.Media.Image.ImageEncodeFormat.Png);
+        return bitmap.Encode(ImageEncodeFormat.Png);
     }
 
     /// <summary>The names the <c>--format</c> option accepts, and the encoder each selects.</summary>
-    public static IReadOnlyDictionary<string, Broiler.Media.Image.ImageEncodeFormat> ImageFormats { get; } =
-        new Dictionary<string, Broiler.Media.Image.ImageEncodeFormat>(StringComparer.OrdinalIgnoreCase)
+    public static IReadOnlyDictionary<string, ImageEncodeFormat> ImageFormats { get; } =
+        new Dictionary<string, ImageEncodeFormat>(StringComparer.OrdinalIgnoreCase)
         {
-            ["png"] = Broiler.Media.Image.ImageEncodeFormat.Png,
-            ["jpeg"] = Broiler.Media.Image.ImageEncodeFormat.Jpeg,
-            ["jpg"] = Broiler.Media.Image.ImageEncodeFormat.Jpeg,
-            ["bmp"] = Broiler.Media.Image.ImageEncodeFormat.Bmp,
+            ["png"] = ImageEncodeFormat.Png,
+            ["jpeg"] = ImageEncodeFormat.Jpeg,
+            ["jpg"] = ImageEncodeFormat.Jpeg,
+            ["bmp"] = ImageEncodeFormat.Bmp,
         };
 }

@@ -1,4 +1,3 @@
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Geometry;
 using Broiler.Graphics.Imaging;

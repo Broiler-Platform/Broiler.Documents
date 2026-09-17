@@ -229,8 +229,8 @@ internal sealed class Baseline
             document.ToJsonString(options).ReplaceLineEndings("\n") + "\n");
     }
 
-    private static IReadOnlyList<string> Strings(JsonElement element, string name) =>
+    private static string[] Strings(JsonElement element, string name) =>
         element.TryGetProperty(name, out JsonElement array)
-            ? array.EnumerateArray().Select(item => item.GetString() ?? string.Empty).ToArray()
+            ? [.. array.EnumerateArray().Select(item => item.GetString() ?? string.Empty)]
             : [];
 }

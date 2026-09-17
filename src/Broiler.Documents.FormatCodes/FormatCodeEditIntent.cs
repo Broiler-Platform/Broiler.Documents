@@ -1,6 +1,5 @@
 using System;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.FormatCodes;
@@ -12,19 +11,13 @@ namespace Broiler.Documents.FormatCodes;
 public abstract record FormatCodeEditIntent(RichTextRange Range);
 
 /// <summary>Replaces ordinary document content represented by text tokens.</summary>
-public sealed record ReplaceFormatCodeTextIntent(
-    RichTextRange Range,
-    string Text) : FormatCodeEditIntent(Range);
+public sealed record ReplaceFormatCodeTextIntent(RichTextRange Range, string Text) : FormatCodeEditIntent(Range);
 
 /// <summary>Applies an exact inline delta to an explicit source range.</summary>
-public sealed record ApplyFormatCodeInlineIntent(
-    RichTextRange Range,
-    InlineStyleDelta Delta) : FormatCodeEditIntent(Range);
+public sealed record ApplyFormatCodeInlineIntent(RichTextRange Range, InlineStyleDelta Delta) : FormatCodeEditIntent(Range);
 
 /// <summary>Applies an exact paragraph delta to an explicit source range.</summary>
-public sealed record ApplyFormatCodeParagraphIntent(
-    RichTextRange Range,
-    ParagraphStyleDelta Delta) : FormatCodeEditIntent(Range);
+public sealed record ApplyFormatCodeParagraphIntent(RichTextRange Range, ParagraphStyleDelta Delta) : FormatCodeEditIntent(Range);
 
 /// <summary>The model property represented by an editable code token.</summary>
 public enum FormatCodeProperty
@@ -70,9 +63,7 @@ public enum FormatCodeProperty
 /// the deliberate semantic action used by Backspace/Delete; it is not inferred
 /// from the token's display spelling.
 /// </summary>
-public sealed record FormatCodeTokenEditDescriptor(
-    FormatCodeProperty Property,
-    FormatCodeEditIntent RemovalIntent);
+public sealed record FormatCodeTokenEditDescriptor(FormatCodeProperty Property, FormatCodeEditIntent RemovalIntent);
 
 /// <summary>Stable entries hosts may present in an Insert Code palette.</summary>
 public enum FormatCodePaletteEntry
@@ -131,10 +122,7 @@ public readonly record struct FormatCodeEditValidationResult(bool IsValid, strin
 /// <summary>Validates all untrusted values before they reach RichEdit.</summary>
 public static class FormatCodeEditValidator
 {
-    public static FormatCodeEditValidationResult Validate(
-        RichTextDocument document,
-        FormatCodeEditIntent intent,
-        FormatCodeEditLimits? limits = null)
+    public static FormatCodeEditValidationResult Validate(RichTextDocument document, FormatCodeEditIntent intent, FormatCodeEditLimits? limits = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(intent);
@@ -152,10 +140,7 @@ public static class FormatCodeEditValidator
         };
     }
 
-    private static FormatCodeEditValidationResult ValidateReplacement(
-        RichTextDocument document,
-        ReplaceFormatCodeTextIntent intent,
-        FormatCodeEditLimits limits)
+    private static FormatCodeEditValidationResult ValidateReplacement(RichTextDocument document, ReplaceFormatCodeTextIntent intent, FormatCodeEditLimits limits)
     {
         if (intent.Text is null || intent.Text.Length > limits.MaxInsertedCharacters)
             return FormatCodeEditValidationResult.Invalid("FCEDIT010");
@@ -175,18 +160,14 @@ public static class FormatCodeEditValidator
         return FormatCodeEditValidationResult.Valid;
     }
 
-    private static FormatCodeEditValidationResult ValidateInline(
-        InlineStyleDelta delta,
-        FormatCodeEditLimits limits)
+    private static FormatCodeEditValidationResult ValidateInline(InlineStyleDelta delta, FormatCodeEditLimits limits)
     {
-        if (delta.SetFontFamily && delta.FontFamily is string family &&
-            (family.Length > limits.MaxFontFamilyCharacters || ContainsControl(family)))
+        if (delta.SetFontFamily && delta.FontFamily is string family && (family.Length > limits.MaxFontFamilyCharacters || ContainsControl(family)))
         {
             return FormatCodeEditValidationResult.Invalid("FCEDIT020");
         }
 
-        if (delta.SetFontSize && delta.FontSize is float size &&
-            (!float.IsFinite(size) || size < 1f || size > 512f))
+        if (delta.SetFontSize && delta.FontSize is float size && (!float.IsFinite(size) || size < 1f || size > 512f))
         {
             return FormatCodeEditValidationResult.Invalid("FCEDIT021");
         }
@@ -309,60 +290,60 @@ public static class FormatCodeInsertPalette
         FormatCodePaletteEntry entry,
         RichTextRange range,
         object? value = null) => entry switch
-    {
-        FormatCodePaletteEntry.Bold =>
-            new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.ToggleBold(true)),
-        FormatCodePaletteEntry.Italic =>
-            new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.ToggleItalic(true)),
-        FormatCodePaletteEntry.Underline =>
-            new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.ToggleUnderline(true)),
-        FormatCodePaletteEntry.Strikethrough =>
-            new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.ToggleStrikethrough(true)),
-        FormatCodePaletteEntry.FontFamily when value is string family =>
-            new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithFontFamily(family.Trim())),
-        FormatCodePaletteEntry.FontSize when TryFloat(value, out float size) =>
-            new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithFontSize(size)),
-        FormatCodePaletteEntry.Foreground when value is BColor foreground =>
-            new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithForeground(foreground)),
-        FormatCodePaletteEntry.Background when value is BColor background =>
-            new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithBackground(background)),
-        FormatCodePaletteEntry.Link when value is string href =>
-            new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithLink(href.Trim())),
-        FormatCodePaletteEntry.AllCaps =>
-            new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithCapitalization(TextCapitalization.AllCaps)),
-        FormatCodePaletteEntry.SmallCaps =>
-            new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithCapitalization(TextCapitalization.SmallCaps)),
-        FormatCodePaletteEntry.AlignLeft =>
-            new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Left)),
-        FormatCodePaletteEntry.AlignCenter =>
-            new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Center)),
-        FormatCodePaletteEntry.AlignRight =>
-            new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Right)),
-        FormatCodePaletteEntry.AlignJustify =>
-            new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Justify)),
-        FormatCodePaletteEntry.BulletList =>
-            new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithListKind(ListKind.Bullet)),
-        FormatCodePaletteEntry.NumberedList =>
-            new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithListKind(ListKind.Numbered)),
-        FormatCodePaletteEntry.Indent when TryInt(value, out int indent) =>
-            new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { IndentLevel = indent }),
-        FormatCodePaletteEntry.LineSpacing when TryFloat(value, out float line) =>
-            new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { LineSpacing = line }),
-        FormatCodePaletteEntry.SpacingBefore when TryFloat(value, out float before) =>
-            new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { SpacingBefore = before }),
-        FormatCodePaletteEntry.SpacingAfter when TryFloat(value, out float after) =>
-            new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { SpacingAfter = after }),
-        // A flag rather than a number, so it takes no value - and the mirror of
-        // the removal descriptor the projector hangs on the [Page Break] it
-        // draws. Without this the entry fell to the throw below, which told a
-        // caller to supply a value that does not exist.
-        FormatCodePaletteEntry.PageBreakBefore =>
-            new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { PageBreakBefore = true }),
-        FormatCodePaletteEntry.Tab => new ReplaceFormatCodeTextIntent(range, "\t"),
-        FormatCodePaletteEntry.LineBreak => new ReplaceFormatCodeTextIntent(range, "\u2028"),
-        FormatCodePaletteEntry.ParagraphBreak => new ReplaceFormatCodeTextIntent(range, "\n"),
-        _ => throw new ArgumentException("The palette entry requires a typed value.", nameof(value)),
-    };
+        {
+            FormatCodePaletteEntry.Bold =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.ToggleBold(true)),
+            FormatCodePaletteEntry.Italic =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.ToggleItalic(true)),
+            FormatCodePaletteEntry.Underline =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.ToggleUnderline(true)),
+            FormatCodePaletteEntry.Strikethrough =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.ToggleStrikethrough(true)),
+            FormatCodePaletteEntry.FontFamily when value is string family =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithFontFamily(family.Trim())),
+            FormatCodePaletteEntry.FontSize when TryFloat(value, out float size) =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithFontSize(size)),
+            FormatCodePaletteEntry.Foreground when value is BColor foreground =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithForeground(foreground)),
+            FormatCodePaletteEntry.Background when value is BColor background =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithBackground(background)),
+            FormatCodePaletteEntry.Link when value is string href =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithLink(href.Trim())),
+            FormatCodePaletteEntry.AllCaps =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithCapitalization(TextCapitalization.AllCaps)),
+            FormatCodePaletteEntry.SmallCaps =>
+                new ApplyFormatCodeInlineIntent(range, InlineStyleDelta.WithCapitalization(TextCapitalization.SmallCaps)),
+            FormatCodePaletteEntry.AlignLeft =>
+                new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Left)),
+            FormatCodePaletteEntry.AlignCenter =>
+                new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Center)),
+            FormatCodePaletteEntry.AlignRight =>
+                new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Right)),
+            FormatCodePaletteEntry.AlignJustify =>
+                new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithAlignment(TextAlignment.Justify)),
+            FormatCodePaletteEntry.BulletList =>
+                new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithListKind(ListKind.Bullet)),
+            FormatCodePaletteEntry.NumberedList =>
+                new ApplyFormatCodeParagraphIntent(range, ParagraphStyleDelta.WithListKind(ListKind.Numbered)),
+            FormatCodePaletteEntry.Indent when TryInt(value, out int indent) =>
+                new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { IndentLevel = indent }),
+            FormatCodePaletteEntry.LineSpacing when TryFloat(value, out float line) =>
+                new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { LineSpacing = line }),
+            FormatCodePaletteEntry.SpacingBefore when TryFloat(value, out float before) =>
+                new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { SpacingBefore = before }),
+            FormatCodePaletteEntry.SpacingAfter when TryFloat(value, out float after) =>
+                new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { SpacingAfter = after }),
+            // A flag rather than a number, so it takes no value - and the mirror of
+            // the removal descriptor the projector hangs on the [Page Break] it
+            // draws. Without this the entry fell to the throw below, which told a
+            // caller to supply a value that does not exist.
+            FormatCodePaletteEntry.PageBreakBefore =>
+                new ApplyFormatCodeParagraphIntent(range, new ParagraphStyleDelta { PageBreakBefore = true }),
+            FormatCodePaletteEntry.Tab => new ReplaceFormatCodeTextIntent(range, "\t"),
+            FormatCodePaletteEntry.LineBreak => new ReplaceFormatCodeTextIntent(range, "\u2028"),
+            FormatCodePaletteEntry.ParagraphBreak => new ReplaceFormatCodeTextIntent(range, "\n"),
+            _ => throw new ArgumentException("The palette entry requires a typed value.", nameof(value)),
+        };
 
     private static bool TryFloat(object? value, out float result)
     {

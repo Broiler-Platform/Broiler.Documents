@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO.Compression;
 using System.Linq;
 using System.Xml.Linq;
@@ -34,27 +33,19 @@ internal static class DocxMetadata
     public const string AppPart = "docProps/app.xml";
 
     public const string CoreContentType = "application/vnd.openxmlformats-package.core-properties+xml";
-    public const string AppContentType =
-        "application/vnd.openxmlformats-officedocument.extended-properties+xml";
+    public const string AppContentType = "application/vnd.openxmlformats-officedocument.extended-properties+xml";
 
-    public const string CoreRelationship =
-        "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties";
-    public const string AppRelationship =
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties";
+    public const string CoreRelationship = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties";
+    public const string AppRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties";
 
-    private static readonly XNamespace CoreProperties =
-        "http://schemas.openxmlformats.org/package/2006/metadata/core-properties";
+    private static readonly XNamespace CoreProperties = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties";
     private static readonly XNamespace DublinCore = "http://purl.org/dc/elements/1.1/";
     private static readonly XNamespace DublinCoreTerms = "http://purl.org/dc/terms/";
     private static readonly XNamespace XmlSchemaInstance = "http://www.w3.org/2001/XMLSchema-instance";
-    private static readonly XNamespace ExtendedProperties =
-        "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties";
+    private static readonly XNamespace ExtendedProperties = "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties";
 
     /// <summary>Reads both property parts, skipping either one that is absent.</summary>
-    public static DocumentMetadata Read(
-        ZipArchive archive,
-        DocumentLimits limits,
-        List<DocumentDiagnostic> diagnostics)
+    public static DocumentMetadata Read(ZipArchive archive, DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
     {
         XElement? core = LoadRoot(archive, CorePart, limits, diagnostics);
         XElement? app = LoadRoot(archive, AppPart, limits, diagnostics);
@@ -102,30 +93,22 @@ internal static class DocxMetadata
 
         return new XDocument(
             new XDeclaration("1.0", "utf-8", "yes"),
-            new XElement(
-                ExtendedProperties + "Properties",
+            new XElement(ExtendedProperties + "Properties",
                 new XAttribute(XNamespace.Xmlns + "vt", ExtendedProperties.NamespaceName),
                 new XElement(ExtendedProperties + "Application", metadata.Producer)));
     }
 
-    private static XElement? LoadRoot(
-        ZipArchive archive,
-        string partPath,
-        DocumentLimits limits,
-        List<DocumentDiagnostic> diagnostics)
+    private static XElement? LoadRoot(ZipArchive archive, string partPath, DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
     {
         ZipArchiveEntry? entry = DocxPackage.FindEntry(archive, partPath);
-        return entry is null
-            ? null
-            : DocxPackage.LoadEntryXml(entry, limits, diagnostics, "docx.properties.xml")?.Root;
+        return entry is null ? null : DocxPackage.LoadEntryXml(entry, limits, diagnostics, "docx.properties.xml")?.Root;
     }
 
     /// <summary>
     /// An element's text, keeping the difference between an element that is not
     /// there and one that is there and empty.
     /// </summary>
-    private static string? Text(XElement? parent, XName name) =>
-        parent?.Element(name)?.Value;
+    private static string? Text(XElement? parent, XName name) => parent?.Element(name)?.Value;
 
     /// <summary>
     /// One delimited property split into the list the envelope carries. Word
@@ -137,13 +120,10 @@ internal static class DocxMetadata
         if (string.IsNullOrEmpty(value))
             return null;
 
-        return value
-            .Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(static part => part.Length > 0);
+        return value.Split([';', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(static part => part.Length > 0);
     }
 
-    private static string? Join(IReadOnlyList<string> values) =>
-        values.Count == 0 ? null : string.Join("; ", values);
+    private static string? Join(IReadOnlyList<string> values) => values.Count == 0 ? null : string.Join("; ", values);
 
     private static DocumentDate? Date(XElement? parent, XName name, List<DocumentDiagnostic> diagnostics)
     {
@@ -154,10 +134,8 @@ internal static class DocxMetadata
         if (DocumentTimestamp.TryParse(value, out DocumentDate date))
             return date;
 
-        diagnostics.Add(DocumentDiagnostic.Warning(
-            "docx.properties.date",
-            "A document property stated a timestamp this build could not read, so it is " +
-            "dropped rather than guessed at: " + name.LocalName + "."));
+        diagnostics.Add(DocumentDiagnostic.Warning("docx.properties.date",
+            "A document property stated a timestamp this build could not read, so it is " + "dropped rather than guessed at: " + name.LocalName + "."));
         return null;
     }
 
@@ -172,9 +150,6 @@ internal static class DocxMetadata
         if (date is null)
             return;
 
-        root.Add(new XElement(
-            name,
-            new XAttribute(XmlSchemaInstance + "type", "dcterms:W3CDTF"),
-            DocumentTimestamp.ToW3cdtf(date.Value)));
+        root.Add(new XElement(name, new XAttribute(XmlSchemaInstance + "type", "dcterms:W3CDTF"), DocumentTimestamp.ToW3cdtf(date.Value)));
     }
 }

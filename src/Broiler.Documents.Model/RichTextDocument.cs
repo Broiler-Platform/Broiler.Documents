@@ -40,7 +40,7 @@ public sealed class RichTextDocument
     }
 
     /// <summary>A document with a single empty paragraph.</summary>
-    public static RichTextDocument Empty { get; } = new(new[] { RichTextParagraph.Empty });
+    public static RichTextDocument Empty { get; } = new([RichTextParagraph.Empty]);
 
     public IReadOnlyList<RichTextParagraph> Paragraphs => _paragraphs;
 
@@ -113,7 +113,7 @@ public sealed class RichTextDocument
 
     public int ParagraphCount => _paragraphs.Length;
 
-    public RichTextPosition Start => new(0, 0);
+    public static RichTextPosition Start => new(0, 0);
 
     public RichTextPosition End => new(_paragraphs.Length - 1, _paragraphs[^1].Length);
 
@@ -250,7 +250,7 @@ public sealed class RichTextDocument
     {
         at = ClampPosition(at);
         (RichTextParagraph head, RichTextParagraph tail) = _paragraphs[at.ParagraphIndex].SplitAt(at.Offset);
-        RichTextDocument document = ReplaceRange(at.ParagraphIndex, 1, new[] { head, tail });
+        RichTextDocument document = ReplaceRange(at.ParagraphIndex, 1, [head, tail]);
         return new RichTextEditResult(document, new RichTextPosition(at.ParagraphIndex + 1, 0));
     }
 
@@ -265,7 +265,7 @@ public sealed class RichTextDocument
         RichTextParagraph first = _paragraphs[firstParagraphIndex];
         int seam = first.Length;
         RichTextParagraph merged = first.Append(_paragraphs[firstParagraphIndex + 1]);
-        RichTextDocument document = ReplaceRange(firstParagraphIndex, 2, new[] { merged });
+        RichTextDocument document = ReplaceRange(firstParagraphIndex, 2, [merged]);
         return new RichTextEditResult(document, new RichTextPosition(firstParagraphIndex, seam));
     }
 
@@ -285,7 +285,7 @@ public sealed class RichTextDocument
         RichTextParagraph head = _paragraphs[start.ParagraphIndex].SplitAt(start.Offset).Head;
         RichTextParagraph tail = _paragraphs[end.ParagraphIndex].SplitAt(end.Offset).Tail;
         RichTextParagraph merged = head.Append(tail);
-        RichTextDocument document = ReplaceRange(start.ParagraphIndex, end.ParagraphIndex - start.ParagraphIndex + 1, new[] { merged });
+        RichTextDocument document = ReplaceRange(start.ParagraphIndex, end.ParagraphIndex - start.ParagraphIndex + 1, [merged]);
         return new RichTextEditResult(document, start);
     }
 
@@ -346,7 +346,7 @@ public sealed class RichTextDocument
         {
             RichTextParagraph head = _paragraphs[start.ParagraphIndex].SplitAt(end.Offset).Head;
             RichTextParagraph slice = head.SplitAt(start.Offset).Tail;
-            return new RichTextDocument(new[] { slice });
+            return new RichTextDocument([slice]);
         }
 
         var paragraphs = new List<RichTextParagraph>(end.ParagraphIndex - start.ParagraphIndex + 1)
@@ -410,7 +410,7 @@ public sealed class RichTextDocument
     /// all arrive here, and the grid comes out the other side still around the
     /// paragraphs it was around.
     /// </summary>
-    private RichTextDocument ReplaceRange(int index, int removeCount, IReadOnlyList<RichTextParagraph> insert)
+    private RichTextDocument ReplaceRange(int index, int removeCount, List<RichTextParagraph> insert)
     {
         var paragraphs = new List<RichTextParagraph>(_paragraphs.Length - removeCount + insert.Count);
         for (int i = 0; i < index; i++)

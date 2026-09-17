@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Model;
@@ -45,60 +44,41 @@ namespace Broiler.Documents.Model;
 /// better than the alternative this replaces, which was to drop the shape.
 /// </para>
 /// </remarks>
-public sealed class DocumentShape
+public sealed class DocumentShape(
+    int paragraphIndex,
+    double offsetX,
+    double offsetY,
+    double width,
+    double height,
+    ShapeFill? fill = null,
+    BColor outline = default,
+    IReadOnlyList<RichTextParagraph>? paragraphs = null,
+    InlineImage? image = null,
+    bool behindText = true,
+    ShapeWrap wrap = ShapeWrap.None,
+    WrapSide wrapSide = WrapSide.Largest,
+    double wrapDistance = 0,
+    int zOrder = 0)
 {
-    public DocumentShape(
-        int paragraphIndex,
-        double offsetX,
-        double offsetY,
-        double width,
-        double height,
-        ShapeFill? fill = null,
-        BColor outline = default,
-        IReadOnlyList<RichTextParagraph>? paragraphs = null,
-        InlineImage? image = null,
-        bool behindText = true,
-        ShapeWrap wrap = ShapeWrap.None,
-        WrapSide wrapSide = WrapSide.Largest,
-        double wrapDistance = 0,
-        int zOrder = 0)
-    {
-        ParagraphIndex = paragraphIndex;
-        OffsetX = offsetX;
-        OffsetY = offsetY;
-        Width = width;
-        Height = height;
-        Fill = fill;
-        Outline = outline;
-        Image = image;
-        BehindText = behindText;
-        Wrap = wrap;
-        WrapSide = wrapSide;
-        WrapDistance = double.IsFinite(wrapDistance) && wrapDistance > 0 ? wrapDistance : 0;
-        ZOrder = Math.Max(0, zOrder);
-        Paragraphs = paragraphs is null || paragraphs.Count == 0
-            ? []
-            : [.. paragraphs];
-    }
 
     /// <summary>The paragraph the shape is anchored to.</summary>
-    public int ParagraphIndex { get; }
+    public int ParagraphIndex { get; } = paragraphIndex;
 
     /// <summary>Points from the text column's left edge; negative puts the shape in the margin.</summary>
-    public double OffsetX { get; }
+    public double OffsetX { get; } = offsetX;
 
     /// <summary>Points from the top of the anchoring paragraph.</summary>
-    public double OffsetY { get; }
+    public double OffsetY { get; } = offsetY;
 
-    public double Width { get; }
+    public double Width { get; } = width;
 
-    public double Height { get; }
+    public double Height { get; } = height;
 
     /// <summary>How the box is painted, or null when it is not filled.</summary>
-    public ShapeFill? Fill { get; }
+    public ShapeFill? Fill { get; } = fill;
 
     /// <summary>The outline colour; <see cref="BColor.Empty"/> for no outline.</summary>
-    public BColor Outline { get; }
+    public BColor Outline { get; } = outline;
 
     /// <summary>
     /// The picture the box draws, or null when it draws only paint and text. It
@@ -106,14 +86,14 @@ public sealed class DocumentShape
     /// frame, so the size the document stated for the frame is the size it draws
     /// at, and <see cref="InlineImage.Width"/> is not consulted again.
     /// </summary>
-    public InlineImage? Image { get; }
+    public InlineImage? Image { get; } = image;
 
     /// <summary>
     /// True when the shape draws under the body text, false when it draws over it.
     /// Defaults to true: a shape whose format says nothing about stacking is the
     /// letterhead case, and painting it over the letter would hide the letter.
     /// </summary>
-    public bool BehindText { get; }
+    public bool BehindText { get; } = behindText;
 
     /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
@@ -136,29 +116,31 @@ public sealed class DocumentShape
     /// number and a reader producing one would be reporting its own arithmetic.
     /// </para>
     /// </remarks>
-    public int ZOrder { get; }
+    public int ZOrder { get; } = Math.Max(0, zOrder);
 
     /// <summary>
     /// How the body text behaves around the shape. Defaults to
     /// <see cref="ShapeWrap.None"/>: text ignores it, which is what every shape
     /// did before any of them said otherwise.
     /// </summary>
-    public ShapeWrap Wrap { get; }
+    public ShapeWrap Wrap { get; } = wrap;
 
     /// <summary>Which side the text runs down when the shape wraps.</summary>
-    public WrapSide WrapSide { get; }
+    public WrapSide WrapSide { get; } = wrapSide;
 
     /// <summary>
     /// Points of clearance the text keeps around a wrapping shape, so a line does
     /// not touch the picture it flows beside.
     /// </summary>
-    public double WrapDistance { get; }
+    public double WrapDistance { get; } = double.IsFinite(wrapDistance) && wrapDistance > 0 ? wrapDistance : 0;
 
     /// <summary>True when the body text has to keep clear of this shape.</summary>
     public bool Wraps => Wrap != ShapeWrap.None;
 
     /// <summary>The shape's own text, empty when it holds none.</summary>
-    public IReadOnlyList<RichTextParagraph> Paragraphs { get; }
+    public IReadOnlyList<RichTextParagraph> Paragraphs { get; } = paragraphs is null || paragraphs.Count == 0
+            ? []
+            : [.. paragraphs];
 
     /// <summary>True when the shape holds text rather than only paint.</summary>
     public bool HasText => Paragraphs.Count > 0;

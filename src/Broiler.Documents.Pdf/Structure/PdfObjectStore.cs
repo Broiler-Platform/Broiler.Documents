@@ -60,11 +60,11 @@ internal sealed class PdfObjectStore
     private readonly PdfDiagnosticSink _diagnostics;
     private readonly PdfFilterPipeline _pipeline;
     private readonly PdfFeatureTally _features = new();
-    private readonly Dictionary<int, PdfXrefEntry> _entries = new();
-    private readonly Dictionary<int, PdfObject> _cache = new();
+    private readonly Dictionary<int, PdfXrefEntry> _entries = [];
+    private readonly Dictionary<int, PdfObject> _cache = [];
     private readonly HashSet<int> _resolving = [];
-    private readonly Dictionary<int, Dictionary<int, int>> _objectStreamIndex = new();
-    private readonly Dictionary<int, byte[]> _objectStreamData = new();
+    private readonly Dictionary<int, Dictionary<int, int>> _objectStreamIndex = [];
+    private readonly Dictionary<int, byte[]> _objectStreamData = [];
     private readonly int _headerOffset;
 
     private PdfObjectStore(
@@ -141,8 +141,10 @@ internal sealed class PdfObjectStore
         if (headerOffset < 0)
             return null;
 
-        var store = new PdfObjectStore(data, headerOffset, budget, diagnostics, pipeline);
-        store.HeaderVersion = PdfVersion.ParseHeader(data, headerOffset);
+        var store = new PdfObjectStore(data, headerOffset, budget, diagnostics, pipeline)
+        {
+            HeaderVersion = PdfVersion.ParseHeader(data, headerOffset)
+        };
         store.LoadXref();
         return store;
     }
@@ -492,7 +494,7 @@ internal sealed class PdfObjectStore
         foreach (int objectNumber in new List<int>(_entries.Keys))
         {
             if (GetObject(objectNumber) is PdfStream stream &&
-                (stream.Dictionary["Type"] as PdfName)?.Value == "ObjStm")
+                stream.Dictionary["Type"] is PdfName { Value: "ObjStm" })
             {
                 RegisterObjectStreamMembers(objectNumber, stream);
             }
@@ -914,7 +916,7 @@ internal sealed class PdfObjectStore
         return false;
     }
 
-    private long? ReadOffsetEntry(PdfDictionary dictionary, string key) =>
+    private static long? ReadOffsetEntry(PdfDictionary dictionary, string key) =>
         dictionary[key] is PdfNumber number && number.ToInt64() > 0 ? number.ToInt64() : null;
 
     private long FindStartXref()

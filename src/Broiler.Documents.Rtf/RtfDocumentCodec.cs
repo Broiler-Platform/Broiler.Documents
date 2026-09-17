@@ -18,8 +18,8 @@ public sealed class RtfDocumentCodec : DocumentCodec
     public RtfDocumentCodec()
         : base(new DocumentFormatDescriptor(
             "RTF",
-            new[] { ApplicationRtf, "text/rtf" },
-            new[] { ".rtf" }))
+            [ApplicationRtf, "text/rtf"],
+            [".rtf"]))
     {
     }
 

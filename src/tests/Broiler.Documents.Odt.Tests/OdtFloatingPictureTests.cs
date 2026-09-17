@@ -1,3 +1,5 @@
+using Broiler.Documents.Resources;
+
 namespace Broiler.Documents.Odt.Tests;
 
 /// <summary>

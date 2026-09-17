@@ -15,11 +15,7 @@ namespace Broiler.Documents;
 /// </remarks>
 public sealed class DocumentDiagnosticLocation
 {
-    public DocumentDiagnosticLocation(
-        long? byteOffset = null,
-        int? paragraphIndex = null,
-        int? pageNumber = null,
-        string? part = null)
+    public DocumentDiagnosticLocation(long? byteOffset = null, int? paragraphIndex = null, int? pageNumber = null, string? part = null)
     {
         if (byteOffset < 0)
             throw new ArgumentOutOfRangeException(nameof(byteOffset));
@@ -73,11 +69,7 @@ public sealed class DocumentDiagnosticLocation
 /// </summary>
 public sealed class DocumentDiagnostic
 {
-    public DocumentDiagnostic(
-        DocumentDiagnosticSeverity severity,
-        string code,
-        string message,
-        DocumentDiagnosticLocation? location = null)
+    public DocumentDiagnostic(DocumentDiagnosticSeverity severity, string code, string message, DocumentDiagnosticLocation? location = null)
     {
         if (string.IsNullOrWhiteSpace(code))
             throw new ArgumentException("A diagnostic needs a stable code.", nameof(code));

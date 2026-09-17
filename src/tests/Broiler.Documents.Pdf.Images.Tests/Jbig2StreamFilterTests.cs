@@ -170,7 +170,7 @@ public sealed class Jbig2StreamFilterTests
         stream.Add(1);                  // page association
         AddUInt32(stream, 9999);        // data length past the end
 
-        Assert.Equal(PdfDiagnosticCodes.FilterMalformed, Decode(stream.ToArray()).DiagnosticCode);
+        Assert.Equal(PdfDiagnosticCodes.FilterMalformed, Decode([.. stream]).DiagnosticCode);
     }
 
     [Fact]
@@ -250,7 +250,7 @@ public sealed class Jbig2StreamFilterTests
         body.Add(0);                    // generic flags: arithmetic, template 0
 
         // Nominal adaptive pixels, as signed bytes.
-        body.AddRange(new byte[] { 3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE });
+        body.AddRange([3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE]);
         body.AddRange(Jbig2GenericEncoder.Encode(pixels, width, height, template: 0));
 
         return Segment(number: 1, type: 38, [.. body]);

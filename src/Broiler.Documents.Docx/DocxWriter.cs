@@ -9,7 +9,6 @@ using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Docx;
@@ -17,19 +16,16 @@ namespace Broiler.Documents.Docx;
 /// <summary>Serializes the rich-text document model to a minimal DOCX package.</summary>
 public static class DocxWriter
 {
-    private static readonly DateTimeOffset ZipTimestamp =
-        new(new DateTime(1980, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+    private static readonly DateTimeOffset ZipTimestamp = new(new DateTime(1980, 1, 1, 0, 0, 0, DateTimeKind.Utc));
 
     /// <summary>The size an image with no stated display size is written at: one inch square.</summary>
     private const double DefaultImagePoints = 72.0;
 
-    public static DocumentWriteResult Write(
-        RichTextDocument document,
-        Stream destination,
-        DocumentWriteOptions? options = null)
+    public static DocumentWriteResult Write(RichTextDocument document, Stream destination, DocumentWriteOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(destination);
+        
         var context = new DocxWriteContext(
             document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None),
             (options ?? DocumentWriteOptions.Default).Resources);
@@ -1296,7 +1292,7 @@ public static class DocxWriter
         {
             root.Add(new XElement(
                 DocxNamespaces.PackageRelationships + "Relationship",
-                new XAttribute("Id", context.NumberingRelationshipId),
+                new XAttribute("Id", DocxWriteContext.NumberingRelationshipId),
                 new XAttribute("Type", DocxNamespaces.NumberingRelationship),
                 new XAttribute("Target", "numbering.xml")));
         }
@@ -1417,7 +1413,7 @@ public static class DocxWriter
         return string.Create(CultureInfo.InvariantCulture, $"{color.R:X2}{color.G:X2}{color.B:X2}");
     }
 
-    private sealed class DocxWriteContext
+    private sealed class DocxWriteContext(bool hasNumbering, DocumentConversionContext resources)
     {
         private readonly Dictionary<string, string> _hyperlinks = new(StringComparer.Ordinal);
         private readonly Dictionary<InlineImage, DocxImagePart> _images = new(ReferenceEqualityComparer.Instance);
@@ -1426,27 +1422,20 @@ public static class DocxWriter
         private readonly List<DocumentDiagnostic> _diagnostics = [];
         private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
         private readonly List<DocxRunningPart> _runningParts = [];
-        private int _nextRelationshipId;
+        private int _nextRelationshipId = hasNumbering ? 2 : 1;
 
-        public DocxWriteContext(bool hasNumbering, DocumentConversionContext resources)
-        {
-            HasNumbering = hasNumbering;
-            Resources = resources;
-            _nextRelationshipId = hasNumbering ? 2 : 1;
-        }
-
-        public bool HasNumbering { get; }
+        public bool HasNumbering { get; } = hasNumbering;
 
         /// <summary>
         /// What the caller's policy decided about this document's resources. A
         /// picture is not written unless this says it may be.
         /// </summary>
-        public DocumentConversionContext Resources { get; }
+        public DocumentConversionContext Resources { get; } = resources;
 
         public bool HasDocumentRelationships =>
             HasNumbering || _hyperlinks.Count > 0 || _imageOrder.Count > 0 || _runningParts.Count > 0;
 
-        public string NumberingRelationshipId => "rId1";
+        public static string NumberingRelationshipId => "rId1";
 
         public IReadOnlyDictionary<string, string> HyperlinkRelationships => _hyperlinks;
 

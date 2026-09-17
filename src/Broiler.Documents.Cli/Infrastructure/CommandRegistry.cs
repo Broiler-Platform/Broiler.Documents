@@ -6,17 +6,11 @@ using System.Linq;
 namespace Broiler.Documents.Cli.Infrastructure;
 
 /// <summary>One command: what it declares, and what runs it.</summary>
-public sealed class CommandEntry
+public sealed class CommandEntry(CommandSpec spec, Func<CommandContext, int> handler)
 {
-    public CommandEntry(CommandSpec spec, Func<CommandContext, int> handler)
-    {
-        Spec = spec ?? throw new ArgumentNullException(nameof(spec));
-        Handler = handler ?? throw new ArgumentNullException(nameof(handler));
-    }
+    public CommandSpec Spec { get; } = spec ?? throw new ArgumentNullException(nameof(spec));
 
-    public CommandSpec Spec { get; }
-
-    public Func<CommandContext, int> Handler { get; }
+    public Func<CommandContext, int> Handler { get; } = handler ?? throw new ArgumentNullException(nameof(handler));
 }
 
 /// <summary>

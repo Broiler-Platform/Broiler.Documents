@@ -83,7 +83,7 @@ public static class HelpText
 
     private static void WriteOptions(TextWriter writer, IReadOnlyList<OptionSpec> options)
     {
-        string[] left = options.Select(Spelling).ToArray();
+        string[] left = [.. options.Select(Spelling)];
         int width = left.Length == 0 ? 0 : left.Max(text => text.Length);
 
         for (int i = 0; i < options.Count; i++)

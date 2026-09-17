@@ -13,7 +13,7 @@ namespace Broiler.Documents.Pdf.Tests;
 /// handed to the content stream as a glyph no standard font has - an address
 /// block came out as one run with a hole in it rather than as five lines.
 /// </remarks>
-public sealed class PdfLineBreakTests
+public sealed partial class PdfLineBreakTests
 {
     private const char Break = '\u2028';
 
@@ -29,9 +29,7 @@ public sealed class PdfLineBreakTests
 
     /// <summary>The text of every <c>Tj</c> the content stream shows, in order.</summary>
     private static List<string> Shown(string content) =>
-        Regex.Matches(content, @"\(((?:\\.|[^()\\])*)\) Tj")
-            .Select(match => match.Groups[1].Value)
-            .ToList();
+        [.. MyRegex().Matches(content).Select(match => match.Groups[1].Value)];
 
     [Fact]
     public void A_Break_Puts_The_Next_Word_On_Its_Own_Line()
@@ -71,4 +69,7 @@ public sealed class PdfLineBreakTests
 
         Assert.Equal(["alpha", "bravo"], shown);
     }
+
+    [GeneratedRegex(@"\(((?:\\.|[^()\\])*)\) Tj")]
+    private static partial Regex MyRegex();
 }

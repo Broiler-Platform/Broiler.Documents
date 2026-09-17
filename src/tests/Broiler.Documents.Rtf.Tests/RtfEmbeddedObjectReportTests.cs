@@ -1,5 +1,3 @@
-using System;
-using System.Linq;
 using System.Text;
 
 namespace Broiler.Documents.Rtf.Tests;
@@ -23,7 +21,7 @@ public sealed class RtfEmbeddedObjectReportTests
 
     private static DocumentReadResult Read(bool decodeEmbeddedObjects)
     {
-        using var stream = new System.IO.MemoryStream(
+        using var stream = new MemoryStream(
             Encoding.ASCII.GetBytes(WithPicture),
             writable: false);
 
@@ -86,7 +84,7 @@ public sealed class RtfEmbeddedObjectReportTests
             many.Append(@" p{\pict\pngblip 89504e47}");
         many.Append('}');
 
-        using var stream = new System.IO.MemoryStream(
+        using var stream = new MemoryStream(
             Encoding.ASCII.GetBytes(many.ToString()),
             writable: false);
         DocumentReadResult result = new RtfDocumentCodec().Read(stream);

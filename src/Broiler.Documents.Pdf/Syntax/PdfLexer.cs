@@ -28,18 +28,8 @@ internal enum PdfTokenType
 /// <see cref="PdfLimits.MaxTokenLength"/> rejects anything else before it is
 /// allocated.
 /// </summary>
-internal readonly struct PdfToken
+internal readonly struct PdfToken(PdfTokenType type, int start, int length)
 {
-    public PdfToken(PdfTokenType type, int start, int length)
-    {
-        Type = type;
-        Start = start;
-        Length = length;
-        Number = 0;
-        Text = string.Empty;
-        Bytes = null;
-    }
-
     public PdfToken(PdfTokenType type, int start, int length, double number)
         : this(type, start, length)
     {
@@ -58,21 +48,21 @@ internal readonly struct PdfToken
         Bytes = bytes;
     }
 
-    public PdfTokenType Type { get; }
+    public PdfTokenType Type { get; } = type;
 
     /// <summary>Offset of the token's first byte in the source buffer.</summary>
-    public int Start { get; }
+    public int Start { get; } = start;
 
-    public int Length { get; }
+    public int Length { get; } = length;
 
     /// <summary>The numeric value for <see cref="PdfTokenType.Integer"/>/<see cref="PdfTokenType.Real"/>.</summary>
-    public double Number { get; }
+    public double Number { get; } = 0;
 
     /// <summary>The decoded text for a name or keyword.</summary>
-    public string Text { get; }
+    public string Text { get; } = string.Empty;
 
     /// <summary>The decoded bytes for a literal or hexadecimal string.</summary>
-    public byte[]? Bytes { get; }
+    public byte[]? Bytes { get; } = null;
 
     public bool IsKeyword(string keyword) =>
         Type == PdfTokenType.Keyword && string.Equals(Text, keyword, StringComparison.Ordinal);
@@ -321,7 +311,7 @@ internal sealed class PdfLexer
                     continue;
                 case (byte)')':
                     if (--depth == 0)
-                        return new PdfToken(PdfTokenType.LiteralString, start, Position - start, bytes.ToArray());
+                        return new PdfToken(PdfTokenType.LiteralString, start, Position - start, [.. bytes]);
                     bytes.Add(b);
                     continue;
                 case (byte)'\\':
@@ -341,7 +331,7 @@ internal sealed class PdfLexer
 
         // Unterminated at end of input: return what was read so the caller can
         // record a malformed-object diagnostic instead of looping.
-        return new PdfToken(PdfTokenType.LiteralString, start, Position - start, bytes.ToArray());
+        return new PdfToken(PdfTokenType.LiteralString, start, Position - start, [.. bytes]);
     }
 
     private void AppendEscape(List<byte> bytes)
@@ -422,7 +412,7 @@ internal sealed class PdfLexer
         if (pending >= 0)
             bytes.Add((byte)(pending << 4));
 
-        return new PdfToken(PdfTokenType.HexString, start, Position - start, bytes.ToArray());
+        return new PdfToken(PdfTokenType.HexString, start, Position - start, [.. bytes]);
     }
 
     private PdfToken ReadKeyword()

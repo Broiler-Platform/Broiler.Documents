@@ -422,10 +422,10 @@ internal sealed class PdfTableGrid
         }
 
         var regions = new List<(List<Segment>, List<Segment>)>(byRoot.Count);
-        foreach (var group in byRoot.Values)
+        foreach (var (Vertical, Horizontal) in byRoot.Values)
         {
-            if (group.Vertical.Count >= 2 && group.Horizontal.Count >= 2)
-                regions.Add((group.Vertical, group.Horizontal));
+            if (Vertical.Count >= 2 && Horizontal.Count >= 2)
+                regions.Add((Vertical, Horizontal));
         }
 
         return regions;

@@ -1,3 +1,4 @@
+using Broiler.Documents.Resources;
 using System.IO.Compression;
 
 namespace Broiler.Documents.Docx.Tests;

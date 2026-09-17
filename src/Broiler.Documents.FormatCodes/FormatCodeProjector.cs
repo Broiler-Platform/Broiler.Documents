@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Text;
 using System.Threading;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.FormatCodes;
@@ -14,10 +13,7 @@ public sealed class FormatCodeProjector
 {
     private const int InlinePropertyCount = 10;
 
-    public FormatCodeProjection Project(
-        RichTextDocument document,
-        FormatCodeProjectionOptions? options = null,
-        CancellationToken cancellationToken = default)
+    public static FormatCodeProjection Project(RichTextDocument document, FormatCodeProjectionOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
         options ??= FormatCodeProjectionOptions.Default;
@@ -51,7 +47,7 @@ public sealed class FormatCodeProjector
                     runStart,
                     previousRange,
                     currentRange);
-                EmitContent(builder, paragraph.Text, paragraphIndex, offset, run.Length, currentRange);
+                EmitContent(builder, paragraph.Text, paragraphIndex, offset, run.Length);
 
                 previousStyle = run.Style;
                 previousRange = currentRange;
@@ -93,7 +89,7 @@ public sealed class FormatCodeProjector
             }
         }
 
-        FormatCodeProjection canonical = builder.Build(Array.Empty<FormatCodeToken>());
+        FormatCodeProjection canonical = builder.Build([]);
         if (options.PendingStyle is not FormatCodePendingStyle pending)
             return canonical;
         if (!document.IsValid(pending.Caret))
@@ -293,8 +289,7 @@ public sealed class FormatCodeProjector
         string text,
         int paragraphIndex,
         int start,
-        int length,
-        RichTextRange runRange)
+        int length)
     {
         int end = start + length;
         int offset = start;
@@ -311,7 +306,7 @@ public sealed class FormatCodeProjector
                 RichTextPosition after = new(paragraphIndex, offset);
                 builder.AddToken(
                     FormatCodeTokenKind.Text,
-                    text.Substring(literalStart, offset - literalStart),
+                    text[literalStart..offset],
                     before,
                     after,
                     new RichTextRange(before, after),
@@ -385,7 +380,7 @@ public sealed class FormatCodeProjector
             UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator;
     }
 
-    private static IReadOnlyList<FormatCodeToken> BuildPendingTokens(
+    private static List<FormatCodeToken> BuildPendingTokens(
         FormatCodeProjection canonical,
         RichTextDocument document,
         FormatCodePendingStyle pending,
@@ -588,26 +583,18 @@ public sealed class FormatCodeProjector
             throw new ArgumentOutOfRangeException(nameof(options), "MaxQuotedValueCharacters must be positive.");
     }
 
-    private sealed class ProjectionBuilder
+    private sealed class ProjectionBuilder(
+        RichTextDocument document,
+        FormatCodeProjectionOptions options,
+        CancellationToken cancellationToken)
     {
-        private readonly RichTextDocument _document;
         private readonly StringBuilder _text = new();
-        private readonly List<FormatCodeToken> _tokens = new();
-        private readonly List<FormatCodeDiagnostic> _diagnostics = new();
+        private readonly List<FormatCodeToken> _tokens = [];
+        private readonly List<FormatCodeDiagnostic> _diagnostics = [];
 
-        public ProjectionBuilder(
-            RichTextDocument document,
-            FormatCodeProjectionOptions options,
-            CancellationToken cancellationToken)
-        {
-            _document = document;
-            Options = options;
-            CancellationToken = cancellationToken;
-        }
+        public FormatCodeProjectionOptions Options { get; } = options;
 
-        public FormatCodeProjectionOptions Options { get; }
-
-        public CancellationToken CancellationToken { get; }
+        public CancellationToken CancellationToken { get; } = cancellationToken;
 
         public void AddToken(
             FormatCodeTokenKind kind,
@@ -656,6 +643,6 @@ public sealed class FormatCodeProjector
                 affectedRange));
 
         public FormatCodeProjection Build(IReadOnlyList<FormatCodeToken> pendingTokens) =>
-            new(_document, _text.ToString(), _tokens, pendingTokens, _diagnostics);
+            new(document, _text.ToString(), _tokens, pendingTokens, _diagnostics);
     }
 }

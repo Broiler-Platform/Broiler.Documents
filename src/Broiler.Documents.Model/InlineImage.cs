@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
-using Broiler.Graphics;
 using Broiler.Graphics.Geometry;
 using Broiler.Graphics.Imaging;
 
@@ -203,7 +202,14 @@ public sealed record ImagePresentation
         double.IsFinite(value) && value > 0 ? Math.Min(value, 1) : 0;
 }
 
-public sealed class InlineImage
+public sealed class InlineImage(
+    BImageResource resource,
+    DocumentResourceId resourceId = default,
+    double? width = null,
+    double? height = null,
+    string? altText = null,
+    string? name = null,
+    ImagePresentation? presentation = null)
 {
     /// <summary>
     /// U+FFFC OBJECT REPLACEMENT CHARACTER — the one character an image run
@@ -224,24 +230,6 @@ public sealed class InlineImage
 
     /// <summary>Points per inch, the unit every model dimension is in.</summary>
     public const double PointsPerInch = 72.0;
-
-    public InlineImage(
-        BImageResource resource,
-        DocumentResourceId resourceId = default,
-        double? width = null,
-        double? height = null,
-        string? altText = null,
-        string? name = null,
-        ImagePresentation? presentation = null)
-    {
-        Resource = resource ?? throw new ArgumentNullException(nameof(resource));
-        ResourceId = resourceId;
-        Width = Validate(width, nameof(width));
-        Height = Validate(height, nameof(height));
-        AltText = altText ?? string.Empty;
-        Name = string.IsNullOrWhiteSpace(name) ? "image" : name;
-        Presentation = presentation ?? ImagePresentation.Default;
-    }
 
     /// <summary>
     /// Creates an image from encoded bytes and their media type, inspecting the
@@ -273,31 +261,31 @@ public sealed class InlineImage
     }
 
     /// <summary>The image itself, encoded or decoded.</summary>
-    public BImageResource Resource { get; }
+    public BImageResource Resource { get; } = resource ?? throw new ArgumentNullException(nameof(resource));
 
     /// <summary>
     /// The part of the picture shown and the shape it is shown in. Never null;
     /// a picture that states nothing carries <see cref="ImagePresentation.Default"/>.
     /// </summary>
-    public ImagePresentation Presentation { get; }
+    public ImagePresentation Presentation { get; } = presentation ?? ImagePresentation.Default;
 
     /// <summary>
     /// This image's entry in the conversion context that produced it, or
     /// <see cref="DocumentResourceId.None"/> when no context admitted it.
     /// </summary>
-    public DocumentResourceId ResourceId { get; }
+    public DocumentResourceId ResourceId { get; } = resourceId;
 
     /// <summary>Display width in points, or null to take it from the resource.</summary>
-    public double? Width { get; }
+    public double? Width { get; } = Validate(width, nameof(width));
 
     /// <summary>Display height in points, or null to take it from the resource.</summary>
-    public double? Height { get; }
+    public double? Height { get; } = Validate(height, nameof(height));
 
     /// <summary>Alternative text, or the empty string when the source gave none.</summary>
-    public string AltText { get; }
+    public string AltText { get; } = altText ?? string.Empty;
 
     /// <summary>A short name for the image, used to name the part a writer emits.</summary>
-    public string Name { get; }
+    public string Name { get; } = string.IsNullOrWhiteSpace(name) ? "image" : name;
 
     /// <summary>True when the source stated both dimensions rather than implying them.</summary>
     public bool HasExplicitSize => Width is not null && Height is not null;

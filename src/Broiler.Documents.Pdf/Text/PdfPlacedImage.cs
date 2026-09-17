@@ -21,29 +21,21 @@ namespace Broiler.Documents.Pdf;
 /// so an image sorts among lines rather than needing a second convention.
 /// </para>
 /// </remarks>
-internal sealed class PdfPlacedImage
+internal sealed class PdfPlacedImage(InlineImage image, double left, double top, double width, double height)
 {
-    public PdfPlacedImage(InlineImage image, double left, double top, double width, double height)
-    {
-        Image = image ?? throw new ArgumentNullException(nameof(image));
-        Left = left;
-        Top = top;
-        Width = width;
-        Height = height;
-    }
 
     /// <summary>The image, already admitted by the caller's resource policy.</summary>
-    public InlineImage Image { get; }
+    public InlineImage Image { get; } = image ?? throw new ArgumentNullException(nameof(image));
 
     /// <summary>Left edge of the drawn box, in points.</summary>
-    public double Left { get; }
+    public double Left { get; } = left;
 
     /// <summary>Upper edge of the drawn box, in points, Y increasing upward.</summary>
-    public double Top { get; }
+    public double Top { get; } = top;
 
     /// <summary>Drawn width in points.</summary>
-    public double Width { get; }
+    public double Width { get; } = width;
 
     /// <summary>Drawn height in points.</summary>
-    public double Height { get; }
+    public double Height { get; } = height;
 }

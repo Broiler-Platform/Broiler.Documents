@@ -1,4 +1,3 @@
-using System;
 using System.Diagnostics;
 using System.Text;
 
@@ -242,7 +241,7 @@ public sealed class XmpReaderTests
         var bytes = new List<byte>(Encoding.Unicode.GetPreamble());
         bytes.AddRange(Encoding.Unicode.GetBytes(xml));
 
-        XmpReadResult result = XmpReader.Read(bytes.ToArray(), Ceiling);
+        XmpReadResult result = XmpReader.Read([.. bytes], Ceiling);
 
         Assert.Equal("Wide", result.Metadata.Title);
     }

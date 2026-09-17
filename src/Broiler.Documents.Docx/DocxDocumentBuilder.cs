@@ -6,13 +6,20 @@ using Broiler.Documents.Model;
 
 namespace Broiler.Documents.Docx;
 
-internal sealed class DocxDocumentBuilder : IDocxImageDiagnostics
+/// <summary>
+/// A document is read by more than one builder - the body and each header
+/// or footer part - so the set of already-reported codes is passed in.
+/// Without it "once" would mean once per part, and a shape in the body and
+/// a shape in the header would report the same gap twice.
+/// </summary>
+internal sealed class DocxDocumentBuilder(
+    DocumentLimits limits,
+    List<DocumentDiagnostic> diagnostics,
+    HashSet<string>? reported = null) : IDocxImageDiagnostics
 {
-    private readonly DocumentLimits _limits;
-    private readonly List<DocumentDiagnostic> _diagnostics;
     private readonly List<RichTextParagraph> _paragraphs = [];
     private readonly List<Segment> _segments = [];
-    private readonly HashSet<string> _diagnosticOnce;
+    private readonly HashSet<string> _diagnosticOnce = reported ?? new HashSet<string>(StringComparer.Ordinal);
     private readonly List<DocumentShape> _shapes = [];
     private readonly List<DocumentTable> _tables = [];
     private readonly Stack<List<DocumentTable>> _tableSinks = new();
@@ -23,26 +30,10 @@ internal sealed class DocxDocumentBuilder : IDocxImageDiagnostics
     private int _tableCount;
     private int _unsupportedBlockCount;
 
-    /// <summary>
-    /// A document is read by more than one builder - the body and each header
-    /// or footer part - so the set of already-reported codes is passed in.
-    /// Without it "once" would mean once per part, and a shape in the body and
-    /// a shape in the header would report the same gap twice.
-    /// </summary>
-    public DocxDocumentBuilder(
-        DocumentLimits limits,
-        List<DocumentDiagnostic> diagnostics,
-        HashSet<string>? reported = null)
-    {
-        _limits = limits;
-        _diagnostics = diagnostics;
-        _diagnosticOnce = reported ?? new HashSet<string>(StringComparer.Ordinal);
-    }
-
-    public DocumentLimits Limits => _limits;
+    public DocumentLimits Limits => limits;
 
     /// <summary>Shared with the builders a nested part or shape is read with.</summary>
-    public List<DocumentDiagnostic> Diagnostics => _diagnostics;
+    public List<DocumentDiagnostic> Diagnostics => diagnostics;
 
     /// <summary>The codes already reported, so once means once per document.</summary>
     public HashSet<string> Reported => _diagnosticOnce;
@@ -95,12 +86,12 @@ internal sealed class DocxDocumentBuilder : IDocxImageDiagnostics
     {
         if (_paragraphs.Count == 0 && bodyHadContentBlocks)
         {
-            _diagnostics.Add(DocumentDiagnostic.Warning(
+            diagnostics.Add(DocumentDiagnostic.Warning(
                 "docx.document.empty",
                 "DOCX body contained block-level content but produced no paragraphs."));
         }
 
-        _diagnostics.Add(DocumentDiagnostic.Info(
+        diagnostics.Add(DocumentDiagnostic.Info(
             "docx.read.summary",
             "DOCX read produced " + _paragraphs.Count.ToString(CultureInfo.InvariantCulture) +
             " paragraph(s), read " + _tableCount.ToString(CultureInfo.InvariantCulture) +
@@ -192,9 +183,9 @@ internal sealed class DocxDocumentBuilder : IDocxImageDiagnostics
         if (_pageBreakSeen)
             DemotePageBreakToLineBreak();
 
-        if (text.Length > _limits.MaxRunLength)
+        if (text.Length > limits.MaxRunLength)
         {
-            text = text[.._limits.MaxRunLength];
+            text = text[..limits.MaxRunLength];
             AddDiagnosticOnce("docx.limit.run", "A DOCX text run exceeded MaxRunLength and was truncated.");
         }
 
@@ -235,7 +226,7 @@ internal sealed class DocxDocumentBuilder : IDocxImageDiagnostics
             _pageBreakStartsNextParagraph = true;
         }
 
-        if (_paragraphs.Count >= _limits.MaxParagraphCount)
+        if (_paragraphs.Count >= limits.MaxParagraphCount)
         {
             AddDiagnosticOnce("docx.limit.paragraphs", "DOCX input exceeded MaxParagraphCount; remaining paragraphs were dropped.");
             _segments.Clear();
@@ -291,7 +282,7 @@ internal sealed class DocxDocumentBuilder : IDocxImageDiagnostics
     public void AddDiagnosticOnce(string key, string code, string message)
     {
         if (_diagnosticOnce.Add(key))
-            _diagnostics.Add(DocumentDiagnostic.Warning(code, message));
+            diagnostics.Add(DocumentDiagnostic.Warning(code, message));
     }
 
     private readonly record struct Segment(string Text, InlineStyle Style);

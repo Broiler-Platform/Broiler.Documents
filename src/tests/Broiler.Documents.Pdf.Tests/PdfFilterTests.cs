@@ -272,11 +272,9 @@ public sealed class PdfFilterCompositionTests
                 .Count());
     }
 
-    private sealed class StubFilter : IPdfStreamFilter
+    private sealed class StubFilter(string name) : IPdfStreamFilter
     {
-        public StubFilter(string name) => Name = name;
-
-        public string Name { get; }
+        public string Name { get; } = name;
 
         public string? Abbreviation => null;
 

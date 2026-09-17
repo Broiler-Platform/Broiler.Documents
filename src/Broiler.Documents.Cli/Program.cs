@@ -38,7 +38,7 @@ public static class Program
     public static int Main(string[] arguments)
     {
         Console.OutputEncoding = Encoding.UTF8;
-        return Run(arguments ?? Array.Empty<string>(), Console.Out, Console.Error);
+        return Run(arguments ?? [], Console.Out, Console.Error);
     }
 
     /// <summary>
@@ -90,7 +90,7 @@ public static class Program
 
         try
         {
-            CommandLine line = CommandLine.Parse(entry.Spec, arguments.Skip(1).ToArray());
+            CommandLine line = CommandLine.Parse(entry.Spec, [.. arguments.Skip(1)]);
 
             if (line.Help)
             {
@@ -144,8 +144,8 @@ public static class Program
         }
     }
 
-    private static CommandRegistry BuildRegistry() => new(new[]
-    {
+    private static CommandRegistry BuildRegistry() => new(
+    [
         InspectCommands.Formats(),
         InspectCommands.Probe(),
         InspectCommands.Info(),
@@ -157,14 +157,9 @@ public static class Program
         CompareCommand.Create(),
         RoundtripCommand.Create(),
         InspectCommands.Version(),
-    });
+    ]);
 
-    private static int Finish(
-        CommandContext? context,
-        string commandName,
-        int exitCode,
-        TextWriter output,
-        string message)
+    private static int Finish(CommandContext? context, string commandName, int exitCode, TextWriter output, string message)
     {
         if (context is null)
             return exitCode;
@@ -174,11 +169,7 @@ public static class Program
         return exitCode;
     }
 
-    private static void WriteJsonIfAsked(
-        CommandContext context,
-        string commandName,
-        int exitCode,
-        TextWriter output)
+    private static void WriteJsonIfAsked(CommandContext context, string commandName, int exitCode, TextWriter output)
     {
         if (!context.Json)
             return;

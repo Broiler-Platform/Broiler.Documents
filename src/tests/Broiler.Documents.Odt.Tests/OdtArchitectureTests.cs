@@ -37,11 +37,10 @@ public sealed class OdtArchitectureTests
     [Fact]
     public void Odt_Codec_Has_No_Module_Initializer()
     {
-        MethodInfo[] initializers = typeof(OdtDocumentCodec).Assembly
+        MethodInfo[] initializers = [.. typeof(OdtDocumentCodec).Assembly
             .GetTypes()
             .SelectMany(type => type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
-            .Where(method => method.GetCustomAttribute<ModuleInitializerAttribute>() is not null)
-            .ToArray();
+            .Where(method => method.GetCustomAttribute<ModuleInitializerAttribute>() is not null)];
 
         Assert.Empty(initializers);
     }

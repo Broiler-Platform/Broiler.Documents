@@ -131,14 +131,12 @@ internal sealed class JpxTagTree
 /// every subsequent header rather than failing, which is why it lives in one
 /// place rather than being open-coded per field.
 /// </remarks>
-internal sealed class JpxBitReader
+internal sealed class JpxBitReader(ReadOnlyMemory<byte> data)
 {
-    private readonly ReadOnlyMemory<byte> _data;
+    private readonly ReadOnlyMemory<byte> _data = data;
     private int _position;
     private int _bits;
     private int _current;
-
-    public JpxBitReader(ReadOnlyMemory<byte> data) => _data = data;
 
     public int Position => _position;
 

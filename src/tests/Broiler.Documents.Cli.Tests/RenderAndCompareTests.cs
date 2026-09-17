@@ -19,8 +19,7 @@ public sealed class RenderAndCompareTests : IDisposable
         string source = _cli.MakeDocument("hello.docx", "Hello world");
         string image = _cli.Path("hello.png");
 
-        JsonObject json = _cli
-            .RunExpecting(ExitCode.Ok, "render", source, "--out", image, "--continuous", "--json")
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Ok, "render", source, "--out", image, "--continuous", "--json")
             .Json();
 
         Assert.True(File.Exists(image));
@@ -39,8 +38,8 @@ public sealed class RenderAndCompareTests : IDisposable
         // could differ, no comparison between two documents would mean anything.
         string source = _cli.MakeDocument("hello.docx", "Hello world", "inline:0:0-5:bold=on");
 
-        _cli.RunExpecting(ExitCode.Ok, "render", source, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
-        _cli.RunExpecting(ExitCode.Ok, "render", source, "--out", _cli.Path("b.png"), "--continuous", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "render", source, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "render", source, "--out", _cli.Path("b.png"), "--continuous", "--quiet");
 
         Assert.Equal(File.ReadAllBytes(_cli.Path("a.png")), File.ReadAllBytes(_cli.Path("b.png")));
     }
@@ -50,10 +49,9 @@ public sealed class RenderAndCompareTests : IDisposable
     {
         string body = string.Join("\n", Enumerable.Range(1, 200).Select(i => $"Paragraph {i} of the long document."));
         string source = _cli.Path("long.docx");
-        _cli.RunExpecting(ExitCode.Ok, "new", "--out", source, "--text", body, "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "new", "--out", source, "--text", body, "--quiet");
 
-        JsonObject json = _cli
-            .RunExpecting(ExitCode.Ok, "render", source, "--out", _cli.Path("page-{page}.png"), "--json")
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Ok, "render", source, "--out", _cli.Path("page-{page}.png"), "--json")
             .Json();
 
         int pages = json["render"]!["renderedPageCount"]!.GetValue<int>();
@@ -67,10 +65,9 @@ public sealed class RenderAndCompareTests : IDisposable
     {
         string body = string.Join("\n", Enumerable.Range(1, 200).Select(i => $"Paragraph {i}."));
         string source = _cli.Path("long.docx");
-        _cli.RunExpecting(ExitCode.Ok, "new", "--out", source, "--text", body, "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "new", "--out", source, "--text", body, "--quiet");
 
-        JsonObject json = _cli
-            .RunExpecting(
+        JsonObject json = CliHarness.RunExpecting(
                 ExitCode.Ok, "render", source, "--out", _cli.Path("all.png"), "--continuous", "--json")
             .Json();
 
@@ -83,10 +80,9 @@ public sealed class RenderAndCompareTests : IDisposable
     {
         string body = string.Join("\n", Enumerable.Range(1, 200).Select(i => $"Paragraph {i}."));
         string source = _cli.Path("long.docx");
-        _cli.RunExpecting(ExitCode.Ok, "new", "--out", source, "--text", body, "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "new", "--out", source, "--text", body, "--quiet");
 
-        JsonObject json = _cli
-            .RunExpecting(
+        JsonObject json = CliHarness.RunExpecting(
                 ExitCode.Ok, "render", source, "--out", _cli.Path("p{page}.png"), "--pages", "2", "--json")
             .Json();
 
@@ -99,11 +95,10 @@ public sealed class RenderAndCompareTests : IDisposable
     public void Compare_Reports_Two_Identical_Images_As_The_Same()
     {
         string source = _cli.MakeDocument("hello.docx", "Hello world");
-        _cli.RunExpecting(ExitCode.Ok, "render", source, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "render", source, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
         File.Copy(_cli.Path("a.png"), _cli.Path("b.png"));
 
-        JsonObject json = _cli
-            .RunExpecting(ExitCode.Ok, "compare", _cli.Path("a.png"), _cli.Path("b.png"), "--json")
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Ok, "compare", _cli.Path("a.png"), _cli.Path("b.png"), "--json")
             .Json();
 
         Assert.True(json["equal"]!.GetValue<bool>());
@@ -116,11 +111,10 @@ public sealed class RenderAndCompareTests : IDisposable
         string a = _cli.MakeDocument("a.docx", "Hello world");
         string b = _cli.MakeDocument("b.docx", "Hello worlds");
 
-        _cli.RunExpecting(ExitCode.Ok, "render", a, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
-        _cli.RunExpecting(ExitCode.Ok, "render", b, "--out", _cli.Path("b.png"), "--continuous", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "render", a, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "render", b, "--out", _cli.Path("b.png"), "--continuous", "--quiet");
 
-        JsonObject json = _cli
-            .RunExpecting(
+        JsonObject json = CliHarness.RunExpecting(
                 ExitCode.Different,
                 "compare", _cli.Path("a.png"), _cli.Path("b.png"), "--diff", _cli.Path("diff.png"), "--json")
             .Json();
@@ -135,12 +129,12 @@ public sealed class RenderAndCompareTests : IDisposable
     public void A_Tolerance_Wide_Enough_Absorbs_A_Small_Difference()
     {
         string a = _cli.MakeDocument("a.docx", "Hello world");
-        _cli.RunExpecting(ExitCode.Ok, "render", a, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "render", a, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
         File.Copy(_cli.Path("a.png"), _cli.Path("b.png"));
 
         // Identical images pass at every tolerance; the point of the assertion is
         // that the option is honoured rather than ignored.
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(
             ExitCode.Ok, "compare", _cli.Path("a.png"), _cli.Path("b.png"), "--tolerance", "8", "--quiet");
     }
 
@@ -150,8 +144,7 @@ public sealed class RenderAndCompareTests : IDisposable
         string a = _cli.MakeDocument("a.docx", "one\ntwo\nthree");
         string b = _cli.MakeDocument("b.docx", "one\nTWO CHANGED\nthree");
 
-        JsonObject json = _cli
-            .RunExpecting(ExitCode.Different, "compare", a, b, "--json")
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Different, "compare", a, b, "--json")
             .Json();
 
         Assert.False(json["document"]!["plainTextEqual"]!.GetValue<bool>());
@@ -167,8 +160,7 @@ public sealed class RenderAndCompareTests : IDisposable
         string a = _cli.MakeDocument("a.docx", "one\ntwo\nthree\nfour");
         string b = _cli.MakeDocument("b.docx", "one\ninserted\ntwo\nthree\nfour");
 
-        JsonObject json = _cli
-            .RunExpecting(ExitCode.Different, "compare", a, b, "--json")
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Different, "compare", a, b, "--json")
             .Json();
 
         var differences = json["document"]!["differences"]!.AsArray();
@@ -182,7 +174,7 @@ public sealed class RenderAndCompareTests : IDisposable
         string a = _cli.MakeDocument("a.docx", "hello world");
         string b = _cli.MakeDocument("b.docx", "hello world", "inline:0:0-5:bold=on");
 
-        JsonObject json = _cli.RunExpecting(ExitCode.Different, "compare", a, b, "--json").Json();
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Different, "compare", a, b, "--json").Json();
 
         Assert.True(json["document"]!["plainTextEqual"]!.GetValue<bool>());
         Assert.False(json["document"]!["formatCodesEqual"]!.GetValue<bool>());
@@ -198,7 +190,7 @@ public sealed class RenderAndCompareTests : IDisposable
         string a = _cli.MakeDocument("a.docx", "hello world");
         string b = _cli.MakeDocument("b.docx", "hello world", "inline:0:0-5:bold=on");
 
-        _cli.RunExpecting(ExitCode.Ok, "compare", a, b, "--ignore-inline-style", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "compare", a, b, "--ignore-inline-style", "--quiet");
     }
 
     [Fact]
@@ -207,8 +199,7 @@ public sealed class RenderAndCompareTests : IDisposable
         string a = _cli.MakeDocument("a.docx", "hello world");
         string b = _cli.MakeDocument("b.docx", "hello world", "inline:0:0-5:bold=on");
 
-        JsonObject json = _cli
-            .RunExpecting(ExitCode.Different, "compare", a, b, "--render", "--continuous", "--json")
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Different, "compare", a, b, "--render", "--continuous", "--json")
             .Json();
 
         Assert.NotNull(json["render"]);
@@ -225,7 +216,7 @@ public sealed class RenderAndCompareTests : IDisposable
             "para:0:align=center",
             "inline:1:0-4:italic=on");
 
-        JsonObject json = _cli.RunExpecting(ExitCode.Ok, "roundtrip", source, "--via", "docx", "--json").Json();
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Ok, "roundtrip", source, "--via", "docx", "--json").Json();
 
         Assert.True(json["equal"]!.GetValue<bool>());
         Assert.Empty(json["results"]![0]!["comparison"]!["differences"]!.AsArray());
@@ -239,8 +230,7 @@ public sealed class RenderAndCompareTests : IDisposable
         // instead of leaving it to be guessed from a picture.
         string source = _cli.MakeDocument("source.docx", "Centred", "para:0:align=center");
 
-        JsonObject json = _cli
-            .RunExpecting(ExitCode.Different, "roundtrip", source, "--via", "markdown", "--json")
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Different, "roundtrip", source, "--via", "markdown", "--json")
             .Json();
 
         Assert.False(json["equal"]!.GetValue<bool>());
@@ -253,8 +243,7 @@ public sealed class RenderAndCompareTests : IDisposable
     {
         string source = _cli.MakeDocument("source.docx", "Plain text only");
 
-        JsonObject json = _cli
-            .Run("roundtrip", source, "--via", "docx", "--via", "rtf", "--via", "html", "--json")
+        JsonObject json = CliHarness.Run("roundtrip", source, "--via", "docx", "--via", "rtf", "--via", "html", "--json")
             .Json();
 
         Assert.Equal(3, json["results"]!.AsArray().Count);
@@ -265,7 +254,7 @@ public sealed class RenderAndCompareTests : IDisposable
     {
         string source = _cli.MakeDocument("source.docx", "text");
 
-        _cli.RunExpecting(ExitCode.Usage, "roundtrip", source, "--via", "pdf");
+        CliHarness.RunExpecting(ExitCode.Usage, "roundtrip", source, "--via", "pdf");
     }
 
     [Theory]
@@ -295,7 +284,7 @@ public sealed class RenderAndCompareTests : IDisposable
     {
         string source = _cli.MakeDocument("hello.docx", "Hello");
 
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(
             ExitCode.Usage,
             "render", source, "--out", _cli.Path("out.png"), "--page-size", "a4", "--margin", "6in");
     }
@@ -304,10 +293,10 @@ public sealed class RenderAndCompareTests : IDisposable
     public void A_Bad_Diff_Style_Is_A_Usage_Error()
     {
         string source = _cli.MakeDocument("hello.docx", "Hello");
-        _cli.RunExpecting(ExitCode.Ok, "render", source, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "render", source, "--out", _cli.Path("a.png"), "--continuous", "--quiet");
         File.Copy(_cli.Path("a.png"), _cli.Path("b.png"));
 
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(
             ExitCode.Usage,
             "compare", _cli.Path("a.png"), _cli.Path("b.png"),
             "--diff", _cli.Path("d.png"), "--diff-style", "rainbow");
@@ -322,8 +311,8 @@ public sealed class RenderAndCompareTests : IDisposable
         string a = _cli.MakeDocument("a.docx", "hello world");
         string b = _cli.MakeDocument("b.docx", "hello world");
 
-        _cli.RunExpecting(ExitCode.Ok, "compare", a, b, "--quiet");
-        _cli.RunExpecting(ExitCode.Diagnostics, "compare", a, b, "--fail-on", "info", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Ok, "compare", a, b, "--quiet");
+        CliHarness.RunExpecting(ExitCode.Diagnostics, "compare", a, b, "--fail-on", "info", "--quiet");
     }
 
     [Fact]
@@ -331,8 +320,8 @@ public sealed class RenderAndCompareTests : IDisposable
     {
         string source = _cli.MakeDocument("source.docx", "plain text");
 
-        _cli.RunExpecting(ExitCode.Ok, "roundtrip", source, "--via", "docx", "--quiet");
-        _cli.RunExpecting(
+        CliHarness.RunExpecting(ExitCode.Ok, "roundtrip", source, "--via", "docx", "--quiet");
+        CliHarness.RunExpecting(
             ExitCode.Diagnostics, "roundtrip", source, "--via", "docx", "--fail-on", "info", "--quiet");
     }
 
@@ -344,6 +333,6 @@ public sealed class RenderAndCompareTests : IDisposable
         string a = _cli.MakeDocument("a.docx", "one");
         string b = _cli.MakeDocument("b.docx", "two");
 
-        _cli.RunExpecting(ExitCode.Different, "compare", a, b, "--fail-on", "info", "--quiet");
+        CliHarness.RunExpecting(ExitCode.Different, "compare", a, b, "--fail-on", "info", "--quiet");
     }
 }

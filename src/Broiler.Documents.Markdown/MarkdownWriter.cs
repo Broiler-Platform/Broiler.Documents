@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using Broiler.Documents.Model;
+using Broiler.Documents.Resources;
 
 namespace Broiler.Documents.Markdown;
 

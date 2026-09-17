@@ -27,9 +27,9 @@ public sealed class ModelPromotionTests
     public void InsertText_Then_ApplyBold_Produces_A_Styled_Run()
     {
         RichTextDocument document = RichTextDocument.Empty;
-        RichTextEditResult inserted = document.InsertText(document.Start, "Hello");
+        RichTextEditResult inserted = document.InsertText(RichTextDocument.Start, "Hello");
 
-        RichTextRange all = new(inserted.Document.Start, inserted.Document.End);
+        RichTextRange all = new(RichTextDocument.Start, inserted.Document.End);
         RichTextDocument bold = inserted.Document.ApplyInlineStyle(all, new InlineStyleDelta { Bold = true });
 
         Assert.Equal("Hello", bold.PlainText);

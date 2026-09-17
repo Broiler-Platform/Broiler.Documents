@@ -1,5 +1,4 @@
 using Broiler.Documents.Cli.Commands;
-using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Cli.Rendering;
 
 namespace Broiler.Documents.Cli.Tests;
@@ -32,7 +31,7 @@ public sealed class DocumentLayoutPageBreakTests
 
     /// <summary>A continuous setup, built the way the command line builds one.</summary>
     private static PageSetup Continuous() => PageSetup.FromCommandLine(
-        CommandLine.Parse(RenderCommand.Create().Spec, new[] { "in.docx", "--continuous" }));
+        CommandLine.Parse(RenderCommand.Create().Spec, ["in.docx", "--continuous"]));
 
     private static LayoutResult Layout(RichTextDocument document, PageSetup? setup = null)
     {

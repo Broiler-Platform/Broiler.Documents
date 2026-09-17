@@ -1,6 +1,3 @@
-using System;
-using System.Globalization;
-using System.Linq;
 using System.Text;
 using System.Text.Json.Nodes;
 using Broiler.Documents.Cli.Composition;
@@ -18,20 +15,17 @@ public static class RenderCommand
             "render",
             "Render a document to PNG (or JPEG or BMP) pages.",
             "render <input> --out <path> [--dpi <n>] [--continuous] [--page-size <size>]",
-            new[]
-            {
+            [
                 OptionSpec.Value("out", "path", "Output image path. {page} in the path is replaced with the page number."),
                 OptionSpec.Value("manifest", "path", "Write a JSON description of the render, for a harness to keep."),
-            }
-            .Concat(RenderPipeline.Specs)
-            .Concat(DocumentOptions.Specs)
-            .ToArray(),
-            new[]
-            {
+                .. RenderPipeline.Specs,
+                .. DocumentOptions.Specs,
+            ],
+            [
                 "render report.docx --out report.png",
                 "render report.docx --out pages/{page}.png --dpi 150",
                 "render report.docx --out report.png --continuous --font-dir ./fonts",
-            },
+            ],
             "A document may state the page it was written for, and DOCX, ODT and RTF all do.\n" +
             "A render given no page of its own takes it; --page-size, --margin or --landscape\n" +
             "override it, and --dpi never does. So both sides of a comparison need the same\n" +
@@ -69,13 +63,7 @@ public static class RenderCommand
         foreach (string path in outcome.WrittenPaths)
             context.Report("wrote " + path);
 
-        context.Report(string.Format(
-            CultureInfo.InvariantCulture,
-            "{0} page(s) at {1} DPI, {2}x{3} pixels each",
-            outcome.Pages.Count,
-            pipeline.Setup.Dpi,
-            outcome.Pages[0].Width,
-            outcome.Pages[0].Height));
+        context.Report($"{outcome.Pages.Count} page(s) at {pipeline.Setup.Dpi} DPI, {outcome.Pages[0].Width}x{outcome.Pages[0].Height} pixels each");
 
         foreach (string note in outcome.Notes)
             context.Warn(note);

@@ -1,8 +1,7 @@
 using System;
-using Broiler.Graphics;
 using Broiler.Graphics.Text;
 
-namespace Broiler.Documents;
+namespace Broiler.Documents.Resources;
 
 /// <summary>
 /// A font program a conversion has met, and what the file itself says about
@@ -28,10 +27,7 @@ namespace Broiler.Documents;
 /// </remarks>
 public sealed class DocumentFontResource
 {
-    public DocumentFontResource(
-        ReadOnlyMemory<byte> program,
-        string family,
-        BFontEmbeddingRights declaredRights)
+    public DocumentFontResource(ReadOnlyMemory<byte> program, string family, BFontEmbeddingRights declaredRights)
     {
         if (string.IsNullOrWhiteSpace(family))
             throw new ArgumentException("A font resource names its family.", nameof(family));

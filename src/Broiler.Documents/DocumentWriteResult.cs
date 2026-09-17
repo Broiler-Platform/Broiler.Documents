@@ -19,14 +19,11 @@ public class DocumentWriteResult
     private static readonly ReadOnlyCollection<DocumentDiagnostic> EmptyDiagnostics =
         Array.AsReadOnly(Array.Empty<DocumentDiagnostic>());
 
-    public DocumentWriteResult(
-        long bytesWritten,
-        IEnumerable<DocumentDiagnostic>? diagnostics = null,
+    public DocumentWriteResult(long bytesWritten, IEnumerable<DocumentDiagnostic>? diagnostics = null,
         DocumentResultStatus status = DocumentResultStatus.Success,
         DocumentDestinationState destinationState = DocumentDestinationState.Committed)
     {
-        if (bytesWritten < 0)
-            throw new ArgumentOutOfRangeException(nameof(bytesWritten));
+        ArgumentOutOfRangeException.ThrowIfNegative(bytesWritten);
 
         BytesWritten = bytesWritten;
         Diagnostics = diagnostics is null
@@ -70,11 +67,7 @@ public class DocumentWriteResult
 
     /// <summary>A rejection that never touched the destination.</summary>
     public static DocumentWriteResult Rejected(string code, string message) =>
-        new(
-            0,
-            [DocumentDiagnostic.Error(code, message)],
-            DocumentResultStatus.Rejected,
-            DocumentDestinationState.NotStarted);
+        new(0, [DocumentDiagnostic.Error(code, message)], DocumentResultStatus.Rejected, DocumentDestinationState.NotStarted);
 
     /// <summary>The write-side counterpart of <see cref="DocumentReadResult.InvalidOptions"/>.</summary>
     public static DocumentWriteResult InvalidOptions(string codecName, Type expected, Type actual) =>

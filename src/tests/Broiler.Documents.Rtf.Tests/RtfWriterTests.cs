@@ -1,5 +1,5 @@
 using System.Text;
-using Broiler.Graphics;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Rtf.Tests;
@@ -11,10 +11,10 @@ public sealed class RtfWriterTests
     {
         var image = new InlineImage(new byte[] { 0xDE, 0xAD }, "image/png", 40, 20);
         (image, DocumentWriteOptions writeOptions) = Writable(image);
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             RichTextParagraph.Create(InlineImage.PlaceholderText, InlineStyle.Default with { Image = image }),
-        });
+        ]);
 
         string rtf = Write(document, writeOptions);
 
@@ -29,10 +29,10 @@ public sealed class RtfWriterTests
     {
         var image = new InlineImage(new byte[] { 1, 2 }, "image/webp", 40, 20);
         (image, DocumentWriteOptions writeOptions) = Writable(image);
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             RichTextParagraph.Create(InlineImage.PlaceholderText, InlineStyle.Default with { Image = image }),
-        });
+        ]);
 
         using var stream = new MemoryStream();
         DocumentWriteResult result = RtfWriter.Write(document, stream, writeOptions);
@@ -45,10 +45,10 @@ public sealed class RtfWriterTests
         Encoding.ASCII.GetString(RtfWriter.WriteToArray(document, options));
 
     private static RichTextDocument OneRun(string text, InlineStyle style) =>
-        RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument.FromParagraphs(
+        [
             RichTextParagraph.Create(string.Empty, InlineStyle.Default).InsertText(0, text, style),
-        });
+        ]);
 
     [Fact]
     public void Output_Is_A_Wrapped_Rtf_Group()

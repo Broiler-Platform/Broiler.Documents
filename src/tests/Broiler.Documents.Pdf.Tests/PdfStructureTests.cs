@@ -332,9 +332,10 @@ public sealed class PdfStructureTests
         var output = new MemoryStream();
         Write(output, "%PDF-1.5\n");
 
-        var positions = new Dictionary<int, long>();
-
-        positions[4] = output.Length;
+        var positions = new Dictionary<int, long>
+        {
+            [4] = output.Length
+        };
         string content = PdfFileBuilder.ShowText("Streamed");
         Write(output, $"4 0 obj\n<< /Length {content.Length} >>\nstream\n{content}\nendstream\nendobj\n");
 
@@ -370,7 +371,7 @@ public sealed class PdfStructureTests
         Row(1, xrefPosition, 0);          // object 6, this stream
         Row(1, positions[7], 0);
 
-        byte[] xrefData = Deflate(rows.ToArray());
+        byte[] xrefData = Deflate([.. rows]);
         Write(output, $"6 0 obj\n<< /Type /XRef /Size 8 /W [1 4 2] /Root 1 0 R /Filter /FlateDecode /Length {xrefData.Length} >>\nstream\n");
         output.Write(xrefData, 0, xrefData.Length);
         Write(output, $"\nendstream\nendobj\nstartxref\n{xrefPosition}\n%%EOF\n");

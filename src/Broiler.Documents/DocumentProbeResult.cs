@@ -8,15 +8,12 @@ namespace Broiler.Documents;
 /// </summary>
 public sealed class DocumentProbeResult
 {
-    private DocumentProbeResult(
-        DocumentProbeConfidence confidence,
-        string? formatName,
-        string? mimeType,
-        long? bytesConsumed,
-        string? diagnostic)
+    private DocumentProbeResult(DocumentProbeConfidence confidence, string? formatName, string? mimeType,
+        long? bytesConsumed, string? diagnostic)
     {
         if (confidence is < DocumentProbeConfidence.None or > DocumentProbeConfidence.Certain)
             throw new ArgumentOutOfRangeException(nameof(confidence));
+
         if (bytesConsumed < 0)
             throw new ArgumentOutOfRangeException(nameof(bytesConsumed));
 
@@ -42,12 +39,8 @@ public sealed class DocumentProbeResult
     public static DocumentProbeResult NoMatch(string? diagnostic = null) =>
         new(DocumentProbeConfidence.None, null, null, null, diagnostic);
 
-    public static DocumentProbeResult Match(
-        DocumentProbeConfidence confidence,
-        string formatName,
-        string? mimeType = null,
-        long? bytesConsumed = null,
-        string? diagnostic = null)
+    public static DocumentProbeResult Match(DocumentProbeConfidence confidence, string formatName, 
+        string? mimeType = null, long? bytesConsumed = null, string? diagnostic = null)
     {
         if (confidence == DocumentProbeConfidence.None)
             throw new ArgumentException("Matched probe results need positive confidence.", nameof(confidence));

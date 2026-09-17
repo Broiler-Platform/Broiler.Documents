@@ -7,26 +7,18 @@ using Broiler.Documents.Pdf.Syntax;
 namespace Broiler.Documents.Pdf.Text;
 
 /// <summary>One decoded glyph: the text it stands for and how far it advances.</summary>
-internal readonly struct PdfGlyph
+internal readonly struct PdfGlyph(uint code, string text, double width, bool mapped)
 {
-    public PdfGlyph(uint code, string text, double width, bool mapped)
-    {
-        Code = code;
-        Text = text;
-        Width = width;
-        IsMapped = mapped;
-    }
-
-    public uint Code { get; }
+    public uint Code { get; } = code;
 
     /// <summary>The Unicode text, empty when the code could not be mapped.</summary>
-    public string Text { get; }
+    public string Text { get; } = text;
 
     /// <summary>Advance width in text-space units (em fractions, so 0.5 is half an em).</summary>
-    public double Width { get; }
+    public double Width { get; } = width;
 
     /// <summary>False when no trustworthy mapping existed for this code.</summary>
-    public bool IsMapped { get; }
+    public bool IsMapped { get; } = mapped;
 
     /// <summary>True when the glyph is a single space; word grouping keys off this.</summary>
     public bool IsSpace => Text.Length == 1 && Text[0] is ' ' or ' ';

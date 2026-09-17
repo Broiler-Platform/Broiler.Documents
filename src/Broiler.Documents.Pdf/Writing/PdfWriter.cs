@@ -7,7 +7,6 @@ using System.Threading;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Documents.Pdf.Text;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Pdf.Writing;
@@ -459,7 +458,7 @@ internal sealed class PdfWriter
         return string.Join("; ", values);
     }
 
-    private void AppendInfoEntry(StringBuilder builder, string key, string? value)
+    private static void AppendInfoEntry(StringBuilder builder, string key, string? value)
     {
         if (value is null)
             return;
@@ -582,7 +581,7 @@ internal sealed class PdfWriter
     /// seams fall below what a reader resolves. The angle is snapped to the axis
     /// it runs closer to, because a band is a rectangle.
     /// </remarks>
-    private void AppendShape(MemoryStream content, PdfPlacedShape shape)
+    private static void AppendShape(MemoryStream content, PdfPlacedShape shape)
     {
         if (shape.Width <= 0 || shape.Height <= 0)
             return;
@@ -721,7 +720,7 @@ internal sealed class PdfWriter
         }
 
         builder.Add((byte)')');
-        return builder.ToArray();
+        return [.. builder];
     }
 
     /// <summary>
@@ -799,21 +798,14 @@ internal sealed class PdfWriter
         }
     }
 
-    private sealed class PageObjects
+    private sealed class PageObjects(int pageObject, int contentObject, List<PdfPlacedRun> links)
     {
-        public PageObjects(int pageObject, int contentObject, List<PdfPlacedRun> links)
-        {
-            PageObject = pageObject;
-            ContentObject = contentObject;
-            Links = links;
-        }
+        public int PageObject { get; } = pageObject;
 
-        public int PageObject { get; }
-
-        public int ContentObject { get; }
+        public int ContentObject { get; } = contentObject;
 
         public int FirstAnnotationObject { get; set; }
 
-        public List<PdfPlacedRun> Links { get; }
+        public List<PdfPlacedRun> Links { get; } = links;
     }
 }

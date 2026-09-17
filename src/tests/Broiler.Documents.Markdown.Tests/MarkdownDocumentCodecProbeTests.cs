@@ -42,12 +42,12 @@ public sealed class MarkdownDocumentCodecProbeTests
     [Fact]
     public void Catalog_Selects_Markdown_Without_Catalog_Changes()
     {
-        var catalog = new DocumentCodecCatalog(new DocumentCodec[]
-        {
+        var catalog = new DocumentCodecCatalog(
+        [
             new RtfDocumentCodec(),
             new HtmlDocumentCodec(),
             new MarkdownDocumentCodec(),
-        });
+        ]);
 
         DocumentCodecMatch? match = catalog.Select(Encoding.UTF8.GetBytes("- item"));
 

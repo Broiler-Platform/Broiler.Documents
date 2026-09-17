@@ -4,15 +4,9 @@ namespace Broiler.Documents.Model;
 /// The outcome of a document edit: the new immutable <see cref="Document"/> and
 /// the <see cref="Caret"/> position that results from the edit.
 /// </summary>
-public readonly struct RichTextEditResult
+public readonly struct RichTextEditResult(RichTextDocument document, RichTextPosition caret)
 {
-    public RichTextEditResult(RichTextDocument document, RichTextPosition caret)
-    {
-        Document = document;
-        Caret = caret;
-    }
+    public RichTextDocument Document { get; } = document;
 
-    public RichTextDocument Document { get; }
-
-    public RichTextPosition Caret { get; }
+    public RichTextPosition Caret { get; } = caret;
 }

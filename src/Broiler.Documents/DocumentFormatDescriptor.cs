@@ -12,10 +12,7 @@ namespace Broiler.Documents;
 /// </summary>
 public sealed class DocumentFormatDescriptor
 {
-    public DocumentFormatDescriptor(
-        string name,
-        IEnumerable<string>? mimeTypes = null,
-        IEnumerable<string>? fileExtensions = null)
+    public DocumentFormatDescriptor(string name, IEnumerable<string>? mimeTypes = null, IEnumerable<string>? fileExtensions = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("A document format name cannot be empty.", nameof(name));
@@ -61,23 +58,19 @@ public sealed class DocumentFormatDescriptor
 
     private static string NormalizeMimeType(string value) => value.Trim().ToLowerInvariant();
 
-    private static ReadOnlyCollection<string> NormalizeList(
-        IEnumerable<string>? values,
-        string parameterName,
-        Func<string, string> normalize)
+    private static ReadOnlyCollection<string> NormalizeList(IEnumerable<string>? values, string parameterName, Func<string, string> normalize)
     {
         if (values is null)
             return Array.AsReadOnly(Array.Empty<string>());
 
-        string[] normalized = values
+        string[] normalized = [.. values
             .Select(value =>
             {
                 if (string.IsNullOrWhiteSpace(value))
                     throw new ArgumentException("Format descriptors cannot contain empty values.", parameterName);
                 return normalize(value);
             })
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
 
         return Array.AsReadOnly(normalized);
     }

@@ -20,7 +20,7 @@ public sealed class RichTextParagraph
 
     /// <summary>An empty paragraph with default styling.</summary>
     public static RichTextParagraph Empty { get; } =
-        new(string.Empty, ParagraphStyle.Default, Array.Empty<StyleRun>());
+        new(string.Empty, ParagraphStyle.Default, []);
 
     public string Text { get; }
 
@@ -42,7 +42,7 @@ public sealed class RichTextParagraph
     {
         text ??= string.Empty;
         StyleRun[] runs = text.Length == 0
-            ? Array.Empty<StyleRun>()
+            ? []
             : [new StyleRun(text.Length, style)];
         return new RichTextParagraph(text, paragraphStyle, runs);
     }
@@ -228,6 +228,6 @@ public sealed class RichTextParagraph
                 result.Add(run);
         }
 
-        return result.ToArray();
+        return [.. result];
     }
 }

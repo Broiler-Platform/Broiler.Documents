@@ -48,8 +48,7 @@ public sealed class PdfUriPolicy
         bool allowMailto = false,
         int maxLength = DefaultMaxLength)
     {
-        if (maxLength <= 0)
-            throw new ArgumentOutOfRangeException(nameof(maxLength));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxLength);
 
         AllowHttp = allowHttp;
         AllowMailto = allowMailto;

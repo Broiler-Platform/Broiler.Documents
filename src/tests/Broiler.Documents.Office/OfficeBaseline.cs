@@ -668,7 +668,7 @@ internal sealed class OfficeBaseline
             : [];
 
     private static string[] Sorted(IEnumerable<string> values) =>
-        values.OrderBy(value => value, StringComparer.Ordinal).ToArray();
+        [.. values.OrderBy(value => value, StringComparer.Ordinal)];
 
     /// <summary>
     /// The diagnostic codes a row records: a set, sorted.

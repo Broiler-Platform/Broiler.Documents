@@ -20,8 +20,8 @@ public static class InspectCommands
             "formats",
             "List the document formats this tool composes.",
             "formats [--json]",
-            Array.Empty<OptionSpec>(),
-            new[] { "formats", "formats --json" },
+            [],
+            ["formats", "formats --json"],
             "The catalog is composed explicitly in code (ADR 0001/0003); nothing registers\n" +
             "itself. What this prints is therefore the complete and only set of formats\n" +
             "this build can read or write."),
@@ -33,7 +33,7 @@ public static class InspectCommands
             "Identify a file's format without fully reading it.",
             "probe <input> [--json]",
             DocumentOptions.Specs.Where(option => option.Name != "fail-on").ToArray(),
-            new[] { "probe report.docx", "probe unknown.bin --json" },
+            ["probe report.docx", "probe unknown.bin --json"],
             "Runs every composed codec's signature probe over the leading bytes and reports\n" +
             "each verdict, not just the winner. A file two codecs both claim is worth knowing\n" +
             "about."),
@@ -45,12 +45,11 @@ public static class InspectCommands
             "Read a document and report its structure and diagnostics.",
             "info <input> [--json] [--verbose]",
             DocumentOptions.Specs,
-            new[]
-            {
+            [
                 "info report.docx",
                 "info report.docx --verbose",
                 "info report.docx --fail-on warning",
-            },
+            ],
             "The diagnostics are the point. A codec that meets a construct it does not\n" +
             "implement returns a usable document and says what it dropped, so this is where a\n" +
             "gap is named before anything has to be inferred from a picture."),
@@ -61,8 +60,8 @@ public static class InspectCommands
             "version",
             "Report tool, component, and rendering environment versions.",
             "version [--json]",
-            Array.Empty<OptionSpec>(),
-            new[] { "version --json" },
+            [],
+            ["version --json"],
             "Worth capturing at the head of any automated run. The font the renderer falls\n" +
             "back to is part of this, and it is the single most common reason two machines\n" +
             "produce different pixels from the same document."),
@@ -73,26 +72,13 @@ public static class InspectCommands
         DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
         var formats = new JsonArray();
 
-        context.Report(string.Format(
-            CultureInfo.InvariantCulture,
-            "{0,-10} {1,-6} {2,-6} {3,-24} {4}",
-            "FORMAT",
-            "READ",
-            "WRITE",
-            "EXTENSIONS",
-            "MIME TYPES"));
+        context.Report($"{"FORMAT",-10} {"READ",-6} {"WRITE",-6} {"EXTENSIONS",-24} {"MIME TYPES"}");
 
         foreach (DocumentCodec codec in catalog.Codecs)
         {
             DocumentFormatDescriptor descriptor = codec.Descriptor;
-            context.Report(string.Format(
-                CultureInfo.InvariantCulture,
-                "{0,-10} {1,-6} {2,-6} {3,-24} {4}",
-                descriptor.Name,
-                codec.CanRead ? "yes" : "no",
-                codec.CanWrite ? "yes" : "no",
-                string.Join(" ", descriptor.FileExtensions),
-                string.Join(" ", descriptor.MimeTypes)));
+            context.Report(
+                $"{descriptor.Name,-10} {(codec.CanRead ? "yes" : "no"),-6} {(codec.CanWrite ? "yes" : "no"),-6} {string.Join(" ", descriptor.FileExtensions),-24} {string.Join(" ", descriptor.MimeTypes)}");
 
             var extensions = new JsonArray();
             foreach (string extension in descriptor.FileExtensions)
@@ -151,12 +137,7 @@ public static class InspectCommands
         {
             DocumentProbeResult result = codec.Probe(request);
 
-            context.Report(string.Format(
-                CultureInfo.InvariantCulture,
-                "  {0,-10} {1,-8} {2}",
-                codec.Descriptor.Name,
-                result.Confidence,
-                result.Diagnostic ?? string.Empty));
+            context.Report($"  {codec.Descriptor.Name,-10} {result.Confidence,-8} {result.Diagnostic ?? string.Empty}");
 
             results.Add(new JsonObject
             {
@@ -252,8 +233,8 @@ public static class InspectCommands
 
         string tool = Describe(typeof(InspectCommands).Assembly);
         string documents = Describe(typeof(DocumentCodec).Assembly);
-        string model = Describe(typeof(Broiler.Documents.Model.RichTextDocument).Assembly);
-        string graphics = Describe(typeof(Broiler.Graphics.Color.BColor).Assembly);
+        string model = Describe(typeof(RichTextDocument).Assembly);
+        string graphics = Describe(typeof(Graphics.Color.BColor).Assembly);
         string fallbackFont = FontResolution.DescribeHostFallback();
 
         context.Report(HelpText.ToolName + " " + tool);

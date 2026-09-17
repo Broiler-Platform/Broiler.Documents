@@ -1,5 +1,4 @@
 using System;
-using Broiler.Graphics;
 using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Pdf.Text;

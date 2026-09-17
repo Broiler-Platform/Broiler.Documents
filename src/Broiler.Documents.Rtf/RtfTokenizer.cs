@@ -44,7 +44,7 @@ public static class RtfTokenizer
         {
             if (textBytes.Count == 0)
                 return;
-            tokens.Add(RtfToken.TextRun(Encoding.Latin1.GetString(textBytes.ToArray())));
+            tokens.Add(RtfToken.TextRun(Encoding.Latin1.GetString([.. textBytes])));
             textBytes.Clear();
         }
 
@@ -125,7 +125,7 @@ public static class RtfTokenizer
             int start = i;
             while (i < length && IsAsciiLetter(span[i]))
                 i++;
-            string keyword = Encoding.Latin1.GetString(span.Slice(start, i - start));
+            string keyword = Encoding.Latin1.GetString(span[start..i]);
 
             bool hasParameter = false;
             int parameter = 0;

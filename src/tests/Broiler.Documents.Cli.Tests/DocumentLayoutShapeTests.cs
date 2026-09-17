@@ -1,5 +1,4 @@
 using Broiler.Documents.Cli.Rendering;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Cli.Tests;
@@ -163,7 +162,7 @@ public sealed class DocumentLayoutShapeTests
                 [new DocumentShape(
                     0, -40, 0, 30, 200, ShapeFill.Solid(BColor.Black), behindText: false, zOrder: 0)]));
 
-        List<LayoutShape> shapes = Layout(document).Pages[0].Shapes.ToList();
+        List<LayoutShape> shapes = [.. Layout(document).Pages[0].Shapes];
 
         Assert.Equal(2, shapes.Count);
         Assert.Equal(0, shapes[0].ZOrder);

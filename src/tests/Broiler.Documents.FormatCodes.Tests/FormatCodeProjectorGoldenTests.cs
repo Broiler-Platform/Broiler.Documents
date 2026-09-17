@@ -1,4 +1,3 @@
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.FormatCodes.Tests;
@@ -13,9 +12,9 @@ public sealed class FormatCodeProjectorGoldenTests
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("Hello World!", new InlineStyle { Bold = true })]);
 
-        FormatCodeProjection projection = _projector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
 
-        Assert.Equal(1, projection.GrammarVersion);
+        Assert.Equal(1, FormatCodeProjection.GrammarVersion);
         Assert.Equal("[Bold ON]Hello World![Bold OFF]", projection.Text);
     }
 
@@ -26,7 +25,7 @@ public sealed class FormatCodeProjectorGoldenTests
             .Create("a", new InlineStyle { Bold = true, FontFamily = "A" })
             .Append(RichTextParagraph.Create("b", new InlineStyle { Italic = true, FontFamily = "B" }));
 
-        FormatCodeProjection projection = _projector.Project(
+        FormatCodeProjection projection = FormatCodeProjector.Project(
             RichTextDocument.FromParagraphs([paragraph]));
 
         Assert.Equal(
@@ -53,7 +52,7 @@ public sealed class FormatCodeProjectorGoldenTests
             Capitalization = TextCapitalization.SmallCaps,
         };
 
-        FormatCodeProjection projection = _projector.Project(
+        FormatCodeProjection projection = FormatCodeProjector.Project(
             RichTextDocument.FromParagraphs([RichTextParagraph.Create("x", style)]));
 
         Assert.Equal(
@@ -73,7 +72,7 @@ public sealed class FormatCodeProjectorGoldenTests
             .Create("a", new InlineStyle { Capitalization = TextCapitalization.AllCaps })
             .Append(RichTextParagraph.Create("b", new InlineStyle { Capitalization = TextCapitalization.SmallCaps }));
 
-        FormatCodeProjection projection = _projector.Project(
+        FormatCodeProjection projection = FormatCodeProjector.Project(
             RichTextDocument.FromParagraphs([paragraph]));
 
         Assert.Equal(
@@ -94,7 +93,7 @@ public sealed class FormatCodeProjectorGoldenTests
             SpacingAfter = 9f,
         };
 
-        FormatCodeProjection projection = _projector.Project(
+        FormatCodeProjection projection = FormatCodeProjector.Project(
             RichTextDocument.FromParagraphs(
                 [RichTextParagraph.Create(string.Empty, InlineStyle.Default, style)]));
 
@@ -113,7 +112,7 @@ public sealed class FormatCodeProjectorGoldenTests
     {
         string content = "A" + "\\" + "[" + "]" + "\t" + "\u2028" + "\u0001" + "\u200E" + "\u2029" + "😀";
 
-        FormatCodeProjection projection = _projector.Project(RichTextDocument.FromPlainText(content));
+        FormatCodeProjection projection = FormatCodeProjector.Project(RichTextDocument.FromPlainText(content));
 
         Assert.Equal(
             "A" + "\\\\" + "\\[" + "\\]" + "[Tab]" + "[Line Break]" +
@@ -135,7 +134,7 @@ public sealed class FormatCodeProjectorGoldenTests
                 .InsertText(2, "b", InlineStyle.Default),
         ]);
 
-        FormatCodeProjection projection = _projector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
 
         Assert.Equal("a[Image]b", projection.Text);
         FormatCodeToken token = Assert.Single(
@@ -156,13 +155,13 @@ public sealed class FormatCodeProjectorGoldenTests
 
         Assert.Equal(
             "[Bold ON]a[Bold OFF][Paragraph Break]\n[Bold ON]b[Bold OFF]",
-            _projector.Project(document).Text);
+            FormatCodeProjector.Project(document).Text);
     }
 
     [Fact]
     public void Canonical_Tokens_Concatenate_Exactly_To_Text()
     {
-        FormatCodeProjection projection = _projector.Project(
+        FormatCodeProjection projection = FormatCodeProjector.Project(
             RichTextDocument.FromPlainText("one\ntwo\t[three]"));
 
         Assert.Equal(projection.Text, string.Concat(projection.Tokens.Select(token => token.DisplayText)));
@@ -172,7 +171,7 @@ public sealed class FormatCodeProjectorGoldenTests
     [Fact]
     public void Projects_Justification_As_Its_Own_Code_Without_A_Diagnostic()
     {
-        FormatCodeProjection projection = _projector.Project(
+        FormatCodeProjection projection = FormatCodeProjector.Project(
             RichTextDocument.FromParagraphs(
                 [RichTextParagraph.Create(
                     string.Empty,

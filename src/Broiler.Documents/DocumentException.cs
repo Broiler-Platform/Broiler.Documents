@@ -6,22 +6,10 @@ namespace Broiler.Documents;
 /// malformed-input case, which is reported via diagnostics instead).</summary>
 public class DocumentException : Exception
 {
-    public DocumentException(string message)
-        : base(message)
-    {
-    }
+    public DocumentException(string message) : base(message) { }
 
-    public DocumentException(string message, Exception innerException)
-        : base(message, innerException)
-    {
-    }
+    public DocumentException(string message, Exception innerException) : base(message, innerException) { }
 }
 
 /// <summary>Thrown when input exceeds a <see cref="DocumentLimits"/> bound.</summary>
-public sealed class DocumentLimitExceededException : DocumentException
-{
-    public DocumentLimitExceededException(string message)
-        : base(message)
-    {
-    }
-}
+public sealed class DocumentLimitExceededException(string message) : DocumentException(message) { }

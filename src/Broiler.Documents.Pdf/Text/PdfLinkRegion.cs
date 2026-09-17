@@ -6,18 +6,12 @@ using Broiler.Documents.Pdf.Syntax;
 namespace Broiler.Documents.Pdf.Text;
 
 /// <summary>A rectangle on a page whose text carries an admitted link target.</summary>
-internal sealed class PdfLinkRegion
+internal sealed class PdfLinkRegion(PdfRectangle bounds, string href)
 {
-    public PdfLinkRegion(PdfRectangle bounds, string href)
-    {
-        Bounds = bounds;
-        Href = href;
-    }
-
-    public PdfRectangle Bounds { get; }
+    public PdfRectangle Bounds { get; } = bounds;
 
     /// <summary>The canonical URI, already admitted by the active policy.</summary>
-    public string Href { get; }
+    public string Href { get; } = href;
 
     /// <summary>True when the point sits inside the region, with a small tolerance.</summary>
     public bool Contains(double x, double y) =>

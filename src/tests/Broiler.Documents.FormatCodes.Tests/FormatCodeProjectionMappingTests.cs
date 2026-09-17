@@ -9,13 +9,13 @@ public sealed class FormatCodeProjectionMappingTests
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("Hi", new InlineStyle { Bold = true })]);
-        FormatCodeProjection projection = _projector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
 
         FormatCodeCaret before = projection.MapDocumentPosition(
-            document.Start,
+            RichTextDocument.Start,
             FormatCodeBoundaryAffinity.Before);
         FormatCodeCaret after = projection.MapDocumentPosition(
-            document.Start,
+            RichTextDocument.Start,
             FormatCodeBoundaryAffinity.After);
 
         Assert.Equal(0, before.TokenIndex);
@@ -28,8 +28,8 @@ public sealed class FormatCodeProjectionMappingTests
     public void Literal_Text_Maps_Linearly_In_Both_Directions()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("abc");
-        FormatCodeProjection projection = _projector.Project(document);
-        RichTextPosition afterA = document.PositionRightOf(document.Start);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        RichTextPosition afterA = document.PositionRightOf(RichTextDocument.Start);
 
         FormatCodeCaret caret = projection.MapDocumentPosition(afterA);
         FormatCodeMappedPosition mapped = projection.MapProjectedOffset(1);
@@ -43,10 +43,10 @@ public sealed class FormatCodeProjectionMappingTests
     public void Expanded_Escape_Maps_First_Half_Before_And_Second_Half_After()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("[");
-        FormatCodeProjection projection = _projector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
 
-        Assert.Equal(document.Start, projection.MapProjectedOffset(0).DocumentPosition);
-        Assert.Equal(document.Start, projection.MapProjectedOffset(1).DocumentPosition);
+        Assert.Equal(RichTextDocument.Start, projection.MapProjectedOffset(0).DocumentPosition);
+        Assert.Equal(RichTextDocument.Start, projection.MapProjectedOffset(1).DocumentPosition);
         Assert.Equal(document.End, projection.MapProjectedOffset(2).DocumentPosition);
     }
 
@@ -54,9 +54,9 @@ public sealed class FormatCodeProjectionMappingTests
     public void Literal_Surrogate_Interior_Collapses_To_The_Model_Boundary()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("😀");
-        FormatCodeProjection projection = _projector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
 
-        Assert.Equal(document.Start, projection.MapProjectedOffset(1).DocumentPosition);
+        Assert.Equal(RichTextDocument.Start, projection.MapProjectedOffset(1).DocumentPosition);
         Assert.Equal(document.End, projection.MapProjectedOffset(2).DocumentPosition);
     }
 
@@ -64,7 +64,7 @@ public sealed class FormatCodeProjectionMappingTests
     public void Every_Projected_Offset_Maps_To_A_Valid_Document_Position()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("a[\t]\nb\u2028c");
-        FormatCodeProjection projection = _projector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
 
         for (int offset = 0; offset <= projection.Text.Length; offset++)
         {
@@ -77,10 +77,10 @@ public sealed class FormatCodeProjectionMappingTests
     public void Empty_Paragraph_And_End_Of_Document_Are_Addressable()
     {
         RichTextDocument document = RichTextDocument.Empty;
-        FormatCodeProjection projection = _projector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
 
         Assert.Equal("[Empty Paragraph]", projection.Text);
-        Assert.Equal(document.Start, projection.MapProjectedOffset(0).DocumentPosition);
+        Assert.Equal(RichTextDocument.Start, projection.MapProjectedOffset(0).DocumentPosition);
         Assert.Equal(document.End, projection.MapProjectedOffset(projection.Text.Length).DocumentPosition);
         Assert.Equal(0, projection.MapDocumentPosition(document.End).TokenIndex);
     }
@@ -89,10 +89,10 @@ public sealed class FormatCodeProjectionMappingTests
     public void Paragraph_Break_Exposes_Both_Source_Boundaries()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("a\nb");
-        FormatCodeProjection projection = _projector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
         FormatCodeToken boundary = Assert.Single(
             projection.Tokens.Where(token => token.DisplayText == "[Paragraph Break]\n"));
-        RichTextPosition firstEnd = document.PositionRightOf(document.Start);
+        RichTextPosition firstEnd = document.PositionRightOf(RichTextDocument.Start);
         RichTextPosition secondStart = document.PositionRightOf(firstEnd);
 
         Assert.Equal(firstEnd, boundary.SourceBefore);

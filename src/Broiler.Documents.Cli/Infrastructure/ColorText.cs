@@ -1,6 +1,4 @@
 using System;
-using System.Globalization;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Cli.Infrastructure;
@@ -85,13 +83,7 @@ public static class ColorText
         if (color.IsEmpty)
             return DefaultToken;
 
-        return string.Format(
-            CultureInfo.InvariantCulture,
-            "#{0:X2}{1:X2}{2:X2}{3:X2}",
-            color.R,
-            color.G,
-            color.B,
-            color.A);
+        return $"#{color.R:X2}{color.G:X2}{color.B:X2}{color.A:X2}";
     }
 
     /// <summary><paramref name="color"/> when it is set, otherwise <paramref name="fallback"/>.</summary>
@@ -103,6 +95,5 @@ public static class ColorText
         return (byte)((value << 4) | value);
     }
 
-    private static byte Byte(string hex, int index) =>
-        (byte)Convert.ToInt32(hex.Substring(index, 2), 16);
+    private static byte Byte(string hex, int index) => (byte)Convert.ToInt32(hex.Substring(index, 2), 16);
 }

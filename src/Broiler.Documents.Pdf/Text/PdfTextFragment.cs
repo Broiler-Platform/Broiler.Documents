@@ -1,6 +1,4 @@
-using System;
 using System.Globalization;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Pdf.Text;
@@ -15,62 +13,45 @@ namespace Broiler.Documents.Pdf.Text;
 /// logical model, and keeping a hidden geometry side channel in it would be a
 /// fixed-layout claim the format cannot honour on re-pagination.
 /// </remarks>
-internal sealed class PdfTextFragment
+internal sealed class PdfTextFragment(
+    string text,
+    double x,
+    double y,
+    double endX,
+    double fontSize,
+    double spaceWidth,
+    string fontFamily,
+    bool bold,
+    bool italic,
+    BColor color,
+    int renderMode,
+    int mcid = -1,
+    bool artifact = false)
 {
-    public PdfTextFragment(
-        string text,
-        double x,
-        double y,
-        double endX,
-        double fontSize,
-        double spaceWidth,
-        string fontFamily,
-        bool bold,
-        bool italic,
-        BColor color,
-        int renderMode,
-        int mcid = -1,
-        bool artifact = false)
-    {
-        Text = text;
-        X = x;
-        Y = y;
-        EndX = endX;
-        FontSize = fontSize;
-        SpaceWidth = spaceWidth;
-        FontFamily = fontFamily;
-        Bold = bold;
-        Italic = italic;
-        Color = color;
-        RenderMode = renderMode;
-        Mcid = mcid;
-        IsArtifact = artifact;
-    }
-
-    public string Text { get; }
+    public string Text { get; } = text;
 
     /// <summary>Left edge of the run in page space, in points.</summary>
-    public double X { get; }
+    public double X { get; } = x;
 
     /// <summary>Baseline position in page space, in points, y increasing upward.</summary>
-    public double Y { get; }
+    public double Y { get; } = y;
 
     /// <summary>Right edge of the run in page space.</summary>
-    public double EndX { get; }
+    public double EndX { get; } = endX;
 
     /// <summary>Effective font size in points, after the text and current matrices.</summary>
-    public double FontSize { get; }
+    public double FontSize { get; } = fontSize;
 
     /// <summary>Width of one space in this run's font and size, for gap detection.</summary>
-    public double SpaceWidth { get; }
+    public double SpaceWidth { get; } = spaceWidth;
 
-    public string FontFamily { get; }
+    public string FontFamily { get; } = fontFamily;
 
-    public bool Bold { get; }
+    public bool Bold { get; } = bold;
 
-    public bool Italic { get; }
+    public bool Italic { get; } = italic;
 
-    public BColor Color { get; }
+    public BColor Color { get; } = color;
 
     /// <summary>
     /// The text rendering mode (Tr). Mode 3 is invisible and mode 7 is
@@ -78,7 +59,7 @@ internal sealed class PdfTextFragment
     /// not "really" in the document would be a visibility claim this release does
     /// not make.
     /// </summary>
-    public int RenderMode { get; }
+    public int RenderMode { get; } = renderMode;
 
     /// <summary>True for a rendering mode that paints nothing.</summary>
     public bool IsInvisible => RenderMode is 3 or 7;
@@ -92,7 +73,7 @@ internal sealed class PdfTextFragment
     /// order its author declared. It is page-scoped, meaningless on its own, and
     /// like every other coordinate here it stops at model projection.
     /// </remarks>
-    public int Mcid { get; }
+    public int Mcid { get; } = mcid;
 
     /// <summary>
     /// True for a run drawn inside an <c>/Artifact</c> marked-content sequence:
@@ -106,7 +87,7 @@ internal sealed class PdfTextFragment
     /// counted artifacts would fail on almost every real tagged document and
     /// send the page back to geometry that the tree could have ordered.
     /// </remarks>
-    public bool IsArtifact { get; }
+    public bool IsArtifact { get; } = artifact;
 
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"'{Text}' @ ({X:F1},{Y:F1}) {FontSize:F1}pt");

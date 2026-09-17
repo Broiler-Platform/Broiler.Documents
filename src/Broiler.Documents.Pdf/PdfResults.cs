@@ -1,7 +1,7 @@
-using System;
 using System.Collections.Generic;
 using Broiler.Documents.Model;
 using Broiler.Documents.Pdf.Structure;
+using Broiler.Documents.Resources;
 
 namespace Broiler.Documents.Pdf;
 
@@ -17,52 +17,39 @@ namespace Broiler.Documents.Pdf;
 /// so a host that only knows about <see cref="DocumentReadResult"/> still sees
 /// it — a PDF-local copy would shadow it and quietly report success.
 /// </remarks>
-public sealed class PdfReadResult : DocumentReadResult
+public sealed class PdfReadResult(
+    RichTextDocument document,
+    DocumentResultStatus status,
+    DocumentMetadata metadata,
+    PdfVersion declaredVersion,
+    int pageCount,
+    IReadOnlyList<PdfExtensionDeclaration> extensions,
+    IEnumerable<DocumentDiagnostic>? diagnostics = null,
+    DocumentConversionContext? resources = null) : DocumentReadResult(document, diagnostics, status, resources, metadata)
 {
-    public PdfReadResult(
-        RichTextDocument document,
-        DocumentResultStatus status,
-        DocumentMetadata metadata,
-        PdfVersion declaredVersion,
-        int pageCount,
-        IReadOnlyList<PdfExtensionDeclaration> extensions,
-        IEnumerable<DocumentDiagnostic>? diagnostics = null,
-        DocumentConversionContext? resources = null)
-        : base(document, diagnostics, status, resources, metadata)
-    {
-        DeclaredVersion = declaredVersion;
-        PageCount = pageCount;
-        Extensions = extensions ?? Array.Empty<PdfExtensionDeclaration>();
-    }
 
     /// <summary>
     /// The version the file effectively declares, after the Catalog override. A
     /// 2.x value records what the file claims, not what this codec implements.
     /// </summary>
-    public PdfVersion DeclaredVersion { get; }
+    public PdfVersion DeclaredVersion { get; } = declaredVersion;
 
-    public int PageCount { get; }
+    public int PageCount { get; } = pageCount;
 
     /// <summary>
     /// Developer extensions the Catalog declared. This is inventory for
     /// diagnostics; no declaration here ever enabled a feature.
     /// </summary>
-    public IReadOnlyList<PdfExtensionDeclaration> Extensions { get; }
+    public IReadOnlyList<PdfExtensionDeclaration> Extensions { get; } = extensions ?? [];
 }
 
 /// <summary>The outcome of writing a PDF.</summary>
-public sealed class PdfWriteResult : DocumentWriteResult
+public sealed class PdfWriteResult(
+    long bytesWritten,
+    DocumentResultStatus status,
+    DocumentDestinationState destinationState,
+    int pageCount,
+    IEnumerable<DocumentDiagnostic>? diagnostics = null) : DocumentWriteResult(bytesWritten, diagnostics, status, destinationState)
 {
-    public PdfWriteResult(
-        long bytesWritten,
-        DocumentResultStatus status,
-        DocumentDestinationState destinationState,
-        int pageCount,
-        IEnumerable<DocumentDiagnostic>? diagnostics = null)
-        : base(bytesWritten, diagnostics, status, destinationState)
-    {
-        PageCount = pageCount;
-    }
-
-    public int PageCount { get; }
+    public int PageCount { get; } = pageCount;
 }

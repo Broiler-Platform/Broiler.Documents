@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
@@ -68,7 +66,7 @@ public sealed record FuzzFailure
 /// in the record.
 /// </para>
 /// </remarks>
-public sealed class FuzzCampaign
+public sealed class FuzzCampaign(string name, Action<ReadOnlySpan<byte>> target)
 {
     /// <summary>Bumped whenever generation changes, because seeds stop meaning the same thing.</summary>
     public const string HarnessVersion = "1";
@@ -86,14 +84,8 @@ public sealed class FuzzCampaign
     /// </remarks>
     private static bool IsExpected(Exception exception) => exception is OperationCanceledException;
 
-    private readonly Action<ReadOnlySpan<byte>> _target;
-    private readonly string _name;
-
-    public FuzzCampaign(string name, Action<ReadOnlySpan<byte>> target)
-    {
-        _name = name ?? throw new ArgumentNullException(nameof(name));
-        _target = target ?? throw new ArgumentNullException(nameof(target));
-    }
+    private readonly Action<ReadOnlySpan<byte>> _target = target ?? throw new ArgumentNullException(nameof(target));
+    private readonly string _name = name ?? throw new ArgumentNullException(nameof(name));
 
     /// <summary>
     /// Runs until <paramref name="iterations"/> inputs have been tried or

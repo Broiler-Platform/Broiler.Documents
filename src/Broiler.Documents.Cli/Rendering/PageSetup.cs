@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Broiler.Documents.Cli.Infrastructure;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Cli.Rendering;
@@ -51,16 +50,8 @@ public sealed class PageSetup
             ["executive"] = (184.15, 266.7),
         };
 
-    private PageSetup(
-        double widthPoints,
-        double heightPoints,
-        double marginTop,
-        double marginRight,
-        double marginBottom,
-        double marginLeft,
-        double dpi,
-        BColor background,
-        bool continuous)
+    private PageSetup(double widthPoints, double heightPoints, double marginTop, double marginRight, double marginBottom, double marginLeft,
+        double dpi, BColor background, bool continuous)
     {
         WidthPoints = widthPoints;
         HeightPoints = heightPoints;
@@ -155,29 +146,13 @@ public sealed class PageSetup
     public PageSetup WithGeometry(PageGeometry geometry)
     {
         ArgumentNullException.ThrowIfNull(geometry);
-        return new PageSetup(
-            geometry.Width,
-            geometry.Height,
-            geometry.MarginTop,
-            geometry.MarginRight,
-            geometry.MarginBottom,
-            geometry.MarginLeft,
-            Dpi,
-            Background,
-            Continuous);
+        return new PageSetup(geometry.Width, geometry.Height, geometry.MarginTop, geometry.MarginRight, geometry.MarginBottom, geometry.MarginLeft,
+            Dpi, Background, Continuous);
     }
 
     /// <summary>The same box with a different height, for the continuous single-page form.</summary>
-    public PageSetup WithHeight(double heightPoints) => new(
-        WidthPoints,
-        Math.Max(heightPoints, MarginTopPoints + MarginBottomPoints + 1),
-        MarginTopPoints,
-        MarginRightPoints,
-        MarginBottomPoints,
-        MarginLeftPoints,
-        Dpi,
-        Background,
-        Continuous);
+    public PageSetup WithHeight(double heightPoints) => new(WidthPoints, Math.Max(heightPoints, MarginTopPoints + MarginBottomPoints + 1),
+        MarginTopPoints, MarginRightPoints, MarginBottomPoints, MarginLeftPoints, Dpi, Background, Continuous);
 
     /// <summary>Pixel width of the rendered image at <see cref="Dpi"/>.</summary>
     public int PixelWidth => (int)Math.Ceiling(WidthPoints * DpiScale);

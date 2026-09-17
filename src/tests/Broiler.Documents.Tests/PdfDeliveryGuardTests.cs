@@ -30,7 +30,7 @@ namespace Broiler.Documents.Tests;
 /// inside the aggregate. See <see cref="PdfGuardRoots"/>.
 /// </para>
 /// </remarks>
-public sealed class PdfDeliveryGuardTests
+public sealed partial class PdfDeliveryGuardTests
 {
     /// <summary>
     /// The only files in the aggregate's <c>src</c> that may name the PDF codec:
@@ -86,7 +86,7 @@ public sealed class PdfDeliveryGuardTests
         Assert.DoesNotContain("<PackageReference", project);
 
         var allowed = new[] { "Broiler.Documents.csproj", "Broiler.Documents.Model.csproj" };
-        foreach (Match match in Regex.Matches(project, @"<ProjectReference\s+Include=""([^""]+)"""))
+        foreach (Match match in MyRegex().Matches(project))
         {
             string referenced = Path.GetFileName(match.Groups[1].Value.Replace('\\', Path.DirectorySeparatorChar));
             Assert.Contains(referenced, allowed);
@@ -98,11 +98,10 @@ public sealed class PdfDeliveryGuardTests
     {
         string root = PdfGuardRoots.RequireAggregate();
 
-        string[] violations = NamesPdf(root, "*.cs")
+        string[] violations = [.. NamesPdf(root, "*.cs")
             .Concat(NamesPdf(root, "*.csproj"))
             .Where(path => !RegistrationSites.Contains(path, StringComparer.Ordinal))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         Assert.Empty(violations);
     }
@@ -112,12 +111,11 @@ public sealed class PdfDeliveryGuardTests
     {
         string root = PdfGuardRoots.RequireAggregate();
 
-        string[] carriers = NamesPdf(root, "*.cs")
+        string[] carriers = [.. NamesPdf(root, "*.cs")
             .Concat(NamesPdf(root, "*.csproj"))
             .Where(path => ProjectsThatMustNotCarryPdf.Any(
                 project => path.StartsWith(project + "/", StringComparison.Ordinal)))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         // Stated separately from the allow-list test because the consequence is
         // different: a reference here is not one head enabling a codec, it is
@@ -211,13 +209,15 @@ public sealed class PdfDeliveryGuardTests
 
         // Every PDF the tests use is generated in code. A committed .pdf would need
         // an entry in the corpus manifest with its provenance and rights first.
-        string[] committed = new[] { "src", "docs" }
+        string[] committed = [.. new[] { "src", "docs" }
             .Select(directory => Path.Combine(root, directory))
             .SelectMany(directory => Directory.EnumerateFiles(directory, "*.pdf", SearchOption.AllDirectories))
             .Where(path => !PdfGuardRoots.IsBuildOutput(path))
-            .Select(path => Path.GetRelativePath(root, path))
-            .ToArray();
+            .Select(path => Path.GetRelativePath(root, path))];
 
         Assert.Empty(committed);
     }
+
+    [GeneratedRegex(@"<ProjectReference\s+Include=""([^""]+)""")]
+    private static partial Regex MyRegex();
 }

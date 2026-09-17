@@ -1,4 +1,3 @@
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Docx.Tests;
@@ -256,7 +255,7 @@ public sealed class DocxShapeTests
         RichTextDocument document = Read(TextBoxShape);
 
         RichTextDocument edited = document.ApplyParagraphStyle(
-            new RichTextRange(document.Start, document.End),
+            new RichTextRange(RichTextDocument.Start, document.End),
             ParagraphStyleDelta.WithAlignment(TextAlignment.Center));
 
         Assert.Single(edited.Shapes);

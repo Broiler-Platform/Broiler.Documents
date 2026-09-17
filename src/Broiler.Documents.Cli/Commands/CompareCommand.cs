@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -9,7 +8,6 @@ using Broiler.Documents.Cli.Composition;
 using Broiler.Documents.Cli.Documents;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Cli.Rendering;
-using Broiler.Graphics;
 using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Cli.Commands;
@@ -21,15 +19,14 @@ namespace Broiler.Documents.Cli.Commands;
 public static class CompareCommand
 {
     private static readonly string[] ImageExtensions =
-        { ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp" };
+        [".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"];
 
     public static CommandEntry Create() => new(
         new CommandSpec(
             "compare",
             "Compare two documents or two images and report exactly how they differ.",
             "compare <left> <right> [--render] [--diff <path>] [--tolerance <n>]",
-            new[]
-            {
+            [
                 OptionSpec.Value("mode", "kind", "auto, image, or document.", "auto"),
                 OptionSpec.Flag("render", "In document mode, also render both sides and compare the pixels."),
                 OptionSpec.Value("render-out", "path", "Keep the rendered pages. {side} and {page} are replaced."),
@@ -44,17 +41,15 @@ public static class CompareCommand
                 OptionSpec.Flag("ignore-inline-style", "Compare text and paragraph structure only."),
                 OptionSpec.Flag("ignore-paragraph-style", "Compare text and run formatting only."),
                 OptionSpec.Value("max-differences", "n", "Stop listing structural differences after this many.", "50"),
-            }
-            .Concat(RenderPipeline.Specs)
-            .Concat(DocumentOptions.Specs)
-            .ToArray(),
-            new[]
-            {
+                .. RenderPipeline.Specs,
+                .. DocumentOptions.Specs,
+            ],
+            [
                 "compare before.png after.png --diff diff.png",
                 "compare reference.docx roundtripped.docx",
                 "compare a.docx b.docx --render --continuous --diff diff.png --tolerance 2",
                 "compare a.png b.png --tolerance 2 --max-different-ratio 0.0005 --json",
-            },
+            ],
             "modes\n" +
             "  image     Two images, compared pixel by pixel.\n" +
             "  document  Two documents, compared through the model: text, paragraph structure,\n" +
@@ -173,7 +168,7 @@ public static class CompareCommand
                 offset.ToString(CultureInfo.InvariantCulture));
         }
 
-        string[] counts = comparison.DescribeStatistics().ToArray();
+        string[] counts = [.. comparison.DescribeStatistics()];
         if (counts.Length > 0)
         {
             context.Report();

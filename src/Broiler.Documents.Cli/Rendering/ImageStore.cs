@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Imaging;
 using Broiler.Graphics.Rendering;
 using Broiler.Graphics.Resources;
@@ -25,7 +24,7 @@ public sealed class ImageStore : IDisposable
 {
     private readonly Dictionary<InlineImage, Entry> _entries = new(ByReference.Instance);
 
-    private readonly List<string> _notes = new();
+    private readonly List<string> _notes = [];
     private bool _disposed;
 
     /// <summary>Images that could not be decoded, and why.</summary>
@@ -86,8 +85,7 @@ public sealed class ImageStore : IDisposable
         if (entry.Bitmap is null)
             return null;
 
-        if (entry.Handle is null)
-            entry.Handle = renderer.CreateImage(entry.Bitmap.ToPixelBuffer());
+        entry.Handle ??= renderer.CreateImage(entry.Bitmap.ToPixelBuffer());
 
         return entry.Handle;
     }
@@ -122,11 +120,7 @@ public sealed class ImageStore : IDisposable
             // its buffer would put a SetPixel away from corrupting every other
             // use of the same picture. One copy per distinct image per render is
             // what this cache exists to make cheap.
-            entry.Bitmap = new BBitmap(
-                pixels.Width,
-                pixels.Height,
-                (byte[])pixels.Rgba.Clone(),
-                takeOwnership: true);
+            entry.Bitmap = new BBitmap(pixels.Width, pixels.Height, (byte[])pixels.Rgba.Clone(), takeOwnership: true);
             DecodedCount++;
         }
         else if (image.TryGetEncoded(out ReadOnlyMemory<byte> data, out string? contentType))

@@ -6,25 +6,15 @@ using Broiler.Documents.Pdf.Syntax;
 namespace Broiler.Documents.Pdf.Structure;
 
 /// <summary>A PDF rectangle in default user space units (points).</summary>
-internal readonly struct PdfRectangle
+internal readonly struct PdfRectangle(double left, double bottom, double right, double top)
 {
-    public PdfRectangle(double left, double bottom, double right, double top)
-    {
-        // PDF permits either corner order; normalize so callers can rely on
-        // Left <= Right and Bottom <= Top.
-        Left = Math.Min(left, right);
-        Bottom = Math.Min(bottom, top);
-        Right = Math.Max(left, right);
-        Top = Math.Max(bottom, top);
-    }
+    public double Left { get; } = Math.Min(left, right);
 
-    public double Left { get; }
+    public double Bottom { get; } = Math.Min(bottom, top);
 
-    public double Bottom { get; }
+    public double Right { get; } = Math.Max(left, right);
 
-    public double Right { get; }
-
-    public double Top { get; }
+    public double Top { get; } = Math.Max(bottom, top);
 
     public double Width => Right - Left;
 
@@ -42,38 +32,28 @@ internal readonly struct PdfRectangle
 }
 
 /// <summary>One page, with its inherited attributes already applied.</summary>
-internal sealed class PdfPage
+internal sealed class PdfPage(
+    PdfDictionary dictionary,
+    PdfDictionary? resources,
+    PdfRectangle mediaBox,
+    PdfRectangle cropBox,
+    int rotation,
+    double userUnit)
 {
-    public PdfPage(
-        PdfDictionary dictionary,
-        PdfDictionary? resources,
-        PdfRectangle mediaBox,
-        PdfRectangle cropBox,
-        int rotation,
-        double userUnit)
-    {
-        Dictionary = dictionary;
-        Resources = resources;
-        MediaBox = mediaBox;
-        CropBox = cropBox;
-        Rotation = rotation;
-        UserUnit = userUnit;
-    }
-
-    public PdfDictionary Dictionary { get; }
+    public PdfDictionary Dictionary { get; } = dictionary;
 
     /// <summary>The page's resource dictionary, inherited from an ancestor when absent.</summary>
-    public PdfDictionary? Resources { get; }
+    public PdfDictionary? Resources { get; } = resources;
 
-    public PdfRectangle MediaBox { get; }
+    public PdfRectangle MediaBox { get; } = mediaBox;
 
     /// <summary>The crop box, defaulting to the media box (clause 7.7.3.3).</summary>
-    public PdfRectangle CropBox { get; }
+    public PdfRectangle CropBox { get; } = cropBox;
 
     /// <summary>Clockwise display rotation, normalized to 0, 90, 180, or 270.</summary>
-    public int Rotation { get; }
+    public int Rotation { get; } = rotation;
 
-    public double UserUnit { get; }
+    public double UserUnit { get; } = userUnit;
 }
 
 /// <summary>
@@ -143,20 +123,13 @@ internal static class PdfPageTree
         return pages;
     }
 
-    private readonly struct Node
+    private readonly struct Node(PdfDictionary dictionary, Inherited inherited, int depth)
     {
-        public Node(PdfDictionary dictionary, Inherited inherited, int depth)
-        {
-            Dictionary = dictionary;
-            Inherited = inherited;
-            Depth = depth;
-        }
+        public PdfDictionary Dictionary { get; } = dictionary;
 
-        public PdfDictionary Dictionary { get; }
+        public Inherited Inherited { get; } = inherited;
 
-        public Inherited Inherited { get; }
-
-        public int Depth { get; }
+        public int Depth { get; } = depth;
     }
 
     private readonly struct Inherited

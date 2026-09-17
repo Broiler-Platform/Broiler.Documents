@@ -5,7 +5,6 @@ using System.Linq;
 using System.Text;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Geometry;
 using Broiler.Graphics.Text;
@@ -41,12 +40,12 @@ namespace Broiler.Documents.Cli.Rendering;
 /// model, which is to say from the reader or the writer under test.
 /// </para>
 /// </remarks>
-public sealed class DocumentLayout
+public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 {
-    private readonly LayoutSettings _settings;
-    private readonly ImageStore _images;
-    private readonly LineWrapper _lineWrapper;
-    private readonly List<string> _notes = new();
+    private readonly LayoutSettings _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+    private readonly ImageStore _images = images ?? throw new ArgumentNullException(nameof(images));
+    private readonly LineWrapper _lineWrapper = new(settings.TabStopPoints);
+    private readonly List<string> _notes = [];
     private RunningContent _running = RunningContent.Empty;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
     private TextWrapExclusions _wrap = new();
@@ -59,13 +58,6 @@ public sealed class DocumentLayout
     /// <c>RichTextEditor.InsertLineBreak</c> inserts exactly this.
     /// </summary>
     private const char ForcedLineBreak = '\u2028';
-
-    public DocumentLayout(LayoutSettings settings, ImageStore images)
-    {
-        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
-        _images = images ?? throw new ArgumentNullException(nameof(images));
-        _lineWrapper = new LineWrapper(settings.TabStopPoints);
-    }
 
     /// <summary>Lays the document out onto pages of the given size.</summary>
     public LayoutResult Layout(RichTextDocument document, PageSetup setup)
@@ -102,8 +94,8 @@ public sealed class DocumentLayout
         void BreakPage()
         {
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
-            currentLines = new List<LayoutLine>();
-            currentCells = new List<LayoutCell>();
+            currentLines = [];
+            currentCells = [];
 
             // Both of these are page-local and neither was being emptied, which is
             // the same defect twice. An anchor top is a y within the page it was
@@ -236,16 +228,16 @@ public sealed class DocumentLayout
                 ? pages[0].Lines[^1].Top + pages[0].Lines[^1].Height
                 : setup.ContentTopPoints;
             finalSetup = setup.WithHeight(used + setup.MarginBottomPoints);
-            pages = new List<LayoutPage>
-            {
+            pages =
+            [
                 new(
                     1,
                     finalSetup.WidthPoints,
                     finalSetup.HeightPoints,
-                    pages[0].Lines.ToList(),
-                    pages[0].Shapes.ToList(),
-                    pages[0].Cells.ToList()),
-            };
+                    [.. pages[0].Lines],
+                    [.. pages[0].Shapes],
+                    [.. pages[0].Cells]),
+            ];
         }
 
         return new LayoutResult(pages, finalSetup, _settings, _notes, truncated);
@@ -284,7 +276,7 @@ public sealed class DocumentLayout
         List<LayoutShape> shapes = PlaceShapes(setup);
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup));
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
-        shapes = shapes.OrderBy(shape => shape.ZOrder).ToList();
+        shapes = [.. shapes.OrderBy(shape => shape.ZOrder)];
 
         return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells);
     }
@@ -340,22 +332,14 @@ public sealed class DocumentLayout
             if (!_paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchorTop))
                 continue;
 
-            var bounds = new BRect(
-                setup.ContentLeftPoints + shape.OffsetX,
-                anchorTop + shape.OffsetY,
-                Math.Max(0, shape.Width),
-                Math.Max(0, shape.Height));
+            var bounds = new BRect(setup.ContentLeftPoints + shape.OffsetX, anchorTop + shape.OffsetY,
+                Math.Max(0, shape.Width), Math.Max(0, shape.Height));
+
             if (bounds.Width <= 0 || bounds.Height <= 0)
                 continue;
 
-            placed.Add(new LayoutShape(
-                bounds,
-                shape.Fill,
-                shape.Outline,
-                PlaceShapeText(shape, bounds, setup),
-                shape.Image,
-                shape.BehindText,
-                shape.ZOrder));
+            placed.Add(new LayoutShape(bounds, shape.Fill, shape.Outline, PlaceShapeText(shape, bounds, setup),
+                shape.Image, shape.BehindText, shape.ZOrder));
         }
 
         return placed;
@@ -370,12 +354,7 @@ public sealed class DocumentLayout
     /// Every row is composed before any is placed, because a cell that spans rows
     /// needs the heights of the rows below it before its box can be drawn.
     /// </remarks>
-    private List<RowBox> ComposeTable(
-        DocumentTable table,
-        RichTextDocument document,
-        PageSetup setup,
-        double left,
-        double width)
+    private List<RowBox> ComposeTable(DocumentTable table, RichTextDocument document, PageSetup setup, double left, double width)
     {
         double[] edges = ColumnEdges(table, left, width);
         var boxes = new List<RowBox>(table.Rows.Count);
@@ -387,14 +366,9 @@ public sealed class DocumentLayout
             {
                 (double cellLeft, double cellWidth) = ColumnSpanBox(edges, cell);
                 double textWidth = Math.Max(1.0, cellWidth - (table.CellPadding * 2));
-                (List<LayoutLine> lines, List<LayoutCell> nested, double height) = ComposeBlocks(
-                    document,
-                    cell.Tables,
-                    cell.ParagraphIndex,
-                    cell.ParagraphEnd,
-                    setup,
-                    cellLeft + table.CellPadding,
-                    textWidth);
+
+                (List<LayoutLine> lines, List<LayoutCell> nested, double height) =
+                    ComposeBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, setup, cellLeft + table.CellPadding, textWidth);
 
                 box.Lines.AddRange(lines);
                 box.Cells.AddRange(nested);
@@ -480,6 +454,7 @@ public sealed class DocumentLayout
     {
         int start = Math.Clamp(cell.ColumnIndex, 0, edges.Length - 1);
         int end = Math.Clamp(cell.ColumnIndex + cell.ColumnSpan, start + 1, edges.Length - 1);
+
         return (edges[start], Math.Max(1.0, edges[end] - edges[start]));
     }
 
@@ -489,14 +464,8 @@ public sealed class DocumentLayout
     /// <see cref="ComposeTable"/>, which comes back here for its cells - so
     /// nesting costs nothing beyond the recursion.
     /// </summary>
-    private (List<LayoutLine> Lines, List<LayoutCell> Cells, double Height) ComposeBlocks(
-        RichTextDocument document,
-        IReadOnlyList<DocumentTable> tables,
-        int from,
-        int to,
-        PageSetup setup,
-        double left,
-        double width)
+    private (List<LayoutLine> Lines, List<LayoutCell> Cells, double Height) ComposeBlocks(RichTextDocument document,
+        IReadOnlyList<DocumentTable> tables, int from, int to, PageSetup setup, double left, double width)
     {
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
@@ -519,13 +488,7 @@ public sealed class DocumentLayout
             }
 
             RichTextParagraph paragraph = document.Paragraphs[index];
-            ParagraphLines composed = ComposeParagraph(
-                paragraph,
-                numbering.Advance(paragraph.Style),
-                setup,
-                index,
-                left,
-                width);
+            ParagraphLines composed = ComposeParagraph(paragraph, numbering.Advance(paragraph.Style), setup, index, left, width);
 
             if (lines.Count > 0)
                 y += Math.Max(0, paragraph.Style.SpacingBefore);
@@ -545,20 +508,13 @@ public sealed class DocumentLayout
     }
 
     /// <summary>A cell's box within its row, before the row is placed on a page.</summary>
-    private sealed class CellBox
+    private sealed class CellBox(double left, double width, TableCell cell)
     {
-        public CellBox(double left, double width, TableCell cell)
-        {
-            Left = left;
-            Width = width;
-            Cell = cell;
-        }
+        public double Left { get; } = left;
 
-        public double Left { get; }
+        public double Width { get; } = width;
 
-        public double Width { get; }
-
-        public TableCell Cell { get; }
+        public TableCell Cell { get; } = cell;
 
         /// <summary>How far past its own row the box reaches, for a cell that spans rows.</summary>
         public double ExtraHeight { get; set; }
@@ -579,27 +535,13 @@ public sealed class DocumentLayout
         public List<CellBox> Boxes { get; } = [];
 
         /// <summary>Moves the row to <paramref name="top"/> and hands it to the page.</summary>
-        public void PlaceAt(
-            double top,
-            List<LayoutLine> lines,
-            List<LayoutCell> cells,
-            Dictionary<int, double> paragraphTops)
+        public void PlaceAt(double top, List<LayoutLine> lines, List<LayoutCell> cells, Dictionary<int, double> paragraphTops)
         {
             foreach (CellBox box in Boxes)
-            {
-                cells.Add(new LayoutCell(
-                    new BRect(box.Left, top, box.Width, Height + box.ExtraHeight),
-                    box.Cell.Shading,
-                    box.Cell.Borders));
-            }
+                cells.Add(new LayoutCell(new BRect(box.Left, top, box.Width, Height + box.ExtraHeight), box.Cell.Shading, box.Cell.Borders));
 
             foreach (LayoutCell cell in Cells)
-            {
-                cells.Add(new LayoutCell(
-                    new BRect(cell.Bounds.Left, cell.Bounds.Top + top, cell.Bounds.Width, cell.Bounds.Height),
-                    cell.Shading,
-                    cell.Borders));
-            }
+                cells.Add(new LayoutCell(new BRect(cell.Bounds.Left, cell.Bounds.Top + top, cell.Bounds.Width, cell.Bounds.Height), cell.Shading, cell.Borders));
 
             foreach (LayoutLine line in Lines)
             {
@@ -645,11 +587,7 @@ public sealed class DocumentLayout
     /// this is a convention rather than a setting. A block taller than its band is
     /// reported instead of being drawn across the body.
     /// </summary>
-    private List<LayoutLine> RunningLines(
-        IReadOnlyList<RichTextParagraph> paragraphs,
-        PageSetup setup,
-        double top,
-        double band)
+    private List<LayoutLine> RunningLines(IReadOnlyList<RichTextParagraph> paragraphs, PageSetup setup, double top, double band)
     {
         var lines = new List<LayoutLine>();
         if (paragraphs.Count == 0)
@@ -668,7 +606,7 @@ public sealed class DocumentLayout
         if (height > band)
         {
             _notes.Add("a header or footer was taller than its page margin and was not drawn.");
-            return new List<LayoutLine>();
+            return [];
         }
 
         double y = top + ((band - height) / 2);
@@ -682,14 +620,8 @@ public sealed class DocumentLayout
     }
 
     /// <summary>Wraps one paragraph into lines, without deciding which page they land on.</summary>
-    private ParagraphLines ComposeParagraph(
-        RichTextParagraph paragraph,
-        string? marker,
-        PageSetup setup,
-        int paragraphIndex,
-        double? columnLeftOverride = null,
-        double? columnWidthOverride = null,
-        double? wrapTop = null)
+    private ParagraphLines ComposeParagraph(RichTextParagraph paragraph, string? marker, PageSetup setup, int paragraphIndex,
+        double? columnLeftOverride = null, double? columnWidthOverride = null, double? wrapTop = null)
     {
         ParagraphStyle style = paragraph.Style;
         double indent = Math.Max(0, style.IndentLevel) * _settings.IndentStepPoints;
@@ -817,15 +749,8 @@ public sealed class DocumentLayout
     /// <summary>
     /// Positions one line's pieces, applies alignment, and computes the line box.
     /// </summary>
-    private LayoutLine PlaceLine(
-        List<LayoutPiece> pieces,
-        bool hasMarker,
-        double textLeft,
-        double textWidth,
-        ParagraphStyle style,
-        BFontStyle defaultFont,
-        int paragraphIndex,
-        bool isLastLine)
+    private static LayoutLine PlaceLine(List<LayoutPiece> pieces, bool hasMarker, double textLeft, double textWidth,
+        ParagraphStyle style, BFontStyle defaultFont, int paragraphIndex, bool isLastLine)
     {
         double ascent = BTextMeasurer.Measure(string.Empty, defaultFont).Baseline;
         double descent = Math.Max(0, BTextMeasurer.GetLineHeight(defaultFont) - ascent);
@@ -1087,19 +1012,8 @@ public sealed class DocumentLayout
             _settings.SynthesizeItalic &&
             !(_settings.ItalicFaceAvailable?.Invoke(font.FamilyName) ?? false);
 
-        return new LayoutPiece(
-            text,
-            font,
-            color,
-            style.Background,
-            underline,
-            style.Strikethrough,
-            style.LinkHref,
-            null,
-            width,
-            ascent,
-            descent,
-            oblique);
+        return new LayoutPiece(text, font, color, style.Background, underline, style.Strikethrough, style.LinkHref, null,
+            width, ascent, descent, oblique);
     }
 
     /// <summary>
@@ -1112,20 +1026,8 @@ public sealed class DocumentLayout
         BFontStyle font = FontFor(style);
         double ascent = font.Size * 0.8;
 
-        return new LayoutPiece(
-            string.Empty,
-            font,
-            ColorText.Or(style.Foreground, _settings.DefaultForeground),
-            style.Background,
-            underline: false,
-            strikethrough: false,
-            style.LinkHref,
-            null,
-            0,
-            ascent,
-            Math.Max(0, BTextMeasurer.GetLineHeight(font) - ascent),
-            oblique: false,
-            isTab: true);
+        return new LayoutPiece(string.Empty, font, ColorText.Or(style.Foreground, _settings.DefaultForeground), style.Background, underline: false,
+            strikethrough: false, style.LinkHref, null, 0, ascent, Math.Max(0, BTextMeasurer.GetLineHeight(font) - ascent), oblique: false, isTab: true);
     }
 
     private LayoutPiece MakeImagePiece(InlineStyle style)
@@ -1133,18 +1035,8 @@ public sealed class DocumentLayout
         InlineImage image = style.Image!;
         (double width, double height) = _images.MeasurePoints(image);
 
-        return new LayoutPiece(
-            string.Empty,
-            FontFor(style),
-            ColorText.Or(style.Foreground, _settings.DefaultForeground),
-            style.Background,
-            false,
-            false,
-            style.LinkHref,
-            image,
-            Math.Max(1, width),
-            Math.Max(1, height),
-            0);
+        return new LayoutPiece(string.Empty, FontFor(style), ColorText.Or(style.Foreground, _settings.DefaultForeground), style.Background, false,
+            false, style.LinkHref, image, Math.Max(1, width), Math.Max(1, height), 0);
     }
 
     private BFontStyle FontFor(InlineStyle style, double sizeScale = 1.0)
@@ -1168,11 +1060,9 @@ public sealed class DocumentLayout
     };
 
     /// <summary>The lines one paragraph produced, before pagination places them.</summary>
-    private sealed class ParagraphLines
+    private sealed class ParagraphLines(List<LayoutLine> lines)
     {
-        public ParagraphLines(List<LayoutLine> lines) => Lines = lines;
-
-        public List<LayoutLine> Lines { get; }
+        public List<LayoutLine> Lines { get; } = lines;
     }
 
     /// <summary>
@@ -1191,7 +1081,7 @@ public sealed class DocumentLayout
     {
         private const string Bullets = "•◦▪";
 
-        private readonly List<int> _counters = new();
+        private readonly List<int> _counters = [];
 
         public string? Advance(ParagraphStyle style)
         {
@@ -1248,8 +1138,8 @@ public sealed class DocumentLayout
             if (value <= 0 || value >= 4000)
                 return value.ToString(CultureInfo.InvariantCulture);
 
-            int[] values = { 1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1 };
-            string[] symbols = { "m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i" };
+            int[] values = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+            string[] symbols = ["m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i"];
 
             var builder = new StringBuilder();
             for (int i = 0; i < values.Length; i++)

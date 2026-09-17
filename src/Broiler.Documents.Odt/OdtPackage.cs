@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Xml.Linq;
@@ -110,15 +109,9 @@ internal static class OdtPackage
 }
 
 /// <summary>What <c>META-INF/manifest.xml</c> says about the package's parts.</summary>
-internal sealed class OdtManifest
+internal sealed class OdtManifest(Dictionary<string, string> mediaTypes, bool isEncrypted)
 {
-    private readonly Dictionary<string, string> _mediaTypes;
-
-    public OdtManifest(Dictionary<string, string> mediaTypes, bool isEncrypted)
-    {
-        _mediaTypes = mediaTypes;
-        IsEncrypted = isEncrypted;
-    }
+    private readonly Dictionary<string, string> _mediaTypes = mediaTypes;
 
     public static OdtManifest Empty { get; } =
         new(new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), isEncrypted: false);
@@ -128,7 +121,7 @@ internal sealed class OdtManifest
     /// password protection really encrypts the parts, so there is nothing to read
     /// and nothing this codec may do about it.
     /// </summary>
-    public bool IsEncrypted { get; }
+    public bool IsEncrypted { get; } = isEncrypted;
 
     /// <summary>The declared media type of a part, or null when the manifest does not name it.</summary>
     public string? MediaTypeFor(string path) =>

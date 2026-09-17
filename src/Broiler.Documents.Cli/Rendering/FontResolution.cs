@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using Broiler.Documents.Cli.Infrastructure;
-using Broiler.Graphics;
 using Broiler.Graphics.Rendering;
 using Broiler.Graphics.Text;
 
@@ -37,35 +35,27 @@ namespace Broiler.Documents.Cli.Rendering;
 /// </remarks>
 public sealed class FontResolution
 {
-    private static readonly string[] FontExtensions = { ".ttf", ".otf", ".ttc" };
+    private static readonly string[] FontExtensions = [".ttf", ".otf", ".ttc"];
 
-    private static readonly string[] FaceMarkers =
-    {
-        "BoldItalic", "BoldOblique", "Bold", "Italic", "Oblique", "Regular", "Book",
-    };
+    private static readonly string[] FaceMarkers = ["BoldItalic", "BoldOblique", "Bold", "Italic", "Oblique", "Regular", "Book"];
 
     private readonly Dictionary<string, FontFaceSet> _families;
-    private readonly List<string> _notes = new();
+    private readonly List<string> _notes = [];
     private readonly HashSet<string> _unmapped = new(StringComparer.OrdinalIgnoreCase);
 
-    private FontResolution(Dictionary<string, FontFaceSet> families)
-    {
-        _families = families;
-    }
+    private FontResolution(Dictionary<string, FontFaceSet> families) => _families = families;
 
     /// <summary>True when at least one family was pinned to a file.</summary>
     public bool HasMappings => _families.Count > 0;
 
     /// <summary>Families that were explicitly mapped, ordered for a stable report.</summary>
-    public IReadOnlyList<string> MappedFamilies =>
-        _families.Keys.OrderBy(name => name, StringComparer.Ordinal).ToArray();
+    public IReadOnlyList<string> MappedFamilies => [.. _families.Keys.OrderBy(name => name, StringComparer.Ordinal)];
 
     /// <summary>What happened while building the mapping, for the render manifest.</summary>
     public IReadOnlyList<string> Notes => _notes;
 
     /// <summary>Families a document asked for that had no mapping, so fell back to the host face.</summary>
-    public IReadOnlyList<string> UnmappedRequests =>
-        _unmapped.OrderBy(name => name, StringComparer.Ordinal).ToArray();
+    public IReadOnlyList<string> UnmappedRequests => [.. _unmapped.OrderBy(name => name, StringComparer.Ordinal)];
 
     /// <summary>
     /// Builds a mapping from <c>--font-file family=path</c> and <c>--font-dir</c>
@@ -111,14 +101,7 @@ public sealed class FontResolution
         foreach (string family in MappedFamilies)
         {
             FontFaceSet faces = _families[family];
-            lines.Add(string.Format(
-                CultureInfo.InvariantCulture,
-                "{0} -> regular={1} bold={2} italic={3} bold-italic={4}",
-                family,
-                Describe(faces.Regular),
-                Describe(faces.Bold),
-                Describe(faces.Italic),
-                Describe(faces.BoldItalic)));
+            lines.Add($"{family} -> regular={Describe(faces.Regular)} bold={Describe(faces.Bold)} italic={Describe(faces.Italic)} bold-italic={Describe(faces.BoldItalic)}");
         }
 
         return lines;
@@ -205,13 +188,12 @@ public sealed class FontResolution
         if (!Directory.Exists(directory))
             throw new UsageException("Font directory not found: " + directory);
 
-        string[] files = Directory
+        string[] files = [.. Directory
             .EnumerateFiles(directory, "*", SearchOption.AllDirectories)
             .Where(path => FontExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
             // Ordinal, so two machines that enumerate in different orders still
             // build the same mapping from the same directory.
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .ToArray();
+            .OrderBy(path => path, StringComparer.Ordinal)];
 
         int mapped = 0;
         foreach (string file in files)
@@ -224,12 +206,7 @@ public sealed class FontResolution
             mapped++;
         }
 
-        _notes.Add(string.Format(
-            CultureInfo.InvariantCulture,
-            "scanned {0}: {1} font file(s), {2} face(s) mapped",
-            directory,
-            files.Length,
-            mapped));
+        _notes.Add($"scanned {directory}: {files.Length} font file(s), {mapped} face(s) mapped");
     }
 
     private FontFaceSet GetOrAdd(string family)

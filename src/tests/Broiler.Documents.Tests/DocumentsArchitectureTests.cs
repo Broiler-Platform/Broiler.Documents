@@ -50,11 +50,10 @@ public sealed class DocumentsArchitectureTests
     [Fact]
     public void Framework_Has_No_Module_Initializer()
     {
-        MethodInfo[] initializers = typeof(DocumentCodec).Assembly
+        MethodInfo[] initializers = [.. typeof(DocumentCodec).Assembly
             .GetTypes()
             .SelectMany(type => type.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic))
-            .Where(method => method.GetCustomAttribute<ModuleInitializerAttribute>() is not null)
-            .ToArray();
+            .Where(method => method.GetCustomAttribute<ModuleInitializerAttribute>() is not null)];
 
         Assert.Empty(initializers);
     }

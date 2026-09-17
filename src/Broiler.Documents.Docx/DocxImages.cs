@@ -14,7 +14,7 @@ namespace Broiler.Documents.Docx;
 /// the legacy VML shape (<c>w:pict</c>) — into <see cref="InlineImage"/> values,
 /// loading each referenced <c>word/media</c> part at most once.
 /// </summary>
-internal sealed class DocxImageLoader
+internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits, DocumentConversionContextBuilder resources)
 {
     /// <summary>English Metric Units per point: 914400 per inch over 72 points per inch.</summary>
     private const double EmusPerPoint = 12700.0;
@@ -25,21 +25,8 @@ internal sealed class DocxImageLoader
     /// millions of units tall.
     /// </summary>
     private const double MaxDisplayExtent = 20000.0;
-
-    private readonly ZipArchive _archive;
-    private readonly DocumentLimits _limits;
-    private readonly DocumentConversionContextBuilder _resources;
     private readonly Dictionary<string, MediaPart?> _parts = new(StringComparer.OrdinalIgnoreCase);
 
-    public DocxImageLoader(
-        ZipArchive archive,
-        DocumentLimits limits,
-        DocumentConversionContextBuilder resources)
-    {
-        _archive = archive;
-        _limits = limits;
-        _resources = resources;
-    }
     /// <summary>
     /// Puts a loaded picture through the caller's resource policy and, when it
     /// permits extraction, returns the image bound to its context entry.
@@ -50,21 +37,10 @@ internal sealed class DocxImageLoader
     /// the picture — so the decision happens here, before the object exists,
     /// rather than after it is already in a document.
     /// </remarks>
-    private InlineImage? Admit(
-        InlineImage image,
-        DocumentResourceDisposition disposition,
-        IDocxImageDiagnostics diagnostics)
+    private InlineImage? Admit(InlineImage image, DocumentResourceDisposition disposition, IDocxImageDiagnostics diagnostics)
     {
-        if (!_resources.TryAdmit(
-                new DocumentResourceRequest(
-                    image.Resource,
-                    DocumentResourceProvenance.ReadFromSource,
-                    disposition,
-                    image.Name,
-                    "DOCX"),
-                DocumentResourceOperations.ExtractToModel,
-                out DocumentResourceId id,
-                out string? denial))
+        if (!resources.TryAdmit(new DocumentResourceRequest(image.Resource, DocumentResourceProvenance.ReadFromSource,
+                    disposition, image.Name, "DOCX"), DocumentResourceOperations.ExtractToModel, out DocumentResourceId id, out string? denial))
         {
             diagnostics.AddDiagnosticOnce(
                 "docx.image.denied",
@@ -83,10 +59,7 @@ internal sealed class DocxImageLoader
     /// Reads a <c>w:drawing</c> or <c>w:pict</c> element. Returns null — after
     /// recording why — when the element holds no picture this codec can carry.
     /// </summary>
-    public InlineImage? Read(
-        XElement element,
-        DocxRelationships relationships,
-        IDocxImageDiagnostics diagnostics)
+    public InlineImage? Read(XElement element, DocxRelationships relationships, IDocxImageDiagnostics diagnostics)
     {
         InlineImage? image = element.Name == DocxNamespaces.Wordprocessing + "drawing"
             ? ReadDrawing(element, relationships, diagnostics)
@@ -104,10 +77,7 @@ internal sealed class DocxImageLoader
     /// where an anchored one is placed — floating beside the text, or in it — is
     /// the reader's decision, not this loader's.
     /// </summary>
-    private InlineImage? ReadDrawing(
-        XElement drawing,
-        DocxRelationships relationships,
-        IDocxImageDiagnostics diagnostics)
+    private InlineImage? ReadDrawing(XElement drawing, DocxRelationships relationships, IDocxImageDiagnostics diagnostics)
     {
         foreach (XElement wrapper in drawing.Elements())
         {
@@ -120,9 +90,7 @@ internal sealed class DocxImageLoader
             XElement? blip = FindDescendant(wrapper, DocxNamespaces.Drawing + "blip");
             if (blip is null)
             {
-                diagnostics.AddDiagnosticOnce(
-                    "docx.image.shape",
-                    "A DOCX drawing held no embedded picture and was skipped.");
+                diagnostics.AddDiagnosticOnce("docx.image.shape", "A DOCX drawing held no embedded picture and was skipped.");
                 return null;
             }
 
@@ -139,14 +107,10 @@ internal sealed class DocxImageLoader
 
             (double width, double height) = ReadExtent(wrapper);
             (string? altText, string? name) = ReadDescription(wrapper);
-            return Load(
-                relationshipId, relationships, width, height, altText, name, diagnostics,
-                ReadPresentation(blip.Parent, wrapper));
+            return Load(relationshipId, relationships, width, height, altText, name, diagnostics, ReadPresentation(blip.Parent, wrapper));
         }
 
-        diagnostics.AddDiagnosticOnce(
-            "docx.image.shape",
-            "A DOCX drawing held no embedded picture and was skipped.");
+        diagnostics.AddDiagnosticOnce("docx.image.shape", "A DOCX drawing held no embedded picture and was skipped.");
         return null;
     }
 
@@ -155,26 +119,19 @@ internal sealed class DocxImageLoader
     /// the shape's CSS <c>style</c>. Word wrote this shape for images before
     /// DrawingML and still writes it inside fields and some headers.
     /// </summary>
-    private InlineImage? ReadVmlPicture(
-        XElement pict,
-        DocxRelationships relationships,
-        IDocxImageDiagnostics diagnostics)
+    private InlineImage? ReadVmlPicture(XElement pict, DocxRelationships relationships, IDocxImageDiagnostics diagnostics)
     {
         XElement? imageData = FindDescendant(pict, DocxNamespaces.Vml + "imagedata");
         if (imageData is null)
         {
-            diagnostics.AddDiagnosticOnce(
-                "docx.image.shape",
-                "A DOCX drawing held no embedded picture and was skipped.");
+            diagnostics.AddDiagnosticOnce("docx.image.shape", "A DOCX drawing held no embedded picture and was skipped.");
             return null;
         }
 
         string? relationshipId = (string?)imageData.Attribute(DocxNamespaces.Relationships + "id");
         if (string.IsNullOrWhiteSpace(relationshipId))
         {
-            diagnostics.AddDiagnosticOnce(
-                "docx.image.external",
-                "A DOCX picture linked to an external image, which is not fetched.");
+            diagnostics.AddDiagnosticOnce("docx.image.external", "A DOCX picture linked to an external image, which is not fetched.");
             return null;
         }
 
@@ -213,8 +170,7 @@ internal sealed class DocxImageLoader
         double bottom = CropEdge(blipFill, "b");
 
         XElement? geometry = FindDescendant(wrapper, DocxNamespaces.Drawing + "prstGeom");
-        ImageMask mask = string.Equals(
-            (string?)geometry?.Attribute("prst"), "ellipse", StringComparison.Ordinal)
+        ImageMask mask = string.Equals((string?)geometry?.Attribute("prst"), "ellipse", StringComparison.Ordinal)
             ? ImageMask.Ellipse
             : ImageMask.None;
 
@@ -235,11 +191,7 @@ internal sealed class DocxImageLoader
     {
         XElement? crop = blipFill?.Element(DocxNamespaces.Drawing + "srcRect");
         if (crop is null ||
-            !int.TryParse(
-                (string?)crop.Attribute(edge),
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out int thousandthsOfAPercent) ||
+            !int.TryParse((string?)crop.Attribute(edge), NumberStyles.Integer, CultureInfo.InvariantCulture, out int thousandthsOfAPercent) ||
             thousandthsOfAPercent <= 0)
         {
             return 0;
@@ -248,29 +200,18 @@ internal sealed class DocxImageLoader
         return thousandthsOfAPercent / 100000d;
     }
 
-    private InlineImage? Load(
-        string relationshipId,
-        DocxRelationships relationships,
-        double width,
-        double height,
-        string? altText,
-        string? name,
-        IDocxImageDiagnostics diagnostics,
-        ImagePresentation? presentation = null)
+    private InlineImage? Load(string relationshipId, DocxRelationships relationships, double width, double height, string? altText, string? name,
+        IDocxImageDiagnostics diagnostics, ImagePresentation? presentation = null)
     {
         if (!relationships.TryGet(relationshipId, out DocxRelationship? relationship) || relationship is null)
         {
-            diagnostics.AddDiagnosticOnce(
-                "docx.image.relationship",
-                "A DOCX picture named a relationship the package does not define.");
+            diagnostics.AddDiagnosticOnce("docx.image.relationship", "A DOCX picture named a relationship the package does not define.");
             return null;
         }
 
         if (relationship.TargetModeExternal)
         {
-            diagnostics.AddDiagnosticOnce(
-                "docx.image.external",
-                "A DOCX picture linked to an external image, which is not fetched.");
+            diagnostics.AddDiagnosticOnce("docx.image.external", "A DOCX picture linked to an external image, which is not fetched.");
             return null;
         }
 
@@ -278,17 +219,9 @@ internal sealed class DocxImageLoader
         if (part is null)
             return null;
 
-        return Admit(
-            new InlineImage(
-                part.Data,
-                part.ContentType,
-                width,
-                height,
-                altText,
-                string.IsNullOrWhiteSpace(name) ? Path.GetFileNameWithoutExtension(relationship.Target) : name,
-                presentation),
-            DocumentResourceDisposition.Embedded,
-            diagnostics);
+        return Admit(new InlineImage(part.Data, part.ContentType, width, height, altText,
+            string.IsNullOrWhiteSpace(name) ? Path.GetFileNameWithoutExtension(relationship.Target) : name, presentation),
+            DocumentResourceDisposition.Embedded, diagnostics);
     }
 
     /// <summary>
@@ -309,42 +242,32 @@ internal sealed class DocxImageLoader
 
     private MediaPart? ReadPart(string partPath, IDocxImageDiagnostics diagnostics)
     {
-        ZipArchiveEntry? entry = DocxPackage.FindEntry(_archive, partPath);
+        ZipArchiveEntry? entry = DocxPackage.FindEntry(archive, partPath);
         if (entry is null)
         {
-            diagnostics.AddDiagnosticOnce(
-                "docx.image.missing",
-                "A DOCX picture referenced a media part the package does not contain.");
+            diagnostics.AddDiagnosticOnce("docx.image.missing", "A DOCX picture referenced a media part the package does not contain.");
             return null;
         }
 
-        if (entry.Length > _limits.MaxBinBytes)
+        if (entry.Length > limits.MaxBinBytes)
         {
-            diagnostics.AddDiagnosticOnce(
-                "docx.image.limit",
-                "A DOCX image part exceeded MaxBinBytes and was skipped.");
+            diagnostics.AddDiagnosticOnce("docx.image.limit", "A DOCX image part exceeded MaxBinBytes and was skipped.");
             return null;
         }
 
-        byte[]? data = ReadEntryBytes(entry, _limits.MaxBinBytes);
+        byte[]? data = ReadEntryBytes(entry, limits.MaxBinBytes);
         if (data is null)
         {
-            diagnostics.AddDiagnosticOnce(
-                "docx.image.limit",
-                "A DOCX image part exceeded MaxBinBytes and was skipped.");
+            diagnostics.AddDiagnosticOnce("docx.image.limit", "A DOCX image part exceeded MaxBinBytes and was skipped.");
             return null;
         }
 
-        string? contentType =
-            DocumentImageFormats.ContentTypeForExtension(Path.GetExtension(partPath)) ??
-            DocumentImageFormats.ContentTypeForSignature(data);
+        string? contentType = DocumentImageFormats.ContentTypeForExtension(Path.GetExtension(partPath)) ?? DocumentImageFormats.ContentTypeForSignature(data);
         if (contentType is null)
         {
             // EMF/WMF metafiles land here, as does anything Word stored under an
             // extension this codec does not decode.
-            diagnostics.AddDiagnosticOnce(
-                "docx.image.format",
-                "A DOCX picture used an image format this codec does not carry and was skipped.");
+            diagnostics.AddDiagnosticOnce("docx.image.format", "A DOCX picture used an image format this codec does not carry and was skipped.");
             return null;
         }
 
@@ -383,8 +306,7 @@ internal sealed class DocxImageLoader
     /// </summary>
     private static (double Width, double Height) ReadExtent(XElement wrapper)
     {
-        XElement? extent = wrapper.Element(DocxNamespaces.WordDrawing + "extent") ??
-            FindDescendant(wrapper, DocxNamespaces.Drawing + "ext");
+        XElement? extent = wrapper.Element(DocxNamespaces.WordDrawing + "extent") ?? FindDescendant(wrapper, DocxNamespaces.Drawing + "ext");
         if (extent is null)
             return (0, 0);
 
@@ -407,8 +329,7 @@ internal sealed class DocxImageLoader
     /// </summary>
     private static (string? AltText, string? Name) ReadDescription(XElement wrapper)
     {
-        XElement? docPr = wrapper.Element(DocxNamespaces.WordDrawing + "docPr") ??
-            FindDescendant(wrapper, DocxNamespaces.Picture + "cNvPr");
+        XElement? docPr = wrapper.Element(DocxNamespaces.WordDrawing + "docPr") ?? FindDescendant(wrapper, DocxNamespaces.Picture + "cNvPr");
         if (docPr is null)
             return (null, null);
 

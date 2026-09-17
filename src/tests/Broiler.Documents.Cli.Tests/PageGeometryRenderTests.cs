@@ -1,5 +1,4 @@
 using Broiler.Documents.Cli.Rendering;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Cli.Tests;

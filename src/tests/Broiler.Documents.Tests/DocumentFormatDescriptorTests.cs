@@ -5,9 +5,9 @@ public sealed class DocumentFormatDescriptorTests
     [Fact]
     public void Extensions_Are_Normalized_To_Leading_Dot_Lower_Case_And_Deduplicated()
     {
-        var descriptor = new DocumentFormatDescriptor("RTF", null, new[] { "rtf", ".RTF", "*.rtf" });
+        var descriptor = new DocumentFormatDescriptor("RTF", null, ["rtf", ".RTF", "*.rtf"]);
 
-        Assert.Equal(new[] { ".rtf" }, descriptor.FileExtensions);
+        Assert.Equal([".rtf"], descriptor.FileExtensions);
     }
 
     [Theory]
@@ -18,7 +18,7 @@ public sealed class DocumentFormatDescriptorTests
     [InlineData(null, false)]
     public void MatchesExtension_Is_Case_And_Dot_Insensitive(string? extension, bool expected)
     {
-        var descriptor = new DocumentFormatDescriptor("RTF", null, new[] { ".rtf" });
+        var descriptor = new DocumentFormatDescriptor("RTF", null, [".rtf"]);
 
         Assert.Equal(expected, descriptor.MatchesExtension(extension));
     }
@@ -30,7 +30,7 @@ public sealed class DocumentFormatDescriptorTests
     [InlineData(null, false)]
     public void MatchesMimeType_Is_Case_Insensitive(string? mimeType, bool expected)
     {
-        var descriptor = new DocumentFormatDescriptor("RTF", new[] { "application/rtf" }, null);
+        var descriptor = new DocumentFormatDescriptor("RTF", ["application/rtf"], null);
 
         Assert.Equal(expected, descriptor.MatchesMimeType(mimeType));
     }

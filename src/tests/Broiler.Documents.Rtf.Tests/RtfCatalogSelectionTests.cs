@@ -7,7 +7,7 @@ public sealed class RtfCatalogSelectionTests
     private static byte[] Bytes(string s) => Encoding.Latin1.GetBytes(s);
 
     private static DocumentCodecCatalog Catalog() =>
-        new(new DocumentCodec[] { new RtfDocumentCodec() });
+        new([new RtfDocumentCodec()]);
 
     [Fact]
     public void Catalog_Selects_Rtf_By_Signature()

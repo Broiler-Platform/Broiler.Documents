@@ -151,7 +151,7 @@ internal sealed record OfficeSeed(
 /// by hand costs a few lines and buys every one of those messages.
 /// </para>
 /// </remarks>
-internal sealed class OfficeManifest
+internal sealed partial class OfficeManifest
 {
     /// <summary>Where the manifest lives, for a caller that has a repository root and no path.</summary>
     public const string RelativePath = "tests/office/office-corpus.json";
@@ -197,7 +197,7 @@ internal sealed class OfficeManifest
         new Dictionary<string, (Regex, Regex)>(StringComparer.Ordinal)
         {
             ["html"] = (
-                new Regex("font-family:'([^']*)'", RegexOptions.CultureInvariant),
+                MyRegex(),
                 new Regex("font-family:", RegexOptions.CultureInvariant)),
             ["fodt"] = (
                 new Regex("(?:style:font-name|svg:font-family)=\"([^\"]*)\"", RegexOptions.CultureInvariant),
@@ -490,4 +490,6 @@ internal sealed class OfficeManifest
     private static string Text(JsonElement element, string name) =>
         element.GetProperty(name).GetString()
         ?? throw new InvalidDataException("office-corpus.json has a null where " + name + " must be a string.");
+    [GeneratedRegex("font-family:'([^']*)'", RegexOptions.CultureInvariant)]
+    private static partial Regex MyRegex();
 }

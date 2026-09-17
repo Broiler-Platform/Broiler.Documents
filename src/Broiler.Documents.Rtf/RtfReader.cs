@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Rtf;
@@ -49,7 +48,7 @@ public static class RtfReader
         private readonly RtfFontTable _fonts = new();
         private readonly Stack<State> _stack = new();
         private readonly Accumulator _builder;
-        private readonly Dictionary<RtfDestination, Accumulator> _running = new();
+        private readonly Dictionary<RtfDestination, Accumulator> _running = [];
         private int _paperWidth;
         private int _paperHeight;
         private int _marginLeft;
@@ -74,7 +73,7 @@ public static class RtfReader
         private bool _shapeHasFill;
         private bool _shapeGradient;
         private bool _shapeHasLine = true;
-        private int _maxParagraphs;
+        private readonly int _maxParagraphs;
 
         // Buffered same-style body text (flushed when the style changes or the paragraph ends).
         private readonly StringBuilder _pending = new();
@@ -976,16 +975,14 @@ public static class RtfReader
             twips <= 0 ? 0 : Math.Clamp((int)Math.Round(twips / 360.0), 0, 32);
     }
 
-    private sealed class Accumulator
+    private sealed class Accumulator(int maxParagraphs)
     {
         private readonly List<RichTextParagraph> _paragraphs = [];
 
         /// <summary>The paragraph a shape met right now would be anchored to.</summary>
         public int ParagraphCount => _paragraphs.Count;
-        private readonly int _maxParagraphs;
+        private readonly int _maxParagraphs = maxParagraphs;
         private RichTextParagraph _current = RichTextParagraph.Create(string.Empty, InlineStyle.Default, ParagraphStyle.Default);
-
-        public Accumulator(int maxParagraphs) => _maxParagraphs = maxParagraphs;
 
         public bool LimitHit { get; private set; }
 

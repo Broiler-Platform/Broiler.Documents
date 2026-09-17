@@ -1,6 +1,6 @@
 using System.IO.Compression;
 using System.Text;
-using Broiler.Graphics;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Docx.Tests;
@@ -25,13 +25,13 @@ public sealed class DocxWriterTests
     [Fact]
     public void Writes_Hyperlink_Relationships_And_Numbering()
     {
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             MakeParagraph(
                 ParagraphStyle.Default with { ListKind = ListKind.Bullet, IndentLevel = 1 },
                 ("item ", InlineStyle.Default),
                 ("link", InlineStyle.Default with { LinkHref = "https://example.test" })),
-        });
+        ]);
 
         byte[] bytes = DocxDocumentCodec.WriteToArray(document);
         using var archive = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
@@ -46,8 +46,8 @@ public sealed class DocxWriterTests
     [Fact]
     public void Model_To_Docx_To_Model_RoundTrips_Supported_Subset()
     {
-        RichTextDocument expected = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument expected = RichTextDocument.FromParagraphs(
+        [
             MakeParagraph(
                 new ParagraphStyle
                 {
@@ -74,7 +74,7 @@ public sealed class DocxWriterTests
             MakeParagraph(
                 ParagraphStyle.Default with { ListKind = ListKind.Numbered, IndentLevel = 1 },
                 ("Second", InlineStyle.Default)),
-        });
+        ]);
 
         byte[] bytes = DocxDocumentCodec.WriteToArray(expected);
         using var stream = new MemoryStream(bytes);
@@ -86,12 +86,12 @@ public sealed class DocxWriterTests
     [Fact]
     public void Alpha_Color_Writes_Rgb_And_Reports_Diagnostic()
     {
-        RichTextDocument document = RichTextDocument.FromParagraphs(new[]
-        {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
             MakeParagraph(
                 ParagraphStyle.Default,
                 ("transparent", InlineStyle.Default with { Foreground = BColor.FromRgba(1, 2, 3, 128) })),
-        });
+        ]);
 
         using var stream = new MemoryStream();
         DocumentWriteResult result = new DocxDocumentCodec().Write(document, stream);

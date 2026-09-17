@@ -1,3 +1,4 @@
+using Broiler.Documents.Resources;
 using System;
 
 namespace Broiler.Documents;
@@ -21,14 +22,10 @@ public class DocumentReadOptions
 
     public static DocumentReadOptions Default { get; } = new();
 
-    public DocumentReadOptions(
-        DocumentLimits? limits = null,
-        int defaultCodePage = Windows1252CodePage,
-        bool decodeEmbeddedObjects = false,
-        DocumentResourcePolicy? resourcePolicy = null)
+    public DocumentReadOptions(DocumentLimits? limits = null, int defaultCodePage = Windows1252CodePage,
+        bool decodeEmbeddedObjects = false, DocumentResourcePolicy? resourcePolicy = null)
     {
-        if (defaultCodePage <= 0)
-            throw new ArgumentOutOfRangeException(nameof(defaultCodePage));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(defaultCodePage);
 
         Limits = limits ?? DocumentLimits.Default;
         DefaultCodePage = defaultCodePage;

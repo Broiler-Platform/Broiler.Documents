@@ -22,45 +22,30 @@ namespace Broiler.Documents;
 /// disposes it, which keeps a request cheap to build, pass, and discard.
 /// </para>
 /// </remarks>
-public sealed class DocumentReadRequest
+public sealed class DocumentReadRequest(DocumentInput input, DocumentReadOptions? options = null, CancellationToken cancellationToken = default)
 {
-    public DocumentReadRequest(
-        DocumentInput input,
-        DocumentReadOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        Input = input ?? throw new ArgumentNullException(nameof(input));
-        Options = options ?? DocumentReadOptions.Default;
-        CancellationToken = cancellationToken;
-    }
 
     /// <summary>The source, probed and read through the same replayable input.</summary>
-    public DocumentInput Input { get; }
+    public DocumentInput Input { get; } = input ?? throw new ArgumentNullException(nameof(input));
 
     /// <summary>
     /// The options. A codec that needs its own option type validates this before
     /// touching the input and rejects a mismatch rather than downcasting
     /// opportunistically.
     /// </summary>
-    public DocumentReadOptions Options { get; }
+    public DocumentReadOptions Options { get; } = options ?? DocumentReadOptions.Default;
 
     /// <summary>The limits in force, taken from the options.</summary>
     public DocumentLimits Limits => Options.Limits;
 
-    public CancellationToken CancellationToken { get; }
+    public CancellationToken CancellationToken { get; } = cancellationToken;
 
     /// <summary>Builds a request over a stream the caller keeps.</summary>
-    public static DocumentReadRequest FromStream(
-        Stream source,
-        DocumentReadOptions? options = null,
-        CancellationToken cancellationToken = default) =>
+    public static DocumentReadRequest FromStream(Stream source, DocumentReadOptions? options = null, CancellationToken cancellationToken = default) =>
         new(DocumentInput.FromStream(source), options, cancellationToken);
 
     /// <summary>Builds a request over bytes the caller already holds.</summary>
-    public static DocumentReadRequest FromBytes(
-        ReadOnlyMemory<byte> bytes,
-        DocumentReadOptions? options = null,
-        CancellationToken cancellationToken = default) =>
+    public static DocumentReadRequest FromBytes(ReadOnlyMemory<byte> bytes, DocumentReadOptions? options = null, CancellationToken cancellationToken = default) =>
         new(DocumentInput.FromBytes(bytes), options, cancellationToken);
 }
 
@@ -77,11 +62,7 @@ public sealed class DocumentReadRequest
 /// </remarks>
 public sealed class DocumentWriteRequest
 {
-    public DocumentWriteRequest(
-        RichTextDocument document,
-        Stream destination,
-        DocumentWriteOptions? options = null,
-        CancellationToken cancellationToken = default)
+    public DocumentWriteRequest(RichTextDocument document, Stream destination, DocumentWriteOptions? options = null, CancellationToken cancellationToken = default)
     {
         Document = document ?? throw new ArgumentNullException(nameof(document));
         Destination = destination ?? throw new ArgumentNullException(nameof(destination));

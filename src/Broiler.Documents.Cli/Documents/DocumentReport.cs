@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Text.Json.Nodes;
 using Broiler.Documents.Cli.Infrastructure;
@@ -73,14 +72,7 @@ public static class DocumentReport
         int warnings = diagnostics.Count(d => d.Severity == DocumentDiagnosticSeverity.Warning);
         int infos = diagnostics.Count - errors - warnings;
 
-        context.Report(string.Format(
-            CultureInfo.InvariantCulture,
-            "{0}: {1} diagnostic(s) - {2} error, {3} warning, {4} info.",
-            what,
-            diagnostics.Count,
-            errors,
-            warnings,
-            infos));
+        context.Report($"{what}: {diagnostics.Count} diagnostic(s) - {errors} error, {warnings} warning, {infos} info.");
 
         // Errors always print. They are the ones that changed the outcome, and a
         // run that hides them behind --verbose reports a success it did not have.
@@ -126,10 +118,7 @@ public static class DocumentReport
     /// <see cref="ExitCode.Diagnostics"/> when the diagnostics reach the
     /// <c>--fail-on</c> threshold, otherwise <paramref name="otherwise"/>.
     /// </summary>
-    public static int ApplyFailOn(
-        IEnumerable<DocumentDiagnostic> diagnostics,
-        DocumentDiagnosticSeverity? threshold,
-        int otherwise)
+    public static int ApplyFailOn(IEnumerable<DocumentDiagnostic> diagnostics, DocumentDiagnosticSeverity? threshold, int otherwise)
     {
         if (threshold is null)
             return otherwise;
@@ -194,7 +183,7 @@ public static class DocumentReport
                 statistics.Images++;
         }
 
-        statistics.FontFamilies = families.ToArray();
+        statistics.FontFamilies = [.. families];
         return statistics;
     }
 }
@@ -238,7 +227,7 @@ public sealed class DocumentStatistics
     /// <summary>Shapes holding text of their own, which is text a body-only read would lose.</summary>
     public int ShapeParagraphs { get; set; }
 
-    public IReadOnlyList<string> FontFamilies { get; set; } = Array.Empty<string>();
+    public IReadOnlyList<string> FontFamilies { get; set; } = [];
 
     public JsonObject ToJson()
     {

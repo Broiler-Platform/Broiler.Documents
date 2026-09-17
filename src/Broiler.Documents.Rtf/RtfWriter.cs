@@ -4,7 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Rtf;
@@ -718,14 +718,12 @@ public static class RtfWriter
 
     private static int Twips(float points) => (int)Math.Round(points * 20f);
 
-    private sealed class ResourceTable<T>
+    private sealed class ResourceTable<T>(IEqualityComparer<T> comparer)
         where T : notnull
     {
         // Index 0 is reserved (default font / auto color); interned entries start at 1.
-        private readonly Dictionary<T, int> _index;
+        private readonly Dictionary<T, int> _index = new(comparer);
         private readonly List<T> _ordered = [];
-
-        public ResourceTable(IEqualityComparer<T> comparer) => _index = new Dictionary<T, int>(comparer);
 
         public IReadOnlyList<T> Ordered => _ordered;
 

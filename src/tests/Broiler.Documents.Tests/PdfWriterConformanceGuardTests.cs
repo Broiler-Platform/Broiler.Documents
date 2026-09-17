@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -23,7 +19,7 @@ namespace Broiler.Documents.Tests;
 /// would be worse than none — it would make an unreviewed row look reviewed.
 /// </para>
 /// </remarks>
-public sealed class PdfWriterConformanceGuardTests
+public sealed partial class PdfWriterConformanceGuardTests
 {
     private const string Checklist = "tests/pdf/writer-conformance.json";
     private const string Writer = "src/Broiler.Documents.Pdf/Writing/PdfWriter.cs";
@@ -52,7 +48,7 @@ public sealed class PdfWriterConformanceGuardTests
         // and this fails, which is the only thing standing between a checklist
         // and a stale inventory.
         string source = File.ReadAllText(Path.Combine(PdfGuardRoots.Component, Writer));
-        HashSet<string> emitted = Regex.Matches(source, @"/[A-Z][A-Za-z0-9]*")
+        HashSet<string> emitted = MyRegex().Matches(source)
             .Select(match => match.Value)
             .Where(name => !NotKeys.Contains(name))
             .ToHashSet(StringComparer.Ordinal);
@@ -74,9 +70,7 @@ public sealed class PdfWriterConformanceGuardTests
             })
             .ToHashSet(StringComparer.Ordinal);
 
-        string[] unlisted = emitted.Except(listed, StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+        string[] unlisted = [.. emitted.Except(listed, StringComparer.Ordinal).Order(StringComparer.Ordinal)];
 
         Assert.True(
             unlisted.Length == 0,
@@ -165,4 +159,7 @@ public sealed class PdfWriterConformanceGuardTests
             }
         }
     }
+
+    [GeneratedRegex(@"/[A-Z][A-Za-z0-9]*")]
+    private static partial Regex MyRegex();
 }

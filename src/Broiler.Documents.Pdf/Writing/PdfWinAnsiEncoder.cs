@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using Broiler.Documents.Pdf.Text;
 

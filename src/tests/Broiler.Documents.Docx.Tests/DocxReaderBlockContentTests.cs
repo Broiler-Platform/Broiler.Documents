@@ -23,6 +23,10 @@ public sealed class DocxReaderBlockContentTests
         Assert.Equal("right", result.Document.Paragraphs[1].Text);
     }
 
+    private static readonly string[] expected = ["r1c1", "r1c2", "r2c1", "r2c2"];
+    private static readonly string[] expectedArray = ["outer", "inner"];
+    private static readonly string[] expectedArray0 = ["first", "second"];
+
     [Fact]
     public void Reads_Table_Cells_In_Row_Major_Order()
     {
@@ -32,7 +36,7 @@ public sealed class DocxReaderBlockContentTests
                 [DocxTestPackage.Paragraph("r2c1"), DocxTestPackage.Paragraph("r2c2")]));
 
         Assert.Equal(
-            new[] { "r1c1", "r1c2", "r2c1", "r2c2" },
+            expected,
             result.Document.Paragraphs.Select(paragraph => paragraph.Text).ToArray());
     }
 
@@ -71,7 +75,7 @@ public sealed class DocxReaderBlockContentTests
             DocxTestPackage.Table([[DocxTestPackage.Paragraph("outer") + inner]]));
 
         Assert.Equal(
-            new[] { "outer", "inner" },
+            expectedArray,
             result.Document.Paragraphs.Select(paragraph => paragraph.Text).ToArray());
     }
 
@@ -197,9 +201,7 @@ public sealed class DocxReaderBlockContentTests
 
         DocumentReadResult result = DocxTestPackage.ReadBody(body);
 
-        DocumentDiagnostic[] unsupported = result.Diagnostics
-            .Where(diagnostic => diagnostic.Code == "docx.block.unsupported")
-            .ToArray();
+        DocumentDiagnostic[] unsupported = [.. result.Diagnostics.Where(diagnostic => diagnostic.Code == "docx.block.unsupported")];
 
         Assert.Equal(2, unsupported.Length);
         Assert.Contains(unsupported, diagnostic => diagnostic.Message.Contains("someFutureBlock", StringComparison.Ordinal));
@@ -324,7 +326,7 @@ public sealed class DocxReaderBlockContentTests
         DocumentReadResult result = new DocxDocumentCodec().Read(stream);
 
         Assert.Equal(
-            new[] { "first", "second" },
+            expectedArray0,
             result.Document.Paragraphs.Select(paragraph => paragraph.Text).ToArray());
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.block.unsupported");
     }

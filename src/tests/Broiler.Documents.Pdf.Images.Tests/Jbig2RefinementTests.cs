@@ -313,8 +313,8 @@ public sealed class Jbig2RefinementTests
 
         var body = new List<byte>();
         AddUInt16(body, 0x02);                                          // SDREFAGG
-        body.AddRange(new byte[] { 3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE });
-        body.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });           // refinement pixels
+        body.AddRange([3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE]);
+        body.AddRange([0xFF, 0xFF, 0xFF, 0xFF]);           // refinement pixels
         AddUInt32(body, 1);
         AddUInt32(body, 1);
         body.AddRange(encoder.Flush());
@@ -348,8 +348,8 @@ public sealed class Jbig2RefinementTests
 
         var body = new List<byte>();
         AddUInt16(body, 0x02);
-        body.AddRange(new byte[] { 3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE });
-        body.AddRange(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+        body.AddRange([3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE]);
+        body.AddRange([0xFF, 0xFF, 0xFF, 0xFF]);
         AddUInt32(body, 2);
         AddUInt32(body, 2);
         body.AddRange(encoder.Flush());
@@ -398,7 +398,7 @@ public sealed class Jbig2RefinementTests
         AddUInt32(body, y);
         body.Add(0);                    // combination operator: OR
         body.Add(0);                    // arithmetic, template 0
-        body.AddRange(new byte[] { 3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE });
+        body.AddRange([3, 0xFF, 0xFD, 0xFF, 2, 0xFE, 0xFE, 0xFE]);
         body.AddRange(Jbig2GenericEncoder.Encode(bitmap.Pixels, bitmap.Width, bitmap.Height, template: 0));
 
         return Segment(number, type: 38, [.. body]);

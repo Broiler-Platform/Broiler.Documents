@@ -6,10 +6,10 @@ using Broiler.Documents.Model;
 
 namespace Broiler.Documents.Odt;
 
-internal sealed class OdtDocumentBuilder : IOdtImageDiagnostics
+internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics) : IOdtImageDiagnostics
 {
-    private readonly DocumentLimits _limits;
-    private readonly List<DocumentDiagnostic> _diagnostics;
+    private readonly DocumentLimits _limits = limits;
+    private readonly List<DocumentDiagnostic> _diagnostics = diagnostics;
     private readonly List<RichTextParagraph> _paragraphs = [];
     private readonly List<Segment> _segments = [];
     private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
@@ -22,12 +22,6 @@ internal sealed class OdtDocumentBuilder : IOdtImageDiagnostics
     private int _length;
     private int _tableCount;
     private int _unsupportedBlockCount;
-
-    public OdtDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
-    {
-        _limits = limits;
-        _diagnostics = diagnostics;
-    }
 
     public void AddTable(DocumentTable table)
     {

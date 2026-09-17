@@ -1,6 +1,6 @@
 using System;
 
-namespace Broiler.Documents;
+namespace Broiler.Documents.Resources;
 
 /// <summary>
 /// The distinct things that can be done with a document resource, each decided

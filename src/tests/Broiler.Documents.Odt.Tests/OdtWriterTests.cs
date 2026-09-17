@@ -1,7 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using System.Xml.Linq;
-using Broiler.Graphics;
+using Broiler.Documents.Resources;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Odt.Tests;
@@ -32,10 +32,9 @@ public sealed class OdtWriterTests
         XDocument manifest = XDocument.Parse(ReadText(archive, "META-INF/manifest.xml"));
         XNamespace ns = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
 
-        string[] paths = manifest.Root!
+        string[] paths = [.. manifest.Root!
             .Elements(ns + "file-entry")
-            .Select(entry => (string)entry.Attribute(ns + "full-path")!)
-            .ToArray();
+            .Select(entry => (string)entry.Attribute(ns + "full-path")!)];
 
         Assert.Equal(["/", "content.xml", "styles.xml", "meta.xml"], paths);
         foreach (string path in paths.Skip(1))

@@ -3,10 +3,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using Broiler.Documents.Model;
-using Broiler.Graphics;
 using Broiler.Graphics.Imaging;
 
-namespace Broiler.Documents;
+namespace Broiler.Documents.Resources;
 
 /// <summary>
 /// One resource, the decision made about it, and the payload that decision was
@@ -177,10 +176,7 @@ public sealed class DocumentConversionContext
         return ExplainDenial(id, operations, DocumentResourceBinding.ForFont(font));
     }
 
-    private string ExplainDenial(
-        DocumentResourceId id,
-        DocumentResourceOperations operations,
-        DocumentResourceBinding binding)
+    private string ExplainDenial(DocumentResourceId id, DocumentResourceOperations operations, DocumentResourceBinding binding)
     {
         if (id.IsNone)
             return "the resource carries no context id";

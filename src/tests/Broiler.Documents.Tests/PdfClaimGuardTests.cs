@@ -22,7 +22,7 @@ namespace Broiler.Documents.Tests;
 /// that the description and the artifact still match, not that either is correct.
 /// </para>
 /// </remarks>
-public sealed class PdfClaimGuardTests
+public sealed partial class PdfClaimGuardTests
 {
     /// <summary>The documents a reviewer reads to learn what the codec does.</summary>
     private static readonly string[] DescribingDocuments =
@@ -41,10 +41,9 @@ public sealed class PdfClaimGuardTests
         string description = string.Concat(DescribingDocuments.Select(
             path => File.ReadAllText(Path.Combine(root, path))));
 
-        string[] undocumented = DeclaredCodes(root)
+        string[] undocumented = [.. DeclaredCodes(root)
             .Where(code => !description.Contains(code, StringComparison.Ordinal))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         // A code is API: a host branches on it, and the documents are where a host
         // learns it exists. One that appears in neither is a capability statement
@@ -66,7 +65,7 @@ public sealed class PdfClaimGuardTests
         // The matrix's own headline rule, made mechanical. Status words appear in
         // table cells, so a cell holding exactly "Supported" is the claim; the
         // word inside a sentence explaining the rule is not.
-        bool claimsSupport = Regex.IsMatch(matrix, @"\|\s*Supported\s*\|", RegexOptions.CultureInvariant);
+        bool claimsSupport = MyRegex().IsMatch(matrix);
 
         Assert.False(
             anythingPending && claimsSupport,
@@ -83,12 +82,11 @@ public sealed class PdfClaimGuardTests
         // diagnostic exists. A row that survives a rename would send a reviewer
         // looking for something that is not there.
         string register = File.ReadAllText(Path.Combine(root, "docs/pdf-ip-licensing-register.md"));
-        string[] missing = Regex.Matches(register, @"`(pdf\.[a-z0-9.\-]+|document\.[a-z0-9.\-]+)`", RegexOptions.CultureInvariant)
+        string[] missing = [.. Regex.Matches(register, @"`(pdf\.[a-z0-9.\-]+|document\.[a-z0-9.\-]+)`", RegexOptions.CultureInvariant)
             .Select(match => match.Groups[1].Value)
             .Where(code => code.Contains('.', StringComparison.Ordinal) && !declared.Contains(code))
             .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         Assert.Empty(missing);
     }
@@ -111,7 +109,7 @@ public sealed class PdfClaimGuardTests
         // a package feed, so it is the one place a claims rule kept only in prose
         // actually costs something. It said "patent-free filter set" until IP-018
         // was applied, contradicting every codec row in the register.
-        string[] offending = Directory
+        string[] offending = [.. Directory
             .EnumerateFiles(Path.Combine(root, "src"), "*.csproj", SearchOption.AllDirectories)
             .Where(path => !PdfGuardRoots.IsBuildOutput(path))
             .SelectMany(path => Regex.Matches(File.ReadAllText(path), @"<Description>(.*?)</Description>",
@@ -120,8 +118,7 @@ public sealed class PdfClaimGuardTests
             .Where(entry => ProhibitedClaims.Any(claim =>
                 entry.Text.Contains(claim, StringComparison.OrdinalIgnoreCase)))
             .Select(entry => entry.Path)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         Assert.Empty(offending);
     }
@@ -161,15 +158,14 @@ public sealed class PdfClaimGuardTests
         // it denotes; a committed glyph list, encoding table, or metric file
         // would be the shape of the thing that position rules out, and it would
         // need its own source decision before it belonged here.
-        string[] dataFiles = CodecSourceRoots
+        string[] dataFiles = [.. CodecSourceRoots
             .Select(relative => Path.Combine(root, relative))
             .Where(Directory.Exists)
             .SelectMany(directory => Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
             .Where(path => !PdfGuardRoots.IsBuildOutput(path))
             .Where(path => Path.GetExtension(path) is not (".cs" or ".csproj"))
             .Select(path => Path.GetRelativePath(root, path))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         Assert.Empty(dataFiles);
     }
@@ -189,4 +185,7 @@ public sealed class PdfClaimGuardTests
                 RegexOptions.CultureInvariant)
             .Select(match => match.Groups[1].Value);
     }
+
+    [GeneratedRegex(@"\|\s*Supported\s*\|", RegexOptions.CultureInvariant)]
+    private static partial Regex MyRegex();
 }

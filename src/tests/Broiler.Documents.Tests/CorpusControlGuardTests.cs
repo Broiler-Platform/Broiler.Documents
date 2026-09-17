@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text.Json;
 
 namespace Broiler.Documents.Tests;
@@ -70,7 +66,7 @@ public sealed class CorpusControlGuardTests
         // half of the classification a machine can check. Whether the cited
         // document actually says what the row claims is a reader's job.
         using JsonDocument baseline = Load(BaselineFile);
-        string[] missing = baseline.RootElement.GetProperty("roundTrips").EnumerateArray()
+        string[] missing = [.. baseline.RootElement.GetProperty("roundTrips").EnumerateArray()
             .Where(row => (row.GetProperty("state").GetString() ?? string.Empty) == "documented")
             .Select(row => (Key: Key(row), Reference: row.GetProperty("reference").GetString()))
             .Where(row => row.Reference is null ||
@@ -78,8 +74,7 @@ public sealed class CorpusControlGuardTests
                               PdfGuardRoots.Component,
                               row.Reference.Replace('/', Path.DirectorySeparatorChar))))
             .Select(row => row.Key + " -> " + (row.Reference ?? "(none)"))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         Assert.True(
             missing.Length == 0,
@@ -99,12 +94,11 @@ public sealed class CorpusControlGuardTests
             .ToHashSet(StringComparer.Ordinal);
 
         using JsonDocument baseline = Load(BaselineFile);
-        string[] orphaned = baseline.RootElement.GetProperty("roundTrips").EnumerateArray()
+        string[] orphaned = [.. baseline.RootElement.GetProperty("roundTrips").EnumerateArray()
             .Select(row => row.GetProperty("sample").GetString() ?? string.Empty)
             .Where(sample => !known.Contains(sample))
             .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         Assert.True(
             orphaned.Length == 0,
@@ -168,13 +162,12 @@ public sealed class CorpusControlGuardTests
         // the corpus runner itself.
         string solution = File.ReadAllText(Path.Combine(PdfGuardRoots.Component, "Broiler.Documents.slnx"));
 
-        string[] unregistered = Directory
+        string[] unregistered = [.. Directory
             .EnumerateFiles(Path.Combine(PdfGuardRoots.Component, "src"), "*.csproj", SearchOption.AllDirectories)
             .Where(path => !PdfGuardRoots.IsBuildOutput(path))
             .Select(path => Path.GetRelativePath(PdfGuardRoots.Component, path).Replace('\\', '/'))
             .Where(path => !solution.Contains("\"" + path + "\"", StringComparison.Ordinal))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+            .Order(StringComparer.Ordinal)];
 
         Assert.True(
             unregistered.Length == 0,

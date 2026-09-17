@@ -24,7 +24,7 @@ namespace Broiler.Documents.Odt.Tests;
 /// claims rule is still the part that actually has to hold.
 /// </para>
 /// </remarks>
-public sealed class OdtClaimGuardTests
+public sealed partial class OdtClaimGuardTests
 {
     private const string Register = "docs/odt-ip-licensing-register.md";
     private const string Conformance = "docs/odt-conformance.md";

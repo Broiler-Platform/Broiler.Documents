@@ -337,6 +337,6 @@ internal static class DocumentChecks
             parts.Add(await text.ReadToEndAsync().ConfigureAwait(false));
         }
 
-        return parts.ToArray();
+        return [.. parts];
     }
 }

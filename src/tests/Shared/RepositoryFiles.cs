@@ -1,6 +1,3 @@
-using System;
-using System.IO;
-using System.Linq;
 using System.Xml.Linq;
 
 namespace Broiler.Documents.TestSupport;
@@ -23,11 +20,10 @@ internal static class RepositoryFiles
             segment.Equals("obj", StringComparison.OrdinalIgnoreCase));
 
     private static string[] References(XDocument project, string elementName) =>
-        project.Descendants(elementName)
+        [.. project.Descendants(elementName)
             .Select(reference => ((string?)reference.Attribute("Include")
                 ?? throw new InvalidDataException($"A {elementName} is missing Include.")).Replace('\\', '/'))
-            .OrderBy(reference => reference, StringComparer.Ordinal)
-            .ToArray();
+            .OrderBy(reference => reference, StringComparer.Ordinal)];
 
     private static string FindRoot()
     {
