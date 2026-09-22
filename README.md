@@ -39,8 +39,10 @@ dotnet add package Broiler.Documents.Rtf --prerelease
 
 `NuGet.config` in the repository root pins two sources — nuget.org and the
 Broiler-Platform GitHub Packages feed — and clears whatever the machine has
-configured. Package source mapping sends `Broiler.*` to GitHub Packages and
-everything else to nuget.org. Versions are pinned in `Directory.Packages.props`.
+configured. Package source mapping looks up `Broiler.*` on both GitHub Packages
+and nuget.org, so each pinned Broiler version resolves from whichever feed has it,
+and sends everything else to nuget.org only. Mapping works per package ID, not per
+version; versions are pinned in `Directory.Packages.props`.
 
 That mapping is load-bearing. GitHub Packages requires authentication **even for
 public packages** and answers `401` to an anonymous request, so an unmapped source
