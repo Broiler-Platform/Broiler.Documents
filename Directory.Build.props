@@ -30,4 +30,13 @@
     <PackageProjectUrl>https://github.com/Broiler-Platform/Broiler.Documents</PackageProjectUrl>
     <PackageTags>broiler;documents;rich-text;codec;rtf;docx;odt;opendocument;html;markdown</PackageTags>
   </PropertyGroup>
+
+  <!-- NU1603 (a dependency resolved to a higher preview than it asked for) stays a
+       warning rather than an error. It happens when an upstream Broiler package
+       names a preview its feed does not carry, e.g. Broiler.Graphics asking for a
+       Broiler.Media.Image preview that nuget.org skipped; the next preview is
+       acceptable. -->
+  <PropertyGroup>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1603</WarningsNotAsErrors>
+  </PropertyGroup>
 </Project>

@@ -11,6 +11,10 @@ on:
         description: Resolved preview version for a publish run
         type: string
         default: ''
+      package-source:
+        description: 'Feed a publish run restores Broiler packages from (github or nuget). Empty keeps the repository NuGet.config.'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -18,6 +22,7 @@ permissions:
 
 env:
   PACKAGE_VERSION: ${{ inputs.package-version }}
+  PACKAGE_SOURCE: ${{ inputs.package-source }}
   NuGetPackageSourceCredentials_broiler-github: Username=${{ github.actor }};Password=${{ secrets.GITHUB_TOKEN }};ValidAuthenticationTypes=Basic
 
 concurrency:
@@ -48,6 +53,17 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '24'
+
+      # A publish run restores from its destination feed only, so the packages it
+      # produces can depend only on versions a consumer of that feed can restore.
+      - name: Select restore feeds
+        if: env.PACKAGE_SOURCE != ''
+        run: |
+          case "$PACKAGE_SOURCE" in
+            github|nuget) cp "eng/nuget/NuGet.$PACKAGE_SOURCE.config" NuGet.config ;;
+            *) echo "::error::Unknown package source '$PACKAGE_SOURCE'."; exit 1 ;;
+          esac
+          echo "Restoring from the $PACKAGE_SOURCE feed configuration."
 
       - name: Test preview version selection
         run: node --test eng/resolve-preview-version.test.mjs

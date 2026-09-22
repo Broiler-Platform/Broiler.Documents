@@ -39,8 +39,10 @@ dotnet add package Broiler.Documents.Rtf --prerelease
 
 `NuGet.config` in the repository root pins two sources — nuget.org and the
 Broiler-Platform GitHub Packages feed — and clears whatever the machine has
-configured. Package source mapping sends `Broiler.*` to GitHub Packages and
-everything else to nuget.org. Versions are pinned in `Directory.Packages.props`.
+configured. Package source mapping looks up `Broiler.*` on both GitHub Packages
+and nuget.org, so each pinned Broiler version resolves from whichever feed has it,
+and sends everything else to nuget.org only. Mapping works per package ID, not per
+version; versions are pinned in `Directory.Packages.props`.
 
 That mapping is load-bearing. GitHub Packages requires authentication **even for
 public packages** and answers `401` to an anonymous request, so an unmapped source
@@ -259,7 +261,10 @@ Packages and `preview.2` on nuget.org, the next publish to either feed is
 `preview.4`, so the version lookup always reads both. A manual suffix or `v*` tag
 must be unused and at least that next preview;
 tags publish to nuget.org. The reusable CI workflow validates that version, and
-publication downloads those exact artifacts instead of rebuilding. An isolated
+publication downloads those exact artifacts instead of rebuilding. For a publish,
+CI restores from the destination feed only: `eng/nuget/NuGet.nuget.config` (nuget.org
+for everything) or `eng/nuget/NuGet.github.config` (`Broiler.*` from GitHub Packages)
+replaces the root `NuGet.config`, so a package cannot depend on a version its feed lacks. An isolated
 consumer restore checks dependencies against the destination feed before any push,
 including during dry runs. Publishing to nuget.org needs a `NUGET_API_KEY`
 repository secret; GitHub Packages uses the built-in `GITHUB_TOKEN`. Runs are
