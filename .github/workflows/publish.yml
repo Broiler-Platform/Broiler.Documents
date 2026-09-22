@@ -69,6 +69,7 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       package-version: ${{ needs.version.outputs.version }}
+      package-source: ${{ github.event_name == 'push' && 'nuget' || inputs.target }}
 
   publish:
     name: Publish to ${{ github.event_name == 'push' && 'nuget' || inputs.target }}
