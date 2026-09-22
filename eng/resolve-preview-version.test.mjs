@@ -48,6 +48,14 @@ test('all packages contribute, including a partially published newer preview', a
   assert.equal(chooseVersion('0.1.0-preview.1', versions), '0.1.0-preview.3');
 });
 
+test('versions from both feeds are cumulative', () => {
+  const github = ['0.1.0-preview.1', '0.1.0-preview.2', '0.1.0-preview.3'];
+  const nuget = ['0.1.0-preview.1', '0.1.0-preview.2'];
+  assert.equal(chooseVersion('0.1.0-preview.1', [...nuget, ...github]), '0.1.0-preview.4');
+  assert.equal(chooseVersion('0.1.0-preview.1', [...github, ...nuget]), '0.1.0-preview.4');
+  assert.throws(() => chooseVersion('0.1.0-preview.1', [...nuget, ...github], { tag: 'v0.1.0-preview.3' }));
+});
+
 test('feed failures and malformed responses stop publication', async () => {
   for (const response of [401, 403, 429, 500, {}, { versions: [2] }]) {
     await assert.rejects(readVersions('https://feed/index.json', ['Core'], {}, fakeFeed({

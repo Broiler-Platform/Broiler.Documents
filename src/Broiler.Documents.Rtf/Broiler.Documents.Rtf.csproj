@@ -9,7 +9,7 @@
     <RootNamespace>Broiler.Documents.Rtf</RootNamespace>
     <AssemblyName>Broiler.Documents.Rtf</AssemblyName>
     <PackageId>Broiler.Documents.Rtf</PackageId>
-    <Description>RTF document codec for Broiler.Documents (Phase 1: tokenizer + signature probe).</Description>
+    <Description>RTF reader/writer codec for Broiler.Documents over the documented first-release RTF subset.</Description>
   </PropertyGroup>
 
   <ItemGroup>

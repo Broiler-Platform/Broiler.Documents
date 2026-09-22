@@ -86,15 +86,16 @@ async function main() {
   const packageIds = packages.map(p => p.PackageId);
   const target = process.env.TARGET || 'nuget';
   if (!['nuget', 'github'].includes(target)) throw new Error(`Unknown target '${target}'.`);
-  // NuGet.org is the baseline even when publishing to GitHub Packages.
-  const published = await readVersions('https://api.nuget.org/v3/index.json', packageIds);
-  if (target === 'github') {
-    const { GITHUB_REPOSITORY_OWNER: owner, GITHUB_ACTOR: actor, GITHUB_TOKEN: token } = process.env;
-    if (!owner || !actor || !token) throw new Error('GitHub feed lookup requires owner, actor, and token.');
-    const authorization = `Basic ${Buffer.from(`${actor}:${token}`).toString('base64')}`;
-    published.push(...await readVersions(
-      `https://nuget.pkg.github.com/${owner}/index.json`, packageIds, { authorization }));
-  }
+  // Preview numbers are cumulative across both feeds, whichever one is the
+  // target: with preview.3 on GitHub Packages and preview.2 on nuget.org, the
+  // next publish to either feed is preview.4, so a number never names two builds.
+  const { GITHUB_REPOSITORY_OWNER: owner, GITHUB_ACTOR: actor, GITHUB_TOKEN: token } = process.env;
+  if (!owner || !actor || !token) throw new Error('GitHub feed lookup requires owner, actor, and token.');
+  const authorization = `Basic ${Buffer.from(`${actor}:${token}`).toString('base64')}`;
+  const published = (await Promise.all([
+    readVersions('https://api.nuget.org/v3/index.json', packageIds),
+    readVersions(`https://nuget.pkg.github.com/${owner}/index.json`, packageIds, { authorization }),
+  ])).flat();
   const tag = process.env.GITHUB_EVENT_NAME === 'push'
     ? (process.env.GITHUB_REF || '').replace(/^refs\/tags\//, '') : '';
   if (process.env.GITHUB_EVENT_NAME === 'push' && !tag.startsWith('v')) {
