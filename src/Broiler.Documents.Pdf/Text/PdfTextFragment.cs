@@ -8,10 +8,16 @@ namespace Broiler.Documents.Pdf.Text;
 /// geometry the reading-order pass needs and nothing more.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Fragments exist only between content interpretation and model projection. No
 /// coordinate survives into <c>RichTextDocument</c>: the rich-text model is a
 /// logical model, and keeping a hidden geometry side channel in it would be a
 /// fixed-layout claim the format cannot honour on re-pagination.
+/// </para>
+/// <para>
+/// Page space is the page as a viewer displays it: turned by its <c>/Rotate</c>,
+/// in points, from the visible box's lower-left corner (<c>PdfPage.Display</c>).
+/// </para>
 /// </remarks>
 internal sealed class PdfTextFragment(
     string text,
@@ -26,7 +32,9 @@ internal sealed class PdfTextFragment(
     BColor color,
     int renderMode,
     int mcid = -1,
-    bool artifact = false)
+    bool artifact = false,
+    int order = 0,
+    bool turned = false)
 {
     public string Text { get; } = text;
 
@@ -66,6 +74,18 @@ internal sealed class PdfTextFragment(
     /// <remarks>Set the same way, and for the same reason, as <see cref="Underline"/>.</remarks>
     public bool Strikethrough { get; set; }
 
+    /// <summary>
+    /// The colour of a fill painted beneath this run, or <see cref="BColor.Empty"/>
+    /// for none.
+    /// </summary>
+    /// <remarks>
+    /// Set the same way, and for the same reason, as <see cref="Underline"/>: a
+    /// panel behind a heading is a separate fill, painted before the words and
+    /// related to them by nothing but coordinates. White text on a dark band is
+    /// the case that makes it matter. Without the band it is white on white.
+    /// </remarks>
+    public BColor Background { get; set; }
+
     public BColor Color { get; } = color;
 
     /// <summary>
@@ -103,6 +123,25 @@ internal sealed class PdfTextFragment(
     /// send the page back to geometry that the tree could have ordered.
     /// </remarks>
     public bool IsArtifact { get; } = artifact;
+
+    /// <summary>
+    /// Where the run falls in the page's paint order, counted with the paths and
+    /// pictures on the same page. Zero where nothing counted it.
+    /// </summary>
+    public int Order { get; } = order;
+
+    /// <summary>
+    /// True for a run drawn anywhere but left to right along the page as
+    /// displayed: sideways, upside down, mirrored, or at a slant.
+    /// </summary>
+    /// <remarks>
+    /// Everything downstream sets text on horizontal lines, and a turned run is
+    /// placed there all the same - usually one letter to a fragment, since its
+    /// pen leaves the baseline after every glyph. It is carried so the read can
+    /// say how much text that happened to, rather than hand back scattered
+    /// letters as if they were what the page said.
+    /// </remarks>
+    public bool IsTurned { get; } = turned;
 
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"'{Text}' @ ({X:F1},{Y:F1}) {FontSize:F1}pt");

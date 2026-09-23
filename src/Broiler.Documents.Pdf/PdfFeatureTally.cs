@@ -167,11 +167,23 @@ internal sealed class PdfFeatureTally
     // it there says content was dropped there, and none was.
     private readonly PageSet _artworkDroppedPages = new();
     private readonly PageSet _tablePages = new();
-    private readonly SortedSet<string> _tableShapes = new(StringComparer.Ordinal);
+
+    // Each distinct table shape and how many grids had it, in the order the
+    // pages drew them. A sorted set of strings reported six grids as four
+    // shapes in string order - "10x6, 2x6, 5x6, 6x6" - which no reader could
+    // add up to six, and which put the last page's table first.
+    private readonly List<(int Rows, int Columns)> _tableShapes = [];
+    private readonly Dictionary<(int Rows, int Columns), int> _tableShapeCounts = [];
+    private int _tableShapeOverflow;
     private int _tables;
+    private int _frames;
     private int _artworkReadAsTableRules;
     private int _artworkReadAsTableBlocks;
     private int _artworkReadAsDecorationRules;
+    private int _artworkReadAsBackgroundBlocks;
+    private int _artworkOnBarePaper;
+    private int _artworkRepeatedRules;
+    private int _artworkRepeatedBlocks;
 
     // The running per-page counts the dropped-page set is decided from. A page's
     // paths are all noted before the next page's are, so one open page is enough
@@ -201,6 +213,8 @@ internal sealed class PdfFeatureTally
     private int _activeContent;
     private readonly PageSet _droppedDestinationPages = new();
     private int _droppedDestinations;
+    private readonly PageSet _turnedTextPages = new();
+    private int _turnedCharacters;
     private readonly PageSet _hiddenLayerPages = new();
     private int _hiddenLayers;
     private int _undecidableLayers;
@@ -301,18 +315,51 @@ internal sealed class PdfFeatureTally
     }
 
     /// <summary>
-    /// Records one table read back out of a page's rules.
+    /// Records how many characters a page drew turned against itself as
+    /// displayed, and set on horizontal lines regardless.
     /// </summary>
-    public void NoteTable(int rows, int columns, bool inferred, int? page)
+    public void NoteTurnedText(int characters, int? page)
     {
+        if (characters <= 0)
+            return;
+
+        _turnedCharacters = _turnedCharacters > int.MaxValue - characters ? int.MaxValue : _turnedCharacters + characters;
+        _turnedTextPages.Add(page);
+    }
+
+    /// <summary>
+    /// Records one table read back out of a page's rules, or one closed frame
+    /// around text read as a one-cell table.
+    /// </summary>
+    public void NoteTable(int rows, int columns, bool inferred, bool frame, int? page)
+    {
+        _tablePages.Add(page);
+
+        // A frame is not a grid: it is counted, and said, apart from them.
+        if (frame)
+        {
+            _frames++;
+            return;
+        }
+
         _tables++;
         if (inferred)
             _inferredTables++;
         _tableCells += rows * columns;
-        _tablePages.Add(page);
 
-        if (_tableShapes.Count < MaxDistinctVariants)
-            _tableShapes.Add(string.Create(CultureInfo.InvariantCulture, $"{rows}x{columns}"));
+        if (_tableShapeCounts.TryGetValue((rows, columns), out int seen))
+        {
+            _tableShapeCounts[(rows, columns)] = seen + 1;
+        }
+        else if (_tableShapes.Count < MaxDistinctVariants)
+        {
+            _tableShapes.Add((rows, columns));
+            _tableShapeCounts[(rows, columns)] = 1;
+        }
+        else
+        {
+            _tableShapeOverflow++;
+        }
     }
 
     /// <summary>
@@ -345,6 +392,39 @@ internal sealed class PdfFeatureTally
         _artworkReadAsDecorationRules += rules;
         OpenArtworkPage(page);
         _artworkOpenTaken += rules;
+    }
+
+    /// <summary>
+    /// Records how many of a page's filled areas were read back as the
+    /// background of the runs painted over them.
+    /// </summary>
+    public void NoteArtworkReadAsBackground(int blocks, int? page)
+    {
+        _artworkReadAsBackgroundBlocks += blocks;
+        OpenArtworkPage(page);
+        _artworkOpenTaken += blocks;
+    }
+
+    /// <summary>
+    /// Records how many of a page's filled areas were fills in the paper's
+    /// colour with nothing under them. Nothing was read back from them, and
+    /// nothing was lost either: they painted nothing a reader can see.
+    /// </summary>
+    public void NoteArtworkOnBarePaper(int blocks, int? page)
+    {
+        _artworkOnBarePaper += blocks;
+        OpenArtworkPage(page);
+        _artworkOpenTaken += blocks;
+    }
+
+    /// <summary>
+    /// Records how many dropped paths repeated a shape the same page had
+    /// already painted, and dropped, in the same place.
+    /// </summary>
+    public void NoteArtworkRepeated(int rules, int blocks)
+    {
+        _artworkRepeatedRules += rules;
+        _artworkRepeatedBlocks += blocks;
     }
 
     /// <summary>Moves the running artwork counts on to another page.</summary>
@@ -492,6 +572,7 @@ internal sealed class PdfFeatureTally
         ArgumentNullException.ThrowIfNull(diagnostics);
 
         ReportOptionalContent(diagnostics);
+        ReportTurnedText(diagnostics);
         ReportArtwork(diagnostics);
         ReportImages(diagnostics);
         ReportDecodedImages(diagnostics);
@@ -546,6 +627,29 @@ internal sealed class PdfFeatureTally
         _hiddenLayerPages.Append(text);
 
         diagnostics.Skipped(PdfDiagnosticCodes.OptionalContentOmitted, text.ToString());
+    }
+
+    /// <summary>
+    /// Reports the text that was drawn turned against its page and read as if it
+    /// were not. A skip, not a warning: the words are in the document, but where
+    /// they landed is all that was read of them, and a label running up a margin
+    /// comes back as a column of single letters that a Success would vouch for.
+    /// </summary>
+    private void ReportTurnedText(PdfDiagnosticSink diagnostics)
+    {
+        if (_turnedCharacters == 0)
+            return;
+
+        var text = new StringBuilder();
+        text.Append(CultureInfo.InvariantCulture,
+            $"{_turnedCharacters} character{S(_turnedCharacters)} of text {Were(_turnedCharacters)} drawn turned against the page as it is displayed - sideways, upside down, mirrored or at a slant. ");
+        text.Append(
+            "This release sets text on horizontal lines, so turned text was placed wherever each piece of it landed, " +
+            "often one letter at a time, and it may read scattered or out of order. A page turned whole by its " +
+            "/Rotate entry is read the way it is displayed and is not counted here.");
+        _turnedTextPages.Append(text);
+
+        diagnostics.Skipped(PdfDiagnosticCodes.TextOrientationUnsupported, text.ToString());
     }
 
     /// <summary>
@@ -616,35 +720,52 @@ internal sealed class PdfFeatureTally
     /// </summary>
     private void ReportTables(PdfDiagnosticSink diagnostics)
     {
-        if (_tables == 0)
+        if (_tables == 0 && _frames == 0)
             return;
 
         var text = new StringBuilder();
-        text.Append(CultureInfo.InvariantCulture,
-            $"{_tables} fully ruled grid{S(_tables)} {Were(_tables)} read as {(_tables == 1 ? "a table" : "tables")} and carried into the document, ");
-        text.Append(CultureInfo.InvariantCulture, $"{_tableCells} cell{S(_tableCells)} in all ({string.Join(", ", _tableShapes)}). ");
-        text.Append(
-            "PDF draws a table as lines and text at coordinates and says nowhere that it is one, so this is a " +
-            "reconstruction: the text was arranged into the cells the grid bounds, and each cell's borders and " +
-            "shading are the paths that were painted, so an unruled edge carries no border. ");
 
-        // The split a host acts on. One of these is the document's own lattice;
-        // the other is the document's rules plus this build's reading of the
-        // text between them, and they are not the same claim.
-        if (_inferredTables == 0)
-        {
-            text.Append("Every one was fully ruled: each cell edge was painted.");
-        }
-        else if (_inferredTables == _tables)
+        if (_tables > 0)
         {
             text.Append(CultureInfo.InvariantCulture,
-                $"{_inferredTables} of them {Were(_inferredTables)} only partly ruled - the document stacked enough rules to divide the region in one direction, and the remaining divisions were read off the alignment of the text inside it.");
+                $"{_tables} fully ruled grid{S(_tables)} {Were(_tables)} read as {(_tables == 1 ? "a table" : "tables")} and carried into the document, ");
+            text.Append(CultureInfo.InvariantCulture, $"{_tableCells} cell{S(_tableCells)} in all ({DescribeTableShapes()}). ");
+            text.Append(
+                "PDF draws a table as lines and text at coordinates and says nowhere that it is one, so this is a " +
+                "reconstruction: the text was arranged into the cells the grid bounds, and each cell's borders and " +
+                "shading are the paths that were painted, so an unruled edge carries no border. ");
+
+            // The split a host acts on. One of these is the document's own lattice;
+            // the other is the document's rules plus this build's reading of the
+            // text between them, and they are not the same claim.
+            if (_inferredTables == 0)
+            {
+                text.Append("Every one was fully ruled: each cell edge was painted.");
+            }
+            else if (_inferredTables == _tables)
+            {
+                text.Append(CultureInfo.InvariantCulture,
+                    $"{_inferredTables} of them {Were(_inferredTables)} only partly ruled - the document stacked enough rules to divide the region in one direction, and the remaining divisions were read off the alignment of the text inside it.");
+            }
+            else
+            {
+                text.Append(CultureInfo.InvariantCulture,
+                    $"{_tables - _inferredTables} {Were(_tables - _inferredTables)} fully ruled and {_inferredTables} only partly, the remaining divisions there being read off the alignment of the text inside the region.");
+            }
         }
-        else
+
+        // Said apart from the grids, because it is a different claim: a box
+        // drawn around a note is not evidence that the page drew tabular data,
+        // and a one-cell table is only how the model holds a bordered box.
+        if (_frames > 0)
         {
+            if (text.Length > 0)
+                text.Append(' ');
+
             text.Append(CultureInfo.InvariantCulture,
-                $"{_tables - _inferredTables} {Were(_tables - _inferredTables)} fully ruled and {_inferredTables} only partly, the remaining divisions there being read off the alignment of the text inside the region.");
+                $"{_frames} closed frame{S(_frames)} around text {Were(_frames)} read as {(_frames == 1 ? "a one-cell table" : "one-cell tables")}: a box ruled on all four sides with nothing crossing it is how a bordered note is drawn, and a one-cell table is how the formats this model writes hold one. That is a box, not a claim of tabular data.");
         }
+
         if (_continuedTables > 0)
         {
             text.Append(CultureInfo.InvariantCulture,
@@ -654,6 +775,26 @@ internal sealed class PdfFeatureTally
         _tablePages.Append(text);
 
         diagnostics.Info(PdfDiagnosticCodes.TableReconstructed, text.ToString());
+    }
+
+    /// <summary>
+    /// The shapes of the grids read, each with how many grids had it, in the
+    /// order the pages drew them: "three 6x6, one 5x6 and one 10x6".
+    /// </summary>
+    private string DescribeTableShapes()
+    {
+        var parts = new List<string>(_tableShapes.Count + 1);
+        foreach ((int rows, int columns) in _tableShapes)
+        {
+            parts.Add(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{Number(_tableShapeCounts[(rows, columns)])} {rows}x{columns}"));
+        }
+
+        if (_tableShapeOverflow > 0)
+            parts.Add(string.Create(CultureInfo.InvariantCulture, $"{Number(_tableShapeOverflow)} of other shapes"));
+
+        return Series(parts);
     }
 
     private void ReportArtwork(PdfDiagnosticSink diagnostics)
@@ -678,49 +819,94 @@ internal sealed class PdfFeatureTally
         int takenRules = Math.Min(_artworkReadAsTableRules, rules);
         int takenBlocks = Math.Min(_artworkReadAsTableBlocks, blocks);
         int decorated = Math.Min(_artworkReadAsDecorationRules, rules - takenRules);
+        int backgrounds = Math.Min(_artworkReadAsBackgroundBlocks, blocks - takenBlocks);
+        int bare = Math.Min(_artworkOnBarePaper, blocks - takenBlocks - backgrounds);
         int grid = takenRules + takenBlocks;
-        int taken = grid + decorated;
-        int lost = total - taken;
+        int taken = grid + decorated + backgrounds;
+        int lost = total - taken - bare;
 
         rules -= takenRules + decorated;
-        blocks -= takenBlocks;
+        blocks -= takenBlocks + backgrounds + bare;
+        int repeated = Math.Min(_artworkRepeatedRules, rules) + Math.Min(_artworkRepeatedBlocks, blocks);
 
-        // Two different recoveries, and a reader acts on them differently: a
-        // table is structure the document gets back, an underline is character
-        // formatting on text it already had.
-        string asTable = "as a table's rules and shades";
-        string asDecoration = "as a run's underline or strikethrough";
-        string recovered =
-            grid > 0 && decorated > 0
-                ? string.Create(CultureInfo.InvariantCulture, $"{grid} {Were(grid)} read {asTable} and {decorated} {asDecoration}")
-                : grid > 0
-                    ? string.Create(CultureInfo.InvariantCulture, $"{grid} {Were(grid)} read {asTable}")
-                    : string.Create(CultureInfo.InvariantCulture, $"{decorated} {Were(decorated)} read {asDecoration}");
+        // Three different recoveries, and a reader acts on them differently: a
+        // table is structure the document gets back, an underline and a
+        // background are formatting on text it already had.
+        const string asTable = "as a table's rules and shades";
+        const string asDecoration = "as a run's underline or strikethrough";
+        const string asBackground = "as a run's background";
 
+        var readings = new List<string>(3);
+        void Reading(int count, string how)
+        {
+            if (count > 0)
+            {
+                readings.Add(readings.Count == 0
+                    ? string.Create(CultureInfo.InvariantCulture, $"{count} {Were(count)} read {how}")
+                    : string.Create(CultureInfo.InvariantCulture, $"{count} {how}"));
+            }
+        }
+
+        Reading(grid, asTable);
+        Reading(decorated, asDecoration);
+        Reading(backgrounds, asBackground);
+        string recovered = Series(readings);
+
+        // Neither read back nor lost. A white background behind a paragraph on a
+        // white page is paint a reader can never see, and reporting it among the
+        // losses reported shapes that were never there to lose.
+        string onPaper = bare == 1
+            ? "1 was a fill in the paper's colour on bare paper, which paints nothing a reader can see"
+            : string.Create(CultureInfo.InvariantCulture, $"{bare} were fills in the paper's colour on bare paper, which paint nothing a reader can see");
+
+        // The note is the document's, not a page's: the counts are every page's,
+        // and the page list at the end says where anything was lost.
         var text = new StringBuilder();
         text.Append(
-            lost == 0 ? "The page draws vector artwork, and all of it was read back into the document. "
-            : taken > 0 ? "The page draws vector artwork. What could be read back was; the rest, which a logical rich-text document cannot represent, was dropped. "
-            : "The page draws vector artwork, which a logical rich-text document cannot represent. It was dropped. ");
+            lost == 0 ? "The document draws vector artwork, and none of it was lost. "
+            : taken + bare > 0 ? "The document draws vector artwork. What could be read back was; the rest was dropped. "
+            : "The document draws vector artwork, and none of it could be read back into the document. ");
 
         if (lost == 0)
         {
-            // Every path the page painted was read back as something. There is
-            // no breakdown to give, because nothing was dropped to break down.
-            text.Append(grid > 0 && decorated == 0
-                ? string.Create(CultureInfo.InvariantCulture, $"All {total} path-painting operation{S(total)} {Were(total)} read {asTable}; none was dropped.")
-                : string.Create(CultureInfo.InvariantCulture, $"All {total} path-painting operation{S(total)} {Were(total)} read back: {recovered}; none was dropped."));
-            if (_tables > 0)
+            // Every path the page painted was read back as something, or painted
+            // nothing. There is no breakdown to give, because nothing was dropped
+            // to break down.
+            if (bare == 0)
+            {
+                text.Append(grid > 0 && decorated == 0 && backgrounds == 0
+                    ? string.Create(CultureInfo.InvariantCulture, $"All {total} path-painting operation{S(total)} {Were(total)} read {asTable}; none was dropped.")
+                    : string.Create(CultureInfo.InvariantCulture, $"All {total} path-painting operation{S(total)} {Were(total)} read back: {recovered}; none was dropped."));
+            }
+            else if (taken == 0)
+            {
+                text.Append(total == 1
+                    ? "The 1 path-painting operation was a fill in the paper's colour on bare paper, which paints nothing a reader can see; none was dropped."
+                    : string.Create(CultureInfo.InvariantCulture, $"All {total} path-painting operations were fills in the paper's colour on bare paper, which paint nothing a reader can see; none was dropped."));
+            }
+            else
+            {
+                text.Append(CultureInfo.InvariantCulture,
+                    $"Of {total} path-painting operation{S(total)}, {recovered}, and {onPaper}; none was dropped.");
+            }
+
+            if (_tables > 0 || _frames > 0)
                 text.Append(" The tables are reported under pdf.import.table-reconstructed.");
             _artworkPages.Append(text);
             diagnostics.Skipped(PdfDiagnosticCodes.VectorArtworkDropped, text.ToString());
             return;
         }
 
-        if (taken > 0)
+        if (taken + bare > 0)
         {
+            var kept = new List<string>(2);
+            if (taken > 0)
+                kept.Add(recovered);
+            if (bare > 0)
+                kept.Add(onPaper);
+
             text.Append(CultureInfo.InvariantCulture,
-                $"Of {total} path-painting operation{S(total)}, {recovered}. ");
+                $"Of {total} path-painting operation{S(total)}, {string.Join(", and ", kept)}. ");
             text.Append(CultureInfo.InvariantCulture, $"The other {lost} {Were(lost)} dropped: ");
         }
         else
@@ -743,10 +929,20 @@ internal sealed class PdfFeatureTally
         // sentence without a paragraph of rationale attached to every document.
         text.Append(string.Join("; ", parts)).Append('.');
 
+        // Producers repaint, and an operation count that includes the repaints
+        // says a page lost twice what it did. The count stays what the page
+        // painted; this says how much of it was the same shape again.
+        if (repeated > 0)
+        {
+            int distinct = lost - repeated;
+            text.Append(CultureInfo.InvariantCulture,
+                $" {repeated} of them {(repeated == 1 ? "repaints" : "repaint")} a shape the page had already painted in the same place, so {distinct} distinct shape{S(distinct)} {Were(distinct)} lost.");
+        }
+
         // Said here rather than only in the other note, because this is the
         // sentence a reader reaches first and "it was dropped" is no longer the
         // whole truth once some of those bars turned out to bound cells.
-        if (_tables > 0)
+        if (_tables > 0 || _frames > 0)
             text.Append(" The tables are reported under pdf.import.table-reconstructed.");
 
         // The pages that lost something, not the pages that drew something. On a
@@ -974,6 +1170,31 @@ internal sealed class PdfFeatureTally
         else
             diagnostics.Info(PdfDiagnosticCodes.FontProgramNotComposed, text.ToString());
     }
+
+    /// <summary>
+    /// Items as English lists them: "a", "a and b", "a, b and c".
+    /// </summary>
+    private static string Series(List<string> items) => items.Count switch
+    {
+        0 => string.Empty,
+        1 => items[0],
+        _ => string.Join(", ", items.GetRange(0, items.Count - 1)) + " and " + items[^1],
+    };
+
+    /// <summary>A count as a word up to nine, where a digit beside "6x6" would blur into it.</summary>
+    private static string Number(int count) => count switch
+    {
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        4 => "four",
+        5 => "five",
+        6 => "six",
+        7 => "seven",
+        8 => "eight",
+        9 => "nine",
+        _ => count.ToString(CultureInfo.InvariantCulture),
+    };
 
     /// <summary>The plural "s" for a count, so an inventory reads as English.</summary>
     private static string S(int count) => count == 1 ? string.Empty : "s";
@@ -1253,21 +1474,15 @@ internal sealed class PdfFeatureTally
     /// </summary>
     private sealed class PageSet
     {
+        // Every page is kept, so the tail can be counted rather than waved at:
+        // "and others" said the same thing about one more page as about ninety.
+        // A document's pages bound the set.
         private readonly SortedSet<int> _pages = [];
-        private bool _more;
 
         public void Add(int? page)
         {
-            if (page is not int number || _pages.Contains(number))
-                return;
-
-            if (_pages.Count >= MaxNamedPages)
-            {
-                _more = true;
-                return;
-            }
-
-            _pages.Add(number);
+            if (page is int number)
+                _pages.Add(number);
         }
 
         public void Append(StringBuilder text)
@@ -1275,10 +1490,23 @@ internal sealed class PdfFeatureTally
             if (_pages.Count == 0)
                 return;
 
+            // One page past the limit is shorter to name than to count.
+            int named = _pages.Count <= MaxNamedPages + 1 ? _pages.Count : MaxNamedPages;
+
             text.Append(_pages.Count == 1 ? " On page " : " On pages ");
-            text.Append(string.Join(", ", _pages));
-            if (_more)
-                text.Append(" and others");
+            int written = 0;
+            foreach (int page in _pages)
+            {
+                if (written == named)
+                    break;
+                if (written > 0)
+                    text.Append(", ");
+                text.Append(page.ToString(CultureInfo.InvariantCulture));
+                written++;
+            }
+
+            if (named < _pages.Count)
+                text.Append(CultureInfo.InvariantCulture, $" and {_pages.Count - named} more");
             text.Append('.');
         }
     }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Broiler.Documents.Pdf.Syntax;
+using Broiler.Documents.Pdf.Text;
 
 namespace Broiler.Documents.Pdf.Structure;
 
@@ -32,6 +33,22 @@ internal readonly struct PdfRectangle(double left, double bottom, double right, 
 }
 
 /// <summary>One page, with its inherited attributes already applied.</summary>
+/// <remarks>
+/// <para>
+/// Everything the reader measures on a page is measured on the page as a viewer
+/// displays it, which <see cref="Display"/> maps default user space onto. PDF
+/// makes a landscape page one of two ways: a wide box, or a tall box with a
+/// <c>/Rotate</c> entry and the content drawn up it so that it reads across once
+/// the viewer turns the page. The second used to be read in the unturned space,
+/// where every line of text runs up the page, and it came back as a column of
+/// scattered letters with nothing reported.
+/// </para>
+/// <para>
+/// The same map takes <c>/UserUnit</c> into points and puts the visible box's
+/// lower-left corner at the origin, so a size or a distance measured on the page
+/// is in the model's unit and is a distance from the page's own edge.
+/// </para>
+/// </remarks>
 internal sealed class PdfPage(
     PdfDictionary dictionary,
     PdfDictionary? resources,
@@ -47,13 +64,51 @@ internal sealed class PdfPage(
 
     public PdfRectangle MediaBox { get; } = mediaBox;
 
-    /// <summary>The crop box, defaulting to the media box (clause 7.7.3.3).</summary>
+    /// <summary>
+    /// The visible region in default user space: the crop box, defaulting to the
+    /// media box (clause 7.7.3.3), and clipped to it (clause 14.11.2).
+    /// </summary>
     public PdfRectangle CropBox { get; } = cropBox;
 
     /// <summary>Clockwise display rotation, normalized to 0, 90, 180, or 270.</summary>
     public int Rotation { get; } = rotation;
 
     public double UserUnit { get; } = userUnit;
+
+    /// <summary>
+    /// Maps default user space onto the page as displayed: turned clockwise by
+    /// <see cref="Rotation"/>, scaled by <see cref="UserUnit"/> into points, with
+    /// the visible box running from the origin to <see cref="DisplayWidth"/> by
+    /// <see cref="DisplayHeight"/>.
+    /// </summary>
+    public PdfMatrix Display { get; } = DisplayOf(cropBox, rotation, userUnit);
+
+    /// <summary>The width of the page as displayed, in points.</summary>
+    public double DisplayWidth => (IsTurnedSideways ? CropBox.Height : CropBox.Width) * UserUnit;
+
+    /// <summary>The height of the page as displayed, in points.</summary>
+    public double DisplayHeight => (IsTurnedSideways ? CropBox.Width : CropBox.Height) * UserUnit;
+
+    /// <summary>A rectangle in default user space - an annotation's <c>/Rect</c> - on the page as displayed.</summary>
+    public PdfRectangle ToDisplay(PdfRectangle rectangle)
+    {
+        (double left, double bottom) = Display.Transform(rectangle.Left, rectangle.Bottom);
+        (double right, double top) = Display.Transform(rectangle.Right, rectangle.Top);
+        return new PdfRectangle(left, bottom, right, top);
+    }
+
+    private bool IsTurnedSideways => Rotation is 90 or 270;
+
+    // Each turn keeps the visible box's lower-left corner, as displayed, at the
+    // origin. Turned a quarter clockwise, what ran up the page runs across it and
+    // what ran across it runs down.
+    private static PdfMatrix DisplayOf(PdfRectangle box, int rotation, double unit) => rotation switch
+    {
+        90 => new PdfMatrix(0, -unit, unit, 0, -unit * box.Bottom, unit * box.Right),
+        180 => new PdfMatrix(-unit, 0, 0, -unit, unit * box.Right, unit * box.Top),
+        270 => new PdfMatrix(0, unit, -unit, 0, unit * box.Top, -unit * box.Left),
+        _ => new PdfMatrix(unit, 0, 0, unit, -unit * box.Left, -unit * box.Bottom),
+    };
 }
 
 /// <summary>
@@ -174,8 +229,26 @@ internal static class PdfPageTree
         public PdfPage ToPage(PdfDictionary dictionary)
         {
             PdfRectangle media = MediaBox is { IsUsable: true } box ? box : PdfRectangle.DefaultMediaBox;
-            PdfRectangle crop = CropBox is { IsUsable: true } cropped ? cropped : media;
+
+            // A crop box reaching past the media box shows only what the two share
+            // (clause 14.11.2), and one that shares nothing with it shows nothing
+            // a reader could measure, so the media box stands in.
+            PdfRectangle crop = CropBox is { IsUsable: true } cropped ? Clip(cropped, media) ?? media : media;
             return new PdfPage(dictionary, Resources, media, crop, NormalizeRotation(Rotation ?? 0), UserUnit);
+        }
+
+        private static PdfRectangle? Clip(PdfRectangle box, PdfRectangle within)
+        {
+            var clipped = new PdfRectangle(
+                Math.Max(box.Left, within.Left),
+                Math.Max(box.Bottom, within.Bottom),
+                Math.Min(box.Right, within.Right),
+                Math.Min(box.Top, within.Top));
+
+            return box.Left < within.Right && within.Left < box.Right &&
+                box.Bottom < within.Top && within.Bottom < box.Top
+                ? clipped
+                : null;
         }
 
         private static int NormalizeRotation(int rotation)

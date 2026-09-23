@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Broiler.Documents.Model;
 
 namespace Broiler.Documents.Pdf.Text;
@@ -44,6 +45,15 @@ namespace Broiler.Documents.Pdf.Text;
 /// reader moving through cells must find the same number of them the rules
 /// described.
 /// </para>
+/// <para>
+/// <strong>A tagged page keeps its declared order around the tables.</strong>
+/// Where the structure tree states the page's order, the text outside the grids
+/// is read in that order, and each grid takes the place of the first run inside
+/// it. Placed by geometry instead, a boxed note at the foot of a two-column page
+/// pulled every line above it - both columns, run together line by line - in
+/// front of it, and the tree's statement about the page was thrown away because
+/// a table happened to be on it.
+/// </para>
 /// </remarks>
 internal static class PdfTableProjector
 {
@@ -62,6 +72,13 @@ internal static class PdfTableProjector
     /// How many paragraphs the document already holds. Cell ranges are indices
     /// into the finished document, so the page has to know where it starts.
     /// </param>
+    /// <param name="order">
+    /// The page's declared order, where its structure tree states one; null
+    /// where the order is to be read off the geometry.
+    /// </param>
+    /// <param name="block">
+    /// The block each run was declared in, where the tree states the order.
+    /// </param>
     public static List<RichTextParagraph> Project(
         IReadOnlyList<PdfTextFragment> fragments,
         IReadOnlyList<PdfLinkRegion> links,
@@ -69,7 +86,9 @@ internal static class PdfTableProjector
         IReadOnlyList<PdfTableGrid> grids,
         int maxParagraphs,
         int paragraphBase,
-        List<DocumentTable> tables)
+        List<DocumentTable> tables,
+        Func<PdfTextFragment, int>? order = null,
+        Func<PdfTextFragment, int>? block = null)
     {
         // Every fragment goes to the innermost grid that holds it, so a run
         // inside a nested table belongs to that table's cell rather than to the
@@ -106,6 +125,14 @@ internal static class PdfTableProjector
 
         var paragraphs = new List<RichTextParagraph>();
         var pendingImages = new List<PdfPlacedImage>(images);
+
+        if (order is not null)
+        {
+            ProjectInDeclaredOrder(
+                outside, links, pendingImages, grids, buckets, order, block, maxParagraphs, paragraphBase, tables, paragraphs);
+            return paragraphs;
+        }
+
         var placed = new List<PdfTextFragment>();
 
         foreach (PdfTableGrid grid in grids)
@@ -138,7 +165,7 @@ internal static class PdfTableProjector
                 false,
                 Remaining(maxParagraphs, paragraphs.Count)));
 
-            tables.Add(AddTable(grid, buckets, links, paragraphs, maxParagraphs, paragraphBase));
+            tables.Add(AddTable(grid, buckets, links, paragraphs, maxParagraphs, paragraphBase, null, null));
         }
 
         var after = new List<PdfTextFragment>();
@@ -155,6 +182,125 @@ internal static class PdfTableProjector
             Remaining(maxParagraphs, paragraphs.Count)));
 
         return paragraphs;
+    }
+
+    /// <summary>
+    /// The declared-order projection: the text outside the grids in the order
+    /// the structure tree states, and each grid where its first run was declared.
+    /// </summary>
+    private static void ProjectInDeclaredOrder(
+        List<PdfTextFragment> outside,
+        IReadOnlyList<PdfLinkRegion> links,
+        List<PdfPlacedImage> pendingImages,
+        IReadOnlyList<PdfTableGrid> grids,
+        Dictionary<PdfTableGrid, List<PdfTextFragment>?[]> buckets,
+        Func<PdfTextFragment, int> order,
+        Func<PdfTextFragment, int>? block,
+        int maxParagraphs,
+        int paragraphBase,
+        List<DocumentTable> tables,
+        List<RichTextParagraph> paragraphs)
+    {
+        List<(PdfTextLine Line, int Order)> keyed = PdfReadingOrder.BuildKeyedLinesInDeclaredOrder(outside, links, order, block);
+
+        var placedGrids = new List<(PdfTableGrid Grid, double Key)>(grids.Count);
+        foreach (PdfTableGrid grid in grids)
+            placedGrids.Add((grid, DeclaredPosition(grid, buckets, order, keyed)));
+
+        // Stable, so two grids at one position keep the page's top-to-bottom order.
+        placedGrids = [.. placedGrids.OrderBy(static placed => placed.Key)];
+
+        int next = 0;
+        foreach ((PdfTableGrid grid, double key) in placedGrids)
+        {
+            var before = new List<PdfTextLine>();
+            while (next < keyed.Count && keyed[next].Order < key)
+                before.Add(keyed[next++].Line);
+
+            var imagesBefore = new List<PdfPlacedImage>();
+            for (int i = pendingImages.Count - 1; i >= 0; i--)
+            {
+                if (pendingImages[i].Top > grid.Top)
+                {
+                    imagesBefore.Add(pendingImages[i]);
+                    pendingImages.RemoveAt(i);
+                }
+            }
+
+            paragraphs.AddRange(PdfModelProjector.Project(
+                before,
+                imagesBefore,
+                false,
+                Remaining(maxParagraphs, paragraphs.Count)));
+
+            tables.Add(AddTable(grid, buckets, links, paragraphs, maxParagraphs, paragraphBase, order, block));
+        }
+
+        var after = new List<PdfTextLine>(keyed.Count - next);
+        for (; next < keyed.Count; next++)
+            after.Add(keyed[next].Line);
+
+        paragraphs.AddRange(PdfModelProjector.Project(
+            after,
+            pendingImages,
+            false,
+            Remaining(maxParagraphs, paragraphs.Count)));
+    }
+
+    /// <summary>
+    /// Where a grid falls in the declared order: at its first declared run, or,
+    /// for a grid with no text in it, just after the last line declared above it.
+    /// </summary>
+    private static double DeclaredPosition(
+        PdfTableGrid grid,
+        Dictionary<PdfTableGrid, List<PdfTextFragment>?[]> buckets,
+        Func<PdfTextFragment, int> order,
+        List<(PdfTextLine Line, int Order)> keyed)
+    {
+        int first = FirstDeclared(grid, buckets, order);
+        if (first != int.MaxValue)
+            return first;
+
+        double after = int.MinValue;
+        foreach ((PdfTextLine line, int at) in keyed)
+        {
+            // Furniture below the body sorts after everything, and placing an
+            // empty grid after it would move the grid to the end of the page.
+            if (at != int.MaxValue && line.Baseline > grid.Top && at > after)
+                after = at;
+        }
+
+        return after + 0.5;
+    }
+
+    /// <summary>The earliest declared position of any run in the grid or the grids nested in it.</summary>
+    private static int FirstDeclared(
+        PdfTableGrid grid,
+        Dictionary<PdfTableGrid, List<PdfTextFragment>?[]> buckets,
+        Func<PdfTextFragment, int> order)
+    {
+        int first = int.MaxValue;
+
+        if (buckets.TryGetValue(grid, out List<PdfTextFragment>?[]? cells))
+        {
+            foreach (List<PdfTextFragment>? cell in cells)
+            {
+                if (cell is null)
+                    continue;
+
+                foreach (PdfTextFragment fragment in cell)
+                {
+                    int at = fragment.IsArtifact ? -1 : order(fragment);
+                    if (at >= 0)
+                        first = Math.Min(first, at);
+                }
+            }
+        }
+
+        foreach (PdfTableGrid child in grid.Children)
+            first = Math.Min(first, FirstDeclared(child, buckets, order));
+
+        return first;
     }
 
     /// <summary>
@@ -181,13 +327,20 @@ internal static class PdfTableProjector
     /// over the range they occupy. A cell holding a nested grid emits that grid's
     /// paragraphs inside its own range, and holds the table.
     /// </summary>
+    /// <remarks>
+    /// Where the page's order is declared, each cell's text is read in it too:
+    /// a cell holding two paragraphs set without a gap between them is two
+    /// paragraphs only because the tree says so.
+    /// </remarks>
     private static DocumentTable AddTable(
         PdfTableGrid grid,
         Dictionary<PdfTableGrid, List<PdfTextFragment>?[]> buckets,
         IReadOnlyList<PdfLinkRegion> links,
         List<RichTextParagraph> paragraphs,
         int maxParagraphs,
-        int paragraphBase)
+        int paragraphBase,
+        Func<PdfTextFragment, int>? order,
+        Func<PdfTextFragment, int>? block)
     {
         buckets.TryGetValue(grid, out List<PdfTextFragment>?[]? cells);
 
@@ -225,7 +378,9 @@ internal static class PdfTableProjector
                 if (cellFragments is not null)
                 {
                     paragraphs.AddRange(PdfModelProjector.Project(
-                        PdfReadingOrder.BuildLines(cellFragments, links),
+                        order is not null
+                            ? PdfReadingOrder.BuildLinesInDeclaredOrder(cellFragments, links, order, block)
+                            : PdfReadingOrder.BuildLines(cellFragments, links),
                         [],
                         false,
                         Remaining(maxParagraphs, paragraphs.Count)));
@@ -241,7 +396,7 @@ internal static class PdfTableProjector
                         continue;
 
                     (nested ??= []).Add(
-                        AddTable(child, buckets, links, paragraphs, maxParagraphs, paragraphBase));
+                        AddTable(child, buckets, links, paragraphs, maxParagraphs, paragraphBase, order, block));
                 }
 
                 // Empty is a cell the page drew and left blank, which is content.

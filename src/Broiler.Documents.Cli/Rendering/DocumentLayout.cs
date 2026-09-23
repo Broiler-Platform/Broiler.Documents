@@ -1076,6 +1076,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// item appears, and every counter resets at the first paragraph that is not
     /// a list item. Documents whose original numbering said otherwise lost that
     /// on the way into the model, not here.
+    /// <para>
+    /// A list item's indent level counts from one: every reader puts a top-level
+    /// item at level 1, the level it is indented to. The marker's style is
+    /// chosen by how deep the item is nested below that, so a top-level list is
+    /// numbered 1, 2, 3 and bulleted with a solid bullet. Choosing it from the
+    /// indent level itself lettered every top-level list the model held.
+    /// </para>
     /// </remarks>
     private sealed class ListNumbering
     {
@@ -1086,6 +1093,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         public string? Advance(ParagraphStyle style)
         {
             int level = Math.Max(0, style.IndentLevel);
+            int depth = Math.Max(0, level - 1);
 
             if (style.ListKind == ListKind.None)
             {
@@ -1096,7 +1104,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if (style.ListKind == ListKind.Bullet)
             {
                 Truncate(level);
-                return Bullets[level % Bullets.Length].ToString();
+                return Bullets[depth % Bullets.Length].ToString();
             }
 
             Truncate(level);
@@ -1104,7 +1112,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 _counters.Add(0);
 
             _counters[level]++;
-            return Format(_counters[level], level) + ".";
+            return Format(_counters[level], depth) + ".";
         }
 
         private void Truncate(int level)

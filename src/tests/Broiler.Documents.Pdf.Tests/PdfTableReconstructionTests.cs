@@ -268,7 +268,63 @@ public sealed class PdfTableReconstructionTests
         Assert.DoesNotContain("On pages 1, 2", note.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void The_Shapes_Are_Listed_In_Page_Order_With_How_Many_Had_Each()
+    {
+        // Held as a sorted set of strings, three grids read as "(10x2, 2x2)":
+        // string order, which put the ten-row table first, and two shapes for
+        // three grids, which no reader could add up.
+        DocumentDiagnostic note = Note(Read(ThreeTables()));
+
+        Assert.Contains("3 fully ruled grids", note.Message, StringComparison.Ordinal);
+        Assert.Contains("(two 2x2 and one 10x2)", note.Message, StringComparison.Ordinal);
+    }
+
     // ---- fixtures -------------------------------------------------------------
+
+    /// <summary>
+    /// Three pages with a table each: 2x2, 10x2, 2x2. A heading over the second
+    /// and third keeps each from continuing the one before.
+    /// </summary>
+    private static byte[] ThreeTables()
+    {
+        static string Grid(int rows, bool heading)
+        {
+            var content = new System.Text.StringBuilder();
+            if (heading)
+                content.Append(PdfFileBuilder.ShowText("Next table", x: 72, y: 740));
+
+            int bottom = 700 - (rows * 20);
+            foreach (int x in new[] { 72, 222, 372 })
+                content.Append(System.Globalization.CultureInfo.InvariantCulture, $"{x} {bottom} 0.75 {rows * 20} re f\n");
+            for (int row = 0; row <= rows; row++)
+                content.Append(System.Globalization.CultureInfo.InvariantCulture, $"72 {700 - (row * 20)} 300 0.75 re f\n");
+
+            // A page that draws no text is set aside before its artwork is read.
+            content.Append(PdfFileBuilder.ShowText("Cell", x: 80, y: 685));
+            return content.ToString();
+        }
+
+        var builder = new PdfFileBuilder();
+        int catalog = builder.Reserve();
+        int pages = builder.Reserve();
+        int font = builder.AddObject(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+
+        var kids = new List<string>();
+        foreach (string content in new[] { Grid(2, heading: false), Grid(10, heading: true), Grid(2, heading: true) })
+        {
+            int stream = builder.AddStream(string.Empty, content);
+            int page = builder.AddObject(
+                $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] " +
+                $"/Resources << /Font << /F1 {font} 0 R >> >> /Contents {stream} 0 R >>");
+            kids.Add($"{page} 0 R");
+        }
+
+        builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
+        builder.SetObject(pages, $"<< /Type /Pages /Kids [{string.Join(' ', kids)}] /Count 3 >>");
+        return builder.Build(catalog);
+    }
 
     /// <summary>The one reconstruction note, which says how the grid was read.</summary>
     private static DocumentDiagnostic Note(PdfReadResult result) =>

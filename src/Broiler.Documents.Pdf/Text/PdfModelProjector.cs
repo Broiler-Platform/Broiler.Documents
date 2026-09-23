@@ -17,6 +17,25 @@ namespace Broiler.Documents.Pdf.Text;
 /// which is why the reader reports that reading order was inferred.
 /// </para>
 /// <para>
+/// <strong>The block is the lines stacked with it, not the page.</strong> A line
+/// is short against the lines above and below it in the same column. Measured
+/// against the page, every line of a letter set beside a narrower column of
+/// times was "short", and the letter came back one paragraph per line. Where a
+/// tagged document declared which block each line belongs to, the blocks are the
+/// paragraphs, and none of the geometry is asked.
+/// </para>
+/// <para>
+/// <strong>A marker ends a paragraph; only a sequence makes a list.</strong> A
+/// line that begins "D. Carter" or "1. Halbjahr" starts a new paragraph, as
+/// any marker-shaped line does. Turning it into a list item is a different claim,
+/// and a costly one when it is wrong: the marker is taken out of the text, and
+/// the model numbers the list itself. So a numbered marker becomes a list item
+/// only where consecutive paragraphs count 1, 2, 3 - the one numbering the model
+/// reproduces exactly - and a letter never does, because a lettered list and a
+/// run of initials are the same shape. Anything else keeps its marker as text,
+/// which loses nothing. Bullets are unambiguous and stay lists.
+/// </para>
+/// <para>
 /// Source page boundaries are extraction boundaries by default, not layout: a
 /// caller must ask for page breaks explicitly, and even then the result says that
 /// re-pagination can differ.
@@ -50,38 +69,40 @@ internal static class PdfModelProjector
         pending.Sort(static (left, right) => right.Top.CompareTo(left.Top));
         int nextImage = 0;
 
+        // Grouped first and emitted after, because whether a numbered line is a
+        // list item depends on the paragraphs that follow it.
+        var items = new List<Item>();
+
         void FlushImagesAbove(double baseline)
         {
-            while (nextImage < pending.Count &&
-                   pending[nextImage].Top >= baseline &&
-                   paragraphs.Count < maxParagraphs)
+            while (nextImage < pending.Count && pending[nextImage].Top >= baseline)
             {
-                paragraphs.Add(ImageParagraph(pending[nextImage]));
+                items.Add(new Item(null, pending[nextImage]));
                 nextImage++;
             }
         }
 
-        double blockRight = double.MinValue;
-        double blockLeft = double.MaxValue;
-        foreach (PdfTextLine line in lines)
-        {
-            if (line.IsBlank)
-                continue;
-            blockRight = Math.Max(blockRight, line.Right);
-            blockLeft = Math.Min(blockLeft, line.Left);
-        }
-
+        int[] blocks = Blocks(lines, out List<(double Left, double Right)> extents);
+        Dictionary<int, double> measures = DeclaredMeasures(lines);
         var pendingLines = new List<PdfTextLine>();
         PdfTextLine? previous = null;
+        int previousBlock = -1;
 
-        foreach (PdfTextLine line in lines)
+        // Where the previous row of text stopped: the right end of every line on
+        // its baseline. A row set with wide gaps - a label, a run of spaces, a
+        // value - arrives as several lines, and the one that matters for whether
+        // the next row's first word would have fitted is the last of them.
+        double rowRight = double.MinValue;
+
+        for (int i = 0; i < lines.Count; i++)
         {
+            PdfTextLine line = lines[i];
             if (line.IsBlank)
                 continue;
 
-            if (previous is not null && StartsNewParagraph(previous, line, blockLeft, blockRight))
+            if (previous is not null && StartsNewParagraph(previous, rowRight, line, previousBlock, blocks[i], extents, measures))
             {
-                Emit(paragraphs, pendingLines, maxParagraphs);
+                items.Add(new Item([.. pendingLines], null));
                 pendingLines.Clear();
             }
 
@@ -91,15 +112,33 @@ internal static class PdfModelProjector
             if (pendingLines.Count == 0)
                 FlushImagesAbove(line.Baseline);
 
+            rowRight = previous is not null && SameRow(previous, line) ? Math.Max(rowRight, line.Right) : line.Right;
             pendingLines.Add(line);
             previous = line;
+            previousBlock = blocks[i];
         }
 
-        Emit(paragraphs, pendingLines, maxParagraphs);
+        if (pendingLines.Count > 0)
+            items.Add(new Item([.. pendingLines], null));
 
         // Whatever sits below the last line, and every image on a page with no
         // text at all.
         FlushImagesAbove(double.NegativeInfinity);
+
+        ListKind[] lists = ConfirmLists(items);
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (items[i].Image is { } image)
+            {
+                // A picture past the allowance is left out rather than failing
+                // the read, which is what the allowance has always done to them.
+                if (paragraphs.Count < maxParagraphs)
+                    paragraphs.Add(ImageParagraph(image));
+                continue;
+            }
+
+            Emit(paragraphs, items[i].Lines!, lists[i], maxParagraphs);
+        }
 
         if (insertPageBreak && paragraphs.Count > 0)
         {
@@ -112,6 +151,9 @@ internal static class PdfModelProjector
         return paragraphs;
     }
 
+    /// <summary>One paragraph's worth of lines, or one picture: exactly one of the two is set.</summary>
+    private readonly record struct Item(List<PdfTextLine>? Lines, PdfPlacedImage? Image);
+
     /// <summary>
     /// One image as a paragraph: a single object replacement character carrying
     /// the picture, which is the model's only way to hold one.
@@ -121,8 +163,105 @@ internal static class PdfModelProjector
             InlineImage.PlaceholderText,
             InlineStyle.Default with { Image = placed.Image });
 
-    private static bool StartsNewParagraph(PdfTextLine previous, PdfTextLine line, double blockLeft, double blockRight)
+    /// <summary>
+    /// Assigns each line to a block: a run of lines stacked one under another
+    /// with some horizontal extent in common. Returns each line's block, and each
+    /// block's left and right edge.
+    /// </summary>
+    /// <remarks>
+    /// A column is what a paragraph's width is measured against, and lines in
+    /// reading order that stack and overlap are what a column looks like from
+    /// the inside. A line beside the previous one, or clear of it to either side,
+    /// is somewhere else on the page.
+    /// </remarks>
+    private static int[] Blocks(IReadOnlyList<PdfTextLine> lines, out List<(double Left, double Right)> extents)
     {
+        var blocks = new int[lines.Count];
+        extents = [];
+        PdfTextLine? previous = null;
+
+        for (int i = 0; i < lines.Count; i++)
+        {
+            PdfTextLine line = lines[i];
+            if (line.IsBlank)
+            {
+                blocks[i] = -1;
+                continue;
+            }
+
+            bool continues = previous is not null &&
+                previous.Baseline - line.Baseline > 0 &&
+                line.Left < previous.Right &&
+                line.Right > previous.Left;
+
+            if (continues)
+            {
+                (double left, double right) = extents[^1];
+                extents[^1] = (Math.Min(left, line.Left), Math.Max(right, line.Right));
+            }
+            else
+            {
+                extents.Add((line.Left, line.Right));
+            }
+
+            blocks[i] = extents.Count - 1;
+            previous = line;
+        }
+
+        return blocks;
+    }
+
+    /// <summary>
+    /// The widest line of each declared block: the measure its own paragraph
+    /// was set to, which a heading or a wider column beside it says nothing about.
+    /// </summary>
+    private static Dictionary<int, double> DeclaredMeasures(IReadOnlyList<PdfTextLine> lines)
+    {
+        var measures = new Dictionary<int, double>();
+        foreach (PdfTextLine line in lines)
+        {
+            if (line.Block < 0 || line.IsBlank)
+                continue;
+
+            measures[line.Block] = measures.TryGetValue(line.Block, out double right) ? Math.Max(right, line.Right) : line.Right;
+        }
+
+        return measures;
+    }
+
+    /// <summary>Whether two lines sit on one baseline, as the pieces of one row.</summary>
+    private static bool SameRow(PdfTextLine previous, PdfTextLine line) =>
+        Math.Abs(previous.Baseline - line.Baseline) <= Math.Max(1.0, Math.Max(previous.Height, line.Height) * 0.35);
+
+    private static bool StartsNewParagraph(
+        PdfTextLine previous,
+        double rowRight,
+        PdfTextLine line,
+        int previousBlock,
+        int block,
+        List<(double Left, double Right)> extents,
+        Dictionary<int, double> measures)
+    {
+        // Where a tagged document declared the block each line belongs to, two
+        // blocks are two paragraphs however closely they are set. Inside one,
+        // spacing and indents say nothing the tree has not already, and the one
+        // question left is whether a row that stopped short was broken there on
+        // purpose: a row cut short because the next word was a long address is
+        // a wrap, and one that stopped with room to spare for the next word was
+        // ended by hand. The model has no line break inside a paragraph, so a
+        // break made by hand is the paragraph break it comes closest to.
+        if (line.Block >= 0 && previous.Block >= 0)
+        {
+            return line.Block != previous.Block ||
+                (line.Baseline < previous.Baseline && !SameRow(previous, line) &&
+                 NextWordFits(rowRight, previous, line, measures[line.Block]));
+        }
+
+        // A line that is not in the previous line's block is somewhere else on
+        // the page: beside it, above it, or across a gutter from it.
+        if (block != previousBlock)
+            return true;
+
         double gap = previous.Baseline - line.Baseline;
         double reference = Math.Max(previous.Height, line.Height);
 
@@ -137,17 +276,90 @@ internal static class PdfModelProjector
         if (DetectListMarker(line.Text, out _, out _))
             return true;
 
+        (double blockLeft, double blockRight) = extents[block];
+
         // A first-line indent relative to the block's left edge.
         if (line.Left - blockLeft > IndentThreshold && previous.Left - blockLeft <= IndentThreshold)
             return true;
 
         // A previous line that stopped well short of the block's right edge ended
-        // its paragraph, unless the block is a single ragged column.
+        // its paragraph, unless the block is a single ragged column - or the
+        // line after it starts with a word too long to have fitted there, which
+        // is a wrap, not an ending.
         double width = blockRight - blockLeft;
-        return width > 0 && previous.Right < blockLeft + (width * ShortLineFactor) && line.Left <= blockLeft + IndentThreshold;
+        return width > 0 &&
+            previous.Right < blockLeft + (width * ShortLineFactor) &&
+            line.Left <= blockLeft + IndentThreshold &&
+            NextWordFits(previous.Right, previous, line, blockRight);
     }
 
-    private static void Emit(List<RichTextParagraph> paragraphs, List<PdfTextLine> lines, int maxParagraphs)
+    /// <summary>
+    /// Whether the first word of <paramref name="line"/> would have fitted on
+    /// the row before it, which stopped at <paramref name="rowRight"/> and runs
+    /// to <paramref name="measure"/> at most. Text is set greedily, so a word
+    /// that fitted and was carried over anyway was carried over on purpose.
+    /// </summary>
+    /// <remarks>
+    /// The measure is the widest line of the paragraph, which is at most the
+    /// real column and often a little short of it. Erring there makes a word
+    /// look as though it would not have fitted, and keeps a wrap a wrap - the
+    /// side a paragraph broken in two would have been wrong on.
+    /// </remarks>
+    private static bool NextWordFits(double rowRight, PdfTextLine previous, PdfTextLine line, double measure)
+    {
+        double space = Math.Max(previous.SpaceWidth, line.SpaceWidth);
+        return rowRight + space + line.FirstWordWidth <= measure - space;
+    }
+
+    /// <summary>
+    /// Decides which paragraphs are list items. A bullet is one wherever it
+    /// appears; a number is one only inside a run of consecutive paragraphs
+    /// counting up from one; a letter never is.
+    /// </summary>
+    private static ListKind[] ConfirmLists(List<Item> items)
+    {
+        var kinds = new ListKind[items.Count];
+        var numbers = new int[items.Count];
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (items[i].Lines is not { Count: > 0 } lines ||
+                !ReadMarker(lines[0].Text, out ListKind kind, out _, out int number))
+            {
+                continue;
+            }
+
+            if (kind == ListKind.Bullet)
+                kinds[i] = ListKind.Bullet;
+            else
+                numbers[i] = number;
+        }
+
+        // Runs of 1, 2, 3 in consecutive paragraphs. A single "1." is a heading
+        // or a date as often as a list, and a run starting anywhere else is one
+        // the model would renumber from one.
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (numbers[i] != 1)
+                continue;
+
+            int end = i + 1;
+            while (end < items.Count && numbers[end] == numbers[end - 1] + 1)
+                end++;
+
+            if (end - i < 2)
+                continue;
+
+            for (int j = i; j < end; j++)
+                kinds[j] = ListKind.Numbered;
+
+            i = end - 1;
+        }
+
+        return kinds;
+    }
+
+    private static void Emit(List<RichTextParagraph> paragraphs, List<PdfTextLine> lines, ListKind list, int maxParagraphs)
     {
         if (lines.Count == 0)
             return;
@@ -156,7 +368,10 @@ internal static class PdfModelProjector
             throw PdfWorkBudget.Exceeded(nameof(DocumentLimits.MaxParagraphCount), maxParagraphs);
 
         var spans = new List<PdfTextSpan>();
-        bool isList = DetectListMarker(lines[0].Text, out ListKind kind, out int markerLength);
+        bool isList = list != ListKind.None;
+        int markerLength = 0;
+        if (isList)
+            DetectListMarker(lines[0].Text, out _, out markerLength);
 
         for (int i = 0; i < lines.Count; i++)
         {
@@ -180,7 +395,7 @@ internal static class PdfModelProjector
 
         var paragraphStyle = ParagraphStyle.Default with
         {
-            ListKind = isList ? kind : ListKind.None,
+            ListKind = list,
             IndentLevel = isList ? 1 : 0,
         };
 
@@ -234,10 +449,23 @@ internal static class PdfModelProjector
     /// letter followed by a period or parenthesis. The marker is removed from the
     /// text because the model expresses it as a paragraph property.
     /// </summary>
-    internal static bool DetectListMarker(string text, out ListKind kind, out int markerLength)
+    /// <remarks>
+    /// This says a line is marker-shaped, which is enough to start a paragraph.
+    /// Whether the paragraph is a list item is decided across paragraphs; see the
+    /// class remarks.
+    /// </remarks>
+    internal static bool DetectListMarker(string text, out ListKind kind, out int markerLength) =>
+        ReadMarker(text, out kind, out markerLength, out _);
+
+    /// <summary>
+    /// <see cref="DetectListMarker"/>, also reporting what the marker counts:
+    /// its value for a number, -1 for a letter, and zero for a bullet.
+    /// </summary>
+    private static bool ReadMarker(string text, out ListKind kind, out int markerLength, out int number)
     {
         kind = ListKind.None;
         markerLength = 0;
+        number = 0;
 
         int index = 0;
         while (index < text.Length && char.IsWhiteSpace(text[index]))
@@ -285,6 +513,10 @@ internal static class PdfModelProjector
 
         kind = ListKind.Numbered;
         markerLength = textStart;
+        number = numeric && int.TryParse(
+            text.AsSpan(index, digits - index), NumberStyles.None, CultureInfo.InvariantCulture, out int value)
+            ? value
+            : -1;
         return true;
     }
 

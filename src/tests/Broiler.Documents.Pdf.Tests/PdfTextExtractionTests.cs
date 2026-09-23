@@ -662,4 +662,67 @@ public sealed class PdfTextExtractionTests
     {
         Assert.False(Text.PdfModelProjector.DetectListMarker(text, out _, out _));
     }
+
+    [Fact]
+    public void An_Initial_Is_Not_A_List_Marker()
+    {
+        // A lettered list and a run of initials are the same shape, and reading
+        // the initial as a marker took it out of the name: "D. Carter" came back
+        // as a list item reading "Carter".
+        RichTextParagraph paragraph = Assert.Single(Read(PdfFileBuilder.SinglePage(
+            PdfFileBuilder.ShowText("D. Carter"))).Document.Paragraphs);
+
+        Assert.Equal("D. Carter", paragraph.Text);
+        Assert.Equal(ListKind.None, paragraph.Style.ListKind);
+    }
+
+    [Fact]
+    public void Initials_On_Consecutive_Lines_Stay_Two_Paragraphs_With_Their_Initials()
+    {
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(
+            PdfFileBuilder.ShowText("S. Lane", y: 700) +
+            PdfFileBuilder.ShowText("U. Moss", y: 686))).Document;
+
+        Assert.Equal(["S. Lane", "U. Moss"], document.Paragraphs.Select(p => p.Text));
+        Assert.All(document.Paragraphs, paragraph => Assert.Equal(ListKind.None, paragraph.Style.ListKind));
+    }
+
+    [Fact]
+    public void A_Lone_Number_Is_Not_A_List()
+    {
+        // "1. Halbjahr" is a heading, and "3. Klassen" a year group. The model
+        // numbers a list itself, from one, so the number would be lost twice
+        // over: taken out of the text, and put back wrong.
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(
+            PdfFileBuilder.ShowText("1. Halbjahr 2026/27", y: 700) +
+            PdfFileBuilder.ShowText("A paragraph under the heading.", y: 660) +
+            PdfFileBuilder.ShowText("3. Klassen", y: 620))).Document;
+
+        Assert.Equal("1. Halbjahr 2026/27", document.Paragraphs[0].Text);
+        Assert.Equal("3. Klassen", document.Paragraphs[^1].Text);
+        Assert.All(document.Paragraphs, paragraph => Assert.Equal(ListKind.None, paragraph.Style.ListKind));
+    }
+
+    [Fact]
+    public void A_Run_Of_Numbers_Counting_From_One_Is_A_Numbered_List()
+    {
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(
+            PdfFileBuilder.ShowText("1. Alpha", y: 700) +
+            PdfFileBuilder.ShowText("2. Beta", y: 686) +
+            PdfFileBuilder.ShowText("3. Gamma", y: 672))).Document;
+
+        Assert.Equal(["Alpha", "Beta", "Gamma"], document.Paragraphs.Select(p => p.Text));
+        Assert.All(document.Paragraphs, paragraph => Assert.Equal(ListKind.Numbered, paragraph.Style.ListKind));
+    }
+
+    [Fact]
+    public void A_Run_That_Does_Not_Start_At_One_Keeps_Its_Numbers()
+    {
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(
+            PdfFileBuilder.ShowText("3. Third", y: 700) +
+            PdfFileBuilder.ShowText("4. Fourth", y: 686))).Document;
+
+        Assert.Equal(["3. Third", "4. Fourth"], document.Paragraphs.Select(p => p.Text));
+        Assert.All(document.Paragraphs, paragraph => Assert.Equal(ListKind.None, paragraph.Style.ListKind));
+    }
 }

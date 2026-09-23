@@ -28,6 +28,23 @@ internal sealed class PdfTextLine(List<PdfTextSpan> spans, double left, double r
     /// <summary>The largest font size on the line, used as its nominal height.</summary>
     public double Height { get; } = height;
 
+    /// <summary>
+    /// The block of a tagged document's structure tree the line was declared
+    /// in, or -1 where the order was not declared. Two lines in different blocks
+    /// are two paragraphs, whatever their spacing says.
+    /// </summary>
+    public int Block { get; set; } = -1;
+
+    /// <summary>
+    /// About how wide the line's first word is, in points: the share of its
+    /// first run's advance that word's letters take up. It is what decides
+    /// whether the line before could have held it.
+    /// </summary>
+    public double FirstWordWidth { get; init; }
+
+    /// <summary>The width of a space in the line's first run.</summary>
+    public double SpaceWidth { get; init; }
+
     public string Text
     {
         get
@@ -96,6 +113,14 @@ internal static class PdfReadingOrder
     /// at and gets wrong on a sidebar, a pull quote, or a table.
     /// </para>
     /// <para>
+    /// A block is a marked-content item, and one line of text can be several of
+    /// them: a producer that tags each line, and a link in the middle of one,
+    /// hands over "(", the link and ") and more" as three items on one baseline.
+    /// An item that carries on the line the one before it stopped on, just to
+    /// its right, is that line's continuation and joins it. Each piece used to
+    /// become a line - and then a paragraph - of its own.
+    /// </para>
+    /// <para>
     /// Column splitting is deliberately not run here. It exists to recover an
     /// order the page did not state; a page that states one has already answered
     /// it, and re-deriving it could only disagree.
@@ -113,9 +138,39 @@ internal static class PdfReadingOrder
     public static List<PdfTextLine> BuildLinesInDeclaredOrder(
         IReadOnlyList<PdfTextFragment> fragments,
         IReadOnlyList<PdfLinkRegion> links,
-        Func<PdfTextFragment, int> order)
+        Func<PdfTextFragment, int> order,
+        Func<PdfTextFragment, int>? block = null)
     {
-        var lines = new List<PdfTextLine>();
+        List<(PdfTextLine Line, int Order)> keyed = BuildKeyedLinesInDeclaredOrder(fragments, links, order, block);
+        var lines = new List<PdfTextLine>(keyed.Count);
+        foreach ((PdfTextLine line, _) in keyed)
+            lines.Add(line);
+
+        return lines;
+    }
+
+    /// <summary>
+    /// <see cref="BuildLinesInDeclaredOrder"/>, with each line's place in the
+    /// declared order: the position of the first item it was read from.
+    /// Furniture above the body sorts before every position, and the rest of it
+    /// after.
+    /// </summary>
+    /// <remarks>
+    /// The key is what lets something that is not a line - a ruled table read
+    /// out of the page's artwork - take its place among the lines where the
+    /// document put its text, rather than wherever its top edge falls.
+    /// </remarks>
+    /// <param name="block">
+    /// The block each run was declared in, where the tree says; each line
+    /// carries the block of the item it started in.
+    /// </param>
+    public static List<(PdfTextLine Line, int Order)> BuildKeyedLinesInDeclaredOrder(
+        IReadOnlyList<PdfTextFragment> fragments,
+        IReadOnlyList<PdfLinkRegion> links,
+        Func<PdfTextFragment, int> order,
+        Func<PdfTextFragment, int>? block = null)
+    {
+        var lines = new List<(PdfTextLine Line, int Order)>();
         if (fragments.Count == 0)
             return lines;
 
@@ -145,8 +200,29 @@ internal static class PdfReadingOrder
             group.Add(fragment);
         }
 
-        foreach (List<PdfTextFragment> group in groups.Values)
-            lines.AddRange(BuildColumnLines(group, links));
+        // Items that continue one line are read as that line, and the line
+        // keeps the position, and the block, of the item it started in.
+        List<PdfTextFragment>? current = null;
+        int currentOrder = 0;
+        int currentBlock = -1;
+        foreach ((int at, List<PdfTextFragment> group) in groups)
+        {
+            if (current is not null && ContinuesLine(current, group))
+            {
+                current.AddRange(group);
+                continue;
+            }
+
+            if (current is not null)
+                AddKeyed(lines, BuildColumnLines(current, links), currentOrder, currentBlock);
+
+            current = [.. group];
+            currentOrder = at;
+            currentBlock = block?.Invoke(group[0]) ?? -1;
+        }
+
+        if (current is not null)
+            AddKeyed(lines, BuildColumnLines(current, links), currentOrder, currentBlock);
 
         if (artifacts.Count == 0)
             return lines;
@@ -159,11 +235,64 @@ internal static class PdfReadingOrder
         foreach (PdfTextFragment fragment in artifacts)
             (fragment.Y > bodyTop ? above : below).Add(fragment);
 
-        var placed = new List<PdfTextLine>(lines.Count + artifacts.Count);
-        placed.AddRange(BuildLines(above, links));
+        var placed = new List<(PdfTextLine Line, int Order)>(lines.Count + artifacts.Count);
+        AddKeyed(placed, BuildLines(above, links), int.MinValue);
         placed.AddRange(lines);
-        placed.AddRange(BuildLines(below, links));
+        AddKeyed(placed, BuildLines(below, links), int.MaxValue);
         return placed;
+    }
+
+    private static void AddKeyed(List<(PdfTextLine Line, int Order)> keyed, List<PdfTextLine> lines, int order, int block = -1)
+    {
+        foreach (PdfTextLine line in lines)
+        {
+            line.Block = block;
+            keyed.Add((line, order));
+        }
+    }
+
+    /// <summary>
+    /// Whether the next marked-content item carries on the line the current one
+    /// stopped on: it starts on the same baseline, to the right of where the
+    /// line stopped and no further off than a wide word space.
+    /// </summary>
+    /// <remarks>
+    /// The limit is what keeps two cells of a borderless table, which also sit
+    /// side by side on one baseline and follow one another in declared order,
+    /// from being run together. Their gap is a gutter, not a word space.
+    /// </remarks>
+    private static bool ContinuesLine(List<PdfTextFragment> current, List<PdfTextFragment> next)
+    {
+        // Where the current item stopped: the right end of its lowest line.
+        PdfTextFragment last = current[0];
+        foreach (PdfTextFragment fragment in current)
+        {
+            double tolerance = Math.Max(1.0, Math.Max(fragment.FontSize, last.FontSize) * 0.35);
+            if (fragment.Y < last.Y - tolerance ||
+                (Math.Abs(fragment.Y - last.Y) <= tolerance && fragment.EndX > last.EndX))
+            {
+                last = fragment;
+            }
+        }
+
+        // Where the next one starts: the left end of its highest line.
+        PdfTextFragment first = next[0];
+        foreach (PdfTextFragment fragment in next)
+        {
+            double tolerance = Math.Max(1.0, Math.Max(fragment.FontSize, first.FontSize) * 0.35);
+            if (fragment.Y > first.Y + tolerance ||
+                (Math.Abs(fragment.Y - first.Y) <= tolerance && fragment.X < first.X))
+            {
+                first = fragment;
+            }
+        }
+
+        double size = Math.Max(last.FontSize, first.FontSize);
+        if (Math.Abs(first.Y - last.Y) > Math.Max(1.0, size * 0.35))
+            return false;
+
+        double gap = first.X - last.EndX;
+        return gap >= -Math.Max(last.SpaceWidth, first.SpaceWidth) && gap <= size;
     }
 
     /// <summary>
@@ -319,6 +448,8 @@ internal static class PdfReadingOrder
         var spans = new List<PdfTextSpan>();
         double left = double.MaxValue;
         double right = double.MinValue;
+        double inkLeft = double.MaxValue;
+        double inkRight = double.MinValue;
         double height = 0;
         double previousEnd = double.NaN;
         double previousSpaceWidth = 0;
@@ -328,6 +459,16 @@ internal static class PdfReadingOrder
             left = Math.Min(left, fragment.X);
             right = Math.Max(right, fragment.EndX);
             height = Math.Max(height, fragment.FontSize);
+
+            // Where the line's ink is. A run of spaces paints nothing, and a
+            // title set after three spaces at 48 points would otherwise start at
+            // the page edge - and take the left edge of every line stacked under
+            // it with it.
+            if (!string.IsNullOrWhiteSpace(fragment.Text))
+            {
+                inkLeft = Math.Min(inkLeft, fragment.X);
+                inkRight = Math.Max(inkRight, fragment.EndX);
+            }
 
             string text = fragment.Text;
             if (!double.IsNaN(previousEnd))
@@ -345,12 +486,72 @@ internal static class PdfReadingOrder
             previousSpaceWidth = fragment.SpaceWidth;
         }
 
+        if (inkLeft <= inkRight)
+        {
+            left = inkLeft;
+            right = inkRight;
+        }
+
+        (double firstWord, double space) = FirstWord(fragments);
+
         return new PdfTextLine(
             Merge(spans),
             double.IsFinite(left) ? left : 0,
             double.IsFinite(right) ? right : 0,
             fragments[0].Y,
-            height);
+            height)
+        {
+            FirstWordWidth = firstWord,
+            SpaceWidth = space,
+        };
+    }
+
+    /// <summary>
+    /// The first word's width and the width of a space where it starts. A
+    /// word's letters are measured as their share of the run's advance, and a
+    /// word runs on into the next run where the two abut - "(" set apart from
+    /// the address it opens is still one word with it.
+    /// </summary>
+    private static (double Width, double Space) FirstWord(List<PdfTextFragment> fragments)
+    {
+        double start = double.NaN;
+        double space = 0;
+
+        for (int i = 0; i < fragments.Count; i++)
+        {
+            PdfTextFragment fragment = fragments[i];
+            string text = fragment.Text;
+            double advance = Math.Max(0, fragment.EndX - fragment.X);
+            int index = 0;
+
+            if (double.IsNaN(start))
+            {
+                while (index < text.Length && char.IsWhiteSpace(text[index]))
+                    index++;
+                if (index == text.Length)
+                    continue;
+
+                start = fragment.X + (text.Length == 0 ? 0 : advance * index / text.Length);
+                space = fragment.SpaceWidth;
+            }
+
+            while (index < text.Length && !char.IsWhiteSpace(text[index]))
+                index++;
+
+            // The word ends inside this run, or where the run ends and a gap
+            // wide enough to be a word space opens before the next one.
+            if (index < text.Length)
+                return (fragment.X + (advance * index / text.Length) - start, space);
+
+            if (i + 1 == fragments.Count ||
+                fragments[i + 1].X - fragment.EndX > Math.Max(fragment.SpaceWidth, fragments[i + 1].SpaceWidth) * 0.25 ||
+                (fragments[i + 1].Text.Length > 0 && char.IsWhiteSpace(fragments[i + 1].Text[0])))
+            {
+                return (fragment.EndX - start, space);
+            }
+        }
+
+        return (0, space);
     }
 
     // Adjacent spans that agree on style become one, so the model gets the
@@ -396,6 +597,7 @@ internal static class PdfReadingOrder
             // Black is the initial fill colour and carries no authorial intent, so
             // it stays the model's "no explicit colour" rather than an explicit one.
             Foreground = fragment.Color == BColor.Black ? BColor.Empty : fragment.Color,
+            Background = fragment.Background,
             LinkHref = href,
         };
     }

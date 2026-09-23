@@ -54,6 +54,18 @@ public sealed class PdfDiagnosticDetailTests
         Assert.Contains("On pages 1, 2, 3.", image.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(7, "On pages 1, 2, 3, 4, 5, 6, 7.")]
+    [InlineData(9, "On pages 1, 2, 3, 4, 5, 6 and 3 more.")]
+    public void A_Long_Page_List_Counts_What_It_Does_Not_Name(int pages, string expected)
+    {
+        // "and others" said the same thing about one more page as about ninety,
+        // and one more page is shorter to name than to count.
+        DocumentDiagnostic image = Only(Read(PagesDrawingOneImage(pages)), PdfDiagnosticCodes.FilterDctUnsupported);
+
+        Assert.Contains(expected, image.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_Page_Level_Diagnostic_Carries_The_Page_It_Came_From()
     {

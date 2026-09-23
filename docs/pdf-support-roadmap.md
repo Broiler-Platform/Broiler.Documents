@@ -194,10 +194,15 @@ is authoritative for that boundary.
   accounts for in full is read in the declared order rather than the inferred
   one. A page it covers only partly falls back to geometry whole, because mixing
   a declared order with an inferred one yields a sequence neither asked for. Only
-  the order of blocks comes from the tree; the order of glyphs within a block is
-  still geometric, since that is a geometric fact no tagging changes. **No role
-  is read** — not headings, lists, tables, or the role map — so nothing here is
+  the order of blocks, and which marked content each block holds, comes from the
+  tree: paragraphs break where its blocks do, an element nested in one that holds
+  text of its own runs on inside it, and a page with a ruled table keeps the
+  declared order around the table. The order of glyphs within a block is still
+  geometric, since that is a geometric fact no tagging changes. **No role is
+  read** — not headings, lists, tables, or the role map — so nothing here is
   the accessibility architecture §14.2 scopes and no conformance claim follows.
+  Page furniture the document marks as artifacts becomes its running header or
+  footer where it repeats on every page, and stays in the body otherwise.
   The reading-order diagnostic now says which of the two produced the order, per
   page, rather than always reporting a heuristic.
 - Phase 4 for optional content: the catalog's default configuration `/D` is read
@@ -852,7 +857,9 @@ remain prohibited. **Page boxes no longer are.** `PageGeometry` states the page
 a document says it was written for — size, margins, and header and footer
 distances, one per document and nullable — and DOCX, ODT and RTF each state it,
 so the rule that a promoted feature needs another immediate codec consumer is
-satisfied rather than waived. It is a document property, not a coordinate
+satisfied rather than waived. PDF import states it too: the size the pages are
+displayed at, and margins read off where the content sits, since a PDF declares
+none. It is a document property, not a coordinate
 system: a shape is still anchored to a paragraph and offset from the text
 column, no glyph carries a position, and the prohibition stands undiminished for
 anything that would place content *on* a page rather than describe the page a

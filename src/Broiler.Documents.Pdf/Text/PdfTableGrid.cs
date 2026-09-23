@@ -16,6 +16,26 @@ namespace Broiler.Documents.Pdf.Text;
 /// Coordinates are the same device space text fragments use, so a rule and a
 /// line of text can be compared without transforming either again.
 /// </remarks>
+/// <param name="Color">
+/// The colour the path was painted in: the fill colour for a fill, and the
+/// stroking colour for a stroke. The two are separate state in PDF, and a table
+/// shaded grey and ruled black paints its rules in neither the colour nor the
+/// width its shading was set in.
+/// </param>
+/// <param name="StrokeWidth">
+/// The pen width a stroke was painted with, in device space; zero for a fill.
+/// The box is the path's geometry, so a stroked line has no height of its own
+/// and the pen is the only thing that says how heavy it was drawn.
+/// </param>
+/// <param name="Order">
+/// Where the path falls in the page's paint order, counted with the text runs
+/// and pictures on the same page. What a fill means depends on what it was
+/// painted over and what was painted over it.
+/// </param>
+/// <param name="Stroked">
+/// True when the operator stroked the path, whether or not it also filled it.
+/// A white box with a black outline is not a white box.
+/// </param>
 internal readonly record struct PdfPaintedPath(
     double MinX,
     double MinY,
@@ -23,11 +43,43 @@ internal readonly record struct PdfPaintedPath(
     double MaxY,
     PdfArtworkKind Kind,
     bool Filled,
-    BColor Color)
+    BColor Color,
+    double StrokeWidth = 0,
+    int Order = 0,
+    bool Stroked = false)
 {
     public double Width => MaxX - MinX;
 
     public double Height => MaxY - MinY;
+
+    /// <summary>
+    /// How heavy the mark is across its short side, as painted: the box itself
+    /// for a fill, and the box widened by the pen for a stroke.
+    /// </summary>
+    public double Thickness => Math.Min(Width, Height) + (Filled ? 0 : StrokeWidth);
+
+    /// <summary>
+    /// Whether <paramref name="other"/> paints the same shape in the same way:
+    /// the same box, painted the same way in the same colour.
+    /// </summary>
+    /// <remarks>
+    /// Producers repaint. LibreOffice draws every paragraph background and
+    /// border once for the page and once more for the body, and a count that
+    /// took each pass for a separate shape reported twice what the page drew.
+    /// </remarks>
+    public bool SameShapeAs(in PdfPaintedPath other) =>
+        Kind == other.Kind &&
+        Filled == other.Filled &&
+        Stroked == other.Stroked &&
+        Color == other.Color &&
+        Math.Abs(StrokeWidth - other.StrokeWidth) <= ShapeTolerance &&
+        Math.Abs(MinX - other.MinX) <= ShapeTolerance &&
+        Math.Abs(MinY - other.MinY) <= ShapeTolerance &&
+        Math.Abs(MaxX - other.MaxX) <= ShapeTolerance &&
+        Math.Abs(MaxY - other.MaxY) <= ShapeTolerance;
+
+    /// <summary>How far apart two coordinates may be and still describe one shape.</summary>
+    private const double ShapeTolerance = 0.01;
 }
 
 /// <summary>
@@ -52,6 +104,15 @@ internal readonly record struct PdfPaintedPath(
 /// Two columns and two rows are the minimum. A single column of ruled bands is a
 /// list of boxes as often as it is a table, and a single row is a header bar; at
 /// that size the lattice stops being evidence.
+/// </para>
+/// <para>
+/// <strong>One exception: a closed frame around text.</strong> A box ruled on
+/// all four sides with text inside it and nothing crossing it is a boxed note,
+/// and a one-cell table is how every format this model writes holds one - it is
+/// what Writer and Word themselves produce for a bordered box. It is not read as
+/// evidence of tabular data, and <see cref="IsFrame"/> and the diagnostic say it
+/// was a frame. A box too small to hold a line, or so large it is the page's own
+/// border, is left alone.
 /// </para>
 /// </remarks>
 internal sealed class PdfTableGrid
@@ -86,6 +147,13 @@ internal sealed class PdfTableGrid
     /// <summary>Widest region the occupancy scan will bin, in points.</summary>
     private const int MaxBins = 20_000;
 
+    /// <summary>
+    /// The largest share of the page a frame may enclose. A box around most of
+    /// the page is the page's border, and reading it as a cell would put the
+    /// whole page inside a table.
+    /// </summary>
+    private const double MaximumFrameShare = 0.5;
+
     private readonly double[] _columns;
     private readonly double[] _rows;
     private readonly BColor[] _shading;
@@ -99,14 +167,23 @@ internal sealed class PdfTableGrid
         double[] rows,
         BColor[] shading,
         CellBorders[] borders,
-        bool inferred)
+        bool inferred,
+        bool frame)
     {
         _columns = columns;
         _rows = rows;
         _shading = shading;
         _borders = borders;
         IsInferred = inferred;
+        IsFrame = frame;
     }
+
+    /// <summary>
+    /// True for a closed box around text read as a one-cell table, rather than
+    /// a lattice read as a table. The frame is fully ruled; what it is not is
+    /// evidence that the page drew tabular data.
+    /// </summary>
+    public bool IsFrame { get; }
 
     /// <summary>
     /// The grids drawn inside this one's cells, in the order they start. A table
@@ -217,6 +294,44 @@ internal sealed class PdfTableGrid
         path.MaxY <= Top + CoverTolerance;
 
     /// <summary>
+    /// Whether this fill is the shade of one of the grid's cells, or of a cell of
+    /// a grid nested in one: it lies inside the grid and covers a whole cell.
+    /// </summary>
+    /// <remarks>
+    /// A cell's shade is carried as the cell's shading, and reading it again as
+    /// the background of the words in the cell would paint it twice. A smaller
+    /// fill inside a cell - a highlight behind one word - is not a shade, and
+    /// stays the words' own.
+    /// </remarks>
+    public bool ShadesCell(in PdfPaintedPath fill)
+    {
+        if (!Covers(fill))
+            return false;
+
+        for (int row = 0; row < Rows; row++)
+        {
+            for (int column = 0; column < Columns; column++)
+            {
+                if (fill.MinX <= _columns[column] + CoverTolerance &&
+                    fill.MaxX >= _columns[column + 1] - CoverTolerance &&
+                    fill.MinY <= _rows[row + 1] + CoverTolerance &&
+                    fill.MaxY >= _rows[row] - CoverTolerance)
+                {
+                    return true;
+                }
+            }
+        }
+
+        foreach (PdfTableGrid child in Children)
+        {
+            if (child.ShadesCell(fill))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Whether this painted path is one of the lines the grid was read from, as
     /// against something drawn inside one of its cells.
     /// </summary>
@@ -300,11 +415,18 @@ internal sealed class PdfTableGrid
     /// <summary>
     /// Finds the grid a page drew, if it drew one. A fully ruled lattice is
     /// preferred; where the rules only partly divide the table, the rest is read
-    /// off the text under the conditions <see cref="Infer"/> sets out.
+    /// off the text under the conditions <see cref="Infer"/> sets out. A closed
+    /// box around text is read as a one-cell table under the conditions
+    /// <see cref="Frame"/> sets out.
     /// </summary>
+    /// <param name="pageArea">
+    /// The page's area in square points, or zero where it is not known. It is
+    /// what tells a frame around a note from the page's own border.
+    /// </param>
     public static List<PdfTableGrid> Detect(
         IReadOnlyList<PdfPaintedPath> paths,
-        IReadOnlyList<PdfTextFragment> fragments)
+        IReadOnlyList<PdfTextFragment> fragments,
+        double pageArea = 0)
     {
         var grids = new List<PdfTableGrid>();
         if (paths is null || paths.Count == 0)
@@ -315,15 +437,29 @@ internal sealed class PdfTableGrid
         var fills = new List<PdfPaintedPath>();
         Collect(paths, vertical, horizontal, fills);
 
-        // A rule painted in pieces is one rule. Joining the pieces here, once,
-        // is what lets every test below keep asking the simple question - is
-        // there a segment that spans this - without each of them having to
-        // reassemble the line first.
-        Join(vertical);
-        Join(horizontal);
+        // A rule painted in pieces is one rule, and the lattice is read from
+        // that: joining the pieces here, once, is what lets every test below
+        // keep asking the simple question - is there a segment that spans this -
+        // without each of them having to reassemble the line first. Colour does
+        // not enter into it. Two tables stacked on one another and ruled in two
+        // greys share a column line painted half in each, and a lattice that
+        // refused to see that line whole refused the table.
+        //
+        // What colour a border is, though, is a question about the pieces, and
+        // they are kept apart for it: a cell's edge reports the colour the page
+        // actually painted along it.
+        var paintedVertical = new List<Segment>(vertical);
+        var paintedHorizontal = new List<Segment>(horizontal);
+        Join(paintedVertical, byColour: true);
+        Join(paintedHorizontal, byColour: true);
+        Join(vertical, byColour: false);
+        Join(horizontal, byColour: false);
 
         if (horizontal.Count < 2 && vertical.Count < 2)
             return grids;
+
+        var painted = new PaintedEdges(paintedVertical, paintedHorizontal);
+        var frames = new List<PdfTableGrid>();
 
         // Ruled tables are found one region at a time. A page with two of them
         // used to yield neither: the edges of both went into one candidate
@@ -332,16 +468,20 @@ internal sealed class PdfTableGrid
         // nothing of the other's do not.
         foreach ((List<Segment> regionVertical, List<Segment> regionHorizontal) in Regions(vertical, horizontal))
         {
-            if (Lattice(regionVertical, regionHorizontal, fills) is { } ruled)
+            if (Lattice(regionVertical, regionHorizontal, fills, painted) is { } ruled)
                 grids.Add(ruled);
+            else if (Frame(regionVertical, regionHorizontal, fills, painted, fragments, pageArea) is { } frame)
+                frames.Add(frame);
         }
 
         // Whatever no lattice claimed is offered to the inference, which anchors
         // on a stack of parallel rules rather than on rules that meet - so it
         // cannot be split by region the same way, and stays one grid per page.
-        if (grids.Count == 0 && Infer(vertical, horizontal, fills, fragments) is { } inferred)
+        // A frame is no lattice, and does not stand in its way.
+        if (grids.Count == 0 && Infer(vertical, horizontal, fills, fragments, painted) is { } inferred)
             grids.Add(inferred);
 
+        grids.AddRange(frames);
         grids.Sort(static (left, right) => right.Top.CompareTo(left.Top));
         return Nest(grids);
     }
@@ -509,7 +649,8 @@ internal sealed class PdfTableGrid
     private static PdfTableGrid? Lattice(
         List<Segment> vertical,
         List<Segment> horizontal,
-        List<PdfPaintedPath> fills)
+        List<PdfPaintedPath> fills,
+        PaintedEdges painted)
     {
         if (vertical.Count < 2 || horizontal.Count < 2)
             return null;
@@ -522,7 +663,81 @@ internal sealed class PdfTableGrid
             return null;
 
         return IsBounded(columns, rows, vertical, horizontal)
-            ? Build(columns, rows, vertical, horizontal, fills, inferred: false)
+            ? Build(columns, rows, vertical, horizontal, fills, painted, inferred: false)
+            : null;
+    }
+
+    /// <summary>
+    /// A closed box around text: one cell, ruled on all four sides, holding
+    /// runs that lie wholly inside it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A bordered note is drawn exactly this way, and dropping its four rules
+    /// dropped the one thing that set the note apart from the letter around it.
+    /// A one-cell table is how the model, and every format it writes, holds a
+    /// bordered box.
+    /// </para>
+    /// <para>
+    /// Each condition rules out a shape that is not a box around text. A frame
+    /// holding no text is a picture's border or an empty field. One narrower or
+    /// shallower than <see cref="MinimumSpan"/> is a checkbox. One enclosing
+    /// more than <see cref="MaximumFrameShare"/> of the page is the page's
+    /// border, and reading it would put the whole page in a cell. And one a run
+    /// crosses is a highlight drawn over part of a line rather than a container
+    /// for it.
+    /// </para>
+    /// </remarks>
+    private static PdfTableGrid? Frame(
+        List<Segment> vertical,
+        List<Segment> horizontal,
+        List<PdfPaintedPath> fills,
+        PaintedEdges painted,
+        IReadOnlyList<PdfTextFragment> fragments,
+        double pageArea)
+    {
+        if (fragments is null || fragments.Count == 0)
+            return null;
+
+        double[] columns = Cluster(vertical, s => s.At);
+        double[] rows = Cluster(horizontal, s => s.At);
+        Array.Reverse(rows);
+
+        if (columns.Length != 2 || rows.Length != 2)
+            return null;
+
+        double left = columns[0];
+        double right = columns[1];
+        double top = rows[0];
+        double bottom = rows[1];
+
+        if (right - left < MinimumSpan || top - bottom < MinimumSpan)
+            return null;
+
+        if (pageArea > 0 && (right - left) * (top - bottom) > pageArea * MaximumFrameShare)
+            return null;
+
+        if (!IsBounded(columns, rows, vertical, horizontal))
+            return null;
+
+        bool holds = false;
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            // Only a run level with the box can be in it or cross it.
+            if (fragment.Y > top + EdgeTolerance || fragment.Y < bottom - EdgeTolerance)
+                continue;
+
+            if (fragment.EndX <= left || fragment.X >= right)
+                continue;
+
+            if (fragment.X < left - EdgeTolerance || fragment.EndX > right + EdgeTolerance)
+                return null;
+
+            holds = true;
+        }
+
+        return holds
+            ? Build(columns, rows, vertical, horizontal, fills, painted, inferred: false, frame: true)
             : null;
     }
 
@@ -533,12 +748,14 @@ internal sealed class PdfTableGrid
         List<Segment> vertical,
         List<Segment> horizontal,
         List<PdfPaintedPath> fills,
-        bool inferred)
+        PaintedEdges painted,
+        bool inferred,
+        bool frame = false)
     {
         int cells = (columns.Length - 1) * (rows.Length - 1);
         var shading = new BColor[cells];
         var borders = new CellBorders[cells];
-        var grid = new PdfTableGrid(columns, rows, shading, borders, inferred);
+        var grid = new PdfTableGrid(columns, rows, shading, borders, inferred, frame);
 
         // Only a ruled grid can have merged cells, because a merge is a rule the
         // document did not draw. Where the divisions were inferred, every one of
@@ -567,10 +784,10 @@ internal sealed class PdfTableGrid
                 // An unruled edge gets no border, which is what the page shows.
                 // Inferring a division is not the same as inventing a line.
                 borders[(row * grid.Columns) + column] = new CellBorders(
-                    Edge(vertical, left, bottom, top),
-                    Edge(horizontal, top, left, right),
-                    Edge(vertical, right, bottom, top),
-                    Edge(horizontal, bottom, left, right));
+                    Edge(vertical, painted.Vertical, left, bottom, top),
+                    Edge(horizontal, painted.Horizontal, top, left, right),
+                    Edge(vertical, painted.Vertical, right, bottom, top),
+                    Edge(horizontal, painted.Horizontal, bottom, left, right));
 
                 shading[(row * grid.Columns) + column] =
                     ShadeOf(fills, left, bottom, right, top, grid);
@@ -617,7 +834,8 @@ internal sealed class PdfTableGrid
         List<Segment> vertical,
         List<Segment> horizontal,
         List<PdfPaintedPath> fills,
-        IReadOnlyList<PdfTextFragment> fragments)
+        IReadOnlyList<PdfTextFragment> fragments,
+        PaintedEdges painted)
     {
         if (fragments is null || fragments.Count == 0)
             return null;
@@ -652,7 +870,7 @@ internal sealed class PdfTableGrid
 
         return rows.Length - 1 < MinimumCells || columns.Length - 1 < MinimumCells
             ? null
-            : Build(columns, rows, vertical, horizontal, fills, inferred: true);
+            : Build(columns, rows, vertical, horizontal, fills, painted, inferred: true);
     }
 
     /// <summary>
@@ -888,9 +1106,9 @@ internal sealed class PdfTableGrid
             {
                 case PdfArtworkKind.Rule:
                     if (path.Height >= path.Width)
-                        vertical.Add(new Segment(Middle(path.MinX, path.MaxX), path.MinY, path.MaxY, path.Color));
+                        vertical.Add(new Segment(Middle(path.MinX, path.MaxX), path.MinY, path.MaxY, path.Color, Weight(path)));
                     else
-                        horizontal.Add(new Segment(Middle(path.MinY, path.MaxY), path.MinX, path.MaxX, path.Color));
+                        horizontal.Add(new Segment(Middle(path.MinY, path.MaxY), path.MinX, path.MaxX, path.Color, Weight(path)));
                     break;
 
                 case PdfArtworkKind.Block when !path.Filled:
@@ -900,14 +1118,14 @@ internal sealed class PdfTableGrid
                     // where a rule's position is read from.
                     if (path.Height > 0)
                     {
-                        vertical.Add(new Segment(path.MinX, path.MinY, path.MaxY, path.Color));
-                        vertical.Add(new Segment(path.MaxX, path.MinY, path.MaxY, path.Color));
+                        vertical.Add(new Segment(path.MinX, path.MinY, path.MaxY, path.Color, Weight(path)));
+                        vertical.Add(new Segment(path.MaxX, path.MinY, path.MaxY, path.Color, Weight(path)));
                     }
 
                     if (path.Width > 0)
                     {
-                        horizontal.Add(new Segment(path.MinY, path.MinX, path.MaxX, path.Color));
-                        horizontal.Add(new Segment(path.MaxY, path.MinX, path.MaxX, path.Color));
+                        horizontal.Add(new Segment(path.MinY, path.MinX, path.MaxX, path.Color, Weight(path)));
+                        horizontal.Add(new Segment(path.MaxY, path.MinX, path.MaxX, path.Color, Weight(path)));
                     }
 
                     break;
@@ -923,6 +1141,13 @@ internal sealed class PdfTableGrid
     }
 
     private static double Middle(double low, double high) => (low + high) / 2;
+
+    /// <summary>
+    /// How heavy the line a path draws is: a bar's own thickness where it was
+    /// filled, and the pen's width where it was stroked.
+    /// </summary>
+    private static double Weight(in PdfPaintedPath path) =>
+        path.Filled ? Math.Min(path.Width, path.Height) : path.StrokeWidth;
 
     /// <summary>
     /// Merges collinear segments that touch or overlap into the single rule they
@@ -944,13 +1169,16 @@ internal sealed class PdfTableGrid
     /// segment at a time.
     /// </para>
     /// <para>
-    /// Only same-coloured pieces join. Two rules of different colours that meet
-    /// end to end are two rules, and a cell border has to report a colour the
-    /// document actually painted along that edge rather than whichever half was
-    /// met first.
+    /// Joined twice, for two questions. With <paramref name="byColour"/> false
+    /// the pieces make the lines a lattice is read from, whatever colour each
+    /// was painted in: two tables stacked in two greys share one column line.
+    /// With it true only same-coloured pieces join, because two rules of
+    /// different colours that meet end to end are two rules, and a cell border
+    /// has to report a colour the document actually painted along that edge
+    /// rather than whichever half was met first.
     /// </para>
     /// </remarks>
-    private static void Join(List<Segment> segments)
+    private static void Join(List<Segment> segments, bool byColour)
     {
         if (segments.Count < 2)
             return;
@@ -975,7 +1203,7 @@ internal sealed class PdfTableGrid
             // tolerance are not ordered by that at all, and a one-ended test
             // would splice a piece that sits entirely clear of the run.
             if (next.At - open.At <= EdgeTolerance &&
-                next.Color == open.Color &&
+                (!byColour || next.Color == open.Color) &&
                 next.From <= open.To + CoverTolerance &&
                 next.To >= open.From - CoverTolerance)
             {
@@ -1160,19 +1388,42 @@ internal sealed class PdfTableGrid
         return false;
     }
 
-    private static TableBorder Edge(List<Segment> segments, double at, double from, double to)
+    /// <summary>
+    /// The border along one cell edge: none where no rule covers it, and
+    /// otherwise the colour and weight of the piece that covers most of it.
+    /// </summary>
+    /// <remarks>
+    /// Whether the edge is ruled is asked of the joined lines, and what it looks
+    /// like of the pieces, because a column line can be painted in two colours -
+    /// one per table, where two are stacked - and each cell's edge is one of
+    /// them, not the line's first piece. A hairline, painted with a pen of width
+    /// zero, is the thinnest line a device can draw, and it keeps the model's
+    /// default weight rather than becoming a border that cannot be seen.
+    /// </remarks>
+    private static TableBorder Edge(List<Segment> lines, List<Segment> pieces, double at, double from, double to)
     {
-        foreach (Segment segment in segments)
+        if (!Covers(lines, at, from, to))
+            return TableBorder.None;
+
+        Segment? heaviest = null;
+        double best = double.NegativeInfinity;
+        foreach (Segment piece in pieces)
         {
-            if (Math.Abs(segment.At - at) <= EdgeTolerance &&
-                segment.From <= from + CoverTolerance &&
-                segment.To >= to - CoverTolerance)
+            if (Math.Abs(piece.At - at) > EdgeTolerance)
+                continue;
+
+            double share = Math.Min(piece.To, to) - Math.Max(piece.From, from);
+            if (share > best)
             {
-                return TableBorder.Solid(segment.Color);
+                best = share;
+                heaviest = piece;
             }
         }
 
-        return TableBorder.None;
+        if (heaviest is not { } painted)
+            return TableBorder.None;
+
+        return painted.Weight > 0 ? new TableBorder(painted.Color, painted.Weight) : TableBorder.Solid(painted.Color);
     }
 
     /// <summary>
@@ -1216,6 +1467,16 @@ internal sealed class PdfTableGrid
         return shade;
     }
 
-    /// <summary>A painted straight edge: where it sits, and how far it runs.</summary>
-    private readonly record struct Segment(double At, double From, double To, BColor Color);
+    /// <summary>
+    /// A painted straight edge: where it sits, how far it runs, and the colour
+    /// and weight it was painted with.
+    /// </summary>
+    private readonly record struct Segment(double At, double From, double To, BColor Color, double Weight = 0);
+
+    /// <summary>
+    /// The pieces a page's rules were painted in, joined only where they share a
+    /// colour: what a border looks like, kept apart from the lines a lattice is
+    /// read from.
+    /// </summary>
+    private sealed record PaintedEdges(List<Segment> Vertical, List<Segment> Horizontal);
 }
