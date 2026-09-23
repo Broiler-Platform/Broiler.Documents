@@ -20,3 +20,4 @@ artifacts/
 # their log and reports here, and CI uploads the directory as an artifact rather
 # than committing it.
 test-results/
+/src/Broiler.Documents.Cli/Properties/launchSettings.json
