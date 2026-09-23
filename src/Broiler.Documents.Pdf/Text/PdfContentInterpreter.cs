@@ -1598,11 +1598,13 @@ internal sealed class PdfContentInterpreter(
     /// would otherwise produce a plausible wrong picture instead of an error. A
     /// <c>/ImageMask</c> stencil paints the current fill colour through a
     /// one-bit shape, so projecting it as black-and-white invents a colour the
-    /// page never used. An <c>/SMask</c> or a colour-key <c>/Mask</c> carries the
-    /// transparency the picture is drawn with, and this build composites
-    /// neither, so carrying the image opaque puts a solid box where a logo's
-    /// transparent ground belongs. A colour space outside the approved raw-sample
-    /// subset needs a transform this project does not own.
+    /// page never used. A colour-key <c>/Mask</c> carries the transparency the
+    /// picture is drawn with, and this build does not composite it, so carrying
+    /// the image opaque puts a solid box where a logo's transparent ground
+    /// belongs. A soft mask says the same thing unless it is read and turns out
+    /// to say nothing - see <see cref="IsOpaqueSoftMask"/>. A colour space
+    /// outside the approved raw-sample subset needs a transform this project
+    /// does not own.
     /// </para>
     /// <para>
     /// Every refusal names what it met, because the reasons are answered by
@@ -1636,12 +1638,13 @@ internal sealed class PdfContentInterpreter(
         // `/SMask null` - which PDF 32000-1 7.3.9 defines as equivalent to the
         // key being absent - and a reference to a free object both arrived here
         // as something non-null and refused an image that carries no
-        // transparency at all. Resolve normalizes both to null. What it does not
-        // do is judge the value: a mask of a kind this build cannot read is
-        // still the document declaring one, and projecting it opaque would put a
-        // solid box where a transparent ground belongs.
-        if (_store.Resolve(dictionary["SMask"]) is not null ||
-            _store.Resolve(dictionary["Mask"]) is not null)
+        // transparency at all. Resolve normalizes both to null.
+        //
+        // A colour-key mask is refused on sight: it is a range of colours to
+        // knock out, and honouring it means compositing. A soft mask is refused
+        // unless reading it shows there is nothing to honour.
+        if (_store.Resolve(dictionary["Mask"]) is not null ||
+            (_store.Resolve(dictionary["SMask"]) is { } soft && !IsOpaqueSoftMask(soft)))
         {
             NotProjected("transparency this build does not composite");
             return;
@@ -1718,6 +1721,172 @@ internal sealed class PdfContentInterpreter(
         // points and the matrix is what decides how large the picture appears.
         var image = new InlineImage(resource, id, width, height);
         _placedImages.Add(new PdfPlacedImage(image, left, top, width, height));
+    }
+
+    /// <summary>
+    /// Whether a soft mask leaves the image it masks fully opaque everywhere,
+    /// and so declares a transparency there is nothing to composite.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Producers attach a soft mask whether the picture needs one or not. A
+    /// writer whose own image type always carries an alpha channel emits one
+    /// that is solid opaque from edge to edge, and refusing on the key's
+    /// presence discarded every such image — a logo with no transparent ground
+    /// at all — rather than perform a composite that is the identity.
+    /// </para>
+    /// <para>
+    /// So the mask is read instead of assumed. Every sample has to map, through
+    /// the mask's own <c>/Decode</c>, to full alpha; one that does not means the
+    /// picture really is drawn with transparency, and the image is refused
+    /// exactly as before. Nothing here composites anything. It establishes that
+    /// there is nothing to composite, which is the only finding that lets the
+    /// image's own samples through unchanged.
+    /// </para>
+    /// <para>
+    /// What it cannot read for itself, it refuses. A mask whose chain ends in an
+    /// image codec yields that codec's pixels rather than the packed samples
+    /// read here, and the byte-stream decode stops there by design. A
+    /// <c>/Matte</c> entry declares the image's own colours premultiplied
+    /// against a backdrop, which changes the picture rather than its alpha and
+    /// which no reading of the alpha undoes. A mask naming a colour space other
+    /// than <c>/DeviceGray</c> contradicts PDF 32000-1 11.6.5.3, and a
+    /// contradiction is not an opacity.
+    /// </para>
+    /// </remarks>
+    private bool IsOpaqueSoftMask(PdfObject mask)
+    {
+        if (mask is not PdfStream stream)
+            return false;
+
+        PdfDictionary dictionary = stream.Dictionary;
+
+        if (_store.Resolve(dictionary["Matte"]) is not null)
+            return false;
+
+        if (_store.Resolve(dictionary["ImageMask"]) is PdfBoolean stencil && stencil.Value)
+            return false;
+
+        if (_store.Resolve(dictionary["ColorSpace"]) is PdfName space && space.Value != "DeviceGray")
+            return false;
+
+        int width = Integer(dictionary, "Width", "W");
+        int height = Integer(dictionary, "Height", "H");
+        int bits = Integer(dictionary, "BitsPerComponent", "BPC");
+
+        if (width <= 0 || height <= 0 || bits is not (1 or 2 or 4 or 8 or 16))
+            return false;
+
+        if (!TryOpaqueSample(dictionary, bits, out int opaque))
+            return false;
+
+        // A constant mapping onto full alpha is opaque whatever the samples say,
+        // and the stream need not be decoded at all to establish it.
+        if (opaque < 0)
+            return true;
+
+        PdfStreamDecodeResult decoded;
+        try
+        {
+            decoded = _store.Filters.Decode(stream, _store.Resolve, _store.Budget);
+        }
+        catch (PdfLimitExceededException)
+        {
+            // Charged like any other stream. A mask that will not fit in the
+            // read's remaining allowance is one this cannot judge, and an
+            // unjudged mask refuses its image rather than passing it.
+            return false;
+        }
+
+        if (!decoded.Succeeded || decoded.Data is not { } samples)
+            return false;
+
+        // Each row is packed at the declared depth and padded to a byte
+        // boundary, so this walks samples rather than bytes: the padding bits at
+        // the end of a short row are not the document's and say nothing about
+        // its alpha.
+        long stride = (((long)width * bits) + 7) / 8;
+        if (samples.LongLength < stride * height)
+            return false;
+
+        for (int y = 0; y < height; y++)
+        {
+            long row = y * stride;
+            for (int x = 0; x < width; x++)
+            {
+                if (Alpha(samples, row, x, bits) != opaque)
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The stored sample value a soft mask's <c>/Decode</c> maps to full alpha,
+    /// or -1 where every value does. False where none does.
+    /// </summary>
+    /// <remarks>
+    /// The default mapping runs 0 to 1, so full alpha is the largest value the
+    /// depth holds. <c>/Decode [1 0]</c> is the ordinary way a PDF says
+    /// "inverted" and puts it at zero, and it is what the opaque masks in the
+    /// wild are actually written as. <c>[1 1]</c> is a constant. Any other
+    /// interval reaches 1 at one interior value at most, which a real mask would
+    /// have to hit at every sample it holds; that is treated as no value rather
+    /// than solved for, because the answer would be a rounding argument about
+    /// the document's arithmetic and not a fact about its picture.
+    /// </remarks>
+    private bool TryOpaqueSample(PdfDictionary dictionary, int bits, out int opaque)
+    {
+        opaque = (1 << bits) - 1;
+
+        if (_store.Resolve(dictionary["Decode"]) is not PdfArray decode)
+            return true;
+
+        if (decode.Count != 2 ||
+            _store.Resolve(decode[0]) is not PdfNumber low ||
+            _store.Resolve(decode[1]) is not PdfNumber high)
+        {
+            return false;
+        }
+
+        if (low.Value == 0 && high.Value == 1)
+            return true;
+
+        if (low.Value == 1 && high.Value == 0)
+        {
+            opaque = 0;
+            return true;
+        }
+
+        if (low.Value == 1 && high.Value == 1)
+        {
+            opaque = -1;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The <paramref name="x"/>th alpha sample in a row, at 1, 2, 4, 8, or 16
+    /// bits, most significant bit first.
+    /// </summary>
+    private static int Alpha(byte[] samples, long row, int x, int bits)
+    {
+        if (bits == 16)
+        {
+            long at = row + ((long)x * 2);
+            return (samples[at] << 8) | samples[at + 1];
+        }
+
+        if (bits == 8)
+            return samples[row + x];
+
+        int perByte = 8 / bits;
+        byte packed = samples[row + (x / perByte)];
+        int shift = 8 - bits - (x % perByte * bits);
+        return (packed >> shift) & ((1 << bits) - 1);
     }
 
     /// <summary>

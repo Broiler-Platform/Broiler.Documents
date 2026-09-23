@@ -5,8 +5,8 @@ namespace Broiler.Documents.Pdf.Tests;
 
 public sealed class PdfFilterTests
 {
-    private static PdfFilterContext Context(long maxBytes = 1 << 20, int ratio = 512) =>
-        new(maxBytes, ratio);
+    private static PdfFilterContext Context(long maxBytes = 1 << 20, int ratio = 512, long declared = 0) =>
+        new(maxBytes, ratio, declared);
 
     private static byte[] Deflate(byte[] data)
     {
@@ -34,6 +34,36 @@ public sealed class PdfFilterTests
 
         Assert.False(result.Succeeded);
         Assert.Equal(PdfDiagnosticCodes.FilterLimit, result.DiagnosticCode);
+    }
+
+    [Fact]
+    public void A_Declared_Output_Size_Raises_The_Ratio_Ceiling_But_Not_The_Byte_One()
+    {
+        // The ratio is a guess at a reasonable output where nothing says. An
+        // image says, so the guess gives way to it - and the byte ceiling, which
+        // is the actual bound, does not move: a declaration larger than it buys
+        // nothing at all.
+        byte[] flat = Deflate(new byte[256 * 1024]);
+
+        Assert.True(new FlateDecodeFilter()
+            .Decode(flat, PdfFilterParameters.Empty, Context(maxBytes: 1 << 20, ratio: 2, declared: 256 * 1024))
+            .Succeeded);
+
+        Assert.False(new FlateDecodeFilter()
+            .Decode(flat, PdfFilterParameters.Empty, Context(maxBytes: 64 * 1024, ratio: 2, declared: 256 * 1024))
+            .Succeeded);
+    }
+
+    [Fact]
+    public void A_Stream_That_Declares_Nothing_Is_Still_Held_To_The_Ratio()
+    {
+        // The guard is unchanged for everything that is not an image: a stream
+        // with no declared size is bounded by the ratio exactly as before.
+        byte[] flat = Deflate(new byte[256 * 1024]);
+
+        Assert.False(new FlateDecodeFilter()
+            .Decode(flat, PdfFilterParameters.Empty, Context(maxBytes: 1 << 20, ratio: 2))
+            .Succeeded);
     }
 
     [Fact]

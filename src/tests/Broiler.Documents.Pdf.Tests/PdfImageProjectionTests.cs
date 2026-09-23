@@ -313,6 +313,156 @@ public sealed class PdfImageProjectionTests
             StringComparison.Ordinal);
     }
 
+    // ---- soft masks that mask nothing -----------------------------------------
+
+    [Fact]
+    public void A_Soft_Mask_That_Is_Opaque_Everywhere_Does_Not_Refuse_Its_Image()
+    {
+        // The case that made the presence check wrong. A converter whose own
+        // image type always carries an alpha channel writes a mask that is solid
+        // opaque edge to edge, and refusing it discarded a logo with no
+        // transparent ground at all for a composite that is the identity.
+        var builder = new PdfFileBuilder();
+        int mask = builder.AddStream(
+            "/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            [0xFF, 0xFF]);
+
+        PdfReadResult result = Read(Document(
+            $"/Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask {mask} 0 R",
+            [1, 2, 3, 4, 5, 6],
+            extra: builder));
+
+        Assert.DoesNotContain(
+            result.Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected);
+        Assert.Single(ImagesIn(result));
+    }
+
+    [Fact]
+    public void An_Inverted_Soft_Mask_Of_Zeroes_Is_Opaque()
+    {
+        // How the opaque masks in the wild are actually written: every sample
+        // zero, and `/Decode [1 0]` turning every one of them into full alpha.
+        // Reading the samples without the Decode array would call this
+        // completely transparent and refuse it.
+        var builder = new PdfFileBuilder();
+        int mask = builder.AddStream(
+            "/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray " +
+            "/BitsPerComponent 8 /Decode [1 0]",
+            [0x00, 0x00]);
+
+        PdfReadResult result = Read(Document(
+            $"/Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask {mask} 0 R",
+            [1, 2, 3, 4, 5, 6],
+            extra: builder));
+
+        Assert.Single(ImagesIn(result));
+    }
+
+    [Fact]
+    public void One_Sample_Short_Of_Opaque_Refuses_The_Whole_Image()
+    {
+        // Not "mostly opaque". A single sample that is not full alpha is the
+        // document saying the picture is drawn with transparency, and the whole
+        // image goes back to being refused.
+        var builder = new PdfFileBuilder();
+        int mask = builder.AddStream(
+            "/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            [0xFF, 0xFE]);
+
+        Assert.Contains(
+            "transparency this build does not composite",
+            Refusal(Read(Document(
+                $"/Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask {mask} 0 R",
+                [1, 2, 3, 4, 5, 6],
+                extra: builder))),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Flat_Soft_Mask_Is_Not_Refused_As_A_Decompression_Bomb()
+    {
+        // A uniform mask compresses to almost nothing, and the expansion ratio
+        // that guards against a bomb refused it on the ratio alone - which meant
+        // the opacity could never be established for exactly the masks most
+        // likely to be opaque. An image states its own decoded size, so the
+        // guess gives way to the declaration.
+        const int Width = 512;
+        const int Height = 512;
+
+        var builder = new PdfFileBuilder();
+        int mask = builder.AddStream(
+            $"/Type /XObject /Subtype /Image /Width {Width} /Height {Height} " +
+            "/ColorSpace /DeviceGray /BitsPerComponent 8 /Decode [1 0]",
+            Deflate(new byte[Width * Height]),
+            filter: "FlateDecode");
+
+        PdfReadResult result = Read(Document(
+            $"/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask {mask} 0 R",
+            [1, 2, 3],
+            extra: builder));
+
+        Assert.Single(ImagesIn(result));
+    }
+
+    [Fact]
+    public void A_Premultiplied_Soft_Mask_Is_Refused_However_Opaque_It_Is()
+    {
+        // `/Matte` says the image's own colour samples were multiplied against a
+        // backdrop. That changes the picture rather than its alpha, and no
+        // reading of the alpha undoes it.
+        var builder = new PdfFileBuilder();
+        int mask = builder.AddStream(
+            "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray " +
+            "/BitsPerComponent 8 /Matte [0 0 0]",
+            [0xFF]);
+
+        Assert.Contains(
+            "transparency this build does not composite",
+            Refusal(Read(Document(
+                $"/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask {mask} 0 R",
+                [1, 2, 3],
+                extra: builder))),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Soft_Mask_Outside_DeviceGray_Is_Malformed_Rather_Than_Opaque()
+    {
+        // PDF 32000-1 11.6.5.3 requires DeviceGray. A mask that names anything
+        // else is not a mask this can read, and an unread mask refuses.
+        var builder = new PdfFileBuilder();
+        int mask = builder.AddStream(
+            "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8",
+            [0xFF, 0xFF, 0xFF]);
+
+        Assert.Contains(
+            "transparency this build does not composite",
+            Refusal(Read(Document(
+                $"/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask {mask} 0 R",
+                [1, 2, 3],
+                extra: builder))),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_Opaque_Soft_Mask_Leaves_The_Pixels_Alone()
+    {
+        // Establishing that there is nothing to composite must not turn into
+        // compositing something: the colour plane arrives exactly as declared.
+        var builder = new PdfFileBuilder();
+        int mask = builder.AddStream(
+            "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            [0xFF]);
+
+        BPixelBuffer pixels = Pixels(Read(Document(
+            $"/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /SMask {mask} 0 R",
+            [10, 20, 30],
+            extra: builder)));
+
+        Assert.Equal((10, 20, 30, 255), At(pixels, 0, 0));
+    }
+
     [Fact]
     public void A_Colour_Space_Outside_The_Subset_Is_Refused_By_Name()
     {

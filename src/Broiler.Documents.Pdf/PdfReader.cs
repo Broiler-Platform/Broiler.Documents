@@ -173,6 +173,19 @@ internal static class PdfReader
                 continue;
             }
 
+            // A ruled grid is the one arrangement of dropped artwork the model
+            // can carry, and it settles this page's reading order as well: cells
+            // are read row-major, which is what the geometric pass cannot infer
+            // and what a table defeats it with. Found before anything is turned
+            // into spans, because both of the next two steps need it.
+            List<PdfTableGrid> grids = PdfTableGrid.Detect(interpreter.PaintedPaths, fragments);
+
+            // Underline and strikethrough are painted rules rather than text
+            // state, so they are read back onto the runs before the runs become
+            // styled spans - and after the grids, because a table's own rules
+            // are the same shape and must not be mistaken for one.
+            bool[]? decorations = PdfTextDecorations.Apply(fragments, interpreter.PaintedPaths, grids);
+
             // A page whose fragments the tree accounts for in full is read in the
             // order it declares. One it accounts for only partly falls back
             // whole: mixing a declared order with an inferred one produces a
@@ -192,12 +205,6 @@ internal static class PdfReader
                 if (fragments.Count > 0)
                     inferredOrderPages++;
             }
-
-            // A ruled grid is the one arrangement of dropped artwork the model
-            // can carry, and it settles this page's reading order as well: cells
-            // are read row-major, which is what the geometric pass cannot infer
-            // and what a table defeats it with.
-            List<PdfTableGrid> grids = PdfTableGrid.Detect(interpreter.PaintedPaths, fragments);
 
             // A table broken by a page boundary is one table, and the model
             // holds a table as one contiguous run of paragraphs - so the join
@@ -239,9 +246,15 @@ internal static class PdfReader
                 int takenRules = 0;
                 int takenBlocks = 0;
 
-                foreach (PdfPaintedPath path in interpreter.PaintedPaths)
+                for (int p = 0; p < interpreter.PaintedPaths.Count; p++)
                 {
-                    if (!Inside(grids, path))
+                    PdfPaintedPath path = interpreter.PaintedPaths[p];
+
+                    // A cell's underline is inside the grid's box as surely as
+                    // the grid's own rules are, and it has already been read
+                    // back as something else. Counting it twice would report
+                    // more paths recovered than the page ever painted.
+                    if (decorations?[p] == true || !Inside(grids, path))
                         continue;
 
                     if (path.Kind == PdfArtworkKind.Rule)
@@ -250,7 +263,19 @@ internal static class PdfReader
                         takenBlocks++;
                 }
 
-                store.Features.NoteArtworkReadAsTable(takenRules, takenBlocks);
+                store.Features.NoteArtworkReadAsTable(takenRules, takenBlocks, i + 1);
+            }
+
+            if (decorations is not null)
+            {
+                int decorated = 0;
+                foreach (bool taken in decorations)
+                {
+                    if (taken)
+                        decorated++;
+                }
+
+                store.Features.NoteArtworkReadAsDecoration(decorated, i + 1);
             }
 
             // What the next page would have to continue: a grid with nothing

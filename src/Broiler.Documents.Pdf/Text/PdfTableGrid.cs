@@ -216,6 +216,50 @@ internal sealed class PdfTableGrid
         path.MinY >= Bottom - CoverTolerance &&
         path.MaxY <= Top + CoverTolerance;
 
+    /// <summary>
+    /// Whether this painted path is one of the lines the grid was read from, as
+    /// against something drawn inside one of its cells.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Covers(in PdfPaintedPath)"/> cannot tell those apart - a cell's contents lie
+    /// inside the grid's box exactly as its rules do - and something has to,
+    /// because a table rule and an underline are the same shape. A lattice line
+    /// lies along an edge this grid claimed, which is precisely what a cell's
+    /// contents do not. Nested grids are asked too: their rules are their own,
+    /// and they are inside this one's box.
+    /// </remarks>
+    public bool IsLatticeLine(in PdfPaintedPath path)
+    {
+        if (!Covers(path))
+            return false;
+
+        bool onEdge = path.Height >= path.Width
+            ? Near(_columns, Middle(path.MinX, path.MaxX))
+            : Near(_rows, Middle(path.MinY, path.MaxY));
+
+        if (onEdge)
+            return true;
+
+        foreach (PdfTableGrid child in Children)
+        {
+            if (child.IsLatticeLine(path))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool Near(double[] edges, double value)
+    {
+        foreach (double edge in edges)
+        {
+            if (Math.Abs(edge - value) <= EdgeTolerance)
+                return true;
+        }
+
+        return false;
+    }
+
     /// <summary>The width of each column, for the model's grid.</summary>
     public List<double> ColumnWidths()
     {
@@ -270,6 +314,13 @@ internal sealed class PdfTableGrid
         var horizontal = new List<Segment>();
         var fills = new List<PdfPaintedPath>();
         Collect(paths, vertical, horizontal, fills);
+
+        // A rule painted in pieces is one rule. Joining the pieces here, once,
+        // is what lets every test below keep asking the simple question - is
+        // there a segment that spans this - without each of them having to
+        // reassemble the line first.
+        Join(vertical);
+        Join(horizontal);
 
         if (horizontal.Count < 2 && vertical.Count < 2)
             return grids;
@@ -442,11 +493,18 @@ internal sealed class PdfTableGrid
     /// The fully ruled case: every edge of every cell was painted.
     /// </summary>
     /// <remarks>
-    /// One lattice per page is the case that matters and the case that is safe:
-    /// two tables side by side share no edges, so a single lattice over all of
-    /// them would claim cells neither drew. Candidate edges are taken from the
-    /// whole page and the lattice is then required to be complete, which a pair
-    /// of separate tables fails.
+    /// <para>
+    /// One lattice per region, and the region is what makes that safe: two
+    /// tables side by side share no edges, so they arrive here separately and a
+    /// single lattice is never asked to claim cells neither drew. Within a
+    /// region the lattice is still required to be complete.
+    /// </para>
+    /// <para>
+    /// Two tables stacked directly on one another, sharing the rule between
+    /// them, are one region and are read as one table. That is the honest
+    /// reading: the page drew a closed box divided all the way across, and
+    /// nothing in the ink says where one table stopped and the next began.
+    /// </para>
     /// </remarks>
     private static PdfTableGrid? Lattice(
         List<Segment> vertical,
@@ -837,10 +895,21 @@ internal sealed class PdfTableGrid
 
                 case PdfArtworkKind.Block when !path.Filled:
                     // An outline: the box is not the shape, its four sides are.
-                    vertical.Add(new Segment(path.MinX, path.MinY, path.MaxY, path.Color));
-                    vertical.Add(new Segment(path.MaxX, path.MinY, path.MaxY, path.Color));
-                    horizontal.Add(new Segment(path.MinY, path.MinX, path.MaxX, path.Color));
-                    horizontal.Add(new Segment(path.MaxY, path.MinX, path.MaxX, path.Color));
+                    // A box with no extent in one direction has no sides in the
+                    // other, and keeping those would put a zero-length stub
+                    // where a rule's position is read from.
+                    if (path.Height > 0)
+                    {
+                        vertical.Add(new Segment(path.MinX, path.MinY, path.MaxY, path.Color));
+                        vertical.Add(new Segment(path.MaxX, path.MinY, path.MaxY, path.Color));
+                    }
+
+                    if (path.Width > 0)
+                    {
+                        horizontal.Add(new Segment(path.MinY, path.MinX, path.MaxX, path.Color));
+                        horizontal.Add(new Segment(path.MaxY, path.MinX, path.MaxX, path.Color));
+                    }
+
                     break;
 
                 case PdfArtworkKind.Block:
@@ -854,6 +923,75 @@ internal sealed class PdfTableGrid
     }
 
     private static double Middle(double low, double high) => (low + high) / 2;
+
+    /// <summary>
+    /// Merges collinear segments that touch or overlap into the single rule they
+    /// were drawn to be.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Producers are free to paint one line in pieces, and many do. A column
+    /// rule stops at every crossing and starts again below it; a table drawn one
+    /// box per cell paints each cell's share of every shared edge. What the page
+    /// shows is an unbroken line, and every test here - does the boundary close,
+    /// does a rule divide this cell, what colour is this border - asks about the
+    /// line rather than about the strokes it was made of.
+    /// </para>
+    /// <para>
+    /// Doing it once, on the way in, is deliberate. The alternative is a
+    /// coverage test that reassembles a run on every call, and those calls are
+    /// the inner loop of the merge pass; this keeps that loop looking at one
+    /// segment at a time.
+    /// </para>
+    /// <para>
+    /// Only same-coloured pieces join. Two rules of different colours that meet
+    /// end to end are two rules, and a cell border has to report a colour the
+    /// document actually painted along that edge rather than whichever half was
+    /// met first.
+    /// </para>
+    /// </remarks>
+    private static void Join(List<Segment> segments)
+    {
+        if (segments.Count < 2)
+            return;
+
+        segments.Sort(static (left, right) =>
+        {
+            int at = left.At.CompareTo(right.At);
+            return at != 0 ? at : left.From.CompareTo(right.From);
+        });
+
+        // The open run's own coordinate is the one each candidate is measured
+        // against, never the previous candidate's, so a long line of slightly
+        // offset pieces cannot drift a rule away from where it was painted.
+        int kept = 0;
+        for (int i = 1; i < segments.Count; i++)
+        {
+            Segment open = segments[kept];
+            Segment next = segments[i];
+
+            // Both ends are tested. Sorting puts equal coordinates in order of
+            // where they start, but two pieces a fraction apart across the
+            // tolerance are not ordered by that at all, and a one-ended test
+            // would splice a piece that sits entirely clear of the run.
+            if (next.At - open.At <= EdgeTolerance &&
+                next.Color == open.Color &&
+                next.From <= open.To + CoverTolerance &&
+                next.To >= open.From - CoverTolerance)
+            {
+                segments[kept] = open with
+                {
+                    From = Math.Min(open.From, next.From),
+                    To = Math.Max(open.To, next.To),
+                };
+                continue;
+            }
+
+            segments[++kept] = next;
+        }
+
+        segments.RemoveRange(kept + 1, segments.Count - kept - 1);
+    }
 
     /// <summary>
     /// Collapses near-equal coordinates into one edge each, ascending. The
@@ -1002,7 +1140,11 @@ internal sealed class PdfTableGrid
         return true;
     }
 
-    /// <summary>Whether one painted segment at <paramref name="at"/> spans [from, to].</summary>
+    /// <summary>Whether a painted rule at <paramref name="at"/> spans [from, to].</summary>
+    /// <remarks>
+    /// One segment, because <see cref="Join"/> has already made each rule one
+    /// segment. A line the page painted in pieces arrives here whole.
+    /// </remarks>
     private static bool Covers(List<Segment> segments, double at, double from, double to)
     {
         foreach (Segment segment in segments)

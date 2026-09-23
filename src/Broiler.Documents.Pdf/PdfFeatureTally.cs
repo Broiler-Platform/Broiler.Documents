@@ -160,11 +160,25 @@ internal sealed class PdfFeatureTally
 
     private readonly Dictionary<PdfArtworkKind, int> _artwork = [];
     private readonly PageSet _artworkPages = new();
+
+    // The pages that actually lost something, which is not the same set as the
+    // pages that drew something. A page whose every path turned out to be a
+    // table's belongs in this note's inventory and not in its page list: naming
+    // it there says content was dropped there, and none was.
+    private readonly PageSet _artworkDroppedPages = new();
     private readonly PageSet _tablePages = new();
     private readonly SortedSet<string> _tableShapes = new(StringComparer.Ordinal);
     private int _tables;
     private int _artworkReadAsTableRules;
     private int _artworkReadAsTableBlocks;
+    private int _artworkReadAsDecorationRules;
+
+    // The running per-page counts the dropped-page set is decided from. A page's
+    // paths are all noted before the next page's are, so one open page is enough
+    // and no map of the whole document has to be kept.
+    private int? _artworkOpenPage;
+    private int _artworkOpenPainted;
+    private int _artworkOpenTaken;
     private int _inferredTables;
     private int _continuedTables;
     private int _tableCells;
@@ -314,10 +328,46 @@ internal sealed class PdfFeatureTally
     /// Records how many painted paths a page's grids were read from, so the
     /// artwork note can report what was dropped rather than what was drawn.
     /// </summary>
-    public void NoteArtworkReadAsTable(int rules, int blocks)
+    public void NoteArtworkReadAsTable(int rules, int blocks, int? page)
     {
         _artworkReadAsTableRules += rules;
         _artworkReadAsTableBlocks += blocks;
+        OpenArtworkPage(page);
+        _artworkOpenTaken += rules + blocks;
+    }
+
+    /// <summary>
+    /// Records how many of a page's bars were read back as the underline or
+    /// strikethrough of a run of text.
+    /// </summary>
+    public void NoteArtworkReadAsDecoration(int rules, int? page)
+    {
+        _artworkReadAsDecorationRules += rules;
+        OpenArtworkPage(page);
+        _artworkOpenTaken += rules;
+    }
+
+    /// <summary>Moves the running artwork counts on to another page.</summary>
+    private void OpenArtworkPage(int? page)
+    {
+        if (page == _artworkOpenPage)
+            return;
+
+        CloseArtworkPage();
+        _artworkOpenPage = page;
+    }
+
+    /// <summary>
+    /// Settles the open page: it lost artwork when it painted more than was read
+    /// back off it.
+    /// </summary>
+    private void CloseArtworkPage()
+    {
+        if (_artworkOpenPainted > _artworkOpenTaken)
+            _artworkDroppedPages.Add(_artworkOpenPage);
+
+        _artworkOpenPainted = 0;
+        _artworkOpenTaken = 0;
     }
 
     /// <summary>
@@ -344,6 +394,8 @@ internal sealed class PdfFeatureTally
         _artwork.TryGetValue(kind, out int seen);
         _artwork[kind] = seen == int.MaxValue ? seen : seen + 1;
         _artworkPages.Add(page);
+        OpenArtworkPage(page);
+        _artworkOpenPainted++;
     }
 
     /// <summary>
@@ -606,6 +658,10 @@ internal sealed class PdfFeatureTally
 
     private void ReportArtwork(PdfDiagnosticSink diagnostics)
     {
+        // The last page read is still open until something says the document is
+        // over, and this is that something.
+        CloseArtworkPage();
+
         if (_artwork.Count == 0)
             return;
 
@@ -615,31 +671,47 @@ internal sealed class PdfFeatureTally
         int paths = Count(PdfArtworkKind.Path);
         int total = rules + blocks + shadings + paths;
 
-        // Only bars and areas can be a grid's; a shading and a curve never are.
-        // Subtracting per kind is what lets the breakdown describe the dropped
-        // paths rather than every path painted - which is the number a reader
-        // wants, and the one the sentence claimed to be giving all along.
+        // Only bars and areas are ever read back; a shading and a curve never
+        // are. Subtracting per kind is what lets the breakdown describe the
+        // dropped paths rather than every path painted - which is the number a
+        // reader wants, and the one the sentence claimed to be giving all along.
         int takenRules = Math.Min(_artworkReadAsTableRules, rules);
         int takenBlocks = Math.Min(_artworkReadAsTableBlocks, blocks);
-        int taken = takenRules + takenBlocks;
+        int decorated = Math.Min(_artworkReadAsDecorationRules, rules - takenRules);
+        int grid = takenRules + takenBlocks;
+        int taken = grid + decorated;
         int lost = total - taken;
 
-        rules -= takenRules;
+        rules -= takenRules + decorated;
         blocks -= takenBlocks;
+
+        // Two different recoveries, and a reader acts on them differently: a
+        // table is structure the document gets back, an underline is character
+        // formatting on text it already had.
+        string asTable = "as a table's rules and shades";
+        string asDecoration = "as a run's underline or strikethrough";
+        string recovered =
+            grid > 0 && decorated > 0
+                ? string.Create(CultureInfo.InvariantCulture, $"{grid} {Were(grid)} read {asTable} and {decorated} {asDecoration}")
+                : grid > 0
+                    ? string.Create(CultureInfo.InvariantCulture, $"{grid} {Were(grid)} read {asTable}")
+                    : string.Create(CultureInfo.InvariantCulture, $"{decorated} {Were(decorated)} read {asDecoration}");
 
         var text = new StringBuilder();
         text.Append(
-            lost == 0 ? "The page draws vector artwork, and all of it formed a grid that was read as a table. "
-            : taken > 0 ? "The page draws vector artwork. What formed a grid was read as a table; the rest, which a logical rich-text document cannot represent, was dropped. "
+            lost == 0 ? "The page draws vector artwork, and all of it was read back into the document. "
+            : taken > 0 ? "The page draws vector artwork. What could be read back was; the rest, which a logical rich-text document cannot represent, was dropped. "
             : "The page draws vector artwork, which a logical rich-text document cannot represent. It was dropped. ");
 
         if (lost == 0)
         {
-            // Every path the page painted turned out to be a table's. There is
+            // Every path the page painted was read back as something. There is
             // no breakdown to give, because nothing was dropped to break down.
-            text.Append(CultureInfo.InvariantCulture,
-                $"All {total} path-painting operation{S(total)} {Were(total)} read as a table's rules and shades; none was dropped.");
-            text.Append(" The tables are reported under pdf.import.table-reconstructed.");
+            text.Append(grid > 0 && decorated == 0
+                ? string.Create(CultureInfo.InvariantCulture, $"All {total} path-painting operation{S(total)} {Were(total)} read {asTable}; none was dropped.")
+                : string.Create(CultureInfo.InvariantCulture, $"All {total} path-painting operation{S(total)} {Were(total)} read back: {recovered}; none was dropped."));
+            if (_tables > 0)
+                text.Append(" The tables are reported under pdf.import.table-reconstructed.");
             _artworkPages.Append(text);
             diagnostics.Skipped(PdfDiagnosticCodes.VectorArtworkDropped, text.ToString());
             return;
@@ -648,7 +720,7 @@ internal sealed class PdfFeatureTally
         if (taken > 0)
         {
             text.Append(CultureInfo.InvariantCulture,
-                $"Of {total} path-painting operation{S(total)}, {taken} {Were(taken)} read as a table's rules and shades. ");
+                $"Of {total} path-painting operation{S(total)}, {recovered}. ");
             text.Append(CultureInfo.InvariantCulture, $"The other {lost} {Were(lost)} dropped: ");
         }
         else
@@ -677,7 +749,11 @@ internal sealed class PdfFeatureTally
         if (_tables > 0)
             text.Append(" The tables are reported under pdf.import.table-reconstructed.");
 
-        _artworkPages.Append(text);
+        // The pages that lost something, not the pages that drew something. On a
+        // document whose tables account for whole pages those are different
+        // sets, and naming a page here is a claim that content went missing on
+        // it.
+        _artworkDroppedPages.Append(text);
 
         diagnostics.Skipped(PdfDiagnosticCodes.VectorArtworkDropped, text.ToString());
 

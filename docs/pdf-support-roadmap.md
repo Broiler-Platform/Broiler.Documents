@@ -219,11 +219,18 @@ is authoritative for that boundary.
   describes DeviceGray at 1, 2, 4, or 8 bits, DeviceRGB at 8, or Indexed at 1, 2,
   4, or 8 over a bounded DeviceGray or DeviceRGB palette, with a `/Decode` array
   validated against the interval its space defines. A composed image codec's own
-  RGBA output is taken as it stands. Everything else — a stencil mask, an
-  `/SMask` or colour-key `/Mask`, a colour space or depth outside the subset, an
-  Indexed image that remaps its own indices, samples that do not fill the
-  declaration — is refused, and the refusal names the construct met rather than
-  reporting a bare count. Projected pixels are charged against the read's
+  RGBA output is taken as it stands. Everything else — a stencil mask, a
+  colour-key `/Mask`, a soft mask that is not uniformly opaque, a colour space
+  or depth outside the subset, an Indexed image that remaps its own indices,
+  samples that do not fill the declaration — is refused, and the refusal names
+  the construct met rather than reporting a bare count. A soft mask is read
+  rather than assumed: where every one of its samples maps through its own
+  `/Decode` to full alpha there is no transparency to composite, and the image
+  projects. An image also states its own decoded size, which raises the filter
+  stage's expansion ceiling to it — a uniform mask compresses far past any ratio
+  a guess allows, and the guess is what refused the flattest masks as
+  decompression bombs; the absolute byte ceilings are unchanged and still
+  bound the decode. Projected pixels are charged against the read's
   decoded-byte budget, and a charge landing past a limit drops that image rather
   than the document. Inline images are still consumed and inventoried without
   being decoded.

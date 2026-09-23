@@ -51,6 +51,21 @@ internal sealed class PdfTextFragment(
 
     public bool Italic { get; } = italic;
 
+    /// <summary>True where a rule was painted along this run's baseline.</summary>
+    /// <remarks>
+    /// Settable, and the only thing about a fragment that is. PDF has no
+    /// text-decoration operator: an underline is a separate path-painting
+    /// operation, drawn before or after the run it belongs to and related to it
+    /// by nothing but coordinates. <see cref="PdfTextDecorations"/> matches the
+    /// two up once the page's paths are all known, which cannot happen while the
+    /// run is being built.
+    /// </remarks>
+    public bool Underline { get; set; }
+
+    /// <summary>True where a rule was painted across this run's glyphs.</summary>
+    /// <remarks>Set the same way, and for the same reason, as <see cref="Underline"/>.</remarks>
+    public bool Strikethrough { get; set; }
+
     public BColor Color { get; } = color;
 
     /// <summary>
