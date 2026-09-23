@@ -172,7 +172,18 @@ internal sealed class PdfFilterPipeline
             if (ceiling <= 0)
                 throw PdfWorkBudget.Exceeded(nameof(PdfLimits.MaxDecodedStreamBytes), budget.Limits.MaxDecodedStreamBytes);
 
-            var context = new PdfFilterContext(ceiling, budget.Limits.MaxStreamExpansionRatio, _cancellation);
+            // An image's own dictionary states how many sample bytes the chain
+            // ends with, and the last stage is where it ends. Telling the filter
+            // lets a flat picture through: it compresses past any ratio a guess
+            // could allow, and the ratio alone refused a uniform soft mask as a
+            // decompression bomb. Only the last stage - an intermediate stage's
+            // output is not the samples and is not what the dictionary describes.
+            long declared = stage == filterNames.Count - 1
+                ? DeclaredSampleBytes(stream.Dictionary, resolve)
+                : 0;
+
+            var context = new PdfFilterContext(
+                ceiling, budget.Limits.MaxStreamExpansionRatio, declared, _cancellation);
             PdfFilterParameters typed = PdfFilterParameters.Empty;
             PdfDictionary? parms = parameters.Count > stage ? parameters[stage] : null;
             if (parms is not null)
@@ -203,6 +214,54 @@ internal sealed class PdfFilterPipeline
 
         return PdfStreamDecodeResult.Success(data);
     }
+
+    /// <summary>
+    /// The sample bytes an image stream's dictionary declares, or zero for a
+    /// stream that is not an image or does not say.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An upper bound, not the exact figure. The component count depends on the
+    /// colour space, and resolving that needs the page's resource dictionary,
+    /// which this pipeline has no business holding — so the widest space the
+    /// format defines is assumed. That is deliberate: this number only ever
+    /// raises a heuristic ceiling towards the real one, and the real one,
+    /// <see cref="PdfLimits.MaxSingleStreamBytes"/> and the document's remaining
+    /// allowance, still stands above it. A dictionary that declares an enormous
+    /// image buys exactly nothing.
+    /// </para>
+    /// <para>
+    /// Both spellings of each key are read, because an inline image abbreviates
+    /// them and arrives through the same pipeline.
+    /// </para>
+    /// </remarks>
+    private static long DeclaredSampleBytes(PdfDictionary dictionary, Func<PdfObject?, PdfObject?> resolve)
+    {
+        if (resolve(dictionary["Subtype"]) is not PdfName subtype || subtype.Value != "Image")
+            return 0;
+
+        long width = Whole(resolve(dictionary["Width"] ?? dictionary["W"]));
+        long height = Whole(resolve(dictionary["Height"] ?? dictionary["H"]));
+        long bits = resolve(dictionary["ImageMask"] ?? dictionary["IM"]) is PdfBoolean stencil && stencil.Value
+            ? 1
+            : Whole(resolve(dictionary["BitsPerComponent"] ?? dictionary["BPC"]));
+
+        // A dimension past this is not a picture anyone drew, and refusing to
+        // compute on it keeps the arithmetic below inside a long.
+        const long MaxDimension = 1 << 24;
+        const long MaxComponents = 4;
+
+        if (width is <= 0 or > MaxDimension || height is <= 0 or > MaxDimension || bits is < 1 or > 16)
+            return 0;
+
+        return (((width * MaxComponents * bits) + 7) / 8) * height;
+    }
+
+    /// <summary>A non-negative whole number, or zero for anything else.</summary>
+    private static long Whole(PdfObject? value) =>
+        value is PdfNumber number && double.IsFinite(number.Value) && number.Value is >= 0 and <= int.MaxValue
+            ? (long)number.Value
+            : 0;
 
     private static bool TryApplyPredictor(
         ref byte[] data,

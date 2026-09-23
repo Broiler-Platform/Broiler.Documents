@@ -191,7 +191,88 @@ public sealed class PdfTableReconstructionTests
         Assert.Contains("pdf.import.table-reconstructed", note.Message, StringComparison.Ordinal);
     }
 
+    // ---- rules painted in pieces ----------------------------------------------
+
+    [Fact]
+    public void A_Rule_Painted_In_Pieces_Is_Still_One_Rule()
+    {
+        // Producers are free to stop a column line at every crossing and start
+        // it again below, and many do. Requiring a single unbroken segment
+        // refused those tables outright, although the page shows exactly the
+        // lattice the unbroken version shows.
+        PdfReadResult result = Read(RuledInPieces());
+        DocumentTable table = Assert.Single(result.Document.Tables);
+
+        Assert.Equal(2, table.Rows.Count);
+        Assert.Equal(2, table.Rows[0].Cells.Count);
+
+        // Fully ruled, not inferred. The inference finds this shape too - three
+        // stacked rules and text between them is exactly what it anchors on -
+        // and a test that only counted rows would pass on the weaker reading
+        // while the document's own lattice went unrecognized.
+        Assert.Contains("fully ruled", Note(result).Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("only partly ruled", Note(result).Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_Pieces_Still_Carry_Their_Border()
+    {
+        // Joining the pieces has to reach the borders too: a cell edge painted
+        // in two halves is a painted edge, and reporting no border there would
+        // describe a table the page did not draw.
+        DocumentTable table = Assert.Single(Read(RuledInPieces()).Document.Tables);
+
+        Assert.NotEqual(TableBorder.None, table.Rows[0].Cells[0].Borders.Left);
+        Assert.NotEqual(TableBorder.None, table.Rows[1].Cells[1].Borders.Right);
+    }
+
+    [Fact]
+    public void Two_Grids_Sharing_A_Rule_Are_One_Table()
+    {
+        // The shared rule puts both grids in one region, and within a region the
+        // lattice has to be complete - which it is, because the column lines run
+        // the whole height between them. Nothing in the ink says where the first
+        // table stopped and the second began, so this reads what was drawn: one
+        // closed box divided all the way across.
+        PdfReadResult result = Read(Stacked());
+        DocumentTable table = Assert.Single(result.Document.Tables);
+
+        Assert.Equal(4, table.Rows.Count);
+        Assert.Equal(2, table.Rows[0].Cells.Count);
+        Assert.DoesNotContain("only partly ruled", Note(result).Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_Lower_Grids_Text_Lands_In_The_Lower_Rows()
+    {
+        PdfReadResult result = Read(Stacked());
+        DocumentTable table = Assert.Single(result.Document.Tables);
+
+        Assert.Equal("A1", CellText(result, table, 0, 0));
+        Assert.Equal("C1", CellText(result, table, 2, 0));
+        Assert.Equal("D2", CellText(result, table, 3, 1));
+    }
+
+    [Fact]
+    public void A_Page_That_Dropped_Nothing_Is_Not_Named_Among_The_Pages_That_Did()
+    {
+        // The page list of a drop note is a claim that content went missing
+        // there. On a document whose tables account for a whole page it named
+        // that page anyway, because the set it kept was the pages that drew
+        // artwork rather than the pages that lost any.
+        DocumentDiagnostic note = Assert.Single(
+            Read(TableThenArtwork()).Diagnostics,
+            d => d.Code == PdfDiagnosticCodes.VectorArtworkDropped);
+
+        Assert.Contains("On page 2.", note.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("On pages 1, 2", note.Message, StringComparison.Ordinal);
+    }
+
     // ---- fixtures -------------------------------------------------------------
+
+    /// <summary>The one reconstruction note, which says how the grid was read.</summary>
+    private static DocumentDiagnostic Note(PdfReadResult result) =>
+        Assert.Single(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TableReconstructed);
 
     private static PdfReadResult Read(byte[] pdf)
     {
@@ -270,6 +351,103 @@ public sealed class PdfTableReconstructionTests
             page,
             $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] " +
             $"/Resources << /Font << /F1 {font} 0 R >> >> /Contents {stream} 0 R >>");
+
+        return builder.Build(catalog);
+    }
+
+    /// <summary>
+    /// The same 2x2 table as <see cref="Ruled"/>, with every vertical painted as
+    /// two pieces meeting at the middle rule rather than as one bar.
+    /// </summary>
+    private static byte[] RuledInPieces()
+    {
+        var content = new System.Text.StringBuilder();
+
+        foreach (int x in new[] { 72, 222, 372 })
+        {
+            content.Append(System.Globalization.CultureInfo.InvariantCulture, $"{x} 600 0.75 50 re f\n");
+            content.Append(System.Globalization.CultureInfo.InvariantCulture, $"{x} 650 0.75 50 re f\n");
+        }
+
+        foreach (int y in new[] { 600, 650, 700 })
+            content.Append(System.Globalization.CultureInfo.InvariantCulture, $"72 {y} 300 0.75 re f\n");
+
+        content.Append(PdfFileBuilder.ShowText("A1", x: 80, y: 670));
+        content.Append(PdfFileBuilder.ShowText("B1", x: 230, y: 670));
+        content.Append(PdfFileBuilder.ShowText("A2", x: 80, y: 620));
+        content.Append(PdfFileBuilder.ShowText("B2", x: 230, y: 620));
+
+        return PdfFileBuilder.SinglePage(content.ToString());
+    }
+
+    /// <summary>
+    /// Two 2x2 grids one above the other, sharing the rule at y 600: the shape a
+    /// producer emits for two tables with nothing between them.
+    /// </summary>
+    private static byte[] Stacked()
+    {
+        var content = new System.Text.StringBuilder();
+
+        foreach (int x in new[] { 72, 222, 372 })
+        {
+            content.Append(System.Globalization.CultureInfo.InvariantCulture, $"{x} 600 0.75 100 re f\n");
+            content.Append(System.Globalization.CultureInfo.InvariantCulture, $"{x} 500 0.75 100 re f\n");
+        }
+
+        foreach (int y in new[] { 500, 550, 600, 650, 700 })
+            content.Append(System.Globalization.CultureInfo.InvariantCulture, $"72 {y} 300 0.75 re f\n");
+
+        content.Append(PdfFileBuilder.ShowText("A1", x: 80, y: 670));
+        content.Append(PdfFileBuilder.ShowText("A2", x: 230, y: 670));
+        content.Append(PdfFileBuilder.ShowText("B1", x: 80, y: 620));
+        content.Append(PdfFileBuilder.ShowText("B2", x: 230, y: 620));
+        content.Append(PdfFileBuilder.ShowText("C1", x: 80, y: 570));
+        content.Append(PdfFileBuilder.ShowText("C2", x: 230, y: 570));
+        content.Append(PdfFileBuilder.ShowText("D1", x: 80, y: 520));
+        content.Append(PdfFileBuilder.ShowText("D2", x: 230, y: 520));
+
+        return PdfFileBuilder.SinglePage(content.ToString());
+    }
+
+    /// <summary>
+    /// Two pages: the first draws nothing but a grid, the second nothing but a
+    /// panel the model cannot carry.
+    /// </summary>
+    private static byte[] TableThenArtwork()
+    {
+        var builder = new PdfFileBuilder();
+        int catalog = builder.Reserve();
+        int pages = builder.Reserve();
+        int first = builder.Reserve();
+        int second = builder.Reserve();
+        int font = builder.AddObject(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+
+        var grid = new System.Text.StringBuilder();
+        foreach (int x in new[] { 72, 222, 372 })
+            grid.Append(System.Globalization.CultureInfo.InvariantCulture, $"{x} 600 0.75 100 re f\n");
+        foreach (int y in new[] { 600, 650, 700 })
+            grid.Append(System.Globalization.CultureInfo.InvariantCulture, $"72 {y} 300 0.75 re f\n");
+        grid.Append(PdfFileBuilder.ShowText("A1", x: 80, y: 670));
+        grid.Append(PdfFileBuilder.ShowText("B1", x: 230, y: 670));
+        grid.Append(PdfFileBuilder.ShowText("A2", x: 80, y: 620));
+        grid.Append(PdfFileBuilder.ShowText("B2", x: 230, y: 620));
+
+        int gridStream = builder.AddStream(string.Empty, grid.ToString());
+        int panelStream = builder.AddStream(
+            string.Empty,
+            "72 500 200 100 re f\n" + PdfFileBuilder.ShowText("Second", x: 72, y: 700));
+
+        builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
+        builder.SetObject(pages, $"<< /Type /Pages /Kids [{first} 0 R {second} 0 R] /Count 2 >>");
+
+        foreach ((int page, int stream) in new[] { (first, gridStream), (second, panelStream) })
+        {
+            builder.SetObject(
+                page,
+                $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] " +
+                $"/Resources << /Font << /F1 {font} 0 R >> >> /Contents {stream} 0 R >>");
+        }
 
         return builder.Build(catalog);
     }

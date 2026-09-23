@@ -56,12 +56,30 @@ public interface IPdfStreamFilter
 public sealed class PdfFilterContext
 {
     public PdfFilterContext(long maxDecodedBytes, int maxExpansionRatio, CancellationToken cancellationToken = default)
+        : this(maxDecodedBytes, maxExpansionRatio, declaredOutputBytes: 0, cancellationToken)
+    {
+    }
+
+    /// <param name="declaredOutputBytes">
+    /// What the stream's own dictionary says this stage produces, or zero where
+    /// it says nothing. See <see cref="DeclaredOutputBytes"/>.
+    /// </param>
+    /// <param name="maxDecodedBytes">Hard ceiling on the bytes this stage may produce.</param>
+    /// <param name="maxExpansionRatio">Hard ceiling on this stage's decoded:encoded size ratio.</param>
+    /// <param name="cancellationToken">Cancellation for a long decode.</param>
+    public PdfFilterContext(
+        long maxDecodedBytes,
+        int maxExpansionRatio,
+        long declaredOutputBytes,
+        CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxDecodedBytes);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxExpansionRatio);
+        ArgumentOutOfRangeException.ThrowIfNegative(declaredOutputBytes);
 
         MaxDecodedBytes = maxDecodedBytes;
         MaxExpansionRatio = maxExpansionRatio;
+        DeclaredOutputBytes = declaredOutputBytes;
         CancellationToken = cancellationToken;
     }
 
@@ -71,19 +89,37 @@ public sealed class PdfFilterContext
     /// <summary>Hard ceiling on this stage's decoded:encoded size ratio.</summary>
     public int MaxExpansionRatio { get; }
 
+    /// <summary>
+    /// The output size the stream's own dictionary states, or zero where it
+    /// states none.
+    /// </summary>
+    /// <remarks>
+    /// The expansion ratio is a guess at how large an output may reasonably be
+    /// when nothing says. An image says: width, height, and bit depth give the
+    /// sample count exactly, and a flat picture compresses far past any ratio a
+    /// guess would allow — a uniform greyscale mask is a few hundred bytes on
+    /// disc and a quarter of a megabyte decoded, which the ratio refuses as a
+    /// decompression bomb. Where the document states the size, the guess gives
+    /// way to it. This never loosens the real bound:
+    /// <see cref="MaxDecodedBytes"/> still caps the stage, and a declaration
+    /// larger than that buys nothing.
+    /// </remarks>
+    public long DeclaredOutputBytes { get; }
+
     public CancellationToken CancellationToken { get; }
 
     /// <summary>
     /// The output ceiling for a stage, being the stricter of the byte budget and
-    /// the expansion ratio applied to <paramref name="inputLength"/>.
+    /// the larger of the expansion ratio applied to <paramref name="inputLength"/>
+    /// and the size the stream declared.
     /// </summary>
     public long CeilingFor(int inputLength)
     {
-        if (inputLength <= 0)
-            return Math.Min(MaxDecodedBytes, MaxExpansionRatio);
+        long byRatio = inputLength <= 0 ? MaxExpansionRatio : (long)inputLength * MaxExpansionRatio;
+        if (byRatio < 0)
+            byRatio = MaxDecodedBytes;
 
-        long byRatio = (long)inputLength * MaxExpansionRatio;
-        return Math.Min(MaxDecodedBytes, byRatio < 0 ? MaxDecodedBytes : byRatio);
+        return Math.Min(MaxDecodedBytes, Math.Max(byRatio, DeclaredOutputBytes));
     }
 }
 

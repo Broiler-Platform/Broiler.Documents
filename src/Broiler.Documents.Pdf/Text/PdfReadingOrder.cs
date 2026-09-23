@@ -391,6 +391,8 @@ internal static class PdfReadingOrder
             FontSize = fragment.FontSize > 0 ? (float)Math.Round(fragment.FontSize, 2) : null,
             Bold = fragment.Bold,
             Italic = fragment.Italic,
+            Underline = fragment.Underline,
+            Strikethrough = fragment.Strikethrough,
             // Black is the initial fill colour and carries no authorial intent, so
             // it stays the model's "no explicit colour" rather than an explicit one.
             Foreground = fragment.Color == BColor.Black ? BColor.Empty : fragment.Color,
