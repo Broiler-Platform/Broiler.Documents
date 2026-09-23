@@ -5,6 +5,7 @@ using Broiler.Documents.Docx;
 using Broiler.Documents.Html;
 using Broiler.Documents.Markdown;
 using Broiler.Documents.Odt;
+using Broiler.Documents.Pdf;
 using Broiler.Documents.Rtf;
 using Broiler.Graphics.Imaging;
 using Broiler.Media;
@@ -43,6 +44,7 @@ public static class CodecComposition
             new RtfDocumentCodec(),
             new HtmlDocumentCodec(),
             new MarkdownDocumentCodec(),
+            new PdfDocumentCodec()
         ]);
 
     /// <summary>

@@ -37,6 +37,7 @@
     gates in docs/pdf-support-roadmap.md 4.1.
   -->
   <ItemGroup>
+    <ProjectReference Include="..\Broiler.Documents.Pdf\Broiler.Documents.Pdf.csproj" />
     <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
     <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
     <ProjectReference Include="..\Broiler.Documents.FormatCodes\Broiler.Documents.FormatCodes.csproj" />
