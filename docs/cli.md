@@ -202,7 +202,7 @@ reported in the manifest (`--manifest out.json`, or the `render` object in
 identifiable as such.
 
 **The page box.** Two things can decide it. A document may state the page it was
-written for — DOCX, ODT and RTF all do, and the reader brings size, margins and
+written for — DOCX, ODT, RTF and PDF all do, and the reader brings size, margins and
 header and footer distances across — and a render that was given no page of its
 own adopts it rather than inventing one. Ask for a page and the caller's wins
 outright: `--page-size`, `--landscape`, `--margin`. `--dpi` is always the
@@ -313,12 +313,15 @@ success for work it did not do.
 
 ## What this tool is not
 
-**It does not do PDF.** `Broiler.Documents.Pdf` builds and tests in this
-solution but is `IsPackable=false` and belongs in no application catalog until
-the read-preview and write-preview gates in
-[the PDF support roadmap](pdf-support-roadmap.md) §4.1 pass. Composing it in a
-CLI would ship the capability those gates exist to hold back, from the one
-surface an automated system would then depend on.
+**It reads PDF and writes none.** `Broiler.Documents.Pdf` is composed
+read-only: `probe`, `info`, `dump`, `render`, `compare`, and `convert` from a PDF
+all read one, and any command asked to produce a PDF - `convert --out x.pdf`,
+`roundtrip --via pdf` - refuses with a usage error before anything is written.
+[The PDF support roadmap](pdf-support-roadmap.md) §4.1 lets an application read
+PDF before it lets one write it, and writing still has to pass the write-preview
+gate; a CLI is the one surface an automated system would come to depend on, so
+it holds to that. The codec's optional font and image providers are not
+composed, so what they would decode is reported as skipped rather than read.
 
 **The layout engine is this tool's, not the component's.** It does word wrapping,
 alignment, indents, list markers, line and paragraph spacing, inline images, and

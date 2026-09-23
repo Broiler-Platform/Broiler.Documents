@@ -6,7 +6,7 @@ namespace Broiler.Documents.Cli.Tests;
 public sealed class CommandTests : IDisposable
 {
     private readonly CliHarness _cli = new();
-    private static readonly string[] expected = ["DOCX", "ODT", "RTF", "HTML", "Markdown"];
+    private static readonly string[] expected = ["DOCX", "ODT", "RTF", "HTML", "Markdown", "PDF"];
 
     public void Dispose() => _cli.Dispose();
 
@@ -44,7 +44,7 @@ public sealed class CommandTests : IDisposable
     }
 
     [Fact]
-    public void Formats_Reports_The_Five_Composed_Codecs_And_No_Pdf()
+    public void Formats_Reports_The_Composed_Codecs_With_Pdf_Read_Only()
     {
         CliRun run = CliHarness.RunExpecting(ExitCode.Ok, "formats", "--json");
         JsonObject json = run.Json();
@@ -55,11 +55,13 @@ public sealed class CommandTests : IDisposable
 
         Assert.Equal(expected, names);
 
-        // The PDF codec is gated by docs/pdf-support-roadmap.md 4.1 and must not
-        // reach an application catalog. This is the assertion that keeps a future
-        // edit from quietly composing it here.
-        Assert.False(json["pdfComposed"]!.GetValue<bool>());
-        Assert.DoesNotContain("PDF", names);
+        // docs/pdf-support-roadmap.md 4.1 lets an application read PDF before it
+        // lets one write it. This is the assertion that keeps a future edit from
+        // quietly giving this tool PDF destinations.
+        JsonNode pdf = json["formats"]!.AsArray().Single(entry => entry!["name"]!.GetValue<string>() == "PDF")!;
+        Assert.True(json["pdfComposed"]!.GetValue<bool>());
+        Assert.True(pdf["canRead"]!.GetValue<bool>());
+        Assert.False(pdf["canWrite"]!.GetValue<bool>());
     }
 
     [Fact]
@@ -98,7 +100,66 @@ public sealed class CommandTests : IDisposable
         JsonObject json = CliHarness.RunExpecting(ExitCode.Ok, "probe", path, "--json").Json();
 
         Assert.Equal("DOCX", json["selected"]!.GetValue<string>());
-        Assert.Equal(5, json["probes"]!.AsArray().Count);
+        Assert.Equal(expected.Length, json["probes"]!.AsArray().Count);
+    }
+
+    [Fact]
+    public void A_Pdf_Is_Read()
+    {
+        string path = _cli.Path("hello.pdf");
+        File.WriteAllBytes(path, MinimalPdf("Hello from a PDF"));
+
+        JsonObject json = CliHarness.RunExpecting(ExitCode.Ok, "info", path, "--json").Json();
+
+        Assert.Equal("PDF", json["format"]!.GetValue<string>());
+        Assert.Contains("Hello from a PDF", CliHarness.RunExpecting(ExitCode.Ok, "dump", path).Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_Pdf_Is_Never_Written()
+    {
+        // The codec writes; this tool composes it to read only, so asking for a
+        // PDF is a usage error before anything reaches the disk.
+        string source = _cli.MakeDocument("hello.docx", "Hello");
+        string destination = _cli.Path("hello.pdf");
+
+        CliRun run = CliHarness.RunExpecting(ExitCode.Usage, "convert", source, "--out", destination);
+
+        Assert.Contains("does not write PDF", run.Error, StringComparison.Ordinal);
+        Assert.False(File.Exists(destination));
+    }
+
+    /// <summary>
+    /// A one-page PDF showing one line in Helvetica, with a cross-reference table
+    /// whose offsets are measured as it is built.
+    /// </summary>
+    private static byte[] MinimalPdf(string text)
+    {
+        string content = $"BT /F1 12 Tf 72 720 Td ({text}) Tj ET";
+        string[] objects =
+        [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            $"<< /Length {content.Length} >>\nstream\n{content}\nendstream",
+        ];
+
+        var pdf = new System.Text.StringBuilder("%PDF-1.7\n");
+        var offsets = new List<int>();
+        for (int i = 0; i < objects.Length; i++)
+        {
+            offsets.Add(pdf.Length);
+            pdf.Append($"{i + 1} 0 obj\n{objects[i]}\nendobj\n");
+        }
+
+        int xref = pdf.Length;
+        pdf.Append($"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+        foreach (int offset in offsets)
+            pdf.Append($"{offset:D10} 00000 n \n");
+        pdf.Append($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+
+        return System.Text.Encoding.ASCII.GetBytes(pdf.ToString());
     }
 
     [Fact]

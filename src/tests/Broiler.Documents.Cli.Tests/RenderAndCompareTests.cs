@@ -254,7 +254,20 @@ public sealed class RenderAndCompareTests : IDisposable
     {
         string source = _cli.MakeDocument("source.docx", "text");
 
-        CliHarness.RunExpecting(ExitCode.Usage, "roundtrip", source, "--via", "pdf");
+        CliHarness.RunExpecting(ExitCode.Usage, "roundtrip", source, "--via", "wpd");
+    }
+
+    [Fact]
+    public void A_Via_Format_This_Tool_Does_Not_Write_Is_A_Usage_Error()
+    {
+        // PDF is read here and never written, so there is no round trip to run
+        // through it - and saying "different" would report one that ran and lost
+        // content.
+        string source = _cli.MakeDocument("source.docx", "text");
+
+        CliRun run = CliHarness.RunExpecting(ExitCode.Usage, "roundtrip", source, "--via", "pdf");
+
+        Assert.Contains("reads it but does not write it", run.Error, StringComparison.Ordinal);
     }
 
     [Theory]

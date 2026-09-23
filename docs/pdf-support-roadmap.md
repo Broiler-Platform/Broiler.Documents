@@ -437,11 +437,15 @@ research, permissions, or commercial-license negotiation.
   after the complete Phase 5 gate passes on the candidate; `CanWrite` and every
   PDF destination/save filter remain disabled. **This is the state today**: the
   Windows and Linux Writer heads register the codec for opening, and the same
-  guards enforce the shape of that registration — only those two composition
-  roots (and the tests covering them) may name the codec, the shared
+  guards enforce the shape of that registration — only those two Writer
+  composition roots (and the tests covering them) may name the codec, the shared
   `Broiler.Writer.Core` and the Android and WebAssembly heads may not acquire it
-  even transitively, and no head may register it for saving. Generating preview
-  library packages does not satisfy this application capability gate.
+  even transitively, and no head may register it for saving. The command-line
+  tool in this repository composes it the same way, to read only: its catalog
+  wraps the codec so that `formats` reports PDF as read and never written and a
+  PDF destination is a usage error, and `CliArchitectureTests` holds the
+  composition root to exactly that. Generating preview library packages does not
+  satisfy this application capability gate.
 - Phase 7 is the write-preview boundary. After its writer-core readiness subgate,
   a test-only candidate may enable `CanWrite`, CLI PDF destinations, and selected
   Writer save filters so integration gates can execute. Those capabilities are

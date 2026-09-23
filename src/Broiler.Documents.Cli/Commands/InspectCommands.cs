@@ -98,13 +98,20 @@ public static class InspectCommands
             });
         }
 
+        // Read off the catalog rather than stated: a hard-coded answer kept saying
+        // PDF was absent after the codec had been composed.
+        DocumentCodec? pdf = catalog.FindByName("PDF");
+
         context.Report();
         context.Report("Rendering to an image is available for every format that can be read.");
-        context.Report("PDF is not composed here: Broiler.Documents.Pdf stays out of every application");
-        context.Report("catalog until its read-preview and write-preview gates pass.");
+        if (pdf is { CanWrite: false })
+        {
+            context.Report("PDF is read and never written here: producing PDF still has to pass its");
+            context.Report("write-preview gate (docs/pdf-support-roadmap.md 4.1).");
+        }
 
         context.Result["formats"] = formats;
-        context.Result["pdfComposed"] = false;
+        context.Result["pdfComposed"] = pdf is not null;
         return ExitCode.Ok;
     }
 
