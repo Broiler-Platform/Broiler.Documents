@@ -58,6 +58,19 @@ internal sealed class PdfContentInterpreter(
     private const double AxisTolerance = 0.01;
 
     /// <summary>
+    /// How far a run's baseline may lean off the horizontal of the page as
+    /// displayed, as a slope, and still be upright: about one degree.
+    /// </summary>
+    /// <remarks>
+    /// The reading-order pass sets text on horizontal lines and keeps a line
+    /// together only while its baseline stays within about a third of its size.
+    /// A line of body text leaning further than this has drifted past that before
+    /// it ends, and text turned further still - a sideways label, a slanted
+    /// stamp - is read letter by letter wherever each letter lands.
+    /// </remarks>
+    private const double MaxUprightSlope = 0.0175;
+
+    /// <summary>
     /// How many parameters an inline image's abbreviated dictionary is read for.
     /// The dictionary is a description of a construct that is being skipped, so
     /// it is bounded well below anything a real one uses.
@@ -73,6 +86,32 @@ internal sealed class PdfContentInterpreter(
     private GraphicsState _state = GraphicsState.Initial;
     private readonly DocumentConversionContextBuilder? _resources = resources;
     private readonly List<PdfPlacedImage> _placedImages = [];
+
+    /// <summary>
+    /// Counts what the page paints — text runs, paths, shadings, pictures — in
+    /// the order it paints them. A fill's meaning depends on it: under a run it
+    /// is the run's background, over one it hides it, and on bare paper it is
+    /// the paper.
+    /// </summary>
+    private int _paintOrder;
+
+    /// <summary>
+    /// The box of every non-text mark the page painted, with its place in the
+    /// paint order: kept paths, the paths too irregular to keep, shadings, and
+    /// pictures whether or not they decoded. Text runs are marks too, and the
+    /// fragments already carry their own box and order.
+    /// </summary>
+    private readonly List<PdfPaintedMark> _marks = [];
+
+    /// <summary>How many marks one page keeps before it stops keeping them.</summary>
+    private const int MaxMarks = 16384;
+
+    /// <summary>
+    /// True when a page painted more marks than <see cref="MaxMarks"/>. Past
+    /// that the page's record of what lies under a fill is incomplete, and a
+    /// question that needs it has to be answered conservatively.
+    /// </summary>
+    private bool _marksTruncated;
     private PdfMatrix _textMatrix = PdfMatrix.Identity;
     private PdfMatrix _lineMatrix = PdfMatrix.Identity;
     private string? _pendingActualText;
@@ -137,6 +176,13 @@ internal sealed class PdfContentInterpreter(
     private bool _pathIrregular;
 
     /// <summary>
+    /// True when the path's box may not hold all of it: a curve bulges past its
+    /// endpoints, which is all that is tracked, and a point that is not a number
+    /// was never added to the box at all.
+    /// </summary>
+    private bool _pathUnbounded;
+
+    /// <summary>
     /// The rules and areas this page painted, kept rather than only counted. A
     /// table is a grid of them, and a grid is the one arrangement of vector
     /// artwork a logical model can carry.
@@ -156,6 +202,8 @@ internal sealed class PdfContentInterpreter(
     private double _runSpaceWidth;
     private int _runMcid = -1;
     private bool _runArtifact;
+    private bool _runTurned;
+    private int _runOrder;
     private bool _runOpen;
 
     /// <summary>
@@ -165,17 +213,35 @@ internal sealed class PdfContentInterpreter(
     /// </summary>
     public IReadOnlyList<PdfPlacedImage> PlacedImages => _placedImages;
 
-    /// <summary>Runs a page's content and returns the text runs it placed.</summary>
     /// <summary>The rules and filled areas the last page painted, in paint order.</summary>
     public IReadOnlyList<PdfPaintedPath> PaintedPaths => _paintedPaths;
 
+    /// <summary>Every non-text mark the last page painted, in paint order.</summary>
+    public IReadOnlyList<PdfPaintedMark> Marks => _marks;
+
+    /// <summary>
+    /// True when the last page painted more marks than were kept, so
+    /// <see cref="Marks"/> cannot say for certain that nothing lies under a fill.
+    /// </summary>
+    public bool MarksTruncated => _marksTruncated;
+
+    /// <summary>Runs a page's content and returns the text runs it placed.</summary>
+    /// <remarks>
+    /// The content starts out on the page as a viewer displays it - turned by the
+    /// page's <c>/Rotate</c> and in points - so every run, path and picture comes
+    /// back measured there, and a page turned to landscape reads across rather
+    /// than up (<see cref="PdfPage.Display"/>).
+    /// </remarks>
     public IReadOnlyList<PdfTextFragment> Run(PdfPage page)
     {
         ArgumentNullException.ThrowIfNull(page);
         _fragments.Clear();
         _placedImages.Clear();
         _paintedPaths.Clear();
-        _state = GraphicsState.Initial;
+        _marks.Clear();
+        _marksTruncated = false;
+        _paintOrder = 0;
+        _state = GraphicsState.Initial.WithMatrix(page.Display);
         _stack.Clear();
         ResetPath();
 
@@ -294,6 +360,32 @@ internal sealed class PdfContentInterpreter(
                 case "cs":
                     // Selecting a colour space resets the colour to its initial black.
                     _state = _state.WithColor(BColor.Black);
+                    break;
+
+                // The stroking side of the same state. A stroke is painted in its
+                // own colour and at its own width, and reading a stroked rule in
+                // the fill colour gave a black-ruled table the grey of its shading.
+                case "G":
+                    _state = _state.WithStrokeColor(Gray(operands, 0));
+                    break;
+                case "RG":
+                    _state = _state.WithStrokeColor(Rgb(operands));
+                    break;
+                case "K":
+                    _state = _state.WithStrokeColor(Cmyk(operands));
+                    break;
+                case "SC":
+                case "SCN":
+                    _state = _state.WithStrokeColor(FromComponents(operands));
+                    break;
+                case "CS":
+                    _state = _state.WithStrokeColor(BColor.Black);
+                    break;
+                case "w":
+                    _state = _state.WithLineWidth(Number(operands, 0));
+                    break;
+                case "gs":
+                    ApplyGraphicsStateParameters(operands, resources);
                     break;
 
                 // Text objects.
@@ -430,16 +522,28 @@ internal sealed class PdfContentInterpreter(
 
                         // Whether the operator filled decides what the shape can
                         // mean: a stroked rectangle is four rules, a filled one is
-                        // a shade. S and s stroke and nothing else.
-                        KeepPaintedPath(painted, filled: token.Text is not ("S" or "s"));
+                        // a shade. S and s stroke and nothing else, and f, F and
+                        // f* fill and nothing else.
+                        bool filled = token.Text is not ("S" or "s");
+                        bool stroked = token.Text is not ("f" or "F" or "f*");
+                        int order = ++_paintOrder;
+
+                        NotePathMark(order, filled, stroked);
+                        KeepPaintedPath(painted, filled, stroked, order);
                     }
 
                     ResetPath();
                     break;
                 case "sh":
-                    // A shading paints without a path of its own.
+                    // A shading paints without a path of its own, over whatever
+                    // the clip allows - which is not tracked, so it is taken to
+                    // cover the page.
                     if (!Hidden)
+                    {
                         NoteVectorArtwork(PdfArtworkKind.Shading);
+                        NoteMark(PdfPaintedMark.Everywhere(++_paintOrder));
+                    }
+
                     break;
                 case "n":
                     // A path used only to clip paints nothing, so it drops nothing.
@@ -565,6 +669,11 @@ internal sealed class PdfContentInterpreter(
             _runSpaceWidth = SpaceWidth(effectiveSize);
             _runMcid = Mcid;
             _runArtifact = IsArtifact;
+            _runTurned = IsTurned(_textMatrix.Concat(_state.Matrix));
+
+            // A run takes its place in the paint order where its first glyph
+            // lands. Anything painted before that is under all of it.
+            _runOrder = ++_paintOrder;
         }
 
         _store.Budget.ChargeCharacters(text.Length);
@@ -572,6 +681,13 @@ internal sealed class PdfContentInterpreter(
         AdvanceText(advance);
         _runEndX = CurrentPen().X;
     }
+
+    /// <summary>
+    /// Whether text set through this matrix runs anywhere but left to right along
+    /// the page as displayed: sideways, upside down, mirrored, or at a slant.
+    /// </summary>
+    private static bool IsTurned(PdfMatrix combined) =>
+        !(combined.A > 0 && Math.Abs(combined.B) <= combined.A * MaxUprightSlope);
 
     // A run continues while the pen stays on the same baseline and has not jumped
     // forward by more than a space: a wider gap is a word or column boundary that
@@ -645,7 +761,9 @@ internal sealed class PdfContentInterpreter(
             _runState.Color,
             _runState.RenderMode,
             _runMcid,
-            _runArtifact));
+            _runArtifact,
+            _runOrder,
+            _runTurned));
 
         // Reported per run rather than once per document: the sink keeps a single
         // entry either way, and letting it count tells a reader whether one
@@ -832,6 +950,9 @@ internal sealed class PdfContentInterpreter(
 
         if (subtype == "Image")
         {
+            // Painted whether or not it decodes: a picture this build cannot read
+            // still covers whatever it was drawn over.
+            NotePlacementMark();
             NoteImage(stream, resources);
             return;
         }
@@ -931,7 +1052,10 @@ internal sealed class PdfContentInterpreter(
         // on an operator boundary — but an image in a layer outside the
         // presentation is not one this document asked to show.
         if (!Hidden)
+        {
+            NotePlacementMark();
             NoteInlineImage(data, parametersStart, parametersEnd);
+        }
     }
 
     // ---- diagnostics ----------------------------------------------------------
@@ -1112,7 +1236,7 @@ internal sealed class PdfContentInterpreter(
     /// the two axis-aligned classes are kept: a curve or a diagonal cannot be a
     /// cell boundary, and keeping it would only cost memory on a page of charts.
     /// </summary>
-    private void KeepPaintedPath(PdfArtworkKind kind, bool filled)
+    private void KeepPaintedPath(PdfArtworkKind kind, bool filled, bool stroked, int order)
     {
         if (kind is not (PdfArtworkKind.Rule or PdfArtworkKind.Block))
             return;
@@ -1120,8 +1244,108 @@ internal sealed class PdfContentInterpreter(
         if (!_pathOpen || _paintedPaths.Count >= MaxPaintedPaths)
             return;
 
+        // A fill is in the fill colour and has no pen. Everything else is kept
+        // as the stroke it was, in the stroking colour and at the pen's width -
+        // which is what a table's border is, and what an underline's weight is.
         _paintedPaths.Add(new PdfPaintedPath(
-            _pathMinX, _pathMinY, _pathMaxX, _pathMaxY, kind, filled, _state.Color));
+            _pathMinX,
+            _pathMinY,
+            _pathMaxX,
+            _pathMaxY,
+            kind,
+            filled,
+            filled ? _state.Color : _state.StrokeColor,
+            filled ? 0 : StrokeWidth(),
+            order,
+            stroked));
+    }
+
+    /// <summary>
+    /// The pen's width in device space, measured across the line: a horizontal
+    /// line is as heavy as the pen's vertical extent, a vertical one as its
+    /// horizontal one.
+    /// </summary>
+    private double StrokeWidth()
+    {
+        PdfMatrix matrix = _state.Matrix;
+        double scale = _pathMaxX - _pathMinX >= _pathMaxY - _pathMinY
+            ? matrix.VerticalScale
+            : matrix.HorizontalScale;
+
+        double width = _state.LineWidth * scale;
+        return double.IsFinite(width) && width > 0 ? width : 0;
+    }
+
+    /// <summary>
+    /// Records the box a painted path covered, widened by half the pen where it
+    /// was stroked, since that is how far the ink reaches either side of it.
+    /// </summary>
+    private void NotePathMark(int order, bool filled, bool stroked)
+    {
+        if (!_pathOpen)
+            return;
+
+        // Where the box may not hold the path, the mark is taken to cover the
+        // page. That can only make something painted later look less like bare
+        // paper, which is the safe direction to be wrong in.
+        if (_pathUnbounded)
+        {
+            NoteMark(PdfPaintedMark.Everywhere(order));
+            return;
+        }
+
+        double reach = stroked ? _state.LineWidth * Math.Max(_state.Matrix.HorizontalScale, _state.Matrix.VerticalScale) / 2 : 0;
+        if (!double.IsFinite(reach))
+            reach = 0;
+
+        NoteMark(new PdfPaintedMark(
+            _pathMinX - reach,
+            _pathMinY - reach,
+            _pathMaxX + reach,
+            _pathMaxY + reach,
+            order,
+            IsPaper: filled && !stroked && _state.Color == PdfPaintedMark.Paper));
+    }
+
+    /// <summary>Records a picture's box, decoded or not, at the next place in the paint order.</summary>
+    private void NotePlacementMark()
+    {
+        (double left, double top, double width, double height) = PlacementOf(_state.Matrix);
+        int order = ++_paintOrder;
+
+        NoteMark(width > 0 && height > 0
+            ? new PdfPaintedMark(left, top - height, left + width, top, order, IsPaper: false)
+            : PdfPaintedMark.Everywhere(order));
+    }
+
+    private void NoteMark(in PdfPaintedMark mark)
+    {
+        if (_marks.Count >= MaxMarks)
+        {
+            _marksTruncated = true;
+            return;
+        }
+
+        _marks.Add(mark);
+    }
+
+    /// <summary>
+    /// Applies the one entry of a named graphics-state dictionary this
+    /// interpreter tracks and <c>gs</c> can set: the line width, <c>/LW</c>.
+    /// </summary>
+    private void ApplyGraphicsStateParameters(List<PdfObject> operands, PdfDictionary? resources)
+    {
+        if (operands.Count == 0 || operands[^1] is not PdfName name || resources is null)
+            return;
+
+        if (_store.Resolve(resources["ExtGState"]) is not PdfDictionary states ||
+            _store.Resolve(states[name.Value]) is not PdfDictionary parameters)
+        {
+            return;
+        }
+
+        if (_store.Resolve(parameters["LW"]) is PdfNumber width)
+            _state = _state.WithLineWidth(width.Value);
     }
 
     /// <summary>
@@ -1292,6 +1516,7 @@ internal sealed class PdfContentInterpreter(
     {
         _pathOpen = false;
         _pathIrregular = false;
+        _pathUnbounded = false;
     }
 
     private void MoveTo(double x, double y)
@@ -1322,6 +1547,7 @@ internal sealed class PdfContentInterpreter(
     private void CurveTo(double x, double y)
     {
         _pathIrregular = true;
+        _pathUnbounded = true;
         (double deviceX, double deviceY) = _state.Matrix.Transform(x, y);
         _pathX = deviceX;
         _pathY = deviceY;
@@ -1378,6 +1604,7 @@ internal sealed class PdfContentInterpreter(
             // A point that is not a number makes the box meaningless. The path
             // still painted something, so it is reported — just not as a rule.
             _pathIrregular = true;
+            _pathUnbounded = true;
             return;
         }
 
@@ -1513,7 +1740,9 @@ internal sealed class PdfContentInterpreter(
             double leading,
             double rise,
             int renderMode,
-            BColor color)
+            BColor color,
+            BColor strokeColor,
+            double lineWidth)
         {
             Matrix = matrix;
             Font = font;
@@ -1525,10 +1754,13 @@ internal sealed class PdfContentInterpreter(
             Rise = rise;
             RenderMode = renderMode;
             Color = color;
+            StrokeColor = strokeColor;
+            LineWidth = lineWidth;
         }
 
+        /// <summary>The format's initial state: black for both colours, and a one-unit pen.</summary>
         public static GraphicsState Initial { get; } = new(
-            PdfMatrix.Identity, PdfFont.Fallback, 0, 0, 0, 1, 0, 0, 0, BColor.Black);
+            PdfMatrix.Identity, PdfFont.Fallback, 0, 0, 0, 1, 0, 0, 0, BColor.Black, BColor.Black, 1);
 
         public PdfMatrix Matrix { get; }
 
@@ -1548,35 +1780,50 @@ internal sealed class PdfContentInterpreter(
 
         public int RenderMode { get; }
 
+        /// <summary>The fill colour, which is also the colour text is drawn in.</summary>
         public BColor Color { get; }
 
+        /// <summary>The stroking colour, which rules and outlines are drawn in.</summary>
+        public BColor StrokeColor { get; }
+
+        /// <summary>The pen width in user space. Zero is the thinnest line the device can draw.</summary>
+        public double LineWidth { get; }
+
         public GraphicsState WithMatrix(PdfMatrix matrix) => matrix.IsFinite
-            ? new GraphicsState(matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color)
+            ? new GraphicsState(matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth)
             : this;
 
         public GraphicsState WithFont(PdfFont font, double size) =>
-            new(Matrix, font, double.IsFinite(size) ? size : 0, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color);
+            new(Matrix, font, double.IsFinite(size) ? size : 0, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth);
 
         public GraphicsState WithCharSpacing(double value) =>
-            new(Matrix, Font, FontSize, Finite(value), WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color);
+            new(Matrix, Font, FontSize, Finite(value), WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth);
 
         public GraphicsState WithWordSpacing(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, Finite(value), HorizontalScale, Leading, Rise, RenderMode, Color);
+            new(Matrix, Font, FontSize, CharSpacing, Finite(value), HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth);
 
         public GraphicsState WithHorizontalScale(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, value is > 0 and < 100 ? value : 1, Leading, Rise, RenderMode, Color);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, value is > 0 and < 100 ? value : 1, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth);
 
         public GraphicsState WithLeading(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Finite(value), Rise, RenderMode, Color);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Finite(value), Rise, RenderMode, Color, StrokeColor, LineWidth);
 
         public GraphicsState WithRise(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Finite(value), RenderMode, Color);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Finite(value), RenderMode, Color, StrokeColor, LineWidth);
 
         public GraphicsState WithRenderMode(int value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, value is >= 0 and <= 7 ? value : 0, Color);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, value is >= 0 and <= 7 ? value : 0, Color, StrokeColor, LineWidth);
 
         public GraphicsState WithColor(BColor value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value, StrokeColor, LineWidth);
+
+        public GraphicsState WithStrokeColor(BColor value) =>
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, value, LineWidth);
+
+        /// <summary>A negative or non-finite width is malformed, and the pen keeps its current width.</summary>
+        public GraphicsState WithLineWidth(double value) => double.IsFinite(value) && value >= 0
+            ? new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, value)
+            : this;
 
         private static double Finite(double value) => double.IsFinite(value) ? value : 0;
     }

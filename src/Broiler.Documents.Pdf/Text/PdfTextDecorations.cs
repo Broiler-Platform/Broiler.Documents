@@ -18,14 +18,17 @@ namespace Broiler.Documents.Pdf.Text;
 /// </para>
 /// <para>
 /// The inference is narrow on purpose, because the shape it looks for — a thin
-/// horizontal bar — is also the shape of every table rule on the page. Three
+/// horizontal bar — is also the shape of every table rule on the page. Four
 /// things have to hold. The lines a grid was read from are excluded outright,
 /// before any geometry is considered. The bar has to sit within a fraction of
 /// the font size of a run's baseline, measured in ems so that the same rule
-/// applies to a footnote and a heading. And the runs it sits under have to
-/// account for most of its length: a bar that runs the width of the page with
-/// one short word above it is a rule, and a bar that stops where the word stops
-/// is an underline.
+/// applies to a footnote and a heading, and be no heavier than a decoration is
+/// drawn - weighed as painted, pen and all, since a stroked line has no height
+/// of its own. The runs it sits under have to account for most of its length.
+/// And it has to start and stop with them: a bar that runs on past the last
+/// word by more than an em is a rule under a line of text, however much of it
+/// the words happen to cover - a paragraph's bottom border under a label and a
+/// tab-set value covers half its length and belongs to neither.
 /// </para>
 /// <para>
 /// Where the bar lands decides which decoration it is. Below the baseline, or
@@ -53,6 +56,13 @@ internal static class PdfTextDecorations
 
     /// <summary>How much of a bar the runs it decorates must account for.</summary>
     private const double MinimumBarShare = 0.5;
+
+    /// <summary>
+    /// How far, in ems, a bar may run past the text it decorates at either end.
+    /// A producer draws an underline from where the run starts to where it
+    /// stops; a little slack absorbs a trailing space and a rounded advance.
+    /// </summary>
+    private const double MaximumOverhang = 1.0;
 
     /// <summary>
     /// Marks the fragments this page's rules decorate, and reports which paths
@@ -106,6 +116,9 @@ internal static class PdfTextDecorations
 
             matched.Clear();
             double covered = 0;
+            double start = double.MaxValue;
+            double stop = double.MinValue;
+            double em = 0;
 
             double at = (path.MinY + path.MaxY) / 2;
             for (int f = LowerBound(byBaseline, at - (largest * HighestOffset)); f < byBaseline.Length; f++)
@@ -119,6 +132,9 @@ internal static class PdfTextDecorations
 
                 matched.Add((fragment, strike));
                 covered += overlap;
+                start = Math.Min(start, fragment.X);
+                stop = Math.Max(stop, fragment.EndX);
+                em = Math.Max(em, fragment.FontSize);
             }
 
             // Runs on one baseline do not overlap each other, so the covered
@@ -126,6 +142,13 @@ internal static class PdfTextDecorations
             // it cannot account for is a rule that happens to pass beneath some
             // text, and it stays artwork.
             if (matched.Count == 0 || covered < path.Width * MinimumBarShare)
+                continue;
+
+            // Nor is one that runs on past them. A decoration is drawn to the
+            // text it decorates; a rule drawn to a column's width passes under
+            // whatever the column happens to hold.
+            double slack = em * MaximumOverhang;
+            if (path.MinX < start - slack || path.MaxX > stop + slack)
                 continue;
 
             foreach ((PdfTextFragment fragment, bool strike) in matched)
@@ -177,7 +200,10 @@ internal static class PdfTextDecorations
         if (size <= 0 || fragment.Text.Length == 0 || fragment.IsInvisible)
             return false;
 
-        if (path.Height > size * MaxThickness)
+        // Weighed as painted. A stroked line's box has no height at all, and
+        // testing the box let a one-and-a-half point separator through as an
+        // eleven-point run's underline.
+        if (path.Thickness > size * MaxThickness)
             return false;
 
         double offset = ((path.MinY + path.MaxY) / 2) - fragment.Y;

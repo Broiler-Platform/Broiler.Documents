@@ -96,6 +96,38 @@ public sealed class PdfTextDecorationTests
         Assert.DoesNotContain(Styles(result), style => style.Underline);
     }
 
+    [Fact]
+    public void A_Rule_That_Runs_On_Past_Its_Text_Is_Not_An_Underline()
+    {
+        // A paragraph's bottom border under a line of text: the words cover most
+        // of it, which is all the coverage test asks, and it runs on for a
+        // column's width after they stop. An underline stops with its words.
+        PdfReadResult result = Read(Stroked(barFrom: 72, barTo: 250, lineWidth: 0.5));
+
+        Assert.DoesNotContain(Styles(result), style => style.Underline || style.Strikethrough);
+    }
+
+    [Fact]
+    public void A_Thin_Stroked_Line_Under_A_Run_Is_Its_Underline()
+    {
+        // The stroked half of the pair below, and the reason the other one is
+        // not vacuous: the same line at a decoration's weight is read.
+        PdfReadResult result = Read(Stroked(barFrom: 72, barTo: 150, lineWidth: 0.5));
+
+        Assert.Contains(Styles(result), style => style.Underline);
+    }
+
+    [Fact]
+    public void A_Heavy_Stroked_Line_Is_Not_An_Underline()
+    {
+        // A stroked line's box has no height, so its weight is the pen's. Two
+        // points under twelve-point text is a separator, and reading the box
+        // instead let a one-and-a-half point rule through as an underline.
+        PdfReadResult result = Read(Stroked(barFrom: 72, barTo: 150, lineWidth: 2));
+
+        Assert.DoesNotContain(Styles(result), style => style.Underline || style.Strikethrough);
+    }
+
     // ---- fixtures -------------------------------------------------------------
 
     private static PdfReadResult Read(byte[] pdf)
@@ -118,6 +150,19 @@ public sealed class PdfTextDecorationTests
         content.Append(CultureInfo.InvariantCulture, $"72 {barY} {barWidth} 0.5 re f\n");
         content.Append(CultureInfo.InvariantCulture,
             $"BT /F1 12 Tf {renderMode} Tr 1 0 0 1 72 700 Tm (Decorated running text) Tj ET\n");
+
+        return PdfFileBuilder.SinglePage(content.ToString());
+    }
+
+    /// <summary>
+    /// The same line of text with a stroked line two points under its baseline,
+    /// drawn with the given pen. The run is about 121 points long, from x 72.
+    /// </summary>
+    private static byte[] Stroked(double barFrom, double barTo, double lineWidth)
+    {
+        var content = new StringBuilder();
+        content.Append(CultureInfo.InvariantCulture, $"{lineWidth} w 0 0 0 RG {barFrom} 698 m {barTo} 698 l S\n");
+        content.Append("BT /F1 12 Tf 1 0 0 1 72 700 Tm (Decorated running text) Tj ET\n");
 
         return PdfFileBuilder.SinglePage(content.ToString());
     }

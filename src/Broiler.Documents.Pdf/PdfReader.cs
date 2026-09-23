@@ -136,11 +136,19 @@ internal static class PdfReader
         int emptyPages = 0;
         int declaredOrderPages = 0;
         int inferredOrderPages = 0;
-        int artifactOrderPages = 0;
+        var artifactPages = new SortedSet<int>();
         var tables = new List<DocumentTable>();
         PdfTableGrid? openGrid = null;
         int openTable = -1;
         bool pendingBreak = false;
+
+        // A page's running head and footer are held out of the body until every
+        // page is known, because only then can it be said whether they repeat.
+        var furniture = new PdfPageFurniture();
+
+        // The page the document is stated on waits for the same thing: which of
+        // the bands are running content decides where the body's column ends.
+        var pageSizes = new PdfPageGeometryReader();
 
         for (int i = 0; i < pages.Count; i++)
         {
@@ -150,10 +158,13 @@ internal static class PdfReader
             // Everything raised from here down - a skipped image, an unreadable
             // font program, a dropped path - belongs to this page, and says so.
             diagnostics.CurrentPage = i + 1;
+            pageSizes.AddPage(i, page.DisplayWidth, page.DisplayHeight);
 
             IReadOnlyList<PdfTextFragment> fragments = interpreter.Run(page);
             if (!options.IncludeInvisibleText)
                 fragments = FilterVisible(fragments);
+
+            store.Features.NoteTurnedText(TurnedCharacters(fragments), i + 1);
 
             IReadOnlyList<PdfPlacedImage> images = interpreter.PlacedImages;
 
@@ -173,46 +184,63 @@ internal static class PdfReader
                 continue;
             }
 
+            furniture.CountPage(i);
+            IReadOnlyList<PdfPaintedPath> paths = interpreter.PaintedPaths;
+            double pageArea = page.DisplayWidth * page.DisplayHeight;
+
             // A ruled grid is the one arrangement of dropped artwork the model
             // can carry, and it settles this page's reading order as well: cells
             // are read row-major, which is what the geometric pass cannot infer
             // and what a table defeats it with. Found before anything is turned
             // into spans, because both of the next two steps need it.
-            List<PdfTableGrid> grids = PdfTableGrid.Detect(interpreter.PaintedPaths, fragments);
+            List<PdfTableGrid> grids = PdfTableGrid.Detect(paths, fragments, pageArea);
 
             // Underline and strikethrough are painted rules rather than text
             // state, so they are read back onto the runs before the runs become
             // styled spans - and after the grids, because a table's own rules
             // are the same shape and must not be mistaken for one.
-            bool[]? decorations = PdfTextDecorations.Apply(fragments, interpreter.PaintedPaths, grids);
+            bool[]? decorations = PdfTextDecorations.Apply(fragments, paths, grids);
+
+            // A fill beneath a run is the run's background, and one in the
+            // paper's colour on bare paper painted nothing at all. Both are read
+            // before the runs become spans, and after the grids, whose cell
+            // shades are the cells' shading already.
+            bool[]? backgrounds = PdfPaintedFills.ReadBackgrounds(fragments, paths, grids, pageArea);
+            bool[]? bare = PdfPaintedFills.FindBarePaper(fragments, paths, interpreter.Marks, interpreter.MarksTruncated);
 
             // A page whose fragments the tree accounts for in full is read in the
             // order it declares. One it accounts for only partly falls back
             // whole: mixing a declared order with an inferred one produces a
             // sequence neither the document nor the heuristic asked for.
-            List<PdfTextLine> lines;
-            if (structure is not null && structure.Covers(i, fragments))
-            {
-                lines = PdfReadingOrder.BuildLinesInDeclaredOrder(
-                    fragments, links, fragment => structure.OrderOf(i, fragment.Mcid));
-                declaredOrderPages++;
-                if (HasArtifact(fragments))
-                    artifactOrderPages++;
-            }
-            else
-            {
-                lines = PdfReadingOrder.BuildLines(fragments, links);
-                if (fragments.Count > 0)
-                    inferredOrderPages++;
-            }
+            int pageIndex = i;
+            Func<PdfTextFragment, int>? declaredOrder = structure is not null && structure.Covers(i, fragments)
+                ? fragment => structure.OrderOf(pageIndex, fragment.Mcid)
+                : null;
+            Func<PdfTextFragment, int>? declaredBlock = declaredOrder is null
+                ? null
+                : fragment => structure!.BlockOf(pageIndex, fragment.Mcid);
+
+            // Furniture the page draws above or below everything else is held
+            // apart. It is not between anything the body holds, so a table cut by
+            // the page boundary is judged on what the body drew around it.
+            (List<PdfTextFragment> body, List<PdfTextFragment> head, List<PdfTextFragment> foot) = SplitFurniture(fragments);
+
+            pageSizes.AddContent(
+                i,
+                PdfPageGeometryReader.Ink.Of(body).With(grids).With(images),
+                PdfPageGeometryReader.Ink.Of(head),
+                PdfPageGeometryReader.Ink.Of(foot));
 
             // A table broken by a page boundary is one table, and the model
             // holds a table as one contiguous run of paragraphs - so the join
             // has to be decided before anything is emitted between the halves,
-            // including the empty paragraph a mapped page break would be.
+            // including the empty paragraph a mapped page break would be. A frame
+            // is closed on all four sides by definition, and continues nothing.
             bool joins = openGrid is not null &&
                 grids.Count > 0 &&
-                Opens(fragments, images, grids[0]) &&
+                !openGrid.IsFrame &&
+                !grids[0].IsFrame &&
+                Opens(body, images, grids[0]) &&
                 openGrid.Continues(grids[0]);
 
             if (pendingBreak && !joins)
@@ -220,12 +248,34 @@ internal static class PdfReader
 
             pendingBreak = false;
 
+            furniture.AddHeader(i, paragraphs.Count, ProjectFurniture(head, links, options.Limits.MaxParagraphCount));
+
             int before = tables.Count;
-            paragraphs.AddRange(grids.Count > 0
-                ? PdfTableProjector.Project(
-                    fragments, links, images, grids,
-                    options.Limits.MaxParagraphCount, paragraphs.Count, tables)
-                : PdfModelProjector.Project(lines, images, false, options.Limits.MaxParagraphCount));
+            if (grids.Count > 0)
+            {
+                paragraphs.AddRange(PdfTableProjector.Project(
+                    body, links, images, grids,
+                    options.Limits.MaxParagraphCount, paragraphs.Count, tables, declaredOrder, declaredBlock));
+            }
+            else
+            {
+                List<PdfTextLine> lines = declaredOrder is not null
+                    ? PdfReadingOrder.BuildLinesInDeclaredOrder(body, links, declaredOrder, declaredBlock)
+                    : PdfReadingOrder.BuildLines(body, links);
+
+                paragraphs.AddRange(PdfModelProjector.Project(lines, images, false, options.Limits.MaxParagraphCount));
+            }
+
+            if (declaredOrder is not null)
+            {
+                declaredOrderPages++;
+                if (HasArtifact(body))
+                    artifactPages.Add(i);
+            }
+            else if (fragments.Count > 0)
+            {
+                inferredOrderPages++;
+            }
 
             if (joins && tables.Count > before)
             {
@@ -235,53 +285,16 @@ internal static class PdfReader
             }
 
             foreach (PdfTableGrid grid in grids)
-                store.Features.NoteTable(grid.Rows, grid.Columns, grid.IsInferred, i + 1);
+                store.Features.NoteTable(grid.Rows, grid.Columns, grid.IsInferred, grid.IsFrame, i + 1);
 
-            // What the grids took, so the artwork note can stop counting it as
-            // lost. A path inside a grid is one of the rules or shades the grid
-            // was read from; one beside it is artwork the model still cannot
-            // carry.
-            if (grids.Count > 0)
-            {
-                int takenRules = 0;
-                int takenBlocks = 0;
+            NoteArtworkFates(store.Features, i + 1, paths, grids, decorations, backgrounds, bare);
 
-                for (int p = 0; p < interpreter.PaintedPaths.Count; p++)
-                {
-                    PdfPaintedPath path = interpreter.PaintedPaths[p];
-
-                    // A cell's underline is inside the grid's box as surely as
-                    // the grid's own rules are, and it has already been read
-                    // back as something else. Counting it twice would report
-                    // more paths recovered than the page ever painted.
-                    if (decorations?[p] == true || !Inside(grids, path))
-                        continue;
-
-                    if (path.Kind == PdfArtworkKind.Rule)
-                        takenRules++;
-                    else
-                        takenBlocks++;
-                }
-
-                store.Features.NoteArtworkReadAsTable(takenRules, takenBlocks, i + 1);
-            }
-
-            if (decorations is not null)
-            {
-                int decorated = 0;
-                foreach (bool taken in decorations)
-                {
-                    if (taken)
-                        decorated++;
-                }
-
-                store.Features.NoteArtworkReadAsDecoration(decorated, i + 1);
-            }
+            furniture.AddFooter(i, paragraphs.Count, ProjectFurniture(foot, links, options.Limits.MaxParagraphCount));
 
             // What the next page would have to continue: a grid with nothing
             // drawn below it, which is what a table cut off by the page edge
             // looks like and what a table the page finished with does not.
-            bool closes = grids.Count > 0 && Closes(fragments, images, grids[^1]);
+            bool closes = grids.Count > 0 && !grids[^1].IsFrame && Closes(body, images, grids[^1]);
             openGrid = closes ? grids[^1] : null;
             openTable = closes ? tables.Count - 1 : -1;
             pendingBreak = options.MapPageBreaks && i < pages.Count - 1;
@@ -290,12 +303,23 @@ internal static class PdfReader
         if (pendingBreak && paragraphs.Count > 0)
             paragraphs.Add(RichTextParagraph.Empty);
 
+        // Every page is known, so what repeats is known: that becomes the
+        // document's running content, and the rest goes back where it was drawn.
+        PdfPageFurniture.Settlement settled = furniture.Settle(paragraphs, tables);
+        foreach (int page in settled.PagesInBody)
+            artifactPages.Add(page);
+
+        PdfPageGeometryReader.Result statedPage = pageSizes.Settle(settled.HeaderPages > 0, settled.FooterPages > 0);
+
         // Back to document scope, and the one point where the constructs the
         // pages recognized but did not implement become diagnostics. Draining
         // here, before the status is decided below, keeps a skipped construct
         // making the read Partial exactly as an immediate report did.
         diagnostics.CurrentPage = null;
         store.Features.Report(diagnostics);
+
+        if (statedPage.MixedSizes is string mixed)
+            diagnostics.Info(PdfDiagnosticCodes.PageSizeMixed, mixed);
 
         if (emptyPages > 0)
         {
@@ -317,16 +341,7 @@ internal static class PdfReader
                 order.Append(CultureInfo.InvariantCulture,
                     $"Reading order on {declaredOrderPages} page{plural} came from the document's own structure tree, which states it. ");
                 order.Append(
-                    "Only the sequence was taken from it: the order of glyphs within a block is still geometric, and no role was read. ");
-
-                // Said because it is the part a reader would otherwise have to
-                // infer from a silence: the tree covered the page's content, and
-                // what it did not cover it is not supposed to cover.
-                if (artifactOrderPages > 0)
-                {
-                    order.Append(CultureInfo.InvariantCulture,
-                        $"On {artifactOrderPages} of those pages, runs marked as artifacts - running heads, folios, page furniture a structure tree does not place by design - were kept and set around the declared body geometrically. ");
-                }
+                    "Only the sequence was taken from it, and which of its elements each run was declared in: paragraphs break where those elements do, the order of glyphs within a block is still geometric, and no role was read. ");
             }
 
             if (inferredOrderPages > 0)
@@ -343,24 +358,25 @@ internal static class PdfReader
                 }
 
                 order.Append(
-                    "PDF states where glyphs are drawn, not what order they are read in, so paragraph and column grouping is a documented heuristic.");
+                    "PDF states where glyphs are drawn, not what order they are read in, so paragraph and column grouping is a documented heuristic. ");
             }
+
+            // Said because it is the part a reader would otherwise have to infer
+            // from a silence: the tree covers the page's content, and what it
+            // does not cover it is not supposed to cover.
+            AppendFurniture(order, settled, artifactPages.Count);
 
             // One code, one note. The structure tree is the reason the heuristic
             // was still needed on a file that could have said better, so it reads
             // as a clause of that sentence rather than as a second diagnostic the
             // sink would collapse into a count.
             if (structureTree is not null)
-            {
-                if (order.Length > 0)
-                    order.Append(' ');
                 order.Append(structureTree);
-            }
 
             if (order.Length == 0)
                 order.Append("Reading order was inferred from page geometry.");
 
-            diagnostics.Info(PdfDiagnosticCodes.ReadingOrderHeuristic, order.ToString());
+            diagnostics.Info(PdfDiagnosticCodes.ReadingOrderHeuristic, order.ToString().TrimEnd());
         }
 
         RichTextDocument document = paragraphs.Count == 0
@@ -369,6 +385,15 @@ internal static class PdfReader
 
         if (tables.Count > 0)
             document = document.WithTables(tables);
+
+        if (settled.RunningContent is not null)
+            document = document.WithRunningContent(settled.RunningContent);
+
+        // The page every page was drawn on, or most of them: without it every
+        // consumer falls back to a page of its own, and a landscape document is
+        // reflowed onto portrait paper.
+        if (statedPage.Geometry is PageGeometry geometry)
+            document = document.WithPageGeometry(geometry);
 
         DocumentResultStatus status = paragraphs.Count == 0
             ? DocumentResultStatus.Partial
@@ -385,6 +410,231 @@ internal static class PdfReader
             extensions,
             diagnostics.Build(),
             resources.Build());
+    }
+
+    /// <summary>
+    /// Separates the furniture a page draws above and below everything else on
+    /// it - runs marked as artifacts - from the body.
+    /// </summary>
+    /// <remarks>
+    /// Only what is wholly above or below the body counts. A run marked as an
+    /// artifact level with the text is not a running head or a footer, and stays
+    /// where the order it is read in puts it. A page of nothing but furniture has
+    /// no body to be above or below, and is left as it is.
+    /// </remarks>
+    private static (List<PdfTextFragment> Body, List<PdfTextFragment> Head, List<PdfTextFragment> Foot) SplitFurniture(
+        IReadOnlyList<PdfTextFragment> fragments)
+    {
+        double top = double.NegativeInfinity;
+        double bottom = double.PositiveInfinity;
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            if (fragment.IsArtifact)
+                continue;
+
+            top = Math.Max(top, fragment.Y);
+            bottom = Math.Min(bottom, fragment.Y);
+        }
+
+        var body = new List<PdfTextFragment>(fragments.Count);
+        var head = new List<PdfTextFragment>();
+        var foot = new List<PdfTextFragment>();
+        bool hasBody = top >= bottom;
+
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            if (hasBody && fragment.IsArtifact && fragment.Y > top)
+                head.Add(fragment);
+            else if (hasBody && fragment.IsArtifact && fragment.Y < bottom)
+                foot.Add(fragment);
+            else
+                body.Add(fragment);
+        }
+
+        return (body, head, foot);
+    }
+
+    /// <summary>A band of furniture as the paragraphs it reads as.</summary>
+    private static List<RichTextParagraph> ProjectFurniture(
+        List<PdfTextFragment> fragments,
+        IReadOnlyList<PdfLinkRegion> links,
+        int maxParagraphs) =>
+        fragments.Count == 0
+            ? []
+            : PdfModelProjector.Project(PdfReadingOrder.BuildLines(fragments, links), [], false, maxParagraphs);
+
+    /// <summary>
+    /// Says what became of the page furniture the document marks as artifacts:
+    /// carried once as running content where it repeated, and kept in the body
+    /// where it did not.
+    /// </summary>
+    private static void AppendFurniture(StringBuilder text, PdfPageFurniture.Settlement settled, int pagesInBody)
+    {
+        bool header = settled.HeaderPages > 0;
+        bool footer = settled.FooterPages > 0;
+
+        if (header || footer)
+        {
+            string band = header && footer ? "a running head and a running footer" : header ? "a running head" : "a running footer";
+            string part = header && footer ? "header and footer" : header ? "header" : "footer";
+            int pages = Math.Max(settled.HeaderPages, settled.FooterPages);
+            string where = settled.DifferentFirstPage
+                ? string.Create(CultureInfo.InvariantCulture, $"the same on all {pages} pages after the first, which carries its own,")
+                : pages == 1
+                    ? "on its one page"
+                    : string.Create(CultureInfo.InvariantCulture, $"the same on all {pages} pages");
+
+            text.Append(CultureInfo.InvariantCulture,
+                $"The page furniture the document marks as artifacts includes {band} {where} and was carried once, as the document's {part}, rather than in the body on every page. ");
+        }
+
+        if (pagesInBody > 0)
+        {
+            text.Append(CultureInfo.InvariantCulture,
+                $"On {pagesInBody} page{(pagesInBody == 1 ? string.Empty : "s")}, runs marked as artifacts - running heads, folios, page furniture a structure tree does not place by design - were kept in the body and set around it geometrically. ");
+        }
+    }
+
+    /// <summary>
+    /// Reports what became of each path the page kept: read as a table's rules
+    /// and shades, as a run's decoration or background, painted on bare paper
+    /// in the paper's colour, or dropped.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A repaint shares the reading of the shape it repaints. Producers paint
+    /// backgrounds and borders twice, and the lower copy of a band read as a
+    /// run's background is that same band. What lay under one pass is a fact
+    /// about that pass, though, so a white fill is only bare paper where it
+    /// actually was.
+    /// </para>
+    /// <para>
+    /// A dropped path that repeats one dropped before it is counted apart, so
+    /// the note can say how many distinct shapes were lost as well as how many
+    /// operations painted them.
+    /// </para>
+    /// </remarks>
+    private static void NoteArtworkFates(
+        PdfFeatureTally tally,
+        int page,
+        IReadOnlyList<PdfPaintedPath> paths,
+        IReadOnlyList<PdfTableGrid> grids,
+        bool[]? decorations,
+        bool[]? backgrounds,
+        bool[]? bare)
+    {
+        if (paths.Count == 0)
+            return;
+
+        var fates = new ArtworkFate[paths.Count];
+        var readings = new Dictionary<ShapeKey, ArtworkFate>();
+
+        for (int p = 0; p < paths.Count; p++)
+        {
+            PdfPaintedPath path = paths[p];
+
+            // A cell's underline is inside the grid's box as surely as the
+            // grid's own rules are, and it has already been read back as
+            // something else. Counting it twice would report more paths
+            // recovered than the page ever painted.
+            fates[p] = decorations?[p] == true ? ArtworkFate.Decoration
+                : Inside(grids, path) ? ArtworkFate.Table
+                : backgrounds?[p] == true ? ArtworkFate.Background
+                : bare?[p] == true ? ArtworkFate.Bare
+                : ArtworkFate.Dropped;
+
+            if (fates[p] is ArtworkFate.Decoration or ArtworkFate.Table or ArtworkFate.Background)
+                readings.TryAdd(ShapeKey.Of(path), fates[p]);
+        }
+
+        int tableRules = 0;
+        int tableBlocks = 0;
+        int decorationRules = 0;
+        int backgroundBlocks = 0;
+        int bareBlocks = 0;
+        int repeatedRules = 0;
+        int repeatedBlocks = 0;
+        var dropped = new HashSet<ShapeKey>();
+
+        for (int p = 0; p < paths.Count; p++)
+        {
+            PdfPaintedPath path = paths[p];
+            ShapeKey key = ShapeKey.Of(path);
+            ArtworkFate fate = fates[p];
+
+            if (fate is ArtworkFate.Dropped or ArtworkFate.Bare && readings.TryGetValue(key, out ArtworkFate reading))
+                fate = reading;
+
+            bool rule = path.Kind == PdfArtworkKind.Rule;
+            switch (fate)
+            {
+                case ArtworkFate.Table when rule:
+                    tableRules++;
+                    break;
+                case ArtworkFate.Table:
+                    tableBlocks++;
+                    break;
+                case ArtworkFate.Decoration:
+                    decorationRules++;
+                    break;
+                case ArtworkFate.Background:
+                    backgroundBlocks++;
+                    break;
+                case ArtworkFate.Bare:
+                    bareBlocks++;
+                    break;
+                default:
+                    if (!dropped.Add(key))
+                    {
+                        if (rule)
+                            repeatedRules++;
+                        else
+                            repeatedBlocks++;
+                    }
+
+                    break;
+            }
+        }
+
+        tally.NoteArtworkReadAsTable(tableRules, tableBlocks, page);
+        tally.NoteArtworkReadAsDecoration(decorationRules, page);
+        tally.NoteArtworkReadAsBackground(backgroundBlocks, page);
+        tally.NoteArtworkOnBarePaper(bareBlocks, page);
+        tally.NoteArtworkRepeated(repeatedRules, repeatedBlocks);
+    }
+
+    /// <summary>What a kept path turned out to be.</summary>
+    private enum ArtworkFate
+    {
+        Dropped,
+        Table,
+        Decoration,
+        Background,
+        Bare,
+    }
+
+    /// <summary>A painted path's shape, for telling a repaint from a new shape.</summary>
+    private readonly record struct ShapeKey(
+        PdfArtworkKind Kind,
+        bool Filled,
+        bool Stroked,
+        Broiler.Graphics.Color.BColor Color,
+        double StrokeWidth,
+        double MinX,
+        double MinY,
+        double MaxX,
+        double MaxY)
+    {
+        public static ShapeKey Of(in PdfPaintedPath path) => new(
+            path.Kind,
+            path.Filled,
+            path.Stroked,
+            path.Color,
+            Math.Round(path.StrokeWidth, 2),
+            Math.Round(path.MinX, 2),
+            Math.Round(path.MinY, 2),
+            Math.Round(path.MaxX, 2),
+            Math.Round(path.MaxY, 2));
     }
 
     /// <summary>
@@ -483,6 +733,28 @@ internal static class PdfReader
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// How many characters, spaces aside, a page drew turned against itself as
+    /// displayed, and so set on horizontal lines as if they were not.
+    /// </summary>
+    private static int TurnedCharacters(IReadOnlyList<PdfTextFragment> fragments)
+    {
+        int count = 0;
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            if (!fragment.IsTurned)
+                continue;
+
+            foreach (char c in fragment.Text)
+            {
+                if (!char.IsWhiteSpace(c))
+                    count++;
+            }
+        }
+
+        return count;
     }
 
     private static List<PdfTextFragment> FilterVisible(IReadOnlyList<PdfTextFragment> fragments)

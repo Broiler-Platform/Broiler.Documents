@@ -207,6 +207,19 @@ public sealed class PdfStructureOrderTests
     }
 
     [Fact]
+    public void The_Diagnostic_Joins_Its_Sentences_With_Single_Spaces()
+    {
+        // Every clause ended with a space and the tree's description was then
+        // joined on with another, so the note read "geometrically.  The document".
+        DocumentDiagnostic note = Only(
+            Read(Tagged(artifactHeader: true)),
+            PdfDiagnosticCodes.ReadingOrderHeuristic);
+
+        Assert.DoesNotContain("  ", note.Message, StringComparison.Ordinal);
+        Assert.Contains("The document carries a structure tree", note.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_Tagged_Page_Without_Artifacts_Does_Not_Mention_Them()
     {
         DocumentDiagnostic note = Only(Read(Tagged()), PdfDiagnosticCodes.ReadingOrderHeuristic);

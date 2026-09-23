@@ -4,8 +4,8 @@ using Broiler.Documents.Pdf.Syntax;
 namespace Broiler.Documents.Pdf.Structure;
 
 /// <summary>
-/// The document's structure tree, read for one thing only: the order its content
-/// is meant to be read in.
+/// The document's structure tree, read for the order its content is meant to be
+/// read in, and for which of that content belongs together.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -17,13 +17,23 @@ namespace Broiler.Documents.Pdf.Structure;
 /// the order the author declared.
 /// </para>
 /// <para>
-/// <strong>Only the order is taken.</strong> Every element's role — <c>/P</c>,
-/// <c>/H1</c>, <c>/L</c>, <c>/Table</c> — is ignored, and so is the role map.
-/// Consuming roles would mean claiming to reproduce a document's logical
-/// structure, which is the separate accessibility architecture PDF roadmap §14.2
-/// scopes and which carries conformance and assistive-technology obligations
-/// this release does not meet. Reading the sequence carries none of them: it
-/// replaces a guess about order with a statement about order, and nothing else.
+/// <strong>Only the order is taken, and the grouping it comes in.</strong> Every
+/// element's role — <c>/P</c>, <c>/H1</c>, <c>/L</c>, <c>/Table</c> — is ignored,
+/// and so is the role map. Consuming roles would mean claiming to reproduce a
+/// document's logical structure, which is the separate accessibility
+/// architecture PDF roadmap §14.2 scopes and which carries conformance and
+/// assistive-technology obligations this release does not meet. Reading the
+/// sequence carries none of them: it replaces a guess about order with a
+/// statement about order, and nothing else.
+/// </para>
+/// <para>
+/// The sequence arrives in blocks, and the blocks are read too: which element
+/// holds each piece of marked content. That is the tree's shape, not its roles.
+/// An element nested inside one that holds text of its own - a link in a
+/// sentence - runs on inside that text, and belongs to its block; any other
+/// element holding text is a block of its own. Geometry cannot tell two
+/// paragraphs set without a gap between them from one; the element each line
+/// was declared in can.
 /// </para>
 /// <para>
 /// Nothing here is trusted blindly. A tree that does not account for every
@@ -41,10 +51,15 @@ internal sealed class PdfStructureTree
     private const int MaxNodes = 200_000;
 
     private readonly Dictionary<(int Page, int Mcid), int> _order;
+    private readonly Dictionary<(int Page, int Mcid), int> _blocks;
 
-    private PdfStructureTree(Dictionary<(int Page, int Mcid), int> order, bool truncated)
+    private PdfStructureTree(
+        Dictionary<(int Page, int Mcid), int> order,
+        Dictionary<(int Page, int Mcid), int> blocks,
+        bool truncated)
     {
         _order = order;
+        _blocks = blocks;
         IsTruncated = truncated;
     }
 
@@ -77,9 +92,9 @@ internal sealed class PdfStructureTree
             index[pages[i].Dictionary] = i;
 
         var walk = new Walk(store, index);
-        walk.Visit(root["K"], page: null, depth: 0);
+        walk.Visit(root["K"], page: null, element: -1, depth: 0);
 
-        return walk.Order.Count > 0 ? new PdfStructureTree(walk.Order, walk.Truncated) : null;
+        return walk.Order.Count > 0 ? new PdfStructureTree(walk.Order, walk.Blocks(), walk.Truncated) : null;
     }
 
     /// <summary>
@@ -88,6 +103,14 @@ internal sealed class PdfStructureTree
     /// </summary>
     public int OrderOf(int page, int mcid) =>
         mcid >= 0 && _order.TryGetValue((page, mcid), out int order) ? order : -1;
+
+    /// <summary>
+    /// The block one page's marked-content item was declared in, as a number
+    /// that is the same for every item of that block and meaningless otherwise,
+    /// or -1 where the tree does not place the item.
+    /// </summary>
+    public int BlockOf(int page, int mcid) =>
+        mcid >= 0 && _blocks.TryGetValue((page, mcid), out int block) ? block : -1;
 
     /// <summary>
     /// Whether every fragment on this page that the tree is supposed to place is
@@ -145,11 +168,37 @@ internal sealed class PdfStructureTree
         private readonly HashSet<PdfDictionary> _visited = [];
         private int _nodes;
 
+        // Every element visited, by number: the element it sits in, and
+        // whether it holds marked content of its own.
+        private readonly List<int> _parents = [];
+        private readonly List<bool> _holdsContent = [];
+        private readonly Dictionary<(int Page, int Mcid), int> _elements = [];
+
         public Dictionary<(int Page, int Mcid), int> Order { get; } = [];
 
         public bool Truncated { get; private set; }
 
-        public void Visit(PdfObject? node, PdfDictionary? page, int depth)
+        /// <summary>
+        /// Each placed item's block: the element that holds it, or the element
+        /// that one runs on inside where its parent holds text of its own.
+        /// </summary>
+        public Dictionary<(int Page, int Mcid), int> Blocks()
+        {
+            var blocks = new Dictionary<(int Page, int Mcid), int>(_elements.Count);
+            foreach (((int Page, int Mcid) key, int element) in _elements)
+            {
+                int block = element;
+                int steps = 0;
+                while (_parents[block] >= 0 && _holdsContent[_parents[block]] && steps++ < MaxDepth)
+                    block = _parents[block];
+
+                blocks[key] = block;
+            }
+
+            return blocks;
+        }
+
+        public void Visit(PdfObject? node, PdfDictionary? page, int element, int depth)
         {
             if (depth > MaxDepth || ++_nodes > MaxNodes)
             {
@@ -162,21 +211,21 @@ internal sealed class PdfStructureTree
                 // A bare integer is a marked-content id on whichever page the
                 // enclosing element named.
                 case PdfNumber number:
-                    Record(page, number.ToInt32());
+                    Record(page, element, number.ToInt32());
                     break;
 
                 case PdfArray array:
                     foreach (PdfObject item in array)
-                        Visit(item, page, depth + 1);
+                        Visit(item, page, element, depth + 1);
                     break;
 
                 case PdfDictionary dictionary:
-                    VisitDictionary(dictionary, page, depth);
+                    VisitDictionary(dictionary, page, element, depth);
                     break;
             }
         }
 
-        private void VisitDictionary(PdfDictionary dictionary, PdfDictionary? page, int depth)
+        private void VisitDictionary(PdfDictionary dictionary, PdfDictionary? page, int element, int depth)
         {
             // A structure tree is a tree, but a malformed one can point back up
             // it. Elements are visited once; a marked-content reference is a leaf
@@ -187,7 +236,7 @@ internal sealed class PdfStructureTree
             switch (type)
             {
                 case "MCR":
-                    Record(owner, (_store.Resolve(dictionary["MCID"]) as PdfNumber)?.ToInt32() ?? -1);
+                    Record(owner, element, (_store.Resolve(dictionary["MCID"]) as PdfNumber)?.ToInt32() ?? -1);
                     return;
 
                 // A reference to an object rather than to marked content: an
@@ -203,10 +252,16 @@ internal sealed class PdfStructureTree
                 return;
             }
 
-            Visit(dictionary["K"], owner, depth + 1);
+            // Numbered as it is entered, so an element's number is the same
+            // for every item it holds.
+            int self = _parents.Count;
+            _parents.Add(element);
+            _holdsContent.Add(false);
+
+            Visit(dictionary["K"], owner, self, depth + 1);
         }
 
-        private void Record(PdfDictionary? page, int mcid)
+        private void Record(PdfDictionary? page, int element, int mcid)
         {
             if (mcid < 0 || page is null || !_pages.TryGetValue(page, out int number))
                 return;
@@ -215,8 +270,22 @@ internal sealed class PdfStructureTree
             // twice has said two different things about where it is read, and the
             // earlier statement is the one the walk has already ordered around.
             (int, int) key = (number, mcid);
-            if (!Order.ContainsKey(key))
-                Order[key] = Order.Count;
+            if (Order.ContainsKey(key))
+                return;
+
+            Order[key] = Order.Count;
+
+            // Content the root holds directly belongs to no element, and each
+            // item of it is a block of its own.
+            if (element < 0)
+            {
+                element = _parents.Count;
+                _parents.Add(-1);
+                _holdsContent.Add(true);
+            }
+
+            _holdsContent[element] = true;
+            _elements[key] = element;
         }
     }
 }

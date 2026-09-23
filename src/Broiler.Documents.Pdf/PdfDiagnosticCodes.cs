@@ -164,6 +164,16 @@ public static class PdfDiagnosticCodes
     public const string TextOcrRequired = "pdf.text.ocr-required";
 
     /// <summary>
+    /// Text was drawn turned against the page as it is displayed - sideways,
+    /// upside down, mirrored, or at a slant - and was set on horizontal lines all
+    /// the same, so its words may come back scattered or out of order. Raised as
+    /// a skip: the text is in the document, and how it was drawn was not read.
+    /// A page turned whole by its <c>/Rotate</c> entry is read the way it is
+    /// displayed, and its text is not turned against it.
+    /// </summary>
+    public const string TextOrientationUnsupported = "pdf.text.orientation-unsupported";
+
+    /// <summary>
     /// An embedded font program was detected, and the note says which of four
     /// things became of it: no reader composed to read it; a composed reader
     /// never offered it, because the font's own <c>ToUnicode</c> map already
@@ -240,6 +250,15 @@ public static class PdfDiagnosticCodes
     /// bookmark model that does not exist yet.
     /// </summary>
     public const string LinkDestinationDropped = "pdf.import.link-destination-dropped";
+
+    /// <summary>
+    /// The pages are not all one size. The model states one page for a whole
+    /// document, so the size most pages share is the one stated, and the note
+    /// names the others; their content is set on the stated page like the rest.
+    /// Informational, as a DOCX of several sections is: every page's content was
+    /// carried, and only the size of the page it was drawn on was not.
+    /// </summary>
+    public const string PageSizeMixed = "pdf.import.page-size-mixed";
 
     // ---- limits and lifecycle -------------------------------------------------
 

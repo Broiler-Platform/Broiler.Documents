@@ -202,8 +202,10 @@ internal static class PdfAnnotationReader
                 continue;
             }
 
+            // /Rect is in default user space, and the runs it is matched to are
+            // measured on the page as displayed.
             if (ReadRectangle(store, annotation["Rect"]) is { } bounds)
-                regions.Add(new PdfLinkRegion(bounds, canonical));
+                regions.Add(new PdfLinkRegion(page.ToDisplay(bounds), canonical));
         }
 
         return regions;
