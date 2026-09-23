@@ -151,19 +151,19 @@ public static class RoundtripCommand
                 "Unknown format \"" + format + "\". Known formats: " +
                 string.Join(", ", CodecComposition.FormatNames(catalog)) + ".");
 
-        context.Report();
-        context.Report("via " + codec.Descriptor.Name);
-
+        // A format this tool cannot both write and read back is not one to
+        // round-trip through, any more than an unknown one is. Reported as a
+        // "different" verdict, it read as a round trip that had run and lost
+        // content - which is what PDF, composed to read only, would have said.
         if (!codec.CanWrite || !codec.CanRead)
         {
-            context.Fail("the " + codec.Descriptor.Name + " codec cannot both read and write; nothing to round-trip.");
-            return (false, new JsonObject
-            {
-                ["format"] = codec.Descriptor.Name,
-                ["equal"] = false,
-                ["error"] = "the codec does not implement both directions",
-            }, Array.Empty<DocumentDiagnostic>());
+            throw new UsageException(
+                "Cannot round-trip through " + codec.Descriptor.Name + ": this tool " +
+                (codec.CanRead ? "reads it but does not write it." : "writes it but does not read it."));
         }
+
+        context.Report();
+        context.Report("via " + codec.Descriptor.Name);
 
         using var staging = new MemoryStream();
         DocumentWriteResult written = codec.Write(

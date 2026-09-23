@@ -65,15 +65,18 @@ internal static class ContractChecks
                     "the tool no longer composes: " + string.Join(", ", missing) + ".", formats.CommandLine()));
 
             // The one negative claim in the CLI guide that a change could quietly
-            // reverse. Composing the PDF codec here would ship the capability the
-            // roadmap's read-preview and write-preview gates exist to hold back,
-            // from the surface an automated system would then depend on.
-            bool pdf = root.TryGetProperty("pdfComposed", out JsonElement composed) && composed.GetBoolean();
-            results.Add(!pdf
-                ? CheckResult.Pass(Group, "formats/pdf-not-composed")
-                : CheckResult.Fail(Group, "formats/pdf-not-composed",
-                    "the tool reports the PDF codec as composed. docs/cli.md and the PDF support roadmap 4.1 " +
-                    "say it must not be, until the read-preview and write-preview gates pass.",
+            // reverse. The tool reads PDF and writes none: giving it PDF
+            // destinations would ship the capability the roadmap's write-preview
+            // gate exists to hold back, from the surface an automated system
+            // would then depend on.
+            bool pdfWritable = list.ValueKind == JsonValueKind.Array && list.EnumerateArray().Any(entry =>
+                entry.GetProperty("name").GetString() == "PDF" &&
+                entry.TryGetProperty("canWrite", out JsonElement canWrite) && canWrite.GetBoolean());
+            results.Add(!pdfWritable
+                ? CheckResult.Pass(Group, "formats/pdf-read-only")
+                : CheckResult.Fail(Group, "formats/pdf-read-only",
+                    "the tool reports the PDF codec as writable. docs/cli.md and the PDF support roadmap 4.1 " +
+                    "say it reads PDF only, until the write-preview gate passes.",
                     formats.CommandLine()));
         }
 

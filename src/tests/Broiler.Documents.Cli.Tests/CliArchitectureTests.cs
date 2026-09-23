@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Broiler.Documents.Cli.Composition;
 using Broiler.Documents.TestSupport;
 
 namespace Broiler.Documents.Cli.Tests;
@@ -14,7 +15,9 @@ namespace Broiler.Documents.Cli.Tests;
 /// repository, so unlike the aggregate's heads it can be checked from here, and
 /// it must be: a command line is exactly the surface an automated system would
 /// come to depend on, so a PDF capability composed here by accident would be
-/// hard to withdraw later.
+/// hard to withdraw later. This head reads PDF and writes none - the
+/// read-preview state of <c>docs/pdf-support-roadmap.md</c> §4.1 - and the
+/// guards hold it to exactly that.
 /// </remarks>
 public sealed partial class CliArchitectureTests
 {
@@ -24,34 +27,48 @@ public sealed partial class CliArchitectureTests
         Path.Combine(ComponentRoot, "src", "Broiler.Documents.Cli", "Broiler.Documents.Cli.csproj");
 
     [Fact]
-    public void The_Cli_Does_Not_Reference_The_Gated_Pdf_Codec()
+    public void The_Cli_References_The_Base_Pdf_Codec_And_None_Of_Its_Providers()
     {
         string project = File.ReadAllText(CliProjectPath);
 
-        // The project file names the PDF codec in a comment explaining why it is
-        // absent, and that comment is worth keeping. What must not exist is a
-        // reference, so the assertion is about references.
+        // The font and image providers compose decoders each with a register row
+        // of its own. Reaching for one is a decision, not a side effect of
+        // wanting PDF read at all.
         string[] referenced = [.. MyRegex().Matches(project)
             .Select(match => match.Groups["path"].Value)
-            .Where(path => path.Contains("Broiler.Documents.Pdf", StringComparison.OrdinalIgnoreCase))];
+            .Where(path => path.Contains("Broiler.Documents.Pdf", StringComparison.OrdinalIgnoreCase))
+            .Select(path => Path.GetFileName(path.Replace('\\', '/')))];
 
-        Assert.Empty(referenced);
+        Assert.Equal(["Broiler.Documents.Pdf.csproj"], referenced);
     }
 
     [Fact]
-    public void No_Cli_Source_Composes_The_Pdf_Codec()
+    public void Only_The_Composition_Root_Names_The_Pdf_Codec_And_Only_To_Read()
     {
-        // A mention in a comment or a help string explaining *why* PDF is absent
-        // is the point, so the assertion is about the type being used, not about
-        // the word appearing.
+        // Every `new PdfDocumentCodec(` is the argument of a ReadOnlyCodec, and
+        // the composition root is the one file that says either.
         var composed = new Regex(@"new\s+PdfDocumentCodec\s*\(", RegexOptions.CultureInvariant);
+        var readOnly = new Regex(@"new\s+ReadOnlyCodec\s*\(\s*new\s+PdfDocumentCodec\s*\(", RegexOptions.CultureInvariant);
 
-        string[] offenders = [.. SourceFiles()
+        string[] naming = [.. SourceFiles()
             .Where(path => composed.IsMatch(File.ReadAllText(path)) ||
                 File.ReadAllText(path).Contains("using Broiler.Documents.Pdf", StringComparison.Ordinal))
-            .Select(path => Path.GetRelativePath(ComponentRoot, path))];
+            .Select(path => Path.GetRelativePath(ComponentRoot, path).Replace('\\', '/'))];
 
-        Assert.Empty(offenders);
+        Assert.Equal(["src/Broiler.Documents.Cli/Composition/CodecComposition.cs"], naming);
+
+        string root = File.ReadAllText(Path.Combine(ComponentRoot, naming[0]));
+        Assert.Equal(composed.Matches(root).Count, readOnly.Matches(root).Count);
+    }
+
+    [Fact]
+    public void The_Composed_Pdf_Codec_Reads_And_Does_Not_Write()
+    {
+        DocumentCodec pdf = Assert.IsType<ReadOnlyCodec>(CodecComposition.CreateCatalog().FindByName("PDF"));
+
+        Assert.True(pdf.CanRead);
+        Assert.False(pdf.CanWrite);
+        Assert.Throws<NotSupportedException>(() => pdf.Write(RichTextDocument.FromPlainText("text"), Stream.Null));
     }
 
     [Fact]

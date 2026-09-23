@@ -87,7 +87,7 @@ Roughly 2,200 checks over 90 documents, in a minute or two depending on how busy
 | --- | --- |
 | `materialise` | Every sample writes in every format, and writes bytes. |
 | `asset` | The generated PNG a sample embeds was produced. A failure here stops the run rather than degrading the samples that need it to skips. |
-| `contract` | The `--json` envelope carries its own exit code; `formats` still composes five codecs and still reports `pdfComposed` false; `version` still reports its keys; an unknown command, an unknown option, a misspelt `--tolerence` and a missing argument are all usage errors; a document compared with itself reaches the positive verdict. |
+| `contract` | The `--json` envelope carries its own exit code; `formats` still composes the five codecs the samples are written in, and still reports PDF as read and never written; `version` still reports its keys; an unknown command, an unknown option, a misspelt `--tolerence` and a missing argument are all usage errors; a document compared with itself reaches the positive verdict. |
 | `malformed` | Each malformed input produces its documented exit code — and, checked separately on every row, not exit 70, which `docs/cli.md` defines as always a defect in the tool. |
 | `document` | `probe` selects the right format; `info` reads a document back; all four `dump` projections work and the two diffable ones are byte-identical across runs; writing the same document twice produces identical bytes; the `-` stdin and stdout paths carry a real document through a real pipe. |
 | `roundtrip` | Every document through every format, compared against the baseline. |
@@ -396,5 +396,6 @@ a seed in this repository asked for.
 to the component, and the render checks assert that it ran and was reproducible,
 not that it was right.
 
-**Nothing about PDF.** `Broiler.Documents.Pdf` is not composed by the CLI, by
-design. The only PDF assertion here is that it stays that way.
+**Nothing about PDF.** The CLI composes `Broiler.Documents.Pdf` to read only,
+and the samples are materialised by the five codecs that write. The only PDF
+assertion here is that the tool still cannot write one.

@@ -135,8 +135,10 @@ public static class DocumentIo
                 "Unknown output format \"" + token + "\". Known formats: " +
                 string.Join(", ", CodecComposition.FormatNames(catalog)) + ".");
 
+        // Said of the tool, not the codec: PDF's codec writes, and this tool
+        // composes it to read only.
         if (!codec.CanWrite)
-            throw new UsageException("The " + codec.Name + " codec does not implement writing.");
+            throw new UsageException("This tool does not write " + codec.Name + ".");
 
         return codec;
     }

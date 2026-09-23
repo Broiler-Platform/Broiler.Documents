@@ -139,8 +139,9 @@ broilerdoc roundtrip report.docx --via docx --via odt --via rtf --via html --via
 broilerdoc compare a.docx b.docx --render --continuous --diff diff.png --tolerance 2
 ```
 
-The head does **not** compose `Broiler.Documents.Pdf`: CLI PDF integration still
-has to pass the application delivery gates.
+The head composes `Broiler.Documents.Pdf` **read-only**: it opens, converts from
+and renders PDF files, and writes none until PDF output passes its write-preview
+gate.
 It is itself `IsPackable=false`, so the package table above is unchanged. See the
 [CLI guide](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/cli.md) for the full command reference, the exit codes, the edit
 language, and what makes a render reproducible across machines.

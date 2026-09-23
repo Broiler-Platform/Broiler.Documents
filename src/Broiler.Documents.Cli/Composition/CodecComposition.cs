@@ -20,12 +20,13 @@ namespace Broiler.Documents.Cli.Composition;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>PDF is deliberately absent.</b> <c>Broiler.Documents.Pdf</c> builds and
-/// tests in this solution but is <c>IsPackable=false</c> and belongs in no
-/// application catalog until the read-preview and write-preview gates in
-/// <c>docs/pdf-support-roadmap.md</c> §4.1 pass. Composing it here would ship
-/// the capability those gates exist to hold back, and would do it from the one
-/// surface - a CLI - that an automated system would then depend on.
+/// <b>PDF is read and never written.</b> <c>Broiler.Documents.Pdf</c> is
+/// composed through <see cref="ReadOnlyCodec"/>, so this tool opens, converts
+/// from and renders PDF files and produces none: <c>docs/pdf-support-roadmap.md</c>
+/// §4.1 lets an application read PDF before it lets one write it, and a CLI is
+/// the one surface an automated system would come to depend on. Its optional
+/// font and image providers are not composed, so the codec reads with its base
+/// capability and says what it skipped.
 /// </para>
 /// <para>
 /// The image codecs are a separate registration with a separate reason. The
@@ -44,7 +45,7 @@ public static class CodecComposition
             new RtfDocumentCodec(),
             new HtmlDocumentCodec(),
             new MarkdownDocumentCodec(),
-            new PdfDocumentCodec()
+            new ReadOnlyCodec(new PdfDocumentCodec()),
         ]);
 
     /// <summary>

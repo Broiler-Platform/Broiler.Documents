@@ -32,9 +32,10 @@
     The codecs this head composes. A catalog is built explicitly in
     CodecComposition (ADR 0001/0003) - nothing here registers itself.
 
-    Broiler.Documents.Pdf is deliberately absent. Preview packaging is enabled,
-    but CLI integration still has to pass the read-preview and write-preview
-    gates in docs/pdf-support-roadmap.md 4.1.
+    Broiler.Documents.Pdf is composed read-only (CodecComposition, ReadOnlyCodec):
+    this tool opens PDF files and writes none, because writing still has to pass
+    the write-preview gate in docs/pdf-support-roadmap.md 4.1. Its optional font
+    and image providers are not referenced.
   -->
   <ItemGroup>
     <ProjectReference Include="..\Broiler.Documents.Pdf\Broiler.Documents.Pdf.csproj" />
