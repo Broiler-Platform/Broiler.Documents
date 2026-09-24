@@ -19,6 +19,12 @@ graphs. Safe behavior must be fixed before a parser exists.
 - Input is rejected as soon as the effective trailer reveals `/Encrypt`. Password
   handling and decryption are not Version 1 features. The parser does not attempt
   object-stream recovery to bypass that decision.
+  **Amended 2026-09-24 by [ADR 0015](0015-pdf-decryption-credentials-permissions-and-threat-model.md)
+  for reading:** an encrypted document is opened - authenticated, and its
+  permissions checked - before any object that could be ciphertext is resolved,
+  and rejected at that point when it cannot be opened or may not be extracted
+  from. Recovery still cannot bypass the decision. Encrypted output is still not
+  written.
 - All object, stream, filter, page, resource, recursion, decompression, image,
   glyph, and diagnostic counts have checked limits. Nested decoding consumes a
   shared budget so composing filters cannot multiply the allowed work.

@@ -125,13 +125,85 @@ public static class PdfDiagnosticCodes
     /// </summary>
     public const string FilterJbig2Unsupported = "pdf.filter.jbig2.unsupported";
 
-    /// <summary>A crypt filter was named; encrypted documents are rejected in this release.</summary>
+    /// <summary>
+    /// A stream names the <c>/Crypt</c> filter where there is nothing for it to
+    /// select: in a document that is not encrypted, or anywhere in a chain but
+    /// first. An encrypted document's leading crypt filter is applied by the
+    /// security handler and never reaches the filter pipeline.
+    /// </summary>
     public const string FilterCryptUnsupported = "pdf.filter.crypt.unsupported";
 
     // ---- security -------------------------------------------------------------
 
-    /// <summary>The document is encrypted; this release rejects it before interpreting content.</summary>
+    /// <summary>
+    /// The document is encrypted in a way this build does not open: a security
+    /// handler, revision, or crypt-filter method outside IP-015 and IP-025, or
+    /// an encryption dictionary that could not be read. It is rejected before
+    /// any content is interpreted.
+    /// </summary>
     public const string EncryptionUnsupported = "pdf.encryption.unsupported";
+
+    /// <summary>
+    /// The document is encrypted with a user password and the read supplied
+    /// none. The empty password was tried and did not open it; a host prompts
+    /// and reads again with <see cref="PdfReadOptions.WithCredentials"/>.
+    /// </summary>
+    public const string EncryptionPasswordRequired = "pdf.encryption.password-required";
+
+    /// <summary>
+    /// The password the read supplied is neither the document's user password
+    /// nor its owner password. Nothing was decrypted.
+    /// </summary>
+    public const string EncryptionPasswordIncorrect = "pdf.encryption.password-incorrect";
+
+    /// <summary>
+    /// The document is encrypted for certificate recipients (the public-key
+    /// security handler), and no <see cref="Security.IPdfRecipientDecryptor"/>
+    /// is composed to open a recipient envelope.
+    /// </summary>
+    public const string EncryptionRecipientNotComposed = "pdf.encryption.recipient-not-composed";
+
+    /// <summary>
+    /// The composed recipient decryptor holds no key that opens any of the
+    /// document's recipient envelopes.
+    /// </summary>
+    public const string EncryptionRecipientNotFound = "pdf.encryption.recipient-not-found";
+
+    /// <summary>
+    /// The document opened without owner authority, and its permissions withhold
+    /// copying and extracting content. Every output of this codec is extracted
+    /// content, so nothing is read; the owner password lifts the restriction.
+    /// </summary>
+    public const string EncryptionExtractionNotPermitted = "pdf.encryption.extraction-not-permitted";
+
+    /// <summary>
+    /// The document was encrypted and has been decrypted: which handler,
+    /// revision, cipher and key length, what authority opened it, and what its
+    /// permissions grant. The document read is not encrypted, so anything
+    /// written from it is written in the clear.
+    /// </summary>
+    public const string EncryptionDecrypted = "pdf.encryption.decrypted";
+
+    /// <summary>
+    /// A string or stream could not be decrypted cleanly - a length the cipher
+    /// cannot have produced, padding that does not check, or a crypt filter the
+    /// document does not define - and was kept as far as it decrypted or dropped.
+    /// </summary>
+    public const string EncryptionObjectMalformed = "pdf.encryption.object-malformed";
+
+    /// <summary>
+    /// The permissions a revision 6 document states twice disagree: the
+    /// encrypted <c>/Perms</c> entry does not match <c>/P</c>, or does not check
+    /// at all. Only what both grant is honoured.
+    /// </summary>
+    public const string EncryptionPermissionsInconsistent = "pdf.encryption.permissions-inconsistent";
+
+    /// <summary>
+    /// The encrypted document declares strings or streams that are not
+    /// encrypted - an <c>Identity</c> crypt filter - beyond the metadata
+    /// exemption. Anyone can change that part without a key.
+    /// </summary>
+    public const string EncryptionPartiallyUnencrypted = "pdf.encryption.partially-unencrypted";
 
     /// <summary>
     /// A construct that would reach outside this document if anything executed it

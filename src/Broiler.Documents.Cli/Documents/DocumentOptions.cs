@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Resources;
 
@@ -25,6 +26,7 @@ public static class DocumentOptions
         OptionSpec.Value("code-page","n","Fallback code page for RTF documents that declare none.",DocumentReadOptions.Windows1252CodePage.ToString()),
         OptionSpec.Flag("decode-embedded","Ask codecs to decode embedded binary objects. Codecs that cannot report it rather than skipping silently."),
         OptionSpec.Value("fail-on","severity","Exit " + ExitCode.Diagnostics + " when a diagnostic reaches this severity: info, warning, error, or never.","never"),
+        OptionSpec.Value("password-file","path","Open an encrypted PDF with the password on this file's first line, tried as the user and the owner password. A file rather than an argument, so the password never reaches a process list or a shell history."),
     ];
 
     /// <summary>The write-side options, added on top of <see cref="Specs"/> by commands that write.</summary>
@@ -48,6 +50,37 @@ public static class DocumentOptions
         // A host with a different relationship to its input picks a different
         // policy; this one is stated rather than inherited.
         return new DocumentReadOptions(limits, codePage, line.Has("decode-embedded"), DocumentResourcePolicy.AllowOwnDocuments);
+    }
+
+    /// <summary>
+    /// The password on the file <c>--password-file</c> names, or null when the
+    /// run was given none. The composition root hands it to the PDF codec.
+    /// </summary>
+    /// <remarks>
+    /// The first line only, without its line ending, so a file written by
+    /// <c>echo</c> and one written by an editor hold the same password. Nothing
+    /// else on the file is read, and the value never reaches a message.
+    /// </remarks>
+    public static string? PdfPasswordFrom(CommandLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+
+        string? path = line.Get("password-file");
+        if (string.IsNullOrEmpty(path))
+            return null;
+
+        string password;
+        try
+        {
+            using var reader = new StreamReader(path);
+            password = reader.ReadLine() ?? string.Empty;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            throw new UsageException("--password-file could not be read: " + e.Message);
+        }
+
+        return password;
     }
 
     /// <summary>

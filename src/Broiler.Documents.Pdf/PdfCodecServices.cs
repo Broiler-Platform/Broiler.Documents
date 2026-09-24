@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Broiler.Documents.Pdf.Filters;
+using Broiler.Documents.Pdf.Security;
 using Broiler.Documents.Pdf.Text;
 
 namespace Broiler.Documents.Pdf;
@@ -22,10 +23,12 @@ namespace Broiler.Documents.Pdf;
 /// That is what makes the step-by-step plan work. <see cref="Base"/> composes
 /// only what this repository implements itself and can therefore ship without a
 /// third-party review: the Flate, LZW, ASCIIHex, ASCII85, and RunLength filters,
-/// and the approximate metric model. Each further technology — DCT/JPEG, CCITT,
-/// JPX, JBIG2, embedded font programs, ICC colour profiles, encryption — becomes
-/// available by adding a reviewed implementation to this graph, with no change
-/// to the parser, the interpreter, or the writer.
+/// the approximate metric model, and the standard security handler that opens
+/// password-encrypted documents. Each further technology — DCT/JPEG, CCITT,
+/// JPX, JBIG2, embedded font programs, ICC colour profiles, and the recipient
+/// envelopes of certificate encryption — becomes available by adding a reviewed
+/// implementation to this graph, with no change to the parser, the interpreter,
+/// or the writer.
 /// </para>
 /// </remarks>
 public sealed class PdfCodecServices
@@ -42,9 +45,23 @@ public sealed class PdfCodecServices
         PdfUriPolicy? uriPolicy = null,
         IPdfFontProgramReader? fontProgramReader = null,
         IPdfColorProfileReader? colorProfileReader = null)
+        : this(streamFilters, fontMetrics, uriPolicy, fontProgramReader, colorProfileReader, recipientDecryptor: null)
+    {
+    }
+
+    // The public signature above stays as published (ADR 0014); a service added
+    // since arrives through its With* method and this constructor.
+    private PdfCodecServices(
+        IEnumerable<IPdfStreamFilter>? streamFilters,
+        IPdfFontMetricsProvider? fontMetrics,
+        PdfUriPolicy? uriPolicy,
+        IPdfFontProgramReader? fontProgramReader,
+        IPdfColorProfileReader? colorProfileReader,
+        IPdfRecipientDecryptor? recipientDecryptor)
     {
         FontProgramReader = fontProgramReader;
         ColorProfileReader = colorProfileReader;
+        RecipientDecryptor = recipientDecryptor;
         var filters = new List<IPdfStreamFilter>
         {
             new FlateDecodeFilter(),
@@ -103,6 +120,15 @@ public sealed class PdfCodecServices
     public IPdfColorProfileReader? ColorProfileReader { get; }
 
     /// <summary>
+    /// The decryptor that opens the recipient envelopes of a document encrypted
+    /// for certificates, or null — the default — when none is composed and such
+    /// a document is rejected with
+    /// <see cref="PdfDiagnosticCodes.EncryptionRecipientNotComposed"/>.
+    /// Password-encrypted documents need nothing composed.
+    /// </summary>
+    public IPdfRecipientDecryptor? RecipientDecryptor { get; }
+
+    /// <summary>
     /// Returns a copy of this graph with additional or replacing filters. Use it
     /// to add a reviewed decoder without restating the base composition.
     /// </summary>
@@ -122,30 +148,37 @@ public sealed class PdfCodecServices
         // replacing rather than merely additive.
         List<IPdfStreamFilter> composed = CallerSuppliedFilters();
         composed.AddRange(filters);
-        return new(composed, FontMetrics, UriPolicy, FontProgramReader, ColorProfileReader);
+        return new(composed, FontMetrics, UriPolicy, FontProgramReader, ColorProfileReader, RecipientDecryptor);
     }
 
     /// <summary>Returns a copy of this graph with a different metrics provider.</summary>
     public PdfCodecServices WithFontMetrics(IPdfFontMetricsProvider metrics) =>
-        new(CallerSuppliedFilters(), metrics ?? throw new ArgumentNullException(nameof(metrics)), UriPolicy, FontProgramReader, ColorProfileReader);
+        new(CallerSuppliedFilters(), metrics ?? throw new ArgumentNullException(nameof(metrics)), UriPolicy, FontProgramReader, ColorProfileReader, RecipientDecryptor);
 
     /// <summary>Returns a copy of this graph with a different URI policy.</summary>
     public PdfCodecServices WithUriPolicy(PdfUriPolicy policy) =>
-        new(CallerSuppliedFilters(), FontMetrics, policy ?? throw new ArgumentNullException(nameof(policy)), FontProgramReader, ColorProfileReader);
+        new(CallerSuppliedFilters(), FontMetrics, policy ?? throw new ArgumentNullException(nameof(policy)), FontProgramReader, ColorProfileReader, RecipientDecryptor);
 
     /// <summary>
     /// Returns a copy of this graph that inspects embedded font programs with
     /// <paramref name="reader"/>.
     /// </summary>
     public PdfCodecServices WithFontProgramReader(IPdfFontProgramReader reader) =>
-        new(CallerSuppliedFilters(), FontMetrics, UriPolicy, reader ?? throw new ArgumentNullException(nameof(reader)), ColorProfileReader);
+        new(CallerSuppliedFilters(), FontMetrics, UriPolicy, reader ?? throw new ArgumentNullException(nameof(reader)), ColorProfileReader, RecipientDecryptor);
 
     /// <summary>
     /// Returns a copy of this graph that converts ICC-based colour with
     /// <paramref name="reader"/>.
     /// </summary>
     public PdfCodecServices WithColorProfileReader(IPdfColorProfileReader reader) =>
-        new(CallerSuppliedFilters(), FontMetrics, UriPolicy, FontProgramReader, reader ?? throw new ArgumentNullException(nameof(reader)));
+        new(CallerSuppliedFilters(), FontMetrics, UriPolicy, FontProgramReader, reader ?? throw new ArgumentNullException(nameof(reader)), RecipientDecryptor);
+
+    /// <summary>
+    /// Returns a copy of this graph that opens documents encrypted for
+    /// certificate recipients with <paramref name="decryptor"/>.
+    /// </summary>
+    public PdfCodecServices WithRecipientDecryptor(IPdfRecipientDecryptor decryptor) =>
+        new(CallerSuppliedFilters(), FontMetrics, UriPolicy, FontProgramReader, ColorProfileReader, decryptor ?? throw new ArgumentNullException(nameof(decryptor)));
 
     /// <summary>True when a decoder for <paramref name="filterName"/> is composed.</summary>
     public bool SupportsFilter(string filterName)

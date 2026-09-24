@@ -23,6 +23,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The PDF suite's producer-side encryption, linked rather than copied, so
+         the file handed to the tool is encrypted by the same fixture code the
+         codec's own tests use. -->
+    <Compile Include="..\Broiler.Documents.Pdf.Tests\PdfTestEncryption.cs" Link="PdfTestEncryption.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Using Include="Xunit" />
 
     <Using Include="Broiler.Documents" />

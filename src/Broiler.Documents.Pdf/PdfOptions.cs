@@ -73,6 +73,36 @@ public sealed class PdfReadOptions(
     /// </para>
     /// </remarks>
     public bool IncludeHiddenOptionalContent { get; } = includeHiddenOptionalContent;
+
+    /// <summary>
+    /// The password an encrypted document is opened with, or null - the default
+    /// - to open only what opens without one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Without credentials a document whose user password is empty still opens:
+    /// its protection is the permissions it declares, which the read honours. A
+    /// document that needs a password is rejected with
+    /// <see cref="PdfDiagnosticCodes.EncryptionPasswordRequired"/>, which is a
+    /// host's cue to ask for one and read again.
+    /// </para>
+    /// <para>
+    /// Set it with <see cref="WithCredentials"/>. A certificate recipient's key
+    /// is not a credential here: it belongs to a composed
+    /// <see cref="Security.IPdfRecipientDecryptor"/>.
+    /// </para>
+    /// </remarks>
+    public PdfDecryptionCredentials? Credentials { get; private init; }
+
+    /// <summary>
+    /// Returns a copy of these options that opens an encrypted document with
+    /// <paramref name="credentials"/>.
+    /// </summary>
+    public PdfReadOptions WithCredentials(PdfDecryptionCredentials credentials) =>
+        new(Limits, PdfLimits, MapPageBreaks, IncludeInvisibleText, UriPolicy, ResourcePolicy, IncludeHiddenOptionalContent)
+        {
+            Credentials = credentials ?? throw new ArgumentNullException(nameof(credentials)),
+        };
 }
 
 /// <summary>Options for writing a PDF.</summary>

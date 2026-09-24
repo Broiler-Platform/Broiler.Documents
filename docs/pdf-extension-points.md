@@ -2,7 +2,7 @@
 
 - **Status:** Active
 - **Component:** `Broiler.Documents.Pdf`
-- **Updated:** 2026-09-24 (`IPdfColorProfileReader` added under IP-024)
+- **Updated:** 2026-09-24 (`IPdfColorProfileReader` added under IP-024; encrypted documents opened, and `IPdfRecipientDecryptor` added, under IP-015 and IP-025)
 - **Companion documents:** [PDF support roadmap](pdf-support-roadmap.md),
   [construct inventory](pdf-construct-inventory.md),
   [feature matrix](pdf-feature-matrix.md),
@@ -59,6 +59,7 @@ the legal question.
 | Images | Samples from a filter chain the build can run, normalized to RGBA within roadmap §9.3's approved tuple — DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded palette, `/Decode` validated — with their stencil, colour-key, explicit and soft masks carried as alpha, and admitted through the caller's resource policy |
 | Semantics | Reading order from a tagged document's structure tree where it covers the page, geometric assembly otherwise, list detection, link annotations under the URI policy, and the default optional-content configuration — content in a layer the catalog turns off is omitted |
 | Writer | New PDF 1.7 files, standard font names with WinAnsi encoding, Flate content streams, colour, decorations, alignment, lists, link annotations, normalized metadata |
+| Security | Encrypted documents opened with the standard security handler at revisions 2, 3, 4 and 6 - RC4, AES-128 and AES-256, crypt filters, `/EncryptMetadata` - with the caller's password or the document's empty one; the copy-and-extract permission enforced and the rest reported; and the PDF half of the public-key handler, whose envelopes a composed decryptor opens (§4.6). Nothing is ever encrypted |
 
 Nothing in that list needs a third-party runtime dependency, a bundled font, a
 glyph list, a metric file, or a codec asset. `FlateDecode` uses the .NET
@@ -82,12 +83,15 @@ still reads; the affected construct is reported rather than guessed at.
 | Inline images, and images naming a filter with no composed implementation | `pdf.image.not-composed` | IP-005 |
 | A decoded image the caller's policy refused | `pdf.image.extraction-denied` | — |
 | Text needing a font the caller did not provision | `pdf.write.no-font-configured` | §11.3's chosen path: the caller supplies fonts, this project bundles none |
-| Encrypted documents | `pdf.encryption.unsupported` (rejection) | IP-015 |
+| Encrypted documents the build cannot open | `pdf.encryption.unsupported` for a handler, revision, or method outside the approved scope; `pdf.encryption.password-required` and `pdf.encryption.password-incorrect` for the standard handler; `pdf.encryption.extraction-not-permitted` where the permissions withhold what this codec produces. Each rejects the document | IP-015 (**approved**; see ADR 0015) |
+| Documents encrypted for certificate recipients | `pdf.encryption.recipient-not-composed` without a recipient decryptor; `pdf.encryption.recipient-not-found` with one that opens no envelope | IP-025 (**approved**, the external standards' review recorded as not done; see §4.6) |
 | Signatures | `pdf.signature.not-validated` | IP-016 |
 
 Encryption is the one entry that rejects the whole document rather than skipping
-a construct, and it does so from the trailers alone, before any content-bearing
-object is resolved.
+a construct. It decides from the trailers alone, and opens the document -
+authenticating it and checking the one permission this codec depends on -
+before any content-bearing object is resolved, so a document it cannot open is
+refused with nothing behind the trailer read (ADR 0015).
 
 ### 3.1 What a skip report carries
 
@@ -396,6 +400,61 @@ Three limits are worth stating plainly:
 The reader belongs with the other colour work in `Broiler.Media` in the end,
 as the JPEG 2000 and JBIG2 decoders moved there; it is in the image satellite
 until then, behind the same composition boundary.
+
+### 4.6 `IPdfRecipientDecryptor` - opening a certificate recipient's envelope
+
+A document encrypted for certificates stores, for each list of recipients, a CMS
+`EnvelopedData` object (RFC 5652) whose content is a 20-byte seed and the list's
+permissions. The codec does everything that is PDF: it finds the lists - in the
+encryption dictionary, or in each crypt filter - hands them in order to the
+decryptor, derives each crypt filter's key from the seed the first opened
+envelope yields and every list's bytes, and applies the permissions it carries.
+The decryptor does the one thing the codec cannot: undo an envelope with a
+recipient's private key.
+
+No implementation ships here, deliberately. The ready one is `EnvelopedCms` in
+`System.Security.Cryptography.Pkcs`, which the dependency rule keeps out of
+every shipped assembly (ADR 0001), and the cryptographic message syntax is an
+external standard of its own, whose review IP-025 records as not done. A host
+composes one in a few lines, with the certificates of whoever it runs for:
+
+```csharp
+sealed class CertificateRecipients(X509Certificate2 certificate) : IPdfRecipientDecryptor
+{
+    public byte[]? Open(ReadOnlySpan<byte> envelope, PdfRecipientContext context)
+    {
+        var cms = new EnvelopedCms();
+        cms.Decode(envelope);
+        foreach (RecipientInfo recipient in cms.RecipientInfos)
+        {
+            if (recipient.RecipientIdentifier.Value is not X509IssuerSerial id ||
+                id.IssuerName != certificate.Issuer || id.SerialNumber != certificate.SerialNumber)
+                continue;
+
+            using RSA? key = certificate.GetRSAPrivateKey();
+            if (key is null)
+                return null;
+            cms.Decrypt(recipient, key);          // with this key: never a store search
+            return cms.ContentInfo.Content;
+        }
+
+        return null;
+    }
+}
+
+var codec = new PdfDocumentCodec(
+    PdfCodecServices.Base.WithRecipientDecryptor(new CertificateRecipients(certificate)));
+```
+
+The contract is the one the other readers have: return null for an envelope no
+held key opens and for one that cannot be parsed, never a partial or guessed
+content; the codec treats a throw the same way. It never searches a certificate
+store itself, and neither should a decryptor - `EnvelopedCms.Decrypt()` without
+a key does, which is why the example passes one.
+
+A password is not composed here. It belongs to one document, not to the
+application, and travels in the read options instead
+(`PdfReadOptions.WithCredentials`).
 
 ## 5. Adding a technology, step by step
 

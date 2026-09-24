@@ -58,7 +58,9 @@ Explicitly exclude from V1:
 - native PDF viewing or page rasterization;
 - source-preserving editing or incremental saving;
 - OCR;
-- password-encrypted input beyond detection and diagnosis;
+- encrypted output. Reading encrypted input left this list on 2026-09-24:
+  IP-015, IP-025, and IP-002 for revision 6 approved it, and ADR 0015 fixes how
+  a document is opened, what its permissions decide, and the threat model;
 - JavaScript, Launch actions, attachments, rich media, or external-resource
   fetching;
 - AcroForm editing, signature validation, PDF/A, or PDF/UA claims;
@@ -153,9 +155,11 @@ is authoritative for that boundary.
   and `RunLengthDecode`, with per-stage and aggregate byte, expansion, chain-depth
   and work accounting; cross-reference streams, object streams, and hybrid
   `/XRefStm` resolved through that same pipeline with no bootstrap decoder;
-  `/Encrypt` detected from the trailers and the document rejected before any
-  object stream, Catalog, metadata, font, image, annotation, or content service is
-  invoked; Catalog, page tree, inherited attributes, boxes, rotation and
+  `/Encrypt` detected from the trailers and the document opened - authenticated,
+  its extraction permission checked - or rejected, before any object stream,
+  Catalog, metadata, font, image, annotation, or content service is invoked, with
+  the standard security handler at revisions 2, 3, 4 and 6 in the base build and
+  the public-key handler's envelopes behind a composed decryptor (ADR 0015); Catalog, page tree, inherited attributes, boxes, rotation and
   `UserUnit`; effective version resolution with `/Extensions` inventoried as
   diagnostics only; `Info` and the XMP packet parsed into the normalized
   allowlist, XMP winning per field with `Info` as the fallback and disagreement
@@ -262,7 +266,7 @@ is authoritative for that boundary.
 
 **Deliberately not implemented, and why.**
 
-- Encryption (IP-015), and every image outside §9.3's approved raw-sample tuple —
+- Encrypted output (roadmap §14.1), and every image outside §9.3's approved raw-sample tuple —
   masks and transparency, the calibrated and device-independent colour spaces,
   CMYK, and the inline form. **No filter or codec
   row is open any longer**: `JBIG2Decode` was the last, and IP-008 cleared it on
@@ -322,8 +326,8 @@ is authoritative for that boundary.
   composes no image decoder; four-component YCCK is still refused; a declared
   transform of 0 on three components is no longer among them, because the decoder
   gained the parameter its refusal had been waiting on rather than because a row
-  moved. Each is detected and skipped, or in
-  encryption's case rejects the document. A skip reports an inventory of what it
+  moved. Each is detected and skipped. An encrypted document the build cannot
+  open, or may not extract from, is rejected instead. A skip reports an inventory of what it
   met — counts, pages, and the declared variants — without decoding anything to
   produce it; see
   [PDF extension points §3.1](pdf-extension-points.md#31-what-a-skip-report-carries).
@@ -1210,10 +1214,12 @@ document was written for.
   production pipeline far enough to determine the effective trailer. There is no
   bootstrap or test-only decoder with different security behavior.
 - Inspect every effective classic trailer and xref-stream dictionary for
-  `/Encrypt` immediately after structural xref discovery. V1 rejects the file at
-  that point, before resolving object-stream members or interpreting any
-  decrypt-dependent object, string, Catalog, metadata, font, image, annotation,
-  or content. Diagnostics expose neither passwords nor document content.
+  `/Encrypt` immediately after structural xref discovery. The file is opened or
+  rejected at that point, before resolving object-stream members or interpreting
+  any decrypt-dependent object, string, Catalog, metadata, font, image,
+  annotation, or content, and a recovery scan that stands in for the trailer
+  still finds the encryption (ADR 0015). Diagnostics expose neither passwords
+  nor document content.
 - For unencrypted files, resolve object streams and the latest object revision
   deterministically, including hybrid and incremental interactions.
 - Load the Catalog, page tree, inherited resources, MediaBox/CropBox, rotation,
@@ -1263,7 +1269,7 @@ document was written for.
   every entry short of `Supported` is now the provenance and wording rows rather
   than any construct question.
 - Inventory annotations, outlines, forms, actions, embedded files, and
-  signatures after the encryption rejection point.
+  signatures after the point where an encrypted document is opened or rejected.
 - Treat URI/action values as inert source-labelled data and never fetch them.
   Classify URI, JavaScript, Launch, GoToR, SubmitForm, ImportData, embedded-file,
   and unknown actions separately; no non-URI action may be projected as a link.
@@ -1301,7 +1307,11 @@ document was written for.
 - Classic-trailer and xref-stream `/Encrypt` fixtures prove rejection occurs
   before object-stream, Catalog, metadata/XML, font, image, annotation, or
   content services are invoked, including incremental trailers that introduce
-  or alter encryption.
+  or alter encryption. **Met as of 2026-09-24**, and found unmet on the way: the
+  Catalog had been resolved before the decision, which for an xref-stream file
+  decoded its encrypted object streams and ran a recovery scan first, and an
+  unreachable cross-reference stream hid the encryption altogether. Both are
+  fixed, and `PdfDecryptionTests` covers each case the gate names.
 
 ## 9. Phase 4 — Logical import into `RichTextDocument`
 
@@ -2018,9 +2028,15 @@ integration gate.
 
 Treat these as separately approved roadmaps:
 
-1. Password encryption through the Standard Security Handler, preceded by a
-   crypto export-control, sanctions, anti-circumvention, authorized-password,
-   permissions-policy, algorithm, and target-jurisdiction review.
+1. Encrypted output through the standard security handler. Reading encrypted
+   documents left this track on 2026-09-24 under IP-015, IP-025 and IP-002, with
+   ADR 0015; the export-control, sanctions, anti-circumvention,
+   authorized-password, permissions-policy and target-jurisdiction items this
+   track named are recorded on IP-015 rather than reviewed, at the project
+   reviewer's direction. Writing brings questions reading does not: AES needs
+   random initialization vectors where the writer promises byte-identical
+   output, revisions 2 to 4 need the file identifier before the body it is now
+   derived from, and AES-256 needs a PDF 2.0 header or an extension declaration.
 2. Full tagged-PDF structure, outlines, internal destinations, and accessibility.
    Pin the structure-tree, marked-content, reading-order, language, alternate-
    text, list/table, artifact, annotation-association, namespace, and exact

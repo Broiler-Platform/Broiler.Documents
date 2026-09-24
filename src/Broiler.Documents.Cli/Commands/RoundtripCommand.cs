@@ -80,7 +80,7 @@ public static class RoundtripCommand
         if (formats.Count == 0)
             throw new UsageException("Give at least one --via format to round-trip through.");
 
-        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
+        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog(DocumentOptions.PdfPasswordFrom(context.Line));
         DocumentReadOptions readOptions = DocumentOptions.ReadOptionsFrom(context.Line);
         LoadedDocument original = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"));
 

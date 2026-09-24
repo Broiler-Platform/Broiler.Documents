@@ -30,11 +30,20 @@ namespace Broiler.Documents.Pdf;
 /// </para>
 /// <para>
 /// <b>What arrives later, and how.</b> LZW, DCT/JPEG, CCITT, JPX, JBIG2,
-/// embedded font programs, image extraction, and encryption are each detected and
-/// skipped with their own stable diagnostic, and each becomes available by
-/// composing a reviewed implementation into <see cref="PdfCodecServices"/>. The
-/// parser, interpreter, and writer do not change when one arrives; only the
-/// service graph does.
+/// embedded font programs, and image extraction are each detected and skipped
+/// with their own stable diagnostic, and each becomes available by composing a
+/// reviewed implementation into <see cref="PdfCodecServices"/>. The parser,
+/// interpreter, and writer do not change when one arrives; only the service
+/// graph does.
+/// </para>
+/// <para>
+/// <b>Encrypted documents.</b> The standard security handler is built in: a
+/// document protected only by its permissions opens as it is, and one that
+/// needs a password opens with <see cref="PdfReadOptions.WithCredentials"/>.
+/// A document encrypted for certificate recipients opens through a composed
+/// <see cref="Security.IPdfRecipientDecryptor"/>. The copy-and-extract
+/// permission is enforced, because extraction is all this codec does; nothing
+/// is ever encrypted on the way out (ADR 0015).
 /// </para>
 /// <para>
 /// <b>Delivery state.</b> The package is not published. It is registered — for

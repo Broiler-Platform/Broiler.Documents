@@ -15,7 +15,10 @@ and the order in which any further technology may be added. ADR 0013 takes the
 component-wide concern, adopts the evidence-based standard of review the PDF
 register set on 2026-09-02 — superseding 0011's requirement of qualified legal
 review before implementation clearance — and gives each format its own register
-and claim gate, ODT's being the first.
+and claim gate, ODT's being the first. ADR 0015 amends 0009 for reading
+encrypted PDFs: where the security handlers live, the order in which a document
+is opened, how credentials and permissions are treated, and the threat model
+0009 asked for.
 Accepted and partially superseded records remain here for traceability; current
 follow-up work is in [the component roadmap](../roadmap.md).
 
@@ -35,3 +38,4 @@ follow-up work is in [the component roadmap](../roadmap.md).
 | [0012](0012-pdf-base-implementation-and-composed-extensions.md) | PDF base implementation scope and composed extensions |
 | [0013](0013-standards-ip-provenance-and-claims-beyond-pdf.md) | Standards, IP, provenance, and claims beyond PDF (proposed; supersedes 0011 on standard of review) |
 | [0014](0014-api-deprecation-and-removal.md) | API deprecation and removal |
+| [0015](0015-pdf-decryption-credentials-permissions-and-threat-model.md) | PDF decryption: credentials, permissions, and threat model (amends 0009) |

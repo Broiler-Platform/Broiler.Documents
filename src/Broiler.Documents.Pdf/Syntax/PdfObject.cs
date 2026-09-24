@@ -129,7 +129,15 @@ internal sealed class PdfArray : PdfObject, IReadOnlyList<PdfObject>
 
     public PdfArray(IEnumerable<PdfObject> items) => _items = [.. items];
 
-    public PdfObject this[int index] => _items[index];
+    /// <summary>
+    /// An entry. Setting one exists for the security handler, which replaces a
+    /// string with its decryption in place.
+    /// </summary>
+    public PdfObject this[int index]
+    {
+        get => _items[index];
+        set => _items[index] = value ?? PdfObject.Null;
+    }
 
     public int Count => _items.Count;
 

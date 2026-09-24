@@ -46,7 +46,7 @@ public static class RenderCommand
         context.Line.RequireNoExtraPositionals(1);
         string destination = context.Line.Require("out");
 
-        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
+        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog(DocumentOptions.PdfPasswordFrom(context.Line));
         DocumentReadOptions readOptions = DocumentOptions.ReadOptionsFrom(context.Line);
         LoadedDocument loaded = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"));
 

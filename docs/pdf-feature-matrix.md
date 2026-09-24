@@ -1,7 +1,7 @@
 # PDF Support Feature Matrix
 
 **Version:** 1.11 (evidence-based register standard)  
-**Updated:** 2026-09-24 (masks carried as alpha; ICC-based colour through a composed reader)  
+**Updated:** 2026-09-24 (masks carried as alpha; ICC-based colour through a composed reader; encrypted documents read under IP-015, IP-002 and IP-025)  
 **Authority:** This matrix defines claims; the roadmap defines planned work.
 
 Status values are `Planned`, `Candidate`, `Supported`, `Rejected`, and
@@ -13,10 +13,10 @@ terms worth reading before treating any word here as a guarantee.
 
 `Broiler.Documents.Pdf` now exists and implements the base slice described in
 [roadmap §2.5](pdf-support-roadmap.md#25-current-implementation-state). **No
-entry is `Supported`.** Fourteen register rows are now approved: IP-001, the row
+entry is `Supported`.** Seventeen register rows are now approved: IP-001, the row
 under every construct this codec implements; every filter and codec row (IP-004
 through IP-010 and IP-012); the provenance and naming rows IP-011, IP-013,
-IP-014, and IP-018; and IP-024, for ICC-based colour. What remains is listed in the register's
+IP-014, and IP-018; IP-024, for ICC-based colour; and, for reading encrypted documents, IP-015, IP-025, and IP-002 with feature-level review. What remains is listed in the register's
 [what still blocks a support claim](pdf-ip-licensing-register.md#what-still-blocks-a-support-claim):
 SRC-017, the transcription question that reproducing ITU-T T.4's code tables
 raised and that SRC-018 and SRC-019 defer to; SRC-016, adjacent to it rather than
@@ -43,11 +43,16 @@ is pending.
 | Feature / exact subset | Behavior today | V1 read | V1 write | Decode | Encode | Preserve bytes | Transform | Default exposure | Legal row / state | Required diagnostic |
 |---|---|---|---|---|---|---|---|---|---|---|
 | PDF 1.7 syntax, only subsets below | Implemented | Candidate | Candidate | — | — | No | Yes | In-process codec after gates | IP-001 approved 2026-09-01 | `pdf.version.unsupported` outside approved subset |
-| PDF 2.x declaration/header tolerance | Detect/skip | Detect/skip | Reject | — | — | No | No | Never a conformance claim | IP-002 pending | `pdf.version.tolerated-not-supported` |
+| PDF 2.x declaration/header tolerance | Detect/skip | Detect/skip | Reject | — | — | No | No | Never a conformance claim | IP-002 approved 2026-09-24 with feature-level review; the one 2.0 feature read is revision 6 encryption | `pdf.version.tolerated-not-supported` |
 | Developer extensions | Detect/skip | Detect/skip | Reject | — | — | No | No | None | IP-003 pending | `pdf.extension.unsupported` |
 | Classic xref / cross-reference streams / object streams | Implemented | Plan | Plan | — | — | No | Yes | Bounded parser only | IP-001 approved 2026-09-01 | `pdf.xref.malformed` / limit code |
 | Effective incremental revision | Implemented | Plan | Reject | — | — | No | Yes | Latest effective revision only | IP-001 approved 2026-09-01 | `pdf.revisions.history-dropped` |
-| Standard security handler / encryption | Reject | Reject | Reject | No | No | No | No | None | IP-015 blocked V1 | `pdf.encryption.unsupported` |
+| Standard security handler, revisions 2-4: RC4 40-128-bit, AES-128, crypt filters, `/EncryptMetadata` | Implemented | Candidate | Reject | Candidate | No | No | Yes | Base build; the caller's password, or the document's empty one | IP-015 approved 2026-09-24; its constants pending SRC-025 | `pdf.encryption.decrypted`, `pdf.encryption.password-required`, `pdf.encryption.password-incorrect` |
+| Standard security handler, revision 6: AES-256 (ISO 32000-2) | Implemented | Candidate | Reject | Candidate | No | No | Yes | Base build; password prepared with SASLprep | IP-015 under IP-002, approved 2026-09-24; constants pending SRC-025 | as above, and `pdf.encryption.permissions-inconsistent` |
+| User access permissions | Implemented: copy and extract enforced, the rest reported | Candidate | — | — | — | No | No | Owner authority lifts the enforcement | IP-015 approved 2026-09-24; ADR 0015 | `pdf.encryption.extraction-not-permitted` |
+| Revision 5, `/V 3`, and handlers other than the standard and public-key ones | Reject | Reject | Reject | No | No | No | No | None | Revision 5 is an Adobe extension (IP-003 pending) | `pdf.encryption.unsupported` |
+| Public-key security handler: `adbe.pkcs7.s3`, `s4`, `s5`, AES-256 crypt filters | Extension: the PDF half built in, the envelope a composed decryptor's | Candidate | Reject | Candidate | No | No | Yes | Caller-composed `IPdfRecipientDecryptor`; none ships | IP-025 approved 2026-09-24; external standards' review recorded as not done | `pdf.encryption.recipient-not-composed`, `pdf.encryption.recipient-not-found` |
+| Encrypted output | Reject | — | Reject | No | No | No | No | None | Post-V1, roadmap §14.1 | — |
 | ASCIIHex / ASCII85 / RunLength filters | Implemented | Plan | Plan | Plan | Plan | No | Yes | Bounded filter chain | IP-001 approved 2026-09-01; SRC-001 closed 2026-09-01 | `pdf.filter.limit` / `pdf.filter.malformed` |
 | FlateDecode, PNG and TIFF predictors | Implemented; every predictor and component size | Candidate | Candidate | Candidate | Candidate | No | Yes | Bounded shared budget | IP-011 approved 2026-09-01; IP-023 confirmed | `pdf.filter.limit` / `pdf.filter.malformed` |
 | LZWDecode, including `EarlyChange` | Implemented | Candidate | Reject | Candidate | No | No | Yes | Base build; bounded filter chain | IP-010 approved and retired 2026-09-01; IP-001 approved 2026-09-01 | `pdf.filter.limit` / `pdf.filter.malformed` |
@@ -96,14 +101,14 @@ is pending.
 | Capability | V1 status | Behavior today | Notes / gate |
 |---|---|---|---|
 | PDF 1.7 syntax within enumerated subsets | Candidate | Implemented | ISO 32000-1 clearance and per-feature tests |
-| PDF 2.0 tolerance | Candidate | Declaration recorded; no 2.0-only feature implemented | Qualified review; tolerance does not imply PDF 2.0 conformance |
+| PDF 2.0 tolerance | Candidate | Declaration recorded; one 2.0-only feature read - revision 6 encryption | IP-002 approved with feature-level review; tolerance does not imply PDF 2.0 conformance |
 | Classic cross-reference tables | Candidate | Implemented, with a reported scan-based recovery path | Strict and bounded recovery corpus |
 | Cross-reference streams | Candidate | Implemented through the production filter pipeline | Filter and object-stream limits |
 | Object streams | Candidate | Implemented | Shared object/decompression budgets |
 | Linearized files | Candidate | Read as ordinary files | Read as ordinary files; no fast-web-view claim |
 | Hybrid-reference files | Candidate | `/XRefStm` entries loaded ahead of the classic section | Must not weaken encryption or duplicate-object rules |
 | Incremental revisions | Candidate | Latest effective revision only, reported | Read latest effective revision only; adversarial tests |
-| Encrypted input | Rejected | Rejected from the trailers, before any content object resolves | Reject when `/Encrypt` is discovered |
+| Encrypted input | Candidate | Opened with the caller's password or the document's empty one, before any content object resolves; refused, from the same point, when it cannot be opened or may not be extracted from | IP-015, IP-025; ADR 0015. Output is never encrypted |
 | Digital signatures | Post-V1 | Detected and reported; never validated | No validation, preservation, or signing claim |
 
 ## Stream filters and images

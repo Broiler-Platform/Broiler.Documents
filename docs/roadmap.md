@@ -138,8 +138,9 @@ corrects them, reporting the halftone regions, aggregate coding and every
 Huffman-coded form. In both cases what remains is
 engineering and evidence, not an approval. Raw image samples reach the model
 within the approved DeviceGray, DeviceRGB and Indexed subset; everything outside
-it — masks, the other colour spaces, encryption — is detected and skipped with
-its own diagnostic. See [PDF extension points](pdf-extension-points.md) for which
+it — the other colour spaces — is detected and skipped with its own diagnostic;
+masks are carried as alpha, and an encrypted document is opened as ADR 0015
+describes, or refused by name. See [PDF extension points](pdf-extension-points.md) for which
 of the three states a given technology is in and why.
 
 Residual work owned here:

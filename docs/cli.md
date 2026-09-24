@@ -194,6 +194,31 @@ broilerdoc convert page.html --out page.docx --fail-on warning
 Exit code 6 when any diagnostic reaches that severity. `--fail-on` accepts
 `never` (the default), `info`, `warning`, or `error`.
 
+### Reading an encrypted PDF
+
+```bash
+broilerdoc dump statement.pdf --password-file ~/.secrets/statement.txt
+```
+
+Every command that reads a document takes `--password-file`: the password is
+the first line of that file, tried as the document's owner password and then
+its user password. It is a file rather than an argument so that it reaches no
+process list and no shell history, and it never appears in the output,
+`--json` included.
+
+Without it, a PDF protected only by its permissions still opens, because its
+user password is empty. One that needs a password exits 3 with
+`pdf.encryption.password-required`; a wrong one, with
+`pdf.encryption.password-incorrect`. A document whose permissions withhold
+copying and extracting is refused with `pdf.encryption.extraction-not-permitted`
+unless the password given is its owner's - everything this tool does with a
+PDF extracts it. What opened the document is reported under
+`pdf.encryption.decrypted`, and whatever is written from it is not encrypted.
+
+A PDF encrypted for certificate recipients is refused with
+`pdf.encryption.recipient-not-composed`: this tool composes no recipient
+decryptor (see [PDF extension points §4.6](pdf-extension-points.md)).
+
 ## Rendering, and what makes a render reproducible
 
 Two things have to be pinned before two renders are comparable, and both are

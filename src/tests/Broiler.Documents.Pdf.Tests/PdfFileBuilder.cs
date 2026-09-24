@@ -15,8 +15,36 @@ namespace Broiler.Documents.Pdf.Tests;
 internal sealed class PdfFileBuilder
 {
     private readonly List<byte[]?> _objects = [null]; // index 0 is the free head
+    private readonly Dictionary<int, (string Dictionary, byte[] Data)> _streams = [];
+    private readonly HashSet<int> _plain = [];
     private string _version = "1.7";
     private string _preamble = string.Empty;
+    private PdfTestEncryption? _encryption;
+
+    /// <summary>
+    /// Encrypts the file as <paramref name="encryption"/> states: every string
+    /// and stream under its object's key, the <c>/Encrypt</c> dictionary added as
+    /// an object of its own, and the file identifier written to the trailer.
+    /// </summary>
+    public PdfFileBuilder Encrypt(PdfTestEncryption encryption)
+    {
+        _encryption = encryption;
+        return this;
+    }
+
+    /// <summary>
+    /// Adds a stream that stays unencrypted in an encrypted file, as a producer
+    /// that leaves one in the clear writes it.
+    /// </summary>
+    public int AddPlainStream(string dictionaryBody, byte[] data)
+    {
+        int number = AddStream(dictionaryBody, data);
+        _plain.Add(number);
+        return number;
+    }
+
+    /// <summary>Leaves an object's strings as they are written in an encrypted file.</summary>
+    public void LeavePlain(int number) => _plain.Add(number);
 
     /// <summary>Sets the version in the <c>%PDF-</c> header.</summary>
     public PdfFileBuilder WithVersion(string version)
@@ -50,17 +78,110 @@ internal sealed class PdfFileBuilder
     /// <summary>Adds a stream object, filling in <c>/Length</c> from the data.</summary>
     public int AddStream(string dictionaryBody, byte[] data, string? filter = null)
     {
-        var header = new StringBuilder("<< ").Append(dictionaryBody);
-        if (filter is not null)
-            header.Append(" /Filter /").Append(filter);
-        header.Append(" /Length ").Append(data.Length).Append(" >>\nstream\n");
+        string dictionary = filter is null ? dictionaryBody : dictionaryBody + " /Filter /" + filter;
+        _objects.Add(null);
+        int number = _objects.Count - 1;
+        _streams[number] = (dictionary, data);
+        return number;
+    }
+
+    // The stream as written: encrypted when the file is, with /Length measured
+    // after encryption, which is the length the file actually holds.
+    private byte[] StreamBytes(int number)
+    {
+        (string dictionary, byte[] data) = _streams[number];
+        if (_encryption is not null && !_plain.Contains(number) && !IsExempt(dictionary))
+        {
+            dictionary = EncryptStrings(dictionary, number);
+            data = _encryption.EncryptStream(data, number, 0);
+        }
 
         var bytes = new List<byte>();
-        bytes.AddRange(Latin1(header.ToString()));
+        bytes.AddRange(Latin1("<< " + dictionary + " /Length " + data.Length.ToString(CultureInfo.InvariantCulture) + " >>\nstream\n"));
         bytes.AddRange(data);
         bytes.AddRange(Latin1("\nendstream"));
-        _objects.Add([.. bytes]);
-        return _objects.Count - 1;
+        return [.. bytes];
+    }
+
+    // What a producer leaves unencrypted: a stream that selects the Identity
+    // crypt filter, and the metadata stream of a document that says so.
+    private bool IsExempt(string dictionary) =>
+        (dictionary.Contains("/Crypt", StringComparison.Ordinal) &&
+         (dictionary.Contains("/Name /Identity", StringComparison.Ordinal) || !dictionary.Contains("/Name", StringComparison.Ordinal))) ||
+        (!_encryption!.EncryptMetadata && dictionary.Contains("/Type /Metadata", StringComparison.Ordinal));
+
+    /// <summary>
+    /// Rewrites every string in an object's body as a hex string of its
+    /// encryption under that object's key. Literal strings are decoded first,
+    /// escapes and all, because what is encrypted is the string's bytes.
+    /// </summary>
+    private string EncryptStrings(string body, int number)
+    {
+        const char Backslash = (char)92;
+        var output = new StringBuilder(body.Length * 2);
+        int i = 0;
+        while (i < body.Length)
+        {
+            char c = body[i];
+            if (c == '<' && i + 1 < body.Length && body[i + 1] == '<')
+            {
+                output.Append("<<");
+                i += 2;
+                continue;
+            }
+
+            if (c == '<')
+            {
+                int end = body.IndexOf('>', i);
+                string hex = new([.. body[(i + 1)..end].Where(Uri.IsHexDigit)]);
+                if (hex.Length % 2 == 1)
+                    hex += "0";
+                byte[] plain = Convert.FromHexString(hex);
+                output.Append('<').Append(PdfTestEncryption.Hex(_encryption!.EncryptString(plain, number, 0))).Append('>');
+                i = end + 1;
+                continue;
+            }
+
+            if (c != '(')
+            {
+                output.Append(c);
+                i++;
+                continue;
+            }
+
+            var bytes = new List<byte>();
+            int depth = 1;
+            i++;
+            while (i < body.Length && depth > 0)
+            {
+                char d = body[i++];
+                if (d == Backslash && i < body.Length)
+                {
+                    char e = body[i++];
+                    bytes.Add(e switch
+                    {
+                        'n' => 10,
+                        'r' => 13,
+                        't' => 9,
+                        'b' => 8,
+                        'f' => 12,
+                        _ => (byte)e,
+                    });
+                    continue;
+                }
+
+                if (d == '(')
+                    depth++;
+                else if (d == ')' && --depth == 0)
+                    break;
+
+                bytes.Add((byte)d);
+            }
+
+            output.Append('<').Append(PdfTestEncryption.Hex(_encryption!.EncryptString([.. bytes], number, 0))).Append('>');
+        }
+
+        return output.ToString();
     }
 
     public int AddStream(string dictionaryBody, string content, string? filter = null) =>
@@ -72,6 +193,8 @@ internal sealed class PdfFileBuilder
     /// </summary>
     public byte[] Build(int rootObject, string? extraTrailerEntries = null)
     {
+        int encryptObject = AddEncryptionDictionary();
+
         var output = new MemoryStream();
         Append(output, _preamble);
         // Cross-reference offsets are measured from the header, not from byte
@@ -82,7 +205,7 @@ internal sealed class PdfFileBuilder
         var offsets = new long[_objects.Count];
         for (int i = 1; i < _objects.Count; i++)
         {
-            byte[]? body = _objects[i];
+            byte[]? body = BodyOf(i, encryptObject);
             if (body is null)
                 continue;
 
@@ -98,6 +221,8 @@ internal sealed class PdfFileBuilder
             Append(output, $"{offsets[i]:D10} 00000 n \n");
 
         Append(output, $"trailer\n<< /Size {_objects.Count} /Root {rootObject} 0 R");
+        if (encryptObject > 0)
+            Append(output, " " + EncryptionTrailerEntries(encryptObject));
         if (extraTrailerEntries is not null)
             Append(output, " " + extraTrailerEntries);
         Append(output, $" >>\nstartxref\n{xref}\n%%EOF\n");
@@ -108,11 +233,13 @@ internal sealed class PdfFileBuilder
     /// <summary>Emits the file without any cross-reference table, to test recovery.</summary>
     public byte[] BuildWithoutXref()
     {
+        int encryptObject = AddEncryptionDictionary();
+
         var output = new MemoryStream();
         Append(output, $"%PDF-{_version}\n");
         for (int i = 1; i < _objects.Count; i++)
         {
-            byte[]? body = _objects[i];
+            byte[]? body = BodyOf(i, encryptObject);
             if (body is null)
                 continue;
             Append(output, $"{i} 0 obj\n");
@@ -122,6 +249,41 @@ internal sealed class PdfFileBuilder
 
         Append(output, "%%EOF\n");
         return output.ToArray();
+    }
+
+    /// <summary>
+    /// The trailer entries an encrypted file carries: its encryption dictionary
+    /// and, unless the fixture leaves it out, its file identifier.
+    /// </summary>
+    public string EncryptionTrailerEntries(int encryptObject)
+    {
+        string id = PdfTestEncryption.Hex(_encryption!.FileIdentifier);
+        return _encryption.WriteIdentifier
+            ? $"/Encrypt {encryptObject} 0 R /ID [<{id}> <{id}>]"
+            : $"/Encrypt {encryptObject} 0 R";
+    }
+
+    // The /Encrypt dictionary is an object of its own, written as it stands:
+    // the format encrypts none of its strings.
+    private int AddEncryptionDictionary()
+    {
+        if (_encryption is null)
+            return 0;
+
+        _objects.Add(Latin1(_encryption.Dictionary));
+        return _objects.Count - 1;
+    }
+
+    private byte[]? BodyOf(int number, int encryptObject)
+    {
+        if (_streams.ContainsKey(number))
+            return StreamBytes(number);
+
+        byte[]? body = _objects[number];
+        if (body is null || _encryption is null || number == encryptObject || _plain.Contains(number))
+            return body;
+
+        return Latin1(EncryptStrings(Encoding.Latin1.GetString(body), number));
     }
 
     /// <summary>

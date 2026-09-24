@@ -144,7 +144,7 @@ public static class DocumentCommands
 
         string destination = inPlace ? source : context.Line.Require("out");
 
-        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
+        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog(DocumentOptions.PdfPasswordFrom(context.Line));
         DocumentReadOptions readOptions = DocumentOptions.ReadOptionsFrom(context.Line);
         LoadedDocument loaded = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"));
 
@@ -180,7 +180,7 @@ public static class DocumentCommands
         context.Line.RequireNoExtraPositionals(1);
         string destination = context.Line.Require("out");
 
-        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
+        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog(DocumentOptions.PdfPasswordFrom(context.Line));
         DocumentReadOptions readOptions = DocumentOptions.ReadOptionsFrom(context.Line);
         LoadedDocument loaded = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"));
 
@@ -200,7 +200,7 @@ public static class DocumentCommands
         string source = context.Line.RequirePositional(0, "input");
         context.Line.RequireNoExtraPositionals(1);
 
-        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
+        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog(DocumentOptions.PdfPasswordFrom(context.Line));
         DocumentReadOptions readOptions = DocumentOptions.ReadOptionsFrom(context.Line);
         LoadedDocument loaded = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"));
 
@@ -264,7 +264,7 @@ public static class DocumentCommands
         IReadOnlyList<DocumentDiagnostic> readDiagnostics,
         DocumentConversionContext? resources = null)
     {
-        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
+        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog(DocumentOptions.PdfPasswordFrom(context.Line));
         DocumentCodec codec = DocumentIo.ResolveWriteCodec(catalog, destination, context.Line.Get("to"));
 
         // A PDF read leaves its pictures as decoded samples, and every writer

@@ -502,4 +502,26 @@ internal static class PdfDocEncoding
         >= 0x80 and <= 0x9F => HighRange[value - 0x80],
         _ => (char)value,
     };
+
+    /// <summary>
+    /// The byte that encodes <paramref name="character"/>, the inverse of
+    /// <see cref="ToChar"/>, for the one place text travels towards bytes: a
+    /// password a security handler of revision 4 or earlier hashes.
+    /// </summary>
+    public static bool TryFromChar(char character, out byte value)
+    {
+        for (int candidate = 0; candidate <= 0xFF; candidate++)
+        {
+            // 0x9F is unassigned; its replacement character is not a thing a
+            // password can contain.
+            if (candidate != 0x9F && ToChar((byte)candidate) == character)
+            {
+                value = (byte)candidate;
+                return true;
+            }
+        }
+
+        value = 0;
+        return false;
+    }
 }
