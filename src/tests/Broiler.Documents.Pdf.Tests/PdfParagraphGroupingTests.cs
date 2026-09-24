@@ -152,7 +152,143 @@ public sealed class PdfParagraphGroupingTests
         Assert.StartsWith("A new paragraph", document.Paragraphs[^1].Text, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_Narrow_Column_Beside_Small_Print_Is_Read_After_It()
+    {
+        // A voucher: instructions in small print set a letter at a time, and
+        // beside them a panel of four short lines at a spacing of their own.
+        // Counted in runs the panel is about one percent of the page, and it
+        // used to be merged back as a stray element - each of its lines read in
+        // between two lines of the instructions, splitting their paragraph.
+        var content = new StringBuilder();
+        var print = new List<string>();
+        for (int i = 0; i < 8; i++)
+        {
+            string line = string.Create(CultureInfo.InvariantCulture, $"Small print line {i} is set one letter at a time");
+            print.Add(line);
+            content.Append(LetterByLetter(line, x: 72, y: 600 - (i * 9), size: 7));
+        }
+
+        string[] panel = ["Panel value", "Panel code", "Panel expiry", "Panel greeting"];
+        for (int i = 0; i < panel.Length; i++)
+            content.Append(PdfFileBuilder.ShowText(panel[i], x: 300, y: 595.5 - (i * 9), size: 10));
+
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(content.ToString())).Document;
+
+        Assert.Equal(string.Join(' ', print), document.Paragraphs[0].Text);
+        Assert.DoesNotContain(document.Paragraphs, paragraph => paragraph.Text.Contains("Small print", StringComparison.Ordinal) && paragraph.Text.Contains("Panel", StringComparison.Ordinal));
+
+        string text = document.PlainText;
+        int[] order = [.. panel.Select(line => text.IndexOf(line, StringComparison.Ordinal))];
+        Assert.All(order, at => Assert.True(at > text.IndexOf("line 7", StringComparison.Ordinal)));
+        Assert.Equal(order.Order(), order);
+    }
+
+    [Fact]
+    public void A_Narrow_Column_Level_With_Each_Row_Is_Read_Across_It()
+    {
+        // The other half of the rule. An unruled table's narrow column sets
+        // each value level with its row, as line numbers stand level with the
+        // lines they number; merged, each value is read with its row, which is
+        // the reading it has. Only lines between the other column's lines make
+        // a slight column a column.
+        var content = new StringBuilder();
+        for (int i = 0; i < 6; i++)
+        {
+            double y = 600 - (i * 14);
+            content.Append(LetterByLetter(string.Create(CultureInfo.InvariantCulture, $"Item {i} of the delivery, as ordered"), x: 72, y: y, size: 8));
+            content.Append(PdfFileBuilder.ShowText(string.Create(CultureInfo.InvariantCulture, $"{i + 1}0.00 EUR"), x: 400, y: y, size: 8));
+        }
+
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(content.ToString())).Document;
+
+        Assert.Equal(6, document.ParagraphCount);
+        for (int i = 0; i < 6; i++)
+            Assert.Equal(string.Create(CultureInfo.InvariantCulture, $"Item {i} of the delivery, as ordered {i + 1}0.00 EUR"), document.Paragraphs[i].Text);
+    }
+
+    [Fact]
+    public void A_Running_Head_And_A_Folio_Out_In_The_Margin_Still_Read_By_Height()
+    {
+        // Furniture across a gutter from the text sits above or below it, not
+        // beside it, and a column of it is merged back as it always was: the
+        // head first, the folio last.
+        var content = new StringBuilder(PdfFileBuilder.ShowText("Chapter One", x: 400, y: 700, size: 10));
+        for (int i = 0; i < 6; i++)
+            content.Append(LetterByLetter(string.Create(CultureInfo.InvariantCulture, $"Body text line {i} set a letter at a time"), x: 72, y: 600 - (i * 12), size: 8));
+        content.Append(PdfFileBuilder.ShowText("Page 3", x: 400, y: 100, size: 10));
+
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(content.ToString())).Document;
+
+        Assert.Equal("Chapter One", document.Paragraphs[0].Text);
+        Assert.Equal("Page 3", document.Paragraphs[^1].Text);
+    }
+
+    [Fact]
+    public void A_Heading_Set_Close_Above_Smaller_Text_Is_A_Paragraph_Of_Its_Own()
+    {
+        // Eighteen points under a sixteen-point heading is an ordinary line's
+        // gap for the heading and a paragraph's for eight-point text, and
+        // weighed against the heading the two ran into one paragraph.
+        string[] body =
+        [
+            "Enter the code while you order, or follow these",
+            "steps to add the voucher to your account balance",
+            "before the order is placed and the goods are sent",
+        ];
+
+        string content =
+            PdfFileBuilder.ShowText("Redeeming your voucher", x: 72, y: 700, size: 16) +
+            PdfFileBuilder.ShowText(body[0], x: 72, y: 682, size: 8) +
+            PdfFileBuilder.ShowText(body[1], x: 72, y: 672, size: 8) +
+            PdfFileBuilder.ShowText(body[2], x: 72, y: 662, size: 8);
+
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(content)).Document;
+
+        Assert.Equal(["Redeeming your voucher", string.Join(' ', body)], document.Paragraphs.Select(p => p.Text));
+    }
+
+    [Fact]
+    public void A_Larger_Word_Inside_A_Line_Leaves_Its_Paragraph_Whole()
+    {
+        // The line with the large word stands further from the one above it,
+        // and its largest size is almost twice the text's. The size it is set in
+        // is the one most of its letters are, which is the text's own.
+        string content =
+            PdfFileBuilder.ShowText("The small print of this voucher is set at", x: 72, y: 700, size: 8) +
+            PdfFileBuilder.ShowText("eight points, with one ", x: 72, y: 686, size: 8) +
+            PdfFileBuilder.ShowText("LARGE", x: 164, y: 686, size: 14) +
+            PdfFileBuilder.ShowText(" word inside a line", x: 199, y: 686, size: 8) +
+            PdfFileBuilder.ShowText("and the paragraph carries on below it.", x: 72, y: 676, size: 8);
+
+        RichTextParagraph paragraph = Assert.Single(Read(PdfFileBuilder.SinglePage(content)).Document.Paragraphs);
+
+        Assert.Equal(
+            "The small print of this voucher is set at eight points, with one LARGE word inside a line and the paragraph carries on below it.",
+            paragraph.Text);
+    }
+
     // ---- fixtures -------------------------------------------------------------
+
+    /// <summary>
+    /// One line shown a letter at a time: each glyph its own show operator, and
+    /// the pen moved on by <c>Td</c> - which is how the voucher's producer set
+    /// its text, and why its page held a run per letter. The font declares no
+    /// <c>/Widths</c>, so every glyph is half an em and lands where the one
+    /// before it stopped.
+    /// </summary>
+    private static string LetterByLetter(string text, double x, double y, double size)
+    {
+        var content = new StringBuilder();
+        content.Append(CultureInfo.InvariantCulture, $"BT /F1 {size} Tf 1 0 0 1 {x} {y} Tm\n");
+        foreach (char letter in text)
+        {
+            string escaped = letter is '(' or ')' or '\\' ? "\\" + letter : letter.ToString();
+            content.Append(CultureInfo.InvariantCulture, $"({escaped}) Tj {size / 2} 0 Td\n");
+        }
+
+        return content.Append("ET\n").ToString();
+    }
 
     private static PdfReadResult Read(byte[] pdf)
     {

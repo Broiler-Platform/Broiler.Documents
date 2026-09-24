@@ -164,9 +164,12 @@ is authoritative for that boundary.
   for Form XObjects under bounded recursion with a visited set, length-bounded
   inline-image consumption, marked-content `ActualText`, simple-font encodings
   with `/Differences`, `ToUnicode` CMaps including `bfrange` and bounded
-  `usecmap`, composite fonts through `Identity-H`, subset-prefix removal from
-  structural metadata, deterministic geometric grouping into columns, lines and
-  paragraphs, list-marker recognition, and link annotations admitted by
+  `usecmap`, Latin ligature characters read as the letters they join,
+  composite fonts through `Identity-H`, subset-prefix removal from structural
+  metadata, deterministic geometric grouping into columns, lines and
+  paragraphs - a narrow column kept whole where its lines keep their own
+  spacing beside the text, and a heading set close above smaller text kept
+  apart from it - list-marker recognition, and link annotations admitted by
   `PdfUriPolicy`.
 - Phase 4 for bare CFF font programs: a caller composing
   `Broiler.Documents.Pdf.Fonts` now recovers text from a composite font whose

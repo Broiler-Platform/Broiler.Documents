@@ -143,6 +143,68 @@ public sealed class PdfTextExtractionTests
     }
 
     [Fact]
+    public void Reads_A_Ligature_A_ToUnicode_Map_Names_As_The_Letters_It_Joins()
+    {
+        // The map is right: the glyph is the fi ligature. The word it is in
+        // is still "finden", and that is what a search has to find.
+        const string CMap = """
+            1 begincodespacerange <00> <FF> endcodespacerange
+            4 beginbfchar <41> <FB01> <42> <006E> <43> <0064> <44> <0065> endbfchar
+            endcmap
+            """;
+
+        var builder = new PdfFileBuilder();
+        int catalog = builder.Reserve();
+        int pages = builder.Reserve();
+        int page = builder.Reserve();
+        int toUnicode = builder.AddStream(string.Empty, CMap);
+        int font = builder.AddObject(
+            $"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /ToUnicode {toUnicode} 0 R >>");
+        int content = builder.AddStream(string.Empty, "BT /F1 12 Tf 1 0 0 1 72 720 Tm (ABCDB) Tj ET\n");
+
+        builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
+        builder.SetObject(pages, $"<< /Type /Pages /Kids [{page} 0 R] /Count 1 >>");
+        builder.SetObject(page, $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R >>");
+
+        Assert.Equal("finden", Read(builder.Build(catalog)).Document.PlainText.Trim());
+    }
+
+    [Fact]
+    public void Reads_A_Ligature_Glyph_Name_As_The_Letters_It_Joins()
+    {
+        var builder = new PdfFileBuilder();
+        int catalog = builder.Reserve();
+        int pages = builder.Reserve();
+        int page = builder.Reserve();
+        int encoding = builder.AddObject("<< /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [65 /fi /fl] >>");
+        int font = builder.AddObject($"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding {encoding} 0 R >>");
+        int content = builder.AddStream(string.Empty, "BT /F1 12 Tf 1 0 0 1 72 720 Tm (ofAce Bower) Tj ET\n");
+
+        builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
+        builder.SetObject(pages, $"<< /Type /Pages /Kids [{page} 0 R] /Count 1 >>");
+        builder.SetObject(page, $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R >>");
+
+        Assert.Equal("office flower", Read(builder.Build(catalog)).Document.PlainText.Trim());
+    }
+
+    [Theory]
+    [InlineData("ﬀ", "ff")]
+    [InlineData("ﬁ", "fi")]
+    [InlineData("ﬂ", "fl")]
+    [InlineData("ﬃ", "ffi")]
+    [InlineData("ﬄ", "ffl")]
+    [InlineData("ﬅ", "ſt")]
+    [InlineData("ﬆ", "st")]
+    [InlineData("eﬃcient", "efficient")]
+    [InlineData("æsthetic", "æsthetic")]
+    public void Spells_Out_Exactly_The_Latin_Ligatures(string mapped, string expected)
+    {
+        // A long-s ligature keeps its long s, and a letter that is a letter -
+        // "æ" - is not a ligature to undo.
+        Assert.Equal(expected, Text.PdfLigatures.Expand(mapped));
+    }
+
+    [Fact]
     public void Strips_A_Subset_Prefix_From_The_Family_Name()
     {
         Assert.Equal("Minion", Text.PdfFont.StripSubsetPrefix("ABCDEF+Minion"));

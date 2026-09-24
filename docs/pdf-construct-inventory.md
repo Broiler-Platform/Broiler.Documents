@@ -96,7 +96,7 @@ IP-001 determination has to cover on the reading side.
 | Font subset name prefixes | 9.6 | Stripped structurally, not by guessing at the family name | `Text/PdfFont.cs` |
 | Composite fonts: `/Type0`, `/DescendantFonts`, `/DW`, `/W`, `Identity-H`, `Identity-V` | 9.7 | Read | `Text/PdfFont.cs` |
 | Font descriptors: `/Flags`, `/ItalicAngle`, `/StemV`, `/FontWeight`, `/MissingWidth` | 9.8 | Read for weight and slant only | `Text/PdfFont.cs` |
-| `ToUnicode` CMaps: codespace ranges, `bfchar`, `bfrange`, bounded `usecmap` | 9.10.3 | Parsed; the preferred mapping route | `Text/PdfCMap.cs` |
+| `ToUnicode` CMaps: codespace ranges, `bfchar`, `bfrange`, bounded `usecmap` | 9.10.3 | Parsed; the preferred mapping route. A Latin ligature it or any other mapping yields, U+FB00–U+FB06, is read as the letters it joins | `Text/PdfCMap.cs`, `Text/PdfLigatures.cs` |
 | Marked content `BDC`/`EMC` and `/ActualText` | 14.6, 14.9.4 | `ActualText` replaces the glyphs it encloses | `Text/PdfContentInterpreter.cs` |
 | Annotation dictionaries, `/Subtype /Link`, `/Rect` | 12.5.6.5 | Read | `Text/PdfLinkRegion.cs` |
 | URI actions (`/A` with `/S /URI`) | 12.6.4.7 | Admitted by the URI policy, then projected as a link, and only from a `/Link` annotation; the same action on any other subtype is counted as active content instead | `Text/PdfLinkRegion.cs`, `PdfUriPolicy.cs` |

@@ -45,6 +45,14 @@ internal sealed class PdfTextLine(List<PdfTextSpan> spans, double left, double r
     /// <summary>The width of a space in the line's first run.</summary>
     public double SpaceWidth { get; init; }
 
+    /// <summary>
+    /// The size most of the line's letters are set in. A heading is its own
+    /// size throughout; one larger word inside a line of text leaves the line at
+    /// the text's size, which <see cref="Height"/> - the largest size on it -
+    /// cannot say.
+    /// </summary>
+    public double DominantSize { get; init; }
+
     public string Text
     {
         get
@@ -84,6 +92,12 @@ internal static class PdfReadingOrder
 {
     private const double GutterWidth = 24;
     private const double MinimumColumnShare = 0.15;
+
+    /// <summary>
+    /// How many of its lines a column below <see cref="MinimumColumnShare"/>
+    /// has to set between the other columns' lines to be a column of its own.
+    /// </summary>
+    private const int MinimumLinesBetween = 2;
 
     /// <summary>Assembles a page's fragments into lines in reading order.</summary>
     public static List<PdfTextLine> BuildLines(
@@ -377,12 +391,15 @@ internal static class PdfReadingOrder
 
         // A "column" holding almost nothing is a stray element, not a column;
         // merging it back avoids inventing a reading order for a page header.
+        // One whose lines keep their own spacing beside the text is a column
+        // however little it holds.
         int threshold = (int)Math.Ceiling(fragments.Count * MinimumColumnShare);
+        bool[] ownLines = ColumnsWithOwnLines(columns, threshold);
         var kept = new List<List<PdfTextFragment>>();
-        foreach (List<PdfTextFragment> column in columns)
+        for (int i = 0; i < columns.Count; i++)
         {
-            if (column.Count >= threshold)
-                kept.Add(column);
+            if (columns[i].Count >= threshold || ownLines[i])
+                kept.Add(columns[i]);
         }
 
         if (kept.Count < 2)
@@ -392,15 +409,139 @@ internal static class PdfReadingOrder
         }
 
         // Anything filtered out still belongs somewhere: put it in the nearest kept column.
-        foreach (List<PdfTextFragment> column in columns)
+        for (int i = 0; i < columns.Count; i++)
         {
-            if (column.Count >= threshold || column.Count == 0)
+            if (columns[i].Count >= threshold || ownLines[i] || columns[i].Count == 0)
                 continue;
-            kept[0].AddRange(column);
+            kept[0].AddRange(columns[i]);
         }
 
         return kept;
     }
+
+    /// <summary>
+    /// Which of the columns too slight to count by their share of the page set
+    /// lines of their own beside the other columns' text: at least
+    /// <see cref="MinimumLinesBetween"/> of those lines fall between the others'
+    /// lines rather than level with one, and they are no fewer than a third of
+    /// the lines the column sets beside that text at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The share is counted in runs, and a run is whatever the producer made it.
+    /// One that draws every glyph on its own hands over a run per letter, and a
+    /// narrow panel of a few short lines beside a column of small print - a
+    /// voucher's value, code and greeting beside its instructions - held a few
+    /// percent of them. It was merged back as a stray element and its lines
+    /// were read in among the other column's by height: between them, and into
+    /// the middle of a sentence wherever two stood level.
+    /// </para>
+    /// <para>
+    /// What the merge is for still merges. A running head and a folio sit above
+    /// or below the text rather than beside it, so none of their lines counts.
+    /// A table's narrow column sets its values level with the rows they belong
+    /// to, and line numbers stand level with the lines they number; merged, each
+    /// is read across with its row or its line, which is the reading they have.
+    /// A panel's lines keep a spacing of their own, and it is lines between the
+    /// others' - not a share of the runs - that say a column was set there.
+    /// </para>
+    /// <para>
+    /// Two lines stand level where they are within the reach
+    /// <see cref="BuildColumnLines"/> gives a baseline, measured at the smaller
+    /// of their two sizes. Every column's lines go into one list by height, once,
+    /// and each is compared with the nearest line of another column above it and
+    /// below it, so the cost is the sort's however many gutters a page has.
+    /// </para>
+    /// </remarks>
+    private static bool[] ColumnsWithOwnLines(List<List<PdfTextFragment>> columns, int threshold)
+    {
+        var own = new bool[columns.Count];
+
+        bool slight = false;
+        foreach (List<PdfTextFragment> column in columns)
+            slight |= column.Count > 0 && column.Count < threshold;
+
+        if (!slight)
+            return own;
+
+        // Each column's lines as the line pass forms them: a run within reach of
+        // the baseline above it is on that line.
+        var lines = new List<ColumnLine>();
+        for (int column = 0; column < columns.Count; column++)
+        {
+            var sorted = new List<PdfTextFragment>(columns[column]);
+            sorted.Sort(static (left, right) => right.Y.CompareTo(left.Y));
+
+            double baseline = double.NaN;
+            foreach (PdfTextFragment fragment in sorted)
+            {
+                if (!double.IsNaN(baseline) && Math.Abs(fragment.Y - baseline) <= LineReach(fragment.FontSize))
+                    continue;
+
+                baseline = fragment.Y;
+                lines.Add(new ColumnLine(fragment.Y, fragment.FontSize, column));
+            }
+        }
+
+        lines.Sort(static (left, right) => left.Y.CompareTo(right.Y));
+        int count = lines.Count;
+
+        // The nearest line of another column below and above each line. Lines of
+        // one column that follow each other share the answer, so a sweep each
+        // way finds every one.
+        var below = new int[count];
+        var above = new int[count];
+        for (int i = 0; i < count; i++)
+            below[i] = i == 0 ? -1 : lines[i - 1].Column != lines[i].Column ? i - 1 : below[i - 1];
+        for (int i = count - 1; i >= 0; i--)
+            above[i] = i == count - 1 ? -1 : lines[i + 1].Column != lines[i].Column ? i + 1 : above[i + 1];
+
+        var level = new int[columns.Count];
+        var between = new int[columns.Count];
+        for (int i = 0; i < count; i++)
+        {
+            ColumnLine line = lines[i];
+            if (columns[line.Column].Count >= threshold)
+                continue;
+
+            // The other columns' lowest and highest lines: the ends of the list,
+            // or the nearest line past an end that this column holds.
+            int lowest = lines[0].Column != line.Column ? 0 : above[0];
+            int highest = lines[count - 1].Column != line.Column ? count - 1 : below[count - 1];
+            if (lowest < 0 || highest < 0)
+                continue;
+
+            // Above or below all of their text, the line is furniture - a head
+            // or a folio - and says nothing about a column.
+            double reach = LineReach(line.Size);
+            if (line.Y > lines[highest].Y + reach || line.Y < lines[lowest].Y - reach)
+                continue;
+
+            if (StandsLevel(lines, i, below[i]) || StandsLevel(lines, i, above[i]))
+                level[line.Column]++;
+            else
+                between[line.Column]++;
+        }
+
+        for (int column = 0; column < columns.Count; column++)
+            own[column] = between[column] >= MinimumLinesBetween && between[column] * 2 >= level[column];
+
+        return own;
+    }
+
+    /// <summary>Whether two lines sit on one baseline, within the smaller size's reach.</summary>
+    private static bool StandsLevel(List<ColumnLine> lines, int line, int other) =>
+        other >= 0 &&
+        Math.Abs(lines[other].Y - lines[line].Y) <= LineReach(Math.Min(lines[line].Size, lines[other].Size));
+
+    /// <summary>
+    /// How far from a baseline a run set at this size may sit and still be on
+    /// that line: the reach <see cref="BuildColumnLines"/> joins runs within.
+    /// </summary>
+    private static double LineReach(double size) => Math.Max(1.0, size * 0.35);
+
+    /// <summary>One line of one column: its baseline, the size of its first run, and the column.</summary>
+    private readonly record struct ColumnLine(double Y, double Size, int Column);
 
     private static List<PdfTextLine> BuildColumnLines(
         List<PdfTextFragment> fragments,
@@ -503,7 +644,46 @@ internal static class PdfReadingOrder
         {
             FirstWordWidth = firstWord,
             SpaceWidth = space,
+            DominantSize = DominantSizeOf(fragments, height),
         };
+    }
+
+    /// <summary>
+    /// The size that sets the most letters on a line - the larger of two that
+    /// set as many - or <paramref name="fallback"/> on a line of spaces only.
+    /// </summary>
+    private static double DominantSizeOf(List<PdfTextFragment> fragments, double fallback)
+    {
+        var letters = new Dictionary<double, int>();
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            int count = 0;
+            foreach (char character in fragment.Text)
+            {
+                if (!char.IsWhiteSpace(character))
+                    count++;
+            }
+
+            if (count == 0)
+                continue;
+
+            // Rounded as a run's style is, so one size is one entry.
+            double size = Math.Round(fragment.FontSize, 2);
+            letters[size] = letters.GetValueOrDefault(size) + count;
+        }
+
+        double dominant = fallback;
+        int most = 0;
+        foreach ((double size, int count) in letters)
+        {
+            if (count > most || (count == most && size > dominant))
+            {
+                dominant = size;
+                most = count;
+            }
+        }
+
+        return dominant;
     }
 
     /// <summary>

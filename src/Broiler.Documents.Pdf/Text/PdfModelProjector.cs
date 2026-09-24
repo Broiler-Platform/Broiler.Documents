@@ -17,6 +17,15 @@ namespace Broiler.Documents.Pdf.Text;
 /// which is why the reader reports that reading order was inferred.
 /// </para>
 /// <para>
+/// <strong>A gap is weighed against the smaller size where the size
+/// changes.</strong> A heading set close above smaller text leaves a gap that is
+/// an ordinary line's for the heading and a paragraph's for the text, and
+/// weighed against the larger of the two it ran the heading into the first
+/// sentence. Where the size two lines are set in differs by a quarter or more,
+/// the smaller decides. The size a line is set in is the one most of its letters
+/// are, so a larger word inside a line of text changes nothing.
+/// </para>
+/// <para>
 /// <strong>The block is the lines stacked with it, not the page.</strong> A line
 /// is short against the lines above and below it in the same column. Measured
 /// against the page, every line of a letter set beside a narrower column of
@@ -49,6 +58,11 @@ internal static class PdfModelProjector
     // markedly short line is read as the end of its paragraph. Being conservative
     // here costs a missed break; being aggressive splits every ragged paragraph.
     private const double ShortLineFactor = 0.65;
+
+    // How much larger the size one line is set in has to be than the other's for
+    // the gap between them to be weighed against the smaller. A heading is a
+    // size or two above its text; a fraction of a point is a producer's rounding.
+    private const double SizeContrast = 1.25;
 
     public static List<RichTextParagraph> Project(
         IReadOnlyList<PdfTextLine> lines,
@@ -271,6 +285,12 @@ internal static class PdfModelProjector
             return true;
 
         if (reference > 0 && gap > reference * ParagraphGapFactor)
+            return true;
+
+        // A heading set close above smaller text: see the class remarks.
+        double smaller = Math.Min(previous.DominantSize, line.DominantSize);
+        double larger = Math.Max(previous.DominantSize, line.DominantSize);
+        if (smaller > 0 && larger >= smaller * SizeContrast && gap > smaller * ParagraphGapFactor)
             return true;
 
         if (DetectListMarker(line.Text, out _, out _))
