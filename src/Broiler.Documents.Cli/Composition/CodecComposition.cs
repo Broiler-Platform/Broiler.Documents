@@ -6,6 +6,7 @@ using Broiler.Documents.Html;
 using Broiler.Documents.Markdown;
 using Broiler.Documents.Odt;
 using Broiler.Documents.Pdf;
+using Broiler.Documents.Pdf.Images;
 using Broiler.Documents.Rtf;
 using Broiler.Graphics.Imaging;
 using Broiler.Media;
@@ -24,9 +25,20 @@ namespace Broiler.Documents.Cli.Composition;
 /// composed through <see cref="ReadOnlyCodec"/>, so this tool opens, converts
 /// from and renders PDF files and produces none: <c>docs/pdf-support-roadmap.md</c>
 /// §4.1 lets an application read PDF before it lets one write it, and a CLI is
-/// the one surface an automated system would come to depend on. Its optional
-/// font and image providers are not composed, so the codec reads with its base
-/// capability and says what it skipped.
+/// the one surface an automated system would come to depend on.
+/// </para>
+/// <para>
+/// <b>Of the codec's optional providers, only the ICC colour-profile reader is
+/// composed</b> (<see cref="CreatePdfServices"/>). What this tool does with a
+/// PDF's pictures is show them: <c>render</c> draws them into an image, and
+/// <c>convert</c> carries them into another format. A picture in an
+/// <c>ICCBased</c> colour space - what a colour-managed producer writes - is
+/// refused without a reader, and so is missing from both. IP-024 approved an
+/// independent implementation of the profile functionality a PDF uses, and the
+/// package it lives in depends on nothing this tool did not already reference.
+/// The image filters in that package, and the font-program reader, stay uncomposed:
+/// each is a decoder with a register row of its own, so what they would decode
+/// is reported as skipped rather than read.
 /// </para>
 /// <para>
 /// The image codecs are a separate registration with a separate reason. The
@@ -45,8 +57,16 @@ public static class CodecComposition
             new RtfDocumentCodec(),
             new HtmlDocumentCodec(),
             new MarkdownDocumentCodec(),
-            new ReadOnlyCodec(new PdfDocumentCodec()),
+            new ReadOnlyCodec(new PdfDocumentCodec(CreatePdfServices())),
         ]);
+
+    /// <summary>
+    /// The PDF service graph this tool reads with: the base graph, and an ICC
+    /// colour-profile reader so that a picture in ICC-based colour is converted
+    /// to the sRGB the renderer and every other format expect.
+    /// </summary>
+    public static PdfCodecServices CreatePdfServices() =>
+        PdfCodecServices.Base.WithColorProfileReader(new IccColorProfileReader());
 
     /// <summary>
     /// Registers the managed image codecs with Broiler.Graphics. Idempotent, and

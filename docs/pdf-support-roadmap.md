@@ -452,7 +452,9 @@ research, permissions, or commercial-license negotiation.
   tool in this repository composes it the same way, to read only: its catalog
   wraps the codec so that `formats` reports PDF as read and never written and a
   PDF destination is a usage error, and `CliArchitectureTests` holds the
-  composition root to exactly that. Generating preview library packages does not
+  composition root to exactly that. Of the codec's optional providers it composes
+  the ICC colour-profile reader alone (IP-024), so that what it renders and
+  converts keeps a colour-managed picture. Generating preview library packages does not
   satisfy this application capability gate.
 - Phase 7 is the write-preview boundary. After its writer-core readiness subgate,
   a test-only candidate may enable `CanWrite`, CLI PDF destinations, and selected
