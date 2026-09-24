@@ -1,3 +1,5 @@
+using Broiler.Documents.Resources;
+
 namespace Broiler.Documents.Pdf.Tests;
 
 public sealed class PdfDocumentCodecProbeTests
@@ -72,6 +74,58 @@ public sealed class PdfDocumentCodecProbeTests
 
         PdfReadResult typed = Assert.IsType<PdfReadResult>(result);
         Assert.Contains("Shared", typed.Document.PlainText);
+    }
+
+    [Fact]
+    public void The_Resource_Policy_In_Plain_Options_Is_The_One_A_Read_Applies()
+    {
+        // The policy is a shared setting like the limits. Dropped on the way to
+        // the PDF options, it left every caller that granted its pictures the
+        // right to be written out again reading under the default, which
+        // withholds that right - so a conversion out of a PDF lost its pictures.
+        using var stream = new MemoryStream(PageWithPicture());
+        DocumentReadResult result = new PdfDocumentCodec().Read(
+            stream,
+            new DocumentReadOptions(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments));
+
+        DocumentResourceEntry entry = Assert.Single(result.Resources.Entries);
+        Assert.True(entry.Allows(DocumentResourceOperations.ByteTransfer));
+    }
+
+    [Fact]
+    public void The_Resource_Policy_In_A_Read_Request_Is_The_One_A_Read_Applies()
+    {
+        // The request contract, in the refusing direction: a policy that denies
+        // everything keeps the picture out and the text in.
+        using DocumentInput input = DocumentInput.FromBytes(PageWithPicture());
+        DocumentReadResult result = new PdfDocumentCodec().Read(
+            new DocumentReadRequest(input, new DocumentReadOptions(resourcePolicy: DocumentResourcePolicy.DenyAll)));
+
+        Assert.DoesNotContain(
+            result.Document.Paragraphs.SelectMany(paragraph => paragraph.Runs),
+            run => run.Style.Image is not null);
+        Assert.Contains("Body", result.Document.PlainText);
+    }
+
+    /// <summary>One page drawing a two-pixel gray picture above a line of text.</summary>
+    private static byte[] PageWithPicture()
+    {
+        var builder = new PdfFileBuilder();
+        int catalog = builder.Reserve();
+        int pages = builder.Reserve();
+        int page = builder.Reserve();
+        int font = builder.AddObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        int image = builder.AddStream("/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8", [0x00, 0xFF], null);
+        int content = builder.AddStream(string.Empty, "q 20 0 0 10 72 700 cm /Im0 Do Q\n" + PdfFileBuilder.ShowText("Body"));
+
+        builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
+        builder.SetObject(pages, $"<< /Type /Pages /Kids [{page} 0 R] /Count 1 >>");
+        builder.SetObject(
+            page,
+            $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] " +
+            $"/Resources << /Font << /F1 {font} 0 R >> /XObject << /Im0 {image} 0 R >> >> /Contents {content} 0 R >>");
+
+        return builder.Build(catalog);
     }
 }
 
