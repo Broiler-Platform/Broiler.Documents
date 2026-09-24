@@ -1,4 +1,6 @@
 using System.Text.Json.Nodes;
+using Broiler.Documents.Cli.Composition;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Cli.Tests;
 
@@ -143,6 +145,36 @@ public sealed class CommandTests : IDisposable
         Assert.DoesNotContain(
             info["diagnostics"]!.AsArray(),
             diagnostic => diagnostic!["message"]!.GetValue<string>().Contains("ICCBased", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_Pdf_Picture_Is_Carried_Into_Another_Format_In_Its_Converted_Colour()
+    {
+        // A PDF read leaves its pictures as decoded samples, and a writer needs
+        // bytes. Before this tool encoded them, every conversion out of a PDF
+        // came out without its pictures.
+        string path = _cli.Path("icc.pdf");
+        File.WriteAllBytes(path, PdfWithIccPicture());
+        string converted = _cli.Path("icc.docx");
+
+        JsonObject conversion = CliHarness.RunExpecting(ExitCode.Ok, "convert", path, "--out", converted, "--json").Json();
+        Assert.Equal(1, conversion["picturesEncoded"]!.GetValue<int>());
+        Assert.Empty(conversion["writeDiagnostics"]!.AsArray());
+
+        DocumentCodec docx = CodecComposition.CreateCatalog().FindByName("DOCX")!;
+        using FileStream stream = File.OpenRead(converted);
+        InlineImage picture = Assert.Single(
+            docx.Read(stream).Document.Paragraphs.SelectMany(paragraph => paragraph.Runs).Select(run => run.Style.Image).OfType<InlineImage>());
+
+        // The gray levels 128 and 64 through a gamma-1 profile are luminances
+        // of a half and a quarter, which sRGB encodes as 188 and 137. Read raw,
+        // they would still be 128 and 64.
+        Assert.True(picture.TryGetEncoded(out ReadOnlyMemory<byte> png, out _));
+        CodecComposition.RegisterImageCodecs();
+        using BBitmap bitmap = BBitmap.Decode(png.Span);
+        byte[] rgba = bitmap.ToPixelBuffer().Rgba;
+        Assert.InRange(rgba[0], 187, 189);
+        Assert.InRange(rgba[4], 136, 138);
     }
 
     /// <summary>
