@@ -1,4 +1,6 @@
 using System.Text.Json.Nodes;
+using Broiler.Documents.Cli.Composition;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Cli.Tests;
 
@@ -129,6 +131,52 @@ public sealed class CommandTests : IDisposable
         Assert.False(File.Exists(destination));
     }
 
+    [Fact]
+    public void A_Pdf_Picture_In_Icc_Colour_Is_Read()
+    {
+        // The one optional PDF provider this tool composes. Without a profile
+        // reader a picture in ICC-based colour is refused by name, and a render
+        // or a conversion of its page comes out without it.
+        string path = _cli.Path("icc.pdf");
+        File.WriteAllBytes(path, PdfWithIccPicture());
+
+        JsonObject info = CliHarness.RunExpecting(ExitCode.Ok, "info", path, "--json").Json();
+        Assert.Equal(1, info["statistics"]!["images"]!.GetValue<int>());
+        Assert.DoesNotContain(
+            info["diagnostics"]!.AsArray(),
+            diagnostic => diagnostic!["message"]!.GetValue<string>().Contains("ICCBased", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_Pdf_Picture_Is_Carried_Into_Another_Format_In_Its_Converted_Colour()
+    {
+        // A PDF read leaves its pictures as decoded samples, and a writer needs
+        // bytes. Before this tool encoded them, every conversion out of a PDF
+        // came out without its pictures.
+        string path = _cli.Path("icc.pdf");
+        File.WriteAllBytes(path, PdfWithIccPicture());
+        string converted = _cli.Path("icc.docx");
+
+        JsonObject conversion = CliHarness.RunExpecting(ExitCode.Ok, "convert", path, "--out", converted, "--json").Json();
+        Assert.Equal(1, conversion["picturesEncoded"]!.GetValue<int>());
+        Assert.Empty(conversion["writeDiagnostics"]!.AsArray());
+
+        DocumentCodec docx = CodecComposition.CreateCatalog().FindByName("DOCX")!;
+        using FileStream stream = File.OpenRead(converted);
+        InlineImage picture = Assert.Single(
+            docx.Read(stream).Document.Paragraphs.SelectMany(paragraph => paragraph.Runs).Select(run => run.Style.Image).OfType<InlineImage>());
+
+        // The gray levels 128 and 64 through a gamma-1 profile are luminances
+        // of a half and a quarter, which sRGB encodes as 188 and 137. Read raw,
+        // they would still be 128 and 64.
+        Assert.True(picture.TryGetEncoded(out ReadOnlyMemory<byte> png, out _));
+        CodecComposition.RegisterImageCodecs();
+        using BBitmap bitmap = BBitmap.Decode(png.Span);
+        byte[] rgba = bitmap.ToPixelBuffer().Rgba;
+        Assert.InRange(rgba[0], 187, 189);
+        Assert.InRange(rgba[4], 136, 138);
+    }
+
     /// <summary>
     /// A one-page PDF showing one line in Helvetica, with a cross-reference table
     /// whose offsets are measured as it is built.
@@ -160,6 +208,93 @@ public sealed class CommandTests : IDisposable
         pdf.Append($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
 
         return System.Text.Encoding.ASCII.GetBytes(pdf.ToString());
+    }
+
+    /// <summary>
+    /// A one-page PDF with a line of text over a two-pixel gray picture whose
+    /// colour space is an ICC profile, built here byte by byte.
+    /// </summary>
+    /// <remarks>
+    /// Assembled as Latin-1, whose characters are the bytes one for one, so the
+    /// binary profile and samples can sit in the same string as the syntax
+    /// around them. No profile file is committed or read (IP-020).
+    /// </remarks>
+    private static byte[] PdfWithIccPicture()
+    {
+        string profile = System.Text.Encoding.Latin1.GetString(GrayProfile());
+        const string content = "BT /F1 12 Tf 72 720 Td (A picture in ICC colour) Tj ET\nq 100 0 0 50 72 600 cm /Im0 Do Q";
+        string[] objects =
+        [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> /XObject << /Im0 6 0 R >> >> /Contents 5 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            $"<< /Length {content.Length} >>\nstream\n{content}\nendstream",
+            "<< /Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace [/ICCBased 7 0 R] /BitsPerComponent 8 /Length 2 >>\nstream\n\u0080@\nendstream",
+            $"<< /N 1 /Length {profile.Length} >>\nstream\n{profile}\nendstream",
+        ];
+
+        var pdf = new System.Text.StringBuilder("%PDF-1.7\n");
+        var offsets = new List<int>();
+        for (int i = 0; i < objects.Length; i++)
+        {
+            offsets.Add(pdf.Length);
+            pdf.Append($"{i + 1} 0 obj\n{objects[i]}\nendobj\n");
+        }
+
+        int xref = pdf.Length;
+        pdf.Append($"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+        foreach (int offset in offsets)
+            pdf.Append($"{offset:D10} 00000 n \n");
+        pdf.Append($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+
+        return System.Text.Encoding.Latin1.GetBytes(pdf.ToString());
+    }
+
+    /// <summary>
+    /// A version 4 gray display profile: a D50 white point, and a tone curve of
+    /// gamma 1, so a sample's value is its luminance.
+    /// </summary>
+    private static byte[] GrayProfile()
+    {
+        byte[] profile = new byte[190];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(profile, (uint)profile.Length);
+        profile[8] = 4;
+        profile[9] = 0x20;
+        Signature(12, "mntr");
+        Signature(16, "GRAY");
+        Signature(20, "XYZ ");
+        Signature(36, "acsp");
+        Fixed(68, 0.9642);
+        Fixed(72, 1.0);
+        Fixed(76, 0.8249);
+
+        // The tag table: a white point at 156, and the gray tone curve at 176.
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(profile.AsSpan(128), 2);
+        Entry(132, "wtpt", 156, 20);
+        Entry(144, "kTRC", 176, 14);
+
+        Signature(156, "XYZ ");
+        Fixed(164, 0.9642);
+        Fixed(168, 1.0);
+        Fixed(172, 0.8249);
+
+        Signature(176, "curv");
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(profile.AsSpan(184), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(profile.AsSpan(188), 0x0100);
+        return profile;
+
+        void Signature(int at, string signature) => System.Text.Encoding.ASCII.GetBytes(signature, profile.AsSpan(at));
+
+        void Fixed(int at, double value) =>
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(profile.AsSpan(at), (int)Math.Round(value * 65536));
+
+        void Entry(int at, string signature, int offset, int length)
+        {
+            Signature(at, signature);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(profile.AsSpan(at + 4), (uint)offset);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(profile.AsSpan(at + 8), (uint)length);
+        }
     }
 
     [Fact]

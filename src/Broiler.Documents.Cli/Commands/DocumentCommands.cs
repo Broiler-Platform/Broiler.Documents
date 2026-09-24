@@ -266,6 +266,14 @@ public static class DocumentCommands
     {
         DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
         DocumentCodec codec = DocumentIo.ResolveWriteCodec(catalog, destination, context.Line.Get("to"));
+
+        // A PDF read leaves its pictures as decoded samples, and every writer
+        // needs encoded bytes. See PictureEncoding for why encoding them is this
+        // tool's decision rather than the writer's.
+        (document, resources, int encoded) = PictureEncoding.EncodeDecodedPictures(document, resources);
+        if (encoded > 0)
+            context.Report($"encoded {encoded} picture(s) the source held as decoded samples, as PNG");
+
         DocumentWriteOptions writeOptions = DocumentOptions.WriteOptionsFrom(context.Line, resources);
 
         DocumentWriteResult result = DocumentIo.Save(document, destination, codec, writeOptions);
@@ -274,6 +282,7 @@ public static class DocumentCommands
         context.Result["destinationFormat"] = codec.Descriptor.Name;
         context.Result["destinationStatus"] = result.Status.ToString().ToLowerInvariant();
         context.Result["bytesWritten"] = result.BytesWritten;
+        context.Result["picturesEncoded"] = encoded;
         context.Result["writeDiagnostics"] = DocumentReport.ToJson(result.Diagnostics);
 
         DocumentReport.Print(context, result.Diagnostics, "write diagnostics");

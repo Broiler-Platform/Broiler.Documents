@@ -126,6 +126,13 @@ internal sealed class PdfObjectStore
     public Text.IPdfFontProgramReader? FontProgramReader { get; set; }
 
     /// <summary>
+    /// The composed ICC colour-profile reader, or null when none is composed. Set
+    /// once by the reader after the store is loaded, for the reason
+    /// <see cref="FontProgramReader"/> is.
+    /// </summary>
+    public Text.IPdfColorProfileReader? ColorProfileReader { get; set; }
+
+    /// <summary>
     /// Loads the cross-reference data. Returns null only when the input has no
     /// usable header, which the caller reports as a rejected read.
     /// </summary>

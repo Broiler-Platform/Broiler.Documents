@@ -34,11 +34,15 @@
 
     Broiler.Documents.Pdf is composed read-only (CodecComposition, ReadOnlyCodec):
     this tool opens PDF files and writes none, because writing still has to pass
-    the write-preview gate in docs/pdf-support-roadmap.md 4.1. Its optional font
-    and image providers are not referenced.
+    the write-preview gate in docs/pdf-support-roadmap.md 4.1.
+
+    Broiler.Documents.Pdf.Images is referenced for its ICC colour-profile reader
+    and nothing else: the image filters it also carries are linked and not
+    composed. The font-program provider is not referenced.
   -->
   <ItemGroup>
     <ProjectReference Include="..\Broiler.Documents.Pdf\Broiler.Documents.Pdf.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Pdf.Images\Broiler.Documents.Pdf.Images.csproj" />
     <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
     <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
     <ProjectReference Include="..\Broiler.Documents.FormatCodes\Broiler.Documents.FormatCodes.csproj" />

@@ -224,14 +224,22 @@ is authoritative for that boundary.
   describes DeviceGray at 1, 2, 4, or 8 bits, DeviceRGB at 8, or Indexed at 1, 2,
   4, or 8 over a bounded DeviceGray or DeviceRGB palette, with a `/Decode` array
   validated against the interval its space defines. A composed image codec's own
-  RGBA output is taken as it stands. Everything else — a stencil mask, a
-  colour-key `/Mask`, a soft mask that is not uniformly opaque, a colour space
-  or depth outside the subset, an Indexed image that remaps its own indices,
-  samples that do not fill the declaration — is refused, and the refusal names
-  the construct met rather than reporting a bare count. A soft mask is read
-  rather than assumed: where every one of its samples maps through its own
-  `/Decode` to full alpha there is no transparency to composite, and the image
-  projects. An image also states its own decoded size, which raises the filter
+  RGBA output is taken as it stands. Since 2026-09-24 the masks are part of the
+  subset (§9.3): a stencil is carried in the fill colour it is drawn in, and a
+  colour-key `/Mask`, an explicit `/Mask`, and a soft mask - its `/Matte`
+  undone over gray and RGB pictures - are read into the straight alpha the
+  model carries, each mapped onto the picture's unit square. Nothing is
+  composited. What stays refused - a stencil painted with a pattern, a mask this
+  build cannot decode or that contradicts the format, a colour space or depth
+  outside the subset, an Indexed image that remaps its own indices, samples
+  that do not fill the declaration - is named by the construct met rather than
+  reported as a bare count. Since the same day an image in an `ICCBased` space
+  converts to sRGB where a colour-profile reader is composed (IP-024;
+  `IccColorProfileReader` in `Broiler.Documents.Pdf.Images`), and is refused by
+  name where none is. A picture covering the page beneath its visible text is
+  the page's background, left out of the flow and the margins and reported,
+  since the model holds no page background and a page-sized paragraph pushed
+  every word after it onto the next page. An image also states its own decoded size, which raises the filter
   stage's expansion ceiling to it — a uniform mask compresses far past any ratio
   a guess allows, and the guess is what refused the flattest masks as
   decompression bombs; the absolute byte ceilings are unchanged and still
@@ -444,7 +452,9 @@ research, permissions, or commercial-license negotiation.
   tool in this repository composes it the same way, to read only: its catalog
   wraps the codec so that `formats` reports PDF as read and never written and a
   PDF destination is a usage error, and `CliArchitectureTests` holds the
-  composition root to exactly that. Generating preview library packages does not
+  composition root to exactly that. Of the codec's optional providers it composes
+  the ICC colour-profile reader alone (IP-024), so that what it renders and
+  converts keeps a colour-managed picture. Generating preview library packages does not
   satisfy this application capability gate.
 - Phase 7 is the write-preview boundary. After its writer-core readiness subgate,
   a test-only candidate may enable `CanWrite`, CLI PDF destinations, and selected
@@ -1365,6 +1375,28 @@ to `Broiler.Media.Image.Managed`.
   `/Decode` handling. ICCBased, CalGray/CalRGB, Lab, Separation, DeviceN,
   ImageMask, color-key `/Mask`, and `/SMask` are detected-but-skipped in V1
   unless a narrower tuple is separately added to the approved matrix.
+  **Decided 2026-09-24: the masks are added.** A stencil (`/ImageMask`) is
+  carried in the fill colour it is drawn in; a colour-key `/Mask`, an explicit
+  `/Mask` stream, and an `/SMask` are read into the straight alpha channel of
+  the pixels over the subset above, each mask mapped onto the picture's unit
+  square whatever its own size, and a soft mask's `/Matte` is undone over
+  DeviceGray and DeviceRGB pictures. Carrying alpha is not compositing - the
+  model holds it and the renderer blends it - so no backdrop is invented. A
+  stencil painted with a pattern, a matte over an indexed picture, and a mask
+  that is undecodable or contradicts ISO 32000-1 stay refused by name. The
+  project reviewer made the decision on the card that prompted it: a logo drawn
+  on a colour-keyed ground was refused, because carrying it opaque would have
+  put it on a solid box.
+  **Decided 2026-09-24 (IP-024): ICCBased converts through a composed reader.**
+  An ICC profile is read by `IccColorProfileReader` and the colour it describes
+  converted to sRGB - matrix and lookup-table profiles of versions 2 and 4 over
+  Gray, RGB, and CMYK, connecting in CIEXYZ or CIELAB, through the table the
+  rendering intent selects - for raw samples, Indexed palettes, and pictures a
+  composed codec decoded. The base build keeps refusing an ICC-based image of
+  raw samples by name. No profile ships, so the old gate of profile licensing
+  does not arise; the colour-management ownership question is answered by
+  composition, the reader living in the image satellite until it joins
+  `Broiler.Media`.
 - Before placing bytes or pixels in the model, evaluate `ExtractToModel` and add
   the stable resource identity and decision to the conversion context. Without
   permission, do not construct `InlineImage`; omit the resource and emit a stable
@@ -2000,7 +2032,8 @@ Treat these as separately approved roadmaps:
    integrity from identity/trust and never claim that a signature is legally
    valid.
 6. Four-component CMYK/YCCK JPEG decode/transcode and advanced color/ICC support
-   in Media/Graphics, with the T.81 register rechecked; the source, rights,
+   in Media/Graphics - ICC-based input conversion for PDF images is implemented
+   under IP-024 in `Broiler.Documents.Pdf.Images` and is the part to move - with the T.81 register rechecked; the source, rights,
    provenance, and Adobe-license scope of the already reviewed V1 APP14/
    `ColorTransform` rules rechecked for four-component conversion and Adobe
    Technical Note #5116; [ISO/IEC 10918-6](https://www.iso.org/standard/59634.html)

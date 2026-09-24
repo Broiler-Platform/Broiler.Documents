@@ -126,7 +126,7 @@ public sealed class PdfDocumentCodec(PdfCodecServices services) : DocumentCodec(
         if (!TryValidateOptions(request.Options, Name, out PdfReadOptions? typed, out DocumentReadResult? rejection))
             return rejection!;
 
-        PdfReadOptions effective = typed ?? new PdfReadOptions(request.Options.Limits);
+        PdfReadOptions effective = typed ?? AsPdfOptions(request.Options);
 
         byte[] bytes;
         try
@@ -224,12 +224,15 @@ public sealed class PdfDocumentCodec(PdfCodecServices services) : DocumentCodec(
     // A codec validates the option object it was handed rather than downcasting
     // opportunistically: a caller that passes plain DocumentReadOptions gets the
     // shared settings honoured and PDF defaults for the rest, and a caller that
-    // passes PdfReadOptions gets exactly those (PDF roadmap §6.1).
+    // passes PdfReadOptions gets exactly those (PDF roadmap §6.1). The shared
+    // settings a PDF read uses are the limits and the resource policy. The policy
+    // was once left behind here, so a caller that granted its pictures the right
+    // to be written out again read them under the default, which withholds it.
     private static PdfReadOptions AsPdfOptions(DocumentReadOptions? options) => options switch
     {
         null => PdfReadOptions.Default,
         PdfReadOptions typed => typed,
-        _ => new PdfReadOptions(options.Limits),
+        _ => new PdfReadOptions(options.Limits, resourcePolicy: options.ResourcePolicy),
     };
 
     private static PdfWriteOptions AsPdfOptions(DocumentWriteOptions? options) => options switch

@@ -2,7 +2,7 @@
 
 - **Status:** Active
 - **Component:** `Broiler.Documents.Pdf`
-- **Updated:** 2026-09-01 (every filter and codec register row now decided)
+- **Updated:** 2026-09-24 (`IPdfColorProfileReader` added under IP-024)
 - **Companion documents:** [PDF support roadmap](pdf-support-roadmap.md),
   [construct inventory](pdf-construct-inventory.md),
   [feature matrix](pdf-feature-matrix.md),
@@ -56,7 +56,7 @@ the legal question.
 | Structure | Catalog, page tree with inherited attributes, boxes, rotation, `UserUnit`, effective version, `/Extensions` inventory |
 | Metadata | `Info` and the XMP read subset (ISO 16684-1:2019) normalized to the V1 allowlist, XMP winning per field and disagreement reported; the raw packet is never preserved |
 | Text | Graphics and text state, all show-text operators, Form XObjects, marked-content `ActualText`, simple-font encodings with `/Differences`, `ToUnicode` CMaps, composite fonts through `Identity-H` |
-| Images | Samples from a filter chain the build can run, normalized to RGBA within roadmap §9.3's approved tuple — DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded palette, `/Decode` validated — and admitted through the caller's resource policy |
+| Images | Samples from a filter chain the build can run, normalized to RGBA within roadmap §9.3's approved tuple — DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded palette, `/Decode` validated — with their stencil, colour-key, explicit and soft masks carried as alpha, and admitted through the caller's resource policy |
 | Semantics | Reading order from a tagged document's structure tree where it covers the page, geometric assembly otherwise, list detection, link annotations under the URI policy, and the default optional-content configuration — content in a layer the catalog turns off is omitted |
 | Writer | New PDF 1.7 files, standard font names with WinAnsi encoding, Flate content streams, colour, decorations, alignment, lists, link annotations, normalized metadata |
 
@@ -76,6 +76,7 @@ still reads; the affected construct is reported rather than guessed at.
 | `JPXDecode` (JPEG 2000) | `pdf.filter.jpx.unsupported`, carrying the codestream's tuple and the construct refused | IP-007 (**approved** for Part 1; a decoder exists for one tile and the LRCP/RPCL progressions, and its EBCOT context tables are **pending** in SRC-018) |
 | `JBIG2Decode` | `pdf.filter.jbig2.unsupported`, carrying the stream's segment inventory where the filter is composed | IP-008 (**approved**; generic regions decode under both coding methods, and symbol dictionaries, text regions and refinement arithmetically; the halftone regions, aggregate coding, the intermediate regions and every Huffman-coded form do not; the MQ probability table is **pending** in SRC-019) |
 | Any other named filter | `pdf.filter.not-composed` | — |
+| ICC profiles (`ICCBased`) | `pdf.image.decoded-not-projected`, naming the colour space. A composed reader converts to sRGB; see §4.5 | IP-024 (**approved**) |
 | Embedded font programs | `pdf.font.program-not-composed`. A composed reader handles sfnt through its character map and bare CFF through its charset; Type 1 and CID-keyed CFF stay unread | IP-012 (**approved** for inspection; see §4.4). The CFF standard-strings table is pending in SRC-016 |
 | Type 3 fonts — the glyph procedures only | `pdf.font.type3-unsupported`. The font's own encoding, `ToUnicode`, and `/FontMatrix` advances are read; only the procedures that draw the glyphs go unexecuted | — |
 | Inline images, and images naming a filter with no composed implementation | `pdf.image.not-composed` | IP-005 |
@@ -98,7 +99,7 @@ emitted once per document:
 
 | Report | What the note carries beyond the code |
 |---|---|
-| Images | How many, how many were inline, the pages, and each distinct declared tuple — pixel size, bits per component, colour-space family, filter chain. Where a decoder is composed: whether each image decoded, the tuple it was refused for, and whether the dictionary's declared size matches the samples. For one that decoded and did not reach the model, the distinct constructs that stopped it — a stencil mask, transparency, a colour space or depth outside the subset — since composing a decoder, widening the subset, and fixing a self-contradicting document are answered by different work |
+| Images | How many, how many were inline, the pages, and each distinct declared tuple — pixel size, bits per component, colour-space family, filter chain. Where a decoder is composed: whether each image decoded, the tuple it was refused for, and whether the dictionary's declared size matches the samples. For one that decoded and did not reach the model, the distinct constructs that stopped it — a stencil painted with a pattern, a mask this build cannot read, a colour space or depth outside the subset — since composing a decoder, widening the subset, and fixing a self-contradicting document are answered by different work |
 | Embedded font programs | How many, in which formats (`FontFile` Type 1, `FontFile2` TrueType, `FontFile3` with its subtype), how many are symbolic, and how many have no `ToUnicode` map |
 | Vector artwork | How many painting operations across the document, how many of them were read back — as a table's rules and shades, a run's underline or strikethrough, or a run's background — how many were fills in the paper's colour on bare paper, which paint nothing, and the rest classified by the shape they had — thin axis-aligned bars, axis-aligned areas, shadings, general paths — with how many of those repaint a shape already painted, and the pages that lost something |
 | XMP | The packet's size in bytes, its filter chain, how many normalized fields it supplied, how many properties fell outside the allowlist, and whether an `Info` dictionary stood behind it |
@@ -140,6 +141,7 @@ application did not supply is not present, and its absence is reported.
 var codec = new PdfDocumentCodec(
     PdfCodecServices.Base
         .WithStreamFilters(new JpegStreamFilter())      // Broiler.Documents.Pdf.Images
+        .WithColorProfileReader(new IccColorProfileReader())  // Broiler.Documents.Pdf.Images
         .WithFontMetrics(new MeasuredMetrics())
         .WithUriPolicy(new PdfUriPolicy(allowHttp: true)));
 ```
@@ -346,6 +348,54 @@ Nothing composed here authorizes anything on the write side. Reading a program t
 recover text is not embedding it; this release embeds no fonts, and an individual
 font's embedding permissions (the OpenType `OS/2` `fsType` flags) are an
 obligation on writer work that does not exist yet (IP-012).
+
+### 4.5 `IPdfColorProfileReader` — what a colour value is
+
+An `/ICCBased` colour space states what its values mean only through the ICC
+profile it carries, and a reader without the profile either refuses the image
+or draws it in colours the document never stated. The base build refuses it,
+by name, and a composed reader converts it.
+
+A reader is handed one decoded profile, the component count the colour space
+declares, and the rendering intent in force, and returns a
+`PdfColorTransform`: one colour value in, an sRGB triple out, built once and
+used for every image that names the profile. `Broiler.Documents.Pdf.Images`
+supplies `IccColorProfileReader`, an independent implementation from the
+structure of ICC.1 (IP-024, SRC-022):
+
+```csharp
+var codec = new PdfDocumentCodec(
+    PdfCodecServices.Base.WithColorProfileReader(new IccColorProfileReader()));
+```
+
+The codec owns what is PDF: resolving the space through the resource
+dictionary, `/N` and `/Range`, decoding the profile stream through the shared
+pipeline and budget under `PdfLimits.MaxColorProfileBytes`, the image's
+`/Intent` and the graphics state's `ri` and `/RI`, and converting an Indexed
+palette entry by entry. The reader owns the profile: the header and tag table,
+matrix profiles and the `A2B` tables, the connection space, and the
+destination. A picture a composed codec decoded is converted after it, and
+without a reader keeps the codec's colours, which is the alternate PDF
+32000-1 8.6.5.5 has a reader without profiles use.
+
+Three limits are worth stating plainly:
+
+- **The destination is sRGB, computed rather than stored.** The matrix from
+  the connection space is derived from sRGB's chromaticities and the linear
+  Bradford adaptation (SRC-023), so a picture tagged with an sRGB profile
+  comes back as it stored its values — the case almost every document is.
+- **Declined by name**: device links, abstract and named-colour profiles,
+  version 5, colour spaces other than Gray, RGB and CMYK, tables with more than
+  four inputs, and any structure past the profile's bytes. The reason goes into
+  the image note, which is why a reader must never put a value from the profile
+  in it.
+- **Optional tags are never read.** In particular the `outputResponseTag`,
+  which carries the one patent declaration IP-024 records, has no part in a
+  conversion and no code path here.
+
+The reader belongs with the other colour work in `Broiler.Media` in the end,
+as the JPEG 2000 and JBIG2 decoders moved there; it is in the image satellite
+until then, behind the same composition boundary.
 
 ## 5. Adding a technology, step by step
 

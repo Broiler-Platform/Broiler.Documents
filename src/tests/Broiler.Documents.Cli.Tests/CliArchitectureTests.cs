@@ -1,6 +1,9 @@
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Broiler.Documents.Cli.Composition;
+using Broiler.Documents.Pdf;
+using Broiler.Documents.Pdf.Filters;
+using Broiler.Documents.Pdf.Images;
 using Broiler.Documents.TestSupport;
 
 namespace Broiler.Documents.Cli.Tests;
@@ -27,19 +30,37 @@ public sealed partial class CliArchitectureTests
         Path.Combine(ComponentRoot, "src", "Broiler.Documents.Cli", "Broiler.Documents.Cli.csproj");
 
     [Fact]
-    public void The_Cli_References_The_Base_Pdf_Codec_And_None_Of_Its_Providers()
+    public void The_Cli_References_The_Pdf_Codec_And_Only_The_Provider_Package_It_Composes_From()
     {
         string project = File.ReadAllText(CliProjectPath);
 
         // The font and image providers compose decoders each with a register row
         // of its own. Reaching for one is a decision, not a side effect of
-        // wanting PDF read at all.
+        // wanting PDF read at all: the image package is here for its ICC
+        // profile reader (IP-024), and the font package is not here.
         string[] referenced = [.. MyRegex().Matches(project)
             .Select(match => match.Groups["path"].Value)
             .Where(path => path.Contains("Broiler.Documents.Pdf", StringComparison.OrdinalIgnoreCase))
             .Select(path => Path.GetFileName(path.Replace('\\', '/')))];
 
-        Assert.Equal(["Broiler.Documents.Pdf.csproj"], referenced);
+        Assert.Equal(["Broiler.Documents.Pdf.csproj", "Broiler.Documents.Pdf.Images.csproj"], referenced);
+    }
+
+    [Fact]
+    public void The_Composed_Pdf_Codec_Converts_Icc_Colour_And_Decodes_No_Image_Filter()
+    {
+        var reader = Assert.IsType<ReadOnlyCodec>(CodecComposition.CreateCatalog().FindByName("PDF"));
+        PdfCodecServices services = Assert.IsType<PdfDocumentCodec>(reader.Inner).Services;
+
+        Assert.IsType<IccColorProfileReader>(services.ColorProfileReader);
+
+        // Linking the image package is not composing its filters. Each of them is
+        // a decoder with a decision of its own, and none of those was taken here.
+        Assert.False(services.SupportsFilter(PdfFilterNames.Dct));
+        Assert.False(services.SupportsFilter(PdfFilterNames.Jpx));
+        Assert.False(services.SupportsFilter(PdfFilterNames.Jbig2));
+        Assert.False(services.SupportsFilter(PdfFilterNames.CcittFax));
+        Assert.Null(services.FontProgramReader);
     }
 
     [Fact]

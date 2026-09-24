@@ -320,8 +320,25 @@ all read one, and any command asked to produce a PDF - `convert --out x.pdf`,
 [The PDF support roadmap](pdf-support-roadmap.md) §4.1 lets an application read
 PDF before it lets one write it, and writing still has to pass the write-preview
 gate; a CLI is the one surface an automated system would come to depend on, so
-it holds to that. The codec's optional font and image providers are not
-composed, so what they would decode is reported as skipped rather than read.
+it holds to that.
+
+Of the codec's optional providers, only the ICC colour-profile reader
+(`IccColorProfileReader`, IP-024) is composed. A picture in an `ICCBased` colour
+space is converted to sRGB, so `render` draws it and `convert` carries it into the
+destination format. Without the reader, both would come out without that picture.
+The image decoders — JPEG, JPEG 2000, JBIG2 and fax — and the font-program reader
+are not composed. A picture or font they would have decoded is reported as skipped
+rather than read.
+
+A PDF's pictures reach the model as decoded samples, but every writer needs
+encoded bytes. The resource gate won't create them on a writer's behalf. So before
+`convert`, `edit` or `new` writes anything, this tool encodes such pictures as PNG.
+PNG is lossless, so the samples written are the samples read, including
+transparency. The step runs only where the read's resource policy permits
+transforming the picture; this tool reads with `AllowOwnDocuments`, which does.
+The encoding is admitted into the same conversion under its own id. The JSON
+result's `picturesEncoded` counts the pictures encoded. `roundtrip` doesn't take
+this step, because it measures the codecs rather than this tool.
 
 **The layout engine is this tool's, not the component's.** It does word wrapping,
 alignment, indents, list markers, line and paragraph spacing, inline images, and
