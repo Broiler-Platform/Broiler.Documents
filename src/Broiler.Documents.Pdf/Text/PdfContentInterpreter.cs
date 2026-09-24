@@ -354,8 +354,12 @@ internal sealed class PdfContentInterpreter(
                     _state = _state.WithColor(Cmyk(operands));
                     break;
                 case "sc":
-                case "scn":
                     _state = _state.WithColor(FromComponents(operands));
+                    break;
+                case "scn":
+                    _state = operands.Count > 0 && operands[^1] is PdfName
+                        ? _state.WithPatternFill(FromComponents(operands))
+                        : _state.WithColor(FromComponents(operands));
                     break;
                 case "cs":
                     // Selecting a colour space resets the colour to its initial black.
@@ -1742,7 +1746,8 @@ internal sealed class PdfContentInterpreter(
             int renderMode,
             BColor color,
             BColor strokeColor,
-            double lineWidth)
+            double lineWidth,
+            bool fillIsPattern = false)
         {
             Matrix = matrix;
             Font = font;
@@ -1756,6 +1761,7 @@ internal sealed class PdfContentInterpreter(
             Color = color;
             StrokeColor = strokeColor;
             LineWidth = lineWidth;
+            FillIsPattern = fillIsPattern;
         }
 
         /// <summary>The format's initial state: black for both colours, and a one-unit pen.</summary>
@@ -1789,40 +1795,52 @@ internal sealed class PdfContentInterpreter(
         /// <summary>The pen width in user space. Zero is the thinnest line the device can draw.</summary>
         public double LineWidth { get; }
 
+        /// <summary>
+        /// True while the fill is a pattern rather than a colour: <c>scn</c> named
+        /// one. <see cref="Color"/> then holds whatever components came with the
+        /// name, which is not a colour anything is painted in, so a stencil mask
+        /// drawn now has no colour this interpreter can state.
+        /// </summary>
+        public bool FillIsPattern { get; }
+
         public GraphicsState WithMatrix(PdfMatrix matrix) => matrix.IsFinite
-            ? new GraphicsState(matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth)
+            ? new GraphicsState(matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern)
             : this;
 
         public GraphicsState WithFont(PdfFont font, double size) =>
-            new(Matrix, font, double.IsFinite(size) ? size : 0, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth);
+            new(Matrix, font, double.IsFinite(size) ? size : 0, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
 
         public GraphicsState WithCharSpacing(double value) =>
-            new(Matrix, Font, FontSize, Finite(value), WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth);
+            new(Matrix, Font, FontSize, Finite(value), WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
 
         public GraphicsState WithWordSpacing(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, Finite(value), HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth);
+            new(Matrix, Font, FontSize, CharSpacing, Finite(value), HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
 
         public GraphicsState WithHorizontalScale(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, value is > 0 and < 100 ? value : 1, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, value is > 0 and < 100 ? value : 1, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
 
         public GraphicsState WithLeading(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Finite(value), Rise, RenderMode, Color, StrokeColor, LineWidth);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Finite(value), Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
 
         public GraphicsState WithRise(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Finite(value), RenderMode, Color, StrokeColor, LineWidth);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Finite(value), RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
 
         public GraphicsState WithRenderMode(int value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, value is >= 0 and <= 7 ? value : 0, Color, StrokeColor, LineWidth);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, value is >= 0 and <= 7 ? value : 0, Color, StrokeColor, LineWidth, FillIsPattern);
 
         public GraphicsState WithColor(BColor value) =>
             new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value, StrokeColor, LineWidth);
 
+        /// <summary>A fill naming a pattern, with whatever components came with the name.</summary>
+        public GraphicsState WithPatternFill(BColor value) =>
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value, StrokeColor, LineWidth, fillIsPattern: true);
+
         public GraphicsState WithStrokeColor(BColor value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, value, LineWidth);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, value, LineWidth, FillIsPattern);
 
         /// <summary>A negative or non-finite width is malformed, and the pen keeps its current width.</summary>
         public GraphicsState WithLineWidth(double value) => double.IsFinite(value) && value >= 0
-            ? new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, value)
+            ? new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, value, FillIsPattern)
             : this;
 
         private static double Finite(double value) => double.IsFinite(value) ? value : 0;
@@ -1843,15 +1861,22 @@ internal sealed class PdfContentInterpreter(
     /// <para>
     /// What is refused here is refused rather than guessed at, because each case
     /// would otherwise produce a plausible wrong picture instead of an error. A
-    /// <c>/ImageMask</c> stencil paints the current fill colour through a
-    /// one-bit shape, so projecting it as black-and-white invents a colour the
-    /// page never used. A colour-key <c>/Mask</c> carries the transparency the
-    /// picture is drawn with, and this build does not composite it, so carrying
-    /// the image opaque puts a solid box where a logo's transparent ground
-    /// belongs. A soft mask says the same thing unless it is read and turns out
-    /// to say nothing - see <see cref="IsOpaqueSoftMask"/>. A colour space
-    /// outside the approved raw-sample subset needs a transform this project
-    /// does not own.
+    /// colour space outside the approved raw-sample subset needs a transform this
+    /// project does not own, and a mask this build cannot read states a
+    /// transparency it cannot reproduce.
+    /// </para>
+    /// <para>
+    /// <strong>Transparency is carried, not composited.</strong> The model holds
+    /// straight-alpha RGBA, so every mask the format defines is read into the
+    /// alpha channel and nothing is blended against a backdrop - that is the
+    /// renderer's business, and it needs a page this model does not keep. A
+    /// stencil is painted in the fill colour through its one-bit shape, a
+    /// colour-key <c>/Mask</c> makes its ranges transparent, and an explicit
+    /// <c>/Mask</c> or a soft mask is a picture of its own read onto the same
+    /// unit square. PDF roadmap §9.3 added this tuple to the approved matrix on
+    /// 2026-09-24. Before that, a logo drawn on a transparent ground was
+    /// refused outright, because carrying it opaque would have put a solid box
+    /// where the ground belongs.
     /// </para>
     /// <para>
     /// Every refusal names what it met, because the reasons are answered by
@@ -1874,26 +1899,13 @@ internal sealed class PdfContentInterpreter(
         }
 
         PdfDictionary dictionary = stream.Dictionary;
+        bool stencil = _store.Resolve(dictionary["ImageMask"]) is PdfBoolean imageMask && imageMask.Value;
 
-        if (_store.Resolve(dictionary["ImageMask"]) is PdfBoolean mask && mask.Value)
+        // A stencil is painted in the fill colour, and a pattern is not a colour
+        // this interpreter reads.
+        if (stencil && _state.FillIsPattern)
         {
-            NotProjected("a stencil mask");
-            return;
-        }
-
-        // Resolved, not merely present. The indexer hands back the raw entry, so
-        // `/SMask null` - which PDF 32000-1 7.3.9 defines as equivalent to the
-        // key being absent - and a reference to a free object both arrived here
-        // as something non-null and refused an image that carries no
-        // transparency at all. Resolve normalizes both to null.
-        //
-        // A colour-key mask is refused on sight: it is a range of colours to
-        // knock out, and honouring it means compositing. A soft mask is refused
-        // unless reading it shows there is nothing to honour.
-        if (_store.Resolve(dictionary["Mask"]) is not null ||
-            (_store.Resolve(dictionary["SMask"]) is { } soft && !IsOpaqueSoftMask(soft)))
-        {
-            NotProjected("transparency this build does not composite");
+            NotProjected("a stencil mask painted with a pattern");
             return;
         }
 
@@ -1921,23 +1933,14 @@ internal sealed class PdfContentInterpreter(
             return;
         }
 
-        byte[]? rgba;
-        if (codec && samples.LongLength == rgbaBytes)
+        string? refusal;
+        byte[]? rgba = stencil
+            ? StencilPixels(dictionary, shape, samples, out refusal)
+            : PicturePixels(dictionary, shape, samples, codec, rgbaBytes, resources, out refusal);
+
+        if (rgba is null)
         {
-            rgba = samples;
-        }
-        else if (TryResolveSamples(dictionary, shape, resources, out PdfSampleFormat format, out string refusal))
-        {
-            rgba = PdfImageSamples.ToRgba(format, samples);
-            if (rgba is null)
-            {
-                NotProjected("a sample count its declaration does not account for");
-                return;
-            }
-        }
-        else
-        {
-            NotProjected(refusal);
+            NotProjected(refusal!);
             return;
         }
 
@@ -1971,98 +1974,286 @@ internal sealed class PdfContentInterpreter(
     }
 
     /// <summary>
-    /// Whether a soft mask leaves the image it masks fully opaque everywhere,
-    /// and so declares a transparency there is nothing to composite.
+    /// A stencil mask's pixels: the fill colour wherever its one-bit shape
+    /// paints, and transparent everywhere else - or null with the reason.
+    /// </summary>
+    /// <remarks>
+    /// Under the default <c>/Decode [0 1]</c> a zero sample paints and a one
+    /// leaves the page as it was, and <c>[1 0]</c> swaps them (PDF 32000-1
+    /// 8.9.6.2). The colour is the one in force when the stencil is drawn,
+    /// which is why it is read here and at no later point.
+    /// </remarks>
+    private byte[]? StencilPixels(PdfDictionary dictionary, in PdfImageShape shape, byte[] samples, out string? refusal)
+    {
+        refusal = null;
+
+        // An image mask is one bit deep by definition, and may say so or not.
+        if (shape.BitsPerComponent is not (0 or 1))
+        {
+            refusal = "a stencil mask deeper than one bit";
+            return null;
+        }
+
+        if (!TryMaskDecode(dictionary, out bool inverted))
+        {
+            refusal = "a mask Decode array other than the two the format defines";
+            return null;
+        }
+
+        long stride = ((long)shape.Width + 7) / 8;
+        if (samples.LongLength != stride * shape.Height)
+        {
+            refusal = "a sample count its declaration does not account for";
+            return null;
+        }
+
+        BColor colour = _state.Color;
+        int painted = inverted ? 1 : 0;
+        byte[] rgba = new byte[(long)shape.Width * shape.Height * BPixelBuffer.BytesPerPixel];
+        int output = 0;
+
+        for (int y = 0; y < shape.Height; y++)
+        {
+            long row = y * stride;
+            for (int x = 0; x < shape.Width; x++)
+            {
+                int bit = (samples[row + (x >> 3)] >> (7 - (x & 7))) & 1;
+                rgba[output] = colour.R;
+                rgba[output + 1] = colour.G;
+                rgba[output + 2] = colour.B;
+                rgba[output + 3] = bit == painted ? (byte)255 : (byte)0;
+                output += BPixelBuffer.BytesPerPixel;
+            }
+        }
+
+        return rgba;
+    }
+
+    /// <summary>
+    /// A picture's pixels with its transparency read into the alpha channel, or
+    /// null with the reason.
+    /// </summary>
+    /// <remarks>
+    /// Resolved, not merely present. The indexer hands back the raw entry, so
+    /// <c>/SMask null</c> - which PDF 32000-1 7.3.9 defines as equivalent to
+    /// the key being absent - and a reference to a free object both used to
+    /// arrive as something non-null. Resolve normalizes both to null. A soft
+    /// mask outranks a <c>/Mask</c> entry (11.6.5.3), so a colour key or an
+    /// explicit mask is only read where there is none.
+    /// </remarks>
+    private byte[]? PicturePixels(
+        PdfDictionary dictionary,
+        in PdfImageShape shape,
+        byte[] samples,
+        bool codec,
+        long rgbaBytes,
+        PdfDictionary? resources,
+        out string? refusal)
+    {
+        refusal = null;
+        PdfObject? soft = _store.Resolve(dictionary["SMask"]);
+        PdfObject? mask = soft is null ? _store.Resolve(dictionary["Mask"]) : null;
+
+        byte[]? rgba;
+        int matteComponents;
+
+        if (codec && samples.LongLength == rgbaBytes)
+        {
+            // A codec's pixels are colour already, gray repeated across the
+            // three channels, so a key is matched against the channels it names.
+            rgba = samples;
+            matteComponents = DeviceComponents(dictionary, resources);
+
+            if (mask is PdfArray keyArray &&
+                !(keyArray.Count is 2 or 6 && TryColourKey(keyArray, keyArray.Count / 2, 8, out int[]? codecKey) && ApplyColourKey(codecKey!, rgba)))
+            {
+                refusal = "a colour-key mask this build cannot read";
+                return null;
+            }
+        }
+        else if (TryResolveSamples(dictionary, shape, resources, out PdfSampleFormat format, out string resolveRefusal))
+        {
+            int[]? colourKey = null;
+            if (mask is PdfArray keyArray && !TryColourKey(keyArray, format.Components, format.BitsPerComponent, out colourKey))
+            {
+                refusal = "a colour-key mask this build cannot read";
+                return null;
+            }
+
+            rgba = PdfImageSamples.ToRgba(format, samples, colourKey);
+            if (rgba is null)
+            {
+                refusal = "a sample count its declaration does not account for";
+                return null;
+            }
+
+            // A matte is stated in the picture's own colour components, and an
+            // index is not a colour.
+            matteComponents = format.Space switch
+            {
+                PdfSampleSpace.Gray => 1,
+                PdfSampleSpace.Rgb => 3,
+                _ => 0,
+            };
+        }
+        else
+        {
+            refusal = resolveRefusal;
+            return null;
+        }
+
+        if (soft is not null)
+            return TryApplySoftMask(soft, shape, rgba, matteComponents, out refusal) ? rgba : null;
+
+        if (mask is PdfStream explicitMask)
+            return TryApplyExplicitMask(explicitMask, shape, rgba, out refusal) ? rgba : null;
+
+        if (mask is not null and not PdfArray)
+        {
+            refusal = "a mask entry this build cannot read";
+            return null;
+        }
+
+        return rgba;
+    }
+
+    /// <summary>
+    /// A colour-key mask as a minimum and a maximum per component, clamped to
+    /// the values the depth can hold, or false where the array is not one.
+    /// </summary>
+    private bool TryColourKey(PdfArray array, int components, int bits, out int[]? key)
+    {
+        key = null;
+        if (array.Count != components * 2)
+            return false;
+
+        int maximum = (1 << bits) - 1;
+        var values = new int[array.Count];
+        for (int i = 0; i < array.Count; i++)
+        {
+            if (_store.Resolve(array[i]) is not PdfNumber number || !double.IsFinite(number.Value))
+                return false;
+
+            values[i] = (int)Math.Clamp(Math.Round(number.Value), 0, maximum);
+        }
+
+        key = values;
+        return true;
+    }
+
+    /// <summary>
+    /// Makes a codec's pixels transparent where they fall in a colour key of
+    /// one component - gray, repeated in each channel - or three.
+    /// </summary>
+    private static bool ApplyColourKey(int[] key, byte[] rgba)
+    {
+        int components = key.Length / 2;
+        for (int at = 0; at < rgba.Length; at += BPixelBuffer.BytesPerPixel)
+        {
+            bool keyed = true;
+            for (int c = 0; c < components && keyed; c++)
+                keyed = rgba[at + c] >= key[c * 2] && rgba[at + c] <= key[(c * 2) + 1];
+
+            if (keyed)
+                rgba[at + 3] = 0;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Reads a soft mask into the alpha channel: each of its samples, through
+    /// its own <c>/Decode</c>, is the alpha of the part of the picture it covers.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Producers attach a soft mask whether the picture needs one or not. A
-    /// writer whose own image type always carries an alpha channel emits one
-    /// that is solid opaque from edge to edge, and refusing on the key's
-    /// presence discarded every such image — a logo with no transparent ground
-    /// at all — rather than perform a composite that is the identity.
+    /// The mask is a picture of its own, mapped onto the same unit square as the
+    /// one it masks, so it need not share its size: each pixel takes the mask
+    /// sample over its own position (PDF 32000-1 11.6.5.3). It is DeviceGray
+    /// and not a stencil, and one that is either contradicts the format.
     /// </para>
     /// <para>
-    /// So the mask is read instead of assumed. Every sample has to map, through
-    /// the mask's own <c>/Decode</c>, to full alpha; one that does not means the
-    /// picture really is drawn with transparency, and the image is refused
-    /// exactly as before. Nothing here composites anything. It establishes that
-    /// there is nothing to composite, which is the only finding that lets the
-    /// image's own samples through unchanged.
-    /// </para>
-    /// <para>
-    /// What it cannot read for itself, it refuses. A mask whose chain ends in an
-    /// image codec yields that codec's pixels rather than the packed samples
-    /// read here, and the byte-stream decode stops there by design. A
-    /// <c>/Matte</c> entry declares the image's own colours premultiplied
-    /// against a backdrop, which changes the picture rather than its alpha and
-    /// which no reading of the alpha undoes. A mask naming a colour space other
-    /// than <c>/DeviceGray</c> contradicts PDF 32000-1 11.6.5.3, and a
-    /// contradiction is not an opacity.
+    /// A <c>/Matte</c> entry says the picture's colours were blended with that
+    /// colour, by the alpha, before they were stored. Left in, every soft edge
+    /// carries a fringe of the matte. It is undone here - arithmetic on the
+    /// colour the pixel holds, not a composite against anything - wherever the
+    /// picture's colours are its own device components; an index is not one.
     /// </para>
     /// </remarks>
-    private bool IsOpaqueSoftMask(PdfObject mask)
+    /// <param name="matteComponents">
+    /// How many components a matte states for this picture: one for gray, three
+    /// for RGB, and zero where a matte cannot be undone.
+    /// </param>
+    private bool TryApplySoftMask(PdfObject soft, in PdfImageShape shape, byte[] rgba, int matteComponents, out string? refusal)
     {
-        if (mask is not PdfStream stream)
+        refusal = null;
+        if (soft is not PdfStream stream)
+        {
+            refusal = "a soft mask that is not an image";
             return false;
+        }
 
         PdfDictionary dictionary = stream.Dictionary;
 
-        if (_store.Resolve(dictionary["Matte"]) is not null)
-            return false;
-
         if (_store.Resolve(dictionary["ImageMask"]) is PdfBoolean stencil && stencil.Value)
+        {
+            refusal = "a soft mask declared as a stencil";
             return false;
+        }
 
-        if (_store.Resolve(dictionary["ColorSpace"]) is PdfName space && space.Value != "DeviceGray")
+        if (_store.Resolve(dictionary["ColorSpace"]) is { } space && !(space is PdfName gray && gray.Value == "DeviceGray"))
+        {
+            refusal = "a soft mask outside DeviceGray";
             return false;
+        }
 
         int width = Integer(dictionary, "Width", "W");
         int height = Integer(dictionary, "Height", "H");
         int bits = Integer(dictionary, "BitsPerComponent", "BPC");
-
         if (width <= 0 || height <= 0 || bits is not (1 or 2 or 4 or 8 or 16))
-            return false;
-
-        if (!TryOpaqueSample(dictionary, bits, out int opaque))
-            return false;
-
-        // A constant mapping onto full alpha is opaque whatever the samples say,
-        // and the stream need not be decoded at all to establish it.
-        if (opaque < 0)
-            return true;
-
-        PdfStreamDecodeResult decoded;
-        try
         {
-            decoded = _store.Filters.Decode(stream, _store.Resolve, _store.Budget);
-        }
-        catch (PdfLimitExceededException)
-        {
-            // Charged like any other stream. A mask that will not fit in the
-            // read's remaining allowance is one this cannot judge, and an
-            // unjudged mask refuses its image rather than passing it.
+            refusal = "a mask with a sample layout this build does not read";
             return false;
         }
 
-        if (!decoded.Succeeded || decoded.Data is not { } samples)
-            return false;
-
-        // Each row is packed at the declared depth and padded to a byte
-        // boundary, so this walks samples rather than bytes: the padding bits at
-        // the end of a short row are not the document's and say nothing about
-        // its alpha.
-        long stride = (((long)width * bits) + 7) / 8;
-        if (samples.LongLength < stride * height)
-            return false;
-
-        for (int y = 0; y < height; y++)
+        if (!TrySoftMaskDecode(dictionary, out double low, out double high))
         {
-            long row = y * stride;
-            for (int x = 0; x < width; x++)
+            refusal = "a soft mask Decode array this build cannot read";
+            return false;
+        }
+
+        double[]? matte = null;
+        if (_store.Resolve(dictionary["Matte"]) is { } matteEntry &&
+            (matteComponents == 0 || !TryNumbers(matteEntry, matteComponents, out matte)))
+        {
+            refusal = "a premultiplied soft mask over colours this build cannot undo it on";
+            return false;
+        }
+
+        if (!TryMaskSamples(stream, width, height, bits, out MaskSamples levels, out refusal))
+            return false;
+
+        int output = 0;
+        for (int y = 0; y < shape.Height; y++)
+        {
+            int maskY = (int)((long)y * height / shape.Height);
+            for (int x = 0; x < shape.Width; x++)
             {
-                if (Alpha(samples, row, x, bits) != opaque)
-                    return false;
+                int maskX = (int)((long)x * width / shape.Width);
+                double alpha = Clamp(low + (levels.At(maskX, maskY) * (high - low)));
+
+                if (matte is not null && alpha > 0)
+                {
+                    for (int c = 0; c < 3; c++)
+                    {
+                        double m = matte[matte.Length == 1 ? 0 : c];
+                        double stored = rgba[output + c] / 255d;
+                        rgba[output + c] = ToByte(m + ((stored - m) / alpha));
+                    }
+                }
+
+                rgba[output + 3] = ToByte(alpha);
+                output += BPixelBuffer.BytesPerPixel;
             }
         }
 
@@ -2070,23 +2261,126 @@ internal sealed class PdfContentInterpreter(
     }
 
     /// <summary>
-    /// The stored sample value a soft mask's <c>/Decode</c> maps to full alpha,
-    /// or -1 where every value does. False where none does.
+    /// Reads an explicit mask - a one-bit picture of its own - into the alpha
+    /// channel: where it says not to paint, the picture is transparent.
     /// </summary>
     /// <remarks>
-    /// The default mapping runs 0 to 1, so full alpha is the largest value the
-    /// depth holds. <c>/Decode [1 0]</c> is the ordinary way a PDF says
-    /// "inverted" and puts it at zero, and it is what the opaque masks in the
-    /// wild are actually written as. <c>[1 1]</c> is a constant. Any other
-    /// interval reaches 1 at one interior value at most, which a real mask would
-    /// have to hit at every sample it holds; that is treated as no value rather
-    /// than solved for, because the answer would be a rounding argument about
-    /// the document's arithmetic and not a fact about its picture.
+    /// The same rule as a stencil (PDF 32000-1 8.9.6.3): under the default
+    /// <c>/Decode [0 1]</c> a zero sample paints and a one masks, and
+    /// <c>[1 0]</c> swaps them. Like a soft mask it is mapped onto the unit
+    /// square the picture is, and need not share its size.
     /// </remarks>
-    private bool TryOpaqueSample(PdfDictionary dictionary, int bits, out int opaque)
+    private bool TryApplyExplicitMask(PdfStream mask, in PdfImageShape shape, byte[] rgba, out string? refusal)
     {
-        opaque = (1 << bits) - 1;
+        refusal = null;
+        PdfDictionary dictionary = mask.Dictionary;
 
+        int width = Integer(dictionary, "Width", "W");
+        int height = Integer(dictionary, "Height", "H");
+        int bits = Integer(dictionary, "BitsPerComponent", "BPC");
+        if (width <= 0 || height <= 0 || bits is not (0 or 1))
+        {
+            refusal = "a mask with a sample layout this build does not read";
+            return false;
+        }
+
+        if (!TryMaskDecode(dictionary, out bool inverted))
+        {
+            refusal = "a mask Decode array other than the two the format defines";
+            return false;
+        }
+
+        if (!TryMaskSamples(mask, width, height, 1, out MaskSamples levels, out refusal))
+            return false;
+
+        int output = 0;
+        for (int y = 0; y < shape.Height; y++)
+        {
+            int maskY = (int)((long)y * height / shape.Height);
+            for (int x = 0; x < shape.Width; x++)
+            {
+                int maskX = (int)((long)x * width / shape.Width);
+                bool set = levels.At(maskX, maskY) >= 0.5;
+                if (set != inverted)
+                    rgba[output + 3] = 0;
+
+                output += BPixelBuffer.BytesPerPixel;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// A mask's samples, decoded through the same pipeline and budget as any
+    /// picture's - so a mask a composed fax or JBIG2 filter compressed decodes
+    /// as that filter's packed rows, and one a composed JPEG filter compressed
+    /// as its pixels.
+    /// </summary>
+    private bool TryMaskSamples(PdfStream mask, int width, int height, int bits, out MaskSamples levels, out string? refusal)
+    {
+        levels = default;
+        refusal = null;
+        PdfObject? filter = mask.Dictionary["Filter"];
+
+        if (!CanDecode(filter))
+        {
+            refusal = "a mask whose filter is not composed";
+            return false;
+        }
+
+        PdfStreamDecodeResult decoded;
+        try
+        {
+            decoded = _store.Filters.DecodeImage(mask, _store.Resolve, _store.Budget);
+        }
+        catch (PdfLimitExceededException)
+        {
+            refusal = "a mask past the read's remaining allowance";
+            return false;
+        }
+
+        if (!decoded.Succeeded || decoded.Data is not { } data)
+        {
+            refusal = "a mask that could not be decoded";
+            return false;
+        }
+
+        // Each row is packed at the declared depth and padded to a byte
+        // boundary, so the padding bits at the end of a short row are never read
+        // as the document's.
+        long stride = (((long)width * bits) + 7) / 8;
+        if (HasImageFilter(filter))
+        {
+            if (data.LongLength == (long)width * height * BPixelBuffer.BytesPerPixel)
+            {
+                levels = new MaskSamples(data, bits: 8, (long)width * BPixelBuffer.BytesPerPixel, pixels: true);
+                return true;
+            }
+
+            if (data.LongLength == stride * height)
+            {
+                levels = new MaskSamples(data, bits, stride, pixels: false);
+                return true;
+            }
+        }
+        else if (data.LongLength >= stride * height)
+        {
+            levels = new MaskSamples(data, bits, stride, pixels: false);
+            return true;
+        }
+
+        refusal = "a mask whose samples do not fill its declaration";
+        return false;
+    }
+
+    /// <summary>
+    /// A stencil or explicit mask's <c>/Decode</c>: absent or <c>[0 1]</c>, or
+    /// <c>[1 0]</c>, which inverts it. Anything else is not a one-bit mapping.
+    /// </summary>
+    private bool TryMaskDecode(PdfDictionary dictionary, out bool inverted)
+    {
+        inverted = false;
         if (_store.Resolve(dictionary["Decode"]) is not PdfArray decode)
             return true;
 
@@ -2100,40 +2394,92 @@ internal sealed class PdfContentInterpreter(
         if (low.Value == 0 && high.Value == 1)
             return true;
 
-        if (low.Value == 1 && high.Value == 0)
-        {
-            opaque = 0;
-            return true;
-        }
-
-        if (low.Value == 1 && high.Value == 1)
-        {
-            opaque = -1;
-            return true;
-        }
-
-        return false;
+        inverted = low.Value == 1 && high.Value == 0;
+        return inverted;
     }
 
     /// <summary>
-    /// The <paramref name="x"/>th alpha sample in a row, at 1, 2, 4, 8, or 16
-    /// bits, most significant bit first.
+    /// A soft mask's <c>/Decode</c>: the alpha its lowest and highest samples
+    /// stand for, <c>[0 1]</c> when absent. <c>[1 0]</c> is the ordinary way a
+    /// PDF writes an inverted mask, and every other interval maps the same way.
     /// </summary>
-    private static int Alpha(byte[] samples, long row, int x, int bits)
+    private bool TrySoftMaskDecode(PdfDictionary dictionary, out double low, out double high)
     {
-        if (bits == 16)
+        low = 0;
+        high = 1;
+        if (_store.Resolve(dictionary["Decode"]) is not PdfArray decode)
+            return true;
+
+        if (decode.Count != 2 ||
+            _store.Resolve(decode[0]) is not PdfNumber first || !double.IsFinite(first.Value) ||
+            _store.Resolve(decode[1]) is not PdfNumber second || !double.IsFinite(second.Value))
         {
-            long at = row + ((long)x * 2);
-            return (samples[at] << 8) | samples[at + 1];
+            return false;
         }
 
-        if (bits == 8)
-            return samples[row + x];
+        low = first.Value;
+        high = second.Value;
+        return true;
+    }
 
-        int perByte = 8 / bits;
-        byte packed = samples[row + (x / perByte)];
-        int shift = 8 - bits - (x % perByte * bits);
-        return (packed >> shift) & ((1 << bits) - 1);
+    /// <summary>Exactly <paramref name="count"/> finite numbers, as a matte states its colour.</summary>
+    private bool TryNumbers(PdfObject entry, int count, out double[]? values)
+    {
+        values = null;
+        if (entry is not PdfArray array || array.Count != count)
+            return false;
+
+        var numbers = new double[count];
+        for (int i = 0; i < count; i++)
+        {
+            if (_store.Resolve(array[i]) is not PdfNumber number || !double.IsFinite(number.Value))
+                return false;
+
+            numbers[i] = Clamp(number.Value);
+        }
+
+        values = numbers;
+        return true;
+    }
+
+    /// <summary>
+    /// How many components a device-space picture's colour has - one for gray,
+    /// three for RGB - or zero for any other space.
+    /// </summary>
+    private int DeviceComponents(PdfDictionary dictionary, PdfDictionary? resources) =>
+        ColorSpaceFamily(ResolveColorSpace(dictionary["ColorSpace"], resources)) switch
+        {
+            "DeviceGray" => 1,
+            "DeviceRGB" => 3,
+            _ => 0,
+        };
+
+    /// <summary>
+    /// A decoded mask's samples, read as levels in [0, 1]: packed at their own
+    /// depth, or the first channel of a codec's pixels.
+    /// </summary>
+    private readonly struct MaskSamples(byte[] data, int bits, long stride, bool pixels)
+    {
+        public double At(int x, int y)
+        {
+            long row = y * stride;
+            if (pixels)
+                return data[row + ((long)x * BPixelBuffer.BytesPerPixel)] / 255d;
+
+            if (bits == 16)
+            {
+                long at = row + ((long)x * 2);
+                return ((data[at] << 8) | data[at + 1]) / 65535d;
+            }
+
+            if (bits == 8)
+                return data[row + x] / 255d;
+
+            int perByte = 8 / bits;
+            byte packed = data[row + (x / perByte)];
+            int shift = 8 - bits - (x % perByte * bits);
+            return ((packed >> shift) & ((1 << bits) - 1)) / (double)((1 << bits) - 1);
+        }
     }
 
     /// <summary>

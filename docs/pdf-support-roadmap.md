@@ -224,14 +224,16 @@ is authoritative for that boundary.
   describes DeviceGray at 1, 2, 4, or 8 bits, DeviceRGB at 8, or Indexed at 1, 2,
   4, or 8 over a bounded DeviceGray or DeviceRGB palette, with a `/Decode` array
   validated against the interval its space defines. A composed image codec's own
-  RGBA output is taken as it stands. Everything else — a stencil mask, a
-  colour-key `/Mask`, a soft mask that is not uniformly opaque, a colour space
-  or depth outside the subset, an Indexed image that remaps its own indices,
-  samples that do not fill the declaration — is refused, and the refusal names
-  the construct met rather than reporting a bare count. A soft mask is read
-  rather than assumed: where every one of its samples maps through its own
-  `/Decode` to full alpha there is no transparency to composite, and the image
-  projects. An image also states its own decoded size, which raises the filter
+  RGBA output is taken as it stands. Since 2026-09-24 the masks are part of the
+  subset (§9.3): a stencil is carried in the fill colour it is drawn in, and a
+  colour-key `/Mask`, an explicit `/Mask`, and a soft mask - its `/Matte`
+  undone over gray and RGB pictures - are read into the straight alpha the
+  model carries, each mapped onto the picture's unit square. Nothing is
+  composited. What stays refused - a stencil painted with a pattern, a mask this
+  build cannot decode or that contradicts the format, a colour space or depth
+  outside the subset, an Indexed image that remaps its own indices, samples
+  that do not fill the declaration - is named by the construct met rather than
+  reported as a bare count. An image also states its own decoded size, which raises the filter
   stage's expansion ceiling to it — a uniform mask compresses far past any ratio
   a guess allows, and the guess is what refused the flattest masks as
   decompression bombs; the absolute byte ceilings are unchanged and still
@@ -1365,6 +1367,18 @@ to `Broiler.Media.Image.Managed`.
   `/Decode` handling. ICCBased, CalGray/CalRGB, Lab, Separation, DeviceN,
   ImageMask, color-key `/Mask`, and `/SMask` are detected-but-skipped in V1
   unless a narrower tuple is separately added to the approved matrix.
+  **Decided 2026-09-24: the masks are added.** A stencil (`/ImageMask`) is
+  carried in the fill colour it is drawn in; a colour-key `/Mask`, an explicit
+  `/Mask` stream, and an `/SMask` are read into the straight alpha channel of
+  the pixels over the subset above, each mask mapped onto the picture's unit
+  square whatever its own size, and a soft mask's `/Matte` is undone over
+  DeviceGray and DeviceRGB pictures. Carrying alpha is not compositing - the
+  model holds it and the renderer blends it - so no backdrop is invented. A
+  stencil painted with a pattern, a matte over an indexed picture, and a mask
+  that is undecodable or contradicts ISO 32000-1 stay refused by name. The
+  project reviewer made the decision on the card that prompted it: a logo drawn
+  on a colour-keyed ground was refused, because carrying it opaque would have
+  put it on a solid box.
 - Before placing bytes or pixels in the model, evaluate `ExtractToModel` and add
   the stable resource identity and decision to the conversion context. Without
   permission, do not construct `InlineImage`; omit the resource and emit a stable

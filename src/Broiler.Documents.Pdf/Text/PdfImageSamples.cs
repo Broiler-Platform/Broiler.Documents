@@ -104,10 +104,13 @@ internal readonly record struct PdfSampleFormat(
 /// them needs a profile, a white point, or a rendering intent to be correct.
 /// </para>
 /// <para>
-/// Everything it returns is opaque. Transparency in PDF arrives through
-/// `/SMask`, a colour-key `/Mask`, or a stencil, none of which this build
-/// composites; the caller refuses those images rather than projecting them at
-/// full opacity, so an alpha of anything but 255 cannot arise here.
+/// The one transparency decided here is a colour-key `/Mask`, because it is a
+/// statement about the samples as stored and they are only visible here. A
+/// soft mask and an explicit mask are pictures of their own and are read into
+/// the alpha channel by the caller, and a stencil is painted in the fill
+/// colour rather than looked up at all. Nothing is composited against a
+/// backdrop: the model carries the alpha, and whoever draws the picture blends
+/// it.
 /// </para>
 /// </remarks>
 internal static class PdfImageSamples
@@ -117,7 +120,13 @@ internal static class PdfImageSamples
     /// dictionary declared — which is a document contradicting itself, not a
     /// layout to infer from a byte count.
     /// </summary>
-    public static byte[]? ToRgba(in PdfSampleFormat format, byte[] samples)
+    /// <param name="colourKey">
+    /// A colour-key mask: a minimum and a maximum for each component, over the
+    /// samples as stored - before `/Decode`, and over the index for an Indexed
+    /// image - or null for none. A pixel whose every component lies in its range
+    /// is not painted (PDF 32000-1 8.9.6.4), and so is transparent here.
+    /// </param>
+    public static byte[]? ToRgba(in PdfSampleFormat format, byte[] samples, int[]? colourKey = null)
     {
         if (samples.LongLength != format.ExpectedBytes)
             return null;
@@ -140,6 +149,7 @@ internal static class PdfImageSamples
 
             for (int x = 0; x < format.Width; x++)
             {
+                bool keyed;
                 switch (format.Space)
                 {
                     case PdfSampleSpace.Gray:
@@ -149,6 +159,7 @@ internal static class PdfImageSamples
                         rgba[output] = level;
                         rgba[output + 1] = level;
                         rgba[output + 2] = level;
+                        keyed = colourKey is not null && InRange(colourKey, 0, raw);
                         break;
                     }
 
@@ -160,6 +171,10 @@ internal static class PdfImageSamples
                         rgba[output] = Component(samples[at], maximum, format.Decode, 0);
                         rgba[output + 1] = Component(samples[at + 1], maximum, format.Decode, 1);
                         rgba[output + 2] = Component(samples[at + 2], maximum, format.Decode, 2);
+                        keyed = colourKey is not null &&
+                            InRange(colourKey, 0, samples[at]) &&
+                            InRange(colourKey, 1, samples[at + 1]) &&
+                            InRange(colourKey, 2, samples[at + 2]);
                         break;
                     }
 
@@ -179,17 +194,22 @@ internal static class PdfImageSamples
                             rgba[output + 2] = palette[at + 2];
                         }
 
+                        keyed = colourKey is not null && InRange(colourKey, 0, index);
                         break;
                     }
                 }
 
-                rgba[output + 3] = 255;
+                rgba[output + 3] = keyed ? (byte)0 : (byte)255;
                 output += BPixelBuffer.BytesPerPixel;
             }
         }
 
         return rgba;
     }
+
+    /// <summary>Whether a stored component value lies in its colour-key range.</summary>
+    private static bool InRange(int[] colourKey, int component, int value) =>
+        value >= colourKey[component * 2] && value <= colourKey[(component * 2) + 1];
 
     /// <summary>
     /// The <paramref name="x"/>th single-component sample in a row, at 1, 2, 4,

@@ -199,17 +199,20 @@ public sealed class PdfDiagnosticDetailTests
         // The regression this covers: FlateDecode is composed by every build, so
         // a stencil mask's samples were reachable all along. Reporting it as an
         // image no decoder could reach named a gap that did not exist and hid the
-        // real one, which is that the model has nowhere to put an image.
+        // real one. A stencil is carried now, in the fill colour; painted with a
+        // pattern it has no colour to carry, and is the decoded image that stays.
         byte[] samples = Samples(240 / 8 * 240);
         PdfReadResult result = Read(DocumentWithImage(
             "/Width 240 /Height 240 /ImageMask true /BitsPerComponent 1",
             Deflate(samples),
-            filter: "FlateDecode"));
+            filter: "FlateDecode",
+            prefix: "/Pattern cs /P0 scn "));
 
         DocumentDiagnostic decoded = Only(result, PdfDiagnosticCodes.ImageDecodedNotProjected);
         Assert.Contains("1 image was decoded", decoded.Message, StringComparison.Ordinal);
         Assert.Contains($"{samples.Length} bytes of samples", decoded.Message, StringComparison.Ordinal);
         Assert.Contains("240x240 1bpc ImageMask FlateDecode", decoded.Message, StringComparison.Ordinal);
+        Assert.Contains("a stencil mask painted with a pattern", decoded.Message, StringComparison.Ordinal);
 
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageNotComposed);
 
@@ -477,7 +480,7 @@ public sealed class PdfDiagnosticDetailTests
     /// One page carrying the word "Body" and a single image XObject built from
     /// <paramref name="dictionaryBody"/> and <paramref name="data"/>.
     /// </summary>
-    private static byte[] DocumentWithImage(string dictionaryBody, byte[] data, string? filter)
+    private static byte[] DocumentWithImage(string dictionaryBody, byte[] data, string? filter, string prefix = "")
     {
         var builder = new PdfFileBuilder();
         int catalog = builder.Reserve();
@@ -485,7 +488,7 @@ public sealed class PdfDiagnosticDetailTests
         int page = builder.Reserve();
         int font = builder.AddObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
         int image = builder.AddStream($"/Type /XObject /Subtype /Image {dictionaryBody}", data, filter);
-        int content = builder.AddStream(string.Empty, "q /Im0 Do Q\n" + PdfFileBuilder.ShowText("Body"));
+        int content = builder.AddStream(string.Empty, "q " + prefix + "/Im0 Do Q\n" + PdfFileBuilder.ShowText("Body"));
 
         builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
         builder.SetObject(pages, $"<< /Type /Pages /Kids [{page} 0 R] /Count 1 >>");
