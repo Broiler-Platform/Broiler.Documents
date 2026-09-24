@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace Broiler.Documents.Pdf.Tests;
@@ -147,8 +148,14 @@ internal sealed class PdfFileBuilder
     }
 
     /// <summary>Content that shows <paramref name="text"/> once at a fixed position.</summary>
+    /// <remarks>
+    /// Numbers are written invariantly: under a culture with a decimal comma,
+    /// 595.5 came out as <c>595,5</c>, which is not a PDF number, and the
+    /// <c>Tm</c> it belonged to was dropped - so the text was drawn at the
+    /// origin and a test could pass for a reason it never stated.
+    /// </remarks>
     public static string ShowText(string text, double x = 72, double y = 720, double size = 12) =>
-        $"BT /F1 {size} Tf 1 0 0 1 {x} {y} Tm ({Escape(text)}) Tj ET\n";
+        string.Create(CultureInfo.InvariantCulture, $"BT /F1 {size} Tf 1 0 0 1 {x} {y} Tm ({Escape(text)}) Tj ET\n");
 
     private static string Escape(string text) =>
         text.Replace("\\", "\\\\").Replace("(", "\\(").Replace(")", "\\)");

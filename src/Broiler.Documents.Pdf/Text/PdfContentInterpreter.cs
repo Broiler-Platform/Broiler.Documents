@@ -660,7 +660,10 @@ internal sealed class PdfContentInterpreter(
                 continue;
             }
 
-            AppendGlyph(glyph.Text, advance);
+            // Every mapping - ToUnicode, a glyph name, a font program's map -
+            // arrives here, and a ligature is how the page drew its letters,
+            // not what they are.
+            AppendGlyph(PdfLigatures.Expand(glyph.Text), advance);
         }
     }
 
