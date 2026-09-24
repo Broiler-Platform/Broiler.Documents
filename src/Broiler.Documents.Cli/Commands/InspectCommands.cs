@@ -69,7 +69,7 @@ public static class InspectCommands
 
     private static int Run(CommandContext context)
     {
-        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
+        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog(DocumentOptions.PdfPasswordFrom(context.Line));
         var formats = new JsonArray();
 
         context.Report($"{"FORMAT",-10} {"READ",-6} {"WRITE",-6} {"EXTENSIONS",-24} {"MIME TYPES"}");
@@ -120,7 +120,7 @@ public static class InspectCommands
         string source = context.Line.RequirePositional(0, "input");
         context.Line.RequireNoExtraPositionals(1);
 
-        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
+        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog(DocumentOptions.PdfPasswordFrom(context.Line));
         DocumentReadOptions options = DocumentOptions.ReadOptionsFrom(context.Line);
 
         byte[] bytes = DocumentIo.ReadAllBytes(source, options.Limits.MaxDocumentBytes);
@@ -182,7 +182,7 @@ public static class InspectCommands
         string source = context.Line.RequirePositional(0, "input");
         context.Line.RequireNoExtraPositionals(1);
 
-        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog();
+        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog(DocumentOptions.PdfPasswordFrom(context.Line));
         DocumentReadOptions options = DocumentOptions.ReadOptionsFrom(context.Line);
         LoadedDocument loaded = DocumentIo.LoadOrThrow(source, catalog, options, context.Line.Get("from"));
 

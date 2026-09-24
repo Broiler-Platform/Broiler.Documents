@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Broiler.Documents.Docx;
 using Broiler.Documents.Html;
 using Broiler.Documents.Markdown;
+using Broiler.Documents.Model;
 using Broiler.Documents.Odt;
 using Broiler.Documents.Pdf;
 using Broiler.Documents.Pdf.Images;
@@ -50,15 +53,25 @@ namespace Broiler.Documents.Cli.Composition;
 public static class CodecComposition
 {
     /// <summary>The formats this tool reads and writes, in the order help lists them.</summary>
-    public static DocumentCodecCatalog CreateCatalog() =>
-        new([
+    /// <param name="pdfPassword">
+    /// The password <c>--password-file</c> gave this run, handed to the PDF codec
+    /// alone; null reads an encrypted PDF only when it needs no password.
+    /// </param>
+    public static DocumentCodecCatalog CreateCatalog(string? pdfPassword = null)
+    {
+        DocumentCodec pdf = new ReadOnlyCodec(new PdfDocumentCodec(CreatePdfServices()));
+        if (pdfPassword is not null)
+            pdf = new PasswordedPdfCodec(pdf, PdfDecryptionCredentials.FromPassword(pdfPassword));
+
+        return new([
             new DocxDocumentCodec(),
             new OdtDocumentCodec(),
             new RtfDocumentCodec(),
             new HtmlDocumentCodec(),
             new MarkdownDocumentCodec(),
-            new ReadOnlyCodec(new PdfDocumentCodec(CreatePdfServices())),
+            pdf,
         ]);
+    }
 
     /// <summary>
     /// The PDF service graph this tool reads with: the base graph, and an ICC
@@ -101,6 +114,59 @@ public static class CodecComposition
     {
         ArgumentNullException.ThrowIfNull(catalog);
         return catalog.Codecs.Select(codec => codec.Descriptor.Name.ToLowerInvariant());
+    }
+
+    /// <summary>
+    /// The read-only PDF codec with the password this run was given, for the
+    /// reads that reach it with the shared options every format takes.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A password is a PDF read option, and it has to stay one: the other codecs
+    /// have no use for it, and <c>DocumentReadOptions</c> has been the place
+    /// format-specific settings went to linger before. But this tool reads through
+    /// the catalog with one option object for whatever format the file turns out
+    /// to be, and handing every codec <see cref="PdfReadOptions"/> would have the
+    /// others refuse it. So the composition root, which knows the password, gives
+    /// it to the one codec that takes it.
+    /// </para>
+    /// <para>
+    /// It wraps the read-only codec rather than the codec itself, so writing is
+    /// refused by the same object as before. The PDF codec maps the shared
+    /// options onto its own the same way when none are given - limits and
+    /// resource policy - so a read through here differs from one without it by
+    /// the credentials and nothing else.
+    /// </para>
+    /// </remarks>
+    private sealed class PasswordedPdfCodec(DocumentCodec inner, PdfDecryptionCredentials credentials) : DocumentCodec(inner.Descriptor)
+    {
+        public override bool CanRead => inner.CanRead;
+
+        public override bool CanWrite => inner.CanWrite;
+
+        public override DocumentProbeResult Probe(DocumentProbeRequest request) => inner.Probe(request);
+
+        public override DocumentReadResult Read(Stream source, DocumentReadOptions? options = null) =>
+            inner.Read(source, WithCredentials(options));
+
+        public override DocumentReadResult Read(DocumentReadRequest request) =>
+            inner.Read(new DocumentReadRequest(request.Input, WithCredentials(request.Options), request.CancellationToken));
+
+        public override ValueTask<DocumentReadResult> ReadAsync(DocumentReadRequest request) =>
+            inner.ReadAsync(new DocumentReadRequest(request.Input, WithCredentials(request.Options), request.CancellationToken));
+
+        public override DocumentWriteResult Write(RichTextDocument document, Stream destination, DocumentWriteOptions? options = null) =>
+            inner.Write(document, destination, options);
+
+        private DocumentReadOptions WithCredentials(DocumentReadOptions? options) => options switch
+        {
+            null => PdfReadOptions.Default.WithCredentials(credentials),
+            PdfReadOptions { Credentials: null } typed => typed.WithCredentials(credentials),
+            PdfReadOptions typed => typed,
+            _ when options.GetType() == typeof(DocumentReadOptions) =>
+                new PdfReadOptions(options.Limits, resourcePolicy: options.ResourcePolicy).WithCredentials(credentials),
+            _ => options,
+        };
     }
 
     private static DocumentCodec? AliasFor(DocumentCodecCatalog catalog, string token)
