@@ -167,7 +167,10 @@ internal static class PdfReader
 
             store.Features.NoteTurnedText(TurnedCharacters(fragments), i + 1);
 
-            IReadOnlyList<PdfPlacedImage> images = interpreter.PlacedImages;
+            // A picture under the whole page is its background rather than part of
+            // its flow, which the page's text is what shows; the rest are admitted.
+            IReadOnlyList<PdfPlacedImage> images = PlacePictures(
+                interpreter.Pictures, fragments, page, resources, store.Features, i + 1);
 
             // Annotations are page-level objects: whether one carries an
             // unapplied redaction or an executable action has nothing to do
@@ -175,7 +178,7 @@ internal static class PdfReader
             // emptiness test meant a page that drew nothing was never
             // inspected at all - and a scanned page is empty here whenever
             // this build refuses its image, which is the ordinary shape of a
-            // supposedly redacted document. It stays below Run: PlacedImages
+            // supposedly redacted document. It stays below Run: Pictures
             // is the interpreter's own list, cleared at the top of each page.
             List<PdfLinkRegion> links = PdfAnnotationReader.Read(store, page, policy, optionalContent);
 
@@ -494,6 +497,97 @@ internal static class PdfReader
             text.Append(CultureInfo.InvariantCulture,
                 $"On {pagesInBody} page{(pagesInBody == 1 ? string.Empty : "s")}, runs marked as artifacts - running heads, folios, page furniture a structure tree does not place by design - were kept in the body and set around it geometrically. ");
         }
+    }
+
+    /// <summary>
+    /// The share of the page a picture has to cover, beneath the text, to be
+    /// the page's background - the share a fill has to cover to be its colour.
+    /// </summary>
+    private const double PageBackgroundShare = 0.9;
+
+    /// <summary>
+    /// Decides which of the page's pictures are part of its flow, and admits
+    /// those through the caller's resource policy.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>A picture under the whole page, with the text drawn over it, is
+    /// the page's background.</strong> Stationery, a scanned form's blank, a
+    /// sheet of fold and cut marks: the page is printed on it, and it is no
+    /// more a paragraph than the paper is. Placed in the flow it became a
+    /// page-sized paragraph ahead of the text - everything after it pushed to
+    /// the next page - and, counted as the body's ink, it took the margins to
+    /// nothing. The model holds no page background, so it is left out and
+    /// reported, the way a fill covering the page is read as the page's colour
+    /// rather than as a highlight.
+    /// </para>
+    /// <para>
+    /// Only beneath visible text. A scan whose recognized text is invisible, or
+    /// a page that is only a picture, is the picture - there is nothing else on
+    /// the page - and a picture painted over text is not beneath it.
+    /// </para>
+    /// <para>
+    /// Admission happens here rather than where the picture was decoded, so a
+    /// background is never offered to the policy for a document it is not in.
+    /// </para>
+    /// </remarks>
+    private static List<PdfPlacedImage> PlacePictures(
+        IReadOnlyList<PdfPaintedPicture> pictures,
+        IReadOnlyList<PdfTextFragment> fragments,
+        PdfPage page,
+        DocumentConversionContextBuilder resources,
+        PdfFeatureTally tally,
+        int pageNumber)
+    {
+        var placed = new List<PdfPlacedImage>(pictures.Count);
+        if (pictures.Count == 0)
+            return placed;
+
+        int firstText = int.MaxValue;
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            if (!fragment.IsInvisible && !string.IsNullOrWhiteSpace(fragment.Text))
+                firstText = Math.Min(firstText, fragment.Order);
+        }
+
+        double pageWidth = page.DisplayWidth;
+        double pageHeight = page.DisplayHeight;
+
+        foreach (PdfPaintedPicture picture in pictures)
+        {
+            // The part of the page the picture covers, since a bleed reaches
+            // past the edge and the page is all that shows.
+            double covered =
+                Math.Max(0, Math.Min(pageWidth, picture.Left + picture.Width) - Math.Max(0, picture.Left)) *
+                Math.Max(0, Math.Min(pageHeight, picture.Top) - Math.Max(0, picture.Top - picture.Height));
+
+            if (firstText != int.MaxValue && picture.Order < firstText &&
+                covered >= pageWidth * pageHeight * PageBackgroundShare)
+            {
+                tally.NoteImageNotProjected(pageNumber, "a page-sized picture beneath the text, read as the page's background");
+                continue;
+            }
+
+            if (!resources.TryAdmit(
+                    new DocumentResourceRequest(
+                        picture.Resource,
+                        DocumentResourceProvenance.ReadFromSource,
+                        DocumentResourceDisposition.Embedded,
+                        name: null,
+                        sourceFormat: "PDF"),
+                    DocumentResourceOperations.ExtractToModel,
+                    out DocumentResourceId id,
+                    out string? denial))
+            {
+                tally.NoteImageDenied(pageNumber, denial);
+                continue;
+            }
+
+            var image = new InlineImage(picture.Resource, id, picture.Width, picture.Height);
+            placed.Add(new PdfPlacedImage(image, picture.Left, picture.Top, picture.Width, picture.Height));
+        }
+
+        return placed;
     }
 
     /// <summary>

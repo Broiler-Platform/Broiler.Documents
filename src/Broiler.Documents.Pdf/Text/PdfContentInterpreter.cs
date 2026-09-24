@@ -89,7 +89,7 @@ internal sealed class PdfContentInterpreter(
     private readonly Stack<GraphicsState> _stack = new();
     private GraphicsState _state = GraphicsState.Initial;
     private readonly DocumentConversionContextBuilder? _resources = resources;
-    private readonly List<PdfPlacedImage> _placedImages = [];
+    private readonly List<PdfPaintedPicture> _pictures = [];
 
     /// <summary>
     /// Counts what the page paints — text runs, paths, shadings, pictures — in
@@ -211,11 +211,13 @@ internal sealed class PdfContentInterpreter(
     private bool _runOpen;
 
     /// <summary>
-    /// The images this page drew that the caller's policy allowed into the model,
-    /// with the box each is drawn in. Empty when no policy permits extraction, or
-    /// when nothing decoded to samples the model can take.
+    /// The pictures this page drew that decoded to pixels the model can take,
+    /// with the box each is drawn in and its place in the paint order. Not yet
+    /// admitted: whether a picture is part of the page's flow at all - rather
+    /// than, say, its background - is only known once the page's text is, so
+    /// the reader decides that and asks the caller's policy after.
     /// </summary>
-    public IReadOnlyList<PdfPlacedImage> PlacedImages => _placedImages;
+    public IReadOnlyList<PdfPaintedPicture> Pictures => _pictures;
 
     /// <summary>The rules and filled areas the last page painted, in paint order.</summary>
     public IReadOnlyList<PdfPaintedPath> PaintedPaths => _paintedPaths;
@@ -240,7 +242,7 @@ internal sealed class PdfContentInterpreter(
     {
         ArgumentNullException.ThrowIfNull(page);
         _fragments.Clear();
-        _placedImages.Clear();
+        _pictures.Clear();
         _paintedPaths.Clear();
         _marks.Clear();
         _marksTruncated = false;
@@ -1986,26 +1988,12 @@ internal sealed class PdfContentInterpreter(
             return;
         }
 
-        var resource = BImageResource.FromPixels(new BPixelBuffer(shape.Width, shape.Height, rgba));
-        if (!_resources.TryAdmit(
-                new DocumentResourceRequest(
-                    resource,
-                    DocumentResourceProvenance.ReadFromSource,
-                    DocumentResourceDisposition.Embedded,
-                    name: null,
-                    sourceFormat: "PDF"),
-                DocumentResourceOperations.ExtractToModel,
-                out DocumentResourceId id,
-                out string? denial))
-        {
-            _store.Features.NoteImageDenied(_store.CurrentPage, denial);
-            return;
-        }
-
         // The drawn box is the display size, in points, because user space is
         // points and the matrix is what decides how large the picture appears.
-        var image = new InlineImage(resource, id, width, height);
-        _placedImages.Add(new PdfPlacedImage(image, left, top, width, height));
+        // Its place in the paint order is the one the placement mark took for
+        // it a moment ago, before the samples were decoded.
+        var resource = BImageResource.FromPixels(new BPixelBuffer(shape.Width, shape.Height, rgba));
+        _pictures.Add(new PdfPaintedPicture(resource, left, top, width, height, _paintOrder));
     }
 
     /// <summary>

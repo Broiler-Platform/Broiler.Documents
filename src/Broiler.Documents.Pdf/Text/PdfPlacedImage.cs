@@ -1,5 +1,6 @@
 using System;
 using Broiler.Documents.Model;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Pdf;
 
@@ -39,3 +40,20 @@ internal sealed class PdfPlacedImage(InlineImage image, double left, double top,
     /// <summary>Drawn height in points.</summary>
     public double Height { get; } = height;
 }
+
+/// <summary>
+/// A picture the page drew and the interpreter decoded, before the reader has
+/// decided whether it belongs to the page's flow and the caller's policy has
+/// admitted it.
+/// </summary>
+/// <param name="Order">
+/// Where the picture falls in the page's paint order, counted with its text
+/// and its paths: what says whether the text was drawn over it.
+/// </param>
+internal sealed record PdfPaintedPicture(
+    BImageResource Resource,
+    double Left,
+    double Top,
+    double Width,
+    double Height,
+    int Order);

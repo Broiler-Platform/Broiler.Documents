@@ -236,7 +236,10 @@ is authoritative for that boundary.
   reported as a bare count. Since the same day an image in an `ICCBased` space
   converts to sRGB where a colour-profile reader is composed (IP-024;
   `IccColorProfileReader` in `Broiler.Documents.Pdf.Images`), and is refused by
-  name where none is. An image also states its own decoded size, which raises the filter
+  name where none is. A picture covering the page beneath its visible text is
+  the page's background, left out of the flow and the margins and reported,
+  since the model holds no page background and a page-sized paragraph pushed
+  every word after it onto the next page. An image also states its own decoded size, which raises the filter
   stage's expansion ceiling to it — a uniform mask compresses far past any ratio
   a guess allows, and the guess is what refused the flattest masks as
   decompression bombs; the absolute byte ceilings are unchanged and still

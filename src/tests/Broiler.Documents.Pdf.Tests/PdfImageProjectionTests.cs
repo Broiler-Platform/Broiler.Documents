@@ -669,6 +669,76 @@ public sealed class PdfImageProjectionTests
             StringComparison.Ordinal);
     }
 
+    // ---- a picture under the whole page ---------------------------------------
+
+    [Fact]
+    public void A_Page_Sized_Picture_Beneath_The_Text_Is_The_Pages_Background()
+    {
+        // Stationery, or a sheet of fold marks: the text is drawn over it. In the
+        // flow it was a page-sized paragraph ahead of every word, and counted as
+        // the body's ink it took the margins to nothing.
+        PdfReadResult result = Read(Document(
+            "/Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            [255, 255, 255, 0],
+            prefix: "612 0 0 792 0 0 cm "));
+
+        Assert.Empty(ImagesIn(result));
+        Assert.Equal("Body", Assert.Single(result.Document.Paragraphs).Text);
+        Assert.Contains(
+            "a page-sized picture beneath the text, read as the page's background",
+            Assert.Single(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected).Message,
+            StringComparison.Ordinal);
+        Assert.Equal(72, result.Document.PageGeometry!.MarginLeft, 0);
+    }
+
+    [Fact]
+    public void A_Page_That_Is_Only_A_Picture_Keeps_It()
+    {
+        // A scan with nothing drawn over it: the picture is the page.
+        PdfReadResult result = Read(Document(
+            "/Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            [255, 255, 255, 0],
+            content: "q 612 0 0 792 0 0 cm /Im0 Do Q\n"));
+
+        Assert.Single(ImagesIn(result));
+    }
+
+    [Fact]
+    public void A_Scan_Under_Invisible_Text_Keeps_Its_Picture()
+    {
+        // Recognized text is drawn invisibly over the scan it was read from.
+        // The scan is still everything a reader sees.
+        PdfReadResult result = Read(Document(
+            "/Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            [255, 255, 255, 0],
+            content: "q 612 0 0 792 0 0 cm /Im0 Do Q\nBT /F1 12 Tf 3 Tr 1 0 0 1 72 720 Tm (Recognized) Tj ET\n"));
+
+        Assert.Single(ImagesIn(result));
+    }
+
+    [Fact]
+    public void A_Picture_Painted_Over_The_Text_Is_Not_Its_Background()
+    {
+        PdfReadResult result = Read(Document(
+            "/Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            [255, 255, 255, 0],
+            content: PdfFileBuilder.ShowText("Body") + "q 612 0 0 792 0 0 cm /Im0 Do Q\n"));
+
+        Assert.Single(ImagesIn(result));
+    }
+
+    [Fact]
+    public void A_Picture_Covering_Part_Of_The_Page_Stays_In_The_Flow()
+    {
+        // Half the page beneath the text is a picture on the page, not the page.
+        PdfReadResult result = Read(Document(
+            "/Width 2 /Height 2 /ColorSpace /DeviceGray /BitsPerComponent 8",
+            [255, 255, 255, 0],
+            prefix: "612 0 0 396 0 0 cm "));
+
+        Assert.Single(ImagesIn(result));
+    }
+
     // ---- colour spaces named through the resource dictionary ------------------
 
     [Fact]
@@ -774,13 +844,18 @@ public sealed class PdfImageProjectionTests
     /// Content run just before the image is drawn - a fill colour for a
     /// stencil to be painted in.
     /// </param>
+    /// <param name="content">
+    /// The whole content stream, for a fixture that needs its own order of
+    /// picture and text; otherwise the picture is drawn, then one line of text.
+    /// </param>
     private static byte[] Document(
         string dictionaryBody,
         byte[] data,
         string? filter = null,
         string? colorSpaces = null,
         PdfFileBuilder? extra = null,
-        string prefix = "")
+        string prefix = "",
+        string? content = null)
     {
         PdfFileBuilder builder = extra ?? new PdfFileBuilder();
         int catalog = builder.Reserve();
@@ -788,7 +863,7 @@ public sealed class PdfImageProjectionTests
         int page = builder.Reserve();
         int font = builder.AddObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
         int image = builder.AddStream($"/Type /XObject /Subtype /Image {dictionaryBody}", data, filter);
-        int content = builder.AddStream(string.Empty, "q " + prefix + "/Im0 Do Q\n" + PdfFileBuilder.ShowText("Body"));
+        int stream = builder.AddStream(string.Empty, content ?? "q " + prefix + "/Im0 Do Q\n" + PdfFileBuilder.ShowText("Body"));
 
         string spaces = colorSpaces is null ? string.Empty : $" /ColorSpace << {colorSpaces} >>";
 
@@ -798,7 +873,7 @@ public sealed class PdfImageProjectionTests
             page,
             $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] " +
             $"/Resources << /Font << /F1 {font} 0 R >> /XObject << /Im0 {image} 0 R >>{spaces} >> " +
-            $"/Contents {content} 0 R >>");
+            $"/Contents {stream} 0 R >>");
 
         return builder.Build(catalog);
     }
