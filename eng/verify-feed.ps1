@@ -1,7 +1,7 @@
 # Prove that a consumer can restore the complete release using its destination feed.
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('github', 'nuget')][string] $Target,
+    [ValidateSet('nuget')][string] $Target = 'nuget',
     [string] $Packages = 'artifacts'
 )
 $ErrorActionPreference = 'Stop'
@@ -26,14 +26,6 @@ foreach ($archive in $archives) {
         $mappings += "      <package pattern=`"$id`" />"
     } finally { $zip.Dispose() }
 }
-$githubSource = ''
-$githubMapping = ''
-if ($Target -eq 'github') {
-    $owner = if ($env:GITHUB_REPOSITORY_OWNER) { $env:GITHUB_REPOSITORY_OWNER } else { 'Broiler-Platform' }
-    $owner = [Security.SecurityElement]::Escape($owner)
-    $githubSource = "<add key=`"broiler-github`" value=`"https://nuget.pkg.github.com/$owner/index.json`" />"
-    $githubMapping = '<packageSource key="broiler-github"><package pattern="Broiler.*" /></packageSource>'
-}
 $escapedPath = [Security.SecurityElement]::Escape($packagePath)
 @"
 <configuration>
@@ -41,7 +33,6 @@ $escapedPath = [Security.SecurityElement]::Escape($packagePath)
     <clear />
     <add key="release" value="$escapedPath" />
     <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-    $githubSource
   </packageSources>
   <disabledPackageSources><clear /></disabledPackageSources>
   <packageSourceMapping>
@@ -50,7 +41,6 @@ $escapedPath = [Security.SecurityElement]::Escape($packagePath)
 $($mappings -join "`n")
     </packageSource>
     <packageSource key="nuget.org"><package pattern="*" /></packageSource>
-    $githubMapping
   </packageSourceMapping>
 </configuration>
 "@ | Set-Content (Join-Path $scratch 'NuGet.config') -Encoding utf8

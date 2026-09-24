@@ -3,11 +3,6 @@ name: Publish
 on:
   workflow_dispatch:
     inputs:
-      target:
-        description: Which feed to publish to
-        type: choice
-        options: [github, nuget]
-        default: github
       version-suffix:
         description: 'Optional preview.N (unused and at least the next preview). Empty selects automatically.'
         type: string
@@ -21,7 +16,6 @@ on:
 
 permissions:
   contents: read
-  packages: read
 
 concurrency:
   group: publish
@@ -34,7 +28,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     env:
-      TARGET: ${{ github.event_name == 'push' && 'nuget' || inputs.target }}
+      TARGET: 'nuget'
       DRY_RUN: ${{ github.event_name == 'push' && 'false' || inputs.dry-run }}
     steps:
       - name: Check out
@@ -48,19 +42,18 @@ jobs:
         with:
           node-version: '24'
       - name: Require a NuGet.org API key
-        if: env.TARGET == 'nuget' && env.DRY_RUN != 'true'
+        if: env.DRY_RUN != 'true'
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_TOKEN }}
         run: |
           if [ -z "$NUGET_API_KEY" ]; then
-            echo "::error::Publishing to nuget.org needs the NUGET_API_KEY repository secret."
+            echo "::error::Publishing to nuget.org needs the NUGET_TOKEN repository secret."
             exit 1
           fi
       - name: Resolve version
         id: version
         env:
           VERSION_SUFFIX: ${{ inputs.version-suffix }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node eng/resolve-preview-version.mjs
 
   validate:
@@ -69,17 +62,15 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       package-version: ${{ needs.version.outputs.version }}
-      package-source: ${{ github.event_name == 'push' && 'nuget' || inputs.target }}
 
   publish:
-    name: Publish to ${{ github.event_name == 'push' && 'nuget' || inputs.target }}
+    name: Publish to NuGet.org
     needs: [version, validate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     env:
-      TARGET: ${{ github.event_name == 'push' && 'nuget' || inputs.target }}
+      TARGET: 'nuget'
       DRY_RUN: ${{ github.event_name == 'push' && 'false' || inputs.dry-run }}
       PACKAGE_VERSION: ${{ needs.version.outputs.version }}
     steps:
@@ -94,27 +85,17 @@ jobs:
         with:
           name: nuget-packages
           path: artifacts
-      - name: Verify consumer restore from the destination feed
+      - name: Verify consumer restore from NuGet.org
         shell: pwsh
-        env:
-          NuGetPackageSourceCredentials_broiler-github: Username=${{ github.actor }};Password=${{ secrets.GITHUB_TOKEN }};ValidAuthenticationTypes=Basic
-        run: ./eng/verify-feed.ps1 -Target $env:TARGET
-      - name: Push to GitHub Packages
-        if: env.TARGET == 'github' && env.DRY_RUN != 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >
-          dotnet nuget push 'artifacts/*.nupkg'
-          --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
-          --api-key "$GITHUB_TOKEN" --no-symbols --skip-duplicate
+        run: ./eng/verify-feed.ps1 -Target nuget
       - name: Push to NuGet.org
-        if: env.TARGET == 'nuget' && env.DRY_RUN != 'true'
+        if: env.DRY_RUN != 'true'
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_TOKEN }}
         run: >
           dotnet nuget push 'artifacts/*.nupkg'
           --source https://api.nuget.org/v3/index.json
-          --api-key "$NUGET_API_KEY" --skip-duplicate
+          --api-key "$NUGET_API_KEY"
       - name: Summary
         run: |
           {
@@ -123,7 +104,7 @@ jobs:
             if [ "$DRY_RUN" = "true" ]; then
               echo 'Dry run: validated packages are attached; nothing was pushed.'
             else
-              echo "Published to $TARGET."
+              echo "Published to NuGet.org."
             fi
             echo
             echo '```'

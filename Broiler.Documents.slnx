@@ -1,4 +1,4 @@
-﻿<Solution>
+<Solution>
   <Configurations>
     <BuildType Name="Debug" />
     <BuildType Name="Release" />
@@ -18,10 +18,12 @@
   </Folder>
   <Folder Name="/solution items/eng/">
     <File Path="eng/Broiler.Packaging.props" />
+    <File Path="eng/NuGet.nuget-org.config" />
   </Folder>
   <Folder Name="/solution items/docs/">
     <File Path="docs/roadmap.md" />
     <File Path="docs/cli.md" />
+    <File Path="docs/packaging.md" />
   </Folder>
   <!--
     Every project here is platform-neutral net10.0, so all six configurations

@@ -251,7 +251,7 @@ Residual work owned here:
 
 - Add sustained fuzz/property coverage and allocation/performance baselines for
   every parser and writer that accepts untrusted input.
-- Validate package consumption from a feed without the aggregate repository.
+- Validate package consumption from NuGet.org without the aggregate repository (verified via `eng/verify-feed.ps1 -Target nuget` in CI/publish).
 - Complete dependency, license, API-compatibility, and human review before a
   stable release.
 

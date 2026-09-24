@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chooseVersion, readVersions } from './resolve-preview-version.mjs';
+import { chooseVersion, readPublishedVersions, readVersions } from './resolve-preview-version.mjs';
 
 test('first publish uses the configured preview; later publishes increment numerically', () => {
   assert.equal(chooseVersion('0.1.0-preview.1', []), '0.1.0-preview.1');
@@ -48,14 +48,6 @@ test('all packages contribute, including a partially published newer preview', a
   assert.equal(chooseVersion('0.1.0-preview.1', versions), '0.1.0-preview.3');
 });
 
-test('versions from both feeds are cumulative', () => {
-  const github = ['0.1.0-preview.1', '0.1.0-preview.2', '0.1.0-preview.3'];
-  const nuget = ['0.1.0-preview.1', '0.1.0-preview.2'];
-  assert.equal(chooseVersion('0.1.0-preview.1', [...nuget, ...github]), '0.1.0-preview.4');
-  assert.equal(chooseVersion('0.1.0-preview.1', [...github, ...nuget]), '0.1.0-preview.4');
-  assert.throws(() => chooseVersion('0.1.0-preview.1', [...nuget, ...github], { tag: 'v0.1.0-preview.3' }));
-});
-
 test('feed failures and malformed responses stop publication', async () => {
   for (const response of [401, 403, 429, 500, {}, { versions: [2] }]) {
     await assert.rejects(readVersions('https://feed/index.json', ['Core'], {}, fakeFeed({
@@ -66,4 +58,46 @@ test('feed failures and malformed responses stop publication', async () => {
     throw new Error('Network unavailable');
   }));
   await assert.rejects(readVersions('https://feed/index.json', ['Core'], {}, async () => Response.json({})));
+});
+
+function fakeFeeds(versionsByFeed) {
+  return async (url, options) => {
+    for (const [feed, versions] of Object.entries(versionsByFeed)) {
+      if (url === `${feed}/index.json`) return Response.json({
+        resources: [{ '@type': 'PackageBaseAddress/3.0.0', '@id': `${feed}/flat/` }],
+      });
+      if (url === `${feed}/flat/core/index.json`) {
+        if (feed.includes('nuget.pkg.github.com')) assert.match(options.headers.authorization, /^Basic /);
+        return versions === 404 ? new Response(null, { status: 404 }) : Response.json({ versions });
+      }
+    }
+    assert.fail(`Unexpected request ${url}`);
+  };
+}
+
+const nugetFeed = 'https://api.nuget.org/v3';
+
+test('previews are resolved from NuGet.org', async () => {
+  const versions = await readPublishedVersions(['Core'], {}, fakeFeeds({
+    [nugetFeed]: ['0.1.0-preview.1', '0.1.0-preview.2'],
+  }));
+  assert.equal(chooseVersion('0.1.0-preview.1', versions), '0.1.0-preview.3');
+
+  const ahead = await readPublishedVersions(['Core'], {}, fakeFeeds({
+    [nugetFeed]: ['0.1.0-preview.5'],
+  }));
+  assert.equal(chooseVersion('0.1.0-preview.1', ahead), '0.1.0-preview.6');
+
+  const empty = await readPublishedVersions(['Core'], {}, fakeFeeds({
+    [nugetFeed]: 404,
+  }));
+  assert.equal(chooseVersion('0.1.0-preview.1', empty), '0.1.0-preview.1');
+  assert.throws(() => chooseVersion('0.1.0-preview.1', versions, { suffix: 'preview.2' }));
+});
+
+test('reading published versions requires no GitHub credentials', async () => {
+  const versions = await readPublishedVersions(['Core'], {}, fakeFeeds({
+    [nugetFeed]: [],
+  }));
+  assert.deepEqual(versions, []);
 });

@@ -59,6 +59,11 @@ export async function readVersions(source, packageIds, headers = {}, fetchImpl =
   return results.flat();
 }
 
+// Previews are resolved from NuGet.org.
+export async function readPublishedVersions(packageIds, env = {}, fetchImpl = fetch) {
+  return readVersions('https://api.nuget.org/v3/index.json', packageIds, {}, fetchImpl);
+}
+
 function readPackages() {
   const solutions = readdirSync(root).filter(name => name.endsWith('.slnx'));
   if (solutions.length !== 1) throw new Error('Expected exactly one solution.');
@@ -85,17 +90,8 @@ async function main() {
   parsePreview(configured);
   const packageIds = packages.map(p => p.PackageId);
   const target = process.env.TARGET || 'nuget';
-  if (!['nuget', 'github'].includes(target)) throw new Error(`Unknown target '${target}'.`);
-  // Preview numbers are cumulative across both feeds, whichever one is the
-  // target: with preview.3 on GitHub Packages and preview.2 on nuget.org, the
-  // next publish to either feed is preview.4, so a number never names two builds.
-  const { GITHUB_REPOSITORY_OWNER: owner, GITHUB_ACTOR: actor, GITHUB_TOKEN: token } = process.env;
-  if (!owner || !actor || !token) throw new Error('GitHub feed lookup requires owner, actor, and token.');
-  const authorization = `Basic ${Buffer.from(`${actor}:${token}`).toString('base64')}`;
-  const published = (await Promise.all([
-    readVersions('https://api.nuget.org/v3/index.json', packageIds),
-    readVersions(`https://nuget.pkg.github.com/${owner}/index.json`, packageIds, { authorization }),
-  ])).flat();
+  if (target !== 'nuget') throw new Error(`Unknown target '${target}'; only nuget is supported.`);
+  const published = await readPublishedVersions(packageIds, process.env);
   const tag = process.env.GITHUB_EVENT_NAME === 'push'
     ? (process.env.GITHUB_REF || '').replace(/^refs\/tags\//, '') : '';
   if (process.env.GITHUB_EVENT_NAME === 'push' && !tag.startsWith('v')) {
