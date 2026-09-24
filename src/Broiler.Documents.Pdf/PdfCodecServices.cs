@@ -23,9 +23,9 @@ namespace Broiler.Documents.Pdf;
 /// only what this repository implements itself and can therefore ship without a
 /// third-party review: the Flate, LZW, ASCIIHex, ASCII85, and RunLength filters,
 /// and the approximate metric model. Each further technology — DCT/JPEG, CCITT,
-/// JPX, JBIG2, embedded font programs, encryption — becomes available by adding
-/// a reviewed implementation to this graph, with no change to the parser, the
-/// interpreter, or the writer.
+/// JPX, JBIG2, embedded font programs, ICC colour profiles, encryption — becomes
+/// available by adding a reviewed implementation to this graph, with no change
+/// to the parser, the interpreter, or the writer.
 /// </para>
 /// </remarks>
 public sealed class PdfCodecServices
@@ -40,9 +40,11 @@ public sealed class PdfCodecServices
         IEnumerable<IPdfStreamFilter>? streamFilters = null,
         IPdfFontMetricsProvider? fontMetrics = null,
         PdfUriPolicy? uriPolicy = null,
-        IPdfFontProgramReader? fontProgramReader = null)
+        IPdfFontProgramReader? fontProgramReader = null,
+        IPdfColorProfileReader? colorProfileReader = null)
     {
         FontProgramReader = fontProgramReader;
+        ColorProfileReader = colorProfileReader;
         var filters = new List<IPdfStreamFilter>
         {
             new FlateDecodeFilter(),
@@ -94,6 +96,13 @@ public sealed class PdfCodecServices
     public IPdfFontProgramReader? FontProgramReader { get; }
 
     /// <summary>
+    /// The reader that converts ICC-based colour, or null — the default — when
+    /// none is composed and an image in an <c>/ICCBased</c> space is refused by
+    /// name rather than drawn in colours its profile does not state.
+    /// </summary>
+    public IPdfColorProfileReader? ColorProfileReader { get; }
+
+    /// <summary>
     /// Returns a copy of this graph with additional or replacing filters. Use it
     /// to add a reviewed decoder without restating the base composition.
     /// </summary>
@@ -113,23 +122,30 @@ public sealed class PdfCodecServices
         // replacing rather than merely additive.
         List<IPdfStreamFilter> composed = CallerSuppliedFilters();
         composed.AddRange(filters);
-        return new(composed, FontMetrics, UriPolicy, FontProgramReader);
+        return new(composed, FontMetrics, UriPolicy, FontProgramReader, ColorProfileReader);
     }
 
     /// <summary>Returns a copy of this graph with a different metrics provider.</summary>
     public PdfCodecServices WithFontMetrics(IPdfFontMetricsProvider metrics) =>
-        new(CallerSuppliedFilters(), metrics ?? throw new ArgumentNullException(nameof(metrics)), UriPolicy, FontProgramReader);
+        new(CallerSuppliedFilters(), metrics ?? throw new ArgumentNullException(nameof(metrics)), UriPolicy, FontProgramReader, ColorProfileReader);
 
     /// <summary>Returns a copy of this graph with a different URI policy.</summary>
     public PdfCodecServices WithUriPolicy(PdfUriPolicy policy) =>
-        new(CallerSuppliedFilters(), FontMetrics, policy ?? throw new ArgumentNullException(nameof(policy)), FontProgramReader);
+        new(CallerSuppliedFilters(), FontMetrics, policy ?? throw new ArgumentNullException(nameof(policy)), FontProgramReader, ColorProfileReader);
 
     /// <summary>
     /// Returns a copy of this graph that inspects embedded font programs with
     /// <paramref name="reader"/>.
     /// </summary>
     public PdfCodecServices WithFontProgramReader(IPdfFontProgramReader reader) =>
-        new(CallerSuppliedFilters(), FontMetrics, UriPolicy, reader ?? throw new ArgumentNullException(nameof(reader)));
+        new(CallerSuppliedFilters(), FontMetrics, UriPolicy, reader ?? throw new ArgumentNullException(nameof(reader)), ColorProfileReader);
+
+    /// <summary>
+    /// Returns a copy of this graph that converts ICC-based colour with
+    /// <paramref name="reader"/>.
+    /// </summary>
+    public PdfCodecServices WithColorProfileReader(IPdfColorProfileReader reader) =>
+        new(CallerSuppliedFilters(), FontMetrics, UriPolicy, FontProgramReader, reader ?? throw new ArgumentNullException(nameof(reader)));
 
     /// <summary>True when a decoder for <paramref name="filterName"/> is composed.</summary>
     public bool SupportsFilter(string filterName)

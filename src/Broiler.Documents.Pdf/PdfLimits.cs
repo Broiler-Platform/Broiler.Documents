@@ -37,7 +37,8 @@ public sealed class PdfLimits(
     long maxOutputBytes = PdfLimits.DefaultMaxOutputBytes,
     long maxXmpBytes = PdfLimits.DefaultMaxXmpBytes,
     long maxFontProgramBytes = PdfLimits.DefaultMaxFontProgramBytes,
-    long maxDescribedImageBytes = PdfLimits.DefaultMaxDescribedImageBytes)
+    long maxDescribedImageBytes = PdfLimits.DefaultMaxDescribedImageBytes,
+    long maxColorProfileBytes = PdfLimits.DefaultMaxColorProfileBytes)
 {
     public const long DefaultMaxInputBytes = 64L * 1024 * 1024;
     public const int DefaultMaxTokenLength = 64 * 1024;
@@ -63,6 +64,7 @@ public sealed class PdfLimits(
     public const long DefaultMaxXmpBytes = 2L * 1024 * 1024;
     public const long DefaultMaxFontProgramBytes = 16L * 1024 * 1024;
     public const long DefaultMaxDescribedImageBytes = 8L * 1024 * 1024;
+    public const long DefaultMaxColorProfileBytes = 8L * 1024 * 1024;
 
     public static PdfLimits Default { get; } = new();
 
@@ -151,6 +153,14 @@ public sealed class PdfLimits(
     /// still bounds the whole read.
     /// </summary>
     public long MaxDescribedImageBytes { get; } = Positive(maxDescribedImageBytes, nameof(maxDescribedImageBytes));
+
+    /// <summary>
+    /// Maximum decoded bytes of an ICC profile a composed colour-profile reader
+    /// will be handed. Several times the largest print profile in common use, so
+    /// a real one always fits and a document cannot make colour conversion the
+    /// most expensive thing a read does.
+    /// </summary>
+    public long MaxColorProfileBytes { get; } = Positive(maxColorProfileBytes, nameof(maxColorProfileBytes));
 
     private static int Positive(int value, string name) =>
         value > 0 ? value : throw new ArgumentOutOfRangeException(name, value, "A PDF limit must be positive; zero never means unlimited.");

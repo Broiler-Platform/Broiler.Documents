@@ -7,11 +7,12 @@ namespace Broiler.Documents.Pdf.Text;
 /// The colour spaces whose own samples this build turns into pixels.
 /// </summary>
 /// <remarks>
-/// Exactly the raw-sample subset PDF roadmap §9.3 approved. Everything else a
-/// PDF may declare — ICCBased, CalGray, CalRGB, Lab, DeviceCMYK, Separation,
-/// DeviceN, and any pattern space — is refused by name rather than approximated,
-/// because each of them needs a colour transform this project does not own and
-/// guessing one produces a plausible wrong picture instead of an error.
+/// Exactly the raw-sample subset PDF roadmap §9.3 approved, and an ICC-based
+/// space where a composed reader converts its profile (IP-024). Everything else
+/// a PDF may declare — CalGray, CalRGB, Lab, DeviceCMYK, Separation, DeviceN,
+/// and any pattern space — is refused by name rather than approximated, because
+/// each of them needs a colour transform this project does not own and guessing
+/// one produces a plausible wrong picture instead of an error.
 /// </remarks>
 internal enum PdfSampleSpace
 {
@@ -23,9 +24,15 @@ internal enum PdfSampleSpace
 
     /// <summary>
     /// `/Indexed` at 1, 2, 4, or 8 bits, over a palette already expanded to RGB
-    /// triples from a `/DeviceGray` or `/DeviceRGB` base.
+    /// triples from a `/DeviceGray`, `/DeviceRGB`, or converted ICC-based base.
     /// </summary>
     Indexed,
+
+    /// <summary>
+    /// `/ICCBased` through a composed reader's conversion: one component at 1, 2,
+    /// 4, or 8 bits, or three or four at 8.
+    /// </summary>
+    Profile,
 }
 
 /// <summary>
@@ -65,10 +72,14 @@ internal static class PdfColorSpaces
 /// </param>
 /// <param name="Decode">
 /// The validated `/Decode` array as component pairs in [0, 1], or null where the
-/// image uses the default mapping. Only the device spaces carry one: an
-/// <see cref="PdfSampleSpace.Indexed"/> image with a non-default `/Decode` remaps
-/// indices, which is a different operation and is refused rather than
-/// half-applied.
+/// image uses the default mapping. Only the device and ICC-based spaces carry
+/// one: an <see cref="PdfSampleSpace.Indexed"/> image with a non-default
+/// `/Decode` remaps indices, which is a different operation and is refused
+/// rather than half-applied.
+/// </param>
+/// <param name="Transform">
+/// For <see cref="PdfSampleSpace.Profile"/>, the conversion the profile's
+/// composed reader built; null for every other space.
 /// </param>
 internal readonly record struct PdfSampleFormat(
     int Width,
@@ -76,10 +87,19 @@ internal readonly record struct PdfSampleFormat(
     int BitsPerComponent,
     PdfSampleSpace Space,
     byte[]? Palette,
-    double[]? Decode)
+    double[]? Decode,
+    PdfColorTransform? Transform = null)
 {
-    /// <summary>Components per sample: one for gray and indexed, three for RGB.</summary>
-    public int Components => Space == PdfSampleSpace.Rgb ? 3 : 1;
+    /// <summary>
+    /// Components per sample: one for gray and indexed, three for RGB, and the
+    /// profile's own count for an ICC-based space.
+    /// </summary>
+    public int Components => Space switch
+    {
+        PdfSampleSpace.Rgb => 3,
+        PdfSampleSpace.Profile => Transform!.Components,
+        _ => 1,
+    };
 
     /// <summary>
     /// The bytes a decode of this image must produce. Each row is packed at the
@@ -137,8 +157,11 @@ internal static class PdfImageSamples
 
         byte[] rgba = new byte[pixels * BPixelBuffer.BytesPerPixel];
         int maximum = (1 << format.BitsPerComponent) - 1;
-        long stride = (((long)format.Width * format.Components * format.BitsPerComponent) + 7) / 8;
+        int components = format.Components;
+        long stride = (((long)format.Width * components * format.BitsPerComponent) + 7) / 8;
         int output = 0;
+        Span<double> levels = stackalloc double[4];
+        Span<byte> rgb = stackalloc byte[3];
 
         for (int y = 0; y < format.Height; y++)
         {
@@ -175,6 +198,28 @@ internal static class PdfImageSamples
                             InRange(colourKey, 0, samples[at]) &&
                             InRange(colourKey, 1, samples[at + 1]) &&
                             InRange(colourKey, 2, samples[at + 2]);
+                        break;
+                    }
+
+                    case PdfSampleSpace.Profile:
+                    {
+                        // One component may be packed below a byte; three and
+                        // four are eight bits each, side by side.
+                        keyed = colourKey is not null;
+                        for (int c = 0; c < components; c++)
+                        {
+                            int raw = components == 1
+                                ? Sample(samples, row, x, format.BitsPerComponent)
+                                : samples[row + ((long)x * components) + c];
+
+                            levels[c] = Level(raw, maximum, format.Decode, c);
+                            keyed = keyed && InRange(colourKey!, c, raw);
+                        }
+
+                        format.Transform!.ToRgb(levels[..components], rgb);
+                        rgba[output] = rgb[0];
+                        rgba[output + 1] = rgb[1];
+                        rgba[output + 2] = rgb[2];
                         break;
                     }
 
@@ -235,6 +280,17 @@ internal static class PdfImageSamples
     /// </summary>
     private static byte Component(int raw, int maximum, double[]? decode, int component)
     {
+        double eight = Level(raw, maximum, decode, component) * 255;
+        return eight <= 0 ? (byte)0 : eight >= 255 ? (byte)255 : (byte)Math.Round(eight, MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>
+    /// One component as a level in [0, 1] - the raw sample normalized, and mapped
+    /// onto the `/Decode` interval where the image states one - which is what a
+    /// colour conversion takes in.
+    /// </summary>
+    private static double Level(int raw, int maximum, double[]? decode, int component)
+    {
         double value = (double)raw / maximum;
 
         if (decode is not null)
@@ -244,7 +300,6 @@ internal static class PdfImageSamples
             value = min + (value * (max - min));
         }
 
-        double eight = value * 255;
-        return eight <= 0 ? (byte)0 : eight >= 255 ? (byte)255 : (byte)Math.Round(eight, MidpointRounding.AwayFromZero);
+        return value <= 0 ? 0 : value >= 1 ? 1 : value;
     }
 }

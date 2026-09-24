@@ -233,7 +233,10 @@ is authoritative for that boundary.
   build cannot decode or that contradicts the format, a colour space or depth
   outside the subset, an Indexed image that remaps its own indices, samples
   that do not fill the declaration - is named by the construct met rather than
-  reported as a bare count. An image also states its own decoded size, which raises the filter
+  reported as a bare count. Since the same day an image in an `ICCBased` space
+  converts to sRGB where a colour-profile reader is composed (IP-024;
+  `IccColorProfileReader` in `Broiler.Documents.Pdf.Images`), and is refused by
+  name where none is. An image also states its own decoded size, which raises the filter
   stage's expansion ceiling to it — a uniform mask compresses far past any ratio
   a guess allows, and the guess is what refused the flattest masks as
   decompression bombs; the absolute byte ceilings are unchanged and still
@@ -1379,6 +1382,16 @@ to `Broiler.Media.Image.Managed`.
   project reviewer made the decision on the card that prompted it: a logo drawn
   on a colour-keyed ground was refused, because carrying it opaque would have
   put it on a solid box.
+  **Decided 2026-09-24 (IP-024): ICCBased converts through a composed reader.**
+  An ICC profile is read by `IccColorProfileReader` and the colour it describes
+  converted to sRGB - matrix and lookup-table profiles of versions 2 and 4 over
+  Gray, RGB, and CMYK, connecting in CIEXYZ or CIELAB, through the table the
+  rendering intent selects - for raw samples, Indexed palettes, and pictures a
+  composed codec decoded. The base build keeps refusing an ICC-based image of
+  raw samples by name. No profile ships, so the old gate of profile licensing
+  does not arise; the colour-management ownership question is answered by
+  composition, the reader living in the image satellite until it joins
+  `Broiler.Media`.
 - Before placing bytes or pixels in the model, evaluate `ExtractToModel` and add
   the stable resource identity and decision to the conversion context. Without
   permission, do not construct `InlineImage`; omit the resource and emit a stable
@@ -2014,7 +2027,8 @@ Treat these as separately approved roadmaps:
    integrity from identity/trust and never claim that a signature is legally
    valid.
 6. Four-component CMYK/YCCK JPEG decode/transcode and advanced color/ICC support
-   in Media/Graphics, with the T.81 register rechecked; the source, rights,
+   in Media/Graphics - ICC-based input conversion for PDF images is implemented
+   under IP-024 in `Broiler.Documents.Pdf.Images` and is the part to move - with the T.81 register rechecked; the source, rights,
    provenance, and Adobe-license scope of the already reviewed V1 APP14/
    `ColorTransform` rules rechecked for four-component conversion and Adobe
    Technical Note #5116; [ISO/IEC 10918-6](https://www.iso.org/standard/59634.html)

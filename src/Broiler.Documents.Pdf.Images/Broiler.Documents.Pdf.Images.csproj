@@ -9,7 +9,7 @@
     <RootNamespace>Broiler.Documents.Pdf.Images</RootNamespace>
     <AssemblyName>Broiler.Documents.Pdf.Images</AssemblyName>
     <PackageId>Broiler.Documents.Pdf.Images</PackageId>
-    <Description>Composable PDF image-filter implementations. Adapts the Broiler.Media managed image codecs to the Broiler.Documents.Pdf filter extension point; nothing here is composed by default.</Description>
+    <Description>Composable PDF image-filter implementations and an ICC colour-profile reader. Adapts the Broiler.Media managed image codecs to the Broiler.Documents.Pdf filter extension point and converts ICC-based colour to sRGB; nothing here is composed by default.</Description>
     <!--
       Ship the optional image filters as a preview package. Filter support claims
       remain governed by the IP/licensing register and PDF support roadmap §4.1.

@@ -1,7 +1,7 @@
 # PDF Support Feature Matrix
 
 **Version:** 1.11 (evidence-based register standard)  
-**Updated:** 2026-09-03 (JPEG 2000 decoding; pending provenance rows)  
+**Updated:** 2026-09-24 (masks carried as alpha; ICC-based colour through a composed reader)  
 **Authority:** This matrix defines claims; the roadmap defines planned work.
 
 Status values are `Planned`, `Candidate`, `Supported`, `Rejected`, and
@@ -13,10 +13,10 @@ terms worth reading before treating any word here as a guarantee.
 
 `Broiler.Documents.Pdf` now exists and implements the base slice described in
 [roadmap §2.5](pdf-support-roadmap.md#25-current-implementation-state). **No
-entry is `Supported`.** Thirteen register rows are now approved: IP-001, the row
+entry is `Supported`.** Fourteen register rows are now approved: IP-001, the row
 under every construct this codec implements; every filter and codec row (IP-004
-through IP-010 and IP-012); and the provenance and naming rows IP-011, IP-013,
-IP-014, and IP-018. What remains is listed in the register's
+through IP-010 and IP-012); the provenance and naming rows IP-011, IP-013,
+IP-014, and IP-018; and IP-024, for ICC-based colour. What remains is listed in the register's
 [what still blocks a support claim](pdf-ip-licensing-register.md#what-still-blocks-a-support-claim):
 SRC-017, the transcription question that reproducing ITU-T T.4's code tables
 raised and that SRC-018 and SRC-019 defer to; SRC-016, adjacent to it rather than
@@ -60,6 +60,7 @@ is pending.
 | JPXDecode / JPEG 2000 Part 1: codestream recognized and reported | Implemented as a composed reader | Candidate | Reject | No | No | No | No | Caller-composed reader; never in the default graph | IP-007 approved for Part 1 2026-09-01 | `pdf.filter.jpx.unsupported` with the tuple |
 | JPXDecode / JPEG 2000 Part 1: decoding, for one tile, default precincts and the LRCP/RPCL progressions | Implemented as a composed decoder; **no real image has been decoded through it** | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-007 approved; the EBCOT context tables are **pending** in SRC-018 | `pdf.filter.jpx.unsupported` naming the construct refused |
 | JPXDecode / JPEG 2000 Part 2 extensions | Detect/skip | Detect/skip | Reject | No | No | No | No | None | Outside IP-007; refused by `Rsiz` | `pdf.filter.jpx.unsupported` |
+| ICC profiles in `ICCBased` colour spaces: versions 2 and 4; Gray, RGB, and CMYK; matrix/TRC and `lut8Type`/`lut16Type`/`lutAToBType`; CIEXYZ or CIELAB connection; the four rendering intents; converted to sRGB | Implemented as a composed reader | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed reader; never in the default graph | IP-024 approved 2026-09-24; SRC-022, SRC-023 | `pdf.image.decoded-not-projected` naming the colour space, or the construct the reader declined |
 | JBIG2Decode: segment structure, generic regions coded with MMR or arithmetically, and arithmetic symbol dictionaries, text regions and refinement | Implemented as a composed filter; **no real image has been decoded through it** | Candidate | Reject | Candidate | No | No | Candidate | Caller-composed decoder; never in the default graph | IP-008 approved 2026-09-01; the MQ probability table is **pending** in SRC-019 | `pdf.image.decoded-not-projected` |
 | JBIG2Decode: halftone regions, aggregate symbol coding, the intermediate regions, and every Huffman-coded form | Detect/skip with the construct named | Detect/skip | Reject | Later | No | No | No | None | IP-008 approved; the gap is their own decoders rather than a clearance | `pdf.filter.jbig2.unsupported` |
 | Standard 14 font-name/metric handling | Implemented (approximate metrics; Extension for real ones) | Plan | Plan | — | — | No | Yes | Deterministic approved data only | IP-012 approved for inspection; metric data pending | `pdf.font.standard14.unavailable` |
@@ -118,7 +119,7 @@ is pending.
 | JBIG2Decode | Candidate for generic, symbol, text and refinement regions; Post-V1 for the rest | Composed filter decodes generic regions under both coding methods, arithmetic symbol dictionaries with the text regions that draw from them, and refinement in all three places it may appear; every other segment type is reported. **No real image has been decoded through it** | Patent row cleared; the MQ probability table is pending in SRC-019, the halftone regions, aggregate coding and the Huffman-coded forms are outstanding, and the security review still applies |
 | Raw image samples into the model: DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded DeviceGray/DeviceRGB palette, with validated `/Decode` | Candidate | Implemented; decoded samples are normalized to RGBA and admitted through the resource policy. Anything outside the tuple is refused by the reason met | Roadmap §9.3's approved subset; per-tuple projection tests |
 | Image masks / soft masks | Candidate | **Carried as alpha** since roadmap §9.3 added them to the approved tuple on 2026-09-24; nothing is composited, because the model holds straight-alpha RGBA and whoever draws the picture blends it. A **stencil** (`/ImageMask`) is painted in the fill colour in force when it is drawn, through its one-bit shape. A **colour-key** `/Mask` makes the pixels whose stored samples - before `/Decode`, and the index of an Indexed image - fall in its ranges transparent, which is how a logo keys out its ground. An **explicit** `/Mask` and an **`/SMask`** are pictures of their own, decoded through the same pipeline and budget as any image and mapped onto the picture's unit square whatever their own size; a soft mask's samples, through its own `/Decode`, are the alpha, and its `/Matte` is undone over DeviceGray and DeviceRGB pictures so a soft edge carries no fringe of the matte. A soft mask outranks `/Mask`. Refused by name: a stencil painted with a pattern, a matte over an indexed picture, a soft mask outside DeviceGray or declared as a stencil, and a mask whose filter is not composed, will not decode, or does not fill its declaration | IP-001; roadmap §9.3, decided by the project reviewer |
-| ICCBased color | Candidate | Not reached; refused by name with the family it declared | Color-management ownership and profile licensing |
+| ICCBased color | Candidate | **Converted where a colour-profile reader is composed**: `IccColorProfileReader` (`Broiler.Documents.Pdf.Images`) reads the profile the space carries and converts to sRGB - a matrix profile through its colorants and tone curves, a table profile through the `A2B` table its rendering intent selects (`A2B0` standing in for one it leaves out), connecting in CIEXYZ or CIELAB, for Gray, RGB, and CMYK. The intent is the image's own `/Intent`, else the graphics state's from `ri` or `/RI`. An Indexed palette over an ICC-based base is converted entry by entry, and a picture a composed codec decoded is converted after it. A picture tagged with an sRGB profile comes back as it was stored. Declined by name: device links, abstract and named-colour profiles, version 5, other colour spaces, tables of more than four inputs, a `/Range` other than the default, and any structure past the profile's bytes. **Without a composed reader**, an ICC-based picture of raw samples is refused as before - its colours are unstated - while one a codec decoded keeps the codec's colours, the space's alternate. No profile is bundled | IP-024 approved 2026-09-24; SRC-022, SRC-023 |
 
 ## Text, fonts, and scripts
 

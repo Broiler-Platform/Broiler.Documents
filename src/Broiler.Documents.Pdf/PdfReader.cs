@@ -74,6 +74,7 @@ internal static class PdfReader
         var pipeline = new PdfFilterPipeline(services.StreamFilters, cancellationToken);
         PdfObjectStore? store = PdfObjectStore.Load(data, budget, diagnostics, pipeline);
         store?.FontProgramReader = services.FontProgramReader;
+        store?.ColorProfileReader = services.ColorProfileReader;
         if (store is null)
         {
             diagnostics.Error(PdfDiagnosticCodes.HeaderMissing, "The input does not begin with a PDF header.");

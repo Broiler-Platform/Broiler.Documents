@@ -80,6 +80,10 @@ internal sealed class PdfContentInterpreter(
     private readonly PdfObjectStore _store = store ?? throw new ArgumentNullException(nameof(store));
     private readonly List<PdfTextFragment> _fragments = [];
     private readonly Dictionary<PdfDictionary, PdfFont> _fontCache = [];
+
+    // One conversion per profile and intent, built once however many images
+    // name it - and one refusal, so a profile that failed is not read again.
+    private readonly Dictionary<(PdfStream Profile, PdfRenderingIntent Intent), (PdfColorTransform? Transform, string Refusal)> _colorTransforms = [];
     private readonly HashSet<PdfDictionary> _activeForms = [];
 
     private readonly Stack<GraphicsState> _stack = new();
@@ -390,6 +394,10 @@ internal sealed class PdfContentInterpreter(
                     break;
                 case "gs":
                     ApplyGraphicsStateParameters(operands, resources);
+                    break;
+                case "ri":
+                    if (operands.Count > 0 && operands[^1] is PdfName intent)
+                        _state = _state.WithRenderingIntent(IntentNamed(intent.Value));
                     break;
 
                 // Text objects.
@@ -1334,8 +1342,9 @@ internal sealed class PdfContentInterpreter(
     }
 
     /// <summary>
-    /// Applies the one entry of a named graphics-state dictionary this
-    /// interpreter tracks and <c>gs</c> can set: the line width, <c>/LW</c>.
+    /// Applies the entries of a named graphics-state dictionary this interpreter
+    /// tracks and <c>gs</c> can set: the line width, <c>/LW</c>, and the
+    /// rendering intent, <c>/RI</c>.
     /// </summary>
     private void ApplyGraphicsStateParameters(List<PdfObject> operands, PdfDictionary? resources)
     {
@@ -1350,7 +1359,22 @@ internal sealed class PdfContentInterpreter(
 
         if (_store.Resolve(parameters["LW"]) is PdfNumber width)
             _state = _state.WithLineWidth(width.Value);
+
+        if (_store.Resolve(parameters["RI"]) is PdfName intent)
+            _state = _state.WithRenderingIntent(IntentNamed(intent.Value));
     }
+
+    /// <summary>
+    /// The rendering intent a name selects. PDF 32000-1 8.6.5.8 has a reader
+    /// treat a name it does not recognize as relative colorimetric.
+    /// </summary>
+    private static PdfRenderingIntent IntentNamed(string name) => name switch
+    {
+        "AbsoluteColorimetric" => PdfRenderingIntent.AbsoluteColorimetric,
+        "Saturation" => PdfRenderingIntent.Saturation,
+        "Perceptual" => PdfRenderingIntent.Perceptual,
+        _ => PdfRenderingIntent.RelativeColorimetric,
+    };
 
     /// <summary>
     /// Reports one character code that could not be mapped. Every one is
@@ -1747,7 +1771,8 @@ internal sealed class PdfContentInterpreter(
             BColor color,
             BColor strokeColor,
             double lineWidth,
-            bool fillIsPattern = false)
+            bool fillIsPattern = false,
+            PdfRenderingIntent renderingIntent = PdfRenderingIntent.RelativeColorimetric)
         {
             Matrix = matrix;
             Font = font;
@@ -1762,6 +1787,7 @@ internal sealed class PdfContentInterpreter(
             StrokeColor = strokeColor;
             LineWidth = lineWidth;
             FillIsPattern = fillIsPattern;
+            RenderingIntent = renderingIntent;
         }
 
         /// <summary>The format's initial state: black for both colours, and a one-unit pen.</summary>
@@ -1803,44 +1829,53 @@ internal sealed class PdfContentInterpreter(
         /// </summary>
         public bool FillIsPattern { get; }
 
+        /// <summary>
+        /// The rendering intent <c>ri</c> or a graphics state's <c>/RI</c> set,
+        /// which chooses the table an ICC profile converts through.
+        /// </summary>
+        public PdfRenderingIntent RenderingIntent { get; }
+
         public GraphicsState WithMatrix(PdfMatrix matrix) => matrix.IsFinite
-            ? new GraphicsState(matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern)
+            ? new GraphicsState(matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent)
             : this;
 
         public GraphicsState WithFont(PdfFont font, double size) =>
-            new(Matrix, font, double.IsFinite(size) ? size : 0, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
+            new(Matrix, font, double.IsFinite(size) ? size : 0, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
 
         public GraphicsState WithCharSpacing(double value) =>
-            new(Matrix, Font, FontSize, Finite(value), WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
+            new(Matrix, Font, FontSize, Finite(value), WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
 
         public GraphicsState WithWordSpacing(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, Finite(value), HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
+            new(Matrix, Font, FontSize, CharSpacing, Finite(value), HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
 
         public GraphicsState WithHorizontalScale(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, value is > 0 and < 100 ? value : 1, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, value is > 0 and < 100 ? value : 1, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
 
         public GraphicsState WithLeading(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Finite(value), Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Finite(value), Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
 
         public GraphicsState WithRise(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Finite(value), RenderMode, Color, StrokeColor, LineWidth, FillIsPattern);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Finite(value), RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
 
         public GraphicsState WithRenderMode(int value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, value is >= 0 and <= 7 ? value : 0, Color, StrokeColor, LineWidth, FillIsPattern);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, value is >= 0 and <= 7 ? value : 0, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
 
         public GraphicsState WithColor(BColor value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value, StrokeColor, LineWidth);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value, StrokeColor, LineWidth, false, RenderingIntent);
 
         /// <summary>A fill naming a pattern, with whatever components came with the name.</summary>
         public GraphicsState WithPatternFill(BColor value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value, StrokeColor, LineWidth, fillIsPattern: true);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value, StrokeColor, LineWidth, true, RenderingIntent);
 
         public GraphicsState WithStrokeColor(BColor value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, value, LineWidth, FillIsPattern);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, value, LineWidth, FillIsPattern, RenderingIntent);
+
+        public GraphicsState WithRenderingIntent(PdfRenderingIntent value) =>
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, value);
 
         /// <summary>A negative or non-finite width is malformed, and the pen keeps its current width.</summary>
         public GraphicsState WithLineWidth(double value) => double.IsFinite(value) && value >= 0
-            ? new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, value, FillIsPattern)
+            ? new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, value, FillIsPattern, RenderingIntent)
             : this;
 
         private static double Finite(double value) => double.IsFinite(value) ? value : 0;
@@ -2063,6 +2098,13 @@ internal sealed class PdfContentInterpreter(
             // three channels, so a key is matched against the channels it names.
             rgba = samples;
             matteComponents = DeviceComponents(dictionary, resources);
+
+            // Colour in an ICC-based space's own values, which the profile
+            // converts where a reader is composed. Without one the codec's
+            // colours stand as they always have: the space's alternate, which
+            // is what PDF 32000-1 8.6.5.5 has a reader without profiles use.
+            if (!TryConvertCodecPixels(dictionary, resources, rgba, out refusal))
+                return null;
 
             if (mask is PdfArray keyArray &&
                 !(keyArray.Count is 2 or 6 && TryColourKey(keyArray, keyArray.Count / 2, 8, out int[]? codecKey) && ApplyColourKey(codecKey!, rgba)))
@@ -2455,6 +2497,152 @@ internal sealed class PdfContentInterpreter(
         };
 
     /// <summary>
+    /// Converts a codec's pixels through the profile of the ICC-based space the
+    /// image names, where a reader is composed; false with the reason where the
+    /// profile was declined, since its colours are then unstated.
+    /// </summary>
+    private bool TryConvertCodecPixels(PdfDictionary dictionary, PdfDictionary? resources, byte[] rgba, out string? refusal)
+    {
+        refusal = null;
+        PdfObject? space = ResolveColorSpace(dictionary["ColorSpace"], resources);
+        if (_store.ColorProfileReader is null || ColorSpaceFamily(space) != "ICCBased")
+            return true;
+
+        if (!TryColorTransform(space, IntentFor(dictionary), out PdfColorTransform? transform, out string reason))
+        {
+            refusal = reason;
+            return false;
+        }
+
+        // A codec hands back one component as gray in every channel, or three.
+        int components = transform!.Components;
+        if (components is not (1 or 3))
+        {
+            refusal = "an ICC-based picture a codec decoded to fewer components than its profile converts";
+            return false;
+        }
+
+        Span<double> levels = stackalloc double[3];
+        for (int at = 0; at < rgba.Length; at += BPixelBuffer.BytesPerPixel)
+        {
+            for (int c = 0; c < components; c++)
+                levels[c] = rgba[at + c] / 255d;
+
+            transform.ToRgb(levels[..components], rgba.AsSpan(at, 3));
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The rendering intent an image is drawn with: its own <c>/Intent</c>
+    /// where it states one, and otherwise the graphics state's.
+    /// </summary>
+    private PdfRenderingIntent IntentFor(PdfDictionary dictionary) =>
+        _store.Resolve(dictionary["Intent"]) is PdfName intent ? IntentNamed(intent.Value) : _state.RenderingIntent;
+
+    /// <summary>
+    /// The conversion an <c>[/ICCBased stream]</c> space's profile describes,
+    /// built by the composed reader once per profile and intent, or false with
+    /// the reason.
+    /// </summary>
+    private bool TryColorTransform(PdfObject? space, PdfRenderingIntent intent, out PdfColorTransform? transform, out string refusal)
+    {
+        transform = null;
+        if (space is not PdfArray array || array.Count < 2 || _store.Resolve(array[1]) is not PdfStream profile)
+        {
+            refusal = "an ICC-based colour space with no profile";
+            return false;
+        }
+
+        if (!_colorTransforms.TryGetValue((profile, intent), out (PdfColorTransform? Transform, string Refusal) built))
+        {
+            built = BuildColorTransform(profile, intent);
+            _colorTransforms[(profile, intent)] = built;
+        }
+
+        transform = built.Transform;
+        refusal = built.Refusal;
+        return transform is not null;
+    }
+
+    /// <summary>
+    /// Reads one profile through the composed reader. The profile is decoded
+    /// through the same pipeline and budget as any stream, bounded by
+    /// <see cref="PdfLimits.MaxColorProfileBytes"/>, and a reader that faults
+    /// costs the images that name the profile rather than the document.
+    /// </summary>
+    private (PdfColorTransform? Transform, string Refusal) BuildColorTransform(PdfStream profile, PdfRenderingIntent intent)
+    {
+        PdfDictionary dictionary = profile.Dictionary;
+        int components = Integer(dictionary, "N", "N");
+        if (components is not (1 or 3 or 4))
+            return (null, "an ICC-based colour space whose component count this build does not convert");
+
+        // /Range reinterprets the components before the profile sees them,
+        // which the default leaves alone and anything else would need applying.
+        if (_store.Resolve(dictionary["Range"]) is PdfArray range && !IsUnitRange(range, components))
+            return (null, "an ICC-based colour space with a Range other than the default");
+
+        if (_store.ColorProfileReader is not IPdfColorProfileReader reader)
+            return (null, "the colour space ICCBased, whose profile no composed reader converts");
+
+        PdfStreamDecodeResult decoded;
+        try
+        {
+            decoded = _store.Filters.Decode(profile, _store.Resolve, _store.Budget);
+        }
+        catch (PdfLimitExceededException)
+        {
+            return (null, "an ICC profile past the read's remaining allowance");
+        }
+
+        if (!decoded.Succeeded || decoded.Data is not { } bytes)
+            return (null, "an ICC profile that could not be decoded");
+
+        long ceiling = _store.Budget.Limits.MaxColorProfileBytes;
+        if (bytes.LongLength > ceiling)
+            return (null, "an ICC profile past the size a reader is handed");
+
+        try
+        {
+            PdfColorTransform? transform = reader.Read(
+                bytes, components, intent, new PdfColorProfileContext(ceiling, _store.Budget.Cancellation), out string? declined);
+
+            if (transform is null)
+            {
+                return (null, declined is { Length: > 0 }
+                    ? "an ICC profile the composed reader declined (" + declined + ")"
+                    : "an ICC profile the composed reader declined");
+            }
+
+            if (transform.Components != components)
+                return (null, "an ICC profile whose conversion does not take the components the space declares");
+
+            return (transform, string.Empty);
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or StackOverflowException or OperationCanceledException))
+        {
+            return (null, "an ICC profile the composed reader failed on");
+        }
+    }
+
+    /// <summary>Whether a <c>/Range</c> array is [0 1] for every component.</summary>
+    private bool IsUnitRange(PdfArray range, int components)
+    {
+        if (range.Count != components * 2)
+            return false;
+
+        for (int i = 0; i < range.Count; i++)
+        {
+            if (_store.Resolve(range[i]) is not PdfNumber number || number.Value != (i % 2 == 0 ? 0 : 1))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// A decoded mask's samples, read as levels in [0, 1]: packed at their own
     /// depth, or the first channel of a codec's pixels.
     /// </summary>
@@ -2514,6 +2702,7 @@ internal sealed class PdfContentInterpreter(
 
         PdfObject? space = ResolveColorSpace(dictionary["ColorSpace"], resources);
         string family = ColorSpaceFamily(space);
+        PdfRenderingIntent intent = IntentFor(dictionary);
 
         switch (family)
         {
@@ -2543,8 +2732,27 @@ internal sealed class PdfContentInterpreter(
                 format = new PdfSampleFormat(shape.Width, shape.Height, bits, PdfSampleSpace.Rgb, null, rgb);
                 return true;
 
+            case "ICCBased":
+                if (!TryColorTransform(space, intent, out PdfColorTransform? transform, out refusal))
+                    return false;
+
+                if (transform!.Components != 1 && bits != 8)
+                {
+                    refusal = "an ICC-based image of several components at a depth other than eight bits";
+                    return false;
+                }
+
+                if (!TryDecodeArray(dictionary, components: transform.Components, upper: 1, out double[]? profileDecode))
+                {
+                    refusal = "a Decode array outside the range the format allows";
+                    return false;
+                }
+
+                format = new PdfSampleFormat(shape.Width, shape.Height, bits, PdfSampleSpace.Profile, null, profileDecode, transform);
+                return true;
+
             case "Indexed":
-                if (space is not PdfArray indexed || !TryPalette(indexed, out byte[]? palette, out refusal))
+                if (space is not PdfArray indexed || !TryPalette(indexed, intent, out byte[]? palette, out refusal))
                 {
                     if (refusal.Length == 0)
                         refusal = "an Indexed colour space this build cannot read";
@@ -2652,7 +2860,7 @@ internal sealed class PdfContentInterpreter(
     /// The palette of an <c>[/Indexed base hival lookup]</c> space, expanded to
     /// RGB triples so the projection needs no second branch for a gray base.
     /// </summary>
-    private bool TryPalette(PdfArray space, out byte[]? palette, out string refusal)
+    private bool TryPalette(PdfArray space, PdfRenderingIntent intent, out byte[]? palette, out string refusal)
     {
         palette = null;
         refusal = string.Empty;
@@ -2663,12 +2871,20 @@ internal sealed class PdfContentInterpreter(
             return false;
         }
 
-        int components = ColorSpaceFamily(_store.Resolve(space[1])) switch
+        // An ICC-based base converts each entry once, here, so the lookup that
+        // follows is the same one a device palette gets.
+        PdfObject? baseSpace = _store.Resolve(space[1]);
+        PdfColorTransform? transform = null;
+        int components = ColorSpaceFamily(baseSpace) switch
         {
             "DeviceGray" => 1,
             "DeviceRGB" => 3,
+            "ICCBased" => TryColorTransform(baseSpace, intent, out transform, out refusal) ? transform!.Components : -1,
             _ => 0,
         };
+
+        if (components < 0)
+            return false;
 
         if (components == 0)
         {
@@ -2700,6 +2916,20 @@ internal sealed class PdfContentInterpreter(
         }
 
         palette = new byte[entries * 3];
+        if (transform is not null)
+        {
+            Span<double> levels = stackalloc double[4];
+            for (int i = 0; i < entries; i++)
+            {
+                for (int c = 0; c < components; c++)
+                    levels[c] = lookup[(i * components) + c] / 255d;
+
+                transform.ToRgb(levels[..components], palette.AsSpan(i * 3, 3));
+            }
+
+            return true;
+        }
+
         for (int i = 0; i < entries; i++)
         {
             int at = i * 3;
