@@ -78,21 +78,45 @@ internal static class PdfModelProjector
         // text. The model has no anchoring for an inline picture at a page
         // coordinate, and pretending an image belongs to whichever line happens
         // to be nearest would state a relationship the page never expressed.
-        // Ordering by the top edge puts each one where a reader meets it.
+        // Ordering by the top edge puts each one where a reader meets it - within
+        // the column it was drawn in, where the page was read column by column.
         var pending = new List<PdfPlacedImage>(images);
         pending.Sort(static (left, right) => right.Top.CompareTo(left.Top));
-        int nextImage = 0;
+        PdfTextColumn?[] drawnIn = PictureColumns(lines, pending);
+        var placed = new bool[pending.Count];
+        int first = 0;
 
         // Grouped first and emitted after, because whether a numbered line is a
         // list item depends on the paragraphs that follow it.
         var items = new List<Item>();
 
-        void FlushImagesAbove(double baseline)
+        void Place(int picture)
         {
-            while (nextImage < pending.Count && pending[nextImage].Top >= baseline)
+            items.Add(new Item(null, pending[picture]));
+            placed[picture] = true;
+            while (first < pending.Count && placed[first])
+                first++;
+        }
+
+        // The pictures drawn above a line that may stand before it: those drawn
+        // in its column, and those drawn in none. Top first, so the scan stops at
+        // the first picture below the line.
+        void FlushAbove(double baseline, PdfTextColumn? column)
+        {
+            for (int i = first; i < pending.Count && pending[i].Top >= baseline; i++)
             {
-                items.Add(new Item(null, pending[nextImage]));
-                nextImage++;
+                if (!placed[i] && (drawnIn[i] is null || drawnIn[i] == column))
+                    Place(i);
+            }
+        }
+
+        // What is left of one column's pictures, or of all of them.
+        void FlushRest(PdfTextColumn? column)
+        {
+            for (int i = first; i < pending.Count; i++)
+            {
+                if (!placed[i] && (column is null || drawnIn[i] == column))
+                    Place(i);
             }
         }
 
@@ -122,9 +146,17 @@ internal static class PdfModelProjector
 
             // Anything drawn above this line belongs before it, and a paragraph
             // is only complete once the lines that follow it are known - so the
-            // flush happens at the boundary rather than mid-paragraph.
+            // flush happens at the boundary rather than mid-paragraph. A picture
+            // drawn in another column waits for that column's lines, and what is
+            // left of a column's pictures when its lines end sits below the last
+            // of them, so it closes the column.
             if (pendingLines.Count == 0)
-                FlushImagesAbove(line.Baseline);
+            {
+                if (previous?.Column is { } finished && finished != line.Column)
+                    FlushRest(finished);
+
+                FlushAbove(line.Baseline, line.Column);
+            }
 
             rowRight = previous is not null && SameRow(previous, line) ? Math.Max(rowRight, line.Right) : line.Right;
             pendingLines.Add(line);
@@ -137,7 +169,7 @@ internal static class PdfModelProjector
 
         // Whatever sits below the last line, and every image on a page with no
         // text at all.
-        FlushImagesAbove(double.NegativeInfinity);
+        FlushRest(null);
 
         ListKind[] lists = ConfirmLists(items);
         for (int i = 0; i < items.Count; i++)
@@ -167,6 +199,46 @@ internal static class PdfModelProjector
 
     /// <summary>One paragraph's worth of lines, or one picture: exactly one of the two is set.</summary>
     private readonly record struct Item(List<PdfTextLine>? Lines, PdfPlacedImage? Image);
+
+    /// <summary>
+    /// The column each picture was drawn in: the one whose band holds the whole
+    /// picture, where every line was read in a column and there are at least two.
+    /// Null for a picture across a gutter, which is placed among all the lines
+    /// by height as before, and for every picture on any other page.
+    /// </summary>
+    /// <remarks>
+    /// The reading runs a column to its foot before the next begins, so a
+    /// picture ordered by height alone meets the first column's lines first. A
+    /// voucher's logo at the head of its right-hand panel came out above the
+    /// left-hand column's heading, and the panel it heads came out a column
+    /// later.
+    /// </remarks>
+    private static PdfTextColumn?[] PictureColumns(IReadOnlyList<PdfTextLine> lines, List<PdfPlacedImage> pictures)
+    {
+        var drawnIn = new PdfTextColumn?[pictures.Count];
+        var columns = new List<PdfTextColumn>();
+
+        foreach (PdfTextLine line in lines)
+        {
+            if (line.IsBlank)
+                continue;
+            if (line.Column is null)
+                return drawnIn;
+            if (!columns.Contains(line.Column))
+                columns.Add(line.Column);
+        }
+
+        if (columns.Count < 2)
+            return drawnIn;
+
+        for (int i = 0; i < pictures.Count; i++)
+        {
+            PdfPlacedImage picture = pictures[i];
+            drawnIn[i] = columns.Find(column => column.Holds(picture.Left, picture.Left + picture.Width));
+        }
+
+        return drawnIn;
+    }
 
     /// <summary>
     /// One image as a paragraph: a single object replacement character carrying

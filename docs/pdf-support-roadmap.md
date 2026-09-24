@@ -168,8 +168,9 @@ is authoritative for that boundary.
   composite fonts through `Identity-H`, subset-prefix removal from structural
   metadata, deterministic geometric grouping into columns, lines and
   paragraphs - a narrow column kept whole where its lines keep their own
-  spacing beside the text, and a heading set close above smaller text kept
-  apart from it - list-marker recognition, and link annotations admitted by
+  spacing beside the text, a heading set close above smaller text kept
+  apart from it, and a picture read in the column it was drawn in -
+  list-marker recognition, and link annotations admitted by
   `PdfUriPolicy`.
 - Phase 4 for bare CFF font programs: a caller composing
   `Broiler.Documents.Pdf.Fonts` now recovers text from a composite font whose

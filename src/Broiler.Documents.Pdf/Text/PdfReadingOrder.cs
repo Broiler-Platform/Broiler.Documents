@@ -53,6 +53,13 @@ internal sealed class PdfTextLine(List<PdfTextSpan> spans, double left, double r
     /// </summary>
     public double DominantSize { get; init; }
 
+    /// <summary>
+    /// The column the line was read in, where the page was split into columns;
+    /// null where it was read as one - a single column, or an order the
+    /// document declared.
+    /// </summary>
+    public PdfTextColumn? Column { get; set; }
+
     public string Text
     {
         get
@@ -65,6 +72,22 @@ internal sealed class PdfTextLine(List<PdfTextSpan> spans, double left, double r
     }
 
     public bool IsBlank => Text.Trim().Length == 0;
+}
+
+/// <summary>
+/// The band of the page one column of text was read from: from the middle of
+/// the gutter on its left to the middle of the one on its right, and open at
+/// the page's edges.
+/// </summary>
+/// <remarks>
+/// A band rather than the extent of the column's lines, because the lines are
+/// what the reading kept: a stray run merged into a column from elsewhere on
+/// the page widens their extent, and moves no gutter.
+/// </remarks>
+internal sealed record PdfTextColumn(double Left, double Right)
+{
+    /// <summary>Whether a box from <paramref name="left"/> to <paramref name="right"/> lies wholly inside the band.</summary>
+    public bool Holds(double left, double right) => left >= Left && right <= Right;
 }
 
 /// <summary>
@@ -108,8 +131,14 @@ internal static class PdfReadingOrder
         if (fragments.Count == 0)
             return lines;
 
-        foreach (List<PdfTextFragment> column in SplitColumns(fragments))
-            lines.AddRange(BuildColumnLines(column, links));
+        foreach ((List<PdfTextFragment> runs, PdfTextColumn? column) in SplitColumns(fragments))
+        {
+            foreach (PdfTextLine line in BuildColumnLines(runs, links))
+            {
+                line.Column = column;
+                lines.Add(line);
+            }
+        }
 
         return lines;
     }
@@ -310,16 +339,17 @@ internal static class PdfReadingOrder
     }
 
     /// <summary>
-    /// Splits fragments into columns separated by a clear vertical gutter. A page
-    /// with no such gutter yields one column, which is the common case and costs
-    /// one histogram pass.
+    /// Splits fragments into columns separated by a clear vertical gutter, each
+    /// with the band of the page it was read from. A page with no such gutter
+    /// yields one column and no band, which is the common case and costs one
+    /// histogram pass.
     /// </summary>
-    private static List<List<PdfTextFragment>> SplitColumns(IReadOnlyList<PdfTextFragment> fragments)
+    private static List<(List<PdfTextFragment> Runs, PdfTextColumn? Column)> SplitColumns(IReadOnlyList<PdfTextFragment> fragments)
     {
-        var single = new List<List<PdfTextFragment>>();
+        var single = new List<(List<PdfTextFragment> Runs, PdfTextColumn? Column)>();
         if (fragments.Count < 20)
         {
-            single.Add([.. fragments]);
+            single.Add(([.. fragments], null));
             return single;
         }
 
@@ -333,14 +363,14 @@ internal static class PdfReadingOrder
 
         if (!double.IsFinite(minX) || !double.IsFinite(maxX) || maxX - minX < GutterWidth * 3)
         {
-            single.Add([.. fragments]);
+            single.Add(([.. fragments], null));
             return single;
         }
 
         int binCount = (int)Math.Ceiling(maxX - minX) + 1;
         if (binCount is <= 0 or > 20000)
         {
-            single.Add([.. fragments]);
+            single.Add(([.. fragments], null));
             return single;
         }
 
@@ -372,7 +402,7 @@ internal static class PdfReadingOrder
 
         if (boundaries.Count == 0)
         {
-            single.Add([.. fragments]);
+            single.Add(([.. fragments], null));
             return single;
         }
 
@@ -395,25 +425,30 @@ internal static class PdfReadingOrder
         // however little it holds.
         int threshold = (int)Math.Ceiling(fragments.Count * MinimumColumnShare);
         bool[] ownLines = ColumnsWithOwnLines(columns, threshold);
-        var kept = new List<List<PdfTextFragment>>();
+        var kept = new List<(List<PdfTextFragment> Runs, PdfTextColumn? Column)>();
         for (int i = 0; i < columns.Count; i++)
         {
             if (columns[i].Count >= threshold || ownLines[i])
-                kept.Add(columns[i]);
+            {
+                kept.Add((columns[i], new PdfTextColumn(
+                    i == 0 ? double.NegativeInfinity : boundaries[i - 1],
+                    i == boundaries.Count ? double.PositiveInfinity : boundaries[i])));
+            }
         }
 
         if (kept.Count < 2)
         {
-            single.Add([.. fragments]);
+            single.Add(([.. fragments], null));
             return single;
         }
 
-        // Anything filtered out still belongs somewhere: put it in the nearest kept column.
+        // Anything filtered out still belongs somewhere: put it in the nearest
+        // kept column. Its band stays where its gutters are.
         for (int i = 0; i < columns.Count; i++)
         {
             if (columns[i].Count >= threshold || ownLines[i] || columns[i].Count == 0)
                 continue;
-            kept[0].AddRange(columns[i]);
+            kept[0].Runs.AddRange(columns[i]);
         }
 
         return kept;
