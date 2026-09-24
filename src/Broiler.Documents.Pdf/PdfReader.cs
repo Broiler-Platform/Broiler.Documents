@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using Broiler.Documents.Model;
 using Broiler.Documents.Pdf.Filters;
+using Broiler.Documents.Pdf.Security;
 using Broiler.Documents.Pdf.Structure;
 using Broiler.Documents.Pdf.Syntax;
 using Broiler.Documents.Pdf.Text;
@@ -21,8 +22,10 @@ namespace Broiler.Documents.Pdf;
 /// The order of the first two steps is a security property, not a convenience.
 /// Encryption is decided from the trailers alone, before any object stream is
 /// resolved and before the Catalog, metadata, fonts, images, annotations, or
-/// content are touched, so an encrypted document is rejected without a single
-/// decrypt-dependent object having been interpreted (PDF roadmap §8.1).
+/// content are touched. An encrypted document is then opened - authenticated,
+/// and its permissions checked - before any of those are read, so one that
+/// cannot be opened, or may not be extracted from, is rejected without a single
+/// decrypt-dependent object having been interpreted (PDF roadmap §8.1, ADR 0015).
 /// </remarks>
 internal static class PdfReader
 {
@@ -82,12 +85,36 @@ internal static class PdfReader
         }
 
         // Security first, before any content-bearing object is resolved.
+        PdfEncryptionInfo? encryption = null;
         if (store.IsEncrypted)
         {
-            diagnostics.Error(
-                PdfDiagnosticCodes.EncryptionUnsupported,
-                "The document is encrypted. This release rejects encrypted input before interpreting any of its content, and reports nothing about the document or its password.");
-            return Rejected(diagnostics);
+            PdfSecurityResult security = PdfSecurity.Open(store, options.Credentials, services.RecipientDecryptor);
+            if (!security.IsOpen)
+            {
+                diagnostics.Error(security.Code!, security.Message!);
+                return Rejected(diagnostics);
+            }
+
+            encryption = security.Info!;
+            foreach ((string code, string message) in security.Warnings)
+                diagnostics.Warning(code, message);
+
+            // Everything this codec returns is extracted content - text, the
+            // model, what a render draws - so the one permission it has to
+            // honour itself is the one that governs extracting. The owner, and
+            // only the owner, may lift it.
+            if (!encryption.MayExtract)
+            {
+                diagnostics.Error(
+                    PdfDiagnosticCodes.EncryptionExtractionNotPermitted,
+                    "The document opened, and its permissions withhold copying and extracting its content, which is all this codec produces. Nothing was read; its owner password lifts the restriction.");
+                return Rejected(diagnostics, encryption);
+            }
+
+            diagnostics.Info(PdfDiagnosticCodes.EncryptionDecrypted, PdfSecurity.Describe(encryption));
+
+            store.Unlock(security.Decryptor!, security.EncryptionObject);
+            store.CompleteLoad();
         }
 
         if (store.Resolve(store.Trailer["Root"]) is not PdfDictionary catalog)
@@ -413,7 +440,10 @@ internal static class PdfReader
             pages.Count,
             extensions,
             diagnostics.Build(),
-            resources.Build());
+            resources.Build())
+        {
+            Encryption = encryption,
+        };
     }
 
     /// <summary>
@@ -960,7 +990,7 @@ internal static class PdfReader
         return text.ToString();
     }
 
-    private static PdfReadResult Rejected(PdfDiagnosticSink diagnostics) =>
+    private static PdfReadResult Rejected(PdfDiagnosticSink diagnostics, PdfEncryptionInfo? encryption = null) =>
         new(
             RichTextDocument.Empty,
             DocumentResultStatus.Rejected,
@@ -968,7 +998,10 @@ internal static class PdfReader
             PdfVersion.Unknown,
             0,
             [],
-            diagnostics.Build());
+            diagnostics.Build())
+        {
+            Encryption = encryption,
+        };
 
     /// <summary>
     /// Materializes a stream under the input budget. The ceiling is checked while

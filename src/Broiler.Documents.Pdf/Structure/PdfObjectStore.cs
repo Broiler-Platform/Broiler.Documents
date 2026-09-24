@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Broiler.Documents.Pdf.Filters;
+using Broiler.Documents.Pdf.Security;
 using Broiler.Documents.Pdf.Syntax;
 
 namespace Broiler.Documents.Pdf.Structure;
@@ -46,9 +47,13 @@ internal readonly struct PdfXrefEntry
 /// than implying it was preserved.
 /// </para>
 /// <para>
-/// Encryption is settled before any object is resolved: <see cref="IsEncrypted"/>
-/// is decided from the trailers alone, so a caller that rejects on it has done so
-/// before a single string, stream, or content operator was interpreted.
+/// Encryption is settled before any object is resolved. <see cref="Load"/>
+/// discovers the cross-reference data and decides <see cref="IsEncrypted"/> from
+/// the trailers alone; for an unencrypted file it then finishes loading, and for
+/// an encrypted one it stops there. Until the reader has opened the document
+/// with <see cref="Unlock"/>, nothing that could be ciphertext is resolved - not
+/// the Catalog, not an object stream, not a recovery scan's contents - and only
+/// then does <see cref="CompleteLoad"/> run (ADR 0015).
 /// </para>
 /// </remarks>
 internal sealed class PdfObjectStore
@@ -66,6 +71,18 @@ internal sealed class PdfObjectStore
     private readonly Dictionary<int, Dictionary<int, int>> _objectStreamIndex = [];
     private readonly Dictionary<int, byte[]> _objectStreamData = [];
     private readonly int _headerOffset;
+
+    /// <summary>The trailers the load found, newest first.</summary>
+    private List<PdfDictionary> _trailers = [];
+
+    /// <summary>True when the chain yielded no trailer and the ones in use were found by scanning.</summary>
+    private bool _trailersRecovered;
+
+    /// <summary>The decryptor every directly stored object passes through, once the document is open.</summary>
+    private PdfDecryptor? _decryptor;
+
+    /// <summary>The encryption dictionary's object number, which is never decrypted.</summary>
+    private int _encryptionObject = -1;
 
     private PdfObjectStore(
         byte[] data,
@@ -136,6 +153,11 @@ internal sealed class PdfObjectStore
     /// Loads the cross-reference data. Returns null only when the input has no
     /// usable header, which the caller reports as a rejected read.
     /// </summary>
+    /// <remarks>
+    /// An unencrypted file is fully loaded on return. An encrypted one is loaded
+    /// only as far as its trailers: the caller opens it, hands the decryptor to
+    /// <see cref="Unlock"/>, and then calls <see cref="CompleteLoad"/>.
+    /// </remarks>
     public static PdfObjectStore? Load(
         byte[] data,
         PdfWorkBudget budget,
@@ -153,7 +175,97 @@ internal sealed class PdfObjectStore
             HeaderVersion = PdfVersion.ParseHeader(data, headerOffset)
         };
         store.LoadXref();
+
+        // Nothing has to be settled before an unencrypted file's objects are
+        // read, so it finishes here. An encrypted one waits: every object in it
+        // might be ciphertext until the reader has opened it.
+        if (!store.IsEncrypted)
+            store.CompleteLoad();
+
         return store;
+    }
+
+    /// <summary>
+    /// Makes every object stored directly in the file pass through
+    /// <paramref name="decryptor"/> from now on, except the encryption
+    /// dictionary numbered <paramref name="encryptionObject"/>.
+    /// </summary>
+    /// <remarks>
+    /// Anything resolved before this point - the encryption dictionary itself, a
+    /// stream length read on the way - was read as it stands in the file, so
+    /// every cache is dropped here and those objects are read again, decrypted.
+    /// </remarks>
+    public void Unlock(PdfDecryptor decryptor, int encryptionObject)
+    {
+        ArgumentNullException.ThrowIfNull(decryptor);
+        _decryptor = decryptor;
+        _encryptionObject = encryptionObject;
+        _cache.Clear();
+        _objectStreamIndex.Clear();
+        _objectStreamData.Clear();
+    }
+
+    /// <summary>
+    /// Reads the encryption dictionary the trailer names, as it stands in the
+    /// file: the format encrypts none of its strings (ISO 32000-1 §7.6.1).
+    /// </summary>
+    /// <param name="objectNumber">
+    /// The dictionary's object number, or -1 when the trailer holds it directly.
+    /// </param>
+    /// <returns>The dictionary, or null when it cannot be read.</returns>
+    public PdfDictionary? ReadEncryptionDictionary(out int objectNumber)
+    {
+        objectNumber = -1;
+        switch (Trailer["Encrypt"])
+        {
+            case PdfDictionary direct:
+                return direct;
+
+            case PdfReference reference:
+                objectNumber = reference.ObjectNumber;
+
+                // Never out of an object stream. The format forbids storing it in
+                // one (§7.5.7), and one could not be read before the key it
+                // describes was known.
+                if (!_entries.TryGetValue(reference.ObjectNumber, out PdfXrefEntry entry) || entry.IsInObjectStream)
+                    return null;
+
+                return TryResolveObjectPosition(entry.Offset, out _, out _, out PdfObject? value)
+                    ? value as PdfDictionary
+                    : null;
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Finishes loading: checks that the trailer's Catalog resolves, recovering
+    /// by scanning when it does not, and expands the object streams a scan
+    /// found. For an encrypted file this runs after <see cref="Unlock"/>, so
+    /// every object it touches is decrypted.
+    /// </summary>
+    public void CompleteLoad()
+    {
+        if (WasRecovered)
+        {
+            // Offsets were already rebuilt while the trailer was looked for; the
+            // object streams among them are expanded now that they can be read.
+            ExpandObjectStreams();
+        }
+        else if (!HasUsableRoot(_trailers))
+        {
+            RecoverByScanning();
+        }
+
+        // A trailer found by scanning may not name the Catalog at all, and then
+        // the Catalog is found the same way - which may take an object stream
+        // expanded just above.
+        if (_trailersRecovered && Resolve(Trailer["Root"]) is not PdfDictionary { Count: > 0 } &&
+            FindCatalog() is { } catalog)
+        {
+            Trailer["Root"] = catalog;
+        }
     }
 
     // ---- cross-reference loading ---------------------------------------------
@@ -188,15 +300,32 @@ internal sealed class PdfObjectStore
 
         RevisionCount = trailers.Count;
 
-        if (trailers.Count == 0 || !HasUsableRoot(trailers))
+        if (trailers.Count == 0)
         {
-            RecoverByScanning();
-            if (trailers.Count == 0)
-                trailers.AddRange(RecoverTrailers());
+            // Nothing survived to say what the trailer said. The file is scanned
+            // for object headers and the trailer looked for among what was found
+            // - without resolving any of it, because until the trailer is known it
+            // is not known whether the objects are ciphertext.
+            ScanForObjects();
+            trailers.AddRange(RecoverTrailers());
+            _trailersRecovered = true;
         }
 
+        _trailers = trailers;
         Trailer = MergeTrailers(trailers);
-        IsEncrypted = Trailer.ContainsKey("Encrypt");
+        IsEncrypted |= Trailer.ContainsKey("Encrypt");
+
+        // A trailer rebuilt from a damaged file may have lost its /Encrypt
+        // entry, and reading on as if the file were not encrypted would present
+        // ciphertext as the document - exactly the weakening of detection ADR
+        // 0009 rules out. An object shaped like an encryption dictionary settles
+        // it, and is taken as the file's: authentication then either confirms it
+        // or refuses the file, so it cannot open the file wrongly.
+        if (!IsEncrypted && _trailersRecovered && FindEncryptionDictionary() is { } found)
+        {
+            IsEncrypted = true;
+            Trailer["Encrypt"] = found;
+        }
 
         if (RevisionCount > 1)
         {
@@ -319,8 +448,9 @@ internal sealed class PdfObjectStore
     {
         PdfDictionary dictionary = stream.Dictionary;
 
-        // Encryption is settled here, before the stream is decoded: an encrypted
-        // document must never reach a filter, an object stream, or the Catalog.
+        // Encryption is noted here, before the stream is decoded. The stream
+        // itself is never encrypted (§7.5.8), but everything it indexes may be,
+        // so none of that is resolved until the reader has opened the file.
         if (dictionary.ContainsKey("Encrypt"))
             IsEncrypted = true;
 
@@ -469,6 +599,17 @@ internal sealed class PdfObjectStore
     /// </remarks>
     private void RecoverByScanning()
     {
+        ScanForObjects();
+        ExpandObjectStreams();
+    }
+
+    /// <summary>
+    /// Rebuilds the direct entries of the cross-reference map from the object
+    /// headers in the file. Nothing is parsed, so this is safe before the file's
+    /// encryption is settled.
+    /// </summary>
+    private void ScanForObjects()
+    {
         WasRecovered = true;
         _diagnostics.Warning(
             PdfDiagnosticCodes.XrefRecovered,
@@ -495,11 +636,20 @@ internal sealed class PdfObjectStore
             _entries[objectNumber] = PdfXrefEntry.Direct(headerStart + _headerOffset, generation);
             found++;
         }
+    }
 
-        // Objects inside object streams are only reachable once their containers
-        // are known, so expand every recovered /Type /ObjStm now.
+    /// <summary>
+    /// Makes the members of every scanned object stream reachable. They are only
+    /// reachable once their containers are read, which in an encrypted file
+    /// needs the key - so this waits for <see cref="CompleteLoad"/>.
+    /// </summary>
+    private void ExpandObjectStreams()
+    {
         foreach (int objectNumber in new List<int>(_entries.Keys))
         {
+            if (_entries[objectNumber].IsInObjectStream)
+                continue;
+
             if (GetObject(objectNumber) is PdfStream stream &&
                 stream.Dictionary["Type"] is PdfName { Value: "ObjStm" })
             {
@@ -557,6 +707,18 @@ internal sealed class PdfObjectStore
         return true;
     }
 
+    /// <summary>
+    /// The trailers a damaged file still carries: the last classic trailer
+    /// dictionary that names a Catalog, and otherwise the dictionaries of its
+    /// cross-reference streams, newest first.
+    /// </summary>
+    /// <remarks>
+    /// A cross-reference stream's dictionary is a trailer (§7.5.8.2) and is
+    /// never encrypted, so it can be read here, before the file's encryption is
+    /// settled - and it is where an xref-stream file keeps its <c>/Encrypt</c>
+    /// and <c>/ID</c>. The stream itself is not decoded. When neither survives,
+    /// the Catalog is found later, by <see cref="CompleteLoad"/>.
+    /// </remarks>
     private List<PdfDictionary> RecoverTrailers()
     {
         var trailers = new List<PdfDictionary>();
@@ -576,23 +738,85 @@ internal sealed class PdfObjectStore
             }
         }
 
-        // Otherwise synthesize one from whichever object is the Catalog.
-        foreach (int objectNumber in _entries.Keys)
+        foreach (PdfXrefEntry entry in EntriesInFileOrder(newestFirst: true))
+        {
+            if (TryResolveObjectPosition(entry.Offset, out _, out _, out PdfObject? value) &&
+                value is PdfStream stream &&
+                stream.Dictionary["Type"] is PdfName { Value: "XRef" })
+            {
+                trailers.Add(stream.Dictionary);
+            }
+        }
+
+        return trailers;
+    }
+
+    /// <summary>
+    /// A reference to the one object in a damaged file shaped like an encryption
+    /// dictionary, or null when there is none or more than one. Each object is
+    /// parsed on its own and nothing is cached or decrypted.
+    /// </summary>
+    private PdfReference? FindEncryptionDictionary()
+    {
+        PdfReference? found = null;
+        foreach ((int objectNumber, PdfXrefEntry entry) in _entries)
+        {
+            if (entry.IsInObjectStream ||
+                !TryResolveObjectPosition(entry.Offset, out _, out int generation, out PdfObject? value) ||
+                value is not PdfDictionary candidate ||
+                !LooksLikeEncryptionDictionary(candidate))
+            {
+                continue;
+            }
+
+            if (found is not null)
+                return null;
+
+            found = new PdfReference(objectNumber, generation);
+        }
+
+        return found;
+    }
+
+    /// <summary>
+    /// A handler name with a version or revision, and the verification values or
+    /// recipient lists a handler reads. A signature dictionary also has a
+    /// <c>/Filter</c>, and none of the rest.
+    /// </summary>
+    private static bool LooksLikeEncryptionDictionary(PdfDictionary candidate) =>
+        candidate["Filter"] is PdfName &&
+        (candidate.ContainsKey("V") || candidate.ContainsKey("R")) &&
+        ((candidate.ContainsKey("O") && candidate.ContainsKey("U")) ||
+         candidate.ContainsKey("Recipients") ||
+         candidate.ContainsKey("CF"));
+
+    /// <summary>A reference to whichever object is the Catalog, for a trailer that names none.</summary>
+    private PdfReference? FindCatalog()
+    {
+        foreach (int objectNumber in new List<int>(_entries.Keys))
         {
             if (GetObject(objectNumber) is not PdfDictionary candidate)
                 continue;
             if ((candidate["Type"] as PdfName)?.Value != "Catalog")
                 continue;
 
-            var synthesized = new PdfDictionary
-            {
-                ["Root"] = new PdfReference(objectNumber, _entries[objectNumber].Generation),
-            };
-            trailers.Add(synthesized);
-            break;
+            return new PdfReference(objectNumber, _entries[objectNumber].Generation);
         }
 
-        return trailers;
+        return null;
+    }
+
+    private IEnumerable<PdfXrefEntry> EntriesInFileOrder(bool newestFirst)
+    {
+        var direct = new List<PdfXrefEntry>();
+        foreach (PdfXrefEntry entry in _entries.Values)
+        {
+            if (!entry.IsInObjectStream)
+                direct.Add(entry);
+        }
+
+        direct.Sort((a, b) => newestFirst ? b.Offset.CompareTo(a.Offset) : a.Offset.CompareTo(b.Offset));
+        return direct;
     }
 
     private static PdfDictionary MergeTrailers(List<PdfDictionary> trailers)
@@ -672,7 +896,7 @@ internal sealed class PdfObjectStore
 
     private PdfObject? LoadDirect(int objectNumber, PdfXrefEntry entry)
     {
-        if (!TryResolveObjectPosition(entry.Offset, out int foundNumber, out _, out PdfObject? value))
+        if (!TryResolveObjectPosition(entry.Offset, out int foundNumber, out int generation, out PdfObject? value))
         {
             _diagnostics.Warning(PdfDiagnosticCodes.ObjectMalformed, "An indirect object header could not be parsed.");
             return null;
@@ -685,6 +909,17 @@ internal sealed class PdfObjectStore
             _diagnostics.Warning(
                 PdfDiagnosticCodes.XrefMalformed,
                 "A cross-reference entry pointed at a different object number than it declared.");
+        }
+
+        // In an encrypted file everything stored directly is ciphertext except
+        // the encryption dictionary, and its key is the one its own header
+        // states - the header being what the table was just overruled by. An
+        // object inside an object stream never arrives here: it was decrypted
+        // with its container.
+        if (_decryptor is not null && value is not null &&
+            objectNumber != _encryptionObject && foundNumber != _encryptionObject)
+        {
+            value = _decryptor.Decrypt(value, foundNumber, generation);
         }
 
         return value;

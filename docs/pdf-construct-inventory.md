@@ -2,7 +2,7 @@
 
 - **Status:** Active; regenerated whenever the codec's behavior changes
 - **Component:** `Broiler.Documents.Pdf`
-- **Updated:** 2026-09-24 (image masks carried as alpha; ICC-based colour through a composed reader)
+- **Updated:** 2026-09-24 (image masks carried as alpha; ICC-based colour through a composed reader; encrypted documents opened under IP-015, IP-002 and IP-025)
 - **Purpose:** to scope the IP-001 acceptance by stating exactly which PDF
   constructs the implementation reads, writes, recognizes without interpreting,
   and rejects
@@ -106,6 +106,36 @@ IP-001 determination has to cover on the reading side.
 catalog, the reader rebuilds the object map by scanning for `n g obj` headers and
 reports it (`pdf.xref.recovered`). This is the only recovery path, it never runs
 speculatively mid-parse, and it interprets no construct the table above omits.
+When the scan has to stand in for the trailer as well, it reads a surviving
+`trailer` dictionary or a cross-reference stream's dictionary - never encrypted,
+and where an xref-stream file keeps `/Encrypt` and `/ID` - and, failing both,
+takes the one object shaped like an encryption dictionary as the file's. Nothing
+that could be ciphertext is resolved until then: object streams are expanded and
+the Catalog looked for only after the document is open (§3.1).
+
+### 3.1 Encrypted documents
+
+The security handlers of ISO 32000-1 §7.6 and, for revision 6, ISO 32000-2
+§7.6.4. Everything here runs after the cross-reference data is known and before
+any object that could be ciphertext is resolved. An encrypted document that
+cannot be opened, or whose permissions withhold extraction, is rejected at that
+point (§5) with nothing behind the trailer interpreted. No password, key, or
+document content reaches a diagnostic.
+
+| Construct | Clause (provisional) | Behavior | Where |
+|---|---|---|---|
+| `/Encrypt` in the effective trailer or a cross-reference stream dictionary, read as it stands | 7.6.1, 7.5.8 | Read before any other object; never from an object stream, which the format forbids for it (7.5.7); its strings are never decrypted | `Structure/PdfObjectStore.cs`, `Security/PdfSecurity.cs` |
+| Standard security handler, revisions 2, 3 and 4: `/O`, `/U`, `/P`, `/Length`, `/ID` | 7.6.3.3 (Algorithms 2-7) | Authenticated as the owner password first, then the user password; the file key is the one the document's own verification value confirms. The empty password is tried when the read supplies none, which is how a document protected only by permissions opens. A password is tried in PDFDocEncoding, Windows-1252, Latin-1 and UTF-8, each checked against the document | `Security/PdfStandardSecurityHandler.cs`, `Security/PdfPasswordEncoding.cs` |
+| Standard security handler, revision 6: `/O`, `/U`, `/OE`, `/UE`, `/Perms` | ISO 32000-2 7.6.4.3 (Algorithms 2.A, 2.B, 11-13) | The same, with the SHA-2 hash; the password prepared with SASLprep's mapping and normalization, and tried unprepared as well. `/Perms` is checked against `/P`, and where they disagree only what both grant is honoured, with `pdf.encryption.permissions-inconsistent` | as above |
+| Revision 5, `/V 3`, any other revision or version | — | Refused by name with `pdf.encryption.unsupported`: revision 5 is an Adobe extension outside every approved record (IP-003), `/V 3` an unpublished algorithm | `Security/PdfSecurity.cs` |
+| RC4 and the per-object key | 7.6.2 (Algorithm 1) | Strings and streams of objects stored directly in the file, under a key from the file key and the object's number and generation. RC4 is written in this repository, since the runtime has none | `Security/Rc4.cs`, `Security/PdfDecryptor.cs` |
+| AES-128 (`/AESV2`) and AES-256 (`/AESV3`) | 7.6.2; ISO 32000-2 7.6.3 | CBC with the 16-byte vector in front. A trailing partial block is dropped and padding that does not check is left on the plaintext, each reported with `pdf.encryption.object-malformed`; the string or stream costs itself and nothing else | `Security/PdfDecryptor.cs` |
+| Crypt filters: `/CF`, `/CFM` (`/None`, `/V2`, `/AESV2`, `/AESV3`), `/StmF`, `/StrF`, `/EFF`, and a stream's leading `/Crypt` filter with its `/Name` | 7.6.5, 7.4.10 | A stream's own `/Crypt` stage selects its filter and is consumed before the filter pipeline runs. `Identity` is plaintext; a document that selects it for strings or streams, or a stream that selects it for itself, is reported with `pdf.encryption.partially-unencrypted`, since anyone could have changed that part | `Security/PdfDecryptor.cs`, `Security/PdfSecurity.cs` |
+| `/EncryptMetadata false` | 7.6.3.1 | The metadata stream is read in the clear, and the key computation takes the four extra bytes the algorithm adds for it. A metadata stream stored in the clear against the declaration - LibreOffice's RC4 output does this - is read as it stands and reported with `pdf.encryption.partially-unencrypted` | `Security/PdfDecryptor.cs` |
+| What is never decrypted | 7.6.1 | The file identifier, the encryption dictionary, cross-reference streams, and the members of an object stream, which are decrypted with their container | `Structure/PdfObjectStore.cs` |
+| User access permissions (`/P`, bits 3-12) | 7.6.3.2, Table 22 | Carried on the result as `PdfEncryptionInfo.Permissions`. Bit 5, copy and extract, is enforced, because every output of this codec is extracted content: without it and without owner authority the read is rejected with `pdf.encryption.extraction-not-permitted`. The rest are reported, not enforced. Revision 2's later bits are answered by the bits they refine | `PdfReader.cs`, `Security/PdfSecurity.cs` |
+| Public-key security handler: `/Adobe.PubSec`, `/SubFilter` `adbe.pkcs7.s3`, `s4`, `s5`, `/Recipients` in the dictionary or a crypt filter | 7.6.4; ISO 32000-2 7.6.5 | The recipient lists are handed, in order, to a composed `IPdfRecipientDecryptor`; the seed of the first one it opens, and every list's bytes, give each crypt filter's key by SHA-1, or SHA-256 for AES-256; the envelope's permissions apply. Without a decryptor: `pdf.encryption.recipient-not-composed`; with one that opens nothing: `pdf.encryption.recipient-not-found` | `Security/PdfPublicKeySecurityHandler.cs` |
+| What a successful open reports | — | `pdf.encryption.decrypted` (Info): handler, revision, cipher, key length, the authority it opened with, the permissions granted, and that the document read is not encrypted, so anything written from it is written in the clear | `Security/PdfSecurity.cs` |
 
 ## 4. Reader — recognized but not interpreted
 
@@ -123,7 +153,7 @@ distinction that matters for the register rows they belong to.
 | `ICCBased` colour spaces and the profiles they embed | 8.6.5.5 | Converted to sRGB where `IccColorProfileReader` is composed: matrix and lookup-table profiles of versions 2 and 4 over Gray, RGB, and CMYK, connecting in CIEXYZ or CIELAB, through the `A2B` table the rendering intent selects - the image's `/Intent`, else `ri` or a graphics state's `/RI`. An Indexed palette over such a space converts entry by entry. Without a reader, an image of raw samples reports `pdf.image.decoded-not-projected` naming the colour space; a profile the reader declines is reported with the construct it declined. No profile is bundled, cached past the read, or re-emitted | IP-024 |
 | `DCTDecode` | 7.4.8 | Every Huffman-coded DCT process — baseline sequential, extended sequential, and progressive — at 8-bit with 1 or 3 components decodes when `JpegStreamFilter` is composed, with the colour transform resolved from the Adobe `APP14` marker, the `/ColorTransform` entry, or the format default. `pdf.image.dct.progressive-unsupported` is retained as API and no longer emitted here; colour transform 0 is honoured by telling the decoder not to convert; contradictory colour declarations report `pdf.image.dct.color-transform-uncertain`; every other tuple, including YCCK, reports `pdf.image.dct.tuple-unsupported`. Nothing is composed by default | IP-005, IP-006 approved |
 | `JPXDecode` | 7.4.9 | Reported with `pdf.filter.jpx.unsupported`. Where `JpxStreamFilter` is composed the JP2 boxes and the SIZ/COD markers are read, so the note carries the real tuple — size, components, depth, decomposition levels, wavelet — and a Part 2 codestream is refused by `Rsiz` as outside the row. Since 2026-09-03 a Part 1 codestream is decoded for one tile, default precincts and the LRCP/RPCL progressions — tag trees, packet headers, EBCOT tier-1, the inverse wavelets and the component transforms — with multiple tiles, precinct overrides, region of interest, progression changes and packed headers refused by name. No real image has been decoded through it | IP-007 approved for Part 1; EBCOT context tables pending in SRC-018 |
-| `Crypt` filter | 7.4.10 | `pdf.filter.crypt.unsupported` | IP-015 |
+| `Crypt` filter where there is nothing for it to select: in a document that is not encrypted, or anywhere in a chain but first | 7.4.10 | `pdf.filter.crypt.unsupported`. A leading `/Crypt` stage in an encrypted document is the security handler's (§3.1) and never reaches the pipeline | IP-015 |
 | Image XObjects and inline images (`BI`/`ID`/`EI`) | 8.9 | An image XObject whose whole filter chain is composed — a byte-stream chain such as `FlateDecode`, an empty chain, or an image codec a caller composed — is decoded and reported with `pdf.image.decoded-not-projected`: the samples exist, and the logical model carries no images. The decode is diagnostic work and is bounded by `MaxDescribedImageBytes` and by half the read's decoded-byte allowance; past either bound the image is reported from its dictionary instead, and never at the cost of the document. An image naming a filter with no composed decoder reports that filter's own code. Inline images are never decoded, and report `pdf.image.not-composed` | IP-005 |
 | Embedded font programs (`/FontFile`, `/FontFile2`, `/FontFile3`) | 9.8 | Reported with `pdf.font.program-not-composed`. Where a reader is composed, a composite identity-encoded font's program is read for glyph-to-text: an sfnt (`FontFile2`, `FontFile3` `/OpenType`) through its character map, and a bare CFF (`FontFile3` `/Type1C`, `/CIDFontType0C`) through its charset, whose glyph names this codec then resolves with its own authored data. A CID-keyed CFF is refused, its charset holding character identifiers rather than names. Type 1 (`FontFile`) stays unread for want of parser surface. No program is ever embedded, subsetted, or re-emitted | IP-012 approved for inspection; CFF standard strings pending in SRC-016 |
 | Type 3 fonts | 9.6.4 | Reported with `pdf.font.type3-unsupported`: the glyph procedures draw the glyphs and are never executed. What the font itself states is read — `ToUnicode`, the `/Differences` glyph names, and an explicitly named `/BaseEncoding` — and nothing beyond it, so a Type 3 that names no encoding maps nothing rather than answering for drawn shapes out of StandardEncoding. Advances come through `/FontMatrix`, which is where a Type 3 states the glyph-space scale every other simple font has fixed at a thousandth; a scale that is zero, not finite, or absurd falls back to that default | — |
@@ -160,12 +190,17 @@ implementation does with a given file needs them as much as the feature rows.
 | An image whose colour space or sample layout is outside the supported subset | 8.9.5 | Reported with `pdf.image.unsupported` |
 | More diagnostics than the cap retains | — | The remainder is summarized with `pdf.diagnostics.truncated`; no diagnostic is silently dropped |
 | Cancellation at a checkpoint | — | Reported with `pdf.operation.cancelled` |
+| An encrypted string or stream the cipher cannot have produced, or whose crypt filter the document does not define | 7.6.2 | Kept as far as it decrypted, or dropped, and reported with `pdf.encryption.object-malformed`; the rest of the document is read |
+| Revision 6 permissions stated twice and disagreeing | ISO 32000-2 7.6.4.4 | Only what both grant is honoured, reported with `pdf.encryption.permissions-inconsistent` |
+| Parts of an encrypted document left unencrypted | 7.6.5 | Read as they stand and reported with `pdf.encryption.partially-unencrypted` |
 
 ## 5. Reader — constructs that reject the document
 
 | Construct | Clause (provisional) | Behavior |
 |---|---|---|
-| `/Encrypt` in any effective trailer or cross-reference stream dictionary | 7.6 | The document is rejected with `pdf.encryption.unsupported` **before any object stream, catalog, metadata, font, image, annotation, or content is resolved**. No decrypt-dependent object is ever interpreted, and no password or document content reaches a diagnostic. |
+| `/Encrypt` naming a handler, revision or crypt-filter method outside §3.1, or an encryption dictionary that cannot be read | 7.6 | Rejected with `pdf.encryption.unsupported` **before any object stream, catalog, metadata, font, image, annotation, or content is resolved**. No decrypt-dependent object is ever interpreted, and no password or document content reaches a diagnostic |
+| An encrypted document the read cannot open: no password supplied where one is needed, a password that is neither the user's nor the owner's, no recipient decryptor composed, or one that opens no envelope | 7.6.3, 7.6.4 | Rejected with `pdf.encryption.password-required`, `pdf.encryption.password-incorrect`, `pdf.encryption.recipient-not-composed`, or `pdf.encryption.recipient-not-found`, at the same point and with the same guarantee |
+| An encrypted document that opened without owner authority and whose permissions withhold copying and extracting | 7.6.3.2 | Rejected with `pdf.encryption.extraction-not-permitted`, at the same point. The result still carries what opened it, so a host can say the owner password is what would read it |
 | Input that does not begin with a usable `%PDF-` header | 7.5.2 | Rejected with `pdf.header.missing`; nothing is parsed |
 | A missing or unusable catalog or page tree | 7.7.2, 7.7.3 | Rejected with `pdf.structure.malformed` |
 | Any PDF-specific limit reached | — | Rejected with `pdf.limit.exceeded`. A limit never silently downgrades into a truncated document |
@@ -217,6 +252,10 @@ structure tree, tagged semantics, XMP, or any profile conformance identifier.
 | The .NET runtime's DEFLATE/zlib implementation | `FlateDecode` and content-stream compression | IP-023, confirmed under IP-011 |
 | Unicode character identities | The authored encoding tables, the Symbol table, and the glyph-name repertoire | IP-013 approved, IP-021 pending |
 | The .NET runtime's `System.Uri` | The only URI parsing in the codec; link admission wraps it with a scheme allow-list and a length ceiling, and adds no grammar of its own | SRC-011, IP-014 approved |
+| The .NET runtime's MD5, SHA-1, SHA-256/384/512 and AES | The security handlers' key computations and ciphers; RC4 alone is written here | SRC-011, IP-015 |
+| ISO 32000-2 §7.6.4 | The revision 6 algorithms, the one ISO 32000-2 feature implemented | IP-002 with feature-level review; IP-015 |
+| RFC 3454 table B.1 and RFC 4013's mapping step | Preparing a revision 6 password; the table is transcribed under its notice | SRC-026 |
+| A composed recipient decryptor | Opening a public-key document's envelopes; none ships here | IP-025 |
 | Broiler-authored letterform proportions | Writer line breaking; not any vendor's metrics | IP-022 |
 
 ## 8. Questions this inventory puts to the reviewer
@@ -229,8 +268,11 @@ structure tree, tagged semantics, XMP, or any profile conformance identifier.
 3. Does the recognize-without-interpreting posture in §4 carry any exposure of
    its own? The codec identifies these constructs by name in order to decline
    them; it decodes nothing.
-4. Do the four non-ISO dependencies in §7 close as source/licence reviews, and
+4. Do the non-ISO dependencies in §7 close as source/licence reviews, and
    does IP-023 satisfy IP-011's implementation-provenance requirement?
+5. Revision 6 is an ISO 32000-2 construct read inside an otherwise ISO 32000-1
+   implementation. Does IP-002's feature-level approval reach it as §3.1
+   describes it, and does anything there claim more than reading?
 
 ## 9. Keeping this true
 

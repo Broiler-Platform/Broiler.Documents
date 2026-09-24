@@ -41,6 +41,17 @@ public sealed class PdfReadResult(
     /// diagnostics; no declaration here ever enabled a feature.
     /// </summary>
     public IReadOnlyList<PdfExtensionDeclaration> Extensions { get; } = extensions ?? [];
+
+    /// <summary>
+    /// What the document was encrypted with and what opening it granted, or null
+    /// for a document that is not encrypted or could not be opened.
+    /// </summary>
+    /// <remarks>
+    /// Set on a rejection too when the rejection came after the document opened:
+    /// a document whose permissions withhold extraction says so here, so a host
+    /// can tell the user that its owner password is what would read it.
+    /// </remarks>
+    public PdfEncryptionInfo? Encryption { get; internal init; }
 }
 
 /// <summary>The outcome of writing a PDF.</summary>
