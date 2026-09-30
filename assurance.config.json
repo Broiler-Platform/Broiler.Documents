@@ -1,0 +1,58 @@
+{
+  "$comment": "Per-declaration assurance for Broiler.Documents. The twelve product projects under src/ are covered (eleven packable libraries and the broilerdoc application head); the src/tests suites, the corpus and office console runners and src/tests/Shared are not product code. No source here is ported from another project. Two files carry transcribed third-party tables recorded in docs/pdf-approved-sources.md, and their SPDX lines name the publisher of each: RFC 3454 table B.1 (SRC-026) and the CFF standard strings (SRC-016).",
+  "schema": 1,
+  "component": "Broiler.Documents",
+  "projects": [
+    "src/Broiler.Documents/Broiler.Documents.csproj",
+    "src/Broiler.Documents.Cli/Broiler.Documents.Cli.csproj",
+    "src/Broiler.Documents.Docx/Broiler.Documents.Docx.csproj",
+    "src/Broiler.Documents.FormatCodes/Broiler.Documents.FormatCodes.csproj",
+    "src/Broiler.Documents.Html/Broiler.Documents.Html.csproj",
+    "src/Broiler.Documents.Markdown/Broiler.Documents.Markdown.csproj",
+    "src/Broiler.Documents.Model/Broiler.Documents.Model.csproj",
+    "src/Broiler.Documents.Odt/Broiler.Documents.Odt.csproj",
+    "src/Broiler.Documents.Pdf/Broiler.Documents.Pdf.csproj",
+    "src/Broiler.Documents.Pdf.Fonts/Broiler.Documents.Pdf.Fonts.csproj",
+    "src/Broiler.Documents.Pdf.Images/Broiler.Documents.Pdf.Images.csproj",
+    "src/Broiler.Documents.Rtf/Broiler.Documents.Rtf.csproj"
+  ],
+  "exemptionPredicate": "owning-component",
+  "exclude": [
+    {
+      "glob": "src/tests/Shared/RepositoryFiles.cs",
+      "reason": "test-support source that the root Directory.Build.targets compiles only into test projects (its Compile Include is conditioned on IsTestProject); no product assembly builds it"
+    }
+  ],
+  "spdx": {
+    "copyright": [
+      "2026 Broiler Platform contributors"
+    ],
+    "license": "Apache-2.0"
+  },
+  "spdxOverrides": [
+    {
+      "glob": "src/Broiler.Documents.Pdf/Security/PdfPasswordEncoding.cs",
+      "copyright": [
+        "2026 Broiler Platform contributors",
+        "2002 The Internet Society"
+      ],
+      "license": "Apache-2.0 AND LicenseRef-RFC3454-Notice"
+    },
+    {
+      "glob": "src/Broiler.Documents.Pdf.Fonts/CffStandardStrings.cs",
+      "copyright": [
+        "2026 Broiler Platform contributors",
+        "1996-1998, 2000, 2003 Adobe Systems Incorporated"
+      ],
+      "license": "Apache-2.0 AND LicenseRef-Adobe-TN5176-Notice"
+    }
+  ],
+  "artefacts": {
+    "report": "CODE-ASSURANCE.md",
+    "humanReview": "HUMAN_REVIEW.md",
+    "manifest": "assurance.manifest.json"
+  },
+  "forbidDirectives": false,
+  "forgeryVocabulary": "narrow",
+  "regenerateCommand": "dotnet run --project Broiler.Code/src/Broiler.Code.Review.Cli -c Release -- assurance generate --root Broiler.Documents"
+}
