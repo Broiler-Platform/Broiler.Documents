@@ -280,7 +280,7 @@ Ubuntu and Windows:
 - Validates the version by calling the reusable CI workflow, downloading those exact validated artifacts instead of rebuilding.
 - Verifies consumer restore against NuGet.org using an isolated cache (`eng/verify-feed.ps1 -Target nuget`) before pushing.
 - Pushes packages and symbol packages to NuGet.org using the `NUGET_TOKEN` secret.
-- Manual dispatches default to a dry run (`dry-run: true`), packing and validating without publishing.
+- Every run pushes; there is no dry-run mode. CI performs the no-push pack and consumer-restore check on every push and pull request.
 
 ## Supported Subsets
 

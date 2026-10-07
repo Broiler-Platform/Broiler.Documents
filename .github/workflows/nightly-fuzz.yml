@@ -24,10 +24,6 @@ on:
 
 permissions:
   contents: read
-  packages: read
-
-env:
-  NuGetPackageSourceCredentials_broiler-github: Username=${{ github.actor }};Password=${{ secrets.GITHUB_TOKEN }};ValidAuthenticationTypes=Basic
 
 concurrency:
   group: nightly-fuzz
