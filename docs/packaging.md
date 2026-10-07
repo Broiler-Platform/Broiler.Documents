@@ -102,6 +102,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs on pushes to `main`, pull requ
 - Verifies package restore from NuGet.org (`node eng/select-restore-feed.mjs`).
 - Runs the CLI corpus suite (`broilerdoc-corpus`) against the committed baseline.
 - On Ubuntu, packs and validates all 11 packages and symbol packages (`.snupkg`).
+- Verifies a fresh consumer restore of the packed set from NuGet.org (`eng/verify-feed.ps1`); this is the no-push pack dry run.
 - Attaches the validated artifacts as `nuget-packages`.
 
 Publish calls this same CI workflow with the resolved release version and consumes the validated artifacts
@@ -118,7 +119,7 @@ Publishing is handled by `.github/workflows/publish.yml`, targeting **NuGet.org*
 3. **Consumer Verification:** `eng/verify-feed.ps1 -Target nuget` sets up an isolated temporary consumer
    project and restores against NuGet.org and the local package artifacts with `--no-http-cache`. This verifies
    that consumers will be able to restore the packages without missing dependencies.
-4. **Push:** When `dry-run` is false, pushes all `.nupkg` and matching `.snupkg` symbol packages to NuGet.org:
+4. **Push:** Pushes all `.nupkg` and matching `.snupkg` symbol packages to NuGet.org:
 
 ```sh
 dotnet nuget push 'artifacts/*.nupkg' --source https://api.nuget.org/v3/index.json --api-key "$NUGET_API_KEY"
@@ -126,5 +127,5 @@ dotnet nuget push 'artifacts/*.nupkg' --source https://api.nuget.org/v3/index.js
 
 Publishing requires the repository secret `NUGET_TOKEN` (NuGet.org API key).
 Publishing can also be triggered by pushing a tag matching `v0.1.0-preview.N`.
-Dry runs (`dry-run: true`, the default for manual workflow dispatches) perform all validations and attach
-packages as artifacts without pushing to NuGet.org.
+Every run pushes; there is no dry-run mode. To validate without pushing, rely on CI, which packs and
+verifies consumer restore on every push and pull request.
