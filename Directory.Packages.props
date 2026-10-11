@@ -3,10 +3,10 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Broiler.Dom" Version="0.1.0-preview.8" />
-    <PackageVersion Include="Broiler.Dom.Html" Version="0.1.0-preview.8" />
-    <PackageVersion Include="Broiler.Graphics" Version="0.1.0-preview.6" />
-    <PackageVersion Include="Broiler.Media.Image.Managed" Version="0.1.0-preview.14" />
+    <PackageVersion Include="Broiler.Dom" Version="0.1.0-preview.14" />
+    <PackageVersion Include="Broiler.Dom.Html" Version="0.1.0-preview.14" />
+    <PackageVersion Include="Broiler.Graphics" Version="0.1.0-preview.12" />
+    <PackageVersion Include="Broiler.Media.Image.Managed" Version="0.1.0-preview.15" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <!-- Tests only: the recipient decryptor a host would compose for certificate
          encryption (IP-025). ADR 0001 keeps it out of every shipped assembly. -->
