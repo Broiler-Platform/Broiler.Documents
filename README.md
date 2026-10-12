@@ -15,7 +15,7 @@ approximated constructs. There is no hidden global codec registration.
 > **Preview release.** `0.1.0-preview.N` packages are previews. Public
 > APIs and behaviour are not frozen and may change before `1.0`. The codecs parse
 > untrusted input — RTF control words, Open XML and OpenDocument packages, HTML,
-> and PDF object graphs — and must be treated as security-sensitive; no fuzzing campaign,
+> CSV records, and PDF object graphs — and must be treated as security-sensitive; no fuzzing campaign,
 > dependency scan, or independent security audit is recorded for this revision.
 > See the [roadmap](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/roadmap.md) for what is still open.
 
@@ -65,7 +65,7 @@ Cross-repository dependencies are pinned in `Directory.Packages.props` and resto
 
 ## Packages
 
-Eleven preview packages are generated. All target `net10.0`, ship XML
+Twelve preview packages are generated. All target `net10.0`, ship XML
 documentation and a `.snupkg` symbol package, and are built deterministically
 with SourceLink.
 
@@ -79,6 +79,7 @@ with SourceLink.
 | `Broiler.Documents.Odt` | ODT reader/writer for a safe OASIS OpenDocument text subset. |
 | `Broiler.Documents.Html` | HTML document/fragment codec over `Broiler.Dom` and `Broiler.Dom.Html`. |
 | `Broiler.Documents.Markdown` | Markdown codec for a safe CommonMark-oriented subset. |
+| `Broiler.Documents.Csv` | CSV codec: reads comma-separated values into a table in the model and writes tables back out. |
 | `Broiler.Documents.Pdf` | Preview PDF codec for logical text import and deterministic PDF 1.7 writing. |
 | `Broiler.Documents.Pdf.Fonts` | Optional PDF font-program reader over `Broiler.Graphics`. |
 | `Broiler.Documents.Pdf.Images` | Optional PDF image filters over the managed `Broiler.Media` image codecs. |
@@ -101,6 +102,7 @@ Broiler.Documents.Rtf      -> Broiler.Documents -> Broiler.Documents.Model -> Br
 Broiler.Documents.Docx     -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Odt      -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Markdown -> Broiler.Documents -> Broiler.Documents.Model
+Broiler.Documents.Csv      -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Html     -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Html     -> Broiler.Dom, Broiler.Dom.Html
 Broiler.Documents.FormatCodes                   -> Broiler.Documents.Model
@@ -271,9 +273,9 @@ See [Packaging and Releases](https://github.com/Broiler-Platform/Broiler.Documen
 Ubuntu and Windows:
 - Tests release scripts (`eng/resolve-preview-version.test.mjs` and `eng/select-restore-feed.test.mjs`).
 - Verifies that NuGet.org hosts all pinned Broiler packages (`eng/select-restore-feed.mjs`).
-- Builds and runs all unit tests in Release configuration. `eng/run-tests.ps1` requires at least 1,400 executed tests (with 2,369 executed currently) and terminates a test host if a test hangs. Unit and corpus reports are uploaded even on failure.
+- Builds and runs all unit tests in Release configuration. `eng/run-tests.ps1` requires at least 1,400 executed tests (with 2,514 executed currently) and terminates a test host if a test hangs. Unit and corpus reports are uploaded even on failure.
 - Runs the CLI corpus suite (`broilerdoc-corpus`) against the committed baseline (2,320 checks).
-- On Ubuntu, packs and verifies all eleven preview packages and `.snupkg` symbol packages, uploading them as `nuget-packages`.
+- On Ubuntu, packs and verifies all twelve preview packages and `.snupkg` symbol packages, uploading them as `nuget-packages`.
 
 `.github/workflows/publish.yml` publishes exclusively to **NuGet.org**:
 - Queries NuGet.org via `eng/resolve-preview-version.mjs` to automatically resolve the next unused `X.Y.Z-preview.N` across all shipping packages (or accepts an explicit `version-suffix` or `v*` tag).
@@ -293,7 +295,7 @@ The documentation is split by kind rather than by format;
   and one note per codec stating exactly what it reads, writes, approximates and
   drops: [RTF](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/rtf.md), [DOCX](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/docx.md),
   [ODT](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/odt.md), [HTML](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/html.md),
-  [Markdown](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/markdown.md) and [PDF](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/pdf/README.md).
+  [Markdown](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/markdown.md), [CSV](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/csv.md) and [PDF](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/pdf/README.md).
   For PDF, the [feature matrix](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/pdf/feature-matrix.md) is the
   authority for what the codec may be described as doing, and the
   [construct inventory](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/pdf/construct-inventory.md) lists every
@@ -308,7 +310,7 @@ The documentation is split by kind rather than by format;
   [packaging and releases](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/packaging.md), the
   [corpus suite](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/corpus-suite.md) and the
   [office conformance suite](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/office-conformance.md).
-- **[Architecture decision records](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/README.md)** - ADRs 0001 to 0015.
+- **[Architecture decision records](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/README.md)** - ADRs 0001 to 0016.
 
 ## License
 

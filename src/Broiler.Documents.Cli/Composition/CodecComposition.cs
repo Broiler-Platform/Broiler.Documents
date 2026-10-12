@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Broiler.Documents.Csv;
 using Broiler.Documents.Docx;
 using Broiler.Documents.Html;
 using Broiler.Documents.Markdown;
@@ -69,6 +70,7 @@ public static class CodecComposition
             new RtfDocumentCodec(),
             new HtmlDocumentCodec(),
             new MarkdownDocumentCodec(),
+            new CsvDocumentCodec(),
             pdf,
         ]);
     }

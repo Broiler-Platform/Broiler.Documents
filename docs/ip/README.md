@@ -6,7 +6,7 @@ are tracked in the [roadmap](../roadmap.md#rights-and-provenance).
 
 | File | Contents |
 |---|---|
-| [rtf.md](rtf.md), [docx.md](docx.md), [odt.md](odt.md), [html.md](html.md), [markdown.md](markdown.md), [pdf.md](pdf.md) | One register per format: every decision, its evidence, the approved labels, and the review record |
+| [rtf.md](rtf.md), [docx.md](docx.md), [odt.md](odt.md), [html.md](html.md), [markdown.md](markdown.md), [csv.md](csv.md), [pdf.md](pdf.md) | One register per format: every decision, its evidence, the approved labels, and the review record |
 | [pdf-approved-sources.md](pdf-approved-sources.md) | Sources PDF code may be written from, and the similarity-review log |
 | [pdf-corpus-manifest.json](pdf-corpus-manifest.json), [schema](pdf-corpus-manifest.schema.json) | Provenance and rights for every PDF fixture. Empty: every test PDF is generated in code |
 | [briefs/src-017-normative-tables.md](briefs/src-017-normative-tables.md) | Whether normative code tables (T.4/T.6, CFF strings, T.88, T.800) may be reproduced |
@@ -45,6 +45,7 @@ though the ADR itself is still marked *Proposed*.
 | [RTF](rtf.md) | The same promise, which names `[RTF]` itself, and the format's age | Every row decided |
 | [HTML](html.md) | Two independent royalty-free patent policies (W3C, WHATWG); parsing is covered by Broiler.DOM's own register | Every row decided |
 | [Markdown](markdown.md) | No instrument at all; assessed on absence | Every row decided |
+| [CSV](csv.md) | An Informational RFC with no obligations, and conventions with no owner | Evidence assembled 2026-10-12; **every row pending**, including an IPR disclosure search still to be made by hand |
 | [PDF](pdf.md) | Adobe's ISO 32000-1 public patent licence, plus a row per referenced technology | Every construct, filter and codec row decided; source rows SRC-016 to SRC-019 and SRC-024 to SRC-026, and the IP-012 re-opening, pending |
 
 Worth keeping in view:
@@ -75,7 +76,7 @@ Worth keeping in view:
 - **No third-party documents.** Possession is not permission to redistribute.
   Every register rejects third-party documents as fixtures by default, per
   artifact, and a guard refuses committed `.rtf`, `.docx`, `.odt`, `.fodt`,
-  `.html` and `.pdf` files.
+  `.html`, `.csv` and `.pdf` files.
 - **User content grants nothing.** Opening or converting a document gives
   Broiler no right to reuse what is in it. Callers are responsible for their
   authority to extract, copy and transform text, metadata, fonts, images and

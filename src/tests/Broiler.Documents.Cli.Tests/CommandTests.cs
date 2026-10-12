@@ -8,7 +8,7 @@ namespace Broiler.Documents.Cli.Tests;
 public sealed class CommandTests : IDisposable
 {
     private readonly CliHarness _cli = new();
-    private static readonly string[] expected = ["DOCX", "ODT", "RTF", "HTML", "Markdown", "PDF"];
+    private static readonly string[] expected = ["DOCX", "ODT", "RTF", "HTML", "Markdown", "CSV", "PDF"];
 
     public void Dispose() => _cli.Dispose();
 

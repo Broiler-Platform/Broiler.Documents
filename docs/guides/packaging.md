@@ -29,15 +29,15 @@ dotnet run --project src/tests/Broiler.Documents.Corpus -c Release --no-build
 # Run release script tests
 node --test eng/resolve-preview-version.test.mjs eng/select-restore-feed.test.mjs
 
-# Pack and verify all 11 packages and symbols
+# Pack and verify all 12 packages and symbols
 pwsh -File eng/pack.ps1
 ```
 
-Use `Debug` or `Release` configuration. The test runner executes all unit test suites across all 11 assemblies,
-requiring at least 1,400 executed tests (with 2,369 executed currently). The corpus suite runs 2,320 checks
+Use `Debug` or `Release` configuration. The test runner executes all unit test suites across all 12 assemblies,
+requiring at least 1,400 executed tests (with 2,514 executed currently). The corpus suite runs 2,320 checks
 against committed baselines via the `broilerdoc` CLI.
 
-`eng/pack.ps1` enumerates **every packable project** in the solution and verifies all 11 packages:
+`eng/pack.ps1` enumerates **every packable project** in the solution and verifies all 12 packages:
 - `Broiler.Documents.Model`
 - `Broiler.Documents.FormatCodes`
 - `Broiler.Documents`
@@ -46,6 +46,7 @@ against committed baselines via the `broilerdoc` CLI.
 - `Broiler.Documents.Odt`
 - `Broiler.Documents.Html`
 - `Broiler.Documents.Markdown`
+- `Broiler.Documents.Csv`
 - `Broiler.Documents.Pdf`
 - `Broiler.Documents.Pdf.Images`
 - `Broiler.Documents.Pdf.Fonts`
