@@ -4,8 +4,8 @@ using System.Xml.Linq;
 namespace Broiler.Documents.Tests;
 
 /// <summary>
-/// Guards the claims the RTF, DOCX, HTML and Markdown rights registers make about
-/// their codecs.
+/// Guards the claims the RTF, DOCX, HTML, Markdown and CSV rights registers make
+/// about their codecs.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -38,6 +38,7 @@ public sealed partial class FormatClaimGuardTests
         { "Docx", "docs/ip/docx.md", ".docx;.dotx" },
         { "Html", "docs/ip/html.md", ".html;.htm" },
         { "Markdown", "docs/ip/markdown.md", string.Empty },
+        { "Csv", "docs/ip/csv.md", ".csv" },
     };
 
     /// <summary>
@@ -153,8 +154,12 @@ public sealed partial class FormatClaimGuardTests
         // off, so a committed one is exactly what this guard exists to refuse -
         // and the extension being new is the reason to list it, since the seeds
         // make writing one out the obvious next thing somebody tries.
+        //
+        // .csv is here for CSV-IP-006: a public data set is the easiest
+        // third-party document of all to drop into a test directory, and its
+        // licence is the one nobody reads.
         string root = PdfGuardRoots.Component;
-        string[] extensions = [".rtf", ".docx", ".dotx", ".html", ".htm", ".odt", ".ott", ".fodt"];
+        string[] extensions = [".rtf", ".docx", ".dotx", ".html", ".htm", ".odt", ".ott", ".fodt", ".csv"];
 
         string[] documents = [.. Directory
             .EnumerateFiles(root, "*", SearchOption.AllDirectories)

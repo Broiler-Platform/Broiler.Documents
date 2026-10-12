@@ -7,7 +7,7 @@ place for rights and provenance.
 | Where | Kind | Contents |
 |---|---|---|
 | [roadmap.md](roadmap.md) | Open work | Everything not done yet, across all formats, including the PDF delivery gates |
-| [notes/](notes/) | The code as it is | [architecture.md](notes/architecture.md) for shared contracts and guards; one note per codec: [RTF](notes/rtf.md), [DOCX](notes/docx.md), [ODT](notes/odt.md), [HTML](notes/html.md), [Markdown](notes/markdown.md); and [notes/pdf/](notes/pdf/README.md) with the PDF overview, [feature matrix](notes/pdf/feature-matrix.md), [construct inventory](notes/pdf/construct-inventory.md) and [extension points](notes/pdf/extension-points.md) |
+| [notes/](notes/) | The code as it is | [architecture.md](notes/architecture.md) for shared contracts and guards; one note per codec: [RTF](notes/rtf.md), [DOCX](notes/docx.md), [ODT](notes/odt.md), [HTML](notes/html.md), [Markdown](notes/markdown.md), [CSV](notes/csv.md); and [notes/pdf/](notes/pdf/README.md) with the PDF overview, [feature matrix](notes/pdf/feature-matrix.md), [construct inventory](notes/pdf/construct-inventory.md) and [extension points](notes/pdf/extension-points.md) |
 | [ip/](ip/README.md) | Rights and provenance | The standard of review, one register per format, PDF approved sources, the PDF corpus manifest, and review briefs |
 | [guides/](guides/) | Using and testing | [CLI](guides/cli.md), [packaging and releases](guides/packaging.md), [corpus suite](guides/corpus-suite.md), [office conformance suite](guides/office-conformance.md) |
 | [adr/](adr/README.md) | Decisions | Why the component is shaped the way it is |

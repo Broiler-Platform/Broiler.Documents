@@ -28,7 +28,7 @@
        rest of the identity come from the vendored file. -->
   <PropertyGroup>
     <PackageProjectUrl>https://github.com/Broiler-Platform/Broiler.Documents</PackageProjectUrl>
-    <PackageTags>broiler;documents;rich-text;codec;rtf;docx;odt;opendocument;html;markdown</PackageTags>
+    <PackageTags>broiler;documents;rich-text;codec;rtf;docx;odt;opendocument;html;markdown;csv</PackageTags>
   </PropertyGroup>
 
   <!-- NU1603 (a dependency resolved to a higher preview than it asked for) stays a

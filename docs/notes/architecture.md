@@ -130,6 +130,9 @@ by ADR 0008).
   `Resources/DocumentImageFormats` gives both codecs one table of image
   extensions, raster signatures and preferred output extensions. Both are
   internal.
+- **Text.** `Text/Windows1252` gives RTF and CSV one table for the code page's
+  32 positions that differ from Latin-1, so neither codec registers an encoding
+  provider, which would be process-wide state. It is internal.
 - **Links.** `DocumentLinkTarget` is the one predicate the five interchange
   codecs share, on read and on write: absolute `http`, `https` and `mailto`, plus
   a non-empty `#fragment` without whitespace, quotes or a second `#`. A refused
@@ -205,7 +208,7 @@ Rules that matter are enforced by tests against the tree, not by review.
 | Guard | Holds |
 |---|---|
 | `*ArchitectureTests` (each test project) | Project and package references; no UI, DOM or platform dependency where forbidden; the CLI's composition root |
-| `FormatClaimGuardTests`, `OdtClaimGuardTests` | No data file beside a codec, no third-party package, no prohibited wording in a package description, a register with approved labels per format, no committed document of a supported format. For ODT also: every diagnostic code is documented |
+| `FormatClaimGuardTests`, `OdtClaimGuardTests`, `CsvClaimGuardTests` | No data file beside a codec, no third-party package, no prohibited wording in a package description, a register with approved labels per format, no committed document of a supported format. For ODT and CSV also: every diagnostic code is documented |
 | `PdfClaimGuardTests` | Every PDF diagnostic code appears in the PDF notes or register, the register names only codes that exist, no `Supported` entry while a row is pending, approved labels, no data file beside the codec |
 | `PdfPhaseZeroGuardTests` | The PDF decision and evidence documents exist, the corpus starts empty, no legacy external-process CLI surface, no PDF type in shared assemblies or packages |
 | `PdfDeliveryGuardTests` | Packability, references of the base codec, which composition roots may name the codec, no committed `.pdf` |

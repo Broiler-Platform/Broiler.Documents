@@ -69,6 +69,12 @@ caller never has to parse the human-readable form.
 cat report.docx | broilerdoc convert - --out - --from docx --to markdown --quiet
 ```
 
+`--from` matters most for CSV. CSV has no signature, so the codec recognizes a
+file by its `.csv` name and never by content alone; read from standard input, a
+CSV needs `--from csv`. A CSV file reads as one table, and writing CSV writes
+every table as its grid and every other paragraph as a one-field record. See
+[the CSV note](../notes/csv.md).
+
 ## Exit codes
 
 The split that matters is between `5` and everything above it. A comparison that
@@ -415,8 +421,8 @@ per-push, because it depends on a third-party binary. See
 
 The project is set up to pack as a .NET tool (`PackAsTool`, command name
 `broilerdoc`) but has `IsPackable=false`, so `dotnet pack` on the solution still
-produces exactly the eleven library packages the [README](../../README.md) lists.
-That is deliberate: adding a twelfth package would change what a `v*` tag pushes
+produces exactly the twelve library packages the [README](../../README.md) lists.
+That is deliberate: adding a thirteenth package would change what a `v*` tag pushes
 to nuget.org, and that should be a decision someone makes rather than a side
 effect of adding a CLI.
 

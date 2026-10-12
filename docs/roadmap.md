@@ -15,8 +15,9 @@ model.
 | Area | State | Next step |
 |---|---|---|
 | RTF, DOCX, ODT, HTML, Markdown codecs | Preview packages; subsets documented in [notes/](notes/) | Decide the fidelity items below; freeze the API after a consumer review |
+| CSV codec | Preview package; reads one table, writes tables as grids ([notes/csv.md](notes/csv.md)) | Decide its register rows; compose it in the Writer |
 | Formatting Codes projection | Grammar version 1 published | None open in this repository |
-| Rights records | Every RTF, DOCX, ODT, HTML and Markdown row decided; PDF codec rows decided | Close the pending PDF source rows and the IP-012 re-opening |
+| Rights records | Every RTF, DOCX, ODT, HTML and Markdown row decided; PDF codec rows decided; every CSV row pending | Close the pending PDF source rows and the IP-012 re-opening; decide the CSV rows |
 | PDF read | Base slice implemented; read-preview candidate in the Windows and Linux Writer heads and the CLI | Pass the Phase 5 exit gate |
 | PDF write | Writer core for the standard-font subset; no host may save PDF | Phases 6 and 7 |
 | Hardening | PDF fuzz harness (mutation-based) and test-control files exist, mostly empty | Oracles, corpus, coverage-guided fuzzing, performance thresholds |
@@ -73,6 +74,37 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   projection and `broilerdoc dump` disagree on the marker of a nested level
   (`◦` against `•`). Find out which side is right.
 
+## Spreadsheet formats
+
+CSV is read and written through the rich-text model's tables
+([ADR 0016](adr/0016-spreadsheet-formats-through-the-rich-text-model.md)). What
+it does is in [notes/csv.md](notes/csv.md).
+
+- **Compose CSV in the Writer.** It needs a preview release carrying
+  `Broiler.Documents.Csv`, an open and save filter under the register's proposed
+  labels, and a decision on how the Writer draws a table that states no borders.
+- **Carry the dialect.** A file read with semicolons is saved with commas unless
+  the caller asks again, and the read result does not say which delimiter was
+  found. A host that saves back what it opened needs it, probably on a CSV read
+  result the way PDF has its own.
+- **Command-line options for CSV.** The CLI reads with detection and writes with
+  the defaults. Delimiter, header row, byte-order mark and formula escaping have
+  no flags yet.
+- **Media-type parameters.** `header=present` and `charset` on a hint are ignored.
+  Reading them needs the hint to reach the read, which today it does not.
+- **`sep=` lines.** Some spreadsheets write a first line naming the delimiter. It
+  is read as a record. Decide whether to honour it; it is a vendor convention and
+  would want a register row.
+- **Tab-separated values** as a format of their own (`.tsv`,
+  `text/tab-separated-values`, whose registration forbids tabs in values rather
+  than quoting them).
+- **XLSX and ODS.** Either one is the trigger ADR 0016 names for revisiting a
+  spreadsheet model: typed values, formulas and several sheets need somewhere to
+  go. Decide the model before writing the codec.
+- **Corpus and office coverage.** CSV is not in the corpus suite's format list,
+  and the office suite has no CSV seed. LibreOffice can write CSV from a seed,
+  which would give the reader input it did not write itself.
+
 ## Rights and provenance
 
 The standard of review and the state of every register are summarized in
@@ -94,6 +126,11 @@ The standard of review and the state of every register are summarized in
   - SRC-018: T.800 EBCOT context tables.
   - SRC-019: T.88 MQ probability table.
   - SRC-024 (RC4) and SRC-026 (RFC 3454 table B.1) are pending review.
+- **CSV register rows**, all pending in [ip/csv.md](ip/csv.md). CSV-IP-001 needs
+  the IETF IPR disclosure search made by hand: the datatracker refused automated
+  access when the evidence was assembled. CSV-SRC-002 asks whether the shared
+  Windows-1252 table, which RTF has carried without a row, needs a source row at
+  all.
 - **IP-012 re-opening for font embedding**, requested 2026-09-03. No code writes
   a font program into a PDF until it moves, which blocks the writer's non-Latin
   path. Brief: [ip/briefs/ip-012-font-embedding.md](ip/briefs/ip-012-font-embedding.md).
@@ -424,7 +461,7 @@ Each needs its own approval and does not block V1.
   corpus suite never reads a document written outside this project. Each source
   needs an approved row with licence, permitted use, reviewer and pinned hash.
 - **Sustained fuzzing for every untrusted-input parser.** Only PDF has a fuzz
-  harness. RTF, DOCX, ODT, HTML and Markdown need property or fuzz coverage, plus
+  harness. RTF, DOCX, ODT, HTML, Markdown and CSV need property or fuzz coverage, plus
   allocation and performance baselines.
 
 ## Stable release

@@ -18,7 +18,9 @@ review before implementation clearance — and gives each format its own registe
 and claim gate, ODT's being the first. ADR 0015 amends 0009 for reading
 encrypted PDFs: where the security handlers live, the order in which a document
 is opened, how credentials and permissions are treated, and the threat model
-0009 asked for.
+0009 asked for. ADR 0016 brings spreadsheet formats in through the rich-text
+model's tables rather than a model of their own, starting with CSV, and names
+what would reopen that.
 Accepted and partially superseded records remain here for traceability; current
 follow-up work is in [the component roadmap](../roadmap.md).
 
@@ -39,3 +41,4 @@ follow-up work is in [the component roadmap](../roadmap.md).
 | [0013](0013-standards-ip-provenance-and-claims-beyond-pdf.md) | Standards, IP, provenance, and claims beyond PDF (proposed; supersedes 0011 on standard of review) |
 | [0014](0014-api-deprecation-and-removal.md) | API deprecation and removal |
 | [0015](0015-pdf-decryption-credentials-permissions-and-threat-model.md) | PDF decryption: credentials, permissions, and threat model (amends 0009) |
+| [0016](0016-spreadsheet-formats-through-the-rich-text-model.md) | Spreadsheet formats through the rich-text model (proposed) |
