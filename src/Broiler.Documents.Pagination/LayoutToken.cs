@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Broiler.Documents.Cli.Rendering;
+namespace Broiler.Documents.Pagination;
 
 /// <summary>
 /// An unbreakable run of pieces: one word, one whitespace gap, one tab, one

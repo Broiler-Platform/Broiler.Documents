@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Pagination</RootNamespace>
+    <AssemblyName>Broiler.Documents.Pagination</AssemblyName>
+    <PackageId>Broiler.Documents.Pagination</PackageId>
+    <Description>Headless page layout for Broiler rich-text documents: lays a document out on pages and paints each one as a Broiler.Graphics page for print, preview and fixed-page export.</Description>
+  </PropertyGroup>
+
+  <!--
+    The paginator the PDF roadmap tracks as Broiler.Documents.Pagination (section 11.1),
+    started from the Documents CLI's layout, which moved here unchanged so the CLI and an
+    application printing a document lay it out the same way. It references the document
+    model and Broiler.Graphics and nothing else: no codec, no UI, no platform backend.
+    Images are decoded through the codecs the application composes into BImageCodecs.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Broiler.Graphics" />
+  </ItemGroup>
+
+  <!--
+    The layout's positioned types keep internal constructors and setters, as they had in
+    the CLI. The CLI's layout tests construct and inspect them, so they keep that access
+    until they move to this component's own suite.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Documents.Pagination.Tests" />
+    <InternalsVisibleTo Include="Broiler.Documents.Cli.Tests" />
+  </ItemGroup>
+
+</Project>

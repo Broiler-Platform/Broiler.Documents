@@ -3,13 +3,12 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
-using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Geometry;
 using Broiler.Graphics.Text;
 
-namespace Broiler.Documents.Cli.Rendering;
+namespace Broiler.Documents.Pagination;
 
 /// <summary>
 /// Turns a <see cref="RichTextDocument"/> into positioned lines on pages.
@@ -60,7 +59,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private const char ForcedLineBreak = '\u2028';
 
     /// <summary>Lays the document out onto pages of the given size.</summary>
-    public LayoutResult Layout(RichTextDocument document, PageSetup setup)
+    public LayoutResult Layout(RichTextDocument document, DocumentPageBox setup)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(setup);
@@ -221,7 +220,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 _settings.MaxPages));
         }
 
-        PageSetup finalSetup = setup;
+        DocumentPageBox finalSetup = setup;
         if (setup.Continuous)
         {
             double used = pages[0].Lines.Count > 0
@@ -243,7 +242,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         return new LayoutResult(pages, finalSetup, _settings, _notes, truncated);
     }
 
-    private LayoutPage NewPage(int number, PageSetup setup, List<LayoutLine> lines, List<LayoutCell> cells)
+    private LayoutPage NewPage(int number, DocumentPageBox setup, List<LayoutLine> lines, List<LayoutCell> cells)
     {
         // Page one takes the first-page selection and even-numbered pages the
         // even one, each falling back to the default.
@@ -286,7 +285,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// paragraph to hang one from - a header repeats - so the offset is measured
     /// from the top of the page.
     /// </summary>
-    private List<LayoutShape> PlaceRunningShapes(IReadOnlyList<DocumentShape> shapes, PageSetup setup)
+    private List<LayoutShape> PlaceRunningShapes(IReadOnlyList<DocumentShape> shapes, DocumentPageBox setup)
     {
         var placed = new List<LayoutShape>();
         foreach (DocumentShape shape in shapes)
@@ -321,7 +320,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// y from the top of the paragraph it is anchored to. A shape whose paragraph
     /// has not been laid out on this page is not drawn on it.
     /// </remarks>
-    private List<LayoutShape> PlaceShapes(PageSetup setup)
+    private List<LayoutShape> PlaceShapes(DocumentPageBox setup)
     {
         var placed = new List<LayoutShape>();
         if (_documentShapes.Count == 0)
@@ -354,7 +353,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// Every row is composed before any is placed, because a cell that spans rows
     /// needs the heights of the rows below it before its box can be drawn.
     /// </remarks>
-    private List<RowBox> ComposeTable(DocumentTable table, RichTextDocument document, PageSetup setup, double left, double width)
+    private List<RowBox> ComposeTable(DocumentTable table, RichTextDocument document, DocumentPageBox setup, double left, double width)
     {
         double[] edges = ColumnEdges(table, left, width);
         var boxes = new List<RowBox>(table.Rows.Count);
@@ -465,7 +464,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// nesting costs nothing beyond the recursion.
     /// </summary>
     private (List<LayoutLine> Lines, List<LayoutCell> Cells, double Height) ComposeBlocks(RichTextDocument document,
-        IReadOnlyList<DocumentTable> tables, int from, int to, PageSetup setup, double left, double width)
+        IReadOnlyList<DocumentTable> tables, int from, int to, DocumentPageBox setup, double left, double width)
     {
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
@@ -553,7 +552,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>A shape's own text, laid out inside its box.</summary>
-    private List<LayoutLine> PlaceShapeText(DocumentShape shape, BRect bounds, PageSetup setup)
+    private List<LayoutLine> PlaceShapeText(DocumentShape shape, BRect bounds, DocumentPageBox setup)
     {
         var lines = new List<LayoutLine>();
         if (!shape.HasText || bounds.Width <= 0)
@@ -587,7 +586,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// this is a convention rather than a setting. A block taller than its band is
     /// reported instead of being drawn across the body.
     /// </summary>
-    private List<LayoutLine> RunningLines(IReadOnlyList<RichTextParagraph> paragraphs, PageSetup setup, double top, double band)
+    private List<LayoutLine> RunningLines(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double top, double band)
     {
         var lines = new List<LayoutLine>();
         if (paragraphs.Count == 0)
@@ -620,7 +619,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>Wraps one paragraph into lines, without deciding which page they land on.</summary>
-    private ParagraphLines ComposeParagraph(RichTextParagraph paragraph, string? marker, PageSetup setup, int paragraphIndex,
+    private ParagraphLines ComposeParagraph(RichTextParagraph paragraph, string? marker, DocumentPageBox setup, int paragraphIndex,
         double? columnLeftOverride = null, double? columnWidthOverride = null, double? wrapTop = null)
     {
         ParagraphStyle style = paragraph.Style;
@@ -992,7 +991,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private LayoutPiece MakeTextPiece(string text, InlineStyle style, bool decorateLink, double sizeScale = 1.0)
     {
         BFontStyle font = FontFor(style, sizeScale);
-        BColor color = ColorText.Or(style.Foreground, _settings.DefaultForeground);
+        BColor color = LayoutColors.Or(style.Foreground, _settings.DefaultForeground);
         bool underline = style.Underline;
 
         if (decorateLink && style.IsLink)
@@ -1026,7 +1025,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         BFontStyle font = FontFor(style);
         double ascent = font.Size * 0.8;
 
-        return new LayoutPiece(string.Empty, font, ColorText.Or(style.Foreground, _settings.DefaultForeground), style.Background, underline: false,
+        return new LayoutPiece(string.Empty, font, LayoutColors.Or(style.Foreground, _settings.DefaultForeground), style.Background, underline: false,
             strikethrough: false, style.LinkHref, null, 0, ascent, Math.Max(0, BTextMeasurer.GetLineHeight(font) - ascent), oblique: false, isTab: true);
     }
 
@@ -1035,7 +1034,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         InlineImage image = style.Image!;
         (double width, double height) = _images.MeasurePoints(image);
 
-        return new LayoutPiece(string.Empty, FontFor(style), ColorText.Or(style.Foreground, _settings.DefaultForeground), style.Background, false,
+        return new LayoutPiece(string.Empty, FontFor(style), LayoutColors.Or(style.Foreground, _settings.DefaultForeground), style.Background, false,
             false, style.LinkHref, image, Math.Max(1, width), Math.Max(1, height), 0);
     }
 

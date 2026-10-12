@@ -313,6 +313,13 @@ paginates internally against a replaceable metrics provider.
   exactly once. Define orphan and widow handling, unbreakable runs, list-marker
   width, source mapping and resource lifetime. RichEdit print and preview become
   its second consumer.
+  *Started 2026-10-12:* the project exists and holds the CLI's layout, moved
+  unchanged, behind `DocumentPaginator`, which paints each page as a
+  `Broiler.Graphics.Paging.BPage`; `PaginatedDocument` is an `IBPageSource` and
+  `RichTextPagedDocument` the `IBPagedDocument` a print dialog re-paginates. The
+  CLI renders through it, and Writer prints through it. It does not yet meet
+  this item: there are no shaped glyph runs, no declared script matrix, and
+  `PdfPageLayout` still paginates on its own.
 - **Script baseline.** Horizontal left-to-right Latin, Greek and Cyrillic, with a
   tested combining and ligature subset. Everything else fails writer preflight
   instead of being emitted with nominal glyph order.

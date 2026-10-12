@@ -6,7 +6,7 @@ using Broiler.Graphics.Color;
 using Broiler.Graphics.Geometry;
 using Broiler.Graphics.Text;
 
-namespace Broiler.Documents.Cli.Rendering;
+namespace Broiler.Documents.Pagination;
 
 /// <summary>
 /// One drawable piece of a line: a stretch of text in a single font and colour,
@@ -205,7 +205,7 @@ public sealed class LayoutPage
 /// <summary>A document laid out onto pages, ready to rasterize.</summary>
 public sealed class LayoutResult
 {
-    internal LayoutResult(IReadOnlyList<LayoutPage> pages, PageSetup setup, LayoutSettings settings, 
+    internal LayoutResult(IReadOnlyList<LayoutPage> pages, DocumentPageBox setup, LayoutSettings settings, 
         IReadOnlyList<string> notes, bool truncated)
     {
         Pages = pages;
@@ -218,7 +218,7 @@ public sealed class LayoutResult
     public IReadOnlyList<LayoutPage> Pages { get; }
 
     /// <summary>The page box the layout used, with the final height for a continuous render.</summary>
-    public PageSetup Setup { get; }
+    public DocumentPageBox Setup { get; }
 
     /// <summary>
     /// The typographic settings the layout used, after the document's own

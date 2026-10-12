@@ -8,6 +8,7 @@ using Broiler.Documents.Cli.Composition;
 using Broiler.Documents.Cli.Documents;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Model;
+using Broiler.Documents.Pagination;
 using Broiler.Graphics.Imaging;
 using Broiler.Media.Image;
 
@@ -18,14 +19,22 @@ public sealed class RenderOutcome : IDisposable
 {
     private bool _disposed;
 
-    internal RenderOutcome(LayoutResult layout, IReadOnlyList<BBitmap> pages, IReadOnlyList<string> notes)
+    internal RenderOutcome(LayoutResult layout, PageSetup setup, IReadOnlyList<BBitmap> pages, IReadOnlyList<string> notes)
     {
         Layout = layout;
+        Setup = setup;
         Pages = pages;
         Notes = notes;
     }
 
     public LayoutResult Layout { get; }
+
+    /// <summary>
+    /// The page the render used: the caller's, or the one the document states, with the
+    /// resolution and background the caller asked for. The layout's own box, with the final
+    /// height of a continuous render, is <see cref="LayoutResult.Setup"/>.
+    /// </summary>
+    public PageSetup Setup { get; }
 
     /// <summary>The rendered pages, in page order. Owned by this object.</summary>
     public IReadOnlyList<BBitmap> Pages { get; }
@@ -217,13 +226,13 @@ public sealed class RenderPipeline
         if (!_pageWasAskedFor && document.PageGeometry is PageGeometry geometry && geometry.IsUsable)
             setup = _setup.WithGeometry(geometry);
 
-        LayoutResult result = layout.Layout(document, setup);
+        LayoutResult result = layout.Layout(document, setup.ToPageBox());
 
         var pages = new List<BBitmap>();
         using (var rasterizer = new DocumentRasterizer(_settings, images))
         {
             foreach (LayoutPage page in result.Pages.Where(page => IsSelected(page.Number)))
-                pages.Add(rasterizer.Render(page, result.Setup));
+                pages.Add(rasterizer.Render(page, result.Setup, setup));
         }
 
         var notes = new List<string>(result.Notes);
@@ -235,7 +244,7 @@ public sealed class RenderPipeline
                 "--pages selected no pages; the document laid out to " + result.Pages.Count + " page(s).");
         }
 
-        return new RenderOutcome(result, pages, notes);
+        return new RenderOutcome(result, setup, pages, notes);
     }
 
     /// <summary>
@@ -274,7 +283,7 @@ public sealed class RenderPipeline
     {
         ArgumentNullException.ThrowIfNull(outcome);
 
-        PageSetup setup = outcome.Layout.Setup;
+        DocumentPageBox setup = outcome.Layout.Setup;
         var pages = new JsonArray();
         for (int i = 0; i < outcome.Pages.Count; i++)
         {
@@ -308,9 +317,9 @@ public sealed class RenderPipeline
                 ["marginRightPoints"] = Round(setup.MarginRightPoints),
                 ["marginBottomPoints"] = Round(setup.MarginBottomPoints),
                 ["marginLeftPoints"] = Round(setup.MarginLeftPoints),
-                ["dpi"] = Round(setup.Dpi),
+                ["dpi"] = Round(outcome.Setup.Dpi),
                 ["continuous"] = setup.Continuous,
-                ["background"] = ColorText.Format(setup.Background),
+                ["background"] = ColorText.Format(outcome.Setup.Background),
             },
             ["defaults"] = new JsonObject
             {
