@@ -36,6 +36,12 @@ model.
 - **Spooling `DocumentInput`.** The type is memory-only on purpose. A
   spooling-capable input needs a policy a host supplies: directory, quota,
   permissions, cleanup, crash recovery and privacy. Nothing ambient.
+- **Save point in the editor history.** The Writer marks a document modified on
+  every change and keeps the mark through undo, even when undo returns to the
+  state last saved. `RichTextEditor` could record the saved snapshot and report
+  whether the current one is it; documents are immutable, so a reference check
+  is enough. Hosts would mark the point on save, which also ends the open typing
+  group.
 - **Write commit policy.** `DocumentWriteRequest` carries document, destination,
   options and cancellation. It has no staging or `RequireAtomic` member yet. The
   PDF writer integration needs one (see [Phase 7](#writer-and-output-integration-phase-7)).

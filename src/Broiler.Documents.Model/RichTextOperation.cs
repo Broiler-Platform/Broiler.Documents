@@ -3,8 +3,8 @@ namespace Broiler.Documents.Model;
 /// <summary>
 /// A single document operation recorded in a <see cref="RichTextTransaction"/> for
 /// deterministic operation logs and inspection. Undo/redo restores document
-/// snapshots (ADR 0014); these records describe what an edit did, they are not
-/// replayed to invert it.
+/// snapshots (Broiler.UI ADR 0014); these records describe what an edit did,
+/// they are not replayed to invert it.
 /// </summary>
 public abstract record RichTextOperation;
 
