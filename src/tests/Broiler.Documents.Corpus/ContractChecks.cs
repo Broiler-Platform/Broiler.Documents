@@ -11,7 +11,7 @@ namespace Broiler.Documents.Corpus;
 /// exit codes, the <c>--json</c> envelope, and the refusals.
 /// </summary>
 /// <remarks>
-/// docs/cli.md states these as promises to an automated caller, and they are the
+/// docs/guides/cli.md states these as promises to an automated caller, and they are the
 /// promises that are cheapest to break by accident - an option renamed, a
 /// refusal downgraded to a warning, a JSON key dropped. None of them needs the
 /// corpus, so they run first: if the envelope is wrong, every fidelity result
@@ -75,7 +75,7 @@ internal static class ContractChecks
             results.Add(!pdfWritable
                 ? CheckResult.Pass(Group, "formats/pdf-read-only")
                 : CheckResult.Fail(Group, "formats/pdf-read-only",
-                    "the tool reports the PDF codec as writable. docs/cli.md and the PDF support roadmap 4.1 " +
+                    "the tool reports the PDF codec as writable. docs/guides/cli.md and the PDF delivery gates in docs/roadmap.md " +
                     "say it reads PDF only, until the write-preview gate passes.",
                     formats.CommandLine()));
         }
@@ -99,7 +99,7 @@ internal static class ContractChecks
         }
 
         // Every command's --json output must carry its own exit code, because
-        // docs/cli.md promises a caller never has to parse the human form. The
+        // docs/guides/cli.md promises a caller never has to parse the human form. The
         // claim is about `--json` generally, so it is checked on a command that
         // succeeds and on one that reaches a negative verdict.
         foreach ((string name, string[] arguments) in new[]
@@ -136,7 +136,7 @@ internal static class ContractChecks
             CheckResult.ExpectExit(Group, "usage/unknown-command", 1,
             await tool.RunAsync("frobnicate").ConfigureAwait(false)),
 
-            // The one docs/cli.md argues for by name: a harness that writes
+            // The one docs/guides/cli.md argues for by name: a harness that writes
             // --tolerence must fail loudly, because comparing at the default
             // tolerance would report a pass nobody earned.
             CheckResult.ExpectExit(Group, "usage/misspelt-option", 1,
@@ -175,7 +175,7 @@ internal static class ContractChecks
 
             // Checked separately from the expected exit, and on every row rather
             // than only the failing ones. A run that produced the right exit for
-            // the wrong reason is still wrong, and 70 is the reason docs/cli.md
+            // the wrong reason is still wrong, and 70 is the reason docs/guides/cli.md
             // defines as always a defect in the tool.
             results.Add(run.ExitCode != 70
                 ? CheckResult.Pass(Group, "malformed/" + row.Id + "/no-crash")

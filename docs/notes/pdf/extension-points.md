@@ -1,13 +1,11 @@
 # PDF Extension Points
 
-- **Status:** Active
 - **Component:** `Broiler.Documents.Pdf`
-- **Updated:** 2026-09-24 (`IPdfColorProfileReader` added under IP-024; encrypted documents opened, and `IPdfRecipientDecryptor` added, under IP-015 and IP-025)
-- **Companion documents:** [PDF support roadmap](pdf-support-roadmap.md),
-  [construct inventory](pdf-construct-inventory.md),
-  [feature matrix](pdf-feature-matrix.md),
-  [IP/licensing register](pdf-ip-licensing-register.md),
-  [approved-source record](pdf-approved-sources.md)
+- **Companion documents:** [PDF overview](README.md),
+  [construct inventory](construct-inventory.md),
+  [feature matrix](feature-matrix.md),
+  [IP/licensing register](../../ip/pdf.md),
+  [approved-source record](../../ip/pdf-approved-sources.md)
 
 The base PDF codec implements only what this repository writes itself and can
 therefore ship without depending on, or clearing, an outside component. Every
@@ -56,7 +54,7 @@ the legal question.
 | Structure | Catalog, page tree with inherited attributes, boxes, rotation, `UserUnit`, effective version, `/Extensions` inventory |
 | Metadata | `Info` and the XMP read subset (ISO 16684-1:2019) normalized to the V1 allowlist, XMP winning per field and disagreement reported; the raw packet is never preserved |
 | Text | Graphics and text state, all show-text operators, Form XObjects, marked-content `ActualText`, simple-font encodings with `/Differences`, `ToUnicode` CMaps, composite fonts through `Identity-H` |
-| Images | Samples from a filter chain the build can run, normalized to RGBA within roadmap §9.3's approved tuple — DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded palette, `/Decode` validated — with their stencil, colour-key, explicit and soft masks carried as alpha, and admitted through the caller's resource policy |
+| Images | Samples from a filter chain the build can run, normalized to RGBA within the [approved raw-sample subset](README.md#images-and-links) — DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded palette, `/Decode` validated — with their stencil, colour-key, explicit and soft masks carried as alpha, and admitted through the caller's resource policy |
 | Semantics | Reading order from a tagged document's structure tree where it covers the page, geometric assembly otherwise, list detection, link annotations under the URI policy, and the default optional-content configuration — content in a layer the catalog turns off is omitted |
 | Writer | New PDF 1.7 files, standard font names with WinAnsi encoding, Flate content streams, colour, decorations, alignment, lists, link annotations, normalized metadata |
 | Security | Encrypted documents opened with the standard security handler at revisions 2, 3, 4 and 6 - RC4, AES-128 and AES-256, crypt filters, `/EncryptMetadata` - with the caller's password or the document's empty one; the copy-and-extract permission enforced and the rest reported; and the PDF half of the public-key handler, whose envelopes a composed decryptor opens (§4.6). Nothing is ever encrypted |
@@ -82,7 +80,7 @@ still reads; the affected construct is reported rather than guessed at.
 | Type 3 fonts — the glyph procedures only | `pdf.font.type3-unsupported`. The font's own encoding, `ToUnicode`, and `/FontMatrix` advances are read; only the procedures that draw the glyphs go unexecuted | — |
 | Inline images, and images naming a filter with no composed implementation | `pdf.image.not-composed` | IP-005 |
 | A decoded image the caller's policy refused | `pdf.image.extraction-denied` | — |
-| Text needing a font the caller did not provision | `pdf.write.no-font-configured` | §11.3's chosen path: the caller supplies fonts, this project bundles none |
+| Text needing a font the caller did not provision | `pdf.write.no-font-configured` | The decided font path: the caller supplies fonts, this project bundles none ([brief](../../ip/briefs/font-path.md)) |
 | Encrypted documents the build cannot open | `pdf.encryption.unsupported` for a handler, revision, or method outside the approved scope; `pdf.encryption.password-required` and `pdf.encryption.password-incorrect` for the standard handler; `pdf.encryption.extraction-not-permitted` where the permissions withhold what this codec produces. Each rejects the document | IP-015 (**approved**; see ADR 0015) |
 | Documents encrypted for certificate recipients | `pdf.encryption.recipient-not-composed` without a recipient decryptor; `pdf.encryption.recipient-not-found` with one that opens no envelope | IP-025 (**approved**, the external standards' review recorded as not done; see §4.6) |
 | Signatures | `pdf.signature.not-validated` | IP-016 |
@@ -112,7 +110,7 @@ emitted once per document:
 Three properties hold for all of them.
 
 **The codes do not change.** They are API, per
-[`PdfDiagnosticCodes`](../src/Broiler.Documents.Pdf/PdfDiagnosticCodes.cs).
+[`PdfDiagnosticCodes`](../../../src/Broiler.Documents.Pdf/PdfDiagnosticCodes.cs).
 Detail is added to the message and the location; a host keying off a code is
 unaffected.
 
@@ -342,7 +340,7 @@ more:
 - **The accepted tuple is narrower than "an sfnt".** The inspector takes a bare
   sfnt at version `0x00010000` or `OTTO` and refuses, by name, WOFF and WOFF2
   containers, font collections, variable fonts, CFF2, colour and bitmap glyph
-  tables, Graphite and AAT (PDF roadmap §6.5). A program outside that tuple is
+  tables, Graphite and AAT ([architecture notes](../architecture.md#graphics-and-media-prerequisites)). A program outside that tuple is
   reported as uninspected exactly as a malformed one is: this side of the
   boundary refuses rather than repairs, and the renderer's parser — which
   follows a WOFF container and reads a short table as zeros so a font a caller
@@ -461,13 +459,13 @@ application, and travels in the read options instead
 The order matters: the register row comes first, and the capability comes last.
 
 1. **Clear the register row.** The row in
-   [pdf-ip-licensing-register.md](pdf-ip-licensing-register.md) records the exact
+   [ip/pdf.md](../../ip/pdf.md) records the exact
    standard, edition, and subset; the source and its use terms; code and data
    provenance; the declaration record and review date; jurisdictions; and the
    reviewer and decision. Until the row is approved, the capability is blocked
    whatever the code does.
 2. **Register the sources.** Add rows to
-   [pdf-approved-sources.md](pdf-approved-sources.md) for anything consulted,
+   [ip/pdf-approved-sources.md](../../ip/pdf-approved-sources.md) for anything consulted,
    with the permitted use for each. An independent implementation may be a
    black-box oracle under its own terms; its code, tables, fixtures, and
    generated data are not sources to copy.
@@ -485,7 +483,7 @@ The order matters: the register row comes first, and the capability comes last.
    not-composed path: the diagnostic that the base build emits is part of the
    contract and must keep working.
 7. **Move the matrix entry.** Only now does
-   [pdf-feature-matrix.md](pdf-feature-matrix.md) change, and only to the state
+   [feature-matrix.md](feature-matrix.md) change, and only to the state
    the evidence supports. `Supported` is invalid while the row's legal column is
    pending.
 
@@ -530,5 +528,5 @@ implements itself, and that scope was chosen to keep the legal surface small —
 but "small" is not "cleared", and no wording here or in the code may be read as a
 patent-freedom, royalty-free, certification, conformance, or endorsement claim.
 The register is the only place a capability becomes approved, and the
-[roadmap's](pdf-support-roadmap.md) preview and release gates are the only path
+[roadmap's](../../roadmap.md#pdf-delivery-gates) preview and release gates are the only path
 to advertising one.

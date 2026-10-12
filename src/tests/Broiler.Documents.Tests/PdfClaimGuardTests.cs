@@ -27,11 +27,11 @@ public sealed partial class PdfClaimGuardTests
     /// <summary>The documents a reviewer reads to learn what the codec does.</summary>
     private static readonly string[] DescribingDocuments =
     [
-        "docs/pdf-feature-matrix.md",
-        "docs/pdf-construct-inventory.md",
-        "docs/pdf-extension-points.md",
-        "docs/pdf-support-roadmap.md",
-        "docs/pdf-ip-licensing-register.md",
+        "docs/notes/pdf/feature-matrix.md",
+        "docs/notes/pdf/construct-inventory.md",
+        "docs/notes/pdf/extension-points.md",
+        "docs/notes/pdf/README.md",
+        "docs/ip/pdf.md",
     ];
 
     [Fact]
@@ -55,8 +55,8 @@ public sealed partial class PdfClaimGuardTests
     public void No_Feature_Matrix_Entry_Claims_Support_While_A_Register_Row_Is_Pending()
     {
         string root = PdfGuardRoots.Component;
-        string matrix = File.ReadAllText(Path.Combine(root, "docs/pdf-feature-matrix.md"));
-        string register = File.ReadAllText(Path.Combine(root, "docs/pdf-ip-licensing-register.md"));
+        string matrix = File.ReadAllText(Path.Combine(root, "docs/notes/pdf/feature-matrix.md"));
+        string register = File.ReadAllText(Path.Combine(root, "docs/ip/pdf.md"));
 
         bool anythingPending =
             register.Contains("**Pending", StringComparison.Ordinal) ||
@@ -81,7 +81,7 @@ public sealed partial class PdfClaimGuardTests
         // Backticked code-shaped tokens in the register are claims that a specific
         // diagnostic exists. A row that survives a rename would send a reviewer
         // looking for something that is not there.
-        string register = File.ReadAllText(Path.Combine(root, "docs/pdf-ip-licensing-register.md"));
+        string register = File.ReadAllText(Path.Combine(root, "docs/ip/pdf.md"));
         string[] missing = [.. Regex.Matches(register, @"`(pdf\.[a-z0-9.\-]+|document\.[a-z0-9.\-]+)`", RegexOptions.CultureInvariant)
             .Select(match => match.Groups[1].Value)
             .Where(code => code.Contains('.', StringComparison.Ordinal) && !declared.Contains(code))
@@ -135,7 +135,7 @@ public sealed partial class PdfClaimGuardTests
         // reach every host that lists the format.
         Assert.Contains("new DocumentFormatDescriptor(\"PDF\"", codec, StringComparison.Ordinal);
 
-        string register = File.ReadAllText(Path.Combine(root, "docs/pdf-ip-licensing-register.md"));
+        string register = File.ReadAllText(Path.Combine(root, "docs/ip/pdf.md"));
         Assert.Contains("## Approved labels", register, StringComparison.Ordinal);
     }
 

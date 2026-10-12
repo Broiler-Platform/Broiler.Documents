@@ -76,16 +76,7 @@ Open XML WordprocessingML package parts.
   | `w:pPr` | `w:pageBreakBefore`, `w:numPr`, `w:spacing`, `w:ind`, `w:jc` | 4, 7, 22, 23, 27 |
   | `w:rPr` | `w:rFonts`, `w:b`, `w:i`, `w:caps`/`w:smallCaps`, `w:strike`, `w:color`, `w:sz`, `w:u`, `w:shd` | 2, 3, 5, 7/8, 9, 19, 24, 27, 30 |
 
-  This bullet is new because the paragraph above it used to be the only thing
-  here that mentioned the rule, and it was true of exactly the one element it
-  described. `w:pageBreakBefore` was placed correctly and documented as being
-  placed correctly, while a dozen lines lower the same method wrote `w:jc`
-  ahead of `w:spacing` and `w:ind` - so a centred paragraph that also carried
-  spacing or an indent, which is to say most headings, left the writer out of
-  sequence. The run properties were further out still, and nothing here had ever
-  claimed they were ordered at all: `w:u` was written third, where the sentence
-  a person says out loud puts it, rather than 27th where the schema does.
-  `DocxPropertyOrderTests` asserts both sequences now. It walks whatever
+  `DocxPropertyOrderTests` asserts both sequences. It walks whatever
   properties are present rather than checking an exact list, so a property added
   to the writer later is checked in its right place rather than failing a list
   it was never named in.
@@ -123,8 +114,7 @@ Open XML WordprocessingML package parts.
   column and its paragraph — the same box a `wps:wsp` shape gets, because it is
   the same anchor. Horizontally every frame converts exactly: a stripe stated at
   nothing from the left margin and one stated at minus the margin from the
-  column are the same stripe, and only the second used to arrive in the right
-  place. Its `behindDoc` is read
+  column are the same stripe. Its `behindDoc` is read
   and written back, so a stripe the letter is written on top of and a stamp
   meant to cover it each stay on the side of the text they were authored on.
   The picture is written back as an anchored picture. A logo hung over a
@@ -274,11 +264,10 @@ Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.plac
 no representation for most control characters, not even an escape, so one that
 reaches the writer is dropped and reported. It is not a contrived input — the
 HTML reader decodes `&#7;` into the model and the RTF reader passes `\u7`
-through, so a document that read cleanly used to fail to write, and the tool
-reported an internal error rather than a diagnostic. Every string that comes from
-the model passes the filter, a picture's description as well as run text.
+through. Every string that comes from the model passes the filter, a picture's
+description as well as run text.
 
-`Broiler.Cli --convert-doc <in> --output <out>` prints all of them, which is the
+`broilerdoc info <file>` prints all of them, which is the
 quickest way to see what a problem document lost. In the Writer, set
 `BROILER_WRITER_DOCUMENT_LOG=1` to have the same list written to stderr on every
 open; the status bar always reports a read that produced no text.
@@ -292,29 +281,11 @@ DOCX probing is conservative because DOCX is a ZIP-based OPC package:
 - Generic ZIP files are not claimed without a DOCX hint or WordprocessingML
   package evidence.
 
-## Standards And Rights
+## Standards and rights
 
-DOCX is ECMA-376, republished as ISO/IEC 29500. The **Microsoft Open Specification
-Promise** names `Office Open XML 1.0 - Ecma-376`, all three ISO/IEC 29500 editions,
-and `[MS-DOCX]` individually in its covered list: an irrevocable non-assertion of
-Microsoft Necessary Claims against a conforming implementation, with defensive
-termination as its only condition.
-
-The promise states three limits about itself and this document repeats none of
-them loosely: it reaches Microsoft-owned or Microsoft-controlled claims only, it
-reaches the required portions **described in detail and not merely referenced**,
-and it is expressly not an assurance that an implementation avoids third-party
-rights. All of that is recorded in
-[the DOCX IP and licensing register](docx-ip-licensing-register.md), where **every
-row is now decided**. Decided is not cleared: patent-freedom is not claimed, no
-freedom-to-operate determination has been made, and the promise expressly does not
-assure that an implementation avoids third-party rights.
-
-**The naming rule is decided and applied.** No format label may name a vendor or
-its product, so `.docx` is offered as `DOCX Document (*.docx)` rather than as
-`Word Document` — the phrase this component's hosts used until the rule was taken.
-A guard in the aggregate repository fails the build on a label that names one.
-
-Settled by inspection: this codec embeds no third-party OOXML code, takes no
-package reference, reproduces no specification text, and no `.docx` or `.dotx`
-file is committed anywhere in the repository.
+DOCX is ECMA-376, republished as ISO/IEC 29500. Its rights position (the Microsoft
+Open Specification Promise and its three self-stated limits), the approved labels
+and the provenance findings are in [the DOCX register](../ip/docx.md). Decided is
+not cleared: no lawyer reviewed it, and patent-freedom is not claimed. No format
+label may name a vendor or its product, so `.docx` is offered as
+`DOCX Document (*.docx)`.

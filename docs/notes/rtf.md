@@ -175,10 +175,9 @@ ignorable destination introduced by `\*` - `\*\shpinst` excepted, since the
 reader understands that one. `\binN` binary data is skipped at the tokenizer
 (reported as `rtf.bin` when it exceeds `MaxBinBytes`).
 
-`\header` and `\footer` are not on that list. They were, and their content was
-dropped; it is now read onto the document's running content, above. None of
-their text reaches the body - which is what a check for content loss looks at -
-but none of it is lost either.
+`\header` and `\footer` are not on that list. Their content goes to the
+document's running content (above): none of it reaches the body, and none of it
+is lost.
 
 ## Limits (`DocumentLimits`)
 
@@ -295,22 +294,9 @@ anything a caller asked for that this codec does not do.
 | `rtf.image.anchored` | Warning | Write | A floating picture was written into its paragraph; its position beside the text was not kept. |
 | `document.capability.not-composed` | Warning | Read, write | Something the caller asked for that this codec does not compose: `DecodeEmbeddedObjects` on a document that carries a picture or object, or `AsciiOnly=false` on a write. |
 
-## Standards And Rights
+## Standards and rights
 
-RTF is a vendor format with no standards body: Microsoft published the
-specification and last revised it in 2008. The **Microsoft Open Specification
-Promise** names `[RTF]: Rich Text Format` in its covered list, and the promise is
-an irrevocable non-assertion of Microsoft Necessary Claims against a conforming
-implementation, with defensive termination as its only condition.
-
-That is recorded, with the promise's own three limits, in
-[the RTF IP and licensing register](rtf-ip-licensing-register.md), where **every
-row is now decided**. Decided is not cleared: no lawyer reviewed it,
-patent-freedom is not claimed, and no freedom-to-operate determination has been
-made. The promise says the same about itself, and the register quotes it rather
-than summarising.
-
-What is settled by inspection rather than assertion: this codec embeds no
-third-party RTF code, takes no package reference, reproduces no specification
-text, and no `.rtf` file is committed anywhere in the repository. Guard tests fail
-the build if any of that stops being true.
+RTF is a vendor format with no standards body. Its rights position (the Microsoft
+Open Specification Promise names `[RTF]` itself), the approved labels and the
+provenance findings are in [the RTF register](../ip/rtf.md). Decided is not
+cleared: no lawyer reviewed it, and patent-freedom is not claimed.

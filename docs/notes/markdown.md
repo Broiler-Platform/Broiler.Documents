@@ -1,7 +1,5 @@
 # Broiler.Documents.Markdown Conformance
 
-Status: Delivered 2026-07-07.
-
 `Broiler.Documents.Markdown` maps a CommonMark-oriented subset through the same
 `DocumentCodec` contract as RTF and HTML. It has no DOM, UI, OS, or third-party
 dependency.
@@ -50,10 +48,8 @@ is intentionally conservative.
 | `PageBreakBefore` | Nothing, reported as `markdown.page-break` |
 
 The writer escapes the characters that would otherwise be read back as markup:
-`\` `` ` `` `*` `_` `[` `]` `(` `)` `#` `+` `-` `.` `!` and `~`. The last was
-missed until the corpus suite caught it — doubled, a tilde is this reader's own
-strikethrough, so literal tildes went out bare and came back as a struck run with
-the tildes gone.
+`\` `` ` `` `*` `_` `[` `]` `(` `)` `#` `+` `-` `.` `!` and `~`. The tilde
+matters because doubled it is this reader's own strikethrough.
 
 The writer emits UTF-8 Markdown with a trailing newline. Unsupported paragraph
 style fields (alignment, line spacing, spacing before/after) produce
@@ -61,9 +57,7 @@ style fields (alignment, line spacing, spacing before/after) produce
 syntax with a base64 data URI (`markdown.image.datauri`); the reader does not
 turn it back into a model image, so an image does not survive a Markdown
 round-trip — it comes back as its description, and nothing of the syntax is left
-in the text. That last part had to be fixed: `!` was not a character the inline
-parser knew, so the `[…](…)` after it was taken as a link, the marker stayed in
-the prose, and the loss was reported as a dropped hyperlink. Unsupported inline style fields (underline, size,
+in the text. Unsupported inline style fields (underline, size,
 foreground/background color, and non-monospace font family) produce
 `markdown.inline-style`.
 
@@ -107,26 +101,10 @@ asking a different question than one chasing lost spacing.
   nested delimiter runs.
 - Writer output is semantic model Markdown, not preservation of source markup.
 
+## Standards and rights
 
-## Standards And Rights
-
-Markdown has no standards body, no IPR mode, and no patent declaration. There is
-nothing to negotiate and nothing to read, which is a comfortable position and a
-weaker kind of one: it is assessed on the absence of any instrument rather than
-on the presence of a good one.
-
-The one live obligation is a copyright licence with a naming clause —
-"Neither the name 'Markdown' nor the names of its contributors may be used to
-endorse or promote products derived from this software" — which binds products
-derived from John Gruber's implementation. Nothing here is: this codec was written
-for this repository and imports nothing.
-
-Both are recorded in
-[the Markdown IP and licensing register](markdown-ip-licensing-register.md), where
-**every row is now decided** — including the reading of that clause, which was
-accepted on the strength of an inspection rather than an argument: there is no
-imported implementation in this repository for it to attach to.
-
-One wording rule follows from this document rather than from the register. This is
-a **CommonMark-oriented subset** and the limits above enumerate what it does not
+Markdown has no standards body and no patent instrument. The rights position,
+the reading of the licence's naming clause, the approved labels and the
+provenance findings are in [the Markdown register](../ip/markdown.md). This is a
+CommonMark-oriented subset and the limits above enumerate what it does not
 implement, so nothing may describe it as CommonMark-compliant.

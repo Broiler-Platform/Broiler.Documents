@@ -29,8 +29,8 @@
         "html.css.rule"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
-      "why": "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the 'td p' and 'th p' that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/html-conformance.md states exactly which selector is matched and which are not, and why the line is drawn there.",
+      "reference": "docs/notes/html.md",
+      "why": "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the 'td p' and 'th p' that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/notes/html.md states exactly which selector is matched and which are not, and why the line is drawn there.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     },
@@ -43,8 +43,8 @@
         "html.skip.external"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
-      "why": "Not a difference this component could avoid. LibreOffice's HTML export has no way to write a frame, so it flattens both of the seed's frames to GIF files beside the document and links them; the reader never fetches an external resource and reports html.skip.external once per read, which docs/html-conformance.md states outright in both directions. What the row is worth recording for is what it says about the corpus rather than about the codec: the html target of this seed measures a document with the construct taken out of it, so a reader comparing the four targets knows not to read agreement here as evidence about frames.",
+      "reference": "docs/notes/html.md",
+      "why": "Not a difference this component could avoid. LibreOffice's HTML export has no way to write a frame, so it flattens both of the seed's frames to GIF files beside the document and links them; the reader never fetches an external resource and reports html.skip.external once per read, which docs/notes/html.md states outright in both directions. What the row is worth recording for is what it says about the corpus rather than about the codec: the html target of this seed measures a document with the construct taken out of it, so a reader comparing the four targets knows not to read agreement here as evidence about frames.",
       "reviewer": "Claude Opus 5, on the letterhead and line-break seeds",
       "decided": "2026-09-06"
     },
@@ -57,8 +57,8 @@
         "html.css.rule"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
-      "why": "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the 'td p' and 'th p' that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/html-conformance.md states exactly which selector is matched and which are not, and why the line is drawn there.",
+      "reference": "docs/notes/html.md",
+      "why": "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the 'td p' and 'th p' that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/notes/html.md states exactly which selector is matched and which are not, and why the line is drawn there.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     },
@@ -80,8 +80,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/cli.md states the projection's two visible choices and names this as one of them.",
+      "reference": "docs/guides/cli.md",
+      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     },
@@ -111,8 +111,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/cli.md states the projection's two visible choices and names this as one of them.",
+      "reference": "docs/guides/cli.md",
+      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     },
@@ -135,8 +135,8 @@
         "html.list"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
-      "why": "A limitation docs/html-conformance.md states outright: the HTML writer does not emit list structure and reports html.list when it drops it, so a list read from HTML does not survive a round trip back through HTML. The roadmap holds HTML list writing as deliberate and unimplemented, to be reconsidered only behind conformance fixtures and explicit diagnostics. The diagnostic is the codec saying what it dropped, which is the half that makes the limitation reviewable.",
+      "reference": "docs/notes/html.md",
+      "why": "A limitation docs/notes/html.md states outright: the HTML writer does not emit list structure and reports html.list when it drops it, so a list read from HTML does not survive a round trip back through HTML. The roadmap holds HTML list writing as deliberate and unimplemented, to be reconsidered only behind conformance fixtures and explicit diagnostics. The diagnostic is the codec saying what it dropped, which is the half that makes the limitation reviewable.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     },
@@ -166,8 +166,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/cli.md states the projection's two visible choices and names this as one of them.",
+      "reference": "docs/guides/cli.md",
+      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     },
@@ -197,8 +197,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/cli.md states the projection's two visible choices and names this as one of them.",
+      "reference": "docs/guides/cli.md",
+      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     },
@@ -228,8 +228,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/cli.md states the projection's two visible choices and names this as one of them.",
+      "reference": "docs/guides/cli.md",
+      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     },
@@ -259,8 +259,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/cli.md states the projection's two visible choices and names this as one of them.",
+      "reference": "docs/guides/cli.md",
+      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     },
@@ -273,8 +273,8 @@
         "html.css.rule"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
-      "why": "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the 'td p' and 'th p' that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/html-conformance.md states exactly which selector is matched and which are not, and why the line is drawn there.",
+      "reference": "docs/notes/html.md",
+      "why": "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the 'td p' and 'th p' that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/notes/html.md states exactly which selector is matched and which are not, and why the line is drawn there.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     },
@@ -295,8 +295,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/cli.md",
-      "why": "The same kind of difference, in the other place docs/cli.md names. LibreOffice's text export joins a table row onto one line - 'cell a cell b' - and this component's gives each cell its own line, in row order, because that is how the model holds a table once it is flattened and a joined row would invent a column separator the document never stated. Neither reader lost a cell.",
+      "reference": "docs/guides/cli.md",
+      "why": "The same kind of difference, in the other place docs/guides/cli.md names. LibreOffice's text export joins a table row onto one line - 'cell a cell b' - and this component's gives each cell its own line, in row order, because that is how the model holds a table once it is flattened and a joined row would invent a column separator the document never stated. Neither reader lost a cell.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     },
@@ -317,8 +317,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/cli.md",
-      "why": "The same kind of difference, in the other place docs/cli.md names. LibreOffice's text export joins a table row onto one line - 'cell a cell b' - and this component's gives each cell its own line, in row order, because that is how the model holds a table once it is flattened and a joined row would invent a column separator the document never stated. Neither reader lost a cell.",
+      "reference": "docs/guides/cli.md",
+      "why": "The same kind of difference, in the other place docs/guides/cli.md names. LibreOffice's text export joins a table row onto one line - 'cell a cell b' - and this component's gives each cell its own line, in row order, because that is how the model holds a table once it is flattened and a joined row would invent a column separator the document never stated. Neither reader lost a cell.",
       "reviewer": "Claude Opus 5, on the first office baseline",
       "decided": "2026-09-06"
     }
@@ -914,7 +914,7 @@
       },
       "state": "suspected-defect",
       "reference": null,
-      "why": "Two causes, and only one of them is settled. LibreOffice cannot write a frame into HTML, so it flattens both of this seed's frames to GIF files beside the document; the reader never fetches an external resource and says so with html.skip.external, which docs/html-conformance.md states in both directions. That half is a limitation rather than a defect, and the text row for the same document records it. The second half arrived with the line-break fix and nobody has decided on it: LibreOffice writes the page's header as <div title=\"header\">, this reader has no notion of that convention and reads it as body content, and the <br/> inside it is now honoured - so the body opens with a blank line LibreOffice puts nowhere, and the profile fell from 0.484 to 0.332. Honouring the break is right. Reading a header as body is the part that needs deciding, either by a statement in the conformance document or by the reader learning the convention.",
+      "why": "Two causes, and only one of them is settled. LibreOffice cannot write a frame into HTML, so it flattens both of this seed's frames to GIF files beside the document; the reader never fetches an external resource and says so with html.skip.external, which docs/notes/html.md states in both directions. That half is a limitation rather than a defect, and the text row for the same document records it. The second half arrived with the line-break fix and nobody has decided on it: LibreOffice writes the page's header as <div title=\"header\">, this reader has no notion of that convention and reads it as body content, and the <br/> inside it is now honoured - so the body opens with a blank line LibreOffice puts nowhere, and the profile fell from 0.484 to 0.332. Honouring the break is right. Reading a header as body is the part that needs deciding, either by a statement in the conformance document or by the reader learning the convention.",
       "reviewer": null,
       "decided": null
     },
@@ -967,7 +967,7 @@
         "blurDiffRatio": 0.08665082194493959
       },
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
+      "reference": "docs/notes/rtf.md",
       "why": "A disagreement rather than a defect, and the one place in this corpus where following the format costs a band. \\titlepg is read now, so this component draws no footer on the first page of a section that states one and names no \\footerf - which is what Word does. LibreOffice draws the default footer there, and the 1193 px is the whole of the difference: it inks the bottom of page one and this component inks nothing below the third line. Matching LibreOffice would have been the cheaper number and the worse answer, because its own DOCX importer honours the same flag the Word way - agreeing with it here would have made this component disagree with itself across two of its own readers. The stray page number the text and interop rows recorded is gone: a field result belongs to the destination the field is in. What the profile still reads is the gradient, which runs left to right here where ODT and DOCX now run it down the page - LibreOffice writes no fillAngle into its RTF at all and renders its own file bottom-to-top, so no reading of that document agrees with all three of the source, the oracle and the other two targets.",
       "reviewer": "Claude Opus 5, on the reader fixes the letterhead seed found",
       "decided": "2026-09-06"

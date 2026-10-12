@@ -26,8 +26,8 @@ namespace Broiler.Documents.Odt.Tests;
 /// </remarks>
 public sealed partial class OdtClaimGuardTests
 {
-    private const string Register = "docs/odt-ip-licensing-register.md";
-    private const string Conformance = "docs/odt-conformance.md";
+    private const string Register = "docs/ip/odt.md";
+    private const string Conformance = "docs/notes/odt.md";
 
     /// <summary>The documents a reader consults to learn what the ODT codec does.</summary>
     private static readonly string[] DescribingDocuments = [Conformance, Register];
@@ -187,11 +187,9 @@ public sealed partial class OdtClaimGuardTests
         string root = OdtGuardRoots.Component;
         string conformance = File.ReadAllText(Path.Combine(root, Conformance));
 
-        // The conformance document used to say the rights controls "are the PDF
-        // ones today" and that extending them was roadmap work. They are not, and
-        // it is not. It must point at ODT's own register so the rights position is
+        // The ODT note must point at ODT's own register so the rights position is
         // read in one place rather than restated in two that can disagree.
-        Assert.Contains("odt-ip-licensing-register.md", conformance, StringComparison.Ordinal);
+        Assert.Contains("../ip/odt.md", conformance, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -56,7 +56,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["corpusId", "generated"],
-          "description": "A corpus id refers to docs/pdf-corpus-manifest.json, which is empty until its rights rows clear. A generated fixture is built in code and needs no rights decision.",
+          "description": "A corpus id refers to docs/ip/pdf-corpus-manifest.json, which is empty until its rights rows clear. A generated fixture is built in code and needs no rights decision.",
           "properties": {
             "corpusId": { "type": ["string", "null"] },
             "generated": { "type": "boolean" },

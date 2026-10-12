@@ -3,7 +3,7 @@ using System.Text;
 namespace Broiler.Documents.Rtf.Tests;
 
 /// <summary>
-/// Validates the categories in <c>docs/rtf-conformance.md</c>: honoured entity
+/// Validates the categories in <c>docs/notes/rtf.md</c>: honoured entity
 /// control words produce the right characters, ignored control words are inert,
 /// and skipped destinations contribute no text.
 /// </summary>

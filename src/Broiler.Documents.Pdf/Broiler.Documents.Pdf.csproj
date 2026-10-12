@@ -12,7 +12,7 @@
     <Description>PDF 1.7 (ISO 32000-1) document codec: syntax, object store, the stream filters this repository implements, logical text import, and a deterministic writer over the standard font names.</Description>
     <!--
       Ship the codec as a preview package. Application registration and support
-      claims retain their separate gates (pdf-support-roadmap.md §4.1).
+      claims retain their separate gates (docs/roadmap.md, PDF delivery gates).
     -->
     <IsPackable>true</IsPackable>
   </PropertyGroup>

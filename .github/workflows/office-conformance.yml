@@ -2,7 +2,7 @@ name: Office conformance
 
 # LibreOffice writes the documents, broilerdoc reads them, and the disagreements
 # are held against tests/office/office-baseline.json. What that proves, and the
-# considerable list of what it does not, is in docs/office-conformance.md.
+# considerable list of what it does not, is in docs/guides/office-conformance.md.
 #
 # Nightly and dispatchable rather than a pull-request check, for four reasons in
 # descending order of weight.

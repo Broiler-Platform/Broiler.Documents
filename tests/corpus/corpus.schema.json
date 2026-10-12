@@ -183,7 +183,7 @@
         "expectedExit": {
           "type": "integer",
           "enum": [0, 1, 2, 3, 4, 5, 6],
-          "description": "Exit 70 is deliberately not permitted here. docs/cli.md defines it as always a defect in the tool, so a row expecting it would be a row blessing one."
+          "description": "Exit 70 is deliberately not permitted here. docs/guides/cli.md defines it as always a defect in the tool, so a row expecting it would be a row blessing one."
         },
         "notes": { "type": ["string", "null"] },
         "content": {

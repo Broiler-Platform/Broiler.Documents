@@ -23,12 +23,12 @@ to spot-check any row against the named source file when they want to.
 Where a row's behavior is "recognized and skipped", the codec also reports what
 it met — how many, of which declared variants, on which pages. That inventory is
 specified in
-[PDF extension points §3.1](pdf-extension-points.md#31-what-a-skip-report-carries),
+[PDF extension points §3.1](extension-points.md#31-what-a-skip-report-carries),
 and it is the evidence a reviewer scoping IP-005 or IP-012 would otherwise have
 to gather by hand. It changes no behavior and decodes nothing.
 
 **This is not a conformance claim.** It states behavior, not compliance. No entry
-here promotes anything in the [feature matrix](pdf-feature-matrix.md), which
+here promotes anything in the [feature matrix](feature-matrix.md), which
 remains the sole authority on what Broiler may be *described* as supporting, and
 nothing here is `Supported` while its register row is pending.
 
@@ -41,8 +41,8 @@ writer list is the set of names the serializer actually emits. The
 "Where" column names the file so a reviewer can verify any row directly.
 
 > **The clause column is provisional and must be verified against the licensed
-> standard text.** Lawful standards access for implementers is still an open
-> Phase 0 exit item ([status record](pdf-phase0-status.md)), so these references
+> standard text.** That verification is an open
+> [roadmap item](../../roadmap.md#rights-and-provenance), so these references
 > are a best-effort starting point offered to save the reviewer time — they are
 > not themselves evidence, and a mismatch between this column and the standard
 > means this column is wrong. Consistent with the roadmap's standards-source
@@ -163,7 +163,7 @@ distinction that matters for the register rows they belong to.
 | Metadata streams (XMP) | 14.3.2 | Decoded through the ordinary filter pipeline and parsed into the normalized allowlist under the pinned ISO 16684-1:2019 subset; XMP wins per field, `Info` fills the rest, disagreement emits `pdf.metadata.conflict`, an unusable packet emits `pdf.metadata.xmp-unusable` and falls back to `Info`, and the raw packet is dropped with `document.metadata.raw-dropped` | IP-004 approved |
 | Path painting and shading operators | 8.5, 8.7 | `pdf.import.vector-artwork-dropped`, counted by shape class for the whole document, and counting only what was not read back: a grid's rules and shades and a closed frame around text are reported under `pdf.import.table-reconstructed` instead, a thin bar under or through a run of text becomes that run's underline or strikethrough, and a fill beneath a run becomes its background. A fill in the paper's colour with nothing painted under it is reported as painting nothing, not as a loss, and a dropped path repeating a shape already painted in the same place is counted as a repaint, so the note says how many distinct shapes were lost. The note names the pages that lost something rather than the pages that painted something. Path construction operators are followed for classification only and nothing is retained | — |
 | JavaScript, Launch, GoToR, GoToE, SubmitForm, ImportData and Named actions, on any annotation subtype; an action whose kind is not named or whose `/A` is not an action dictionary; and a URI action carried by an annotation that is not a `/Link`; on every page and every layer | 12.6.4 | `pdf.active-content.removed` | — |
-| Same-document destinations: a `/Link` with `/Dest`, and `/A` actions with `/S /GoTo` | 12.5.6.5, 12.6.4.7 | `pdf.import.link-destination-dropped`. The jump names a place in this same file, so nothing is executed or fetched and the destination value is not read at all; the text is kept and no link is projected, internal destinations being deferred until a cross-format bookmark/anchor model exists ([roadmap §9.3](pdf-support-roadmap.md#93-images-and-links)) | — |
+| Same-document destinations: a `/Link` with `/Dest`, and `/A` actions with `/S /GoTo` | 12.5.6.5, 12.6.4.7 | `pdf.import.link-destination-dropped`. The jump names a place in this same file, so nothing is executed or fetched and the destination value is not read at all; the text is kept and no link is projected, internal destinations being deferred until a cross-format bookmark/anchor model exists ([overview](README.md#images-and-links)) | — |
 | Embedded files, screen, movie, rich media, 3D annotations | 12.5.6, 7.11 | `pdf.active-content.removed` | — |
 | AcroForm `/SigFlags`, signature fields | 12.7, 12.8 | `pdf.signature.not-validated` | IP-016 |
 | Structure tree (`/StructTreeRoot`), tagged PDF | 14.7, 14.8 | Read for its sequence and for which element holds each piece of marked content, never for roles; beyond that described and not consumed: the note reports the root's top-level element count, `/MarkInfo /Marked`, whether a `/ParentTree` exists, and the role-map size, under `pdf.import.reading-order-heuristic` | IP-017 |
@@ -250,7 +250,7 @@ structure tree, tagged semantics, XMP, or any profile conformance identifier.
 | Dependency | Use | Register row |
 |---|---|---|
 | The .NET runtime's DEFLATE/zlib implementation | `FlateDecode` and content-stream compression | IP-023, confirmed under IP-011 |
-| Unicode character identities | The authored encoding tables, the Symbol table, and the glyph-name repertoire | IP-013 approved, IP-021 pending |
+| Unicode character identities | The authored encoding tables, the Symbol table, and the glyph-name repertoire | IP-013 and IP-021 approved |
 | The .NET runtime's `System.Uri` | The only URI parsing in the codec; link admission wraps it with a scheme allow-list and a length ceiling, and adds no grammar of its own | SRC-011, IP-014 approved |
 | The .NET runtime's MD5, SHA-1, SHA-256/384/512 and AES | The security handlers' key computations and ciphers; RC4 alone is written here | SRC-011, IP-015 |
 | ISO 32000-2 §7.6.4 | The revision 6 algorithms, the one ISO 32000-2 feature implemented | IP-002 with feature-level review; IP-015 |
@@ -280,4 +280,4 @@ This document describes behavior, so it goes stale the moment behavior changes.
 Any change that adds, removes, or moves a construct between §3, §4, §5, and §6
 updates this file in the same commit, and any change that moves one *into* §3 or
 §6 must first clear its register row per
-[PDF extension points §5](pdf-extension-points.md#5-adding-a-technology-step-by-step).
+[PDF extension points §5](extension-points.md#5-adding-a-technology-step-by-step).

@@ -107,7 +107,7 @@ public static class InspectCommands
         if (pdf is { CanWrite: false })
         {
             context.Report("PDF is read and never written here: producing PDF still has to pass its");
-            context.Report("write-preview gate (docs/pdf-support-roadmap.md 4.1).");
+            context.Report("write-preview gate (docs/roadmap.md, PDF delivery gates).");
         }
 
         context.Result["formats"] = formats;

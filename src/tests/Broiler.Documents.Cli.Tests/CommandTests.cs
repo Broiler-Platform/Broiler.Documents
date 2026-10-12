@@ -57,7 +57,7 @@ public sealed class CommandTests : IDisposable
 
         Assert.Equal(expected, names);
 
-        // docs/pdf-support-roadmap.md 4.1 lets an application read PDF before it
+        // docs/roadmap.md (PDF delivery gates) lets an application read PDF before it
         // lets one write it. This is the assertion that keeps a future edit from
         // quietly giving this tool PDF destinations.
         JsonNode pdf = json["formats"]!.AsArray().Single(entry => entry!["name"]!.GetValue<string>() == "PDF")!;

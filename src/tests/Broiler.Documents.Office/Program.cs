@@ -585,7 +585,7 @@ internal static class Program
                         break;
                     default:
                         // Unknown options are an error rather than being ignored,
-                        // the same contract docs/cli.md holds the tool itself to.
+                        // the same contract docs/guides/cli.md holds the tool itself to.
                         // A harness that writes --tolerence must fail loudly.
                         throw new ArgumentException("Unknown option '" + argument + "'.");
                 }

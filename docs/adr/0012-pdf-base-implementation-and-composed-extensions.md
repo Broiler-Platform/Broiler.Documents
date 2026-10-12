@@ -69,7 +69,7 @@ pending, regardless of how complete the code is.
 sources are recorded, the implementation goes behind the interface in its
 correct owning component, its limits and corpus follow, both the composed and the
 not-composed paths are tested, and only then does the matrix entry move. It is
-specified in [PDF extension points](../pdf-extension-points.md).
+specified in [PDF extension points](../notes/pdf/extension-points.md).
 
 ## Consequences
 
