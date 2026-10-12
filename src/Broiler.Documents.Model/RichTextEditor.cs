@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Broiler.Documents.Model;
 
@@ -9,11 +10,30 @@ namespace Broiler.Documents.Model;
 /// next typed text. Callers drive it with logical editing operations; it is the
 /// Phase 1 kernel that Phase 2's <c>UiRichEdit</c> control will host.
 /// </summary>
+/// <remarks>
+/// There is one history per editor, and every host shares it (ADR 0006). Most
+/// calls record one transaction each. Keyboard editing is grouped instead:
+/// <see cref="TypeText"/>, <see cref="Backspace"/> and <see cref="Delete"/> at a
+/// caret extend the transaction they started, so undo takes back a word or a run
+/// of deletions rather than a single character. A group ends when the selection
+/// changes, any other edit, undo or redo runs, a pending style is set, a typed
+/// word follows whitespace, or the host calls <see cref="BreakUndoGroup"/>.
+/// </remarks>
 public sealed class RichTextEditor
 {
     private readonly List<RichTextTransaction> _undo = [];
     private readonly List<RichTextTransaction> _redo = [];
     private InlineStyleDelta? _pendingInline;
+    private KeyboardRun _run;
+
+    /// <summary>The kind of keyboard edit the newest transaction may still absorb.</summary>
+    private enum KeyboardRun
+    {
+        None,
+        Typing,
+        DeleteBackward,
+        DeleteForward,
+    }
 
     public RichTextEditor(RichTextDocument? document = null, int maxHistoryDepth = 100)
     {
@@ -57,8 +77,7 @@ public sealed class RichTextEditor
     {
         RichTextPosition anchor = Document.ClampPosition(selection.Anchor);
         RichTextPosition focus = Document.ClampPosition(selection.Focus);
-        Selection = new RichTextRange(anchor, focus);
-        _pendingInline = null;
+        Select(new RichTextRange(anchor, focus));
     }
 
     public void SetCaret(RichTextPosition caret) => SetSelection(RichTextRange.Caret(caret));
@@ -69,8 +88,7 @@ public sealed class RichTextEditor
     {
         RichTextPosition focus = Document.ClampPosition(target);
         RichTextPosition anchor = extend ? Selection.Anchor : focus;
-        Selection = new RichTextRange(anchor, focus);
-        _pendingInline = null;
+        Select(new RichTextRange(anchor, focus));
     }
 
     public void MoveLeft(bool extend) => MoveTo(Document.PositionLeftOf(Selection.Focus), extend);
@@ -87,7 +105,42 @@ public sealed class RichTextEditor
 
     // --- Text editing ------------------------------------------------------
 
-    public bool InsertText(string text)
+    /// <summary>
+    /// Inserts text at the caret, replacing the selection, as one transaction of
+    /// its own. Paste and programmatic insertion use this; typing uses
+    /// <see cref="TypeText"/>.
+    /// </summary>
+    public bool InsertText(string text) => InsertText(text, KeyboardRun.None);
+
+    /// <summary>
+    /// Inserts text the user typed. It does what <see cref="InsertText(string)"/>
+    /// does, but text typed straight after earlier typing joins that transaction,
+    /// so one undo removes a word, not a character. A word that starts after
+    /// whitespace begins a new transaction, and so does text holding a line or
+    /// paragraph break.
+    /// </summary>
+    public bool TypeText(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return false;
+
+        if (ContainsBreak(text))
+            return InsertText(text, KeyboardRun.None);
+
+        if (!Continues(KeyboardRun.Typing) || _pendingInline is not null ||
+            _undo[^1].Operations[^1] is not InsertTextOperation typed ||
+            (char.IsWhiteSpace(typed.Text[^1]) && !char.IsWhiteSpace(text[0])))
+        {
+            return InsertText(text, KeyboardRun.Typing);
+        }
+
+        RichTextPosition at = Selection.Focus;
+        RichTextEditResult insertion = Document.InsertText(at, text, Document.InlineStyleAt(at));
+        Extend(insertion, typed with { Text = typed.Text + text });
+        return true;
+    }
+
+    private bool InsertText(string text, KeyboardRun run)
     {
         if (string.IsNullOrEmpty(text))
             return false;
@@ -113,7 +166,7 @@ public sealed class RichTextEditor
 
         RichTextEditResult insertion = document.InsertText(at, text, style);
         operations.Add(new InsertTextOperation(at, text));
-        Commit(insertion.Document, RichTextRange.Caret(insertion.Caret), operations);
+        Commit(insertion.Document, RichTextRange.Caret(insertion.Caret), operations, run);
         return true;
     }
 
@@ -216,6 +269,10 @@ public sealed class RichTextEditor
         return true;
     }
 
+    /// <summary>
+    /// Deletes the selection, or the character before the caret, or the break
+    /// before the paragraph. Character deletions in a row form one transaction.
+    /// </summary>
     public bool Backspace()
     {
         if (!Selection.IsEmpty)
@@ -223,7 +280,20 @@ public sealed class RichTextEditor
 
         RichTextPosition caret = Selection.Focus;
         if (caret.Offset > 0)
-            return DeleteBetween(Document.PositionLeftOf(caret), caret);
+        {
+            RichTextPosition from = Document.PositionLeftOf(caret);
+            if (Continues(KeyboardRun.DeleteBackward) &&
+                _undo[^1].Operations[^1] is DeleteRangeOperation earlier)
+            {
+                // Each press deletes just before the last one, so the run is one
+                // range from here to where the first press began.
+                Extend(Document.DeleteRange(new RichTextRange(from, caret)),
+                    new DeleteRangeOperation(new RichTextRange(from, earlier.Range.End)));
+                return true;
+            }
+
+            return DeleteBetween(from, caret, KeyboardRun.DeleteBackward);
+        }
 
         if (caret.ParagraphIndex > 0)
             return MergeAt(caret.ParagraphIndex - 1);
@@ -231,6 +301,10 @@ public sealed class RichTextEditor
         return false;
     }
 
+    /// <summary>
+    /// Deletes the selection, or the character after the caret, or the break
+    /// after the paragraph. Character deletions in a row form one transaction.
+    /// </summary>
     public bool Delete()
     {
         if (!Selection.IsEmpty)
@@ -238,7 +312,22 @@ public sealed class RichTextEditor
 
         RichTextPosition caret = Selection.Focus;
         if (caret.Offset < Document.Paragraphs[caret.ParagraphIndex].Length)
-            return DeleteBetween(caret, Document.PositionRightOf(caret));
+        {
+            RichTextPosition to = Document.PositionRightOf(caret);
+            if (Continues(KeyboardRun.DeleteForward) &&
+                _undo[^1].Operations[^1] is DeleteRangeOperation earlier)
+            {
+                // The caret stays put and the text closes up behind it, so in the
+                // document the run started from, this press takes the characters
+                // right after the run so far.
+                RichTextPosition end = new(caret.ParagraphIndex, earlier.Range.End.Offset + to.Offset - caret.Offset);
+                Extend(Document.DeleteRange(new RichTextRange(caret, to)),
+                    new DeleteRangeOperation(new RichTextRange(earlier.Range.Start, end)));
+                return true;
+            }
+
+            return DeleteBetween(caret, to, KeyboardRun.DeleteForward);
+        }
 
         if (caret.ParagraphIndex < Document.ParagraphCount - 1)
             return MergeAt(caret.ParagraphIndex);
@@ -252,7 +341,9 @@ public sealed class RichTextEditor
     {
         if (Selection.IsEmpty)
         {
+            // Text typed after this takes another style, so it is another edit.
             _pendingInline = _pendingInline is InlineStyleDelta existing ? Compose(existing, delta) : delta;
+            _run = KeyboardRun.None;
             return false;
         }
 
@@ -274,6 +365,7 @@ public sealed class RichTextEditor
             _pendingInline = _pendingInline is InlineStyleDelta existing
                 ? Compose(existing, delta)
                 : delta;
+            _run = KeyboardRun.None;
             return false;
         }
 
@@ -353,6 +445,7 @@ public sealed class RichTextEditor
         Document = transaction.Before;
         Selection = transaction.BeforeSelection;
         _pendingInline = null;
+        _run = KeyboardRun.None;
         return true;
     }
 
@@ -368,8 +461,17 @@ public sealed class RichTextEditor
         Document = transaction.After;
         Selection = transaction.AfterSelection;
         _pendingInline = null;
+        _run = KeyboardRun.None;
         return true;
     }
+
+    /// <summary>
+    /// Ends the current keyboard group, so the next keystroke starts a transaction
+    /// of its own. The editor ends groups itself when the selection changes; a
+    /// host calls this for what the editor cannot see, such as focus leaving the
+    /// control or the document being saved.
+    /// </summary>
+    public void BreakUndoGroup() => _run = KeyboardRun.None;
 
     // --- Plain text --------------------------------------------------------
 
@@ -383,6 +485,7 @@ public sealed class RichTextEditor
         _undo.Clear();
         _redo.Clear();
         _pendingInline = null;
+        _run = KeyboardRun.None;
     }
 
     /// <summary>Replaces the document with plain text and resets selection and history.</summary>
@@ -393,6 +496,7 @@ public sealed class RichTextEditor
         _undo.Clear();
         _redo.Clear();
         _pendingInline = null;
+        _run = KeyboardRun.None;
     }
 
     // --- Internals ---------------------------------------------------------
@@ -405,11 +509,11 @@ public sealed class RichTextEditor
         return true;
     }
 
-    private bool DeleteBetween(RichTextPosition from, RichTextPosition to)
+    private bool DeleteBetween(RichTextPosition from, RichTextPosition to, KeyboardRun run)
     {
         var range = new RichTextRange(from, to);
         RichTextEditResult deletion = Document.DeleteRange(range);
-        Commit(deletion.Document, RichTextRange.Caret(deletion.Caret), [(new DeleteRangeOperation(range))]);
+        Commit(deletion.Document, RichTextRange.Caret(deletion.Caret), [(new DeleteRangeOperation(range))], run);
         return true;
     }
 
@@ -420,7 +524,11 @@ public sealed class RichTextEditor
         return true;
     }
 
-    private void Commit(RichTextDocument after, RichTextRange afterSelection, IReadOnlyList<RichTextOperation> operations)
+    private void Commit(
+        RichTextDocument after,
+        RichTextRange afterSelection,
+        IReadOnlyList<RichTextOperation> operations,
+        KeyboardRun run = KeyboardRun.None)
     {
         var transaction = new RichTextTransaction(Document, Selection, after, afterSelection, operations);
         _undo.Add(transaction);
@@ -429,6 +537,52 @@ public sealed class RichTextEditor
         Document = after;
         Selection = afterSelection;
         _pendingInline = null;
+        _run = run;
+    }
+
+    /// <summary>
+    /// True when the newest transaction is an open <paramref name="run"/> and the
+    /// caret is still where it left it.
+    /// </summary>
+    private bool Continues(KeyboardRun run) =>
+        _run == run && _undo.Count > 0 && Selection == _undo[^1].AfterSelection;
+
+    /// <summary>
+    /// Folds a keyboard edit into the open transaction: it keeps its before state
+    /// and takes the new after state, and <paramref name="last"/> replaces its
+    /// final operation so the log stays one operation per run.
+    /// </summary>
+    private void Extend(RichTextEditResult edit, RichTextOperation last)
+    {
+        RichTextTransaction open = _undo[^1];
+        var operations = new List<RichTextOperation>(open.Operations);
+        operations[^1] = last;
+        var caret = RichTextRange.Caret(edit.Caret);
+        _undo[^1] = open with { After = edit.Document, AfterSelection = caret, Operations = operations };
+        Document = edit.Document;
+        Selection = caret;
+    }
+
+    private void Select(RichTextRange selection)
+    {
+        if (selection != Selection)
+            _run = KeyboardRun.None;
+        Selection = selection;
+        _pendingInline = null;
+    }
+
+    private static bool ContainsBreak(string text)
+    {
+        foreach (char c in text)
+        {
+            if (c is '\r' or '\n' ||
+                char.GetUnicodeCategory(c) is UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void TrimHistory()

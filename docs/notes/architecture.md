@@ -168,6 +168,16 @@ by ADR 0008).
   remain outside the model.
 - **Promotion.** A feature enters the model only with a named, tested consumer in
   another codec, as justified alignment, page breaks and shape z-order did.
+- **Undo.** `RichTextEditor` holds the only history. Controls and structured
+  editors drive it and keep no stack of their own (ADR 0006). Each transaction
+  stores the document and selection before and after, so undo swaps snapshots
+  and never inverts operations. Most calls record one transaction. Keyboard
+  editing is grouped instead: `TypeText` joins text typed straight after earlier
+  typing, and `Backspace` and `Delete` at a caret join a run of their own kind.
+  A typed word that follows whitespace starts a new transaction. So does any
+  selection change, other edit, undo, redo, pending style, or a host's
+  `BreakUndoGroup` call. `InsertText`, which paste uses, never joins. The depth
+  bound (100 by default) counts transactions, not keystrokes.
 
 ## Graphics and Media prerequisites
 
