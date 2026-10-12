@@ -25,7 +25,7 @@
     about it: it drives a second, foreign implementation. The corpus suite is
     evidence about round-trip fidelity within this component. This one is
     evidence about interchange with something that was not written here, which
-    is the gap docs/corpus-suite.md openly says the corpus cannot close.
+    is the gap docs/guides/corpus-suite.md openly says the corpus cannot close.
   -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>

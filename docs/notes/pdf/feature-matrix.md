@@ -2,7 +2,7 @@
 
 **Version:** 1.11 (evidence-based register standard)  
 **Updated:** 2026-09-24 (masks carried as alpha; ICC-based colour through a composed reader; encrypted documents read under IP-015, IP-002 and IP-025)  
-**Authority:** This matrix defines claims; the roadmap defines planned work.
+**Authority:** This matrix defines claims; the [roadmap](../../roadmap.md#pdf) defines planned work.
 
 Status values are `Planned`, `Candidate`, `Supported`, `Rejected`, and
 `Post-V1`. Only `Supported` may appear as a product capability. Advancing an
@@ -11,22 +11,23 @@ IP/licensing register. Those decisions are engineering risk assessments made on
 published evidence, not legal clearances — the register says so at the top, in
 terms worth reading before treating any word here as a guarantee.
 
-`Broiler.Documents.Pdf` now exists and implements the base slice described in
-[roadmap §2.5](pdf-support-roadmap.md#25-current-implementation-state). **No
-entry is `Supported`.** Seventeen register rows are now approved: IP-001, the row
-under every construct this codec implements; every filter and codec row (IP-004
-through IP-010 and IP-012); the provenance and naming rows IP-011, IP-013,
-IP-014, and IP-018; IP-024, for ICC-based colour; and, for reading encrypted documents, IP-015, IP-025, and IP-002 with feature-level review. What remains is listed in the register's
-[what still blocks a support claim](pdf-ip-licensing-register.md#what-still-blocks-a-support-claim):
-SRC-017, the transcription question that reproducing ITU-T T.4's code tables
-raised and that SRC-018 and SRC-019 defer to; SRC-016, adjacent to it rather than
-governed by it; the re-opening of IP-012 for font embedding, requested
-2026-09-03; and the roadmap's own Phase 5, 7, and 8 exit criteria, which are
-engineering gates that no clearance touches. The package also remains neither packed nor registered in any
-application beyond the read-preview candidate. Implemented behavior is therefore
-recorded as `Candidate`: it works, it is tested, and it is not a product claim.
+`Broiler.Documents.Pdf` implements the base slice described in
+[the PDF overview](README.md#what-is-implemented). **No entry is `Supported`.**
+Seventeen register rows are approved: IP-001, the row under every construct this
+codec implements; every filter and codec row (IP-004 through IP-010 and IP-012);
+the provenance and naming rows IP-011, IP-013, IP-014, and IP-018; IP-024, for
+ICC-based colour; and, for reading encrypted documents, IP-015, IP-025, and
+IP-002 with feature-level review. What remains is listed in the register's
+[what still blocks a support claim](../../ip/pdf.md#what-still-blocks-a-support-claim):
+the pending source rows SRC-016 to SRC-019 and SRC-025, the re-opening of IP-012
+for font embedding, and the roadmap's Phase 5, 7, and 8 exit criteria, which are
+engineering gates that no clearance touches. The codec ships as a preview package
+and is registered only by the read-preview hosts
+([delivery gates](../../roadmap.md#pdf-delivery-gates)). Implemented behavior is
+therefore recorded as `Candidate`: it works, it is tested, and it is not a
+product claim.
 How such an entry may be *named*, once one exists, is settled — see
-[approved labels](pdf-ip-licensing-register.md#approved-labels).
+[approved labels](../../ip/pdf.md#approved-labels).
 
 The **Behavior today** column states what the code actually does right now, so
 this table can be read as a description of the build as well as a statement of
@@ -34,7 +35,7 @@ intent. `Implemented` means the base build does it; `Detect/skip` means it is
 recognized and reported with the diagnostic in the last column; `Reject` means a
 stable rejection; `Extension` means it arrives by composing a reviewed
 implementation into `PdfCodecServices`
-(see [PDF extension points](pdf-extension-points.md)); `Later` means post-V1;
+(see [PDF extension points](extension-points.md)); `Later` means post-V1;
 `—` means not applicable. No entry may become `Supported` while its legal column
 is pending.
 
@@ -52,7 +53,7 @@ is pending.
 | User access permissions | Implemented: copy and extract enforced, the rest reported | Candidate | — | — | — | No | No | Owner authority lifts the enforcement | IP-015 approved 2026-09-24; ADR 0015 | `pdf.encryption.extraction-not-permitted` |
 | Revision 5, `/V 3`, and handlers other than the standard and public-key ones | Reject | Reject | Reject | No | No | No | No | None | Revision 5 is an Adobe extension (IP-003 pending) | `pdf.encryption.unsupported` |
 | Public-key security handler: `adbe.pkcs7.s3`, `s4`, `s5`, AES-256 crypt filters | Extension: the PDF half built in, the envelope a composed decryptor's | Candidate | Reject | Candidate | No | No | Yes | Caller-composed `IPdfRecipientDecryptor`; none ships | IP-025 approved 2026-09-24; external standards' review recorded as not done | `pdf.encryption.recipient-not-composed`, `pdf.encryption.recipient-not-found` |
-| Encrypted output | Reject | — | Reject | No | No | No | No | None | Post-V1, roadmap §14.1 | — |
+| Encrypted output | Reject | — | Reject | No | No | No | No | None | Post-V1, [later track 1](../../roadmap.md#later-pdf-tracks) | — |
 | ASCIIHex / ASCII85 / RunLength filters | Implemented | Plan | Plan | Plan | Plan | No | Yes | Bounded filter chain | IP-001 approved 2026-09-01; SRC-001 closed 2026-09-01 | `pdf.filter.limit` / `pdf.filter.malformed` |
 | FlateDecode, PNG and TIFF predictors | Implemented; every predictor and component size | Candidate | Candidate | Candidate | Candidate | No | Yes | Bounded shared budget | IP-011 approved 2026-09-01; IP-023 confirmed | `pdf.filter.limit` / `pdf.filter.malformed` |
 | LZWDecode, including `EarlyChange` | Implemented | Candidate | Reject | Candidate | No | No | Yes | Base build; bounded filter chain | IP-010 approved and retired 2026-09-01; IP-001 approved 2026-09-01 | `pdf.filter.limit` / `pdf.filter.malformed` |
@@ -72,7 +73,7 @@ is pending.
 | Embedded sfnt font programs, read for glyph-to-text | Implemented as a composed reader | Candidate | Reject | — | — | No | Yes | Caller-composed reader; never in the default graph | IP-012 approved for inspection 2026-09-01 | `pdf.font.program-not-composed` |
 | Embedded bare CFF font programs, read for glyph-to-text | Implemented as a composed reader | Candidate | Reject | — | — | No | Yes | Caller-composed reader; never in the default graph | IP-012 approved for inspection; the standard-strings table is **pending** in SRC-016 | `pdf.font.program-not-composed` |
 | Embedded Type 1 font programs, and CID-keyed CFF | Detect/skip | Detect/skip | Reject | — | — | No | No | None | IP-012 approved; declined for want of parser surface and, for CID-keyed CFF, for want of a collection's CMap | `pdf.font.program-not-composed` |
-| Font embedding and subsetting into output | Rejected; the fail-closed preflight and the `fsType` reader it consults exist and refuse | — | Reject | — | — | No | No | None | **Outside IP-012**, which must be re-opened first; roadmap §11.3's font path is decided (B: caller-configured, [brief](pdf-font-path-brief.md)) and its library half is built, but embedding itself stays outside IP-012 — whose re-opening is now requested and written up in the [embedding brief](pdf-ip-012-embedding-brief.md) | `pdf.write.feature-unsupported` |
+| Font embedding and subsetting into output | Rejected; the fail-closed preflight and the `fsType` reader it consults exist and refuse | — | Reject | — | — | No | No | None | **Outside IP-012**, which must be re-opened first; the font path is decided (B: caller-configured, [brief](../../ip/briefs/font-path.md)) and its library half is built, but embedding itself stays outside IP-012 — whose re-opening is now requested and written up in the [embedding brief](../../ip/briefs/ip-012-font-embedding.md) | `pdf.write.feature-unsupported` |
 | Type 0/CID fonts and `ToUnicode` CMaps | Implemented for `Identity-H` and `ToUnicode`, with a composed reader recovering text where `ToUnicode` is absent | Plan | Plan | — | — | No | Yes | Approved CMap/data only | IP-012 approved for inspection; IP-013 approved | `pdf.text.mapping-missing-or-uncertain` |
 | Latin, Greek, Cyrillic text export | Implemented for the WinAnsi repertoire on write; Symbol's Greek readable on import | — | Plan | — | — | No | Yes | Caller-supplied approved font | IP-012 and IP-013 approved | `document.script.unsupported` |
 | Complex scripts, bidi shaping, vertical writing, emoji sequences | Detect/skip | Detect/skip | Later | — | — | No | No | None | IP-013 approved; unimplemented by scope, not by clearance | `document.script.unsupported` |
@@ -122,8 +123,8 @@ is pending.
 | JPXDecode (JPEG 2000) | Candidate for the implemented subset | Composed decoder: tag trees, packet headers, EBCOT tier-1, inverse wavelets and component transforms, for one tile and the LRCP/RPCL progressions; everything else refused by name | Part 1 cleared; EBCOT context tables pending in SRC-018. **The wavelets are tested by inversion; the entropy coder is tested by nothing** |
 | CCITTFaxDecode | Candidate | Composed extension: all three schemes decode, round-tripped against an encoder written in the test suite | Patent history retired; the standard's code tables await a source decision |
 | JBIG2Decode | Candidate for generic, symbol, text and refinement regions; Post-V1 for the rest | Composed filter decodes generic regions under both coding methods, arithmetic symbol dictionaries with the text regions that draw from them, and refinement in all three places it may appear; every other segment type is reported. **No real image has been decoded through it** | Patent row cleared; the MQ probability table is pending in SRC-019, the halftone regions, aggregate coding and the Huffman-coded forms are outstanding, and the security review still applies |
-| Raw image samples into the model: DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded DeviceGray/DeviceRGB palette, with validated `/Decode` | Candidate | Implemented; decoded samples are normalized to RGBA and admitted through the resource policy. Anything outside the tuple is refused by the reason met | Roadmap §9.3's approved subset; per-tuple projection tests |
-| Image masks / soft masks | Candidate | **Carried as alpha** since roadmap §9.3 added them to the approved tuple on 2026-09-24; nothing is composited, because the model holds straight-alpha RGBA and whoever draws the picture blends it. A **stencil** (`/ImageMask`) is painted in the fill colour in force when it is drawn, through its one-bit shape. A **colour-key** `/Mask` makes the pixels whose stored samples - before `/Decode`, and the index of an Indexed image - fall in its ranges transparent, which is how a logo keys out its ground. An **explicit** `/Mask` and an **`/SMask`** are pictures of their own, decoded through the same pipeline and budget as any image and mapped onto the picture's unit square whatever their own size; a soft mask's samples, through its own `/Decode`, are the alpha, and its `/Matte` is undone over DeviceGray and DeviceRGB pictures so a soft edge carries no fringe of the matte. A soft mask outranks `/Mask`. Refused by name: a stencil painted with a pattern, a matte over an indexed picture, a soft mask outside DeviceGray or declared as a stencil, and a mask whose filter is not composed, will not decode, or does not fill its declaration | IP-001; roadmap §9.3, decided by the project reviewer |
+| Raw image samples into the model: DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded DeviceGray/DeviceRGB palette, with validated `/Decode` | Candidate | Implemented; decoded samples are normalized to RGBA and admitted through the resource policy. Anything outside the tuple is refused by the reason met | The [approved raw-sample subset](README.md#images-and-links); per-tuple projection tests |
+| Image masks / soft masks | Candidate | **Carried as alpha** since they joined the approved subset on 2026-09-24; nothing is composited, because the model holds straight-alpha RGBA and whoever draws the picture blends it. A **stencil** (`/ImageMask`) is painted in the fill colour in force when it is drawn, through its one-bit shape. A **colour-key** `/Mask` makes the pixels whose stored samples - before `/Decode`, and the index of an Indexed image - fall in its ranges transparent, which is how a logo keys out its ground. An **explicit** `/Mask` and an **`/SMask`** are pictures of their own, decoded through the same pipeline and budget as any image and mapped onto the picture's unit square whatever their own size; a soft mask's samples, through its own `/Decode`, are the alpha, and its `/Matte` is undone over DeviceGray and DeviceRGB pictures so a soft edge carries no fringe of the matte. A soft mask outranks `/Mask`. Refused by name: a stencil painted with a pattern, a matte over an indexed picture, a soft mask outside DeviceGray or declared as a stencil, and a mask whose filter is not composed, will not decode, or does not fill its declaration | IP-001; a scope decision by the project reviewer |
 | ICCBased color | Candidate | **Converted where a colour-profile reader is composed**: `IccColorProfileReader` (`Broiler.Documents.Pdf.Images`) reads the profile the space carries and converts to sRGB - a matrix profile through its colorants and tone curves, a table profile through the `A2B` table its rendering intent selects (`A2B0` standing in for one it leaves out), connecting in CIEXYZ or CIELAB, for Gray, RGB, and CMYK. The intent is the image's own `/Intent`, else the graphics state's from `ri` or `/RI`. An Indexed palette over an ICC-based base is converted entry by entry, and a picture a composed codec decoded is converted after it. A picture tagged with an sRGB profile comes back as it was stored. Declined by name: device links, abstract and named-colour profiles, version 5, other colour spaces, tables of more than four inputs, a `/Range` other than the default, and any structure past the profile's bytes. **Without a composed reader**, an ICC-based picture of raw samples is refused as before - its colours are unstated - while one a codec decoded keeps the codec's colours, the space's alternate. No profile is bundled | IP-024 approved 2026-09-24; SRC-022, SRC-023 |
 
 ## Text, fonts, and scripts
@@ -167,7 +168,7 @@ is pending.
 | Normalized title/author/subject/keywords/dates | Candidate | Implemented on read and write; nothing else crosses | Allowlist only; privacy tests |
 | XMP read into the allowlist | Candidate | Implemented; XMP wins per field, `Info` is the fallback, disagreement is reported by field name | IP-004 approved for the read subset; bounded non-resolving reader |
 | Raw XMP preservation | Rejected | Read for the allowlist, then dropped | Never preserved and never written; excluded by V1 scope rather than by clearance |
-| Links as inert semantic values | Candidate | Implemented; admitted by `PdfUriPolicy`, revalidated before output. That policy is this codec's own and is configurable; it is not `DocumentLinkTarget`, the fixed predicate the five interchange codecs share. It requires an absolute URI, so a target that is only a same-document `#fragment` — which those five carry — is refused here with `document.uri.rejected`, and the run is written as plain text with its other formatting intact. No opt-in reaches that case: the absolute test runs before the scheme switch. `http` and `mailto` also need an explicit caller opt-in where the five admit them unconditionally. A fragment inside an absolute URI is a different thing and is kept, canonicalized | Never dereferenced by the codec. Refusing the fragment costs nothing a fragment could deliver: this build emits a URI action and no destination, so internal destinations stay deferred ([roadmap §9.3](pdf-support-roadmap.md#93-images-and-links)) |
+| Links as inert semantic values | Candidate | Implemented; admitted by `PdfUriPolicy`, revalidated before output. That policy is this codec's own and is configurable; it is not `DocumentLinkTarget`, the fixed predicate the five interchange codecs share. It requires an absolute URI, so a target that is only a same-document `#fragment` — which those five carry — is refused here with `document.uri.rejected`, and the run is written as plain text with its other formatting intact. No opt-in reaches that case: the absolute test runs before the scheme switch. `http` and `mailto` also need an explicit caller opt-in where the five admit them unconditionally. A fragment inside an absolute URI is a different thing and is kept, canonicalized | Never dereferenced by the codec. Refusing the fragment costs nothing a fragment could deliver: this build emits a URI action and no destination, so internal destinations stay deferred ([overview](README.md#images-and-links)) |
 | Annotations | Candidate | Link annotations only; the rest inventoried on every page and every layer | Allowlisted non-active subset only |
 | AcroForm / XFA | Post-V1 | Detected; signature fields reported | No form execution or fidelity claim |
 | Attachments and embedded files | Rejected | Detected and reported; never extracted | No extraction or activation in V1 |
@@ -180,13 +181,14 @@ is pending.
 
 ## Platform claims
 
-The codec is platform-neutral managed code with no OS dependency, but it is
-registered nowhere, so no platform carries it today.
+The codec is platform-neutral managed code with no OS dependency. Which hosts
+carry it is a delivery decision, governed by the
+[delivery gates](../../roadmap.md#pdf-delivery-gates).
 
 | Platform | V1 status | Behavior today | Evidence required |
 |---|---|---|---|
-| .NET CLI | Candidate | Not registered | Full import/export corpus and resource-limit tests |
-| Windows | Candidate | Not registered | Runtime, trimming, fonts, and deterministic-layout tests |
-| Linux | Candidate | Not registered | Runtime, fonts, globalization, and deterministic-layout tests |
-| Android | Post-V1 | Not registered | AOT/trimming, memory, and font provisioning |
-| WebAssembly | Post-V1 | Not registered | AOT/trimming, memory, streaming, and font provisioning |
+| .NET CLI | Candidate | Composed read-only by `broilerdoc` | Full import/export corpus and resource-limit tests |
+| Windows | Candidate | Registered for opening in the Windows Writer head | Runtime, trimming, fonts, and deterministic-layout tests |
+| Linux | Candidate | Registered for opening in the Linux Writer head | Runtime, fonts, globalization, and deterministic-layout tests |
+| Android | Post-V1 | Not registered; guards keep it out | AOT/trimming, memory, and font provisioning |
+| WebAssembly | Post-V1 | Not registered; guards keep it out | AOT/trimming, memory, streaming, and font provisioning |

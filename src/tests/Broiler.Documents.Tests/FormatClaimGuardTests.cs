@@ -34,10 +34,10 @@ public sealed partial class FormatClaimGuardTests
     /// <summary>Each format: its codec project, its register, and the documents it reads.</summary>
     public static TheoryData<string, string, string> Formats => new()
     {
-        { "Rtf", "docs/rtf-ip-licensing-register.md", ".rtf" },
-        { "Docx", "docs/docx-ip-licensing-register.md", ".docx;.dotx" },
-        { "Html", "docs/html-ip-licensing-register.md", ".html;.htm" },
-        { "Markdown", "docs/markdown-ip-licensing-register.md", string.Empty },
+        { "Rtf", "docs/ip/rtf.md", ".rtf" },
+        { "Docx", "docs/ip/docx.md", ".docx;.dotx" },
+        { "Html", "docs/ip/html.md", ".html;.htm" },
+        { "Markdown", "docs/ip/markdown.md", string.Empty },
     };
 
     /// <summary>

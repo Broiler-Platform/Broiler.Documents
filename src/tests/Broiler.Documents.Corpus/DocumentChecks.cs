@@ -53,7 +53,7 @@ internal static class DocumentChecks
         string? selected = json.Value.TryGetProperty("selected", out JsonElement value) ? value.GetString() : null;
 
         // Markdown is the honest exception and the manifest does not need to
-        // carry it as an expectation. markdown-conformance.md is explicit that
+        // carry it as an expectation. docs/notes/markdown.md is explicit that
         // plain text is valid Markdown, so probing is conservative on purpose
         // and a Markdown file can be selected as something else without anything
         // being wrong. Every other format has a signature it must be recognised
@@ -146,7 +146,7 @@ internal static class DocumentChecks
                 ? CheckResult.Pass(Group, name + "/deterministic")
                 : CheckResult.Fail(Group, name + "/deterministic",
                     "two dumps of the same document differed, so a diff between two of them means nothing. " +
-                    "docs/cli.md states that two dumps of equal documents are byte-identical.",
+                    "docs/guides/cli.md states that two dumps of equal documents are byte-identical.",
                     run.CommandLine()));
         }
 
@@ -220,7 +220,7 @@ internal static class DocumentChecks
     private static async Task<IReadOnlyList<CheckResult>> StandardStreamsAsync(
         BroilerDocTool tool, CorpusDocument document, string label)
     {
-        // The `-` path, which docs/cli.md documents and no in-process test can
+        // The `-` path, which docs/guides/cli.md documents and no in-process test can
         // reach: it is the process's own stdin and stdout, not a writer the
         // harness passed in.
         byte[] input = await File.ReadAllBytesAsync(document.Path).ConfigureAwait(false);

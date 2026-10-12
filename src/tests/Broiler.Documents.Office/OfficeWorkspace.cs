@@ -31,7 +31,7 @@ internal sealed record OfficeDocument(OfficeSeed Seed, string Via, string Path, 
 /// construct is one HTML cannot state - and LibreOffice is what turns it into a
 /// <c>.docx</c>, an <c>.odt</c> or an <c>.rtf</c>. So the file broilerdoc is
 /// asked to read is markup no Broiler writer produced, which is exactly the gap
-/// <c>docs/corpus-suite.md</c> says the existing corpus cannot close - a corpus
+/// <c>docs/guides/corpus-suite.md</c> says the existing corpus cannot close - a corpus
 /// written by this component's own writers "can only contain constructs those
 /// writers emit".
 /// </para>

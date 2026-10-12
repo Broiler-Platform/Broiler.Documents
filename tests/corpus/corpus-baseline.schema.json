@@ -68,7 +68,7 @@
         },
         "state": {
           "enum": ["documented", "suspected-defect", "accepted"],
-          "description": "documented - a limitation one of the conformance documents states. suspected-defect - a difference nobody decided on, which docs/cli.md says is what round-tripping is actually good for. accepted - the normalized model's own behaviour, looked at and accepted."
+          "description": "documented - a limitation one of the conformance documents states. suspected-defect - a difference nobody decided on, which docs/guides/cli.md says is what round-tripping is actually good for. accepted - the normalized model's own behaviour, looked at and accepted."
         },
         "reference": {
           "type": ["string", "null"],

@@ -179,9 +179,7 @@ toolkit behind it.
   graphic styles are written into `styles.xml` alongside the master page as well
   as into `content.xml`, because a style reference resolves only within the part
   that carries it — without that a stripe arrived unpainted, and an unpainted
-  shape holding no text is not read as a shape at all. The reader used to build
-  the part and keep only its paragraphs, so a header that was a coloured stripe
-  and nothing else arrived as no header.
+  shape holding no text is not read as a shape at all.
 - Floating pictures: a frame anchored to anything other than a character is read
   as a floating shape carrying the image, boxed by its `svg:x`/`svg:y` against
   the text column and its paragraph and its `svg:width`/`svg:height`, and keeping
@@ -359,58 +357,11 @@ identifiable from its first bytes:
   a generic ZIP with no hint is not claimed.
 - Non-ZIP bytes with an `.odt` hint are low confidence.
 
-## Standards And Rights
+## Standards and rights
 
-ODF is an OASIS standard, republished as ISO/IEC 26300, and the specification is
-freely available. The OASIS ODF technical committee works under the **"RF on
-Limited Terms Mode"** of the OASIS IPR Policy, under which a contributor must
-license its Essential Claims royalty-free and may not attach the further
-conditions the RAND modes allow. That is a materially better starting position
-than a format governed by a vendor licence, and it is why an ODF codec needs no
-licence negotiation to be written.
-
-It is **not** a statement that the format, or this implementation, is free of
-third-party patent claims. The mode binds the committee's participants over
-their own Essential Claims; it establishes nothing about anyone who never
-participated. No one can establish patent-freedom from a specification, and this
-component does not attempt to.
-
-**Rights are recorded in one place, and it is not this document.** ODT now has
-its own register — [the ODT IP and licensing register](odt-ip-licensing-register.md),
-governed by [ADR 0013](adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md),
-which extends the [ADR 0011](adr/0011-pdf-standards-ip-provenance-and-claims.md)
-discipline beyond PDF. Read it before relying on anything here: it holds the
-primary sources. **Every row is now decided** and the project reviewer assesses
-the position green: a royalty-free OASIS mode, an irrevocable non-assertion
-covenant from the format's principal original contributor with only a defensive
-carve-out, and no implementation royalty identified.
-
-Green is a judgement about risk on recorded evidence, not a clearance. **No
-lawyer has reviewed it, patent-freedom is not claimed, and no freedom-to-operate
-determination has been made.** It unlocks no new wording either: this
-implementation is still not to be described as ODF-conformant, certified,
-endorsed, patent-free, or royalty-free, and a guard test fails the build over it.
-
-One correction belongs here rather than only there, because this document is
-where the overstatement was. It used to say that "the principal contributors
-published patent covenants" covering conforming implementations, in the plural.
-Only Sun's is primary-sourced — the 2005 OpenDocument Patent Statement and the
-2002 IPR statement, both linked from the committee's own IPR page, and both
-carrying a reciprocity condition. IBM's pledge and any comparable instrument are
-named in secondary sources that nobody here has verified against the originals,
-so ODT-IP-003 records them as **not relied on**. Nothing may be said about the
-contributors' covenants as a set.
-
-What is settled here is provenance, and it is settled by inspection rather than
-by assertion: every line of this codec was written against the published
-specification for this repository. It embeds no third-party ODF code, takes no
-package reference at all, reproduces no specification text, and vendors no sample
-document — the test packages are all constructed in code. Those findings are
-ODT-IP-004 through ODT-IP-006, and `OdtClaimGuardTests` now fails the build if
-any of them stops being true.
-
-What may be said about the format is bounded by ODT-IP-007 and is deliberately
-narrow: the format may be named, and this implementation may not be described as
-ODF-conformant, standards-conformant, certified, endorsed, patent-free, or
-royalty-free. Implementing a documented subset is not conformance — the
-specification defines that, and this document describes a subset.
+ODF is an OASIS standard, republished as ISO/IEC 26300. Its rights position (the
+OASIS royalty-free mode and the covenants on top of it), the approved labels and
+the provenance findings are in [the ODT register](../ip/odt.md). The position is
+assessed green, which is a risk judgement and not a clearance. Implementing a
+documented subset is not conformance, so nothing describes this codec as
+ODF-conformant, and `OdtClaimGuardTests` fails the build over it.

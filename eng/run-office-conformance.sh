@@ -4,7 +4,7 @@
 #
 # LibreOffice writes the documents, broilerdoc reads them, and the disagreements
 # are held against tests/office/office-baseline.json. See
-# docs/office-conformance.md for what that does and does not prove.
+# docs/guides/office-conformance.md for what that does and does not prove.
 #
 # Usage:
 #     ./eng/run-office-conformance.sh [OPTIONS]

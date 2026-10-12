@@ -41,7 +41,7 @@ internal sealed record CheckResult(
 
     /// <summary>
     /// Asserts an exit code, and says which one it got when it is wrong. The
-    /// message names both because the exit codes in docs/cli.md carry meaning
+    /// message names both because the exit codes in docs/guides/cli.md carry meaning
     /// individually - a 3 where a 2 was expected is a different bug from a 70.
     /// </summary>
     public static CheckResult ExpectExit(string group, string name, int expected, ToolRun run)

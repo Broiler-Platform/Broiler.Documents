@@ -7,7 +7,7 @@ standard — but see §3, which argues this row is a different *kind* of questio
 from every other one in the register and may want a different standard applied
 to it.
 **Prepared:** 2026-09-03
-**Re-opens:** [IP-012](pdf-ip-licensing-register.md), which is approved for
+**Re-opens:** [IP-012](../pdf.md), which is approved for
 inspection and says in terms that embedding, subsetting, and redistribution are
 outside it and that **the row must be re-opened before that work starts**. This
 is that re-opening, requested rather than performed.
@@ -28,7 +28,7 @@ The writer emits WinAnsi text and nothing else. Every character outside that
 repertoire — all Cyrillic, all Greek, all CJK, most punctuation a European
 document uses — is replaced and reported. The only mechanism PDF offers for the
 rest is a Type 0 font with an embedded program and a `ToUnicode` map
-([roadmap §12.1](pdf-support-roadmap.md)).
+([roadmap §12.1](../../roadmap.md#writer-and-output-integration-phase-7)).
 
 So this row is what stands between the writer and every non-Latin script. It is
 not one feature among several: it is the feature, and `CanWrite` cannot honestly
@@ -180,7 +180,7 @@ since it first cleared:
   not retire, because unlike IP-009 and IP-010 it rests on no expiry and on no
   single grant;
 - and whether the decision changes `CanWrite`, which it does not on its own:
-  [roadmap §12.1](pdf-support-roadmap.md)'s writer-core gate and the Phase 7 exit
+  [roadmap §12.1](../../roadmap.md#writer-and-output-integration-phase-7)'s writer-core gate and the Phase 7 exit
   criteria are engineering and stand regardless.
 
 ## 9. What this brief does not claim

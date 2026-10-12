@@ -13,7 +13,7 @@ work from.
 **Prepared:** 2026-09-02. **Updated:** 2026-09-03, when a second transcribed
 table entered the repository and, with it, a second rights-holder — see §4, and
 §5b for that rights-holder's terms.
-**Decides:** [SRC-017](pdf-approved-sources.md), and by reference SRC-018 and
+**Decides:** [SRC-017](../pdf-approved-sources.md), and by reference SRC-018 and
 SRC-019. **SRC-016 is adjacent rather than covered**, for the reason §4 sets
 out: it asks the same shape of question about a different publisher's document,
 and one decision does not answer both.
@@ -36,7 +36,7 @@ about this.
 ## 2. What is actually reproduced
 
 All of it is in one file,
-[`CcittFaxTables.cs`](../src/Broiler.Documents.Pdf.Images/CcittFaxTables.cs),
+`CcittFaxTables.cs` (since moved, with the decoder, to `Broiler.Media.Image.Managed`),
 180 lines, and it is the **only** such file in the repository.
 
 | Table | Entries | What each entry is |
@@ -153,7 +153,7 @@ and the brief deliberately stops short of joining them together.
 - **Publication state at the time of this review.** The package was
   `IsPackable=false`, the fax filter was not composed by default, and no capability
   claim existed. Preview packaging was subsequently enabled; see
-  [roadmap §4.1](pdf-support-roadmap.md#41-delivery-milestones-and-publication-state).
+  [roadmap §4.1](../../roadmap.md#pdf-delivery-gates).
 
 ## 5a. Evidence gathered, 2026-09-02
 

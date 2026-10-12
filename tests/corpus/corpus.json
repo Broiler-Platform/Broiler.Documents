@@ -4,7 +4,7 @@
   "updated": "2026-09-05",
   "provenance": {
     "origin": "authored",
-    "rule": "Every sample in this file is authored here and materialised by the tool under test. Nothing is downloaded and no document file is committed. That is not convenience: ADR 0013 gives each format its own rights record, and this repository's practice, recorded across the similarity review log in docs/pdf-approved-sources.md, is that fixtures are generated in the tree rather than taken from anywhere. A corpus of documents somebody else wrote would be the one part of this test suite whose provenance nobody could state.",
+    "rule": "Every sample in this file is authored here and materialised by the tool under test. Nothing is downloaded and no document file is committed. That is not convenience: ADR 0013 gives each format its own rights record, and this repository's practice, recorded across the similarity review log in docs/ip/pdf-approved-sources.md, is that fixtures are generated in the tree rather than taken from anywhere. A corpus of documents somebody else wrote would be the one part of this test suite whose provenance nobody could state.",
     "external": "A registered, digest-pinned fetch path exists for the day somebody decides an outside document may be used: tests/corpus/external-sources.json. It ships with no approved row, so it fetches nothing.",
     "cost": "The cost is real and worth naming. These documents were written by the same project that wrote the codecs, so they exercise what this component thought of. They are evidence about round-trip fidelity and about the command contract. They are not evidence that a document produced by Word, LibreOffice or a browser reads correctly."
   },
@@ -377,7 +377,7 @@
       "format": "rtf",
       "kind": "text",
       "content": "{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0\\fnil\\fcharset0 Helvetica;}{\\f1\\fmodern\\fcharset0 Courier;}}{\\colortbl;\\red183\\green28\\blue28;\\red255\\green245\\blue157;}{\\*\\generator Authored by tests/corpus/corpus.json;}{\\stylesheet{\\s0 Normal;}}\\viewkind4\\widowctrl\\deflang1033\n\\pard\\qj\\li720\\sb120\\sa120 Justified, indented and spaced.\\par\n\\pard\\b Bold\\b0  \\i italic\\i0  \\ul underlined\\ulnone  \\strike struck\\strike0  \\scaps small caps\\scaps0\\par\n\\pard\\cf1 Foreground\\cf0  and \\highlight2 highlight\\highlight0  and \\f1 monospace\\f0  and \\fs30 large\\fs22\\par\n\\pard Escapes: \\'e9 \\'fc \\u8212 ? \\lquote q\\rquote  \\ldblquote d\\rdblquote  \\bullet  \\endash  \\emdash  \\~nbsp \\_hyphen\\par\n\\pard A tab:\\tab and a line break:\\line on the next line\\par\n\\pard{\\field{\\*\\fldinst HYPERLINK \"https://example.org/\"}{\\fldrslt a field hyperlink}}\\par\n\\pard{\\pict\\wmetafile8\\picw100\\pich100 0102030405}\\par\n\\pard{\\*\\listtable{\\list\\listid1}}Text after a skipped destination.\\par\n}",
-      "notes": "Written by hand from the honoured, approximated, ignored and skipped tables in docs/rtf-conformance.md, and shaped so that most of what it holds is on a row the writer does not emit: justification, twip indents, a stylesheet, a generator destination, a list table, a picture destination, character escapes, and a HYPERLINK field. A corpus made only of this component's own output cannot reach any of it, because the writer has no reason to produce it."
+      "notes": "Written by hand from the honoured, approximated, ignored and skipped tables in docs/notes/rtf.md, and shaped so that most of what it holds is on a row the writer does not emit: justification, twip indents, a stylesheet, a generator destination, a list table, a picture destination, character escapes, and a HYPERLINK field. A corpus made only of this component's own output cannot reach any of it, because the writer has no reason to produce it."
     },
     {
       "id": "html-structure",
@@ -393,7 +393,7 @@
       "format": "markdown",
       "kind": "text",
       "content": "# ATX heading\n\n###### Deepest ATX heading\n\nSetext heading\n==============\n\n> A blockquote line\n> continued on the next\n>> nested deeper\n\n```text\nfenced code, which is monospace\n  and keeps its own second line\n```\n\n1) Ordered with a paren\n2) And a second\n\n1. Ordered with a dot\n2. And a second\n\n- bullet with a dash\n  - nested bullet\n\n* bullet with a star\n\n+ bullet with a plus\n\nA hard break by two spaces  \nand the line after it.\n\nA hard break by backslash\\\nand the line after that.\n\n**strong** __also strong__ *em* _also em_ `code` ~~strike~~ [label](https://example.org/) [mail](mailto:someone@example.org) [refused](javascript:alert(1))\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\nTrailing paragraph.\n",
-      "notes": "Both spellings of most constructs the reader accepts, plus two it does not: a setext heading and a GFM table. Those two are here on purpose. docs/markdown-conformance.md maps ATX headings and says nothing about setext, and a corpus containing only what the subset covers could never show what the reader does with what it does not - which, for a reader meant to degrade predictably, is the more interesting half."
+      "notes": "Both spellings of most constructs the reader accepts, plus two it does not: a setext heading and a GFM table. Those two are here on purpose. docs/notes/markdown.md maps ATX headings and says nothing about setext, and a corpus containing only what the subset covers could never show what the reader does with what it does not - which, for a reader meant to degrade predictably, is the more interesting half."
     },
     {
       "id": "docx-package",
@@ -451,7 +451,7 @@
       "kind": "absent",
       "extension": ".docx",
       "expectedExit": 2,
-      "notes": "Exit 2, never 3. The split between an input that could not be read and a document its codec rejected is the one docs/cli.md singles out, and a harness that collapses them reports the wrong thing."
+      "notes": "Exit 2, never 3. The split between an input that could not be read and a document its codec rejected is the one docs/guides/cli.md singles out, and a harness that collapses them reports the wrong thing."
     },
     {
       "id": "empty-package",
@@ -488,7 +488,7 @@
       "content": "{\\rtf1\\ansi Unbalanced {{{ text",
       "extension": ".rtf",
       "expectedExit": 0,
-      "notes": "Exit 0 is correct, and it is the point. ADR 0004 makes the RTF reader total: it never throws on malformed input and returns what it could read. What the suite is really asserting is the absence of exit 70, which docs/cli.md defines as always a defect in the tool."
+      "notes": "Exit 0 is correct, and it is the point. ADR 0004 makes the RTF reader total: it never throws on malformed input and returns what it could read. What the suite is really asserting is the absence of exit 70, which docs/guides/cli.md defines as always a defect in the tool."
     },
     {
       "id": "unclosed-html",
@@ -509,7 +509,7 @@
       "suffix": " deep",
       "extension": ".rtf",
       "expectedExit": 0,
-      "notes": "Past MaxGroupDepth, which rtf-conformance.md documents as reported through rtf.depth rather than thrown. Group nesting is iterative in the reader, so this checks that the limit is enforced, not that the stack survives."
+      "notes": "Past MaxGroupDepth, which docs/notes/rtf.md documents as reported through rtf.depth rather than thrown. Group nesting is iterative in the reader, so this checks that the limit is enforced, not that the stack survives."
     }
   ]
 }

@@ -12,7 +12,7 @@ namespace Broiler.Documents.Cli.Composition;
 /// <remarks>
 /// <para>
 /// PDF is the reason. <c>Broiler.Documents.Pdf</c> reads and writes, and the
-/// roadmap (<c>docs/pdf-support-roadmap.md</c> §4.1) lets an application open
+/// roadmap (<c>docs/roadmap.md</c>, PDF delivery gates) lets an application open
 /// PDF files before it lets one produce them: writing is the later
 /// write-preview gate. Composing the codec as it comes would have given this
 /// tool PDF destinations in <c>convert</c>, <c>new</c>, <c>edit</c> and

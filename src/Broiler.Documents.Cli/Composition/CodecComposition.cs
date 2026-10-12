@@ -26,7 +26,7 @@ namespace Broiler.Documents.Cli.Composition;
 /// <para>
 /// <b>PDF is read and never written.</b> <c>Broiler.Documents.Pdf</c> is
 /// composed through <see cref="ReadOnlyCodec"/>, so this tool opens, converts
-/// from and renders PDF files and produces none: <c>docs/pdf-support-roadmap.md</c>
+/// from and renders PDF files and produces none: <c>docs/roadmap.md</c>
 /// §4.1 lets an application read PDF before it lets one write it, and a CLI is
 /// the one surface an automated system would come to depend on.
 /// </para>

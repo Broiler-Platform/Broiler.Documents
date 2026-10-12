@@ -116,7 +116,7 @@ via RTF
 That is a sentence you can turn into a test. Exit code 5.
 
 A difference is not automatically a defect. `RichTextDocument` is a normalized
-model, and [the roadmap](roadmap.md) is explicit that source-preserving round
+model, and [the roadmap](../roadmap.md) is explicit that source-preserving round
 trips are not a goal — Markdown genuinely has no way to express a highlight
 colour, and the conformance documents say so. What this command is good for is
 the difference nobody decided on. The diagnostics printed alongside usually tell
@@ -166,7 +166,7 @@ page it is), `mask` (black and white, for feeding into another tool), or `heat`
 so two dumps of equal documents are byte-identical and `diff` on them is
 meaningful. `dump --as codes` emits the Formatting Codes projection — this
 component's own canonical, versioned rendering of a document's semantics
-([ADR 0006](adr/0006-formatting-codes-projection-and-grammar.md)).
+([ADR 0006](../adr/0006-formatting-codes-projection-and-grammar.md)).
 
 `dump --as text` is the characters and nothing else, and the two places that is
 most visible are worth stating because another implementation's plain-text export
@@ -217,7 +217,7 @@ PDF extracts it. What opened the document is reported under
 
 A PDF encrypted for certificate recipients is refused with
 `pdf.encryption.recipient-not-composed`: this tool composes no recipient
-decryptor (see [PDF extension points §4.6](pdf-extension-points.md)).
+decryptor (see [PDF extension points §4.6](../notes/pdf/extension-points.md)).
 
 ## Rendering, and what makes a render reproducible
 
@@ -342,9 +342,9 @@ success for work it did not do.
 read-only: `probe`, `info`, `dump`, `render`, `compare`, and `convert` from a PDF
 all read one, and any command asked to produce a PDF - `convert --out x.pdf`,
 `roundtrip --via pdf` - refuses with a usage error before anything is written.
-[The PDF support roadmap](pdf-support-roadmap.md) §4.1 lets an application read
-PDF before it lets one write it, and writing still has to pass the write-preview
-gate; a CLI is the one surface an automated system would come to depend on, so
+The [PDF delivery gates](../roadmap.md#pdf-delivery-gates) let an application
+read PDF before they let one write it, and writing still has to pass the
+write-preview gate; a CLI is the one surface an automated system would come to depend on, so
 it holds to that.
 
 Of the codec's optional providers, only the ICC colour-profile reader
@@ -366,13 +366,15 @@ result's `picturesEncoded` counts the pictures encoded. `roundtrip` doesn't take
 this step, because it measures the codecs rather than this tool.
 
 **The layout engine is this tool's, not the component's.** It does word wrapping,
-alignment, indents, list markers, line and paragraph spacing, inline images, and
-pagination. It has no tables, columns, floats, footnotes, headers, footers,
-hyphenation, kerning pairs, or bidirectional reordering — mostly because the
-document model cannot express them, so there is nothing to lay out. The shared
-paginator the PDF roadmap tracks as `Broiler.Documents.Pagination` is where a
-component-level version belongs; until it exists, the numbers here are this
-tool's own. That is fine for the job: a comparison between two exports run
+alignment, indents, list markers, line and paragraph spacing, inline images,
+tables (broken between rows, never inside one), running headers and footers,
+anchored shapes in their stated stacking order, and pagination. It has no
+columns, floats, footnotes, hyphenation, kerning pairs, or bidirectional
+reordering — mostly because the document model cannot express them, so there is
+nothing to lay out. The shared paginator planned as
+`Broiler.Documents.Pagination` ([roadmap](../roadmap.md#shared-export-foundation-phase-6))
+is where a component-level version belongs; until it exists, the numbers here
+are this tool's own. That is fine for the job: a comparison between two exports run
 through the *same* layout isolates the codecs.
 
 **List numbering is reconstructed, not preserved.** The model records that a
@@ -413,8 +415,8 @@ per-push, because it depends on a third-party binary. See
 
 The project is set up to pack as a .NET tool (`PackAsTool`, command name
 `broilerdoc`) but has `IsPackable=false`, so `dotnet pack` on the solution still
-produces exactly the eight library packages the [README](../README.md) lists.
-That is deliberate: adding a ninth package would change what a `v*` tag pushes
+produces exactly the eleven library packages the [README](../../README.md) lists.
+That is deliberate: adding a twelfth package would change what a `v*` tag pushes
 to nuget.org, and that should be a decision someone makes rather than a side
 effect of adding a CLI.
 

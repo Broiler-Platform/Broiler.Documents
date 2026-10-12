@@ -46,7 +46,7 @@ ships is a format something will eventually say something about.
   for any row where the evidence looks thin, and such a row stays open and says
   so rather than being closed by whoever is nearest.
 - **Each format gets its own register file, its own ID prefix, and its own claim
-  gate.** ODT's is [the ODT IP and licensing register](../odt-ip-licensing-register.md),
+  gate.** ODT's is [the ODT IP and licensing register](../ip/odt.md),
   using `ODT-IP-` and `ODT-SRC-` prefixes. A register is authoritative for its
   own format's claims and for nothing else.
 - One format's pending row **must not** gate another format's claims. This is why

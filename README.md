@@ -90,9 +90,9 @@ technology detected, skipped, and reachable through a composed extension point. 
 and its optional font and image providers are included in the normal pack and
 publish workflows. Package generation does not enable application features or
 certify PDF conformance. Application integration retains the read-preview and
-write-preview gates; see
-the [PDF support roadmap](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/pdf-support-roadmap.md) §4.1 and the
-[PDF extension points](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/pdf-extension-points.md).
+write-preview gates; see the
+[PDF delivery gates](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/roadmap.md#pdf-delivery-gates) and the
+[PDF extension points](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/pdf/extension-points.md).
 
 ### Dependency direction
 
@@ -143,12 +143,12 @@ The head composes `Broiler.Documents.Pdf` **read-only**: it opens, converts from
 and renders PDF files, and writes none until PDF output passes its write-preview
 gate.
 It is itself `IsPackable=false`, so the package table above is unchanged. See the
-[CLI guide](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/cli.md) for the full command reference, the exit codes, the edit
+[CLI guide](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/cli.md) for the full command reference, the exit codes, the edit
 language, and what makes a render reproducible across machines.
 
 CI drives that tool over a document corpus on every push on Linux and Windows,
 and holds what comes back against a committed baseline of what each
-format is expected to lose. See [the corpus suite](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/corpus-suite.md) for what
+format is expected to lose. See [the corpus suite](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/corpus-suite.md) for what
 it checks, where the documents come from and why none of them is downloaded, and
 what it has found so far.
 
@@ -156,7 +156,7 @@ A second suite runs nightly rather than on every push, and answers the question
 the first one cannot: whether this component reads documents an unrelated
 implementation wrote. LibreOffice manufactures them from seeds authored here, and
 both what they say and how they look are compared. See
-[the office conformance suite](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/office-conformance.md), which is also candid
+[the office conformance suite](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/office-conformance.md), which is also candid
 about what a pixel comparison between two independent layout engines can and
 cannot assert.
 
@@ -190,7 +190,7 @@ src/                     runtime assemblies, one directory per package
 src/Broiler.Documents.Cli/  the broilerdoc command line; an application head, not a package
 src/tests/               one xUnit test project per assembly
 eng/                     vendored packaging metadata and package icon
-docs/                    roadmap, conformance documents, ADRs, PDF registers
+docs/                    roadmap, notes on the code, IP registers, guides, ADRs
 .github/workflows/       CI and publish pipelines
 Directory.Packages.props  centrally pinned Broiler and test package versions
 Broiler.Documents.slnx   solution over every project in src/
@@ -259,11 +259,11 @@ icons, and symbols, and rejects an output directory containing stale packages.
 Test projects and `Broiler.Documents.Cli` never pack.
 The CLI is wired to pack as a .NET tool and is held at `IsPackable=false` so that
 adding a command line does not silently change what a `v*` tag pushes to
-nuget.org; [the CLI guide](docs/cli.md) says how to turn it on. `eng/Broiler.Packaging.props`
+nuget.org; [the CLI guide](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/cli.md#shipping-it-as-a-tool) says how to turn it on. `eng/Broiler.Packaging.props`
 is a vendored copy of the suite-wide packaging metadata and holds the default
 preview version. Publishing resolves an unused preview and passes it as an
 MSBuild override without editing this file or changing dependency versions.
-See [Packaging and Releases](docs/packaging.md) for full details.
+See [Packaging and Releases](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/packaging.md) for full details.
 
 ## Continuous integration and releases
 
@@ -282,55 +282,33 @@ Ubuntu and Windows:
 - Pushes packages and symbol packages to NuGet.org using the `NUGET_TOKEN` secret.
 - Every run pushes; there is no dry-run mode. CI performs the no-push pack and consumer-restore check on every push and pull request.
 
-## Supported Subsets
+## Documentation
 
-- [RTF conformance](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/rtf-conformance.md)
-- [DOCX conformance](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/docx-conformance.md)
-- [ODT conformance](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/odt-conformance.md)
-- [HTML conformance](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/html-conformance.md)
-- [Markdown conformance](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/markdown-conformance.md)
-- [PDF feature matrix](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/pdf-feature-matrix.md) - the authority for what the
-  PDF codec does today and what it may be described as.
-- [PDF construct inventory](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/pdf-construct-inventory.md) - exactly which PDF
-  constructs the codec reads, writes, recognizes without interpreting, and
-  rejects, derived from the implementation.
-- [Formatting Codes grammar version 1](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/src/Broiler.Documents.FormatCodes/GRAMMAR.md)
+The documentation is split by kind rather than by format;
+[docs/README.md](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/README.md) is the map.
 
-## Records
-
-- [Packaging and Releases](docs/packaging.md)
-- [Command-line guide](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/cli.md)
-- [Current roadmap](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/roadmap.md)
-- [PDF Phase 0 status](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/pdf-phase0-status.md)
-- [RTF IP and licensing register](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/rtf-ip-licensing-register.md),
-  [DOCX](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/docx-ip-licensing-register.md),
-  [HTML](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/html-ip-licensing-register.md) and
-  [Markdown](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/markdown-ip-licensing-register.md) rights records - every row
-  decided. Decided is not cleared: no legal review, no patent-freedom claim, no
+- **[Roadmap](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/roadmap.md)** - everything still open, and nothing else,
+  including the PDF delivery gates.
+- **Notes on the code as it is** - [architecture and shared contracts](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/architecture.md),
+  and one note per codec stating exactly what it reads, writes, approximates and
+  drops: [RTF](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/rtf.md), [DOCX](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/docx.md),
+  [ODT](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/odt.md), [HTML](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/html.md),
+  [Markdown](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/markdown.md) and [PDF](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/pdf/README.md).
+  For PDF, the [feature matrix](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/pdf/feature-matrix.md) is the
+  authority for what the codec may be described as doing, and the
+  [construct inventory](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/notes/pdf/construct-inventory.md) lists every
+  construct it reads, writes, recognizes without interpreting, and rejects. The
+  [Formatting Codes grammar](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/src/Broiler.Documents.FormatCodes/GRAMMAR.md)
+  is version 1.
+- **[IP, licensing and provenance](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/ip/README.md)** - one register per
+  format, the PDF approved sources and corpus manifest, and the review briefs.
+  Decided is not cleared: no legal review, no patent-freedom claim, no
   freedom-to-operate determination.
-- [ODT IP and licensing register](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/odt-ip-licensing-register.md) - the ODF
-  rights record. Every row is decided and the position is assessed green, which is
-  an engineering risk judgement on recorded evidence rather than a clearance: no
-  legal review, no patent-freedom claim, no freedom-to-operate determination.
-- [PDF IP and licensing register](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/pdf-ip-licensing-register.md)
-- [PDF approved sources](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/pdf-approved-sources.md)
-- [PDF corpus manifest](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/pdf-corpus-manifest.json) and its
-  [schema](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/pdf-corpus-manifest.schema.json) - every PDF the tests use is
-  generated in code; a committed `.pdf` needs a manifest entry with its
-  provenance and rights first.
-- [ADR Index](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/README.md)
-  - [ADR 0001: Component Topology And Consumption Policy](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0001-component-topology-and-consumption-policy.md)
-  - [ADR 0002: Document Model Ownership And Promotion (Path A)](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0002-document-model-ownership-and-promotion.md)
-  - [ADR 0003: Codec Contract And Signature Probe](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0003-codec-contract-and-signature-probe.md)
-  - [ADR 0004: Document Read Limits And RTF Sanitization Policy](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0004-document-read-limits-and-rtf-sanitization.md)
-  - [ADR 0005: RTF First-Release Subset And Text Encoding](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0005-rtf-first-release-subset-and-text-encoding.md)
-  - [ADR 0006: Formatting Codes Projection And Grammar](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0006-formatting-codes-projection-and-grammar.md)
-  - [ADR 0007: PDF Component Scope And Delivery](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0007-pdf-component-scope-and-delivery.md)
-  - [ADR 0008: PDF Codec Requests, Results, And Commit Semantics](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0008-pdf-codec-requests-results-and-commit.md)
-  - [ADR 0009: PDF Security, Resources, And Privacy](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0009-pdf-security-resources-and-privacy.md)
-  - [ADR 0010: PDF Pagination, Units, Fonts, Scripts, And Platforms](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0010-pdf-pagination-units-fonts-and-platforms.md)
-  - [ADR 0011: PDF Standards, IP, Provenance, And Claims](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0011-pdf-standards-ip-provenance-and-claims.md) (proposed; legal review pending)
-  - [ADR 0012: PDF Base Implementation Scope And Composed Extensions](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/0012-pdf-base-implementation-and-composed-extensions.md)
+- **Guides** - the [command line](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/cli.md),
+  [packaging and releases](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/packaging.md), the
+  [corpus suite](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/corpus-suite.md) and the
+  [office conformance suite](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/guides/office-conformance.md).
+- **[Architecture decision records](https://github.com/Broiler-Platform/Broiler.Documents/blob/main/docs/adr/README.md)** - ADRs 0001 to 0015.
 
 ## License
 

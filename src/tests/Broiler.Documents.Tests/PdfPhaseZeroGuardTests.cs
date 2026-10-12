@@ -20,15 +20,15 @@ public sealed partial class PdfPhaseZeroGuardTests
     /// <summary>Component-relative paths that must exist and stay versioned.</summary>
     private static readonly string[] RequiredDocuments =
     [
-        "docs/pdf-support-roadmap.md",
-        "docs/pdf-feature-matrix.md",
-        "docs/pdf-ip-licensing-register.md",
-        "docs/pdf-approved-sources.md",
-        "docs/pdf-corpus-manifest.schema.json",
-        "docs/pdf-corpus-manifest.json",
-        "docs/pdf-phase0-status.md",
-        "docs/pdf-extension-points.md",
-        "docs/pdf-construct-inventory.md",
+        "docs/roadmap.md",
+        "docs/notes/pdf/README.md",
+        "docs/notes/pdf/feature-matrix.md",
+        "docs/ip/pdf.md",
+        "docs/ip/pdf-approved-sources.md",
+        "docs/ip/pdf-corpus-manifest.schema.json",
+        "docs/ip/pdf-corpus-manifest.json",
+        "docs/notes/pdf/extension-points.md",
+        "docs/notes/pdf/construct-inventory.md",
         "docs/adr/0007-pdf-component-scope-and-delivery.md",
         "docs/adr/0008-pdf-codec-requests-results-and-commit.md",
         "docs/adr/0009-pdf-security-resources-and-privacy.md",
@@ -58,7 +58,7 @@ public sealed partial class PdfPhaseZeroGuardTests
     public void Corpus_Starts_Empty_Instead_Of_Importing_Legacy_Fixtures()
     {
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(
-            Path.Combine(PdfGuardRoots.Component, "docs/pdf-corpus-manifest.json")));
+            Path.Combine(PdfGuardRoots.Component, "docs/ip/pdf-corpus-manifest.json")));
 
         Assert.Equal(1, manifest.RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.Empty(manifest.RootElement.GetProperty("samples").EnumerateArray());

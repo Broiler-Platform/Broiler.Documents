@@ -21,9 +21,10 @@
     <File Path="eng/NuGet.nuget-org.config" />
   </Folder>
   <Folder Name="/solution items/docs/">
+    <File Path="docs/README.md" />
     <File Path="docs/roadmap.md" />
-    <File Path="docs/cli.md" />
-    <File Path="docs/packaging.md" />
+    <File Path="docs/guides/cli.md" />
+    <File Path="docs/guides/packaging.md" />
   </Folder>
   <!--
     Every project here is platform-neutral net10.0, so all six configurations
@@ -89,7 +90,7 @@
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
     <!-- Preview PDF packages; application integration has separate delivery gates
-         (docs/pdf-support-roadmap.md 4.1). -->
+         (docs/roadmap.md, PDF delivery gates). -->
     <Project Path="src/Broiler.Documents.Pdf/Broiler.Documents.Pdf.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
@@ -98,7 +99,7 @@
     </Project>
     <!-- Composable PDF image filters. Separate from the codec so that a host
          composing no image decoder links no image decoder; gated on the
-         IP/licensing register per filter (docs/pdf-ip-licensing-register.md). -->
+         IP/licensing register per filter (docs/ip/pdf.md). -->
     <Project Path="src/Broiler.Documents.Pdf.Images/Broiler.Documents.Pdf.Images.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
@@ -197,7 +198,7 @@
     <!-- A console runner rather than a test project: it drives the built
          broilerdoc executable as a child process, so it needs that executable to
          exist before it runs, and `dotnet test` discovers nothing in it. CI runs
-         it in its own step and reads its count line. See docs/corpus-suite.md. -->
+         it in its own step and reads its count line. See docs/guides/corpus-suite.md. -->
     <Project Path="src/tests/Broiler.Documents.Corpus/Broiler.Documents.Corpus.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
@@ -210,7 +211,7 @@
          produced by an implementation that knows nothing about this one. It is
          not run by CI on a pull request - it depends on a third-party binary
          whose layout moves between releases, so it is nightly and dispatchable
-         and must not become a required check. See docs/office-conformance.md. -->
+         and must not become a required check. See docs/guides/office-conformance.md. -->
     <Project Path="src/tests/Broiler.Documents.Office/Broiler.Documents.Office.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />

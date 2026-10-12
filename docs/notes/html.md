@@ -1,7 +1,5 @@
 # Broiler.Documents.Html Conformance
 
-Status: Delivered 2026-07-07.
-
 `Broiler.Documents.Html` maps HTML documents or fragments through the same
 `DocumentCodec` contract as RTF. It uses `Broiler.Dom.Html.HtmlDocumentParser`
 for parsing and writes deterministic UTF-8 HTML with `HtmlSerializer`.
@@ -52,8 +50,7 @@ A paragraph whose text would not survive HTML's collapsing carries
 `white-space: pre-wrap` so that it does: a tab, a repeated space, or a space at
 either edge. Only such a paragraph carries it — the declaration changes how a
 browser lays the paragraph out, so it is not spent on paragraphs that do not need
-it. This condition used to name the tab alone, and a doubled space was written
-out bare, collapsed on read, and reported nowhere.
+it.
 
 | Model | HTML |
 |---|---|
@@ -161,24 +158,10 @@ model.
 - Markdown and DOCX are implemented as peer codecs. Their format-specific
   coverage is documented separately; this HTML codec does not delegate to them.
 
+## Standards and rights
 
-## Standards And Rights
-
-Both bodies that have stewarded HTML — the W3C and the WHATWG — operate
-**royalty-free** patent policies, which is the strongest starting position of any
-format this component reads. Both bind participants over Essential Claims and
-both let a participant exclude specific patents during a disclosure window, so
-neither is a statement that no relevant claim exists.
-
-That is recorded in
-[the HTML IP and licensing register](html-ip-licensing-register.md), where **every
-row is now decided**. Decided is not cleared: patent-freedom is not claimed and no
-freedom-to-operate determination has been made. Both policies let a participant
-exclude patents during a disclosure window, which is what keeps a royalty-free
-commitment from being a finding that no claim exists.
-
-**One limit belongs here as much as there.** This codec does not tokenize or parse
-HTML — `Broiler.Dom.Html.HtmlDocumentParser` does, in a separate repository. That
-repository now has a rights register of its own, so the parsing half is recorded
-rather than unasked; the scope limit is unchanged, and a claim about Broiler's
-HTML support as a whole needs **both** registers rather than either.
+The rights position (two independent royalty-free patent policies), the approved
+labels and the provenance findings are in [the HTML register](../ip/html.md).
+This codec does not tokenize or parse HTML: `Broiler.Dom.Html` does, and that
+repository keeps its own register. A claim about Broiler's HTML support as a
+whole needs both.

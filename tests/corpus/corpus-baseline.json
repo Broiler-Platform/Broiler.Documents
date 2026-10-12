@@ -23,8 +23,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -41,8 +41,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -59,8 +59,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -77,8 +77,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -93,8 +93,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -109,8 +109,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -125,8 +125,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -141,8 +141,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -159,8 +159,8 @@
         "docx.text.control"
       ],
       "state": "documented",
-      "reference": "docs/docx-conformance.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/cli.md defines as always a defect in it.",
+      "reference": "docs/notes/docx.md",
+      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
       "reviewer": "Claude Opus 5, on the control-character pass",
       "decided": "2026-09-05"
     },
@@ -177,8 +177,8 @@
         "odt.text.control"
       ],
       "state": "documented",
-      "reference": "docs/odt-conformance.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/cli.md defines as always a defect in it.",
+      "reference": "docs/notes/odt.md",
+      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
       "reviewer": "Claude Opus 5, on the control-character pass",
       "decided": "2026-09-05"
     },
@@ -195,8 +195,8 @@
         "docx.text.control"
       ],
       "state": "documented",
-      "reference": "docs/docx-conformance.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/cli.md defines as always a defect in it.",
+      "reference": "docs/notes/docx.md",
+      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
       "reviewer": "Claude Opus 5, on the control-character pass",
       "decided": "2026-09-05"
     },
@@ -213,8 +213,8 @@
         "odt.text.control"
       ],
       "state": "documented",
-      "reference": "docs/odt-conformance.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/cli.md defines as always a defect in it.",
+      "reference": "docs/notes/odt.md",
+      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
       "reviewer": "Claude Opus 5, on the control-character pass",
       "decided": "2026-09-05"
     },
@@ -231,8 +231,8 @@
         "docx.text.control"
       ],
       "state": "documented",
-      "reference": "docs/docx-conformance.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/cli.md defines as always a defect in it.",
+      "reference": "docs/notes/docx.md",
+      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
       "reviewer": "Claude Opus 5, on the control-character pass",
       "decided": "2026-09-05"
     },
@@ -249,8 +249,8 @@
         "odt.text.control"
       ],
       "state": "documented",
-      "reference": "docs/odt-conformance.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/cli.md defines as always a defect in it.",
+      "reference": "docs/notes/odt.md",
+      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
       "reviewer": "Claude Opus 5, on the control-character pass",
       "decided": "2026-09-05"
     },
@@ -266,7 +266,7 @@
         "html.table.flattened"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
+      "reference": "docs/notes/html.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -291,8 +291,8 @@
         "markdown.table.flattened"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. A paragraph aligns against a different one once its neighbour loses its leading spaces, so the comparison reports an insertion and a removal. A consequence of the row above rather than a separate finding. Leading and repeated spaces are structural in Markdown - indentation and code blocks are spelled with them - so a paragraph that begins with them cannot be written as ordinary text. The writer reports what it dropped from the style; the text itself is the format speaking.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. A paragraph aligns against a different one once its neighbour loses its leading spaces, so the comparison reports an insertion and a removal. A consequence of the row above rather than a separate finding. Leading and repeated spaces are structural in Markdown - indentation and code blocks are spelled with them - so a paragraph that begins with them cannot be written as ordinary text. The writer reports what it dropped from the style; the text itself is the format speaking.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -308,8 +308,8 @@
         "rtf.table.flattened"
       ],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
-      "why": "The RTF reader ignores line-spacing control words. rtf-conformance.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+      "reference": "docs/notes/rtf.md",
+      "why": "The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -324,8 +324,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -340,8 +340,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -356,8 +356,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -372,8 +372,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -387,7 +387,7 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
+      "reference": "docs/notes/markdown.md",
       "why": "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -402,7 +402,7 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
+      "reference": "docs/notes/markdown.md",
       "why": "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -417,7 +417,7 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
+      "reference": "docs/notes/markdown.md",
       "why": "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -432,7 +432,7 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
+      "reference": "docs/notes/markdown.md",
       "why": "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -452,7 +452,7 @@
         "html.list"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
+      "reference": "docs/notes/html.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -477,8 +477,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -496,8 +496,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. The RTF reader ignores line-spacing control words. rtf-conformance.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
+      "reference": "docs/notes/rtf.md",
+      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -513,7 +513,7 @@
         "html.skip.external"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
+      "reference": "docs/notes/html.md",
       "why": "The HTML writer embeds the picture as a data URI and says so (html.image.datauri); the reader does not turn a data URI back into a model image, so the placeholder character has nothing to attach to and goes. An image does not survive an HTML round trip, which the conformance document states.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -530,8 +530,8 @@
         "markdown.image.dropped"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "An image does not survive a Markdown round trip, which markdown-conformance.md states and the writer reports (markdown.image.datauri). What it comes back as is now decided too: the reader recognizes the syntax and replaces it with the description CommonMark nominates as the fallback, reporting markdown.image.dropped. It used to leave the exclamation mark in the prose and report the loss as a dropped hyperlink, because `!` was not a character the inline parser knew.",
+      "reference": "docs/notes/markdown.md",
+      "why": "An image does not survive a Markdown round trip, which docs/notes/markdown.md states and the writer reports (markdown.image.datauri). What it comes back as is now decided too: the reader recognizes the syntax and replaces it with the description CommonMark nominates as the fallback, reporting markdown.image.dropped. It used to leave the exclamation mark in the prose and report the loss as a dropped hyperlink, because `!` was not a character the inline parser knew.",
       "reviewer": "Claude Opus 5, on the Markdown image pass",
       "decided": "2026-09-05"
     },
@@ -546,8 +546,8 @@
         "rtf.embedded"
       ],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
-      "why": "The RTF writer emits the picture correctly, as a \\pict destination carrying the PNG. The RTF *reader* skips it: rtf-conformance.md lists \\pict among the skipped destinations and it is reported as rtf.embedded, which escalates to the shared capability code when a caller asks for embedded decoding. Both halves are covered by RtfWriterTests and RtfEmbeddedObjectReportTests. This row was previously recorded as a silent writer defect, which was wrong on every count - the baseline was filtering info diagnostics out, so the report it makes was invisible here.",
+      "reference": "docs/notes/rtf.md",
+      "why": "The RTF writer emits the picture correctly, as a \\pict destination carrying the PNG. The RTF *reader* skips it: docs/notes/rtf.md lists \\pict among the skipped destinations and it is reported as rtf.embedded, which escalates to the shared capability code when a caller asks for embedded decoding. Both halves are covered by RtfWriterTests and RtfEmbeddedObjectReportTests. This row was previously recorded as a silent writer defect, which was wrong on every count - the baseline was filtering info diagnostics out, so the report it makes was invisible here.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -563,7 +563,7 @@
         "html.skip.external"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
+      "reference": "docs/notes/html.md",
       "why": "The HTML writer embeds the picture as a data URI and says so (html.image.datauri); the reader does not turn a data URI back into a model image, so the placeholder character has nothing to attach to and goes. An image does not survive an HTML round trip, which the conformance document states.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -580,8 +580,8 @@
         "markdown.image.dropped"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "An image does not survive a Markdown round trip, which markdown-conformance.md states and the writer reports (markdown.image.datauri). What it comes back as is now decided too: the reader recognizes the syntax and replaces it with the description CommonMark nominates as the fallback, reporting markdown.image.dropped. It used to leave the exclamation mark in the prose and report the loss as a dropped hyperlink, because `!` was not a character the inline parser knew.",
+      "reference": "docs/notes/markdown.md",
+      "why": "An image does not survive a Markdown round trip, which docs/notes/markdown.md states and the writer reports (markdown.image.datauri). What it comes back as is now decided too: the reader recognizes the syntax and replaces it with the description CommonMark nominates as the fallback, reporting markdown.image.dropped. It used to leave the exclamation mark in the prose and report the loss as a dropped hyperlink, because `!` was not a character the inline parser knew.",
       "reviewer": "Claude Opus 5, on the Markdown image pass",
       "decided": "2026-09-05"
     },
@@ -596,8 +596,8 @@
         "rtf.embedded"
       ],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
-      "why": "The RTF writer emits the picture correctly, as a \\pict destination carrying the PNG. The RTF *reader* skips it: rtf-conformance.md lists \\pict among the skipped destinations and it is reported as rtf.embedded, which escalates to the shared capability code when a caller asks for embedded decoding. Both halves are covered by RtfWriterTests and RtfEmbeddedObjectReportTests. This row was previously recorded as a silent writer defect, which was wrong on every count - the baseline was filtering info diagnostics out, so the report it makes was invisible here.",
+      "reference": "docs/notes/rtf.md",
+      "why": "The RTF writer emits the picture correctly, as a \\pict destination carrying the PNG. The RTF *reader* skips it: docs/notes/rtf.md lists \\pict among the skipped destinations and it is reported as rtf.embedded, which escalates to the shared capability code when a caller asks for embedded decoding. Both halves are covered by RtfWriterTests and RtfEmbeddedObjectReportTests. This row was previously recorded as a silent writer defect, which was wrong on every count - the baseline was filtering info diagnostics out, so the report it makes was invisible here.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -616,8 +616,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -630,8 +630,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
-      "why": "The RTF reader ignores line-spacing control words. rtf-conformance.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
+      "reference": "docs/notes/rtf.md",
+      "why": "The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -650,8 +650,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -664,8 +664,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
-      "why": "The RTF reader ignores line-spacing control words. rtf-conformance.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
+      "reference": "docs/notes/rtf.md",
+      "why": "The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -684,8 +684,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -698,8 +698,8 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
-      "why": "The RTF reader ignores line-spacing control words. rtf-conformance.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
+      "reference": "docs/notes/rtf.md",
+      "why": "The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -717,8 +717,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -736,7 +736,7 @@
         "html.list"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
+      "reference": "docs/notes/html.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -753,7 +753,7 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
+      "reference": "docs/notes/rtf.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -772,7 +772,7 @@
         "html.list"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
+      "reference": "docs/notes/html.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -789,7 +789,7 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
+      "reference": "docs/notes/rtf.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -808,7 +808,7 @@
         "html.list"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
+      "reference": "docs/notes/html.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -825,7 +825,7 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
+      "reference": "docs/notes/rtf.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -841,8 +841,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -857,8 +857,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -873,8 +873,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -889,8 +889,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -912,7 +912,7 @@
         "html.list"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
+      "reference": "docs/notes/html.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -933,8 +933,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Leading and repeated spaces are structural in Markdown - indentation and code blocks are spelled with them - so a paragraph that begins with them cannot be written as ordinary text. The writer reports what it dropped from the style; the text itself is the format speaking.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Leading and repeated spaces are structural in Markdown - indentation and code blocks are spelled with them - so a paragraph that begins with them cannot be written as ordinary text. The writer reports what it dropped from the style; the text itself is the format speaking.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -954,7 +954,7 @@
       ],
       "diagnostics": [],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
+      "reference": "docs/notes/rtf.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -987,7 +987,7 @@
         "html.table.flattened"
       ],
       "state": "documented",
-      "reference": "docs/html-conformance.md",
+      "reference": "docs/notes/html.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
@@ -1010,8 +1010,8 @@
         "markdown.table.flattened"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -1030,8 +1030,8 @@
         "rtf.table.flattened"
       ],
       "state": "documented",
-      "reference": "docs/rtf-conformance.md",
-      "why": "The RTF reader ignores line-spacing control words. rtf-conformance.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model. Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+      "reference": "docs/notes/rtf.md",
+      "why": "The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model. Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -1044,8 +1044,8 @@
         "markdown.page-break"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. markdown-conformance.md states it as a property the format will not carry rather than as one not yet implemented.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
       "reviewer": "Claude Opus 5, on the page-break pass",
       "decided": "2026-09-06"
     },
@@ -1058,8 +1058,8 @@
         "markdown.page-break"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. markdown-conformance.md states it as a property the format will not carry rather than as one not yet implemented.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
       "reviewer": "Claude Opus 5, on the page-break pass",
       "decided": "2026-09-06"
     },
@@ -1072,8 +1072,8 @@
         "markdown.page-break"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. markdown-conformance.md states it as a property the format will not carry rather than as one not yet implemented.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
       "reviewer": "Claude Opus 5, on the page-break pass",
       "decided": "2026-09-06"
     },
@@ -1086,8 +1086,8 @@
         "markdown.page-break"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. markdown-conformance.md states it as a property the format will not carry rather than as one not yet implemented.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
       "reviewer": "Claude Opus 5, on the page-break pass",
       "decided": "2026-09-06"
     },
@@ -1113,8 +1113,8 @@
         "markdown.paragraph-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -1129,8 +1129,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -1145,8 +1145,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -1161,8 +1161,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -1177,8 +1177,8 @@
         "markdown.inline-style"
       ],
       "state": "documented",
-      "reference": "docs/markdown-conformance.md",
-      "why": "Markdown has no way to express this and says so. markdown-conformance.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reference": "docs/notes/markdown.md",
+      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     }

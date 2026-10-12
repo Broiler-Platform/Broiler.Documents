@@ -895,7 +895,7 @@ public static class DocxWriter
     /// XML has no representation for most control characters, not even an
     /// escape, so there is nothing to write but a diagnostic. Handing one to the
     /// serializer throws, and the tool turns that into exit 70 - which
-    /// docs/cli.md defines as always a defect in the tool. It is reachable from
+    /// docs/guides/cli.md defines as always a defect in the tool. It is reachable from
     /// ordinary input: the HTML reader decodes <c>&amp;#7;</c> into the model
     /// and the RTF reader passes <c>\u7</c> through, so a document that reads
     /// cleanly could not be written.

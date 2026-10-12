@@ -59,7 +59,7 @@ serialization of the original input is neither available nor desirable.
   alter existing output requires a new version and compatibility tests.
 
 The final command table and close-order table are frozen by
-[`Broiler.Documents.FormatCodes/GRAMMAR.md`](../../Broiler.Documents.FormatCodes/GRAMMAR.md).
+[`Broiler.Documents.FormatCodes/GRAMMAR.md`](../../src/Broiler.Documents.FormatCodes/GRAMMAR.md).
 They do not change the canonical sample above or the rules in this ADR.
 
 ### Mapping and assembly boundary
@@ -102,6 +102,6 @@ They do not change the canonical sample above or the rules in this ADR.
 ## Follow-up
 
 Implemented: the complete version-1 grammar is published in
-[`Broiler.Documents.FormatCodes/GRAMMAR.md`](../../Broiler.Documents.FormatCodes/GRAMMAR.md)
+[`Broiler.Documents.FormatCodes/GRAMMAR.md`](../../src/Broiler.Documents.FormatCodes/GRAMMAR.md)
 beside projector tests covering supported style fields, escapes, empty
 paragraphs, Unicode, and mapping boundaries.

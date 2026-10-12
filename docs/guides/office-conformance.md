@@ -22,7 +22,7 @@ runs that nightly.
 - [The baseline](#the-baseline)
 - [The tool register](#the-tool-register)
 - [Determinism](#determinism)
-- [What it found](#what-it-found)
+- [What it has found](#what-it-has-found)
 - [What it cannot tell you](#what-it-cannot-tell-you)
 
 ## Why it exists
@@ -57,7 +57,7 @@ of one fact - WPT ships a corpus and a specification, and this has neither.
 
 Nothing is committed and nothing is downloaded.
 
-[ADR 0013](adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md) gives every
+[ADR 0013](../adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md) gives every
 format its own rights record, each rejects third-party document artifacts by
 default and per artifact, and
 `FormatClaimGuardTests.No_Document_Of_A_Supported_Format_Is_Committed` walks the
@@ -229,11 +229,11 @@ usefully instead of reading a wall of red. `--update-baseline` refuses to change
 the stamp without `--restamp`, because a baseline regenerated on the wrong
 LibreOffice is worse than no baseline - it looks like evidence.
 
-It shipped with both lists empty and every stamp field null, which said plainly
-that nothing had been measured against an approved, pinned toolchain yet.
-`tests/corpus/external-sources.json` still ships with no rows on the same
-argument. This one no longer does: it carries the stamp of the toolchain the CI
-workflow provisions and the rows the runs on it produced.
+It carries the stamp of the toolchain the CI workflow provisions and the rows
+the runs on it produced. Seven render rows are still `suspected-defect`
+(`letterhead-frames` and `line-break-within-paragraph`); their notes say what is
+left is ordinary disagreement between two layout engines, and classifying them
+is on the [roadmap](../roadmap.md#test-suites-and-tooling).
 
 ## The tool register
 
@@ -242,9 +242,8 @@ approved**, by the project reviewer on 2026-09-06. The rule is the one this
 component already operates for its PDF oracles: a tool absent from the register
 may not run in CI, and no entry in it may become a product reference.
 
-The file shipped with both rows pending, which was the point rather than an
-oversight - a row exists so a tool's details have somewhere to land while it is
-reviewed, and writing one down approves nothing. The evidence each row records is
+A row exists so a tool's details have somewhere to land while it is reviewed,
+and writing one down approves nothing. The evidence each row records is
 what the decision was taken on: LibreOffice under MPL-2.0 with nothing conveyed
 and no file modified, poppler under GPL-2.0-or-later as separate programs invoked
 at arm's length and never linked. Each row also states what its approval does
@@ -252,12 +251,9 @@ at arm's length and never linked. Each row also states what its approval does
 it - in particular that neither approval authorises conveying the CI image, and
 that process isolation is not a redistribution safe harbour.
 
-Note where the rule bites - CI, not a developer's machine. That distinction
-mattered while the rows were open, because it let the suite be useful to whoever
-was writing it: the runner reported one skip per document naming the outstanding
-decision, and `--allow-pending-tools` drove the tools anyway. The flag is still
-there and CI still never passes it; it now does nothing that approval has not
-already done.
+The rule bites in CI, not on a developer's machine: with a pending row the
+runner reports one skip per document naming the outstanding decision, and
+`--allow-pending-tools` drives the tools anyway. CI never passes that flag.
 
 ## Adding a seed
 
@@ -337,263 +333,41 @@ fifth of ten invocations, and one unreadable document takes the batch with it
 while the per-document exit codes are lost. Correct attribution of a failure to a
 document is worth more than the wall clock on a nightly job.
 
-## What it found
+## What it has found
 
-The suite is new and these are its first results, from a Windows host with
-Liberation and DejaVu pinned on both sides. They are recorded here rather than in
-the baseline because they were not measured on an approved, pinned toolchain -
-which is the distinction the whole `producedWith` stamp exists to keep.
+| Finding | Outcome |
+| --- | --- |
+| The ODT reader took the page box from the wrong master page, so `geometry` was `off` for every ODT document | Fixed. The master page is the one the first block's style names; [notes/odt.md](../notes/odt.md), `OdtMasterPageTests` |
+| The HTML codec carried no page, and the shared CSS length parser knew no absolute units | Fixed. `@page` is read and written, and centimetres and the other absolute units parse |
+| LibreOffice states paragraph spacing in a `p { … }` rule that the reader ignored | Fixed by matching bare type selectors, and nothing more; [notes/html.md](../notes/html.md) says why the line sits there |
+| The model had no page break, so no codec read or wrote one | Fixed. `ParagraphStyle.PageBreakBefore` exists in every format, and Markdown reports `markdown.page-break` |
+| A forced line break (U+2028) was a break opportunity in both layout engines | Fixed in the CLI layout and in the PDF writer's page layout |
+| Shape stacking order was not modelled | Fixed. `DocumentShape.ZOrder` is read and written by DOCX, ODT and RTF |
+| A shape was drawn again on every page after its anchor's | Fixed. Anchor positions and wrap exclusions are page-local |
+| An ODF gradient angle with a unit parsed as zero | Fixed. Both spellings are read, and the model's different zero direction is applied |
+| `w:titlePg` was not read | Fixed. `RunningContent.DifferentFirstPage` holds it |
+| The ODT master-page chain stopped at the first page | Fixed. One link of `style:next-style-name` is followed |
+| RTF let a footer's field result into the body | Fixed. A field result belongs to the destination the field is in |
 
-**The ODT reader took the wrong master page.** *Fixed; the row below is what the
-suite reported before it was.* `geometry` came back `off` for every single one of
-the twelve `odt` documents, and never for `docx` or `rtf`.
-LibreOffice's ODT carries two page layouts - `Mpm1` on the master page `Standard` (A4, 2cm margins) and `Mpm2` on
-the master page `HTML` (21.59×27.94cm, 2.54cm margins, which is what the seed
-asked for). LibreOffice lays the body out on the `HTML` master page; this
-component reads `Standard`. So the same file renders 1224×1584 there and
-1191×1684 here, and the disagreement is not about typography at all - it is a
-page box read from the wrong style. Nothing else in the repository would notice,
-because every other render check either states the page on the command line or
-compares a document against itself.
+Still open, and tracked in the [roadmap](../roadmap.md#test-suites-and-tooling):
+the per-line leading drift on `long-flow-multipage`, the nested-list marker
+disagreement through RTF, LibreOffice's `<div title="header">` read as body
+text, and `table-simple` through HTML.
 
-ODF states the link from the other end — a master page never says it is the
-first, the content says which one it is on, through the
-`style:master-page-name` of the style on its first block — and the reader now
-follows that, with `Standard` and then the first master page as the fallbacks.
-All twelve ODT documents report `geometry: match`, and the metrics downstream of
-the page moved with it: `plain-paragraphs/odt` went from an ink box off by 33
-pixels and a profile similarity of 0.687 to 9 pixels and 0.981, which is what its
-DOCX twin had been scoring all along. That is the shape of a finding worth
-having — the pixel axis did not say the renderer was wrong, it said two engines
-disagreed about the paper, and the paper turned out to be a reader bug three
-layers away from anything anyone would have thought to look at.
-[The ODT conformance document](odt-conformance.md) states the resolution rule,
-and `OdtMasterPageTests` holds it.
+Classified, not open:
 
-**The HTML codec did not carry the page at all.** *Also fixed.* The twelve `html`
-documents came back `off` as well, and that was not the same finding wearing the
-same word - two different causes reaching one band, which is why the failure
-message names the geometry before the four numbers underneath it. LibreOffice's
-HTML carries its page in a CSS `@page` rule, and this codec looked at no
-stylesheet: the reader skipped every `<style>` element, correctly, because its
-content is not text the document says, and in doing so threw away the one thing
-in a stylesheet the model has somewhere to put. The writer emitted no rule
-either, so a document arriving from DOCX or ODF stating US Letter left through
-HTML stating nothing - a silent loss, because no reader of the result could tell
-it from a document that never stated a page.
+- `letterhead-frames/rtf` is `documented`. With `	itlepg` and no `ooterf`,
+  page one gets no footer, as in Word; LibreOffice draws the default one. Matching
+  LibreOffice would make this component disagree with its own DOCX reader.
+- The plain-text projections differ on lists and tables: LibreOffice writes list
+  markers and joins a table row onto one line, `broilerdoc dump --as text` does
+  neither. That is a projection difference, not lost content.
+- `lists-nested/html/roundtrip` carries `html.list`, which is the writer saying
+  it did not emit list structure.
 
-Both halves are implemented, and the shared CSS length parser learned the
-absolute units on the way. It knew `px`, `pt`, `em` and `rem`, which is what a
-hand-written page uses; every length LibreOffice writes is in centimetres, and
-for those it had been returning false - not a wrong number, but no number, so
-any length in centimetres anywhere in an HTML document had been arriving as
-nothing at all. All twelve now report `geometry: match`, which makes it 48 of 48
-across the four formats.
-
-What the fixed page then made visible is a *different* gap: the HTML rows scored
-worse than their DOCX and ODT twins - `plain-paragraphs` at an ink box of 38
-pixels against 9 - because LibreOffice states paragraph spacing in a stylesheet
-rule, `p { line-height: 115%; margin-bottom: 0.25cm }`, and this codec applied no
-rule that was not an inline `style` attribute.
-
-*Narrowed, and the narrowing is the interesting part.* Reading the stylesheet
-sounded like implementing the cascade, which is a much larger thing than reading
-one at-rule. Measuring what LibreOffice actually emits cut the job down instead.
-Converting DOCX to HTML it writes both the rule **and** an inline style on every
-paragraph that overrides it, so for those documents the sheet never mattered;
-converting HTML to HTML it writes bare `<p>` elements and lets the rule say
-everything, and that is the case that was being lost. Every selector in the
-sample was `@page` or the bare type selector `p`. So the codec now matches
-exactly one selector - the bare element name - with the element's own `style`
-attribute beating it property by property, and everything past that stays
-unimplemented and is reported as `html.css.rule` rather than dropped in silence.
-[The HTML conformance document](html-conformance.md) states what is and is not
-applied, and why a document reader draws the line there rather than growing a CSS
-engine.
-
-Re-measured afterwards, the HTML rows come back level with their twins:
-`plain-paragraphs` at an ink box of 9 pixels and a profile of 0.982 against the
-DOCX twin's 9 and 0.981, where before it was 38 and 0.866; `links` at 3 and 0.997
-against 4 and 0.997. One seed did not move and it is the one that says where the
-line now sits. `table-simple` is still 107 against 11, because a document with a
-table makes LibreOffice write `td p { ... }` and `th p { ... }` - descendant
-selectors, which are past the boundary - and because HTML tables are flattened to
-their cell paragraphs regardless. Two causes, one number, and the smaller of them
-is the one this change could have addressed.
-
-**An explicit page break did not paginate.** *Fixed.* `page-break-explicit` came
-back 1 page here against 2 in LibreOffice, through all four formats. Four formats
-agreeing ruled out a codec - and it turned out to rule out the layout engine too.
-Nothing was dropping the break, because there was nowhere to drop it from: the
-document model had no page break at all, and no codec here read or wrote one. A
-property that does not exist loses nothing and reports nothing, which is why four
-independent codecs agreed so precisely.
-
-`ParagraphStyle.PageBreakBefore` exists now, all four formats read and write it -
-`w:pageBreakBefore` and the run-level `w:br`, `fo:break-before`, `\pagebb` and
-`\page`, `page-break-before` and `break-before` - and Markdown, which has no page
-and so no page break, reports `markdown.page-break` rather than dropping it
-quietly. The layout engine takes the break, and `--continuous` ignores every break
-and counts them in a render note, because a mode that exists to remove pagination
-should say when it removed some. All four formats now paginate 2 against
-LibreOffice's 2, and the ink profile on that seed went from `poor` to `close` -
-0.545 to 0.988 through HTML - because the content is on the pages the document put
-it on.
-
-**Line height drifts over a long document.** `long-flow-multipage` is the only
-seed that reaches `severe` on the blurred difference (0.28-0.31) while its
-`coverage` stays `close` - the same ink, in the wrong places. The heat diff shows
-why: the lines agree at the top of page one and smear progressively into doubled
-text further down, then re-sync. It is a small per-line leading difference
-accumulating, and it is invisible on any one-page seed.
-
-**Plain-text projections differ on lists and tables, and neither side is wrong.**
-LibreOffice's text export writes the bullet and the number into the text
-(`• first bullet`, `1. ordered one`) and joins a table row onto one line
-(`cell a cell b`); `broilerdoc dump --as text` writes neither marker and gives
-each cell its own line. That is a projection difference rather than content loss,
-and it is what the `documented` and `accepted` baseline states are for. One
-detail inside it is a real divergence worth a look: through RTF the two disagree
-about the *marker for a nested level* - `•` here against `◦` there.
-
-**The HTML list round trip warns, as it should.** `lists-nested/html/roundtrip`
-is the one row carrying a diagnostic code, `html.list`, which is the writer
-saying it did not emit list structure. [The roadmap](roadmap.md) already lists
-HTML list writing as deliberate and unimplemented, so this is a `documented` row
-rather than a finding - and it is the shape a correct codec makes in this suite.
-
-Everything else was clean. Every document produced, probed and read without a
-single exit 70; `links/docx` came back `exact` on the profile and `clean` on the
-blurred difference, which is what agreement between two independent layout engines
-looks like when there is nothing wrong; and a full generate-then-verify cycle over
-both axes reported every check passing with five skips, each naming its
-reason. That cycle is the thing worth running before trusting any of the numbers
-above: it proves the baseline is stable, which is a different claim from the
-component being correct and the only one a suite can make about itself.
-
-### What the two later seeds found
-
-`line-break-within-paragraph` and `letterhead-frames` were added after everything
-above, and between them they produced eleven new baseline rows. Nine were
-suspected defects and none of them was reachable before. All nine are fixed, and
-the two that remain are limitations with a document behind them.
-
-**A forced line break was not a break in layout.** *Fixed.* All four targets
-carry the construct and all five codecs read and write it as U+2028, the model's
-own line-break character - and `DocumentLayout` then classified characters with
-`char.IsWhiteSpace`, for which U+2028 is true. So the break arrived as an ordinary
-break *opportunity*, the seed's five-line address reflowed onto two, and every
-paragraph under it moved up the page. Four targets failing at the same profile
-similarity, 0.29, was the signature: a layout defect, not a codec one.
-
-The tokenizer now yields a break of its own and the wrapper ends the line on it.
-`PdfPageLayout` had the same defect wearing different clothes and is fixed with
-it - its word scan knew only spaces and tabs, so the character was swept into the
-word beside it and handed to the content stream as a glyph no standard font has.
-The four rows went from an ink box of 175-202 px and a profile of 0.29 to 22-32 px
-and 0.90; what is left is per-line leading, which every prose seed here reports.
-Justification is deliberately unchanged: LibreOffice stretches the line before a
-manual break like any other, which was measured rather than assumed.
-
-Worth keeping in view: the semantic axis passed clean throughout, and that is not
-a weakness in the seed. The text canonicalisation maps U+2028 to a newline on both
-sides before comparing, so `text` is blind to this construct by construction and
-only the pixel axis could ever have reached it.
-
-**A header's shape painted over the body's shape.** *Fixed.* Both of
-`letterhead-frames`'s frames are foreground objects; the layout appended
-running-content shapes after the body's and the rasterizer drew foreground shapes
-in list order, so the header's band was painted last and the bordered box the
-document stacks in front of it disappeared underneath. Both files stated the
-order - `draw:z-index` 0 and 1, `relativeHeight` 2 and 3 - and neither was read.
-`DocumentShape` said so in its own summary: *"Order among shapes is not modelled:
-they draw in the order they were read."*
-
-It is modelled now. `DocumentShape.ZOrder` is one order for the whole document,
-which is how all three formats state it and what a letterhead needs, since the
-band is in the header and the box is in the body. All three readers take it -
-`draw:z-index`, `relativeHeight`, `\shpz` - all three writers state it, and both
-layout engines order every shape on a page by it before drawing. A shape whose
-format says nothing sits at zero and keeps the order it was read in.
-
-**A shape was drawn on every page after its anchor's.** *Fixed, and found while
-fixing the one above.* The map of anchor tops was never emptied at a page break,
-so the logo box anchored to the first paragraph was drawn again on page two at the
-y it had on page one. The wrap exclusions were the same defect twice over: a band
-in page-one coordinates pushing text aside on a page with nothing beside it. Both
-are page-local and both are cleared when a page ends.
-
-**A gradient angle with a unit on it parsed as zero.** *Fixed.* LibreOffice 24.2
-writes `draw:angle="30deg"`; `OdtReader` parsed the attribute as a bare number of
-tenths of a degree, `TryParse` failed on the unit, and the false branch yielded
-`0`, so the band ran left to right instead of top to bottom. A failed parse and an
-absent attribute reached the same branch, so nothing was reported.
-
-Both spellings are read now - ODF 1.2 typed the attribute as tenths and ODF 1.3 as
-an angle with `deg`, `grad` or `rad` - and the value is then turned a quarter,
-which a unit-aware parse alone would not have done. The two formats do not share a
-zero: ODF measures a gradient from *down* the page and the model from *along* it.
-That was measured rather than derived from prose - LibreOffice was asked to render
-a black-to-white gradient at five ODF angles and the corners were sampled - and
-confirmed from the other side, since the same shape LibreOffice writes as `30deg`
-in ODF it writes as `ang="3600000"`, sixty degrees, in OOXML.
-
-**`w:titlePg` was not read.** *Fixed.* The seed's DOCX declares a first-page
-header, a default footer and the flag. LibreOffice puts no footer on page one;
-this component put the default one there, carrying the `PAGE` field's stale cached
-result. The flag is what makes a `first` reference mean anything and what makes a
-band the first page does not name *empty* there rather than the default one, and
-`RunningContent.DifferentFirstPage` is where the model keeps it. The row went from
-an ink box of 1154 px to 52, which is a footer distance and not a lost band.
-
-**The ODT master-page chain stopped at the first page.** *Fixed.* The reader
-resolved the master page the body starts on, correctly, and filed its header into
-the *Default* slot - so `style:next-style-name` was never followed, the band
-repeated on page two, and the `Continuation` master's footer was never read. The
-chain is followed by one link now: the master page the body begins on supplies the
-first page and the one it names supplies the rest. One link and not the whole
-chain, because the model holds three selections rather than a sequence of pages.
-With the gradient and the stacking, that row went from 1180 px and a `poor`
-profile to 31 px and `fair`.
-
-**RTF let a footer's field result into the body.** *Fixed.* The one nobody
-predicted. `text/letterhead-frames/rtf` opened with a bare `2` that LibreOffice's
-projection did not have: the reader skipped the `{\footer ...}` destination's own
-text but kept the text inside `\fldrslt`, so the cached page number landed at the
-head of the body while the word `Page` beside it was correctly dropped. A field
-result belongs to the destination the field is in, and the state now carries that
-destination through the group that holds it. Both the `text` row and the `interop`
-row it produced are gone from the baseline.
-
-Two rows are left, and both are limitations rather than defects.
-
-`letterhead-frames/rtf` is `documented`, and it is the one place in this corpus
-where following the format costs a band. `\titlepg` is read now, so no footer is
-drawn on the first page of a section that states the flag and names no
-`\footerf` - which is what Word does. LibreOffice draws the default footer there,
-and that 1193 px is the whole of the difference. Matching LibreOffice would have
-been the cheaper number and the worse answer: its own DOCX importer honours the
-same flag the Word way, so agreeing with it here would have made this component
-disagree with itself across two of its own readers.
-
-`letterhead-frames/html` carries two causes. LibreOffice cannot write a frame into
-HTML, so it flattens both to GIF files beside the document; the reader never
-fetches an external resource and reports `html.skip.external`, which
-[the HTML conformance document](html-conformance.md) states in both directions.
-The other half arrived with the line-break fix: LibreOffice writes the page's
-header as `<div title="header">`, this reader has no notion of that convention and
-reads it as body content, and the `<br/>` inside it is now honoured - so the body
-opens with a blank line LibreOffice puts nowhere. Honouring the break is right;
-reading a header as body is what needs deciding.
-
-One thing the fixes made visible is worth recording on its own, because it will
-happen again. Two rows scored *worse* at the point where the page-scoping fix
-landed - `letterhead-frames/odt` from `fair` to `poor`, `docx` from 0.930 to 0.922
-- because the box wrongly repeated on page two had been overlapping rows
-LibreOffice inks there. One defect was flattering the score of another, and the
-next round of fixes took both rows well past where they started. A band that gets
-worse after a fix is not necessarily a regression; it can be the measurement
-finally seeing what was under the thing that just moved.
+One lesson worth keeping: a band that gets worse after a fix is not necessarily a
+regression. One defect can flatter the score of another, and fixing the first
+lets the measurement see the second.
 
 ## What it cannot tell you
 
@@ -614,8 +388,8 @@ the answer is to widen the band and write down why, not to argue with the metric
 **The text canonicalisation can hide a bug.** Whitespace, soft hyphens,
 non-breaking spaces and line separators are normalised away on both sides. A
 codec that differs only in those is reported clean. That is not hypothetical:
-`line-break-within-paragraph` exists because a forced break is lost in layout on
-every target, and every one of its `text` rows passes.
+`line-break-within-paragraph` was added because a forced break was lost in layout
+on every target while every one of its `text` rows passed.
 
 **Neither text projection carries a shape or a running band.** LibreOffice's
 `txt` filter drops the text inside a frame and the text in a header or footer,

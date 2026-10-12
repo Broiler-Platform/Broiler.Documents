@@ -19,7 +19,7 @@ namespace Broiler.Documents.Cli.Tests;
 /// it must be: a command line is exactly the surface an automated system would
 /// come to depend on, so a PDF capability composed here by accident would be
 /// hard to withdraw later. This head reads PDF and writes none - the
-/// read-preview state of <c>docs/pdf-support-roadmap.md</c> §4.1 - and the
+/// read-preview state of <c>docs/roadmap.md</c> (PDF delivery gates) - and the
 /// guards hold it to exactly that.
 /// </remarks>
 public sealed partial class CliArchitectureTests

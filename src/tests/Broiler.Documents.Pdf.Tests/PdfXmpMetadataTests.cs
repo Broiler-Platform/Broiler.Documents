@@ -7,7 +7,7 @@ namespace Broiler.Documents.Pdf.Tests;
 /// </summary>
 /// <remarks>
 /// Both halves of the boundary are covered, as
-/// <see href="../../../docs/pdf-extension-points.md">extension points §5.6</see>
+/// <see href="../../../docs/notes/pdf/extension-points.md">extension points §5.6</see>
 /// requires — the path where a packet is present and read, and the paths where
 /// there is none or it cannot be used. The second is the one that would rot
 /// unnoticed: a reader that quietly stopped falling back to Info would still pass
