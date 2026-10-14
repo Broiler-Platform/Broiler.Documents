@@ -4,7 +4,7 @@ using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Text;
 
-namespace Broiler.Documents.Cli.Rendering;
+namespace Broiler.Documents.Pagination;
 
 /// <summary>Wraps measured pieces into rows, accounting for shape bands and tab stops.</summary>
 internal sealed class LineWrapper(double tabStopPoints)

@@ -36,6 +36,7 @@
     <Using Include="Broiler.Documents.Model" />
     <Using Include="Broiler.Documents.Cli" />
     <Using Include="Broiler.Documents.Cli.Infrastructure" />
+    <Using Include="Broiler.Documents.Pagination" />
   </ItemGroup>
 
 </Project>

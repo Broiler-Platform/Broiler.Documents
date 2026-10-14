@@ -7,7 +7,7 @@ using Broiler.Graphics.Rendering;
 using Broiler.Graphics.Resources;
 using Broiler.Media;
 
-namespace Broiler.Documents.Cli.Rendering;
+namespace Broiler.Documents.Pagination;
 
 /// <summary>
 /// Decodes each inline image once and keeps the result for the whole render:
@@ -61,7 +61,7 @@ public sealed class ImageStore : IDisposable
             return (72.0, 72.0);
         }
 
-        double scale = PageSetup.PointsPerInch / PageSetup.PixelsPerInch;
+        double scale = DocumentPageBox.PointsPerInch / DocumentPageBox.PixelsPerInch;
         return (entry.Bitmap.Width * scale, entry.Bitmap.Height * scale);
     }
 

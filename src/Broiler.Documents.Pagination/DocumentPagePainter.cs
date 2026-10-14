@@ -1,0 +1,309 @@
+using System;
+using System.Collections.Generic;
+using Broiler.Documents.Model;
+using Broiler.Graphics.Color;
+using Broiler.Graphics.Geometry;
+using Broiler.Graphics.Imaging;
+using Broiler.Graphics.Paging;
+using Broiler.Graphics.RenderList;
+using Broiler.Graphics.Resources;
+using Broiler.Graphics.Text;
+
+namespace Broiler.Documents.Pagination;
+
+/// <summary>
+/// Draws laid-out pages as Broiler.Graphics commands in points: into a <see cref="BPage"/>
+/// that a preview, a printer or a PDF replays, or straight into a render list.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Underlines, strikethroughs, and highlights are drawn here rather than asked
+/// for, because <see cref="BRenderCommand.DrawText"/> draws glyphs and nothing
+/// else - <see cref="BFontStyle"/> carries a family, a size, a weight, and a
+/// slant, and has no notion of a decoration. Drawing them as rectangles under
+/// this painter's control also means their thickness and offset are stated here,
+/// where a comparison can hold them constant.
+/// </para>
+/// <para>
+/// One painter serves every output, so what the CLI rasterizes, what a print
+/// preview shows and what a printer receives are the same commands.
+/// </para>
+/// </remarks>
+public sealed class DocumentPagePainter
+{
+    private readonly LayoutSettings _settings;
+    private readonly ImageStore _images;
+
+    public DocumentPagePainter(LayoutSettings settings, ImageStore images)
+    {
+        _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+        _images = images ?? throw new ArgumentNullException(nameof(images));
+    }
+
+    /// <summary>
+    /// Paints one page into a frozen <see cref="BPage"/> that carries the pixels of every
+    /// image it draws.
+    /// </summary>
+    public BPage Paint(LayoutPage page, DocumentPageBox box)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        ArgumentNullException.ThrowIfNull(box);
+
+        var builder = new BPageBuilder(new BSize(page.WidthPoints, page.HeightPoints));
+        var added = new Dictionary<InlineImage, BImageHandle>(ReferenceEqualityComparer.Instance);
+        Paint(page, box, builder.Content, image =>
+        {
+            if (added.TryGetValue(image, out BImageHandle existing))
+                return existing;
+
+            BBitmap? bitmap = _images.Bitmap(image);
+            if (bitmap is null)
+                return null;
+
+            BImageHandle handle = builder.AddImage(bitmap.ToPixelBuffer(copy: false));
+            added[image] = handle;
+            return handle;
+        });
+
+        return builder.Build();
+    }
+
+    /// <summary>
+    /// Paints one page into <paramref name="list"/>, drawing each image through the handle
+    /// <paramref name="resolveImage"/> answers for it. A null answer means the image could not
+    /// be decoded, and the box it would have filled is marked instead.
+    /// </summary>
+    public void Paint(LayoutPage page, DocumentPageBox box, BRenderList list, Func<InlineImage, BImageHandle?> resolveImage)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        ArgumentNullException.ThrowIfNull(box);
+        ArgumentNullException.ThrowIfNull(list);
+        ArgumentNullException.ThrowIfNull(resolveImage);
+
+        if (_settings.ShowContentBox)
+        {
+            list.StrokeRect(new BRect(box.ContentLeftPoints, box.ContentTopPoints, box.ContentWidthPoints, box.ContentHeightPoints),
+                new BColor(0xC0, 0xC0, 0xC0), 0.5);
+        }
+
+        // A letterhead's stripe goes down first, under everything it is a
+        // background for. Table cells follow, so a shaded cell covers the stripe
+        // rather than the other way round, then the text.
+        foreach (LayoutShape shape in page.Shapes)
+        {
+            if (shape.BehindText)
+                DrawShape(list, shape, resolveImage);
+        }
+
+        foreach (LayoutCell cell in page.Cells)
+            DrawCell(list, cell);
+
+        foreach (LayoutLine line in page.Lines)
+            DrawLine(list, line, resolveImage);
+
+        // Last: the shapes the document stacks in front of its text. A stamp over
+        // a letter is the case, and drawing it under the text would leave the
+        // letter legible through a mark whose whole purpose is to cover it.
+        foreach (LayoutShape shape in page.Shapes)
+        {
+            if (!shape.BehindText)
+                DrawShape(list, shape, resolveImage);
+        }
+    }
+
+    /// <summary>
+    /// Paints one shape: its fill, its picture, its outline, then its own text.
+    /// </summary>
+    /// <remarks>
+    /// A gradient is drawn as bands of solid colour because the render list has
+    /// no gradient primitive. The band count is the extent in points, capped, so
+    /// a band is about a point tall and the seams fall below what the eye picks
+    /// out at any sensible DPI.
+    /// </remarks>
+    private void DrawShape(BRenderList list, LayoutShape shape, Func<InlineImage, BImageHandle?> resolveImage)
+    {
+        if (shape.Bounds.Width <= 0 || shape.Bounds.Height <= 0)
+            return;
+
+        if (shape.Fill is ShapeFill fill)
+        {
+            if (!fill.IsGradient)
+            {
+                list.FillRect(shape.Bounds, fill.Start);
+            }
+            else
+            {
+                // DrawingML measures the angle clockwise from the x axis. The
+                // render list fills rectangles, so the gradient is banded along
+                // whichever axis it runs closer to; a diagonal is approximated by
+                // the axis it is nearer.
+                double radians = fill.AngleDegrees * Math.PI / 180.0;
+                bool vertical = Math.Abs(Math.Sin(radians)) >= Math.Abs(Math.Cos(radians));
+                double extent = vertical ? shape.Bounds.Height : shape.Bounds.Width;
+                int bands = (int)Math.Clamp(Math.Round(extent), 2, 512);
+
+                for (int i = 0; i < bands; i++)
+                {
+                    double t = bands == 1 ? 0 : (double)i / (bands - 1);
+                    BColor color = Mix(fill.Start, fill.End, t);
+                    double start = extent * i / bands;
+                    double size = (extent / bands) + 0.5; // overlap, so no seam shows
+                    list.FillRect(
+                        vertical
+                            ? new BRect(shape.Bounds.Left, shape.Bounds.Top + start, shape.Bounds.Width, size)
+                            : new BRect(shape.Bounds.Left + start, shape.Bounds.Top, size, shape.Bounds.Height),
+                        color);
+                }
+            }
+        }
+
+        // Over the fill and under the outline: a framed picture keeps its frame.
+        if (shape.Image is InlineImage image)
+            DrawShapeImage(list, image, shape.Bounds, resolveImage);
+
+        if (!shape.Outline.IsEmpty && shape.Outline.A > 0)
+            list.StrokeRect(shape.Bounds, shape.Outline, 1);
+
+        foreach (LayoutLine line in shape.Lines)
+            DrawLine(list, line, resolveImage);
+    }
+
+    /// <summary>
+    /// Paints one table cell: its background, then the edges it states. Each edge
+    /// is a filled rectangle rather than a stroked box, because a cell states its
+    /// four sides separately and three of them may be turned off.
+    /// </summary>
+    private static void DrawCell(BRenderList list, LayoutCell cell)
+    {
+        BRect bounds = cell.Bounds;
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+            return;
+
+        if (!cell.Shading.IsEmpty && cell.Shading.A > 0)
+            list.FillRect(bounds, cell.Shading);
+
+        CellBorders borders = cell.Borders;
+        if (borders.Top.IsVisible)
+            list.FillRect(new BRect(bounds.Left, bounds.Top, bounds.Width, borders.Top.Width), borders.Top.Color);
+
+        if (borders.Bottom.IsVisible)
+            list.FillRect(new BRect(bounds.Left, bounds.Bottom - borders.Bottom.Width, bounds.Width, borders.Bottom.Width), borders.Bottom.Color);
+
+        if (borders.Left.IsVisible)
+            list.FillRect(new BRect(bounds.Left, bounds.Top, borders.Left.Width, bounds.Height), borders.Left.Color);
+
+        if (borders.Right.IsVisible)
+            list.FillRect(new BRect(bounds.Right - borders.Right.Width, bounds.Top, borders.Right.Width, bounds.Height), borders.Right.Color);
+    }
+
+    /// <summary>
+    /// Draws a floating picture into its box, or marks the box when the image did
+    /// not decode - the same crossed rectangle an inline picture leaves, for the
+    /// same reason: the page should show where content is missing.
+    /// </summary>
+    private static void DrawShapeImage(BRenderList list, InlineImage image, BRect destination, Func<InlineImage, BImageHandle?> resolveImage)
+    {
+        if (resolveImage(image) is not BImageHandle decoded)
+        {
+            DrawMissingImage(list, destination);
+            return;
+        }
+
+        list.DrawImage(decoded, new BRect(0, 0, decoded.PixelSize.Width, decoded.PixelSize.Height), destination);
+    }
+
+    private static BColor Mix(BColor from, BColor to, double t) =>
+        new(
+            (byte)Math.Round(from.R + ((to.R - from.R) * t)),
+            (byte)Math.Round(from.G + ((to.G - from.G) * t)),
+            (byte)Math.Round(from.B + ((to.B - from.B) * t)),
+            (byte)Math.Round(from.A + ((to.A - from.A) * t)));
+
+    private void DrawLine(BRenderList list, LayoutLine line, Func<InlineImage, BImageHandle?> resolveImage)
+    {
+        double baseline = line.Top + line.Baseline;
+
+        foreach (LayoutPiece piece in line.Pieces)
+        {
+            if (piece.Width <= 0)
+                continue;
+
+            if (!piece.Highlight.IsEmpty && piece.Highlight.A > 0)
+            {
+                list.FillRect(
+                    new BRect(piece.X, baseline - piece.Ascent, piece.Width, piece.Ascent + piece.Descent),
+                    piece.Highlight);
+            }
+
+            if (piece.IsImage)
+            {
+                DrawImage(list, piece, baseline, resolveImage);
+                continue;
+            }
+
+            if (piece.Text.Length == 0)
+                continue;
+
+            // The renderer puts the baseline at origin.Y + size * 0.8, and the
+            // layout used the same 0.8 for the piece's ascent. Subtracting it
+            // back out is what keeps a 24pt run and an 8pt run on one baseline.
+            double originY = baseline - (piece.Font.Size * 0.8);
+            var run = new BTextRun(piece.Text, piece.Font, piece.Color);
+
+            if (piece.Oblique)
+            {
+                // A horizontal shear about the baseline: a point at height h above
+                // it moves right by slant * h, and a point on it does not move.
+                // Written directly because BMatrix3x2 offers translation and scale
+                // and nothing else.
+                double slant = _settings.ObliqueSlant;
+                list.PushTransform(new BMatrix3x2(1, 0, -slant, 1, slant * baseline, 0));
+                list.DrawText(run, new BPoint(piece.X, originY));
+                list.PopTransform();
+            }
+            else
+            {
+                list.DrawText(run, new BPoint(piece.X, originY));
+            }
+
+            double thickness = Math.Max(0.5, piece.Font.Size * 0.055);
+
+            if (piece.Underline)
+            {
+                list.FillRect(
+                    new BRect(piece.X, baseline + (piece.Font.Size * 0.10), piece.Width, thickness),
+                    piece.Color);
+            }
+
+            if (piece.Strikethrough)
+            {
+                list.FillRect(
+                    new BRect(piece.X, baseline - (piece.Font.Size * 0.26), piece.Width, thickness),
+                    piece.Color);
+            }
+        }
+    }
+
+    private static void DrawImage(BRenderList list, LayoutPiece piece, double baseline, Func<InlineImage, BImageHandle?> resolveImage)
+    {
+        var destination = new BRect(piece.X, baseline - piece.Ascent, piece.Width, piece.Ascent);
+
+        if (resolveImage(piece.Image!) is not BImageHandle image)
+        {
+            // The image did not decode. Draw the box it would have occupied with
+            // a cross through it: the page then shows where content is missing
+            // instead of quietly closing up around the hole.
+            DrawMissingImage(list, destination);
+            return;
+        }
+
+        list.DrawImage(image, new BRect(0, 0, image.PixelSize.Width, image.PixelSize.Height), destination);
+    }
+
+    private static void DrawMissingImage(BRenderList list, BRect destination)
+    {
+        var missing = new BColor(0xB0, 0xB0, 0xB0);
+        list.StrokeRect(destination, missing, 1.0);
+        list.FillRect(new BRect(destination.X, destination.Y + (destination.Height / 2), destination.Width, 1), missing);
+    }
+}

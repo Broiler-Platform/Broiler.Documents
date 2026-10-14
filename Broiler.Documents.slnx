@@ -47,6 +47,12 @@
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
+    <Project Path="src/Broiler.Documents.Pagination/Broiler.Documents.Pagination.csproj">
+      <BuildType Project="Debug" Solution="Debug-Linux|*" />
+      <BuildType Project="Release" Solution="Release-Linux|*" />
+      <BuildType Project="Debug" Solution="Debug-Windows|*" />
+      <BuildType Project="Release" Solution="Release-Windows|*" />
+    </Project>
     <Project Path="src/Broiler.Documents.FormatCodes/Broiler.Documents.FormatCodes.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
@@ -119,7 +125,7 @@
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
     <!-- Application head, not a published capability. IsPackable=false keeps the
-         component's package set at the twelve libraries the README lists; see the
+         component's package set at the thirteen libraries the README lists; see the
          project file for how to ship it as a dotnet tool. -->
     <Project Path="src/Broiler.Documents.Cli/Broiler.Documents.Cli.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
@@ -130,6 +136,12 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="src/tests/Broiler.Documents.Model.Tests/Broiler.Documents.Model.Tests.csproj">
+      <BuildType Project="Debug" Solution="Debug-Linux|*" />
+      <BuildType Project="Release" Solution="Release-Linux|*" />
+      <BuildType Project="Debug" Solution="Debug-Windows|*" />
+      <BuildType Project="Release" Solution="Release-Windows|*" />
+    </Project>
+    <Project Path="src/tests/Broiler.Documents.Pagination.Tests/Broiler.Documents.Pagination.Tests.csproj">
       <BuildType Project="Debug" Solution="Debug-Linux|*" />
       <BuildType Project="Release" Solution="Release-Linux|*" />
       <BuildType Project="Debug" Solution="Debug-Windows|*" />

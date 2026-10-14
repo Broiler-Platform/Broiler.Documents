@@ -65,13 +65,14 @@ Cross-repository dependencies are pinned in `Directory.Packages.props` and resto
 
 ## Packages
 
-Twelve preview packages are generated. All target `net10.0`, ship XML
+Thirteen preview packages are generated. All target `net10.0`, ship XML
 documentation and a `.snupkg` symbol package, and are built deterministically
 with SourceLink.
 
 | Package | Role |
 | --- | --- |
 | `Broiler.Documents.Model` | Platform-neutral rich-text document model, promoted out of `Broiler.UI.RichEdit`; depends only on `Broiler.Graphics`. |
+| `Broiler.Documents.Pagination` | Headless page layout over the model: lays a document out on pages of a `Broiler.Graphics.Paging` page setup and paints each as a `BPage` for printing, print preview and fixed-page output. The layout the CLI renders with. References only the model and `Broiler.Graphics`. |
 | `Broiler.Documents.FormatCodes` | Deterministic, versioned Formatting Codes projection: typed tokens, source mappings, diagnostics, and resource policy. References only the model. |
 | `Broiler.Documents` | Codec contract, catalog, descriptors, source hints, read/write options, limits, diagnostics, and probe results. |
 | `Broiler.Documents.Rtf` | RTF reader/writer for the documented first-release subset. |
@@ -80,7 +81,7 @@ with SourceLink.
 | `Broiler.Documents.Html` | HTML document/fragment codec over `Broiler.Dom` and `Broiler.Dom.Html`. |
 | `Broiler.Documents.Markdown` | Markdown codec for a safe CommonMark-oriented subset. |
 | `Broiler.Documents.Csv` | CSV codec: reads comma-separated values into a table in the model and writes tables back out. |
-| `Broiler.Documents.Pdf` | Preview PDF codec for logical text import and deterministic PDF 1.7 writing. |
+| `Broiler.Documents.Pdf` | Preview PDF codec for logical text import and deterministic PDF 1.7 writing, plus `PdfRasterPageWriter`, the image-per-page spool writer print paths hand to a spooler. |
 | `Broiler.Documents.Pdf.Fonts` | Optional PDF font-program reader over `Broiler.Graphics`. |
 | `Broiler.Documents.Pdf.Images` | Optional PDF image filters over the managed `Broiler.Media` image codecs. |
 
@@ -106,6 +107,7 @@ Broiler.Documents.Csv      -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Html     -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Html     -> Broiler.Dom, Broiler.Dom.Html
 Broiler.Documents.FormatCodes                   -> Broiler.Documents.Model
+Broiler.Documents.Pagination                    -> Broiler.Documents.Model, Broiler.Graphics
 Broiler.Documents.Pdf      -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Pdf.Fonts  -> Broiler.Documents.Pdf, Broiler.Graphics
 Broiler.Documents.Pdf.Images -> Broiler.Documents.Pdf, Broiler.Media.Image, Broiler.Media.Image.Managed
@@ -275,7 +277,7 @@ Ubuntu and Windows:
 - Verifies that NuGet.org hosts all pinned Broiler packages (`eng/select-restore-feed.mjs`).
 - Builds and runs all unit tests in Release configuration. `eng/run-tests.ps1` requires at least 1,400 executed tests (with 2,514 executed currently) and terminates a test host if a test hangs. Unit and corpus reports are uploaded even on failure.
 - Runs the CLI corpus suite (`broilerdoc-corpus`) against the committed baseline (2,320 checks).
-- On Ubuntu, packs and verifies all twelve preview packages and `.snupkg` symbol packages, uploading them as `nuget-packages`.
+- On Ubuntu, packs and verifies all thirteen preview packages and `.snupkg` symbol packages, uploading them as `nuget-packages`.
 
 `.github/workflows/publish.yml` publishes exclusively to **NuGet.org**:
 - Queries NuGet.org via `eng/resolve-preview-version.mjs` to automatically resolve the next unused `X.Y.Z-preview.N` across all shipping packages (or accepts an explicit `version-suffix` or `v*` tag).

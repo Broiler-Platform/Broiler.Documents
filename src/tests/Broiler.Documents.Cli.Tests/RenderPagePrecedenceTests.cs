@@ -36,7 +36,7 @@ public sealed class RenderPagePrecedenceTests
         RenderPipeline pipeline = RenderPipeline.Create(CommandLine.Parse(Spec, arguments));
 
         using RenderOutcome outcome = pipeline.Render(document);
-        return outcome.Layout.Setup;
+        return outcome.Setup;
     }
 
     [Fact]

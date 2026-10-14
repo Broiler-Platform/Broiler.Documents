@@ -5,6 +5,8 @@ using System.Globalization;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Graphics.Color;
 
+using Broiler.Documents.Pagination;
+
 namespace Broiler.Documents.Cli.Rendering;
 
 /// <summary>
@@ -149,6 +151,10 @@ public sealed class PageSetup
         return new PageSetup(geometry.Width, geometry.Height, geometry.MarginTop, geometry.MarginRight, geometry.MarginBottom, geometry.MarginLeft,
             Dpi, Background, Continuous);
     }
+
+    /// <summary>The page box a layout fills: this setup without its resolution and background.</summary>
+    public DocumentPageBox ToPageBox() => new(WidthPoints, HeightPoints, MarginTopPoints, MarginRightPoints, MarginBottomPoints,
+        MarginLeftPoints, Continuous);
 
     /// <summary>The same box with a different height, for the continuous single-page form.</summary>
     public PageSetup WithHeight(double heightPoints) => new(WidthPoints, Math.Max(heightPoints, MarginTopPoints + MarginBottomPoints + 1),

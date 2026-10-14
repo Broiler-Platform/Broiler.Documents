@@ -29,7 +29,7 @@ dotnet run --project src/tests/Broiler.Documents.Corpus -c Release --no-build
 # Run release script tests
 node --test eng/resolve-preview-version.test.mjs eng/select-restore-feed.test.mjs
 
-# Pack and verify all 12 packages and symbols
+# Pack and verify all 13 packages and symbols
 pwsh -File eng/pack.ps1
 ```
 
@@ -37,8 +37,9 @@ Use `Debug` or `Release` configuration. The test runner executes all unit test s
 requiring at least 1,400 executed tests (with 2,514 executed currently). The corpus suite runs 2,320 checks
 against committed baselines via the `broilerdoc` CLI.
 
-`eng/pack.ps1` enumerates **every packable project** in the solution and verifies all 12 packages:
+`eng/pack.ps1` enumerates **every packable project** in the solution and verifies all 13 packages:
 - `Broiler.Documents.Model`
+- `Broiler.Documents.Pagination`
 - `Broiler.Documents.FormatCodes`
 - `Broiler.Documents`
 - `Broiler.Documents.Rtf`
@@ -102,7 +103,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs on pushes to `main`, pull requ
 - Runs release script tests (`eng/resolve-preview-version.test.mjs` and `eng/select-restore-feed.test.mjs`).
 - Verifies package restore from NuGet.org (`node eng/select-restore-feed.mjs`).
 - Runs the CLI corpus suite (`broilerdoc-corpus`) against the committed baseline.
-- On Ubuntu, packs and validates all 11 packages and symbol packages (`.snupkg`).
+- On Ubuntu, packs and validates all 13 packages and symbol packages (`.snupkg`).
 - Verifies a fresh consumer restore of the packed set from NuGet.org (`eng/verify-feed.ps1`); this is the no-push pack dry run.
 - Attaches the validated artifacts as `nuget-packages`.
 
