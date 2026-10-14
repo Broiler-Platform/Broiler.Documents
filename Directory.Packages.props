@@ -1,15 +1,11 @@
 <Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <!-- Broiler.Documents.Pagination paints Broiler.Graphics.Paging pages, which arrive in
-         0.1.0-preview.13. A property, so a build against a local pack can name it with
-         -p:BroilerGraphicsVersion=... -->
-    <BroilerGraphicsVersion Condition="'$(BroilerGraphicsVersion)' == ''">0.1.0-preview.13</BroilerGraphicsVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Broiler.Dom" Version="0.1.0-preview.14" />
     <PackageVersion Include="Broiler.Dom.Html" Version="0.1.0-preview.14" />
-    <PackageVersion Include="Broiler.Graphics" Version="$(BroilerGraphicsVersion)" />
+    <PackageVersion Include="Broiler.Graphics" Version="0.1.0-preview.13" />
     <PackageVersion Include="Broiler.Media.Image.Managed" Version="0.1.0-preview.15" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <!-- Tests only: the recipient decryptor a host would compose for certificate
