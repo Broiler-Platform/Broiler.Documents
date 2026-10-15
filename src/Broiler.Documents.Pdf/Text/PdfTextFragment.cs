@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 using Broiler.Graphics.Color;
 
@@ -34,7 +35,9 @@ internal sealed class PdfTextFragment(
     int mcid = -1,
     bool artifact = false,
     int order = 0,
-    bool turned = false)
+    bool turned = false,
+    double clipLeft = double.NegativeInfinity,
+    double clipRight = double.PositiveInfinity)
 {
     public string Text { get; } = text;
 
@@ -142,6 +145,30 @@ internal sealed class PdfTextFragment(
     /// letters as if they were what the page said.
     /// </remarks>
     public bool IsTurned { get; } = turned;
+
+    /// <summary>
+    /// The left and right edges, in page space, of the clip the run was drawn
+    /// under, or infinities where nothing narrowed it. Glyphs outside them are
+    /// set and never shown.
+    /// </summary>
+    /// <remarks>
+    /// Only how far the clip reaches across the page is carried, and only where
+    /// its path was straight lines: the box of a curved clip is not known, and
+    /// a run is never cut short where it may be showing. A producer that clips
+    /// every table cell lets an item name longer than its cell run on under the
+    /// price beside it, and the page shows a gap there that the run's advance
+    /// does not.
+    /// </remarks>
+    public double ClipLeft { get; } = clipLeft;
+
+    /// <inheritdoc cref="ClipLeft"/>
+    public double ClipRight { get; } = clipRight;
+
+    /// <summary>Where the run starts showing: its left edge, or the clip's where that cuts it.</summary>
+    public double VisibleX => Math.Max(X, Math.Min(ClipLeft, EndX));
+
+    /// <summary>Where the run stops showing: its right edge, or the clip's where that cuts it.</summary>
+    public double VisibleEndX => Math.Min(EndX, Math.Max(ClipRight, X));
 
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"'{Text}' @ ({X:F1},{Y:F1}) {FontSize:F1}pt");

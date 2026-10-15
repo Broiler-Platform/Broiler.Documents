@@ -10,12 +10,29 @@ namespace Broiler.Documents.Pdf.Text;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The rules are spacing, gutters, indentation, and list markers, in that order.
+/// The rules are spacing, gutters, list markers, centering, and indentation, in
+/// that order.
 /// A gap noticeably larger than the block's own line spacing ends a paragraph; so
-/// does a line with a gutter in it, a first-line indent, a line that ends far
-/// short of the block's right edge, and a line that begins with a list marker.
-/// Each rule is a heuristic over geometry, which is why the reader reports that
-/// reading order was inferred.
+/// does a line with a gutter in it, a line that begins with a list marker, a
+/// centered line the next one's first word would have fitted on, a first-line
+/// indent, and a line that ends far short of the block's right edge. Each rule
+/// is a heuristic over geometry, which is why the reader reports that reading
+/// order was inferred.
+/// </para>
+/// <para>
+/// <strong>Centered lines are broken by hand where the next word would have
+/// fitted.</strong> A shop's name over its street, a title over a thank-you:
+/// each is centered on the same axis as the line before, and neither starts
+/// at the block's left edge, which is where the short-line rule looks for the
+/// line after a break. Two lines are centered when both their edges moved, in
+/// opposite directions and by about as much. Text is set greedily, so a
+/// centered line that had room left for the next line's first word - room
+/// counted to either side of the axis, as far as the column's text reaches
+/// the nearer way - was ended on purpose. A centered paragraph that wrapped at
+/// the column filled each line until that word no longer fitted, and stays
+/// whole. One wrapped in a box narrower than its column - a caption under a
+/// narrow figure - is read as broken by hand: the page does not say where the
+/// box was.
 /// </para>
 /// <para>
 /// <strong>A row of cells is a paragraph of its own.</strong> An item and its
@@ -80,6 +97,11 @@ internal static class PdfModelProjector
     // words has to be to be a gutter between cells: see the class remarks.
     private const double GutterFactor = 2;
 
+    // How far apart, in ems, the middles of two centered lines may be: a
+    // monospaced line with an odd count of letters on a grid sits half a letter
+    // off the axis, which is 0.3 em in Courier.
+    private const double CenterSlack = 0.4;
+
     public static List<RichTextParagraph> Project(
         IReadOnlyList<PdfTextLine> lines,
         IReadOnlyList<PdfPlacedImage> images,
@@ -138,6 +160,7 @@ internal static class PdfModelProjector
 
         int[] blocks = Blocks(lines, out List<(double Left, double Right)> extents);
         Dictionary<int, double> measures = DeclaredMeasures(lines);
+        (double Left, double Right)[] reach = Reach(lines);
         var pendingLines = new List<PdfTextLine>();
         PdfTextLine? previous = null;
         int previousBlock = -1;
@@ -154,7 +177,7 @@ internal static class PdfModelProjector
             if (line.IsBlank)
                 continue;
 
-            if (previous is not null && StartsNewParagraph(previous, rowRight, line, previousBlock, blocks[i], extents, measures))
+            if (previous is not null && StartsNewParagraph(previous, rowRight, line, previousBlock, blocks[i], extents, measures, reach[i]))
             {
                 items.Add(new Item([.. pendingLines], null));
                 pendingLines.Clear();
@@ -342,7 +365,8 @@ internal static class PdfModelProjector
         int previousBlock,
         int block,
         List<(double Left, double Right)> extents,
-        Dictionary<int, double> measures)
+        Dictionary<int, double> measures,
+        (double Left, double Right) reach)
     {
         // Where a tagged document declared the block each line belongs to, two
         // blocks are two paragraphs however closely they are set. Inside one,
@@ -388,6 +412,16 @@ internal static class PdfModelProjector
         if (DetectListMarker(line.Text, out _, out _))
             return true;
 
+        // Centered lines broken by hand: see the class remarks. Both lines are
+        // measured from their own left edge, so the row the first word would
+        // have joined is as wide as the previous line, out of a measure as wide
+        // as the column allows about their axis.
+        if (Centered(previous, line) &&
+            NextWordFits(previous.Right - previous.Left, previous, line, CenteredMeasure(previous, line, reach)))
+        {
+            return true;
+        }
+
         (double blockLeft, double blockRight) = extents[block];
 
         // A first-line indent relative to the block's left edge.
@@ -403,6 +437,70 @@ internal static class PdfModelProjector
             previous.Right < blockLeft + (width * ShortLineFactor) &&
             line.Left <= blockLeft + IndentThreshold &&
             NextWordFits(previous.Right, previous, line, blockRight);
+    }
+
+    /// <summary>
+    /// Whether two lines are centered on one axis: each edge moved, in
+    /// opposite directions, by about as much. A left-aligned pair keeps its
+    /// left edge, a right-aligned one its right, and a justified one both.
+    /// </summary>
+    private static bool Centered(PdfTextLine previous, PdfTextLine line)
+    {
+        double leftShift = line.Left - previous.Left;
+        double rightShift = line.Right - previous.Right;
+        double size = Math.Max(previous.DominantSize, line.DominantSize);
+
+        return Math.Abs(leftShift) > IndentThreshold &&
+            Math.Abs(rightShift) > IndentThreshold &&
+            Math.Sign(leftShift) != Math.Sign(rightShift) &&
+            Math.Abs(leftShift + rightShift) / 2 <= size * CenterSlack;
+    }
+
+    /// <summary>
+    /// How wide a centered line could have grown: the same distance to either
+    /// side of the two lines' axis, as far as the column's text reaches the
+    /// nearer way.
+    /// </summary>
+    private static double CenteredMeasure(PdfTextLine previous, PdfTextLine line, (double Left, double Right) reach)
+    {
+        double axis = (previous.Left + previous.Right + line.Left + line.Right) / 4;
+        return 2 * Math.Max(0, Math.Min(axis - reach.Left, reach.Right - axis));
+    }
+
+    /// <summary>
+    /// How far the text of each line's column reaches across the page: from the
+    /// leftmost start to the rightmost end of every line read in that column,
+    /// or on the whole page where it was read as one.
+    /// </summary>
+    /// <remarks>
+    /// The column rather than the block, because centered lines are often a
+    /// block of their own - a shop's name and address over a receipt, clear of
+    /// the tax column beside the item rows - and their own widest line says
+    /// nothing about how wide they could have been.
+    /// </remarks>
+    private static (double Left, double Right)[] Reach(IReadOnlyList<PdfTextLine> lines)
+    {
+        var columns = new Dictionary<PdfTextColumn, (double Left, double Right)>();
+        (double Left, double Right) page = (double.PositiveInfinity, double.NegativeInfinity);
+
+        foreach (PdfTextLine line in lines)
+        {
+            if (line.IsBlank)
+                continue;
+
+            if (line.Column is null)
+                page = (Math.Min(page.Left, line.Left), Math.Max(page.Right, line.Right));
+            else if (columns.TryGetValue(line.Column, out (double Left, double Right) column))
+                columns[line.Column] = (Math.Min(column.Left, line.Left), Math.Max(column.Right, line.Right));
+            else
+                columns[line.Column] = (line.Left, line.Right);
+        }
+
+        var reach = new (double Left, double Right)[lines.Count];
+        for (int i = 0; i < lines.Count; i++)
+            reach[i] = lines[i].Column is { } column ? columns.GetValueOrDefault(column, page) : page;
+
+        return reach;
     }
 
     /// <summary>Whether a line is set as cells, with a gutter between two of its words.</summary>

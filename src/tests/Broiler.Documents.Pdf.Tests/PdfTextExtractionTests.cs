@@ -38,6 +38,155 @@ public sealed class PdfTextExtractionTests
         Assert.Equal("Water", TextOf(content).Trim());
     }
 
+    // ---- Courier, and runs that go on under the next one ----------------------
+
+    [Theory]
+    [InlineData("Courier")]
+    [InlineData("Courier-Bold")]
+    [InlineData("Courier-Oblique")]
+    [InlineData("Courier-BoldOblique")]
+    public void Measures_Courier_Without_Widths_At_Its_Fixed_Pitch(string face)
+    {
+        // Courier advances 600 thousandths of the em, by definition. "Kassen"
+        // at ten points ends at 72 + 36, where "bon" starts; measured at half an
+        // em it ended at 102 and left a six-point hole that read as a space.
+        string content =
+            PdfFileBuilder.ShowText("Kassen", x: 72, y: 720, size: 10) +
+            PdfFileBuilder.ShowText("bon", x: 108, y: 720, size: 10);
+
+        Assert.Equal("Kassenbon", CourierText(content, face));
+    }
+
+    [Fact]
+    public void A_Courier_That_States_Its_Widths_Is_Measured_By_Them()
+    {
+        // The fixed pitch stands in only where the font says nothing. One that
+        // declares every letter half an em wide is taken at its word, and
+        // "Kassen" stops six points short of "bon".
+        string widths = " /FirstChar 32 /LastChar 126 /Widths [" + string.Join(' ', Enumerable.Repeat(500, 95)) + "]";
+        string content =
+            PdfFileBuilder.ShowText("Kassen", x: 72, y: 720, size: 10) +
+            PdfFileBuilder.ShowText("bon", x: 108, y: 720, size: 10);
+
+        Assert.Equal("Kassen bon", Read(PdfFileBuilder.SinglePage(content, baseFont: "Courier", fontEntries: widths)).Document.PlainText.Trim());
+    }
+
+    [Fact]
+    public void A_Name_Clipped_To_Its_Cell_Ends_Where_The_Clip_Does()
+    {
+        // A till receipt clips each cell. The fifteen-letter name is set from 10
+        // to 100, where the price starts, and the letters abut; its cell ends at
+        // 89, so what shows stops eleven points short of the price.
+        string content =
+            "q 10 727 79 14 re W n\n" + PdfFileBuilder.ShowText("Bio E.H-W.milch", x: 10, y: 731, size: 10) + "Q\n" +
+            PdfFileBuilder.ShowText("1,11", x: 100, y: 731, size: 10);
+
+        Assert.Equal("Bio E.H-W.milch 1,11", CourierText(content));
+    }
+
+    [Fact]
+    public void Cells_Side_By_Side_Are_Words_Apart_Where_Their_Letters_Abut()
+    {
+        // A tax code and the flag after it, a letter to a cell, the cells
+        // sharing a border. "A" is set from 232 to 238, where "W" starts.
+        string content =
+            "q 232 727 7 14 re W n\n" + PdfFileBuilder.ShowText("A", x: 232, y: 731, size: 10) + "Q\n" +
+            "q 238 727 7 14 re W n\n" + PdfFileBuilder.ShowText("W", x: 238, y: 731, size: 10) + "Q\n";
+
+        Assert.Equal("A W", CourierText(content));
+    }
+
+    [Fact]
+    public void Runs_Under_One_Clip_Still_Join_Where_They_Abut()
+    {
+        // The clip around a page or a frame holds every run in it, and says
+        // nothing about where a word ends.
+        string content =
+            "q 0 0 612 792 re W n\n" +
+            PdfFileBuilder.ShowText("Kassen", x: 72, y: 720, size: 10) +
+            PdfFileBuilder.ShowText("bon", x: 108, y: 720, size: 10) +
+            "Q\n";
+
+        Assert.Equal("Kassenbon", CourierText(content));
+    }
+
+    [Fact]
+    public void A_Curved_Clip_Cuts_Nothing()
+    {
+        // Only a curve's endpoints are followed, and this one's run from 72 to
+        // 90 while it bulges out past 120: "Kassen" shows whole, to 108, where
+        // "bon" starts. Cut at the endpoints' box it would have stopped at 90
+        // and come apart from the rest of its word.
+        string content =
+            "q 72 700 m 90 700 l 140 707 140 707 90 714 c 72 714 l h W n\n" +
+            PdfFileBuilder.ShowText("Kassen", x: 72, y: 704, size: 10) + "Q\n" +
+            PdfFileBuilder.ShowText("bon", x: 108, y: 704, size: 10);
+
+        Assert.Equal("Kassenbon", CourierText(content));
+    }
+
+    [Fact]
+    public void A_Forms_Box_Clips_What_The_Form_Draws()
+    {
+        // The name is drawn by a form whose /BBox ends at 89, and the price on
+        // the page, from 100, where the name's letters stop.
+        var builder = new PdfFileBuilder();
+        int catalog = builder.Reserve();
+        int pages = builder.Reserve();
+        int page = builder.Reserve();
+        int font = builder.AddObject("<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>");
+        int form = builder.AddStream(
+            $"/Type /XObject /Subtype /Form /BBox [10 727 89 741] /Resources << /Font << /F1 {font} 0 R >> >>",
+            PdfFileBuilder.ShowText("Bio E.H-W.milch", x: 10, y: 731, size: 10));
+        int content = builder.AddStream(string.Empty, "/Fm0 Do\n" + PdfFileBuilder.ShowText("1,11", x: 100, y: 731, size: 10));
+
+        builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
+        builder.SetObject(pages, $"<< /Type /Pages /Kids [{page} 0 R] /Count 1 >>");
+        builder.SetObject(page, $"<< /Type /Page /Parent {pages} 0 R /MediaBox [0 0 612 792] " +
+                                $"/Resources << /XObject << /Fm0 {form} 0 R >> /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R >>");
+
+        Assert.Equal("Bio E.H-W.milch 1,11", Read(builder.Build(catalog)).Document.PlainText.Trim());
+    }
+
+    [Fact]
+    public void A_Run_That_Starts_An_Em_Back_Inside_The_One_Before_Is_A_Word_Of_Its_Own()
+    {
+        // Nothing clipped: an eighteen-letter name set from 10 goes on to 118,
+        // and the price is set from 100 regardless.
+        string content =
+            PdfFileBuilder.ShowText("Fackel.Luftballons", x: 10, y: 731, size: 10) +
+            PdfFileBuilder.ShowText("2,79", x: 100, y: 731, size: 10);
+
+        Assert.Equal("Fackel.Luftballons 2,79", CourierText(content));
+    }
+
+    [Fact]
+    public void A_Run_Kerned_Back_Under_The_One_Before_Is_The_Same_Word()
+    {
+        // The pieces of one word placed apart, the second moved back a fifth of
+        // an em under the first - a kern pair a producer set with Tm.
+        string content =
+            PdfFileBuilder.ShowText("W", x: 72, y: 720, size: 10) +
+            PdfFileBuilder.ShowText("ater", x: 75, y: 720, size: 10);
+
+        Assert.Equal("Water", TextOf(content).Trim());
+    }
+
+    [Fact]
+    public void The_Same_Text_Drawn_Twice_A_Little_Apart_Is_Not_Two_Words()
+    {
+        // A bold faked by overprinting: the run again, half a point along. It
+        // starts well inside the first, and is still not a word of its own.
+        string content =
+            PdfFileBuilder.ShowText("Summe", x: 72, y: 720, size: 10) +
+            PdfFileBuilder.ShowText("Summe", x: 72.5, y: 720, size: 10);
+
+        Assert.DoesNotContain("Summe Summe", TextOf(content), StringComparison.Ordinal);
+    }
+
+    private static string CourierText(string content, string face = "Courier") =>
+        Read(PdfFileBuilder.SinglePage(content, baseFont: face)).Document.PlainText.Trim();
+
     [Fact]
     public void Splits_Baselines_Into_Separate_Lines()
     {

@@ -635,8 +635,7 @@ internal static class PdfReadingOrder
         double inkLeft = double.MaxValue;
         double inkRight = double.MinValue;
         double height = 0;
-        double previousEnd = double.NaN;
-        double previousSpaceWidth = 0;
+        PdfTextFragment? previous = null;
 
         foreach (PdfTextFragment fragment in fragments)
         {
@@ -655,19 +654,14 @@ internal static class PdfReadingOrder
             }
 
             string text = fragment.Text;
-            if (!double.IsNaN(previousEnd))
+            if (previous is not null && Separated(previous, fragment) &&
+                !text.StartsWith(' ') && spans.Count > 0 && !spans[^1].Text.EndsWith(' '))
             {
-                // The interpreter breaks a run when the pen jumps; a jump wider
-                // than a quarter of a space is where a word boundary belongs.
-                double gap = fragment.X - previousEnd;
-                double reference = Math.Max(previousSpaceWidth, fragment.SpaceWidth);
-                if (gap > reference * 0.25 && !text.StartsWith(' ') && spans.Count > 0 && !spans[^1].Text.EndsWith(' '))
-                    text = " " + text;
+                text = " " + text;
             }
 
             spans.Add(new PdfTextSpan(text, StyleFor(fragment, links)));
-            previousEnd = fragment.EndX;
-            previousSpaceWidth = fragment.SpaceWidth;
+            previous = fragment;
         }
 
         if (inkLeft <= inkRight)
@@ -690,6 +684,47 @@ internal static class PdfReadingOrder
             DominantSize = DominantSizeOf(fragments, height),
             WidestGap = WidestGap(fragments),
         };
+    }
+
+    /// <summary>
+    /// Whether a word boundary falls between two runs of one line,
+    /// <paramref name="after"/> starting no further left than
+    /// <paramref name="before"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The interpreter breaks a run where the pen jumps, and a jump wider than
+    /// a quarter of a space opens a word boundary. The jump is measured
+    /// between what shows: a producer that clips each table cell sets an item
+    /// name longer than its cell on under the price beside it, and the page
+    /// shows the gap the clip left, not the run's advance. Two runs each
+    /// clipped to a box of its own, the boxes side by side, are two cells
+    /// even where their letters abut - a till receipt's tax code and the flag
+    /// after it, one letter to a cell.
+    /// </para>
+    /// <para>
+    /// A run that starts more than an em back inside the one before it is a
+    /// word of its own too, wherever the clip was: pieces of one word abut, and
+    /// kerning moves a letter back a fraction of an em. Drawing the same text
+    /// twice a little apart - a bold faked by overprinting - is not a second
+    /// word, and stays as it was.
+    /// </para>
+    /// </remarks>
+    private static bool Separated(PdfTextFragment before, PdfTextFragment after)
+    {
+        double end = before.VisibleEndX;
+        double start = after.VisibleX;
+        if (start - end > Math.Max(before.SpaceWidth, after.SpaceWidth) * 0.25)
+            return true;
+
+        // Boxes side by side may share their border, so the second can start a
+        // little inside the first.
+        double em = Math.Max(before.FontSize, after.FontSize);
+        if (after.ClipLeft > before.ClipLeft && after.ClipLeft >= before.ClipRight - (em * 0.25))
+            return true;
+
+        return end - start > em &&
+            !string.Equals(before.Text.Trim(), after.Text.Trim(), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -723,9 +758,10 @@ internal static class PdfReadingOrder
                     end++;
 
                 // Runs can overlap, so the gap is measured from the furthest
-                // any word has reached so far, not from the word before.
-                double start = fragment.X + (share * index);
-                double stop = fragment.X + (share * end);
+                // any word has reached so far, not from the word before - and
+                // from where the clip let it show, not where its letters were set.
+                double start = Math.Max(fragment.X + (share * index), fragment.VisibleX);
+                double stop = Math.Min(fragment.X + (share * end), fragment.VisibleEndX);
                 if (!double.IsNaN(inkEnd))
                     widest = Math.Max(widest, start - inkEnd);
                 inkEnd = double.IsNaN(inkEnd) ? stop : Math.Max(inkEnd, stop);
@@ -812,7 +848,7 @@ internal static class PdfReadingOrder
                 return (fragment.X + (advance * index / text.Length) - start, space);
 
             if (i + 1 == fragments.Count ||
-                fragments[i + 1].X - fragment.EndX > Math.Max(fragment.SpaceWidth, fragments[i + 1].SpaceWidth) * 0.25 ||
+                Separated(fragment, fragments[i + 1]) ||
                 (fragments[i + 1].Text.Length > 0 && char.IsWhiteSpace(fragments[i + 1].Text[0])))
             {
                 return (fragment.EndX - start, space);

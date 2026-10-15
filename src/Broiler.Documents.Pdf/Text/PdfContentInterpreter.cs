@@ -187,6 +187,13 @@ internal sealed class PdfContentInterpreter(
     private bool _pathUnbounded;
 
     /// <summary>
+    /// True between <c>W</c> or <c>W*</c> and the operator that ends the path.
+    /// The path narrows the clip once it has been painted, or dropped by
+    /// <c>n</c> - which is how a producer that clips every table cell does it.
+    /// </summary>
+    private bool _clipPending;
+
+    /// <summary>
     /// The rules and areas this page painted, kept rather than only counted. A
     /// table is a grid of them, and a grid is the one arrangement of vector
     /// artwork a logical model can carry.
@@ -546,6 +553,7 @@ internal sealed class PdfContentInterpreter(
                         KeepPaintedPath(painted, filled, stroked, order);
                     }
 
+                    ApplyPendingClip();
                     ResetPath();
                     break;
                 case "sh":
@@ -561,7 +569,11 @@ internal sealed class PdfContentInterpreter(
                     break;
                 case "n":
                     // A path used only to clip paints nothing, so it drops nothing.
+                    ApplyPendingClip();
                     ResetPath();
+                    break;
+                case "W" or "W*":
+                    _clipPending = true;
                     break;
             }
 
@@ -780,7 +792,9 @@ internal sealed class PdfContentInterpreter(
             _runMcid,
             _runArtifact,
             _runOrder,
-            _runTurned));
+            _runTurned,
+            _runState.ClipLeft,
+            _runState.ClipRight));
 
         // Reported per run rather than once per document: the sink keeps a single
         // entry either way, and letting it count tells a reader whether one
@@ -1005,6 +1019,9 @@ internal sealed class PdfContentInterpreter(
             if (_store.Resolve(stream.Dictionary["Matrix"]) is PdfArray matrixArray && TryMatrix(matrixArray, out PdfMatrix formMatrix))
                 _state = _state.WithMatrix(formMatrix.Concat(_state.Matrix));
 
+            // A form's /BBox clips what it draws (§8.10.1), as a W n would.
+            ClipToFormBox(stream.Dictionary);
+
             PdfDictionary? formResources = _store.Resolve(stream.Dictionary["Resources"]) as PdfDictionary ?? resources;
             Execute(content, formResources, depth + 1);
             FlushRun();
@@ -1017,6 +1034,36 @@ internal sealed class PdfContentInterpreter(
         {
             _activeForms.Remove(stream.Dictionary);
         }
+    }
+
+    /// <summary>
+    /// Narrows the clip to a form's <c>/BBox</c>, mapped onto the page through
+    /// the form's matrix. A box that is not four numbers clips nothing.
+    /// </summary>
+    private void ClipToFormBox(PdfDictionary form)
+    {
+        if (_store.Resolve(form["BBox"]) is not PdfArray box || box.Count != 4)
+            return;
+
+        var edges = new double[4];
+        for (int i = 0; i < 4; i++)
+        {
+            if (_store.Resolve(box[i]) is not PdfNumber number || !double.IsFinite(number.Value))
+                return;
+            edges[i] = number.Value;
+        }
+
+        double left = double.PositiveInfinity;
+        double right = double.NegativeInfinity;
+        foreach ((double x, double y) in new[] { (edges[0], edges[1]), (edges[2], edges[1]), (edges[2], edges[3]), (edges[0], edges[3]) })
+        {
+            (double pageX, _) = _state.Matrix.Transform(x, y);
+            left = Math.Min(left, pageX);
+            right = Math.Max(right, pageX);
+        }
+
+        if (double.IsFinite(left) && double.IsFinite(right))
+            _state = _state.WithClip(left, right);
     }
 
     /// <summary>
@@ -1550,6 +1597,19 @@ internal sealed class PdfContentInterpreter(
         _pathOpen = false;
         _pathIrregular = false;
         _pathUnbounded = false;
+        _clipPending = false;
+    }
+
+    /// <summary>
+    /// Narrows the clip to the box of the path that <c>W</c> or <c>W*</c> marked,
+    /// as the operator ending that path does. A path whose box is not known - a
+    /// curve, or a point that is not a number - leaves the clip as it was, so a
+    /// run is never cut short where it may be showing.
+    /// </summary>
+    private void ApplyPendingClip()
+    {
+        if (_clipPending && _pathOpen && !_pathUnbounded)
+            _state = _state.WithClip(_pathMinX, _pathMaxX);
     }
 
     private void MoveTo(double x, double y)
@@ -1777,7 +1837,9 @@ internal sealed class PdfContentInterpreter(
             BColor strokeColor,
             double lineWidth,
             bool fillIsPattern = false,
-            PdfRenderingIntent renderingIntent = PdfRenderingIntent.RelativeColorimetric)
+            PdfRenderingIntent renderingIntent = PdfRenderingIntent.RelativeColorimetric,
+            double clipLeft = double.NegativeInfinity,
+            double clipRight = double.PositiveInfinity)
         {
             Matrix = matrix;
             Font = font;
@@ -1793,6 +1855,8 @@ internal sealed class PdfContentInterpreter(
             LineWidth = lineWidth;
             FillIsPattern = fillIsPattern;
             RenderingIntent = renderingIntent;
+            ClipLeft = clipLeft;
+            ClipRight = clipRight;
         }
 
         /// <summary>The format's initial state: black for both colours, and a one-unit pen.</summary>
@@ -1840,47 +1904,66 @@ internal sealed class PdfContentInterpreter(
         /// </summary>
         public PdfRenderingIntent RenderingIntent { get; }
 
+        /// <summary>
+        /// How far across the page the clip reaches, in page space: the box of
+        /// every clipping path so far, narrowed one by one. Infinite until a
+        /// path with a known box narrows it.
+        /// </summary>
+        public double ClipLeft { get; }
+
+        /// <inheritdoc cref="ClipLeft"/>
+        public double ClipRight { get; }
+
         public GraphicsState WithMatrix(PdfMatrix matrix) => matrix.IsFinite
-            ? new GraphicsState(matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent)
+            ? new GraphicsState(matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent, ClipLeft, ClipRight)
             : this;
 
         public GraphicsState WithFont(PdfFont font, double size) =>
-            new(Matrix, font, double.IsFinite(size) ? size : 0, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
+            new(Matrix, font, double.IsFinite(size) ? size : 0, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent, ClipLeft, ClipRight);
 
         public GraphicsState WithCharSpacing(double value) =>
-            new(Matrix, Font, FontSize, Finite(value), WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
+            new(Matrix, Font, FontSize, Finite(value), WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent, ClipLeft, ClipRight);
 
         public GraphicsState WithWordSpacing(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, Finite(value), HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
+            new(Matrix, Font, FontSize, CharSpacing, Finite(value), HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent, ClipLeft, ClipRight);
 
         public GraphicsState WithHorizontalScale(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, value is > 0 and < 100 ? value : 1, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, value is > 0 and < 100 ? value : 1, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent, ClipLeft, ClipRight);
 
         public GraphicsState WithLeading(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Finite(value), Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Finite(value), Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent, ClipLeft, ClipRight);
 
         public GraphicsState WithRise(double value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Finite(value), RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Finite(value), RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent, ClipLeft, ClipRight);
 
         public GraphicsState WithRenderMode(int value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, value is >= 0 and <= 7 ? value : 0, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, value is >= 0 and <= 7 ? value : 0, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent, ClipLeft, ClipRight);
 
         public GraphicsState WithColor(BColor value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value, StrokeColor, LineWidth, false, RenderingIntent);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value, StrokeColor, LineWidth, false, RenderingIntent, ClipLeft, ClipRight);
 
         /// <summary>A fill naming a pattern, with whatever components came with the name.</summary>
         public GraphicsState WithPatternFill(BColor value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value, StrokeColor, LineWidth, true, RenderingIntent);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, value, StrokeColor, LineWidth, true, RenderingIntent, ClipLeft, ClipRight);
 
         public GraphicsState WithStrokeColor(BColor value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, value, LineWidth, FillIsPattern, RenderingIntent);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, value, LineWidth, FillIsPattern, RenderingIntent, ClipLeft, ClipRight);
 
         public GraphicsState WithRenderingIntent(PdfRenderingIntent value) =>
-            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, value);
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, value, ClipLeft, ClipRight);
+
+        /// <summary>
+        /// The clip narrowed to what also lies between <paramref name="left"/>
+        /// and <paramref name="right"/>. A clip only ever narrows: the next one
+        /// is intersected with it, and only <c>Q</c> widens it again.
+        /// </summary>
+        public GraphicsState WithClip(double left, double right) =>
+            new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, LineWidth, FillIsPattern, RenderingIntent,
+                Math.Max(ClipLeft, left), Math.Min(ClipRight, right));
 
         /// <summary>A negative or non-finite width is malformed, and the pen keeps its current width.</summary>
         public GraphicsState WithLineWidth(double value) => double.IsFinite(value) && value >= 0
-            ? new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, value, FillIsPattern, RenderingIntent)
+            ? new(Matrix, Font, FontSize, CharSpacing, WordSpacing, HorizontalScale, Leading, Rise, RenderMode, Color, StrokeColor, value, FillIsPattern, RenderingIntent, ClipLeft, ClipRight)
             : this;
 
         private static double Finite(double value) => double.IsFinite(value) ? value : 0;

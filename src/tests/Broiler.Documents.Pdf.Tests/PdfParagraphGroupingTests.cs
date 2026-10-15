@@ -343,7 +343,83 @@ public sealed class PdfParagraphGroupingTests
         Assert.Equal(string.Join(' ', lines.SelectMany(line => line)), paragraph.Text);
     }
 
+    // ---- centered lines -------------------------------------------------------
+
+    [Fact]
+    public void Centered_Lines_Broken_By_Hand_Are_A_Paragraph_Each()
+    {
+        // A receipt's head: the shop, its street, its town and its phone, each
+        // centered over the item rows, which reach from 10 to 238. Every line
+        // had room for the first word of the next, and the shop and its street
+        // came back one paragraph: neither starts at the block's left edge,
+        // which is where the short-line rule looks for the line after a break.
+        string[] head = ["E-center Niemann", "Blankenburger Str. 81", "13156 Berlin", "Tel. 030/ 486 26 48-0"];
+
+        var content = new StringBuilder();
+        for (int i = 0; i < head.Length; i++)
+            content.Append(CenteredLine(head[i], 809 - (i * 13)));
+
+        content.Append(PdfFileBuilder.ShowText("Mezzo Mix 12x1l", x: 10, y: 731, size: 10));
+        content.Append(PdfFileBuilder.ShowText("15,99", x: 196, y: 731, size: 10));
+        content.Append(PdfFileBuilder.ShowText("B", x: 232, y: 731, size: 10));
+
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(content.ToString(), baseFont: "Courier")).Document;
+
+        Assert.Equal([.. head, "Mezzo Mix 12x1l 15,99 B"], document.Paragraphs.Select(p => p.Text));
+    }
+
+    [Fact]
+    public void A_Wider_Centered_Line_After_A_Short_One_Is_Its_Own_Paragraph()
+    {
+        // A receipt's foot, under a label that runs the full forty letters. The
+        // thank-you is wider than the title above it, so it does not even look
+        // indented against it.
+        string content =
+            PdfFileBuilder.ShowText("Datum:                        15.10.2026", x: 10, y: 700, size: 10) +
+            CenteredLine("Q U I T T U N G", 674) +
+            CenteredLine("Vielen Dank für Ihren Einkauf!", 661);
+
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(content, baseFont: "Courier")).Document;
+
+        Assert.Equal(
+            ["Datum:                        15.10.2026", "Q U I T T U N G", "Vielen Dank für Ihren Einkauf!"],
+            document.Paragraphs.Select(p => p.Text));
+    }
+
+    [Fact]
+    public void A_Centered_Paragraph_Wrapped_At_The_Column_Stays_Whole()
+    {
+        // The other side of the rule. Set forty letters to the line and
+        // centered, each line stopped because the next word would have run past
+        // the column - which the label above shows reaching from 10 to 250 - so
+        // none of them was broken by hand.
+        string[] lines =
+        [
+            "Every line of this centered greeting",
+            "wraps where the next word would",
+            "overflowing the column; it stays whole.",
+        ];
+
+        var content = new StringBuilder(PdfFileBuilder.ShowText("Datum:                        15.10.2026", x: 10, y: 700, size: 10));
+        for (int i = 0; i < lines.Length; i++)
+            content.Append(CenteredLine(lines[i], 674 - (i * 13)));
+
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(content.ToString(), baseFont: "Courier")).Document;
+
+        Assert.Equal(
+            ["Datum:                        15.10.2026", string.Join(' ', lines)],
+            document.Paragraphs.Select(p => p.Text));
+    }
+
     // ---- fixtures -------------------------------------------------------------
+
+    /// <summary>
+    /// One line of ten-point Courier centered on x = 130. Courier declares no
+    /// <c>/Widths</c> here and is six points a letter at that size, so the line
+    /// starts three points left of the axis for every letter it holds.
+    /// </summary>
+    private static string CenteredLine(string text, double y) =>
+        PdfFileBuilder.ShowText(text, x: 130 - (text.Length * 3), y: y, size: 10);
 
     /// <summary>
     /// One line shown a letter at a time: each glyph its own show operator, and

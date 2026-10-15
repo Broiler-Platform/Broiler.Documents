@@ -62,6 +62,16 @@ public static class PdfStandardFonts
         return ByName.TryGetValue(baseFont, out font);
     }
 
+    /// <summary>
+    /// Whether a standard font is Courier in any of its four faces, every glyph
+    /// of which advances exactly 600 thousandths of the em. That is the face's
+    /// definition rather than a measurement of it, which is why the reader may
+    /// rely on it where a font declares no <c>/Widths</c>.
+    /// </summary>
+    internal static bool IsFixedPitch(PdfStandardFont font) =>
+        font is PdfStandardFont.Courier or PdfStandardFont.CourierBold
+            or PdfStandardFont.CourierOblique or PdfStandardFont.CourierBoldOblique;
+
     /// <summary>Chooses the standard font for a logical family and style.</summary>
     public static PdfStandardFont Select(PdfFontFamilyKind family, bool bold, bool italic) => family switch
     {
@@ -177,7 +187,7 @@ public sealed class PdfApproximateFontMetrics : IPdfFontMetricsProvider
     public double GetAdvanceWidth(PdfStandardFont font, char character)
     {
         // Courier is monospaced by definition, so its width needs no estimate.
-        if (IsMonospace(font))
+        if (PdfStandardFonts.IsFixedPitch(font))
             return 600;
 
         double width = ClassWidth(character);
@@ -189,10 +199,6 @@ public sealed class PdfApproximateFontMetrics : IPdfFontMetricsProvider
     public double GetAscent(PdfStandardFont font) => IsSerif(font) ? 683 : 718;
 
     public double GetDescent(PdfStandardFont font) => IsSerif(font) ? 217 : 207;
-
-    private static bool IsMonospace(PdfStandardFont font) =>
-        font is PdfStandardFont.Courier or PdfStandardFont.CourierBold
-            or PdfStandardFont.CourierOblique or PdfStandardFont.CourierBoldOblique;
 
     private static bool IsSerif(PdfStandardFont font) =>
         font is PdfStandardFont.TimesRoman or PdfStandardFont.TimesBold
