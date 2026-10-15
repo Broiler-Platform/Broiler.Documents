@@ -268,6 +268,81 @@ public sealed class PdfParagraphGroupingTests
             paragraph.Text);
     }
 
+    [Fact]
+    public void The_Rows_Of_A_Receipt_Are_A_Paragraph_Each()
+    {
+        // A till receipt: each item, its price and its tax code shown apart,
+        // the prices right-aligned, at ordinary leading. Every row reaches the
+        // tax code's column, so none stops short, and the receipt came back as
+        // one paragraph holding all its items.
+        (string Item, string Price, string Code)[] rows =
+        [
+            ("Mezzo Mix 12x1l", "15,99", "B"),
+            ("Herz.Trop.Saft 1l", "2,19", "B"),
+            ("MinusL Sprühsahne", "2,89", "A"),
+            ("Oetker Ristorante", "1,79", "A"),
+        ];
+
+        var content = new StringBuilder();
+        for (int i = 0; i < rows.Length; i++)
+        {
+            double y = 731 - (i * 13);
+            content.Append(PdfFileBuilder.ShowText(rows[i].Item, x: 10, y: y, size: 10));
+            content.Append(PdfFileBuilder.ShowText(rows[i].Price, x: 226 - (rows[i].Price.Length * 5), y: y, size: 10));
+            content.Append(PdfFileBuilder.ShowText(rows[i].Code, x: 232, y: y, size: 10));
+        }
+
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(content.ToString())).Document;
+
+        Assert.Equal(rows.Select(row => $"{row.Item} {row.Price} {row.Code}"), document.Paragraphs.Select(p => p.Text));
+    }
+
+    [Fact]
+    public void A_Label_Padded_Out_To_Its_Value_Is_A_Row()
+    {
+        // A card terminal's slip pads each label to its value with spaces in
+        // one run, forty letters to the line. The line after the last row is
+        // too long to have fitted on it, which read as a wrap.
+        string[] lines =
+        [
+            "Datum:                        15.10.2026",
+            "Uhrzeit:                    18:12:53 Uhr",
+            "Kartenzahlung",
+        ];
+
+        var content = new StringBuilder();
+        for (int i = 0; i < lines.Length; i++)
+            content.Append(PdfFileBuilder.ShowText(lines[i], x: 10, y: 785 - (i * 12), size: 10));
+
+        RichTextDocument document = Read(PdfFileBuilder.SinglePage(content.ToString())).Document;
+
+        Assert.Equal(lines, document.Paragraphs.Select(p => p.Text));
+    }
+
+    [Fact]
+    public void A_Justified_Paragraph_With_Stretched_Spaces_Stays_Whole()
+    {
+        // The other side of the gutter rule: a justified line moves its words
+        // apart, here by more than an em, and is still a line of prose.
+        string[][] lines =
+        [
+            ["Every", "line", "of", "this", "paragraph", "is", "set"],
+            ["to", "the", "full", "measure", "with", "its", "word"],
+            ["spaces", "stretched", "apart."],
+        ];
+
+        var content = new StringBuilder();
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string words = string.Join(" -1200 ", lines[i].Select(word => $"({word})"));
+            content.Append(CultureInfo.InvariantCulture, $"BT /F1 10 Tf 1 0 0 1 72 {700 - (i * 13)} Tm [{words}] TJ ET\n");
+        }
+
+        RichTextParagraph paragraph = Assert.Single(Read(PdfFileBuilder.SinglePage(content.ToString())).Document.Paragraphs);
+
+        Assert.Equal(string.Join(' ', lines.SelectMany(line => line)), paragraph.Text);
+    }
+
     // ---- fixtures -------------------------------------------------------------
 
     /// <summary>

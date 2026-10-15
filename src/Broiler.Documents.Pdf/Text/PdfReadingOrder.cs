@@ -46,6 +46,14 @@ internal sealed class PdfTextLine(List<PdfTextSpan> spans, double left, double r
     public double SpaceWidth { get; init; }
 
     /// <summary>
+    /// The widest blank stretch between two of the line's words, in points:
+    /// where the pen jumped from one run to the next, or where a run set
+    /// spaces of its own. A gutter between the cells of a row is wider than any
+    /// word space; see <see cref="PdfModelProjector"/>.
+    /// </summary>
+    public double WidestGap { get; init; }
+
+    /// <summary>
     /// The size most of the line's letters are set in. A heading is its own
     /// size throughout; one larger word inside a line of text leaves the line at
     /// the text's size, which <see cref="Height"/> - the largest size on it -
@@ -680,7 +688,52 @@ internal static class PdfReadingOrder
             FirstWordWidth = firstWord,
             SpaceWidth = space,
             DominantSize = DominantSizeOf(fragments, height),
+            WidestGap = WidestGap(fragments),
         };
+    }
+
+    /// <summary>
+    /// The widest blank stretch between two words of a line whose runs are in
+    /// order along it. A word inside a run is placed by its letters' share of
+    /// the run's advance, as <see cref="FirstWord"/> measures one, so spaces a
+    /// run set to pad a label out to its value count as the gap they leave.
+    /// </summary>
+    private static double WidestGap(List<PdfTextFragment> fragments)
+    {
+        double widest = 0;
+        double inkEnd = double.NaN;
+
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            string text = fragment.Text;
+            if (text.Length == 0)
+                continue;
+
+            double share = Math.Max(0, fragment.EndX - fragment.X) / text.Length;
+            int index = 0;
+            while (index < text.Length)
+            {
+                while (index < text.Length && char.IsWhiteSpace(text[index]))
+                    index++;
+                if (index == text.Length)
+                    break;
+
+                int end = index;
+                while (end < text.Length && !char.IsWhiteSpace(text[end]))
+                    end++;
+
+                // Runs can overlap, so the gap is measured from the furthest
+                // any word has reached so far, not from the word before.
+                double start = fragment.X + (share * index);
+                double stop = fragment.X + (share * end);
+                if (!double.IsNaN(inkEnd))
+                    widest = Math.Max(widest, start - inkEnd);
+                inkEnd = double.IsNaN(inkEnd) ? stop : Math.Max(inkEnd, stop);
+                index = end;
+            }
+        }
+
+        return widest;
     }
 
     /// <summary>
