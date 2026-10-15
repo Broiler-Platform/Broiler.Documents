@@ -10,11 +10,23 @@ namespace Broiler.Documents.Pdf.Text;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The rules are spacing, indentation, and list markers, in that order. A gap
-/// noticeably larger than the block's own line spacing ends a paragraph; so does
-/// a first-line indent, a line that ends far short of the block's right edge, and
-/// a line that begins with a list marker. Each rule is a heuristic over geometry,
-/// which is why the reader reports that reading order was inferred.
+/// The rules are spacing, gutters, indentation, and list markers, in that order.
+/// A gap noticeably larger than the block's own line spacing ends a paragraph; so
+/// does a line with a gutter in it, a first-line indent, a line that ends far
+/// short of the block's right edge, and a line that begins with a list marker.
+/// Each rule is a heuristic over geometry, which is why the reader reports that
+/// reading order was inferred.
+/// </para>
+/// <para>
+/// <strong>A row of cells is a paragraph of its own.</strong> An item and its
+/// price, a label and its value, sit on one baseline with a gutter between them
+/// that no word space comes near. Set at ordinary leading and out to the block's
+/// edge, every row of them looks like a line of prose that wrapped, and a till
+/// receipt came back as one paragraph holding all its items. Two ems of blank
+/// between two words is a gutter, whether the pen jumped it or the line set
+/// spaces to pad a label out to its value: a justified line stretches its
+/// spaces, but not that far. A row neither carries on the line above it nor is
+/// carried on by the line below.
 /// </para>
 /// <para>
 /// <strong>A gap is weighed against the smaller size where the size
@@ -63,6 +75,10 @@ internal static class PdfModelProjector
     // the gap between them to be weighed against the smaller. A heading is a
     // size or two above its text; a fraction of a point is a producer's rounding.
     private const double SizeContrast = 1.25;
+
+    // How wide, in ems of the line's own size, a blank stretch between two
+    // words has to be to be a gutter between cells: see the class remarks.
+    private const double GutterFactor = 2;
 
     public static List<RichTextParagraph> Project(
         IReadOnlyList<PdfTextLine> lines,
@@ -365,6 +381,10 @@ internal static class PdfModelProjector
         if (smaller > 0 && larger >= smaller * SizeContrast && gap > smaller * ParagraphGapFactor)
             return true;
 
+        // A row of cells: see the class remarks.
+        if (IsRow(previous) || IsRow(line))
+            return true;
+
         if (DetectListMarker(line.Text, out _, out _))
             return true;
 
@@ -384,6 +404,10 @@ internal static class PdfModelProjector
             line.Left <= blockLeft + IndentThreshold &&
             NextWordFits(previous.Right, previous, line, blockRight);
     }
+
+    /// <summary>Whether a line is set as cells, with a gutter between two of its words.</summary>
+    private static bool IsRow(PdfTextLine line) =>
+        line.DominantSize > 0 && line.WidestGap >= line.DominantSize * GutterFactor;
 
     /// <summary>
     /// Whether the first word of <paramref name="line"/> would have fitted on
