@@ -224,10 +224,20 @@ internal sealed class PdfFont
         // was right until a font said otherwise.
         double glyphScale = isType3 ? ReadType3GlyphScale(store, dictionary) : 0.001;
 
+        // Without /Widths a glyph is taken to be half an em - except in Courier,
+        // which is 600 thousandths of the em by definition. Half an em there
+        // measured every run a sixth short, so a till receipt's item names
+        // looked clear of the prices they run under, and a word looked as though
+        // it would have fitted on a line it would not. Helvetica and Times stay
+        // at the half em: their real widths differ letter by letter, and an
+        // estimate per letter is no better.
         Dictionary<uint, double> widths = ReadSimpleWidths(store, dictionary, glyphScale);
         double missingWidth = descriptor is not null && store.Resolve(descriptor["MissingWidth"]) is PdfNumber missing
             ? missing.Value * glyphScale
-            : isType3 ? 0 : 0.5;
+            : isType3 ? 0
+            : PdfStandardFonts.TryParse(StripSubsetPrefix(baseFont), out PdfStandardFont standard) &&
+              PdfStandardFonts.IsFixedPitch(standard) ? 0.6
+            : 0.5;
 
         string? program = DescribeEmbeddedProgram(store, descriptor);
         bool unreadableProgram = program is not null;

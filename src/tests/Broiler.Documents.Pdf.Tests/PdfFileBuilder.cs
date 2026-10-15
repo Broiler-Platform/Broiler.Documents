@@ -288,15 +288,22 @@ internal sealed class PdfFileBuilder
 
     /// <summary>
     /// A one-page document whose single content stream is <paramref name="content"/>,
-    /// using one WinAnsi-encoded Helvetica resource named <c>/F1</c>.
+    /// using one WinAnsi-encoded standard font resource named <c>/F1</c>:
+    /// Helvetica unless <paramref name="baseFont"/> names another, declaring no
+    /// <c>/Widths</c> unless <paramref name="fontEntries"/> adds them.
     /// </summary>
-    public static byte[] SinglePage(string content, string? extraPageEntries = null, string? extraCatalogEntries = null)
+    public static byte[] SinglePage(
+        string content,
+        string? extraPageEntries = null,
+        string? extraCatalogEntries = null,
+        string baseFont = "Helvetica",
+        string? fontEntries = null)
     {
         var builder = new PdfFileBuilder();
         int catalog = builder.Reserve();
         int pages = builder.Reserve();
         int page = builder.Reserve();
-        int font = builder.AddObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        int font = builder.AddObject($"<< /Type /Font /Subtype /Type1 /BaseFont /{baseFont} /Encoding /WinAnsiEncoding{fontEntries} >>");
         int stream = builder.AddStream(string.Empty, content);
 
         builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R{extraCatalogEntries}>>");

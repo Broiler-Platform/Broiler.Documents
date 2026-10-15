@@ -22,9 +22,9 @@ public sealed class PdfType3FontTests
     {
         // The font matrix is a hundredth, so the glyph's 1000 units are 10 points
         // of text space per point of size: 1000 x 0.01 x 12 = 120pt of advance
-        // from x=72, ending at 192 and well past the run that starts at 100.
-        // Measured as thousandths instead, it would end at 84 and leave a
-        // sixteen-point hole for the line assembler to read as a word gap.
+        // from x=72, ending at 192, exactly where the next run starts. Measured
+        // as thousandths instead, it would end at 84 and leave a hole of more
+        // than a hundred points for the line assembler to read as a word gap.
         string text = Text(Read(Document("[0.01 0 0 0.01 0 0]", width: 1000)));
 
         Assert.Contains("Atail", text, StringComparison.Ordinal);
@@ -148,9 +148,12 @@ public sealed class PdfType3FontTests
 
     /// <summary>
     /// One page drawing a single Type 3 glyph for code 65 at x=72, and an
-    /// ordinary Helvetica run at x=100 on the same baseline. Whether the two
-    /// arrive as one word or two is decided by how far the Type 3 glyph is
-    /// measured to advance, which is the whole question.
+    /// ordinary Helvetica run at x=192 on the same baseline - where a glyph
+    /// advancing 120 points ends. Whether the two arrive as one word or two is
+    /// decided by how far the Type 3 glyph is measured to advance, which is the
+    /// whole question. The run used to start at 100, inside that advance; a
+    /// run starting that far back under the one before it is a word of its own,
+    /// so the two would have arrived apart however the glyph was measured.
     /// </summary>
     private static byte[] Document(
         string? matrix,
@@ -204,7 +207,7 @@ public sealed class PdfType3FontTests
         int content = builder.AddStream(
             string.Empty,
             "BT /F3 12 Tf 1 0 0 1 72 700 Tm (A) Tj ET\n" +
-            "BT /F1 12 Tf 1 0 0 1 100 700 Tm (tail) Tj ET\n");
+            "BT /F1 12 Tf 1 0 0 1 192 700 Tm (tail) Tj ET\n");
 
         builder.SetObject(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
         builder.SetObject(pages, $"<< /Type /Pages /Kids [{page} 0 R] /Count 1 >>");
