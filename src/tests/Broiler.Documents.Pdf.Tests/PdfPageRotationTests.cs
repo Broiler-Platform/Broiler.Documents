@@ -1,8 +1,8 @@
 namespace Broiler.Documents.Pdf.Tests;
 
 /// <summary>
-/// Covers pages a viewer turns before showing them, and text drawn turned
-/// against the page it is on.
+/// Covers pages a viewer turns before showing them. Text drawn turned against
+/// the page it is on is <see cref="PdfTurnedTextTests"/>.
 /// </summary>
 /// <remarks>
 /// A landscape page is often a portrait box with <c>/Rotate 90</c>, its content
@@ -39,6 +39,7 @@ public sealed class PdfPageRotationTests
 
         Assert.Equal(Paragraphs, result.Document.Paragraphs.Select(p => p.Text));
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TextOrientationUnsupported);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TextOrientationNotKept);
         Assert.Equal(DocumentResultStatus.Success, result.Status);
     }
 
@@ -93,54 +94,6 @@ public sealed class PdfPageRotationTests
         Assert.Equal(
             ["A1", "B1", "A2", "B2"],
             table.Rows.SelectMany(row => row.Cells).Select(cell => document.Paragraphs[cell.ParagraphIndex].Text));
-    }
-
-    // ---- text turned against its page ---------------------------------------
-
-    [Fact]
-    public void A_Sideways_Label_On_An_Upright_Page_Is_Reported()
-    {
-        // A label running up the margin is set on horizontal lines all the same,
-        // one letter to a line, and the read no longer vouches for it.
-        PdfReadResult result = Read(PdfFileBuilder.SinglePage(
-            PdfFileBuilder.ShowText("The body reads across the page.") +
-            "BT /F1 12 Tf 0 1 -1 0 40 300 Tm (Side ways) Tj ET\n"));
-
-        DocumentDiagnostic note = Assert.Single(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TextOrientationUnsupported);
-        Assert.Equal(DocumentDiagnosticSeverity.Warning, note.Severity);
-        Assert.StartsWith("8 characters of text were drawn turned against the page as it is displayed", note.Message, StringComparison.Ordinal);
-        Assert.EndsWith("On page 1.", note.Message, StringComparison.Ordinal);
-        Assert.Equal(DocumentResultStatus.Partial, result.Status);
-    }
-
-    [Theory]
-    [InlineData("1 0 0 1", false)]
-    [InlineData("0.99996 0.00873 -0.00873 0.99996", false)]
-    [InlineData("0 1 -1 0", true)]
-    [InlineData("0 -1 1 0", true)]
-    [InlineData("-1 0 0 -1", true)]
-    [InlineData("-1 0 0 1", true)]
-    [InlineData("0.9848 0.1736 -0.1736 0.9848", true)]
-    public void Text_Is_Turned_When_It_Runs_Any_Way_But_Across(string matrix, bool turned)
-    {
-        // Upright, and half a degree off it, read across. Sideways either way,
-        // upside down, mirrored, and ten degrees off do not.
-        PdfReadResult result = Read(PdfFileBuilder.SinglePage(
-            PdfFileBuilder.ShowText("The body reads across the page.") +
-            $"BT /F1 12 Tf {matrix} 72 400 Tm (Label) Tj ET\n"));
-
-        Assert.Equal(turned, result.Diagnostics.Any(d => d.Code == PdfDiagnosticCodes.TextOrientationUnsupported));
-    }
-
-    [Fact]
-    public void A_Page_Turned_Only_For_Viewing_Says_Its_Text_Runs_Sideways()
-    {
-        // Upright text on a box a viewer turns reads down the page as it is
-        // displayed. The page is read the way it is shown, and what that does
-        // to its text is said rather than passed off as a success.
-        PdfReadResult result = Read(Page("0 0 595 842", Show("Turned for viewing", 72, 700), " /Rotate 90"));
-
-        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TextOrientationUnsupported);
     }
 
     // ---- fixtures -------------------------------------------------------------

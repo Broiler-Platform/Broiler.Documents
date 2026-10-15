@@ -192,7 +192,8 @@ internal static class PdfReader
             if (!options.IncludeInvisibleText)
                 fragments = FilterVisible(fragments);
 
-            store.Features.NoteTurnedText(TurnedCharacters(fragments), i + 1);
+            (int turned, int scattered) = TurnedCharacters(fragments);
+            store.Features.NoteTurnedText(turned, scattered, i + 1);
 
             // A picture under the whole page is its background rather than part of
             // its flow, which the page's text is what shows; the rest are admitted.
@@ -862,24 +863,62 @@ internal static class PdfReader
 
     /// <summary>
     /// How many characters, spaces aside, a page drew turned against itself as
-    /// displayed, and so set on horizontal lines as if they were not.
+    /// displayed: those read along a baseline, and those drawn a letter at a
+    /// time with each letter turned its own way, which were placed one at a time.
     /// </summary>
-    private static int TurnedCharacters(IReadOnlyList<PdfTextFragment> fragments)
+    /// <remarks>
+    /// A letter is set its own way when it was drawn alone and no other run on
+    /// the page reads the way it does - which is what text set along a curve
+    /// looks like, a letter and a degree or more at a time. One such letter
+    /// reads the same whichever way it faces, and is counted as read. A run
+    /// whose matrix sets no baseline at all has no way to be read along, and is
+    /// counted with the scattered letters.
+    /// </remarks>
+    private static (int Read, int Scattered) TurnedCharacters(IReadOnlyList<PdfTextFragment> fragments)
     {
-        int count = 0;
+        var runs = new Dictionary<PdfTextFrame, int>();
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            if (fragment.IsTurned)
+            {
+                PdfTextFrame frame = PdfReadingOrder.FrameOf(fragment);
+                runs[frame] = runs.GetValueOrDefault(frame) + 1;
+            }
+        }
+
+        if (runs.Count == 0)
+            return (0, 0);
+
+        int read = 0;
+        int lone = 0;
+        int scattered = 0;
         foreach (PdfTextFragment fragment in fragments)
         {
             if (!fragment.IsTurned)
                 continue;
 
+            int letters = 0;
             foreach (char c in fragment.Text)
             {
                 if (!char.IsWhiteSpace(c))
-                    count++;
+                    letters++;
+            }
+
+            if (fragment.Frame == PdfTextFrame.Upright)
+            {
+                scattered += letters;
+            }
+            else if (letters == 1 && runs[PdfReadingOrder.FrameOf(fragment)] == 1)
+            {
+                lone++;
+            }
+            else
+            {
+                read += letters;
             }
         }
 
-        return count;
+        return lone > 1 ? (read, scattered + lone) : (read + lone, scattered);
     }
 
     private static List<PdfTextFragment> FilterVisible(IReadOnlyList<PdfTextFragment> fragments)

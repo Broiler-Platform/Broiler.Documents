@@ -160,8 +160,13 @@ encryption dictionary.
   character map, bare CFF through its charset's glyph names. The glyph names are
   resolved through the codec's one authored glyph-name table. Type 1 and
   CID-keyed CFF stay unread.
-- Text turned against the page (sideways, mirrored, more than about a degree off
-  horizontal) is placed where it lands and reported as
+- Text turned against the page (sideways, upside down, mirrored, more than about
+  a degree off horizontal) is read along its own baseline, into words, lines and
+  paragraphs as upright text is, and reported as `pdf.text.orientation-not-kept`
+  (information): the model holds no text direction, so the text is set upright,
+  and an untagged page reads it after the text that runs the page's main way.
+  Letters drawn one at a time, each turned its own way as along a curve, share
+  no baseline to read along; they are placed where each lands and reported as
   `pdf.text.orientation-unsupported`, so such a read is not a clean success.
 
 ### Reading order and page structure

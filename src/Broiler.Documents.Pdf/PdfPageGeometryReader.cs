@@ -301,21 +301,27 @@ internal sealed class PdfPageGeometryReader
         /// <summary>
         /// The runs' glyphs, from each one's first ink to its last, reaching as
         /// high and as low as a line of that size does. A run of spaces paints
-        /// nothing and moves no edge.
+        /// nothing and moves no edge, and neither does a run turned against the
+        /// way most of the letters read.
         /// </summary>
-        public static Ink Of(IEnumerable<PdfTextFragment> fragments)
+        /// <remarks>
+        /// A label running up the margin - a form's number and version - sits
+        /// in the margin by design, and the margin it sits in is the page's.
+        /// Counted, it took the body's left margin out to the page's edge. It is
+        /// read into the body as a paragraph like any other, and set inside the
+        /// margins the rest of the page states.
+        /// </remarks>
+        public static Ink Of(IReadOnlyList<PdfTextFragment> fragments)
         {
+            PdfTextFrame main = PdfReadingOrder.MainFrame(fragments);
             Ink ink = None;
             foreach (PdfTextFragment fragment in fragments)
             {
-                if (string.IsNullOrWhiteSpace(fragment.Text))
+                if (string.IsNullOrWhiteSpace(fragment.Text) || PdfReadingOrder.FrameOf(fragment) != main)
                     continue;
 
-                ink = ink.Union(new Ink(
-                    Math.Min(fragment.X, fragment.EndX),
-                    fragment.Y - (fragment.FontSize * Descent),
-                    Math.Max(fragment.X, fragment.EndX),
-                    fragment.Y + (fragment.FontSize * Ascent)));
+                (double left, double bottom, double right, double top) = fragment.Box(Descent, Ascent);
+                ink = ink.Union(new Ink(Math.Min(left, right), bottom, Math.Max(left, right), top));
             }
 
             return ink;

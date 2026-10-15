@@ -62,11 +62,11 @@ internal sealed class PdfContentInterpreter(
     /// displayed, as a slope, and still be upright: about one degree.
     /// </summary>
     /// <remarks>
-    /// The reading-order pass sets text on horizontal lines and keeps a line
-    /// together only while its baseline stays within about a third of its size.
-    /// A line of body text leaning further than this has drifted past that before
-    /// it ends, and text turned further still - a sideways label, a slanted
-    /// stamp - is read letter by letter wherever each letter lands.
+    /// The reading-order pass keeps a line together only while its baseline
+    /// stays within about a third of its size. A line of body text leaning
+    /// further than this has drifted past that before it ends, so text turned
+    /// further - a sideways label, a slanted stamp - is measured in a frame of
+    /// its own (<see cref="PdfTextFrame"/>) rather than on the page's.
     /// </remarks>
     private const double MaxUprightSlope = 0.0175;
 
@@ -204,7 +204,11 @@ internal sealed class PdfContentInterpreter(
     private const int MaxPaintedPaths = 4096;
 
     // The run being accumulated; flushed when style, baseline, or spacing breaks.
+    // Its geometry is measured in the frame it reads in - the page's own for
+    // upright text - so a run turned against the page continues along its
+    // baseline the way an upright one does.
     private readonly StringBuilder _runText = new();
+    private PdfTextFrame _runFrame = PdfTextFrame.Upright;
     private double _runStartX;
     private double _runY;
     private double _runEndX;
@@ -681,24 +685,33 @@ internal sealed class PdfContentInterpreter(
 
     private void AppendGlyph(string text, double advance)
     {
+        PdfMatrix combined = _textMatrix.Concat(_state.Matrix);
+        bool turned = IsTurned(combined);
+        PdfTextFrame frame = turned ? PdfTextFrame.Of(combined) : PdfTextFrame.Upright;
         (double x, double y) = CurrentPen();
         double effectiveSize = EffectiveFontSize();
 
-        if (_runOpen && !ContinuesRun(x, y))
+        // A run reads one way. A matrix changed under it mid-string - a `cm`
+        // between two shows - that turns it ends it, wherever the pen is.
+        if (_runOpen && (turned != _runTurned || (turned && frame.Settled != _runFrame.Settled)))
+            FlushRun();
+
+        if (_runOpen && !ContinuesRun(_runFrame.Along(x, y), _runFrame.Across(x, y)))
             FlushRun();
 
         if (!_runOpen)
         {
             _runOpen = true;
             _runText.Clear();
-            _runStartX = x;
-            _runY = y;
+            _runFrame = frame;
+            _runStartX = frame.Along(x, y);
+            _runY = frame.Across(x, y);
             _runState = _state;
             _runFontSize = effectiveSize;
             _runSpaceWidth = SpaceWidth(effectiveSize);
             _runMcid = Mcid;
             _runArtifact = IsArtifact;
-            _runTurned = IsTurned(_textMatrix.Concat(_state.Matrix));
+            _runTurned = turned;
 
             // A run takes its place in the paint order where its first glyph
             // lands. Anything painted before that is under all of it.
@@ -708,7 +721,8 @@ internal sealed class PdfContentInterpreter(
         _store.Budget.ChargeCharacters(text.Length);
         _runText.Append(text);
         AdvanceText(advance);
-        _runEndX = CurrentPen().X;
+        (double endX, double endY) = CurrentPen();
+        _runEndX = _runFrame.Along(endX, endY);
     }
 
     /// <summary>
@@ -720,12 +734,13 @@ internal sealed class PdfContentInterpreter(
 
     // A run continues while the pen stays on the same baseline and has not jumped
     // forward by more than a space: a wider gap is a word or column boundary that
-    // the reading-order pass must see.
-    private bool ContinuesRun(double x, double y)
+    // the reading-order pass must see. Both are measured in the run's own frame,
+    // which for upright text is the page.
+    private bool ContinuesRun(double along, double across)
     {
-        if (Math.Abs(y - _runY) > 0.1)
+        if (Math.Abs(across - _runY) > 0.1)
             return false;
-        double gap = x - _runEndX;
+        double gap = along - _runEndX;
         return gap >= -_runSpaceWidth && gap <= _runSpaceWidth * 0.28;
     }
 
@@ -793,8 +808,12 @@ internal sealed class PdfContentInterpreter(
             _runArtifact,
             _runOrder,
             _runTurned,
-            _runState.ClipLeft,
-            _runState.ClipRight));
+            // The clip is carried as far as it reaches across the page, which
+            // says where a run running across the page stops showing and
+            // nothing about one running any other way.
+            _runFrame == PdfTextFrame.Upright ? _runState.ClipLeft : double.NegativeInfinity,
+            _runFrame == PdfTextFrame.Upright ? _runState.ClipRight : double.PositiveInfinity,
+            _runFrame));
 
         // Reported per run rather than once per document: the sink keeps a single
         // entry either way, and letting it count tells a reader whether one

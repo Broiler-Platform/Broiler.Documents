@@ -89,7 +89,18 @@ internal static class PdfTextDecorations
         // anywhere on the page rather than the size of the run being tested -
         // and the per-run test inside it is unchanged, so the bound costs no
         // match it would otherwise have made.
-        PdfTextFragment[] byBaseline = [.. fragments];
+        //
+        // Only upright runs: a bar is read as a decoration because it runs
+        // along a baseline, and a run turned against the page has no baseline
+        // a horizontal bar can run along.
+        var upright = new List<PdfTextFragment>(fragments.Count);
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            if (!fragment.IsTurned)
+                upright.Add(fragment);
+        }
+
+        PdfTextFragment[] byBaseline = [.. upright];
         Array.Sort(byBaseline, static (left, right) => left.Y.CompareTo(right.Y));
 
         double largest = 0;
