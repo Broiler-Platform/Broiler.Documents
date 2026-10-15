@@ -236,14 +236,33 @@ public static class PdfDiagnosticCodes
     public const string TextOcrRequired = "pdf.text.ocr-required";
 
     /// <summary>
+    /// Text was drawn a letter at a time with each letter turned its own way, as
+    /// text set along a curve is - a seal, the rim of a stamp - and was placed
+    /// one letter at a time, so its words may come back scattered or out of
+    /// order. Raised as a skip: the letters are in the document, and how they
+    /// were drawn was not read.
+    /// </summary>
+    /// <remarks>
+    /// Text turned along a straight baseline - sideways, upside down, mirrored
+    /// or at a slant - used to be reported here too, because it was set on the
+    /// page's horizontal lines and came back a letter at a time. It is read
+    /// along its own baseline now, and reported under
+    /// <see cref="TextOrientationNotKept"/>; a code is API, so this one keeps
+    /// its name for the case that is still not read.
+    /// </remarks>
+    public const string TextOrientationUnsupported = "pdf.text.orientation-unsupported";
+
+    /// <summary>
     /// Text was drawn turned against the page as it is displayed - sideways,
-    /// upside down, mirrored, or at a slant - and was set on horizontal lines all
-    /// the same, so its words may come back scattered or out of order. Raised as
-    /// a skip: the text is in the document, and how it was drawn was not read.
-    /// A page turned whole by its <c>/Rotate</c> entry is read the way it is
+    /// upside down, mirrored, or at a slant - and was read along its own
+    /// baseline, into words, lines and paragraphs as upright text is. The model
+    /// holds no text direction, so the turn is not kept: the text is set
+    /// upright, and where the document does not declare its order it follows
+    /// the text that reads the page's main way. Raised as information. A page
+    /// turned whole by its <c>/Rotate</c> entry is read the way it is
     /// displayed, and its text is not turned against it.
     /// </summary>
-    public const string TextOrientationUnsupported = "pdf.text.orientation-unsupported";
+    public const string TextOrientationNotKept = "pdf.text.orientation-not-kept";
 
     /// <summary>
     /// An embedded font program was detected, and the note says which of four

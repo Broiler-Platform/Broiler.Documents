@@ -215,6 +215,8 @@ internal sealed class PdfFeatureTally
     private int _droppedDestinations;
     private readonly PageSet _turnedTextPages = new();
     private int _turnedCharacters;
+    private readonly PageSet _scatteredTextPages = new();
+    private int _scatteredCharacters;
     private readonly PageSet _hiddenLayerPages = new();
     private int _hiddenLayers;
     private int _undecidableLayers;
@@ -316,15 +318,22 @@ internal sealed class PdfFeatureTally
 
     /// <summary>
     /// Records how many characters a page drew turned against itself as
-    /// displayed, and set on horizontal lines regardless.
+    /// displayed: those read along a baseline of their own, and those drawn a
+    /// letter at a time, each turned its own way, and placed where each landed.
     /// </summary>
-    public void NoteTurnedText(int characters, int? page)
+    public void NoteTurnedText(int read, int scattered, int? page)
     {
-        if (characters <= 0)
-            return;
+        if (read > 0)
+        {
+            _turnedCharacters = _turnedCharacters > int.MaxValue - read ? int.MaxValue : _turnedCharacters + read;
+            _turnedTextPages.Add(page);
+        }
 
-        _turnedCharacters = _turnedCharacters > int.MaxValue - characters ? int.MaxValue : _turnedCharacters + characters;
-        _turnedTextPages.Add(page);
+        if (scattered > 0)
+        {
+            _scatteredCharacters = _scatteredCharacters > int.MaxValue - scattered ? int.MaxValue : _scatteredCharacters + scattered;
+            _scatteredTextPages.Add(page);
+        }
     }
 
     /// <summary>
@@ -630,26 +639,45 @@ internal sealed class PdfFeatureTally
     }
 
     /// <summary>
-    /// Reports the text that was drawn turned against its page and read as if it
-    /// were not. A skip, not a warning: the words are in the document, but where
-    /// they landed is all that was read of them, and a label running up a margin
-    /// comes back as a column of single letters that a Success would vouch for.
+    /// Reports the text that was drawn turned against its page.
     /// </summary>
+    /// <remarks>
+    /// Text turned along a straight baseline was read along it, and only its
+    /// turn is lost, so it is information: the words are all there, in order.
+    /// Letters each turned their own way were placed where each landed, and a
+    /// line set along a curve comes back as letters that a Success would vouch
+    /// for, so those are a skip.
+    /// </remarks>
     private void ReportTurnedText(PdfDiagnosticSink diagnostics)
     {
-        if (_turnedCharacters == 0)
-            return;
+        if (_turnedCharacters > 0)
+        {
+            var text = new StringBuilder();
+            text.Append(CultureInfo.InvariantCulture,
+                $"{_turnedCharacters} character{S(_turnedCharacters)} of text {Were(_turnedCharacters)} drawn turned against the page as it is displayed - sideways, upside down, mirrored or at a slant - ");
+            text.Append(CultureInfo.InvariantCulture,
+                $"and {Were(_turnedCharacters)} read along the baseline {(_turnedCharacters == 1 ? "it was" : "they were")} set on, into words and lines as upright text is. ");
+            text.Append(
+                "The model holds no text direction, so the text is set upright; where the document does not declare " +
+                "its reading order, it follows the text that runs the way most of its page does. A page turned whole " +
+                "by its /Rotate entry is read the way it is displayed and is not counted here.");
+            _turnedTextPages.Append(text);
 
-        var text = new StringBuilder();
-        text.Append(CultureInfo.InvariantCulture,
-            $"{_turnedCharacters} character{S(_turnedCharacters)} of text {Were(_turnedCharacters)} drawn turned against the page as it is displayed - sideways, upside down, mirrored or at a slant. ");
-        text.Append(
-            "This release sets text on horizontal lines, so turned text was placed wherever each piece of it landed, " +
-            "often one letter at a time, and it may read scattered or out of order. A page turned whole by its " +
-            "/Rotate entry is read the way it is displayed and is not counted here.");
-        _turnedTextPages.Append(text);
+            diagnostics.Info(PdfDiagnosticCodes.TextOrientationNotKept, text.ToString());
+        }
 
-        diagnostics.Skipped(PdfDiagnosticCodes.TextOrientationUnsupported, text.ToString());
+        if (_scatteredCharacters > 0)
+        {
+            var text = new StringBuilder();
+            text.Append(CultureInfo.InvariantCulture,
+                $"{_scatteredCharacters} character{S(_scatteredCharacters)} of text {Were(_scatteredCharacters)} drawn a letter at a time, each turned its own way, as text set along a curve is. ");
+            text.Append(
+                "Only text along a straight baseline is read into lines, so each of these letters was placed on its " +
+                "own, and they may read scattered or out of order.");
+            _scatteredTextPages.Append(text);
+
+            diagnostics.Skipped(PdfDiagnosticCodes.TextOrientationUnsupported, text.ToString());
+        }
     }
 
     /// <summary>

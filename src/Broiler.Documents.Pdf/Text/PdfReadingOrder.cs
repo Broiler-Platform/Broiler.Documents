@@ -68,6 +68,13 @@ internal sealed class PdfTextLine(List<PdfTextSpan> spans, double left, double r
     /// </summary>
     public PdfTextColumn? Column { get; set; }
 
+    /// <summary>
+    /// The frame the line reads in. <see cref="Left"/>, <see cref="Right"/>,
+    /// <see cref="Baseline"/> and the column's band are measured in it, so two
+    /// lines are only comparable where they share it.
+    /// </summary>
+    public PdfTextFrame Frame { get; set; } = PdfTextFrame.Upright;
+
     public string Text
     {
         get
@@ -118,6 +125,26 @@ internal sealed record PdfTextColumn(double Left, double Right)
 /// the tree does not fully account for, and for the artifacts it never accounts
 /// for anywhere.
 /// </para>
+/// <para>
+/// <strong>Text turned against the page is read in its own frame.</strong> A
+/// label running up the margin, a heading turned in a narrow column, a stamp
+/// at a slant: each run is measured along and across its own baseline
+/// (<see cref="PdfTextFrame"/>), the runs that read the same way are set into
+/// lines and columns together exactly as upright text is, and every line
+/// carries the frame it was read in. Set on the page's horizontal lines
+/// instead, such text came back a letter at a time, from the top of the page
+/// down - a label running up the margin backwards.
+/// </para>
+/// <para>
+/// The way most of the page's letters read is its main direction, and it is
+/// read first: upright on almost every page, and sideways on a landscape table
+/// set up the length of a portrait page. Text reading any other way follows
+/// it, a frame at a time in the order the page first drew each, because
+/// turned text is nearly always beside the flow rather than in it - a form
+/// number up the margin, a stamp, a watermark - and placed by height it would
+/// land in the middle of a sentence. A tagged document says where its turned
+/// text belongs, and is read in that order instead.
+/// </para>
 /// </remarks>
 internal static class PdfReadingOrder
 {
@@ -139,11 +166,119 @@ internal static class PdfReadingOrder
         if (fragments.Count == 0)
             return lines;
 
-        foreach ((List<PdfTextFragment> runs, PdfTextColumn? column) in SplitColumns(fragments))
+        foreach ((PdfTextFrame frame, List<PdfTextFragment> framed) in ByFrame(fragments))
+        {
+            foreach ((List<PdfTextFragment> runs, PdfTextColumn? column) in SplitColumns(framed))
+            {
+                foreach (PdfTextLine line in BuildColumnLines(runs, links))
+                {
+                    line.Column = column;
+                    line.Frame = frame;
+                    lines.Add(line);
+                }
+            }
+        }
+
+        return lines;
+    }
+
+    /// <summary>
+    /// The frame a run is set into lines in: its own, to the nearest degree,
+    /// where it is turned against the page, and the page's where it is not.
+    /// </summary>
+    public static PdfTextFrame FrameOf(PdfTextFragment fragment) =>
+        fragment.IsTurned ? fragment.Frame.Settled : PdfTextFrame.Upright;
+
+    /// <summary>
+    /// The way most of these runs' letters read: the page's main direction.
+    /// Upright wins a tie, and a page with no letters reads upright.
+    /// </summary>
+    public static PdfTextFrame MainFrame(IReadOnlyList<PdfTextFragment> fragments)
+    {
+        List<(PdfTextFrame Frame, List<PdfTextFragment> Runs)> groups = ByFrame(fragments);
+        return groups.Count == 0 ? PdfTextFrame.Upright : groups[0].Frame;
+    }
+
+    /// <summary>
+    /// The runs grouped by the frame they read in, each group measured in its
+    /// frame (<see cref="PdfTextFragment.InFrame"/>), the main direction first
+    /// and the rest in the order the page first drew a run of each.
+    /// </summary>
+    private static List<(PdfTextFrame Frame, List<PdfTextFragment> Runs)> ByFrame(IReadOnlyList<PdfTextFragment> fragments)
+    {
+        var groups = new List<(PdfTextFrame Frame, List<PdfTextFragment> Runs)>();
+        bool turned = false;
+        foreach (PdfTextFragment fragment in fragments)
+            turned |= fragment.IsTurned;
+
+        // The common page, and the one every page was before text was read in
+        // frames: one group, measured where it lies.
+        if (!turned)
+        {
+            if (fragments.Count > 0)
+                groups.Add((PdfTextFrame.Upright, [.. fragments]));
+            return groups;
+        }
+
+        var indices = new Dictionary<PdfTextFrame, int>();
+        var letters = new List<int>();
+        foreach (PdfTextFragment fragment in fragments)
+        {
+            PdfTextFrame frame = FrameOf(fragment);
+            if (!indices.TryGetValue(frame, out int index))
+            {
+                index = groups.Count;
+                indices[frame] = index;
+                groups.Add((frame, []));
+                letters.Add(0);
+            }
+
+            groups[index].Runs.Add(frame == PdfTextFrame.Upright ? fragment : fragment.InFrame(frame));
+            letters[index] += Letters(fragment.Text);
+        }
+
+        int main = 0;
+        for (int i = 1; i < groups.Count; i++)
+        {
+            if (letters[i] > letters[main] || (letters[i] == letters[main] && groups[i].Frame == PdfTextFrame.Upright))
+                main = i;
+        }
+
+        if (main > 0)
+        {
+            (PdfTextFrame Frame, List<PdfTextFragment> Runs) first = groups[main];
+            groups.RemoveAt(main);
+            groups.Insert(0, first);
+        }
+
+        return groups;
+    }
+
+    /// <summary>How many of a run's characters are not white space.</summary>
+    private static int Letters(string text)
+    {
+        int count = 0;
+        foreach (char c in text)
+        {
+            if (!char.IsWhiteSpace(c))
+                count++;
+        }
+
+        return count;
+    }
+
+    /// <summary>
+    /// <see cref="BuildColumnLines"/> a frame at a time: lines in the order
+    /// <see cref="ByFrame"/> gives the frames, each carrying its own.
+    /// </summary>
+    private static List<PdfTextLine> BuildFramedLines(List<PdfTextFragment> fragments, IReadOnlyList<PdfLinkRegion> links)
+    {
+        var lines = new List<PdfTextLine>();
+        foreach ((PdfTextFrame frame, List<PdfTextFragment> runs) in ByFrame(fragments))
         {
             foreach (PdfTextLine line in BuildColumnLines(runs, links))
             {
-                line.Column = column;
+                line.Frame = frame;
                 lines.Add(line);
             }
         }
@@ -265,7 +400,7 @@ internal static class PdfReadingOrder
             }
 
             if (current is not null)
-                AddKeyed(lines, BuildColumnLines(current, links), currentOrder, currentBlock);
+                AddKeyed(lines, BuildFramedLines(current, links), currentOrder, currentBlock);
 
             current = [.. group];
             currentOrder = at;
@@ -273,7 +408,7 @@ internal static class PdfReadingOrder
         }
 
         if (current is not null)
-            AddKeyed(lines, BuildColumnLines(current, links), currentOrder, currentBlock);
+            AddKeyed(lines, BuildFramedLines(current, links), currentOrder, currentBlock);
 
         if (artifacts.Count == 0)
             return lines;
@@ -311,8 +446,31 @@ internal static class PdfReadingOrder
     /// The limit is what keeps two cells of a borderless table, which also sit
     /// side by side on one baseline and follow one another in declared order,
     /// from being run together. Their gap is a gutter, not a word space.
+    /// Only items that read the same way can share a line, and they are
+    /// measured in the frame they read in.
     /// </remarks>
     private static bool ContinuesLine(List<PdfTextFragment> current, List<PdfTextFragment> next)
+    {
+        PdfTextFrame frame = FrameOf(next[0]);
+        foreach (PdfTextFragment fragment in current)
+        {
+            if (FrameOf(fragment) != frame)
+                return false;
+        }
+
+        foreach (PdfTextFragment fragment in next)
+        {
+            if (FrameOf(fragment) != frame)
+                return false;
+        }
+
+        return frame == PdfTextFrame.Upright
+            ? ContinuesLineIn(current, next)
+            : ContinuesLineIn(current.ConvertAll(f => f.InFrame(frame)), next.ConvertAll(f => f.InFrame(frame)));
+    }
+
+    /// <summary><see cref="ContinuesLine"/>, for items measured in one frame.</summary>
+    private static bool ContinuesLineIn(List<PdfTextFragment> current, List<PdfTextFragment> next)
     {
         // Where the current item stopped: the right end of its lowest line.
         PdfTextFragment last = current[0];
@@ -879,11 +1037,14 @@ internal static class PdfReadingOrder
 
     private static InlineStyle StyleFor(PdfTextFragment fragment, IReadOnlyList<PdfLinkRegion> links)
     {
+        // A link covers part of the page, so a run measured in its own frame is
+        // looked for where it lies on the page.
+        PdfTextFragment onPage = fragment.Source ?? fragment;
         string? href = null;
-        double midX = (fragment.X + fragment.EndX) / 2;
+        double midX = (onPage.X + onPage.EndX) / 2;
         foreach (PdfLinkRegion region in links)
         {
-            if (region.Contains(midX, fragment.Y))
+            if (region.Contains(midX, onPage.Y))
             {
                 href = region.Href;
                 break;

@@ -74,6 +74,14 @@ namespace Broiler.Documents.Pdf.Text;
 /// which loses nothing. Bullets are unambiguous and stay lists.
 /// </para>
 /// <para>
+/// <strong>Lines are compared only within the frame they read in.</strong> A
+/// line of text turned against the page is measured along and across its own
+/// baseline (<see cref="PdfTextLine.Frame"/>), and its edges and baseline mean
+/// nothing beside an upright line's. A change of frame starts a block, and a
+/// picture is placed only by the upright lines, which are measured where the
+/// picture is.
+/// </para>
+/// <para>
 /// Source page boundaries are extraction boundaries by default, not layout: a
 /// caller must ask for page breaks explicitly, and even then the result says that
 /// re-pagination can differ.
@@ -159,7 +167,7 @@ internal static class PdfModelProjector
         }
 
         int[] blocks = Blocks(lines, out List<(double Left, double Right)> extents);
-        Dictionary<int, double> measures = DeclaredMeasures(lines);
+        Dictionary<(int Block, PdfTextFrame Frame), double> measures = DeclaredMeasures(lines);
         (double Left, double Right)[] reach = Reach(lines);
         var pendingLines = new List<PdfTextLine>();
         PdfTextLine? previous = null;
@@ -194,7 +202,8 @@ internal static class PdfModelProjector
                 if (previous?.Column is { } finished && finished != line.Column)
                     FlushRest(finished);
 
-                FlushAbove(line.Baseline, line.Column);
+                if (line.Frame == PdfTextFrame.Upright)
+                    FlushAbove(line.Baseline, line.Column);
             }
 
             rowRight = previous is not null && SameRow(previous, line) ? Math.Max(rowRight, line.Right) : line.Right;
@@ -259,7 +268,8 @@ internal static class PdfModelProjector
 
         foreach (PdfTextLine line in lines)
         {
-            if (line.IsBlank)
+            // A turned line's column is a band of its own frame, not of the page.
+            if (line.IsBlank || line.Frame != PdfTextFrame.Upright)
                 continue;
             if (line.Column is null)
                 return drawnIn;
@@ -315,6 +325,7 @@ internal static class PdfModelProjector
             }
 
             bool continues = previous is not null &&
+                previous.Frame == line.Frame &&
                 previous.Baseline - line.Baseline > 0 &&
                 line.Left < previous.Right &&
                 line.Right > previous.Left;
@@ -340,15 +351,16 @@ internal static class PdfModelProjector
     /// The widest line of each declared block: the measure its own paragraph
     /// was set to, which a heading or a wider column beside it says nothing about.
     /// </summary>
-    private static Dictionary<int, double> DeclaredMeasures(IReadOnlyList<PdfTextLine> lines)
+    private static Dictionary<(int Block, PdfTextFrame Frame), double> DeclaredMeasures(IReadOnlyList<PdfTextLine> lines)
     {
-        var measures = new Dictionary<int, double>();
+        var measures = new Dictionary<(int Block, PdfTextFrame Frame), double>();
         foreach (PdfTextLine line in lines)
         {
             if (line.Block < 0 || line.IsBlank)
                 continue;
 
-            measures[line.Block] = measures.TryGetValue(line.Block, out double right) ? Math.Max(right, line.Right) : line.Right;
+            (int, PdfTextFrame) key = (line.Block, line.Frame);
+            measures[key] = measures.TryGetValue(key, out double right) ? Math.Max(right, line.Right) : line.Right;
         }
 
         return measures;
@@ -356,6 +368,7 @@ internal static class PdfModelProjector
 
     /// <summary>Whether two lines sit on one baseline, as the pieces of one row.</summary>
     private static bool SameRow(PdfTextLine previous, PdfTextLine line) =>
+        previous.Frame == line.Frame &&
         Math.Abs(previous.Baseline - line.Baseline) <= Math.Max(1.0, Math.Max(previous.Height, line.Height) * 0.35);
 
     private static bool StartsNewParagraph(
@@ -365,7 +378,7 @@ internal static class PdfModelProjector
         int previousBlock,
         int block,
         List<(double Left, double Right)> extents,
-        Dictionary<int, double> measures,
+        Dictionary<(int Block, PdfTextFrame Frame), double> measures,
         (double Left, double Right) reach)
     {
         // Where a tagged document declared the block each line belongs to, two
@@ -375,12 +388,15 @@ internal static class PdfModelProjector
         // purpose: a row cut short because the next word was a long address is
         // a wrap, and one that stopped with room to spare for the next word was
         // ended by hand. The model has no line break inside a paragraph, so a
-        // break made by hand is the paragraph break it comes closest to.
+        // break made by hand is the paragraph break it comes closest to. Lines
+        // reading different ways cannot be measured against each other, and
+        // the tree's word that they are one block stands.
         if (line.Block >= 0 && previous.Block >= 0)
         {
             return line.Block != previous.Block ||
-                (line.Baseline < previous.Baseline && !SameRow(previous, line) &&
-                 NextWordFits(rowRight, previous, line, measures[line.Block]));
+                (line.Frame == previous.Frame &&
+                 line.Baseline < previous.Baseline && !SameRow(previous, line) &&
+                 NextWordFits(rowRight, previous, line, measures[(line.Block, line.Frame)]));
         }
 
         // A line that is not in the previous line's block is somewhere else on
@@ -476,29 +492,32 @@ internal static class PdfModelProjector
     /// The column rather than the block, because centered lines are often a
     /// block of their own - a shop's name and address over a receipt, clear of
     /// the tax column beside the item rows - and their own widest line says
-    /// nothing about how wide they could have been.
+    /// nothing about how wide they could have been. Each frame is a page of its
+    /// own here: a turned line's edges are measured along its own baseline, and
+    /// say nothing about how far the upright text reaches.
     /// </remarks>
     private static (double Left, double Right)[] Reach(IReadOnlyList<PdfTextLine> lines)
     {
-        var columns = new Dictionary<PdfTextColumn, (double Left, double Right)>();
-        (double Left, double Right) page = (double.PositiveInfinity, double.NegativeInfinity);
+        var columns = new Dictionary<(PdfTextFrame Frame, PdfTextColumn? Column), (double Left, double Right)>();
 
         foreach (PdfTextLine line in lines)
         {
             if (line.IsBlank)
                 continue;
 
-            if (line.Column is null)
-                page = (Math.Min(page.Left, line.Left), Math.Max(page.Right, line.Right));
-            else if (columns.TryGetValue(line.Column, out (double Left, double Right) column))
-                columns[line.Column] = (Math.Min(column.Left, line.Left), Math.Max(column.Right, line.Right));
-            else
-                columns[line.Column] = (line.Left, line.Right);
+            (PdfTextFrame, PdfTextColumn?) key = (line.Frame, line.Column);
+            columns[key] = columns.TryGetValue(key, out (double Left, double Right) column)
+                ? (Math.Min(column.Left, line.Left), Math.Max(column.Right, line.Right))
+                : (line.Left, line.Right);
         }
 
         var reach = new (double Left, double Right)[lines.Count];
         for (int i = 0; i < lines.Count; i++)
-            reach[i] = lines[i].Column is { } column ? columns.GetValueOrDefault(column, page) : page;
+        {
+            (double Left, double Right) page = columns.GetValueOrDefault(
+                (lines[i].Frame, null), (double.PositiveInfinity, double.NegativeInfinity));
+            reach[i] = lines[i].Column is { } column ? columns.GetValueOrDefault((lines[i].Frame, column), page) : page;
+        }
 
         return reach;
     }

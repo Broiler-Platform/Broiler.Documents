@@ -140,11 +140,12 @@ internal static class PdfPaintedFills
     private static bool Under(in PdfPaintedPath fill, PdfTextFragment fragment)
     {
         double slack = fragment.FontSize * Slack;
+        (double left, double bottom, double right, double top) = fragment.Box(0, BodyHeight);
 
-        return fragment.X >= fill.MinX - slack &&
-            fragment.EndX <= fill.MaxX + slack &&
-            fragment.Y >= fill.MinY - slack &&
-            fragment.Y + (fragment.FontSize * BodyHeight) <= fill.MaxY + slack;
+        return left >= fill.MinX - slack &&
+            right <= fill.MaxX + slack &&
+            bottom >= fill.MinY - slack &&
+            top <= fill.MaxY + slack;
     }
 
     /// <summary>
@@ -178,13 +179,9 @@ internal static class PdfPaintedFills
 
             // A run's box from its baseline down to its descenders and up to
             // its ascenders, which is where its ink can be.
-            double descent = fragment.FontSize * 0.25;
-            double ascent = fragment.FontSize;
-            if (fragment.X < fill.MaxX && fragment.EndX > fill.MinX &&
-                fragment.Y - descent < fill.MaxY && fragment.Y + ascent > fill.MinY)
-            {
+            (double left, double bottom, double right, double top) = fragment.Box(0.25, 1.0);
+            if (left < fill.MaxX && right > fill.MinX && bottom < fill.MaxY && top > fill.MinY)
                 return true;
-            }
         }
 
         return false;
