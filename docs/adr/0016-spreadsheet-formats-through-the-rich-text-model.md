@@ -3,6 +3,19 @@
 **Status:** Proposed; awaiting the project reviewer's adoption
 **Date:** 2026-10-12
 
+## Roadmap follow-up — 2026-10-19
+
+The project reviewer selected both ODS and XLSX for development. This activates
+the model-revisit trigger below: prepare a workbook model proposal for typed
+values, formulas and multiple sheets before implementing those codecs. It does
+not select a model design or adopt this proposed ADR wholesale.
+
+The reviewer also selected plain-text CSV presentation in the Writer. The
+existing CSV codec still maps records to rich-text tables; adapting Writer
+presentation is outstanding work, and the original table-rendering expectation
+for Writer below is superseded. Delimiter preservation, `sep=` handling and TSV
+are deferred. See the [decision record](../notes/roadmap-decisions-2026-10-19.md).
+
 ## Context
 
 Every codec here reads into and writes from one model, `RichTextDocument`, and

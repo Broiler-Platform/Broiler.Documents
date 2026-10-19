@@ -12,12 +12,16 @@ model.
 
 ## At a glance
 
+The [2026-10-19 decision record](notes/roadmap-decisions-2026-10-19.md) records
+the selected scope and deferred questions. Deferred decisions remain open and
+retain their existing gates. Selected features below still need implementation.
+
 | Area | State | Next step |
 |---|---|---|
 | RTF, DOCX, ODT, HTML, Markdown codecs | Preview packages; subsets documented in [notes/](notes/) | Decide the fidelity items below; freeze the API after a consumer review |
 | CSV codec | Preview package; reads one table, writes tables as grids ([notes/csv.md](notes/csv.md)) | Decide its register rows; compose it in the Writer |
 | Formatting Codes projection | Grammar version 1 published | None open in this repository |
-| Rights records | Every RTF, DOCX, ODT, HTML and Markdown row decided; PDF codec rows decided; every CSV row pending | Close the pending PDF source rows and the IP-012 re-opening; decide the CSV rows |
+| Rights records | Every RTF, DOCX, ODT, HTML and Markdown row decided; PDF font embedding and subsetting approved; CSV rows pending | PDF source and CSV decisions deferred; implement the approved IP-012 policy |
 | PDF read | Base slice implemented; read-preview candidate in the Windows and Linux Writer heads and the CLI | Pass the Phase 5 exit gate |
 | PDF write | Writer core for the standard-font subset; no host may save PDF | Phases 6 and 7 |
 | Hardening | PDF fuzz harness (mutation-based) and test-control files exist, mostly empty | Oracles, corpus, coverage-guided fuzzing, performance thresholds |
@@ -37,12 +41,12 @@ model.
 - **Spooling `DocumentInput`.** The type is memory-only on purpose. A
   spooling-capable input needs a policy a host supplies: directory, quota,
   permissions, cleanup, crash recovery and privacy. Nothing ambient.
-- **Save point in the editor history.** The Writer marks a document modified on
-  every change and keeps the mark through undo, even when undo returns to the
-  state last saved. `RichTextEditor` could record the saved snapshot and report
-  whether the current one is it; documents are immutable, so a reference check
-  is enough. Hosts would mark the point on save, which also ends the open typing
-  group.
+- **Use the editor save point in Writer hosts.** `RichTextEditor` now exposes
+  `MarkSaved()` and `IsModified` ([architecture notes](notes/architecture.md)).
+  Wire successful saves to the save point and derive the host's modified mark
+  from it, including after undo/redo. An asynchronous save must mark only the
+  snapshot actually written. The model implementation does not change Writer UI
+  behavior by itself.
 - **Write commit policy.** `DocumentWriteRequest` carries document, destination,
   options and cancellation. It has no staging or `RequireAtomic` member yet. The
   PDF writer integration needs one (see [Phase 7](#writer-and-output-integration-phase-7)).
@@ -51,8 +55,8 @@ model.
 
 Each item needs conformance fixtures and explicit diagnostics before it lands.
 
-- **RTF lists and style sheets.** Decide whether list-table detection and
-  style-sheet interpretation join the supported subset. Today both are skipped
+- **RTF style sheets — selected 2026-10-19.** Implement style-sheet
+  interpretation in the supported subset. Style sheets remain skipped
   destinations ([notes/rtf.md](notes/rtf.md)).
 - **HTML list writing.** The writer keeps indentation and reports `html.list`
   instead of emitting list structure.
@@ -66,10 +70,11 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **HTML page header convention.** LibreOffice writes a page header as
   `<div title="header">`, and the reader treats it as body content. Decide
   whether to map it to `RunningContent`.
-- **Pictures from HTML and Markdown.** Neither reader builds a model image:
-  `<img>` is skipped and `![description](src)` becomes its description. Building
-  them needs a decision on what a reader may do with a `data:` payload. That is a
-  resource-policy question, not a parsing one.
+- **Pictures from HTML and Markdown — selected 2026-10-19.** Implement embedded
+  images, including `data:` payloads, with user consent required before display.
+  Hosts must ask before displaying an embedded image; resource limits remain
+  applicable. Neither reader builds a model image today: `<img>` is skipped and
+  `![description](src)` becomes its description. Relative-link policy is deferred.
 - **Nested list markers through RTF.** In the office suite, LibreOffice's text
   projection and `broilerdoc dump` disagree on the marker of a nested level
   (`◦` against `•`). Find out which side is right.
@@ -82,14 +87,13 @@ it does is in [notes/csv.md](notes/csv.md).
 
 - **Compose CSV in the Writer.** It needs a preview release carrying
   `Broiler.Documents.Csv`, an open and save filter under the register's proposed
-  labels, and a decision on how the Writer draws a table that states no borders.
+  labels, and plain-text presentation, selected 2026-10-19. Show CSV as plain
+  text rather than a rendered table; the existing codec still maps CSV to tables.
+  Delimiter preservation and `sep=` handling decisions are deferred.
 - **Carry the dialect.** A file read with semicolons is saved with commas unless
   the caller asks again, and the read result does not say which delimiter was
   found. A host that saves back what it opened needs it, probably on a CSV read
   result the way PDF has its own.
-- **Command-line options for CSV.** The CLI reads with detection and writes with
-  the defaults. Delimiter, header row, byte-order mark and formula escaping have
-  no flags yet.
 - **Media-type parameters.** `header=present` and `charset` on a hint are ignored.
   Reading them needs the hint to reach the read, which today it does not.
 - **`sep=` lines.** Some spreadsheets write a first line naming the delimiter. It
@@ -98,9 +102,9 @@ it does is in [notes/csv.md](notes/csv.md).
 - **Tab-separated values** as a format of their own (`.tsv`,
   `text/tab-separated-values`, whose registration forbids tabs in values rather
   than quoting them).
-- **XLSX and ODS.** Either one is the trigger ADR 0016 names for revisiting a
-  spreadsheet model: typed values, formulas and several sheets need somewhere to
-  go. Decide the model before writing the codec.
+- **XLSX and ODS — both selected 2026-10-19.** Revisit the spreadsheet model
+  under ADR 0016: typed values, formulas and several sheets need somewhere to go.
+  Prepare the model design before writing the codecs. TSV is deferred.
 - **Corpus and office coverage.** CSV is not in the corpus suite's format list,
   and the office suite has no CSV seed. LibreOffice can write CSV from a seed,
   which would give the reader input it did not write itself.
@@ -131,9 +135,11 @@ The standard of review and the state of every register are summarized in
   access when the evidence was assembled. CSV-SRC-002 asks whether the shared
   Windows-1252 table, which RTF has carried without a row, needs a source row at
   all.
-- **IP-012 re-opening for font embedding**, requested 2026-09-03. No code writes
-  a font program into a PDF until it moves, which blocks the writer's non-Latin
-  path. Brief: [ip/briefs/ip-012-font-embedding.md](ip/briefs/ip-012-font-embedding.md).
+- **Implement the IP-012 font policy**, widened 2026-10-19 to approve general
+  caller-supplied font embedding and subsetting while respecting `fsType`.
+  Carry caller permissions and generated-document obligations through the writer;
+  approval does not complete the implementation or release gates.
+  Record: [ip/briefs/ip-012-font-embedding.md](ip/briefs/ip-012-font-embedding.md).
 - **Similarity reviews marked "Pending review"** in the approved-sources log: the
   bare-CFF reader, the JBIG2 arithmetic decoders, the JPEG 2000 decoder, masks as
   alpha, the ICC reader, encryption ordering, the standard security handler and
@@ -350,7 +356,7 @@ output is byte-identical across runs. Integration has not started.
   and limits before the first destination byte, consuming `PaginatedDocument`
   without re-measuring.
 - **Unicode output.** Type 0 fonts, subsets, widths and `ToUnicode` maps. Blocked
-  on Phase 6 and the IP-012 re-opening.
+  on Phase 6 and implementation of the approved IP-012 font policy.
 - **Images.** Inline raster images, newly encoded with Flate. Byte-preserving DCT
   only where the resource policy allows it, with the bounded inspection re-run
   immediately before embedding. No JPEG encoder and no transcoding.
@@ -454,12 +460,12 @@ Each needs its own approval and does not block V1.
 
 ## Test suites and tooling
 
-- **Classify the open office-baseline rows.** Seven render rows in
+- **Fix the open office-baseline rows — selected 2026-10-19.** Seven render rows in
   `tests/office/office-baseline.json` are still `suspected-defect`: three for
   `letterhead-frames`, four for `line-break-within-paragraph`. Their notes say the
   defects behind them are fixed and what remains is ordinary disagreement between
-  two layout engines. Each needs a reviewer's `documented` or `accepted` decision,
-  or a fix.
+  two layout engines. The reviewer chose further fixes; keep these rows open
+  rather than classifying them as `documented` or `accepted` differences.
 - **Long-document line height.** The office suite's `long-flow-multipage` seed
   reaches `severe` on the blurred difference while coverage stays `close`: a
   small per-line leading difference accumulates over pages. This is in the CLI's
@@ -467,9 +473,12 @@ Each needs its own approval and does not block V1.
 - **Foreign documents.** `tests/corpus/external-sources.json` has no rows, so the
   corpus suite never reads a document written outside this project. Each source
   needs an approved row with licence, permitted use, reviewer and pinned hash.
-- **Sustained fuzzing for every untrusted-input parser.** Only PDF has a fuzz
-  harness. RTF, DOCX, ODT, HTML, Markdown and CSV need property or fuzz coverage, plus
-  allocation and performance baselines.
+- **Sustained fuzzing for every untrusted-input parser.** PDF has a campaign
+  harness. RTF, DOCX, ODT, HTML, Markdown and CSV now have deterministic
+  [parser robustness regressions](guides/parser-robustness.md), including CSV
+  normalization properties and the existing RTF fuzz tests. Sustained campaigns,
+  allocation and performance baselines remain open; the unit regressions do not
+  satisfy those gates.
 
 ## Stable release
 

@@ -75,6 +75,29 @@ CSV needs `--from csv`. A CSV file reads as one table, and writing CSV writes
 every table as its grid and every other paragraph as a one-field record. See
 [the CSV note](../notes/csv.md).
 
+CSV options apply only when a CSV codec reads or writes; they do not force format
+selection or change other codecs:
+
+| Option | Meaning |
+| --- | --- |
+| `--csv-read-delimiter <separator>` | Override input detection. |
+| `--csv-header` | Mark the first CSV input record as a header row. |
+| `--csv-write-delimiter <separator>` | Output separator; defaults to comma. |
+| `--csv-bom` | Write a UTF-8 byte-order mark; off by default. |
+| `--csv-escape-formulas` | Prefix formula-like output fields with an apostrophe; off by default because it changes values. |
+
+A separator is one character other than a quote, CR or LF, or the name `comma`,
+`semicolon` or `tab`. Quote shell-sensitive values such as `';'` or `'|'`.
+Input and output separators are independent; the detected input dialect is not
+preserved automatically. `roundtrip --via csv` rereads with the output separator
+and the `--csv-header` setting. Formula escaping can therefore produce an
+expected roundtrip difference. Using `tab` still writes CSV quoting rules and
+does not register TSV as a separate format.
+
+```bash
+broilerdoc convert input.csv --out output.csv --csv-read-delimiter semicolon --csv-write-delimiter comma --csv-bom
+```
+
 ## Exit codes
 
 The split that matters is between `5` and everything above it. A comparison that

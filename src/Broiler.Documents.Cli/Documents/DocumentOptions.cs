@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Resources;
+using Broiler.Documents.Csv;
+using Broiler.Documents.Cli.Composition;
 
 namespace Broiler.Documents.Cli.Documents;
 
@@ -21,6 +23,8 @@ public static class DocumentOptions
     public static OptionSpec[] Specs { get; } =
     [
         OptionSpec.Value("from", "format", "Read as this format instead of probing the content."),
+        OptionSpec.Value("csv-read-delimiter", "separator", "CSV input separator: one character, comma, semicolon, or tab. Omit to detect."),
+        OptionSpec.Flag("csv-header", "Treat the first CSV input record as a header row."),
         OptionSpec.Value("max-bytes","n","Largest document accepted, in bytes.",DocumentLimits.DefaultMaxDocumentBytes.ToString()),
         OptionSpec.Value("max-paragraphs","n","Largest paragraph count accepted.",DocumentLimits.DefaultMaxParagraphCount.ToString()),
         OptionSpec.Value("code-page","n","Fallback code page for RTF documents that declare none.",DocumentReadOptions.Windows1252CodePage.ToString()),
@@ -34,7 +38,38 @@ public static class DocumentOptions
     [
         OptionSpec.Value("to", "format", "Write this format instead of inferring it from the output extension."),
         OptionSpec.Flag("raw-unicode", "Ask writers to emit non-ASCII characters directly rather than escaping them."),
+        OptionSpec.Value("csv-write-delimiter", "separator", "CSV output separator: one character, comma, semicolon, or tab.", "comma"),
+        OptionSpec.Flag("csv-bom", "Start CSV output with a UTF-8 byte-order mark."),
+        OptionSpec.Flag("csv-escape-formulas", "Prefix formula-like CSV output fields with an apostrophe; changes field values."),
     ];
+
+    /// <summary>Composes per-command CSV settings without passing them to other codecs.</summary>
+    public static DocumentCodecCatalog CreateCatalogFrom(CommandLine line) =>
+        CodecComposition.CreateCatalog(PdfPasswordFrom(line),
+            new CsvReadOptions(delimiter: CsvDelimiterFrom(line, "csv-read-delimiter"), hasHeaderRow: line.Has("csv-header")),
+            CsvWriteOptionsFrom(line));
+
+    /// <summary>CSV output settings; omitted flags retain the codec defaults.</summary>
+    public static CsvWriteOptions CsvWriteOptionsFrom(CommandLine line) =>
+        new(delimiter: CsvDelimiterFrom(line, "csv-write-delimiter") ?? ',',
+            byteOrderMark: line.Has("csv-bom"), escapeFormulas: line.Has("csv-escape-formulas"));
+
+    private static char? CsvDelimiterFrom(CommandLine line, string name)
+    {
+        string? value = line.Get(name);
+        if (value is null)
+            return null;
+        value = value.ToLowerInvariant() switch
+        {
+            "comma" => ",",
+            "semicolon" => ";",
+            "tab" => "\t",
+            _ => value,
+        };
+        if (value.Length != 1 || value[0] is '"' or '\r' or '\n')
+            throw new UsageException("--" + name + " expects one character other than a quote or line break, or comma, semicolon, tab.");
+        return value[0];
+    }
 
     public static DocumentReadOptions ReadOptionsFrom(CommandLine line)
     {

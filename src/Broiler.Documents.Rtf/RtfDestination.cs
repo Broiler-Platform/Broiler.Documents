@@ -9,6 +9,9 @@ internal enum RtfDestination
     /// <summary>An unknown or intentionally ignored destination — its text is dropped.</summary>
     Skip,
 
+    /// <summary>An unsupported list table; its entire subtree stays opaque.</summary>
+    ListTable,
+
     /// <summary>The <c>\fonttbl</c> destination.</summary>
     FontTable,
 

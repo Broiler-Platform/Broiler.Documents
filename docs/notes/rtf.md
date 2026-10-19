@@ -159,7 +159,8 @@ the page geometry above. The character-set words `\ansi`, `\mac`, `\pc` and
 font's `\fcharsetN`, or from the caller's default, and nothing else sets it.
 Shape properties other than the seven named above are ignored as well.
 List markup does not set `ListKind` in this release (it stays `None`); list
-tables are skipped destinations.
+tables are detected and skipped as described below. Numbering, restarts and
+nested marker reconstruction are not implemented.
 
 ## Skipped destinations — content dropped
 
@@ -170,10 +171,19 @@ reader does not compose is owed an answer to the question rather than a note
 about the document. Skipped with them are the following non-content
 destinations: `\info` `\stylesheet` `\footnote` `\annotation`
 `\colorschememapping` `\latentstyles` `\datastore` `\themedata` `\generator`
-`\listtable` `\listoverridetable` `\revtbl` `\pntext`, plus any unknown
+`\revtbl` `\pntext`, plus any unknown
 ignorable destination introduced by `\*` - `\*\shpinst` excepted, since the
 reader understands that one. `\binN` binary data is skipped at the tokenizer
 (reported as `rtf.bin` when it exceeds `MaxBinBytes`).
+
+`\listtable` and `\listoverridetable`, with or without `\*`, are detected
+and skipped. They produce one warning, `rtf.list`, per read, so the read status
+is `Partial`. The warning reports unsupported list semantics; it does not claim
+that the table is valid or referenced by a body paragraph. The whole subtree
+stays opaque: nested fields, running content, formatting and font tables cannot
+leak into or change the body. Text before and after a closed table is preserved.
+Truncated tables remain skipped, and the existing tokenizer byte and nesting
+limits still apply. This is detection, not list-table interpretation.
 
 `\header` and `\footer` are not on that list. Their content goes to the
 document's running content (above): none of it reaches the body, and none of it

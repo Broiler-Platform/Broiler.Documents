@@ -1,5 +1,10 @@
 # Broiler.Documents.Csv Conformance
 
+**Writer presentation decision, 2026-10-19:** show CSV as plain text. This is
+planned host behaviour, not an implemented codec change; the table mapping
+documented below remains current. See the
+[decision record](roadmap-decisions-2026-10-19.md) and [roadmap](../roadmap.md).
+
 `Broiler.Documents.Csv` reads comma-separated values into a table in the
 rich-text model and writes tables back out, through the same `DocumentCodec`
 contract as every other format. It has no DOM, UI, OS, or third-party
@@ -208,6 +213,15 @@ text. The codes are the constants on `CsvDiagnosticCodes`.
   are not registered; a tab-separated file named `.csv` is read correctly.
 - The table carries no borders, because the file states none. A host that wants
   a grid drawn styles it.
+
+## Command line
+
+The CLI exposes the existing options as `--csv-read-delimiter`, `--csv-header`,
+`--csv-write-delimiter`, `--csv-bom` and `--csv-escape-formulas`. Settings are
+scoped to CSV in the command's catalog; other formats still receive shared
+options. Defaults are unchanged. Roundtrip rereads use the output delimiter,
+not the original input delimiter. See the [CLI guide](../guides/cli.md) for
+syntax and the value-changing effect of formula escaping.
 
 ## Standards and rights
 

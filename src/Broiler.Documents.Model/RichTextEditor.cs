@@ -25,6 +25,7 @@ public sealed class RichTextEditor
     private readonly List<RichTextTransaction> _redo = [];
     private InlineStyleDelta? _pendingInline;
     private KeyboardRun _run;
+    private RichTextDocument _savedDocument;
 
     /// <summary>The kind of keyboard edit the newest transaction may still absorb.</summary>
     private enum KeyboardRun
@@ -42,10 +43,32 @@ public sealed class RichTextEditor
 
         MaxHistoryDepth = maxHistoryDepth;
         Document = document ?? RichTextDocument.Empty;
+        _savedDocument = Document;
         Selection = RichTextRange.Caret(RichTextDocument.Start);
     }
 
     public RichTextDocument Document { get; private set; }
+
+    /// <summary>Whether the current document differs from the saved snapshot.</summary>
+    /// <remarks>
+    /// Construction and loading establish an unmodified baseline. Only document
+    /// identity is compared: selection and pending typing style do not count as
+    /// edits, and independently recreating the same content does not count as
+    /// returning to the saved snapshot. Undo and redo can restore that snapshot.
+    /// </remarks>
+    public bool IsModified => !ReferenceEquals(Document, _savedDocument);
+
+    /// <summary>Marks the current document as saved and ends the open keyboard undo group.</summary>
+    /// <remarks>
+    /// Call after successfully saving the current document, not when a save
+    /// starts or fails. This does not clear undo or redo history. If saving is
+    /// asynchronous, the host must ensure this is still the document it saved.
+    /// </remarks>
+    public void MarkSaved()
+    {
+        _savedDocument = Document;
+        BreakUndoGroup();
+    }
 
     public RichTextRange Selection { get; private set; }
 
@@ -477,10 +500,11 @@ public sealed class RichTextEditor
 
     public string GetPlainText() => Document.PlainText;
 
-    /// <summary>Replaces the document, resetting selection and history.</summary>
+    /// <summary>Replaces the document, resetting selection, history and the saved baseline.</summary>
     public void LoadDocument(RichTextDocument document)
     {
         Document = document ?? RichTextDocument.Empty;
+        _savedDocument = Document;
         Selection = RichTextRange.Caret(RichTextDocument.Start);
         _undo.Clear();
         _redo.Clear();
@@ -488,10 +512,11 @@ public sealed class RichTextEditor
         _run = KeyboardRun.None;
     }
 
-    /// <summary>Replaces the document with plain text and resets selection and history.</summary>
+    /// <summary>Replaces the document with plain text and resets selection, history and the saved baseline.</summary>
     public void LoadPlainText(string? text)
     {
         Document = RichTextDocument.FromPlainText(text);
+        _savedDocument = Document;
         Selection = RichTextRange.Caret(RichTextDocument.Start);
         _undo.Clear();
         _redo.Clear();

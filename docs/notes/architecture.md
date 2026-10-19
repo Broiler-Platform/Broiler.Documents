@@ -181,6 +181,22 @@ by ADR 0008).
   selection change, other edit, undo, redo, pending style, or a host's
   `BreakUndoGroup` call. `InsertText`, which paste uses, never joins. The depth
   bound (100 by default) counts transactions, not keystrokes.
+- **Save point.** `RichTextEditor.MarkSaved()` records the current immutable
+  document and ends the keyboard undo group without clearing history.
+  `IsModified` compares the current document with that snapshot by reference,
+  so undo/redo can return to an unmodified state. Selection and pending typing
+  style do not count; independently recreating identical text does. Construction,
+  `LoadDocument` and `LoadPlainText` establish an unmodified baseline. Hosts mark
+  saved only after a successful save of the current snapshot; asynchronous saves
+  must ensure the editor still holds the document that was written. Writer UI
+  integration remains open.
+
+The paginator anchors a footer's complete line block at `PageGeometry.FooterDistance`
+above the bottom edge of the effective page box. Without document page geometry,
+it centres the block in the bottom margin. An invalid distance or a block that
+cannot fit at that distance is diagnosed and omitted rather than drawn over the
+body. Header text still uses centred placement. Running content does not appear
+in continuous layout.
 
 ## Graphics and Media prerequisites
 

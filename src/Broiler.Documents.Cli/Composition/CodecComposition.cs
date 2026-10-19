@@ -58,7 +58,8 @@ public static class CodecComposition
     /// The password <c>--password-file</c> gave this run, handed to the PDF codec
     /// alone; null reads an encrypted PDF only when it needs no password.
     /// </param>
-    public static DocumentCodecCatalog CreateCatalog(string? pdfPassword = null)
+    public static DocumentCodecCatalog CreateCatalog(string? pdfPassword = null,
+        CsvReadOptions? csvReadOptions = null, CsvWriteOptions? csvWriteOptions = null)
     {
         DocumentCodec pdf = new ReadOnlyCodec(new PdfDocumentCodec(CreatePdfServices()));
         if (pdfPassword is not null)
@@ -70,7 +71,7 @@ public static class CodecComposition
             new RtfDocumentCodec(),
             new HtmlDocumentCodec(),
             new MarkdownDocumentCodec(),
-            new CsvDocumentCodec(),
+            new ConfiguredCsvCodec(csvReadOptions ?? CsvReadOptions.Default, csvWriteOptions ?? CsvWriteOptions.Default),
             pdf,
         ]);
     }

@@ -80,7 +80,7 @@ public static class RoundtripCommand
         if (formats.Count == 0)
             throw new UsageException("Give at least one --via format to round-trip through.");
 
-        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog(DocumentOptions.PdfPasswordFrom(context.Line));
+        DocumentCodecCatalog catalog = DocumentOptions.CreateCatalogFrom(context.Line);
         DocumentReadOptions readOptions = DocumentOptions.ReadOptionsFrom(context.Line);
         LoadedDocument original = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"));
 
@@ -187,7 +187,13 @@ public static class RoundtripCommand
         string? keptPath = KeepIfAsked(context, codec, bytes, source);
 
         using DocumentInput input = DocumentInput.FromBytes(bytes);
-        DocumentReadResult reread = codec.Read(new DocumentReadRequest(input, readOptions));
+        // The intermediate file uses the output dialect, independently of the
+        // original input delimiter (which may even be a different format).
+        DocumentReadOptions rereadOptions = codec.Descriptor.MatchesExtension(".csv")
+            ? new Broiler.Documents.Csv.CsvReadOptions(readOptions.Limits,
+                DocumentOptions.CsvWriteOptionsFrom(context.Line).Delimiter, context.Line.Has("csv-header"))
+            : readOptions;
+        DocumentReadResult reread = codec.Read(new DocumentReadRequest(input, rereadOptions));
 
         DocumentReport.Print(context, reread.Diagnostics, "  read diagnostics");
 

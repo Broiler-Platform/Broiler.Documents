@@ -118,6 +118,75 @@ public sealed class DocumentLayoutRunningContentTests
         Assert.Equal(before.Top, after.Top, 3);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(12)]
+    [InlineData(36)]
+    public void A_Docx_Footer_Ends_At_Its_Declared_Distance_From_The_Page_Edge(double distance)
+    {
+        var geometry = new PageGeometry(600, 800, 72, 72, 72, 72, 24, distance);
+        RichTextDocument document = WithRunning("body", null, "page number")
+            .WithPageGeometry(geometry);
+        using var stream = new MemoryStream();
+        var codec = new Broiler.Documents.Docx.DocxDocumentCodec();
+        codec.Write(document, stream);
+        stream.Position = 0;
+        RichTextDocument imported = codec.Read(stream).Document;
+        LayoutResult result = Layout(imported);
+        LayoutLine footer = Assert.IsType<LayoutLine>(Line(result, "page number"));
+
+        Assert.Equal(result.Setup.HeightPoints - distance, footer.Top + footer.Height, 3);
+    }
+
+    [Fact]
+    public void Multiple_Footer_Lines_Are_Anchored_As_One_Block()
+    {
+        RichTextDocument document = RichTextDocument.FromPlainText("body")
+            .WithPageGeometry(PageGeometry.A4 with { FooterDistance = 12 })
+            .WithRunningContent(RunningContent.Empty.WithFooter(PageSelection.Default,
+                [RichTextParagraph.Plain("footer first"), RichTextParagraph.Plain("footer last")]));
+        LayoutResult result = Layout(document);
+        LayoutLine first = Assert.IsType<LayoutLine>(Line(result, "footer first"));
+        LayoutLine last = Assert.IsType<LayoutLine>(Line(result, "footer last"));
+        Assert.Equal(first.Top + first.Height, last.Top, 3);
+        Assert.Equal(result.Setup.HeightPoints - 12, last.Top + last.Height, 3);
+    }
+
+    [Fact]
+    public void A_Footer_That_Cannot_Fit_At_Its_Distance_Is_Reported()
+    {
+        RichTextDocument document = WithRunning("body", null, "footer")
+            .WithPageGeometry(PageGeometry.A4 with { FooterDistance = 72 });
+        LayoutResult result = Layout(document);
+        Assert.Null(Line(result, "footer"));
+        Assert.Contains(result.Notes, note => note.Contains("footer", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void An_Invalid_Footer_Distance_Does_Not_Produce_Invalid_Coordinates(double distance)
+    {
+        LayoutResult result = Layout(WithRunning("body", null, "footer")
+            .WithPageGeometry(PageGeometry.A4 with { FooterDistance = distance }));
+        Assert.Null(Line(result, "footer"));
+        Assert.Contains(result.Notes, note => note.Contains("declared distance", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_Reused_Layout_Does_Not_Keep_The_Previous_Documents_Footer_Distance()
+    {
+        using var images = new ImageStore();
+        var layout = new DocumentLayout(new LayoutSettings(), images);
+        RichTextDocument plain = WithRunning("body", null, "footer");
+        layout.Layout(plain.WithPageGeometry(PageGeometry.A4 with { FooterDistance = 12 }), PageSetup.Default);
+        LayoutResult result = layout.Layout(plain, PageSetup.Default);
+        LayoutLine footer = Assert.IsType<LayoutLine>(Line(result, "footer"));
+        Assert.Equal(result.Setup.HeightPoints - result.Setup.MarginBottomPoints / 2,
+            footer.Top + footer.Height / 2, 3);
+    }
+
     [Fact]
     public void A_Continuous_Render_Draws_No_Running_Content()
     {

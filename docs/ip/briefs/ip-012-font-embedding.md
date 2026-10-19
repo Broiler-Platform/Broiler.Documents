@@ -1,7 +1,27 @@
 # IP-012 Re-opening Brief: Embedding A Caller's Font Into Output
 
-**Status:** Open question, written up for decision. Nothing here is a decision,
-and nothing here is legal advice.
+**Status:** Decided 2026-10-19 by the project reviewer: approve general
+caller-supplied font embedding and subsetting, respecting `OS/2.fsType`.
+
+## Recorded decision — 2026-10-19
+
+Both embedding and subsetting are approved as general functionality. Enforce
+the `fsType` flags, including restricted embedding, no-subsetting and bitmap-only
+restrictions. Existing fail-closed caller permission checks and handling of
+generated-document obligations remain applicable; this approval does not grant
+rights to any individual font or authorize re-embedding imported fonts.
+
+The existing V1 TrueType scope remains; CFF/CFF2 output is still a later track.
+Implementation jurisdictions and the expiry/review date are deferred. Phase 6
+and Phase 7 implementation and release gates remain open, and this decision does
+not itself enable `CanWrite`.
+
+The sections below preserve the pre-decision brief and its alternatives as
+historical rationale; statements that the re-opening is pending are superseded
+by this recorded decision and the updated IP-012 register row.
+
+## Original brief — 2026-09-03
+
 **Who may decide it.** The project reviewer, under the register's evidence-based
 standard — but see §3, which argues this row is a different *kind* of question
 from every other one in the register and may want a different standard applied

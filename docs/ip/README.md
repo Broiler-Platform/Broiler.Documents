@@ -10,7 +10,7 @@ are tracked in the [roadmap](../roadmap.md#rights-and-provenance).
 | [pdf-approved-sources.md](pdf-approved-sources.md) | Sources PDF code may be written from, and the similarity-review log |
 | [pdf-corpus-manifest.json](pdf-corpus-manifest.json), [schema](pdf-corpus-manifest.schema.json) | Provenance and rights for every PDF fixture. Empty: every test PDF is generated in code |
 | [briefs/src-017-normative-tables.md](briefs/src-017-normative-tables.md) | Whether normative code tables (T.4/T.6, CFF strings, T.88, T.800) may be reproduced |
-| [briefs/ip-012-font-embedding.md](briefs/ip-012-font-embedding.md) | Re-opening IP-012 so the writer may embed a caller's font |
+| [briefs/ip-012-font-embedding.md](briefs/ip-012-font-embedding.md) | IP-012 embedding and subsetting decision, approved 2026-10-19 with fsType enforcement |
 | [briefs/font-path.md](briefs/font-path.md) | How the writer gets a font: caller-configured, nothing bundled (decided 2026-09-02) |
 
 ## Standard of review
@@ -46,7 +46,7 @@ though the ADR itself is still marked *Proposed*.
 | [HTML](html.md) | Two independent royalty-free patent policies (W3C, WHATWG); parsing is covered by Broiler.DOM's own register | Every row decided |
 | [Markdown](markdown.md) | No instrument at all; assessed on absence | Every row decided |
 | [CSV](csv.md) | An Informational RFC with no obligations, and conventions with no owner | Evidence assembled 2026-10-12; **every row pending**, including an IPR disclosure search still to be made by hand |
-| [PDF](pdf.md) | Adobe's ISO 32000-1 public patent licence, plus a row per referenced technology | Every construct, filter and codec row decided; source rows SRC-016 to SRC-019 and SRC-024 to SRC-026, and the IP-012 re-opening, pending |
+| [PDF](pdf.md) | Adobe's ISO 32000-1 public patent licence, plus a row per referenced technology | Every construct, filter and codec row decided; IP-012 embedding and subsetting approved 2026-10-19; source rows SRC-016 to SRC-019 and SRC-024 to SRC-026 pending (decisions deferred) |
 
 Worth keeping in view:
 

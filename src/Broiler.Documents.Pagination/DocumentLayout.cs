@@ -46,6 +46,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private readonly LineWrapper _lineWrapper = new(settings.TabStopPoints);
     private readonly List<string> _notes = [];
     private RunningContent _running = RunningContent.Empty;
+    private double? _footerDistance;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
@@ -69,6 +70,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // pages for a header to repeat on and no bottom margin for a footer to sit
         // in. Drawing them there would put a page number in the middle of nothing.
         _running = setup.Continuous ? RunningContent.Empty : document.RunningContent;
+        _footerDistance = document.PageGeometry?.FooterDistance;
         _documentShapes = document.Shapes;
         _paragraphTops.Clear();
         _wrap = new TextWrapExclusions();
@@ -260,7 +262,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             _running.EffectiveFooter(selection),
             setup,
             top: setup.ContentTopPoints + setup.ContentHeightPoints,
-            band: setup.MarginBottomPoints));
+            band: setup.MarginBottomPoints,
+            bottomDistance: _footerDistance));
 
         // One list and one ordering across the body and the running bands, because
         // that is how the formats state it: a letterhead's stripe is anchored in
@@ -581,12 +584,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
-    /// Lays a header or footer out inside the margin band it belongs to, centred
-    /// in it. The model carries no header distance - no reader produces one - so
-    /// this is a convention rather than a setting. A block taller than its band is
-    /// reported instead of being drawn across the body.
+    /// Lays running content inside its margin band. A footer with a declared
+    /// distance is anchored by the bottom of its line block; otherwise the block
+    /// is centred as before. Content that cannot fit is reported, not drawn
+    /// across the body. Header distance placement remains separate work.
     /// </summary>
-    private List<LayoutLine> RunningLines(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double top, double band)
+    private List<LayoutLine> RunningLines(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double top, double band,
+        double? bottomDistance = null)
     {
         var lines = new List<LayoutLine>();
         if (paragraphs.Count == 0)
@@ -608,7 +612,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             return [];
         }
 
-        double y = top + ((band - height) / 2);
+        if (bottomDistance is double distance &&
+            (!double.IsFinite(distance) || distance < 0 || distance + height > band))
+        {
+            _notes.Add("a footer could not fit at its declared distance inside the bottom margin and was not drawn.");
+            return [];
+        }
+
+        double y = bottomDistance is double offset
+            ? top + band - offset - height
+            : top + ((band - height) / 2);
         foreach (LayoutLine line in lines)
         {
             line.Top = y;

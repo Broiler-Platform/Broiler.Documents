@@ -93,6 +93,7 @@ public static class RtfReader
         private bool _sawStar;
         private bool _reportedCodePage;
         private bool _reportedEmbedded;
+        private bool _reportedListTable;
         private bool _titlePage;
         private bool _reportedEmptyPage;
         private readonly bool _embeddedDecodingRequested;
@@ -199,6 +200,12 @@ public static class RtfReader
             _sawStar = false;
             string kw = token.Keyword;
 
+            // List definitions are opaque, including nested destinations. A
+            // field, header or font table inside one must not escape into the
+            // document or alter the tables used to interpret its body.
+            if (_state.Dest == RtfDestination.ListTable)
+                return;
+
             // Destination-setting keywords take effect regardless of the current destination.
             switch (kw)
             {
@@ -266,6 +273,18 @@ public static class RtfReader
                 case "footerl": _state.Dest = RtfDestination.FooterEven; return;
                 case "footerr": _state.Dest = RtfDestination.Footer; return;
 
+                case "listtable":
+                case "listoverridetable":
+                    _state.Dest = RtfDestination.ListTable;
+                    if (!_reportedListTable)
+                    {
+                        _diagnostics.Add(DocumentDiagnostic.Warning(
+                            "rtf.list",
+                            "List tables were detected and skipped; list numbering and marker semantics are not imported."));
+                        _reportedListTable = true;
+                    }
+                    return;
+
                 case "info":
                 case "stylesheet":
                 case "footnote":
@@ -275,8 +294,6 @@ public static class RtfReader
                 case "datastore":
                 case "themedata":
                 case "generator":
-                case "listtable":
-                case "listoverridetable":
                 case "revtbl":
                 case "pntext":
                     _state.Dest = RtfDestination.Skip;

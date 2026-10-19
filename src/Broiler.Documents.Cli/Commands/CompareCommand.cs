@@ -137,7 +137,7 @@ public static class CompareCommand
 
     private static int CompareDocuments(CommandContext context, string left, string right)
     {
-        DocumentCodecCatalog catalog = CodecComposition.CreateCatalog(DocumentOptions.PdfPasswordFrom(context.Line));
+        DocumentCodecCatalog catalog = DocumentOptions.CreateCatalogFrom(context.Line);
         DocumentReadOptions readOptions = DocumentOptions.ReadOptionsFrom(context.Line);
 
         LoadedDocument leftDocument = DocumentIo.LoadOrThrow(left, catalog, readOptions, context.Line.Get("from"));

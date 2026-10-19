@@ -32,4 +32,7 @@
     <Using Include="Broiler.Documents.Model" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Shared\ParserRobustnessTests.cs" Link="ParserRobustnessTests.cs" />
+  </ItemGroup>
 </Project>
