@@ -270,6 +270,13 @@ public sealed record LayoutSettings
     /// </summary>
     public double TabStopPoints { get; init; } = 36.0;
 
+    /// <summary>
+    /// Optional per-layout font ascent/descent in points, supplied by the host
+    /// from the same face used to draw. Null or invalid metrics use the existing
+    /// fallback. No font discovery is performed by the paginator.
+    /// </summary>
+    public Func<BFontStyle, (double Ascent, double Descent)?>? FontVerticalMetrics { get; init; }
+
     /// <summary>Gap between a list marker and the text it introduces, in points.</summary>
     public double ListMarkerGapPoints { get; init; } = 6.0;
 

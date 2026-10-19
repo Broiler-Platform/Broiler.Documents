@@ -191,6 +191,20 @@ by ADR 0008).
   must ensure the editor still holds the document that was written. Writer UI
   integration remains open.
 
+Populated line boxes use the maximum ascent and descent of their actual pieces,
+including list markers and inline images. An unused default font does not impose
+a minimum height. Empty lines use default-font metrics. The paragraph's line
+spacing multiplier applies to the resulting height without moving its baseline.
+Hosts can supply per-layout ascent and descent through
+`LayoutSettings.FontVerticalMetrics`; invalid or absent values retain the
+Graphics fallback. Text, tabs and empty lines use the same provider. The CLI
+supplies the explicitly mapped font's `hhea` ascent and descent, scaled from font
+units to points, caching inspection per file for that render configuration.
+Unmapped families retain fallback metrics. The paginator performs no installed
+font discovery and holds no global metrics provider. This is not full OpenType
+line-spacing selection: `hhea` line gap and `OS/2` typographic metric selection
+are not incorporated.
+
 The paginator anchors a footer's complete line block at `PageGeometry.FooterDistance`
 above the bottom edge of the effective page box. Without document page geometry,
 it centres the block in the bottom margin. An invalid distance or a block that

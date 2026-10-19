@@ -46,8 +46,8 @@ public sealed class RtfConformanceTests
     [Fact]
     public void Ignored_Line_Spacing_Leaves_The_Default()
     {
-        // \sl is ignored, so LineSpacing stays at the ParagraphStyle default (1).
-        RichTextDocument document = Read("{\\rtf1\\sl480\\slmult1 text\\par}");
+        // Fixed/at-least spacing has no multiplier projection and stays at 1.
+        RichTextDocument document = Read("{\\rtf1\\sl480\\slmult0 text\\par}");
 
         Assert.Equal(ParagraphStyle.Default.LineSpacing, document.Paragraphs[0].Style.LineSpacing);
     }

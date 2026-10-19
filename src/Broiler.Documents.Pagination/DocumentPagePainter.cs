@@ -245,8 +245,9 @@ public sealed class DocumentPagePainter
                 continue;
 
             // The renderer puts the baseline at origin.Y + size * 0.8, and the
-            // layout used the same 0.8 for the piece's ascent. Subtracting it
-            // back out is what keeps a 24pt run and an 8pt run on one baseline.
+            // line's baseline may come from host-supplied font metrics. Subtract
+            // the renderer's origin offset, not the measured ascent, to keep
+            // differently sized runs on that same resolved baseline.
             double originY = baseline - (piece.Font.Size * 0.8);
             var run = new BTextRun(piece.Text, piece.Font, piece.Color);
 

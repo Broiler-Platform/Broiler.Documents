@@ -7,14 +7,14 @@ document model (ADR 0005), and what it emits when writing. The reader is total
 below are exercised by `RtfConformanceTests`, `RtfLimitTests`,
 `RtfPageBreakTests`, `RtfSecurityTests`, `RtfCapitalizationTests`,
 `RtfRunningContentTests`, `RtfPageGeometryTests`, `RtfShapeTests`, and
-`RtfRoundTripTests`.
+`RtfRoundTripTests` and `RtfLineSpacingTests`.
 
 ## Honoured — read into the model
 
 | Group | Control words |
 |---|---|
 | Inline character | `\b` `\b0` `\i` `\i0` `\ul` `\ul0` `\ulnone` `\strike` `\strike0` `\caps` `\caps0` `\scaps` `\scaps0` `\plain` `\fsN` `\fN` `\cfN` `\cbN` `\highlightN` |
-| Paragraph | `\pard` `\ql` `\qc` `\qr` `\qj` `\liN` `\sbN` `\saN` `\pagebb` `\pagebb0` |
+| Paragraph | `\pard` `\ql` `\qc` `\qr` `\qj` `\liN` `\sbN` `\saN` `\slN` with `\slmult1` `\pagebb` `\pagebb0` |
 | Breaks & entities | `\par` `\line` `\page` (→ `PageBreakBefore` on the paragraph that follows) `\tab` `\cell` (→ tab) `\row` (→ paragraph) `\lquote` `\rquote` `\ldblquote` `\rdblquote` `\bullet` `\endash` `\emdash` `\enspace` `\emspace` |
 | Control symbols | `\\` `\{` `\}` `\~` (nbsp) `\_` (nb-hyphen) `\-` (optional hyphen, dropped) `\`+CR/LF (→ paragraph) `\*` (destination marker) |
 | Encoding | `\'hh` `\uN` `\ucN` `\ansicpgN` `\fcharsetN` (per font) |
@@ -23,6 +23,19 @@ below are exercised by `RtfConformanceTests`, `RtfLimitTests`,
 | Running content | `\header` `\headerf` `\headerl` `\headerr` `\footer` `\footerf` `\footerl` `\footerr` (→ `RunningContent`, not the body flow) |
 | Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN` (→ `PageGeometry`) |
 | Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fLine` `lineColor` (→ `DocumentShape`) |
+
+## Line spacing
+
+Positive `\slN` with `\slmult1` maps to `ParagraphStyle.LineSpacing` as
+`N / 240`: for example, `\sl276\slmult1` requests 1.15-line spacing.
+The two controls can arrive in either order. Their state follows group scope,
+and `\pard` resets it. A final body paragraph retains its properties even when
+the root group closes without a final `\par`.
+
+Fixed/at-least spacing (`\slmult0`, or `\slN` without multiplier mode) has
+no projection in the model and uses the default multiplier of 1. Nonpositive
+multiplier amounts also use that default. The writer emits finite positive
+nondefault multipliers rounded to the nearest 1/240; default spacing is omitted.
 
 ## Page breaks
 
@@ -151,7 +164,7 @@ understand, which this is not.
 ## Ignored — parsed, no effect on the model
 
 Unrecognized formatting control words are silently ignored (predictable
-degradation), for example `\sl`/`\slmult` (line spacing), `\deff`, `\lang`,
+degradation), for example `\deff`, `\lang`,
 `\viewkind`, `\widowctrl`, `\kerning`, `\sect`/`\sectd` and the section break
 kinds (`\sbkpage` and the rest), and the document and section options other than
 the page geometry above. The character-set words `\ansi`, `\mac`, `\pc` and
@@ -266,8 +279,8 @@ no paint, which is a shape it drops. In the table and the floating picture alike
 what is on the page is worth more than the structure around it.
 
 Round-trip is otherwise lossless for any document the reader can
-produce, with three further documented exceptions: line spacing and list kind
-are not written (they are not read either, so they stay at their defaults); a
+produce, with three further documented exceptions: list kind
+is not written (it is not read either, so it stays at its default); a
 **non-ASCII font-family name** is escaped as `\uN` on write, which the font-table
 reader does not decode (font names are read as their literal bytes) — so such a
 name does not survive a round-trip; and a **page break inside running content or

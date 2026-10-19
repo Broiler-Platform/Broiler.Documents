@@ -175,6 +175,7 @@ public sealed class RenderPipeline
             DecorateLinks = !line.Has("no-link-style"),
             SynthesizeItalic = !line.Has("no-synthetic-italic"),
             ItalicFaceAvailable = fonts.HasItalicFace,
+            FontVerticalMetrics = fonts.VerticalMetrics,
         };
 
         string formatName = line.Get("image-format", "png")!;

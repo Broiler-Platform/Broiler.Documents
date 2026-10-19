@@ -42,6 +42,7 @@ public sealed class FontResolution
     private readonly Dictionary<string, FontFaceSet> _families;
     private readonly List<string> _notes = [];
     private readonly HashSet<string> _unmapped = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, TrueTypeFont?> _metricFonts = new(StringComparer.OrdinalIgnoreCase);
 
     private FontResolution(Dictionary<string, FontFaceSet> families) => _families = families;
 
@@ -131,6 +132,23 @@ public sealed class FontResolution
 
     /// <summary>The face Broiler.Graphics falls back to when a family is not mapped.</summary>
     public static string DescribeHostFallback() => BImageRenderer.DescribeSystemTextFont();
+
+    /// <summary>Vertical metrics from an explicitly mapped face, or null for the host fallback.</summary>
+    public (double Ascent, double Descent)? VerticalMetrics(BFontStyle font)
+    {
+        if (!TryResolve(font.FamilyName, font.Weight >= BFontWeight.Bold,
+            font.Slant is BFontSlant.Italic or BFontSlant.Oblique, out string path))
+            return null;
+        if (!_metricFonts.TryGetValue(path, out TrueTypeFont? face))
+        {
+            face = TrueTypeFont.LoadFromFile(path);
+            _metricFonts[path] = face;
+        }
+        if (face is null || face.UnitsPerEm <= 0 || face.Ascender <= 0 || face.Descender > 0)
+            return null;
+        double scale = font.Size / face.UnitsPerEm;
+        return (face.Ascender * scale, -face.Descender * scale);
+    }
 
     private static string Describe(string? path) => path ?? "(none)";
 

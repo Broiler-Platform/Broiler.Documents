@@ -39,6 +39,8 @@ public static class RtfReader
         public RtfDestination FieldHost;
         public int UnicodeSkip;
         public int CodePage;
+        public int LineSpacing;
+        public bool MultipleLineSpacing;
     }
 
     private sealed class Worker
@@ -185,6 +187,10 @@ public static class RtfReader
                 _fieldLink = null;
 
             FlushPending();
+            // The root group can close without a final \par. Commit its body
+            // text before popping the paragraph properties back to defaults.
+            if (_stack.Count == 1 && closing.Dest == RtfDestination.Normal)
+                _builder.EndPendingParagraph(closing.Para);
             if (closing.Dest == RtfDestination.ShapeProperty)
                 ApplyShapeProperty();
             else if (closing.Dest == RtfDestination.Shape)
@@ -390,7 +396,25 @@ public static class RtfReader
                 case "sv": _state.Dest = RtfDestination.ShapePropertyValue; return;
                 case "shptxt": _state.Dest = RtfDestination.ShapeText; return;
 
-                case "pard": _state.Para = ParagraphStyle.Default; break;
+                case "pard":
+                    _state.Para = ParagraphStyle.Default;
+                    _state.LineSpacing = 0;
+                    _state.MultipleLineSpacing = false;
+                    break;
+                case "sl":
+                    if (has)
+                    {
+                        _state.LineSpacing = p;
+                        ApplyLineSpacing();
+                    }
+                    break;
+                case "slmult":
+                    if (has)
+                    {
+                        _state.MultipleLineSpacing = p == 1;
+                        ApplyLineSpacing();
+                    }
+                    break;
                 case "ql": _state.Para = _state.Para with { Alignment = TextAlignment.Left }; break;
                 case "qc": _state.Para = _state.Para with { Alignment = TextAlignment.Center }; break;
                 case "qr": _state.Para = _state.Para with { Alignment = TextAlignment.Right }; break;
@@ -440,6 +464,18 @@ public static class RtfReader
             return style.Capitalization == kind
                 ? style with { Capitalization = TextCapitalization.None }
                 : style;
+        }
+
+        private void ApplyLineSpacing()
+        {
+            // Only the multiplier form maps to ParagraphStyle.LineSpacing.
+            // Fixed/at-least heights remain outside the supported subset.
+            _state.Para = _state.Para with
+            {
+                LineSpacing = _state.MultipleLineSpacing && _state.LineSpacing > 0
+                    ? _state.LineSpacing / 240f
+                    : ParagraphStyle.Default.LineSpacing,
+            };
         }
 
         private void HandleControlSymbol(char symbol)
@@ -1050,6 +1086,12 @@ public static class RtfReader
 
             _paragraphs.Add(_current.WithParagraphStyle(Spend(style)));
             _current = RichTextParagraph.Create(string.Empty, InlineStyle.Default, style);
+        }
+
+        public void EndPendingParagraph(ParagraphStyle style)
+        {
+            if (_current.Length > 0)
+                EndParagraph(style);
         }
 
         public RichTextDocument Build(ParagraphStyle finalStyle)

@@ -333,6 +333,10 @@ public static class RtfWriter
 
     private static void WriteParagraphProperties(StringBuilder sb, ParagraphStyle style)
     {
+        if (float.IsFinite(style.LineSpacing) && style.LineSpacing > 0 && style.LineSpacing != 1f)
+            sb.Append("\\sl").Append((int)Math.Clamp(Math.Round(style.LineSpacing * 240.0), 1, int.MaxValue))
+                .Append("\\slmult1");
+
         switch (style.Alignment)
         {
             case TextAlignment.Center: sb.Append("\\qc"); break;

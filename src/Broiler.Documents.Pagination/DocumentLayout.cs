@@ -670,7 +670,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // until the row has been wrapped to a width - so a row of unusually
             // tall text can reach a little into a shape it only just cleared.
             double lineY = top;
-            double estimate = BTextMeasurer.GetLineHeight(defaultFont);
+            var estimatedMetrics = VerticalMetrics(defaultFont);
+            double estimate = estimatedMetrics.Ascent + estimatedMetrics.Descent;
             rows = _lineWrapper.Wrap(
                 tokens,
                 _ =>
@@ -761,11 +762,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// <summary>
     /// Positions one line's pieces, applies alignment, and computes the line box.
     /// </summary>
-    private static LayoutLine PlaceLine(List<LayoutPiece> pieces, bool hasMarker, double textLeft, double textWidth,
+    private LayoutLine PlaceLine(List<LayoutPiece> pieces, bool hasMarker, double textLeft, double textWidth,
         ParagraphStyle style, BFontStyle defaultFont, int paragraphIndex, bool isLastLine)
     {
-        double ascent = BTextMeasurer.Measure(string.Empty, defaultFont).Baseline;
-        double descent = Math.Max(0, BTextMeasurer.GetLineHeight(defaultFont) - ascent);
+        // A populated line is measured from the fonts it actually draws. The
+        // fallback face is only for empty lines; including it in every maximum
+        // silently adds leading when all runs use a smaller or shorter face.
+        var emptyMetrics = pieces.Count == 0 ? VerticalMetrics(defaultFont) : (Ascent: 0.0, Descent: 0.0);
+        double ascent = emptyMetrics.Ascent;
+        double descent = emptyMetrics.Descent;
         double used = 0;
 
         // The marker is placed already and sits outside the text column, so it
@@ -1015,8 +1020,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
 
         double width = BTextMeasurer.MeasureAdvance(text, font);
-        double ascent = font.Size * 0.8;
-        double descent = Math.Max(0, BTextMeasurer.GetLineHeight(font) - ascent);
+        var (ascent, descent) = VerticalMetrics(font);
 
         // Shearing is a fallback for a family with no designed italic face. It
         // does not change the advance, so nothing in the layout moves either way.
@@ -1036,10 +1040,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private LayoutPiece MakeTabPiece(InlineStyle style)
     {
         BFontStyle font = FontFor(style);
-        double ascent = font.Size * 0.8;
+        var (ascent, descent) = VerticalMetrics(font);
 
         return new LayoutPiece(string.Empty, font, LayoutColors.Or(style.Foreground, _settings.DefaultForeground), style.Background, underline: false,
-            strikethrough: false, style.LinkHref, null, 0, ascent, Math.Max(0, BTextMeasurer.GetLineHeight(font) - ascent), oblique: false, isTab: true);
+            strikethrough: false, style.LinkHref, null, 0, ascent, descent, oblique: false, isTab: true);
+    }
+
+    private (double Ascent, double Descent) VerticalMetrics(BFontStyle font)
+    {
+        if (_settings.FontVerticalMetrics?.Invoke(font) is { } metrics &&
+            double.IsFinite(metrics.Ascent) && double.IsFinite(metrics.Descent) &&
+            metrics.Ascent > 0 && metrics.Descent >= 0 && double.IsFinite(metrics.Ascent + metrics.Descent))
+            return metrics;
+        double ascent = font.Size * 0.8;
+        return (ascent, Math.Max(0, BTextMeasurer.GetLineHeight(font) - ascent));
     }
 
     private LayoutPiece MakeImagePiece(InlineStyle style)
