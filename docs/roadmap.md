@@ -78,6 +78,21 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **Nested list markers through RTF.** In the office suite, LibreOffice's text
   projection and `broilerdoc dump` disagree on the marker of a nested level
   (`◦` against `•`). Find out which side is right.
+- **Page-anchored shapes.** ODF anchors a frame to a page by number
+  (`text:anchor-page-number`), and LibreOffice makes pages until the numbered
+  one exists. The model anchors a shape to a paragraph only, so such a frame is
+  placed beside the paragraph it is read with. It needs a page anchor on
+  `DocumentShape`, both layouts, and a decision for DOCX and RTF, which can say
+  "measured from the page" but not "on page seventeen". A text box sized only
+  by `fo:min-width` or `fo:min-height` is read into the body today and goes with
+  it. Found by `tdf135056.odt` in the `sw/qa/extras` ranking
+  ([note](notes/office-extras-columns-verification-2026-10-20.md)).
+- **Sections.** A document holds one page and one set of text columns. DOCX
+  section breaks of `w:type="nextPage"` do not start a page, a section's own
+  columns give way to the columns of the section holding the most paragraphs,
+  a column break in a section of several columns is a line break, and the
+  columns of an ODF `text:section` are not read. `tdf123163-1.docx` is
+  thirty-one sections of one to four columns.
 
 ## Spreadsheet formats
 
@@ -466,6 +481,10 @@ Each needs its own approval and does not block V1.
   defects behind them are fixed and what remains is ordinary disagreement between
   two layout engines. The reviewer chose further fixes; keep these rows open
   rather than classifying them as `documented` or `accepted` differences.
+- **Table rows across pages.** The layout places a row whole, so a row taller
+  than a page runs off its foot and the pages its continuation would fill are
+  never made. LibreOffice breaks such a row (`tdf134965.odt`, 23 pages here
+  against 29).
 - **Long-document line height.** The office suite's `long-flow-multipage` seed
   reaches `severe` on the blurred difference while coverage stays `close`: a
   small per-line leading difference accumulates over pages. This is in the CLI's

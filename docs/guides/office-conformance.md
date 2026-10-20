@@ -392,6 +392,15 @@ family needs the upstream test and what in the file shows it was generated.
 | `w:titlePg` was not read | Fixed. `RunningContent.DifferentFirstPage` holds it |
 | The ODT master-page chain stopped at the first page | Fixed. One link of `style:next-style-name` is followed |
 | RTF let a footer's field result into the body | Fixed. A field result belongs to the destination the field is in |
+| A DOCX table style's paragraph and run properties were ignored, so every cell kept the body's spacing (`fdo68607.docx`, 15 pages against 8) | Fixed. They apply between the document defaults and the paragraph style; [notes/docx.md](../notes/docx.md), `DocxTableStyleTests` |
+| The model had no text columns (`many-paragraphs-per-page-in-6-columns.odt`, 40 pages against 12) | Fixed. `PageGeometry.ColumnCount` and `ColumnGap`, read and written by DOCX, ODT and RTF, filled in turn by the layout |
+| A DOCX column break in a section of one column was a line break (`FDO77715.docx`, 33 pages against 40) | Fixed. It is a page break where there is no next column, as ECMA-376 §17.18.3 says |
+| A DOCX page break that opened its paragraph was demoted to a line break | Fixed. Such a paragraph starts the page |
+| The extras ranking drew Times New Roman, Arial and Calibri with the host fallback while LibreOffice drew Liberation and Carlito | Fixed in the runner. The metric-compatible faces are mapped for both sides |
+
+The [note on the second ranked run](../notes/office-extras-columns-verification-2026-10-20.md)
+has the numbers for the last five rows, and the three documents in that run
+that were not this component's reading.
 
 Still open, and tracked in the [roadmap](../roadmap.md#test-suites-and-tooling):
 the per-line leading drift on `long-flow-multipage`, the nested-list marker
