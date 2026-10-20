@@ -52,10 +52,11 @@ public sealed class HtmlPageBreakTests
     }
 
     [Theory]
-    // auto is the initial value; avoid asks for the opposite; the column and
-    // region values name a fragmentation into containers this model does not
-    // have. None of them is a page break, and reading any of them as one would
-    // put a break into a document that never asked for it.
+    // auto is the initial value; avoid asks for the opposite; column is a
+    // column break, read as one below; region names a fragmentation into
+    // containers this model does not have. None of them is a page break, and
+    // reading any of them as one would put a break into a document that never
+    // asked for it.
     [InlineData("page-break-before: auto")]
     [InlineData("break-before: auto")]
     [InlineData("page-break-before: avoid")]
@@ -282,6 +283,60 @@ public sealed class HtmlPageBreakTests
         Assert.False(document.Paragraphs[0].Style.PageBreakBefore);
         Assert.True(document.Paragraphs[1].Style.PageBreakBefore);
         Assert.NotNull(document.PageGeometry);
+    }
+
+    [Theory]
+    [InlineData("break-before: column")]
+    [InlineData("BREAK-BEFORE: COLUMN")]
+    [InlineData("column-break-before: always")]
+    public void A_Paragraph_Declaring_A_Column_Break_Starts_The_Next_Column(string declaration)
+    {
+        RichTextDocument document = Read("<p>first</p><p style='" + declaration + "'>second</p>");
+
+        Assert.False(document.Paragraphs[0].Style.ColumnBreakBefore);
+        Assert.True(document.Paragraphs[1].Style.ColumnBreakBefore);
+        Assert.False(document.Paragraphs[1].Style.PageBreakBefore);
+    }
+
+    [Fact]
+    public void A_Page_Break_Outranks_A_Column_Break_On_The_Same_Paragraph()
+    {
+        RichTextDocument document = Read(
+            "<p style='page-break-before: always; column-break-before: always'>second</p>");
+
+        ParagraphStyle style = Assert.Single(document.Paragraphs).Style;
+        Assert.True(style.PageBreakBefore);
+        Assert.False(style.ColumnBreakBefore);
+    }
+
+    [Fact]
+    public void The_Column_Break_Survives_A_Round_Trip()
+    {
+        RichTextDocument expected = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Create("first", InlineStyle.Default),
+            RichTextParagraph.Create(
+                "second", InlineStyle.Default, ParagraphStyle.Default with { ColumnBreakBefore = true }),
+        ]);
+
+        string html = Write(expected);
+        using var stream = new MemoryStream(HtmlDocumentCodec.WriteToArray(expected));
+        RichTextDocument actual = new HtmlDocumentCodec().Read(stream).Document;
+
+        Assert.Contains("<p style=\"break-before: column\">second</p>", html, StringComparison.Ordinal);
+        DocumentAssert.Equivalent(expected, actual);
+    }
+
+    [Fact]
+    public void The_Writer_Says_The_Columns_Were_Not_Written()
+    {
+        RichTextDocument document = RichTextDocument.FromPlainText("body")
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72, ColumnCount: 2, ColumnGap: 36));
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult result = new HtmlDocumentCodec().Write(document, stream);
+
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "html.columns");
     }
 
     private static RichTextDocument Read(string html) => ReadResult(html).Document;

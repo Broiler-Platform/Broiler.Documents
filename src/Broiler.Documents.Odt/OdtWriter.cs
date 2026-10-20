@@ -60,7 +60,7 @@ public static class OdtWriter
                 OdtNamespaces.MimeTypePart,
                 Encoding.ASCII.GetBytes(OdtNamespaces.PackageMediaType));
             AddXmlEntry(archive, OdtNamespaces.ContentPart, content);
-            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(document.RunningContent, document.PageGeometry, context));
+            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(document.RunningContent, PageOf(document), context));
             AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta(metadata));
             foreach (OdtPicturePart picture in context.Pictures)
                 AddDeflatedEntry(archive, picture.PartPath, picture.Data.Span);
@@ -102,7 +102,7 @@ public static class OdtWriter
 
         var element = new XElement(
             OdtNamespaces.Draw + "custom-shape",
-            new XAttribute(OdtNamespaces.Text + "anchor-type", "paragraph"),
+            AnchorAttributes(shape),
             new XAttribute(
                 OdtNamespaces.Draw + "z-index",
                 shape.ZOrder.ToString(CultureInfo.InvariantCulture)),
@@ -166,7 +166,7 @@ public static class OdtWriter
             new XAttribute(
                 OdtNamespaces.Draw + "name",
                 "Image" + part.Index.ToString(CultureInfo.InvariantCulture)),
-            new XAttribute(OdtNamespaces.Text + "anchor-type", "paragraph"),
+            AnchorAttributes(shape),
             new XAttribute(OdtNamespaces.Svg + "x", OdtUnits.FormatPoints(shape.OffsetX)),
             new XAttribute(OdtNamespaces.Svg + "y", OdtUnits.FormatPoints(shape.OffsetY)),
             new XAttribute(OdtNamespaces.Svg + "width", OdtUnits.FormatPoints(shape.Width)),
@@ -184,6 +184,22 @@ public static class OdtWriter
 
         return frame;
     }
+
+    /// <summary>
+    /// How a shape is anchored: to its paragraph, or to a page by number. The
+    /// graphic style a page-anchored shape is written with says the offsets are
+    /// measured from the page's content area across and from its top edge down,
+    /// which is how the model measures them.
+    /// </summary>
+    private static XAttribute[] AnchorAttributes(DocumentShape shape) => shape.IsPageAnchored
+        ?
+        [
+            new XAttribute(OdtNamespaces.Text + "anchor-type", "page"),
+            new XAttribute(
+                OdtNamespaces.Text + "anchor-page-number",
+                shape.AnchorPage.ToString(CultureInfo.InvariantCulture)),
+        ]
+        : [new XAttribute(OdtNamespaces.Text + "anchor-type", "paragraph")];
 
     private static XDocument BuildContent(XElement body, OdtWriteContext context)
     {
@@ -221,11 +237,99 @@ public static class OdtWriter
     private static XElement BuildBody(RichTextDocument document, OdtWriteContext context)
     {
         var text = new XElement(OdtNamespaces.Office + "text");
-        foreach (XElement block in BuildBlocks(document, document.Tables, 0, document.ParagraphCount, context))
+
+        // A drawing anchored to a page belongs to no paragraph, so it is written
+        // where LibreOffice writes one: in the body, ahead of the text.
+        foreach (DocumentShape shape in document.Shapes)
+        {
+            if (shape.IsPageAnchored)
+                text.Add(BuildShape(shape, context));
+        }
+
+        // A section with columns of its own is a text:section around its
+        // paragraphs, named after the columns it states; the stretches between
+        // sections are the body as it always was.
+        if (document.Sections.Any(section => section.Page is not null))
+        {
+            context.AddDiagnosticOnce(
+                "odt.section.page",
+                "A section's own page and margins were not written; its text is written within the document's page.");
+        }
+
+        int index = 0;
+        int written = 0;
+        foreach (DocumentSection section in WrittenSections(document))
+        {
+            foreach (XElement block in BuildBlocks(document, document.Tables, index, section.ParagraphIndex, context))
+                text.Add(block);
+
+            var element = new XElement(
+                OdtNamespaces.Text + "section",
+                new XAttribute(
+                    OdtNamespaces.Text + "style-name",
+                    context.GetSectionStyleName(section.ColumnCount, section.ColumnGap)),
+                new XAttribute(
+                    OdtNamespaces.Text + "name",
+                    "Section" + (++written).ToString(CultureInfo.InvariantCulture)));
+            foreach (XElement block in BuildBlocks(document, document.Tables, section.ParagraphIndex, section.ParagraphEnd, context))
+                element.Add(block);
+
+            text.Add(element);
+            index = section.ParagraphEnd;
+        }
+
+        foreach (XElement block in BuildBlocks(document, document.Tables, index, document.ParagraphCount, context))
             text.Add(block);
 
         return text;
     }
+
+    /// <summary>
+    /// The sections written as <c>text:section</c>, in order: each of the
+    /// document's that has columns, and, where the page has columns and the
+    /// document has sections, each stretch between them with the page's.
+    /// </summary>
+    /// <remarks>
+    /// The model lets a section's columns stand in for the page's, and ODF lays
+    /// a section's columns out inside the page's, so a one-column section on a
+    /// two-column page would come back laid out in two. Such a document's page
+    /// is written with one column (see <see cref="PageOf"/>) and the page's
+    /// columns go on the stretches no section holds, which a read takes back as
+    /// sections of those columns: what is laid out in which columns survives,
+    /// though the page then states one.
+    /// </remarks>
+    private static List<DocumentSection> WrittenSections(RichTextDocument document)
+    {
+        var written = new List<DocumentSection>();
+        PageGeometry? page = PageColumnsGoOnSections(document) ? document.PageGeometry : null;
+        int index = 0;
+        foreach (DocumentSection section in document.Sections.OrderBy(section => section.ParagraphIndex))
+        {
+            if (section.ParagraphIndex < index || section.ParagraphEnd > document.ParagraphCount)
+                continue;
+
+            if (page is not null && section.ParagraphIndex > index)
+                written.Add(new DocumentSection(index, section.ParagraphIndex - index, page.ColumnCount, page.ColumnGap));
+
+            written.Add(section);
+            index = section.ParagraphEnd;
+        }
+
+        if (page is not null && index < document.ParagraphCount)
+            written.Add(new DocumentSection(index, document.ParagraphCount - index, page.ColumnCount, page.ColumnGap));
+
+        written.RemoveAll(section => section.ColumnCount <= 1);
+        return written;
+    }
+
+    private static bool PageColumnsGoOnSections(RichTextDocument document) =>
+        document.Sections.Count > 0 && document.PageGeometry is { HasColumns: true };
+
+    /// <summary>The page the styles state: the document's, with one column where its sections carry the columns.</summary>
+    private static PageGeometry? PageOf(RichTextDocument document) =>
+        PageColumnsGoOnSections(document)
+            ? document.PageGeometry! with { ColumnCount = 1, ColumnGap = 0 }
+            : document.PageGeometry;
 
     /// <summary>
     /// The block-level content of a paragraph range: lists, paragraphs, and a
@@ -306,10 +410,10 @@ public static class OdtWriter
         foreach (TableRow row in table.Rows)
         {
             var tr = new XElement(OdtNamespaces.Table + "table-row");
-            if (row.MinHeight > 0)
+            if (row.MinHeight > 0 || !row.CanSplit)
             {
                 tr.Add(new XAttribute(
-                    OdtNamespaces.Table + "style-name", context.GetRowStyleName(row.MinHeight)));
+                    OdtNamespaces.Table + "style-name", context.GetRowStyleName(row.MinHeight, row.CanSplit)));
             }
 
             int column = 0;
@@ -398,7 +502,7 @@ public static class OdtWriter
     {
         foreach (DocumentShape shape in document.Shapes)
         {
-            if (shape.ParagraphIndex == paragraphIndex)
+            if (!shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
                 yield return shape;
         }
     }
@@ -876,6 +980,8 @@ public static class OdtWriter
         // document have to agree.
         if (style.PageBreakBefore)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "break-before", "page"));
+        else if (style.ColumnBreakBefore)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "break-before", "column"));
 
         return properties;
     }
@@ -1104,7 +1210,7 @@ public static class OdtWriter
             ? geometry
             : new PageGeometry(612, 792, 72, 72, 72, 72);
 
-        return new XElement(
+        var properties = new XElement(
             OdtNamespaces.Style + "page-layout-properties",
             new XAttribute(OdtNamespaces.Fo + "page-width", OdtUnits.FormatPoints(page.Width)),
             new XAttribute(OdtNamespaces.Fo + "page-height", OdtUnits.FormatPoints(page.Height)),
@@ -1115,6 +1221,20 @@ public static class OdtWriter
             new XAttribute(OdtNamespaces.Fo + "margin-bottom", OdtUnits.FormatPoints(page.MarginBottom)),
             new XAttribute(OdtNamespaces.Fo + "margin-left", OdtUnits.FormatPoints(page.MarginLeft)),
             new XAttribute(OdtNamespaces.Fo + "margin-right", OdtUnits.FormatPoints(page.MarginRight)));
+
+        // Equal columns need nothing but the count and the gap; listing each
+        // column is for widths that differ, which the model does not hold.
+        if (page.HasColumns)
+        {
+            properties.Add(new XElement(
+                OdtNamespaces.Style + "columns",
+                new XAttribute(
+                    OdtNamespaces.Fo + "column-count",
+                    page.ColumnCount.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute(OdtNamespaces.Fo + "column-gap", OdtUnits.FormatPoints(page.ColumnGap))));
+        }
+
+        return properties;
     }
 
     private static XDocument BuildStyles(
@@ -1283,6 +1403,7 @@ public static class OdtWriter
         private readonly List<XElement> _tableStyles = [];
         private readonly Dictionary<string, string> _columnStyleNames = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _rowStyleNames = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _sectionStyleNames = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _cellStyleNames = new(StringComparer.Ordinal);
         private int _tableCount;
         private readonly List<XElement> _gradients = [];
@@ -1332,6 +1453,14 @@ public static class OdtWriter
                     },
                     _ => "run-through",
                 }));
+
+            if (shape.IsPageAnchored)
+            {
+                properties.Add(new XAttribute(OdtNamespaces.Style + "horizontal-pos", "from-left"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "horizontal-rel", "page-content"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-pos", "from-top"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-rel", "page"));
+            }
 
             if (shape.Fill is ShapeFill fill && fill.IsGradient)
             {
@@ -1390,6 +1519,32 @@ public static class OdtWriter
         /// <summary>The styles a table's columns and cells are written with.</summary>
         public IReadOnlyList<XElement> TableStyles => _tableStyles;
 
+        /// <summary>
+        /// The section style for one set of columns, created on first use and
+        /// kept with the table styles in the automatic styles.
+        /// </summary>
+        public string GetSectionStyleName(int count, double gap)
+        {
+            string key = count.ToString(CultureInfo.InvariantCulture) + "|" + OdtUnits.FormatPoints(gap);
+            if (_sectionStyleNames.TryGetValue(key, out string? existing))
+                return existing;
+
+            string name = "Sect" + (_sectionStyleNames.Count + 1).ToString(CultureInfo.InvariantCulture);
+            _tableStyles.Add(new XElement(
+                OdtNamespaces.Style + "style",
+                new XAttribute(OdtNamespaces.Style + "name", name),
+                new XAttribute(OdtNamespaces.Style + "family", "section"),
+                new XElement(
+                    OdtNamespaces.Style + "section-properties",
+                    new XElement(
+                        OdtNamespaces.Style + "columns",
+                        new XAttribute(OdtNamespaces.Fo + "column-count", count.ToString(CultureInfo.InvariantCulture)),
+                        new XAttribute(OdtNamespaces.Fo + "column-gap", OdtUnits.FormatPoints(gap))))));
+
+            _sectionStyleNames[key] = name;
+            return name;
+        }
+
         /// <summary>A name per table, which ODF requires and uses as its identity.</summary>
         public string NextTableName() =>
             "Table" + (++_tableCount).ToString(CultureInfo.InvariantCulture);
@@ -1418,28 +1573,34 @@ public static class OdtWriter
         }
 
         /// <summary>
-        /// The row style for one height, created on first use. As with a column,
-        /// ODF puts the measurement in a named style rather than on the row.
+        /// The row style for one height, and for a row that must stay on one page,
+        /// created on first use. As with a column, ODF puts the measurement in a
+        /// named style rather than on the row.
         /// </summary>
         /// <remarks>
         /// Written as <c>style:min-row-height</c> and never <c>style:row-height</c>:
         /// the model's height is a floor, and the fixed attribute would tell the
-        /// next reader something stronger than this document knows.
+        /// next reader something stronger than this document knows. A row that may
+        /// break says nothing, because <c>fo:keep-together</c>'s default lets it.
         /// </remarks>
-        public string GetRowStyleName(double height)
+        public string GetRowStyleName(double height, bool canSplit = true)
         {
-            string key = OdtUnits.FormatPoints(height);
+            string key = (height > 0 ? OdtUnits.FormatPoints(height) : string.Empty) + (canSplit ? string.Empty : "|keep");
             if (_rowStyleNames.TryGetValue(key, out string? existing))
                 return existing;
+
+            var properties = new XElement(OdtNamespaces.Style + "table-row-properties");
+            if (height > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Style + "min-row-height", OdtUnits.FormatPoints(height)));
+            if (!canSplit)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-together", "always"));
 
             string name = "ro" + (_rowStyleNames.Count + 1).ToString(CultureInfo.InvariantCulture);
             _tableStyles.Add(new XElement(
                 OdtNamespaces.Style + "style",
                 new XAttribute(OdtNamespaces.Style + "name", name),
                 new XAttribute(OdtNamespaces.Style + "family", "table-row"),
-                new XElement(
-                    OdtNamespaces.Style + "table-row-properties",
-                    new XAttribute(OdtNamespaces.Style + "min-row-height", key))));
+                properties));
 
             _rowStyleNames[key] = name;
             return name;

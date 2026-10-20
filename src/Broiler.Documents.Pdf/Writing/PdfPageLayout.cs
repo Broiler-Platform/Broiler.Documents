@@ -160,6 +160,20 @@ internal sealed class PdfPageLayout(
             page = new PdfLayoutPage();
             y = top;
             _wrap = new TextWrapExclusions();
+            AddPageExclusions(document.Shapes, pages.Count + 1, setup.Height);
+        }
+
+        AddPageExclusions(document.Shapes, 1, setup.Height);
+
+        // This layout fills the document's page as one column, so text columns -
+        // the page's or a section's - and a section's own margins are not drawn,
+        // and a column break is the page break a page of one column makes of it.
+        if (document.PageGeometry?.HasColumns == true || document.Sections.Count > 0)
+        {
+            _diagnostics.Warning(
+                PdfDiagnosticCodes.WriteFeatureUnsupported,
+                "The document's sections and text columns were laid out as one column on the document's page; " +
+                "a column break starts a new page.");
         }
 
         var anchors = new Dictionary<int, (PdfLayoutPage Page, double Top)>();
@@ -207,7 +221,7 @@ internal sealed class PdfPageLayout(
             // one is asking to start on a fresh page and is already on one. It is
             // the same guard the overflow break below uses, and the same rule the
             // CLI layout states on its own break.
-            if (style.PageBreakBefore && page.Runs.Count > 0)
+            if ((style.PageBreakBefore || style.ColumnBreakBefore) && page.Runs.Count > 0)
                 BreakPage();
 
             y -= style.SpacingBefore;
@@ -231,7 +245,7 @@ internal sealed class PdfPageLayout(
             // down from its head, so the y is negated on the way in and back out.
             foreach (DocumentShape shape in document.Shapes)
             {
-                if (shape.Wraps && shape.ParagraphIndex == paragraphIndex)
+                if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
                     _wrap.Add(shape, -(y - shape.OffsetY));
             }
 
@@ -300,7 +314,14 @@ internal sealed class PdfPageLayout(
         }
 
         pages.Add(page);
-        PlaceShapes(document.Shapes, anchors, setup);
+
+        // A shape anchored to a page the text never reached still stands on it,
+        // so the pages up to it are made, as DocumentLayout makes them.
+        int lastAnchor = document.Shapes.Count == 0 ? 0 : document.Shapes.Max(shape => shape.AnchorPage);
+        while (pages.Count < lastAnchor)
+            pages.Add(new PdfLayoutPage());
+
+        PlaceShapes(document.Shapes, anchors, pages, setup);
         PlaceRunningContent(pages, document.RunningContent, setup, document.PageGeometry);
         OrderShapes(pages);
         return pages;
@@ -790,11 +811,17 @@ internal sealed class PdfPageLayout(
     private void PlaceShapes(
         IReadOnlyList<DocumentShape> shapes,
         Dictionary<int, (PdfLayoutPage Page, double Top)> anchors,
+        List<PdfLayoutPage> pages,
         PdfPageSetup setup)
     {
         foreach (DocumentShape shape in shapes)
         {
-            if (!anchors.TryGetValue(shape.ParagraphIndex, out (PdfLayoutPage Page, double Top) anchor))
+            // A shape anchored to a page hangs from the top edge of that page,
+            // the way a running band's shapes do.
+            (PdfLayoutPage Page, double Top) anchor;
+            if (shape.IsPageAnchored)
+                anchor = (pages[shape.AnchorPage - 1], setup.Height);
+            else if (!anchors.TryGetValue(shape.ParagraphIndex, out anchor))
                 continue;
 
             if (shape.Width <= 0 || shape.Height <= 0)
@@ -822,6 +849,22 @@ internal sealed class PdfPageLayout(
 
             if (shape.HasText)
                 PlaceRunningBlock(anchor.Page, shape.Paragraphs, left, shape.Width, top, shape.Height, isHeader: true);
+        }
+    }
+
+    /// <summary>
+    /// Adds the wrapping shapes anchored to page <paramref name="number"/> to the
+    /// exclusions just emptied for it. The exclusions hold PDF's upward y negated,
+    /// as the paragraph-anchored ones are added, so a shape
+    /// <see cref="DocumentShape.OffsetY"/> below the top edge of a page
+    /// <paramref name="pageHeight"/> tall goes in at its offset less the height.
+    /// </summary>
+    private void AddPageExclusions(IReadOnlyList<DocumentShape> shapes, int number, double pageHeight)
+    {
+        foreach (DocumentShape shape in shapes)
+        {
+            if (shape.Wraps && shape.AnchorPage == number)
+                _wrap.Add(shape, shape.OffsetY - pageHeight);
         }
     }
 

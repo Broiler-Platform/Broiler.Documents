@@ -103,10 +103,11 @@ public sealed class DocxPageBreakTests
         Assert.True(result.Document.Paragraphs[2].Style.PageBreakBefore);
     }
 
+    // A column break is a page break where there is no next column, which is
+    // most documents; DocxColumnTests covers it.
     [Theory]
     [InlineData("<w:br/>")]
     [InlineData("<w:br w:type=\"textWrapping\"/>")]
-    [InlineData("<w:br w:type=\"column\"/>")]
     public void A_Break_That_Names_No_Page_Is_Still_A_Line_Break(string breakXml)
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -186,9 +187,9 @@ public sealed class DocxPageBreakTests
     {
         // Every cell's paragraphs are in the one flat list, so the paragraph
         // after a cell's last one is the next cell's or the body's past the
-        // table. Word splits the row instead, and a row is placed whole here,
-        // so the break is dropped and reported rather than starting a page a
-        // whole table later than the document asked for.
+        // table. Word splits the row there, and a row breaks here only where the
+        // page runs out, so the break is dropped and reported rather than
+        // starting a page a whole table later than the document asked for.
         DocumentReadResult result = DocxTestPackage.ReadBody(
             DocxTestPackage.Table(
                 [["<w:p><w:r><w:t>cell</w:t></w:r><w:r><w:br w:type=\"page\"/></w:r></w:p>"]]) +

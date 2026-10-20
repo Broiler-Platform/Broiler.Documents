@@ -402,4 +402,33 @@ public sealed class DocxTableTests
         Assert.Equal(201.6, table.Rows[0].MinHeight, 3);
         Assert.Equal(0, table.Rows[1].MinHeight);
     }
+
+    [Theory]
+    [InlineData("<w:cantSplit/>", false)]
+    [InlineData("<w:cantSplit w:val=\"true\"/>", false)]
+    [InlineData("<w:cantSplit w:val=\"0\"/>", true)]
+    [InlineData("<w:cantSplit w:val=\"false\"/>", true)]
+    [InlineData("", true)]
+    public void A_Row_May_Break_Across_A_Page_Unless_It_Cannot_Split(string properties, bool canSplit)
+    {
+        RichTextDocument document = Read(Table(
+            string.Empty, Grid, RowWith(properties, Cell("a"), Cell("b"), Cell("c"))));
+
+        Assert.Equal(canSplit, Assert.Single(document.Tables).Rows[0].CanSplit);
+    }
+
+    [Fact]
+    public void A_Row_That_Cannot_Split_Round_Trips()
+    {
+        RichTextDocument source = Read(Table(
+            string.Empty,
+            Grid,
+            RowWith("<w:cantSplit/>", Cell("a1"), Cell("b1"), Cell("c1")),
+            Row(Cell("a2"), Cell("b2"), Cell("c2"))));
+
+        DocumentTable table = Assert.Single(RoundTrip(source).Tables);
+        Assert.False(table.Rows[0].CanSplit);
+        Assert.True(table.Rows[1].CanSplit);
+    }
 }
+

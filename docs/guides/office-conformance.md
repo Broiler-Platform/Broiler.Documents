@@ -392,6 +392,18 @@ family needs the upstream test and what in the file shows it was generated.
 | `w:titlePg` was not read | Fixed. `RunningContent.DifferentFirstPage` holds it |
 | The ODT master-page chain stopped at the first page | Fixed. One link of `style:next-style-name` is followed |
 | RTF let a footer's field result into the body | Fixed. A field result belongs to the destination the field is in |
+| A DOCX table style's paragraph and run properties were ignored, so every cell kept the body's spacing (`fdo68607.docx`, 15 pages against 8) | Fixed. They apply between the document defaults and the paragraph style; [notes/docx.md](../notes/docx.md), `DocxTableStyleTests` |
+| The model had no text columns (`many-paragraphs-per-page-in-6-columns.odt`, 40 pages against 12) | Fixed. `PageGeometry.ColumnCount` and `ColumnGap`, read and written by DOCX, ODT and RTF, filled in turn by the layout |
+| A DOCX column break in a section of one column was a line break (`FDO77715.docx`, 33 pages against 40) | Fixed. It is a page break where there is no next column, as ECMA-376 says of `ST_BrType` |
+| A DOCX page break that opened its paragraph was demoted to a line break | Fixed. Such a paragraph starts the page |
+| The extras ranking drew Times New Roman, Arial and Calibri with the host fallback while LibreOffice drew Liberation and Carlito | Fixed in the runner. The metric-compatible faces are mapped for both sides |
+| A table row was placed whole, so one longer than a page ran off it (`tdf134965.odt`, 23 pages against 29) | Fixed. A row breaks across pages cell by cell unless it says it may not (`TableRow.CanSplit`) |
+| A frame anchored to a page by number was placed beside a paragraph (`tdf135056.odt`, 4 pages against 17) | Fixed. `DocumentShape.AnchorPage`, and both layouts make the pages up to it |
+| Sections were one flow in one set of columns (`tdf123163-1.docx`) | Fixed. `DocumentSection` carries its columns and margins, a DOCX section break starts its page, a column break moves to the next column, and a section's columns are balanced where the next follows on the page. The document stays four pages short for its fourteen missing pictures |
+
+The [note on the second ranked run](../notes/office-extras-columns-verification-2026-10-20.md)
+has the numbers for the last eight rows, and the documents in that run that
+were not this component's reading.
 
 Still open, and tracked in the [roadmap](../roadmap.md#test-suites-and-tooling):
 the per-line leading drift on `long-flow-multipage`, the nested-list marker

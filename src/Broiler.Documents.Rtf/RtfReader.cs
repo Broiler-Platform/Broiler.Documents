@@ -61,6 +61,8 @@ public static class RtfReader
         private int _marginBottom;
         private int _headerDistance;
         private int _footerDistance;
+        private int _columns = 1;
+        private int _columnGap = 720;
         private readonly StringBuilder _shapePropertyName = new();
         private readonly StringBuilder _shapePropertyValue = new();
         private readonly List<DocumentShape> _shapes = [];
@@ -459,6 +461,11 @@ public static class RtfReader
                 case "headery": if (has) _headerDistance = p; return;
                 case "footery": if (has) _footerDistance = p; return;
 
+                // \cols is a count, not a length; \colsx is the gap, which the
+                // specification puts at 720 twips when the control word is absent.
+                case "cols": if (has) _columns = p; return;
+                case "colsx": if (has) _columnGap = p; return;
+
                 // A drawing. Its geometry rides on the control words here and
                 // its paint arrives as {\sp{\sn name}{\sv value}} pairs, so the
                 // shape is assembled as the group is walked and finished when
@@ -521,6 +528,7 @@ public static class RtfReader
                     EndParagraph();
                     break;
                 case "page": PageBreak(); break;
+                case "column": ColumnBreak(); break;
                 case "line": AppendChar(0x2028); break; // soft line break
                 case "tab":
                 case "cell": AppendBody("\t"); break;
@@ -892,12 +900,29 @@ public static class RtfReader
                 _footerDistance / 20d);
 
             if (geometry.IsUsable)
-                return geometry;
+                return BuildColumns(geometry);
 
             _diagnostics.Add(DocumentDiagnostic.Warning(
                 "rtf.page.geometry",
                 "RTF section properties gave a page with no room to write on; the page was not read."));
             return null;
+        }
+
+        /// <summary>The page divided into the columns <c>\cols</c> and <c>\colsx</c> state.</summary>
+        private PageGeometry BuildColumns(PageGeometry geometry)
+        {
+            if (_columns <= 1)
+                return geometry;
+
+            PageGeometry divided = geometry.WithColumns(_columns, Math.Max(0, _columnGap) / 20d);
+            if (!divided.HasColumns)
+            {
+                _diagnostics.Add(DocumentDiagnostic.Warning(
+                    "rtf.columns.geometry",
+                    "RTF section columns left no room to write in a column; the page was read as one column."));
+            }
+
+            return divided;
         }
 
         private void BeginShape()
@@ -1057,6 +1082,23 @@ public static class RtfReader
         }
 
         /// <summary>
+        /// <c>\column</c>: the text after it starts the next column, or - in a
+        /// section of one column, where there is no next column - the next page,
+        /// as Word draws it.
+        /// </summary>
+        private void ColumnBreak()
+        {
+            if (_columns <= 1)
+            {
+                PageBreak();
+                return;
+            }
+
+            FlushPending();
+            Active.BreakColumn(_state.Para);
+        }
+
+        /// <summary>
         /// A break with no paragraph to land on - one at the end of the document,
         /// or a second with nothing between it and the first.
         /// </summary>
@@ -1202,6 +1244,22 @@ public static class RtfReader
         /// <summary>Whether a <c>\page</c> is still waiting for a paragraph.</summary>
         public bool PageBreakPending { get; private set; }
 
+        /// <summary>Whether a <c>\column</c> is still waiting for a paragraph.</summary>
+        public bool ColumnBreakPending { get; private set; }
+
+        /// <summary>
+        /// Takes a column break before whatever comes next, closing the paragraph
+        /// it interrupted the way <see cref="BreakPage"/> does. A page break
+        /// already waiting goes further and is the one kept.
+        /// </summary>
+        public void BreakColumn(ParagraphStyle style)
+        {
+            if (_current.Length > 0)
+                EndParagraph(style);
+
+            ColumnBreakPending = true;
+        }
+
         /// <summary>
         /// Takes a break before whatever comes next, and says whether one was
         /// already waiting with nothing in between - a break that asked for a page
@@ -1274,11 +1332,20 @@ public static class RtfReader
         /// </remarks>
         private ParagraphStyle Spend(ParagraphStyle style)
         {
-            if (!PageBreakPending)
-                return style;
+            if (PageBreakPending)
+            {
+                PageBreakPending = false;
+                ColumnBreakPending = false;
+                return style with { PageBreakBefore = true };
+            }
 
-            PageBreakPending = false;
-            return style with { PageBreakBefore = true };
+            if (ColumnBreakPending)
+            {
+                ColumnBreakPending = false;
+                return style with { ColumnBreakBefore = true };
+            }
+
+            return style;
         }
     }
 }

@@ -141,7 +141,11 @@ public static class DocxWriter
     /// without the flag would put the default footer back under it.
     /// </remarks>
     private static XElement BuildSectionProperties(
-        DocxWriteContext context, RunningContent running, PageGeometry? geometry)
+        DocxWriteContext context,
+        RunningContent running,
+        PageGeometry? geometry,
+        (int Count, double Gap)? columns = null,
+        bool continuous = false)
     {
         var sectPr = new XElement(DocxNamespaces.Wordprocessing + "sectPr");
         bool hasFirst = false;
@@ -163,9 +167,14 @@ public static class DocxWriter
             sectPr.Add(reference);
         }
 
-        if (hasFirst || running.DifferentFirstPage)
-            sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "titlePg"));
+        // CT_SectPr is a sequence: the references, the type, the page size and
+        // margins, then the columns, then w:titlePg. A consumer that validates
+        // the order rejects the part otherwise, so the flag is held until the
+        // geometry is written.
+        if (continuous)
+            sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "type", WordAttribute("val", "continuous")));
 
+        (int Count, double Gap) stated = columns ?? (geometry?.ColumnCount ?? 1, geometry?.ColumnGap ?? 0);
         if (geometry is not null && geometry.IsUsable)
         {
             sectPr.Add(new XElement(
@@ -181,7 +190,19 @@ public static class DocxWriter
                 WordAttribute("header", Twips(geometry.HeaderDistance)),
                 WordAttribute("footer", Twips(geometry.FooterDistance)),
                 WordAttribute("gutter", "0")));
+
         }
+
+        if (stated.Count > 1)
+        {
+            sectPr.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "cols",
+                WordAttribute("num", stated.Count.ToString(CultureInfo.InvariantCulture)),
+                WordAttribute("space", Twips(stated.Gap))));
+        }
+
+        if (hasFirst || running.DifferentFirstPage)
+            sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "titlePg"));
 
         return sectPr;
     }
@@ -192,7 +213,19 @@ public static class DocxWriter
         foreach (XElement block in BuildBlocks(document, document.Tables, 0, document.ParagraphCount, context))
             body.Add(block);
 
-        body.Add(BuildSectionProperties(context, document.RunningContent, document.PageGeometry));
+        // The last section's columns are the body's own w:sectPr's, and it starts
+        // continuously like the others, since w:type's default would start a
+        // page the model did not ask for. Without sections that is the page's
+        // columns and no type, as it always was.
+        (int Count, double Gap)? lastColumns = document.Sections.Count == 0
+            ? null
+            : ColumnsAt(document, document.ParagraphCount - 1);
+        body.Add(BuildSectionProperties(
+            context,
+            document.RunningContent,
+            PageAt(document, document.ParagraphCount - 1),
+            lastColumns,
+            continuous: document.Sections.Count > 0));
 
         var root = new XElement(
             DocxNamespaces.Wordprocessing + "document",
@@ -232,12 +265,81 @@ public static class DocxWriter
             {
                 yield return BuildTable(document, table, context);
                 index = table.ParagraphEnd;
+
+                // A w:sectPr belongs in a paragraph, and the last paragraph of a
+                // section that ends with a table is in a cell. Word puts an
+                // empty paragraph after the table to hold it, and so does this.
+                if (ReferenceEquals(tables, document.Tables) && EndsSection(document, index - 1))
+                {
+                    yield return new XElement(
+                        DocxNamespaces.Wordprocessing + "p",
+                        new XElement(DocxNamespaces.Wordprocessing + "pPr", SectionBreak(document, index - 1, context)));
+                }
+
                 continue;
             }
 
-            yield return BuildBodyParagraph(document, index, context);
+            XElement paragraph = BuildBodyParagraph(document, index, context);
+            if (ReferenceEquals(tables, document.Tables) && EndsSection(document, index))
+                PropertiesOf(paragraph).Add(SectionBreak(document, index, context));
+
+            yield return paragraph;
             index++;
         }
+    }
+
+    /// <summary>
+    /// The columns paragraph <paramref name="index"/> is laid out in: its
+    /// section's, or the page's where no section holds it.
+    /// </summary>
+    private static (int Count, double Gap) ColumnsAt(RichTextDocument document, int index) =>
+        DocumentSection.Containing(document.Sections, index) is DocumentSection section
+            ? (section.ColumnCount, section.ColumnGap)
+            : (document.PageGeometry?.ColumnCount ?? 1, document.PageGeometry?.ColumnGap ?? 0);
+
+    /// <summary>
+    /// The paper and margins paragraph <paramref name="index"/> is laid out
+    /// within: its section's own, or the document's.
+    /// </summary>
+    private static PageGeometry? PageAt(RichTextDocument document, int index) =>
+        DocumentSection.Containing(document.Sections, index)?.Page ?? document.PageGeometry;
+
+    /// <summary>
+    /// True when paragraph <paramref name="index"/> is the last of a stretch the
+    /// next paragraph does not share a section with. The last paragraph of the
+    /// document is not one: the body's own <c>w:sectPr</c> closes the last section.
+    /// </summary>
+    private static bool EndsSection(RichTextDocument document, int index) =>
+        document.Sections.Count > 0 &&
+        index >= 0 && index + 1 < document.ParagraphCount &&
+        !ReferenceEquals(
+            DocumentSection.Containing(document.Sections, index),
+            DocumentSection.Containing(document.Sections, index + 1));
+
+    /// <summary>
+    /// The <c>w:sectPr</c> that closes the section paragraph
+    /// <paramref name="index"/> ends: that section's page, or the document's,
+    /// the document's running content, that section's columns, and a
+    /// continuous start for the next one. Whether
+    /// the next section starts a page is its first paragraph's own
+    /// <c>w:pageBreakBefore</c>, which is where the model keeps it, so stating
+    /// it here as well would start two.
+    /// </summary>
+    private static XElement SectionBreak(RichTextDocument document, int index, DocxWriteContext context) =>
+        BuildSectionProperties(
+            context, document.RunningContent, PageAt(document, index), ColumnsAt(document, index), continuous: true);
+
+    /// <summary>A paragraph's <c>w:pPr</c>, made when it has none, and kept first among its children.</summary>
+    private static XElement PropertiesOf(XElement paragraph)
+    {
+        XElement? properties = paragraph.Element(DocxNamespaces.Wordprocessing + "pPr");
+        if (properties is null)
+        {
+            properties = new XElement(DocxNamespaces.Wordprocessing + "pPr");
+            paragraph.AddFirst(properties);
+        }
+
+        return properties;
     }
 
     /// <summary>One body paragraph, carrying any shapes anchored to it.</summary>
@@ -249,8 +351,21 @@ public static class DocxWriter
         // of the one it belongs to - which is where Word puts it too.
         foreach (DocumentShape shape in document.Shapes)
         {
-            if (shape.ParagraphIndex == index)
-                element.Add(BuildShapeRun(shape, context));
+            if (shape.ParagraphIndex != index)
+                continue;
+
+            // WordprocessingML measures a drawing from the page but anchors it
+            // to a paragraph, so a shape standing on a page by number keeps its
+            // place on the page and loses the number.
+            if (shape.IsPageAnchored)
+            {
+                context.AddDiagnosticOnce(
+                    "docx.shape.page",
+                    "A shape anchored to a page by number was written beside the paragraph it was read with, " +
+                    "measured from the page; WordprocessingML cannot name the page.");
+            }
+
+            element.Add(BuildShapeRun(shape, context, shape.IsPageAnchored));
         }
 
         return element;
@@ -275,7 +390,10 @@ public static class DocxWriter
             // Written with an explicit atLeast rather than bare: the model's height
             // is a minimum, and saying so removes the ambiguity the reader has to
             // resolve by convention when a producer omits the rule.
+            // CT_TrPr is a choice, not a sequence, so the order here is free.
             var properties = new XElement(DocxNamespaces.Wordprocessing + "trPr");
+            if (!row.CanSplit)
+                properties.Add(new XElement(DocxNamespaces.Wordprocessing + "cantSplit"));
             if (row.IsHeader)
                 properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tblHeader"));
             if (row.MinHeight > 0)
@@ -451,6 +569,17 @@ public static class DocxWriter
         XElement? properties = BuildParagraphProperties(paragraph.Style);
         if (properties is not null)
             element.Add(properties);
+
+        // A column break has no paragraph property to be; it is a break run,
+        // and it opens the paragraph it starts, which a reader takes as that
+        // paragraph's own break. A page break, where both are set, is the one
+        // kept.
+        if (paragraph.Style.ColumnBreakBefore && !paragraph.Style.PageBreakBefore)
+        {
+            element.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "r",
+                new XElement(DocxNamespaces.Wordprocessing + "br", WordAttribute("type", "column"))));
+        }
 
         int offset = 0;
         foreach (StyleRun run in paragraph.Runs)

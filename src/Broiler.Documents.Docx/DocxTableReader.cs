@@ -16,17 +16,30 @@ internal static class DocxTableReader
     /// <see cref="DocumentTable"/> over the range they occupy.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The paragraphs go where they always went. What is new is that the reader
     /// now also records which of them each cell holds, so the grid, the spans,
     /// the borders, and the shading survive instead of the text arriving as an
     /// undifferentiated run of paragraphs in row order.
+    /// </para>
+    /// <para>
+    /// The cells are read under the table's own style, so their paragraphs and
+    /// runs inherit what it states. A table nested in a cell is read by this
+    /// same method and takes its own style, or the default one, rather than its
+    /// parent's: the style belongs to a table, not to everything inside it.
+    /// </para>
     /// </remarks>
     internal static void Read(
         XElement table, DocxReadContext context, int depth,
-        Action<IEnumerable<XElement>, int> readBlocks)
+        Action<IEnumerable<XElement>, DocxReadContext, int> readBlocks)
     {
         int start = context.Builder.CurrentParagraphIndex;
         XElement? properties = table.Element(DocxNamespaces.Wordprocessing + "tblPr");
+        DocxReadContext cellContext = context with
+        {
+            TableStyle = context.Styles.TableStyleFor(
+                DocxValueReader.WordValue(properties?.Element(DocxNamespaces.Wordprocessing + "tblStyle"))),
+        };
         CellBorders tableBorders = ReadTableBorders(properties);
         var rows = new List<RowDraft>();
         bool exactHeightSeen = false;
@@ -45,7 +58,7 @@ internal static class DocxTableReader
                 // collected here rather than landing beside this one in the body.
                 var nested = new List<DocumentTable>();
                 context.Builder.PushTableSink(nested);
-                readBlocks(cell.Elements(), depth + 1);
+                readBlocks(cell.Elements(), cellContext, depth + 1);
                 context.Builder.PopTableSink();
 
                 // A cell ends the reach of a page break stated in its last
@@ -68,7 +81,7 @@ internal static class DocxTableReader
                 column += span;
             }
 
-            rows.Add(new RowDraft(cells, ReadRowMinHeight(row, ref exactHeightSeen)));
+            rows.Add(new RowDraft(cells, ReadRowMinHeight(row, ref exactHeightSeen), !ReadCantSplit(row)));
             if (rows.Count >= context.Builder.Limits.MaxParagraphCount)
                 break;
         }
@@ -94,8 +107,8 @@ internal static class DocxTableReader
         {
             context.Builder.AddDiagnosticOnce(
                 "docx.table.style",
-                "A DOCX table named a table style; banding, conditional formatting, " +
-                "and the borders a style states are not applied.");
+                "A DOCX table named a table style; its paragraph and run properties were applied, " +
+                "but banding, conditional formatting, and the borders a style states are not.");
         }
     }
 
@@ -126,8 +139,28 @@ internal static class DocxTableReader
         public List<DocumentTable> Tables = [];
     }
 
-    /// <summary>A row being read: its cells, and the height it asked for.</summary>
-    private readonly record struct RowDraft(List<CellDraft> Cells, double MinHeight);
+    /// <summary>A row being read: its cells, the height it asked for, and whether it may break across a page.</summary>
+    private readonly record struct RowDraft(List<CellDraft> Cells, double MinHeight, bool CanSplit);
+
+    /// <summary>
+    /// ECMA-376's <c>w:cantSplit</c>, which keeps a row on one page. It is
+    /// an on/off property, so a bare element is on and the file has to spell
+    /// <c>false</c> to turn it off.
+    /// </summary>
+    private static bool ReadCantSplit(XElement row)
+    {
+        XElement? cantSplit = row
+            .Element(DocxNamespaces.Wordprocessing + "trPr")?
+            .Element(DocxNamespaces.Wordprocessing + "cantSplit");
+        if (cantSplit is null)
+            return false;
+
+        string? value = DocxValueReader.WordValue(cantSplit);
+        return value is null ||
+            !(value.Equals("false", StringComparison.OrdinalIgnoreCase) ||
+              value.Equals("0", StringComparison.Ordinal) ||
+              value.Equals("off", StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>
     /// ECMA-376 §17.4.81: the height a row states, in points, as a minimum.
@@ -178,7 +211,8 @@ internal static class DocxTableReader
             cell.Borders,
             cell.Merge == VerticalMerge.Continue,
             cell.Tables))],
-            minHeight: row.MinHeight);
+            minHeight: row.MinHeight,
+            canSplit: row.CanSplit);
 
     /// <summary>
     /// Turns <c>w:vMerge</c> continuations into a row span on the cell that

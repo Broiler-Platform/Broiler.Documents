@@ -7,17 +7,19 @@ namespace Broiler.Documents.Docx;
 
 /// <summary>
 /// The style table from <c>word/styles.xml</c>: document defaults plus the named
-/// paragraph and character styles a document refers to through <c>w:pStyle</c>
-/// and <c>w:rStyle</c>.
+/// paragraph, character and table styles a document refers to through
+/// <c>w:pStyle</c>, <c>w:rStyle</c> and <c>w:tblStyle</c>.
 /// </summary>
 /// <remarks>
 /// Templates put nearly all of their formatting here — a CV's name is a 48pt
 /// <c>Title</c> paragraph carrying no direct formatting at all — so a reader that
 /// only honors direct <c>w:pPr</c>/<c>w:rPr</c> renders such a document as
 /// undifferentiated body text. Resolution follows ECMA-376 §17.7.2: document
-/// defaults first, then the <c>w:basedOn</c> chain from its root down to the
-/// referenced style, then direct formatting (applied by the caller). The default
-/// style applies only to content that names no style of its own.
+/// defaults first, then for content inside a table the table style's chain, then
+/// the <c>w:basedOn</c> chain from its root down to the referenced paragraph
+/// style, then direct formatting (applied by the caller). The default paragraph
+/// style applies only to content that names no style of its own, and the default
+/// table style only to a table that names none.
 /// </remarks>
 internal sealed class DocxStyles
 {
@@ -25,6 +27,7 @@ internal sealed class DocxStyles
     private readonly XElement? _defaultParagraphProperties;
     private readonly XElement? _defaultRunProperties;
     private readonly string? _defaultParagraphStyleId;
+    private readonly string? _defaultTableStyleId;
     private readonly int _maxChainDepth;
     private readonly List<DocumentDiagnostic> _diagnostics;
     private readonly HashSet<string> _reported = new(StringComparer.Ordinal);
@@ -35,6 +38,7 @@ internal sealed class DocxStyles
         XElement? defaultParagraphProperties,
         XElement? defaultRunProperties,
         string? defaultParagraphStyleId,
+        string? defaultTableStyleId,
         DocxTheme theme,
         int maxChainDepth,
         List<DocumentDiagnostic> diagnostics)
@@ -43,6 +47,7 @@ internal sealed class DocxStyles
         _defaultParagraphProperties = defaultParagraphProperties;
         _defaultRunProperties = defaultRunProperties;
         _defaultParagraphStyleId = defaultParagraphStyleId;
+        _defaultTableStyleId = defaultTableStyleId;
         _maxChainDepth = maxChainDepth;
         _diagnostics = diagnostics;
         Theme = theme;
@@ -92,6 +97,7 @@ internal sealed class DocxStyles
 
         var styles = new Dictionary<string, StyleDefinition>(StringComparer.Ordinal);
         string? defaultParagraphStyleId = null;
+        string? defaultTableStyleId = null;
         foreach (XElement style in xml.Root.Elements(DocxNamespaces.Wordprocessing + "style"))
         {
             string? id = (string?)style.Attribute(DocxNamespaces.Wordprocessing + "styleId");
@@ -110,6 +116,8 @@ internal sealed class DocxStyles
             bool isDefault = IsOn((string?)style.Attribute(DocxNamespaces.Wordprocessing + "default"));
             if (isDefault && type.Equals("paragraph", StringComparison.Ordinal))
                 defaultParagraphStyleId ??= id;
+            if (isDefault && type.Equals("table", StringComparison.Ordinal))
+                defaultTableStyleId ??= id;
         }
 
         return new DocxStyles(
@@ -117,6 +125,7 @@ internal sealed class DocxStyles
             defaultParagraphProperties,
             defaultRunProperties,
             defaultParagraphStyleId,
+            defaultTableStyleId,
             theme,
             limits.MaxGroupDepth,
             diagnostics);
@@ -130,21 +139,45 @@ internal sealed class DocxStyles
             defaultParagraphProperties: null,
             defaultRunProperties: null,
             defaultParagraphStyleId: null,
+            defaultTableStyleId: null,
             theme,
             limits.MaxGroupDepth,
             diagnostics);
+
+    /// <summary>
+    /// The table style that governs a table: the one its <c>w:tblStyle</c>
+    /// names, or the document's default table style when it names none. Null
+    /// when neither exists.
+    /// </summary>
+    public string? TableStyleFor(string? tableStyleId) =>
+        string.IsNullOrEmpty(tableStyleId) ? _defaultTableStyleId : tableStyleId;
 
     /// <summary>
     /// The <c>w:pPr</c> elements that apply to a paragraph naming
     /// <paramref name="paragraphStyleId"/>, least specific first. The caller
     /// applies the paragraph's own <c>w:pPr</c> after these.
     /// </summary>
-    public IReadOnlyList<XElement> ParagraphProperties(string? paragraphStyleId) =>
-        Resolve("p:" + (paragraphStyleId ?? string.Empty), () =>
+    /// <remarks>
+    /// <paramref name="tableStyleId"/> is the table style of the table the
+    /// paragraph is in, null outside one. Its properties sit between the
+    /// document defaults and the paragraph style, which is where ECMA-376
+    /// §17.7.2 puts them and where Word and LibreOffice apply them: a
+    /// <c>Table Grid</c> that says "no space after" closes up every cell of a
+    /// document whose defaults leave ten points under each paragraph, and a
+    /// paragraph style that says otherwise still wins.
+    /// </remarks>
+    public IReadOnlyList<XElement> ParagraphProperties(string? paragraphStyleId, string? tableStyleId = null) =>
+        Resolve("p:" + (tableStyleId ?? string.Empty) + "\0" + (paragraphStyleId ?? string.Empty), () =>
         {
             var properties = new List<XElement>();
             if (_defaultParagraphProperties is not null)
                 properties.Add(_defaultParagraphProperties);
+
+            foreach (StyleDefinition style in TableChain(tableStyleId))
+            {
+                if (style.ParagraphProperties is not null)
+                    properties.Add(style.ParagraphProperties);
+            }
 
             foreach (StyleDefinition style in ParagraphChain(paragraphStyleId))
             {
@@ -158,14 +191,21 @@ internal sealed class DocxStyles
     /// <summary>
     /// The <c>w:rPr</c> elements that form a run's inherited character formatting
     /// inside a paragraph naming <paramref name="paragraphStyleId"/>: document
-    /// defaults, then the paragraph style chain's run properties.
+    /// defaults, then the table style chain's run properties when the paragraph
+    /// is in a table, then the paragraph style chain's.
     /// </summary>
-    public IReadOnlyList<XElement> RunPropertiesForParagraph(string? paragraphStyleId) =>
-        Resolve("pr:" + (paragraphStyleId ?? string.Empty), () =>
+    public IReadOnlyList<XElement> RunPropertiesForParagraph(string? paragraphStyleId, string? tableStyleId = null) =>
+        Resolve("pr:" + (tableStyleId ?? string.Empty) + "\0" + (paragraphStyleId ?? string.Empty), () =>
         {
             var properties = new List<XElement>();
             if (_defaultRunProperties is not null)
                 properties.Add(_defaultRunProperties);
+
+            foreach (StyleDefinition style in TableChain(tableStyleId))
+            {
+                if (style.RunProperties is not null)
+                    properties.Add(style.RunProperties);
+            }
 
             foreach (StyleDefinition style in ParagraphChain(paragraphStyleId))
             {
@@ -216,6 +256,22 @@ internal sealed class DocxStyles
     /// </summary>
     private List<StyleDefinition> ParagraphChain(string? paragraphStyleId) =>
         Chain(string.IsNullOrEmpty(paragraphStyleId) ? _defaultParagraphStyleId : paragraphStyleId);
+
+    /// <summary>
+    /// The chain of a table style. Only table styles belong in it: a
+    /// <c>w:tblStyle</c> naming a paragraph style is a damaged reference, and
+    /// reading that style's properties into every cell would apply formatting
+    /// the document gave to something else.
+    /// </summary>
+    private List<StyleDefinition> TableChain(string? tableStyleId)
+    {
+        if (string.IsNullOrEmpty(tableStyleId))
+            return [];
+
+        List<StyleDefinition> chain = Chain(tableStyleId);
+        chain.RemoveAll(style => !style.Type.Equals("table", StringComparison.Ordinal));
+        return chain;
+    }
 
     /// <summary>Walks <c>w:basedOn</c> to the root and returns the chain root-first.</summary>
     private List<StyleDefinition> Chain(string? styleId)

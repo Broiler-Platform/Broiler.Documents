@@ -260,4 +260,20 @@ public sealed class DocxShapeTests
 
         Assert.Single(edited.Shapes);
     }
+
+    [Fact]
+    public void A_Page_Anchored_Shape_Is_Measured_From_The_Page_And_Says_It_Lost_The_Number()
+    {
+        var shape = new DocumentShape(0, 10, 300, 100, 50, ShapeFill.Solid(BColor.Black), anchorPage: 3);
+        RichTextDocument document = RichTextDocument.FromPlainText("body").WithShapes([shape]);
+
+        using var output = new MemoryStream();
+        DocumentWriteResult result = new DocxDocumentCodec().Write(document, output);
+        using var archive = new System.IO.Compression.ZipArchive(new MemoryStream(output.ToArray()));
+        using var reader = new StreamReader(archive.GetEntry("word/document.xml")!.Open());
+        string xml = reader.ReadToEnd();
+
+        Assert.Matches("positionV relativeFrom=\"page\"", xml);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.shape.page");
+    }
 }

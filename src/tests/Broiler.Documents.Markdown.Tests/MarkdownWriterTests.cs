@@ -109,6 +109,25 @@ public sealed class MarkdownWriterTests
     }
 
     [Fact]
+    public void A_Column_Break_Is_Reported_Rather_Than_Written()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            MakeParagraph(ParagraphStyle.Default, ("first", InlineStyle.Default)),
+            MakeParagraph(
+                ParagraphStyle.Default with { ColumnBreakBefore = true },
+                ("second", InlineStyle.Default)),
+        ]);
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult result = new MarkdownDocumentCodec().Write(document, stream);
+
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.column-break");
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.page-break");
+        Assert.Equal("first\n\nsecond\n", System.Text.Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    [Fact]
     public void Writes_An_Embedded_Image_As_A_Data_Uri()
     {
         var image = new InlineImage(new byte[] { 1, 2, 3 }, "image/png", 40, 20, "a logo");

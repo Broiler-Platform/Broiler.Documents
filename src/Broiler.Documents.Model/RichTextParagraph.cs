@@ -172,7 +172,7 @@ public sealed class RichTextParagraph
     {
         offset = Math.Clamp(offset, 0, Text.Length);
 
-        // The tail does not inherit the page break. Every other paragraph
+        // The tail does not inherit the page or column break. Every other paragraph
         // property describes how the paragraph looks and belongs to both halves;
         // a break describes where the paragraph starts, and there is only one
         // start. Copying it would mean that pressing Enter inside a paragraph
@@ -184,7 +184,7 @@ public sealed class RichTextParagraph
         var head = new RichTextParagraph(Text[..offset], Style, SliceRuns(0, offset));
         var tail = new RichTextParagraph(
             Text[offset..],
-            Style with { PageBreakBefore = false },
+            Style with { PageBreakBefore = false, ColumnBreakBefore = false },
             SliceRuns(offset, Text.Length - offset));
         return (head, tail);
     }

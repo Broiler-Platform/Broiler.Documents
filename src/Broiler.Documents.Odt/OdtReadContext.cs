@@ -1,3 +1,5 @@
+using Broiler.Documents.Model;
+
 namespace Broiler.Documents.Odt;
 
 /// <summary>Everything a read needs to turn one element into document content.</summary>
@@ -9,16 +11,22 @@ namespace Broiler.Documents.Odt;
 /// body content and shares the body's, which is the same answer read the
 /// other way round.
 /// </remarks>
+/// <param name="Page">
+/// The page the body is laid out on, when the document states one: a frame
+/// anchored to a page states its position from the page's edges, and the model
+/// measures from the text column.
+/// </param>
 internal sealed record OdtReadContext(
     OdtStyles Styles,
     OdtImageLoader Images,
-    OdtDocumentBuilder Builder)
+    OdtDocumentBuilder Builder,
+    PageGeometry? Page = null)
 {
-    private bool _pendingPageBreak;
+    private OdtBreak _pendingBreak;
 
     /// <summary>
-    /// Records that the paragraph just read asked for a page break after
-    /// itself, so the next paragraph in this flow can carry it.
+    /// Records that the paragraph just read asked for a page or column break
+    /// after itself, so the next paragraph in this flow can carry it.
     /// </summary>
     /// <remarks>
     /// A break stated after paragraph five and a break stated before
@@ -28,15 +36,16 @@ internal sealed record OdtReadContext(
     /// meant; it is the only way the model has of writing down what the
     /// document already said. The alternative, reporting it and dropping it,
     /// would be honest about the loss and would still lose a page break a
-    /// word processor draws.
+    /// word processor draws. A column break stated after a paragraph travels the
+    /// same way.
     /// </remarks>
-    public void HoldPageBreak(bool wanted) => _pendingPageBreak = wanted;
+    public void HoldBreak(OdtBreak kind) => _pendingBreak = kind;
 
     /// <summary>Hands any held break to the paragraph now starting.</summary>
-    public bool TakePageBreak()
+    public OdtBreak TakeBreak()
     {
-        bool held = _pendingPageBreak;
-        _pendingPageBreak = false;
+        OdtBreak held = _pendingBreak;
+        _pendingBreak = OdtBreak.None;
         return held;
     }
 
@@ -50,12 +59,20 @@ internal sealed record OdtReadContext(
     /// </summary>
     public void DropPageBreak()
     {
-        if (!_pendingPageBreak)
+        if (_pendingBreak == OdtBreak.None)
             return;
 
-        _pendingPageBreak = false;
+        _pendingBreak = OdtBreak.None;
         Builder.AddDiagnosticOnce(
             "odt.break.after",
             "A fo:break-after page break had no following paragraph to carry it and was dropped.");
     }
+}
+
+/// <summary>A break one paragraph hands to the next: none, a page, or a column.</summary>
+internal enum OdtBreak
+{
+    None,
+    Page,
+    Column,
 }

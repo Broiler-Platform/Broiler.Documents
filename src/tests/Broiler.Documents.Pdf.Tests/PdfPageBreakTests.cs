@@ -115,6 +115,36 @@ public sealed class PdfPageBreakTests
     }
 
     [Fact]
+    public void A_Column_Break_Starts_A_Page_Where_There_Is_One_Column()
+    {
+        // This layout fills every page as one column, and a column break with no
+        // next column to move to is a page break - the rule the CLI layout and
+        // the DOCX reader both follow.
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("first"),
+            RichTextParagraph.Create(
+                "second", InlineStyle.Default, ParagraphStyle.Default with { ColumnBreakBefore = true }),
+        ]);
+
+        PdfWriteResult result = Write(document).Result;
+
+        Assert.Equal(2, result.PageCount);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.WriteFeatureUnsupported);
+    }
+
+    [Fact]
+    public void Columns_Laid_Out_As_One_Are_Reported()
+    {
+        RichTextDocument document = RichTextDocument.FromPlainText("body")
+            .WithSections([new DocumentSection(0, 1, 2, 36)]);
+
+        PdfWriteResult result = Write(document).Result;
+
+        Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.WriteFeatureUnsupported);
+    }
+
+    [Fact]
     public void A_Mapped_Boundary_Does_Not_Come_Back_As_A_Break()
     {
         // Pinning the limit rather than the capability, because the shape of this

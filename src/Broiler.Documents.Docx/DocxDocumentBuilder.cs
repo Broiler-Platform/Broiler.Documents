@@ -26,7 +26,13 @@ internal sealed class DocxDocumentBuilder(
     private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
     private InlineStyle _pageBreakStyle = InlineStyle.Default;
     private bool _pageBreakSeen;
+    private bool _pageBreakLeadsParagraph;
     private bool _pageBreakStartsNextParagraph;
+
+    // Whether the break being carried is a column break rather than a page
+    // break. Both travel the same way, so one set of flags carries either.
+    private bool _breakIsColumn;
+    private bool _heldBreakIsColumn;
     private int _tableCount;
     private int _unsupportedBlockCount;
 
@@ -109,6 +115,7 @@ internal sealed class DocxDocumentBuilder(
     /// until the paragraph ends.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The run's style is kept because the break may turn out not to be the
     /// last thing in its paragraph. Word honours a break with text after it
     /// by splitting the paragraph across the boundary, and a paragraph
@@ -116,8 +123,19 @@ internal sealed class DocxDocumentBuilder(
     /// before". That case is demoted to the line break every other
     /// <c>w:br</c> becomes, and reported, rather than pulling the text that
     /// followed the break back onto the previous page.
+    /// </para>
+    /// <para>
+    /// A break with nothing before it in its paragraph splits nothing: all of
+    /// the paragraph's text is on the far side of the boundary, so the
+    /// paragraph is the one that starts the page. See <see cref="AppendText"/>.
+    /// </para>
+    /// <para>
+    /// A column break in a section of several columns travels exactly the
+    /// same way and lands as <see cref="ParagraphStyle.ColumnBreakBefore"/>;
+    /// <paramref name="column"/> says which this is.
+    /// </para>
     /// </remarks>
-    public void NotePageBreak(InlineStyle style)
+    public void NotePageBreak(InlineStyle style, bool column = false)
     {
         // Two breaks with nothing between them are two page boundaries and
         // a blank page in the middle. The flag holds one, and the one kept
@@ -132,13 +150,27 @@ internal sealed class DocxDocumentBuilder(
         }
 
         _pageBreakSeen = true;
+        _pageBreakLeadsParagraph = _segments.Count == 0;
         _pageBreakStyle = style;
+        _breakIsColumn = column;
+    }
+
+    /// <summary>
+    /// Starts the next paragraph on a new page: a section that begins on a page
+    /// of its own, whose break is stated in no run at all. A break the paragraph
+    /// just ended with already does that, and one boundary is one boundary; a
+    /// column break held over becomes the page break, which goes further.
+    /// </summary>
+    public void HoldPageBreak()
+    {
+        _pageBreakStartsNextParagraph = true;
+        _heldBreakIsColumn = false;
     }
 
     /// <summary>
     /// Drops a page break that reached the end of a table cell. Word splits
-    /// the row a break inside a table falls in; a row is placed whole here,
-    /// so there is no boundary inside one to move it to, and the paragraph
+    /// the row a break inside a table falls in; a row breaks here only where
+    /// the page runs out, so there is no boundary to move it to, and the paragraph
     /// that follows in the flat list is a page's worth of layout away from
     /// where the break was written. It is dropped and said out loud rather
     /// than landing somewhere the document never asked for.
@@ -152,7 +184,7 @@ internal sealed class DocxDocumentBuilder(
         _pageBreakStartsNextParagraph = false;
         AddDiagnosticOnce(
             "docx.pagebreak.table",
-            "A page break at the end of a table cell was dropped; a row is placed whole, so it has no page boundary inside it.");
+            "A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks.");
     }
 
     public void StartParagraph(ParagraphStyle style)
@@ -164,8 +196,11 @@ internal sealed class DocxDocumentBuilder(
         // so this sets the flag rather than counting anything.
         if (_pageBreakStartsNextParagraph)
         {
-            style = style with { PageBreakBefore = true };
+            style = _heldBreakIsColumn
+                ? style with { ColumnBreakBefore = true }
+                : style with { PageBreakBefore = true };
             _pageBreakStartsNextParagraph = false;
+            _heldBreakIsColumn = false;
         }
 
         _paragraphStyle = style;
@@ -178,10 +213,15 @@ internal sealed class DocxDocumentBuilder(
 
         // Text after a page break run is the case NotePageBreak cannot
         // carry: the break is inside the paragraph rather than at the end
-        // of it. Demoting it here, on the first content that follows,
-        // keeps the reader a single forward pass.
+        // of it. Deciding here, on the first content that follows, keeps the
+        // reader a single forward pass.
         if (_pageBreakSeen)
-            DemotePageBreakToLineBreak();
+        {
+            if (_pageBreakLeadsParagraph)
+                StartParagraphOnNewPage();
+            else
+                DemotePageBreakToLineBreak();
+        }
 
         if (text.Length > limits.MaxRunLength)
         {
@@ -200,6 +240,30 @@ internal sealed class DocxDocumentBuilder(
     }
 
     /// <summary>
+    /// Turns a page break that opened its paragraph into the paragraph's own
+    /// break: nothing of the paragraph was before it, so nothing is left on
+    /// the page before, and the whole paragraph starts the next one. A
+    /// paragraph that already starts a page - a break held over from the one
+    /// before, or its style's <c>w:pageBreakBefore</c> - keeps the one page
+    /// boundary and reports the blank page the second would make.
+    /// </summary>
+    private void StartParagraphOnNewPage()
+    {
+        _pageBreakSeen = false;
+        if (_paragraphStyle.PageBreakBefore || (_breakIsColumn && _paragraphStyle.ColumnBreakBefore))
+        {
+            AddDiagnosticOnce(
+                "docx.pagebreak.repeated",
+                "A paragraph stated more than one page break; the extra breaks, and the blank pages they make, were dropped.");
+            return;
+        }
+
+        _paragraphStyle = _breakIsColumn
+            ? _paragraphStyle with { ColumnBreakBefore = true }
+            : _paragraphStyle with { PageBreakBefore = true };
+    }
+
+    /// <summary>
     /// Turns a page break that content followed into a line break, because
     /// the paragraph it is in cannot be split. The flag is cleared first:
     /// the line break goes in through <see cref="AppendText"/>, which is
@@ -209,9 +273,20 @@ internal sealed class DocxDocumentBuilder(
     {
         InlineStyle style = _pageBreakStyle;
         _pageBreakSeen = false;
-        AddDiagnosticOnce(
-            "docx.pagebreak.split",
-            "A page break with text after it in the same paragraph was read as a line break; pages here break between paragraphs, not inside one.");
+        if (_breakIsColumn)
+        {
+            AddDiagnosticOnce(
+                "docx.break.column",
+                "A column break with text before and after it in the same paragraph was read as a line break; " +
+                "columns here break between paragraphs, not inside one.");
+        }
+        else
+        {
+            AddDiagnosticOnce(
+                "docx.pagebreak.split",
+                "A page break with text after it in the same paragraph was read as a line break; pages here break between paragraphs, not inside one.");
+        }
+
         AppendText(((char)0x2028).ToString(), style);
     }
 
@@ -224,6 +299,7 @@ internal sealed class DocxDocumentBuilder(
         {
             _pageBreakSeen = false;
             _pageBreakStartsNextParagraph = true;
+            _heldBreakIsColumn = _breakIsColumn;
         }
 
         if (_paragraphs.Count >= limits.MaxParagraphCount)

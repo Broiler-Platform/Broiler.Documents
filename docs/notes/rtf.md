@@ -171,8 +171,20 @@ document whose margins leave no column to write in gets none either, and is told
 so as `rtf.page.geometry` - the numbers are real, but the page they describe is
 not one anything can lay out.
 
+`\cols` divides the page into that many text columns, `\colsx` apart - 720
+twips when it is absent, as the specification says. Columns that leave no room
+keep the page and lose the columns, as `rtf.columns.geometry`. A write states
+both when there is more than one column. `\column`, the column break, starts
+the next column: where the page has columns it is
+`ParagraphStyle.ColumnBreakBefore` on the paragraph after it, carried there the
+way `\page` carries a page break, and where it has one it is a page break, as
+Word takes it. A write puts `\column` where the paragraph that has the break
+starts.
+
 This is the page, not sections. Everything else a section states is still
-ignored, including the section break kinds above.
+ignored, including the section break kinds above, and a document whose sections
+have columns or margins of their own is written with the page and its columns
+alone, which `rtf.sections` says.
 
 ## Drawings
 
@@ -390,14 +402,17 @@ anything a caller asked for that this codec does not do.
 | `rtf.codepage` | Info | Read | A code page this build does not carry decoded its high bytes through a Latin-1 fallback; `\uN` text is unaffected. Once per read. |
 | `rtf.embedded` | Info | Read | Pictures and objects were skipped. Once per read, and replaced by `document.capability.not-composed` when decoding was asked for. |
 | `rtf.page.geometry` | Warning | Read | The section properties described a page with no room to write on, so the page was not read. |
+| `rtf.columns.geometry` | Warning | Read | `\cols` and `\colsx` left no room to write in a column; the page was kept and read as one column. |
 | `rtf.pagebreak.empty` | Info | Read | A page break with no paragraph after it asks for a blank page, which this model cannot hold; the break was dropped. Once per read. |
 | `rtf.trailing` | Info | Read | Content followed the root group's closing brace; it is not part of the document and was not read. Once per read. |
 | `rtf.link` | Warning | Read, write | A hyperlink target the shared rule refuses. Reading drops the link; writing keeps the run as plain text. |
-| `rtf.pagebreak.dropped` | Warning | Write | A page break on a header, footer, or shape paragraph was not written; there is no page for it to start. |
+| `rtf.pagebreak.dropped` | Warning | Write | A page or column break on a header, footer, or shape paragraph was not written; there is no page for it to start. |
+| `rtf.sections` | Warning | Write | The document's sections, each with columns and margins of its own, were not written; the page and its columns were written for the whole document. |
 | `rtf.table.flattened` | Warning | Write | A table was written as its cell paragraphs, in row order; this codec carries no table structure. |
 | `rtf.image.format` | Warning | Write | RTF carries PNG and JPEG pictures; one in another format was dropped. |
 | `rtf.image.omitted` | Warning | Write | The caller's resource policy did not permit a picture into the output; the message names the denial. |
 | `rtf.image.anchored` | Warning | Write | A floating picture was written into its paragraph; its position beside the text was not kept. |
+| `rtf.shape.page` | Warning | Write | A shape anchored to a page by number was written beside its paragraph with `\shpbypage`; RTF can measure from the page but not name it. |
 | `document.capability.not-composed` | Warning | Read, write | Something the caller asked for that this codec does not compose: `DecodeEmbeddedObjects` on a document that carries a picture or object, or `AsciiOnly=false` on a write. |
 
 ## Standards and rights

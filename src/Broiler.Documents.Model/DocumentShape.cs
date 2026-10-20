@@ -24,7 +24,7 @@ namespace Broiler.Documents.Model;
 /// what the formats anchor to and what both renderers already know - so a shape
 /// in the left margin needs no page geometry to place, only a negative offset.
 /// <see cref="OffsetY"/> is measured from the top of the paragraph the shape is
-/// anchored to.
+/// anchored to, or from the top of the page for one anchored to a page.
 /// </para>
 /// <para>
 /// Stacking is two independent questions and the model keeps both.
@@ -43,6 +43,10 @@ namespace Broiler.Documents.Model;
 /// trade every word processor makes with paragraph-anchored objects, and it is
 /// better than the alternative this replaces, which was to drop the shape.
 /// </para>
+/// <para>
+/// A shape can be anchored to a page instead, by number; see
+/// <see cref="AnchorPage"/>.
+/// </para>
 /// </remarks>
 public sealed class DocumentShape(
     int paragraphIndex,
@@ -58,7 +62,8 @@ public sealed class DocumentShape(
     ShapeWrap wrap = ShapeWrap.None,
     WrapSide wrapSide = WrapSide.Largest,
     double wrapDistance = 0,
-    int zOrder = 0)
+    int zOrder = 0,
+    int anchorPage = 0)
 {
 
     /// <summary>The paragraph the shape is anchored to.</summary>
@@ -67,7 +72,7 @@ public sealed class DocumentShape(
     /// <summary>Points from the text column's left edge; negative puts the shape in the margin.</summary>
     public double OffsetX { get; } = offsetX;
 
-    /// <summary>Points from the top of the anchoring paragraph.</summary>
+    /// <summary>Points from the top of the anchoring paragraph, or of the page when <see cref="IsPageAnchored"/>.</summary>
     public double OffsetY { get; } = offsetY;
 
     public double Width { get; } = width;
@@ -136,6 +141,33 @@ public sealed class DocumentShape(
 
     /// <summary>True when the body text has to keep clear of this shape.</summary>
     public bool Wraps => Wrap != ShapeWrap.None;
+
+    /// <summary>
+    /// The page the shape stands on, counted from one, or zero when it is
+    /// anchored to the paragraph <see cref="ParagraphIndex"/> names.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ODF anchors a frame to a page by its number
+    /// (<c>text:anchor-type="page"</c>, <c>text:anchor-page-number</c>), and a
+    /// magazine template does exactly that: the cover box on page one, a
+    /// full-page panel on page seventeen. Such a shape stands on that page
+    /// whatever the text does, and a renderer makes the pages it needs to have
+    /// one to put it on, as LibreOffice does.
+    /// </para>
+    /// <para>
+    /// For a page-anchored shape <see cref="OffsetY"/> is measured from the top
+    /// edge of the page, as a running band's shapes are, because there is no
+    /// paragraph to measure it from; <see cref="OffsetX"/> is still measured from
+    /// the text column's left edge. <see cref="ParagraphIndex"/> keeps the
+    /// paragraph the shape was read beside, which is where a format with no page
+    /// anchor writes it.
+    /// </para>
+    /// </remarks>
+    public int AnchorPage { get; } = Math.Max(0, anchorPage);
+
+    /// <summary>True when the shape stands on a page by number rather than beside a paragraph.</summary>
+    public bool IsPageAnchored => AnchorPage > 0;
 
     /// <summary>The shape's own text, empty when it holds none.</summary>
     public IReadOnlyList<RichTextParagraph> Paragraphs { get; } = paragraphs is null || paragraphs.Count == 0

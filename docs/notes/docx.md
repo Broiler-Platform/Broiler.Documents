@@ -48,7 +48,8 @@ Open XML WordprocessingML package parts.
   | --- | --- | --- |
   | `w:pPr/w:pageBreakBefore` | `ParagraphStyle.PageBreakBefore` on that paragraph | `w:pPr/w:pageBreakBefore`, first in `w:pPr` |
   | `w:r/w:br w:type="page"` at the end of a paragraph | `PageBreakBefore` on the **following** paragraph | as `w:pageBreakBefore` on that following paragraph |
-  | `w:br` with no type, or `w:type="column"`/`"textWrapping"` | the line break it has always been (`U+2028`) | `w:br` |
+  | `w:r/w:br w:type="column"` | a page break in a section of one column; `ParagraphStyle.ColumnBreakBefore` on the **following** paragraph in a section of several | `w:br w:type="column"` opening the paragraph that has `ColumnBreakBefore` |
+  | `w:br` with no type, or `w:type="textWrapping"` | the line break it has always been (`U+2028`) | `w:br` |
 
   `w:pageBreakBefore` follows the on/off rule the character properties do:
   present means on, and `w:val="false"`, `"0"` or `"off"` turns off a break the
@@ -165,16 +166,24 @@ Open XML WordprocessingML package parts.
 - An image linked with `r:link` rather than embedded is not fetched; reading it
   would mean a network or file request driven by document content (ADR 0004).
 - Style resolution covers the attributes `RichTextDocument` models. Style
-  features outside it — character spacing/scaling, table styles, numbering-level
-  overrides, conditional table formatting — are ignored, as are theme colors
+  features outside it — character spacing/scaling, numbering-level overrides,
+  conditional table formatting — are ignored, as are theme colors
   (`w:themeColor`); Word writes the computed RGB into `w:val` alongside them,
   which is what the reader uses.
-- Table styles are not applied. A `w:tblStyle` names formatting held in the
-  styles part — banding, conditional first-row and first-column formatting, and
-  the borders a style states — and only what the table and its cells state
-  directly is read, with `docx.table.style`. Cell vertical alignment, text direction, and
-  table indent and alignment are not represented either; a table starts at the
-  left margin.
+- A table style's own `w:pPr` and `w:rPr` are applied to the paragraphs and
+  runs in its cells, between the document defaults and the paragraph style, as
+  ECMA-376 §17.7.2 orders them: `Table Grid` takes Word's default ten points
+  after and 1.15 line back out of every cell, and a paragraph style or direct
+  formatting that says otherwise still wins. A table that names no style takes
+  the default table style; a nested table takes its own, not its parent's; and a
+  `w:tblStyle` that names a paragraph style applies nothing. Word's compatibility
+  rule that lets a table style override an 11 or 12 point size or a left
+  alignment stated by the default paragraph style is not modelled. The rest of a
+  table style — banding, conditional first-row and first-column formatting
+  (`w:tblStylePr`), and the borders and shading it states — is not applied, and
+  a table naming a style reports `docx.table.style`. Cell vertical alignment,
+  text direction, and table indent and alignment are not represented either; a
+  table starts at the left margin.
 - A table's cells are paragraph ranges, so an edit that adds or removes
   paragraphs moves them and one that spans out of a cell into the body does not
   keep the grid over what it merged. The ranges are moved through the one place
@@ -210,12 +219,65 @@ Open XML WordprocessingML package parts.
   flat list, so the paragraph after a cell's last one is the neighbouring cell's
   or the body's past the table, and neither is the row Word splits there. A
   break on a paragraph *within* a cell is read and written back as stated, but
-  the layout places a row whole, so nothing acts on it.
-- Section breaks do not paginate. A `w:sectPr` in a paragraph's `w:pPr` with
-  `w:type="nextPage"` is a page boundary as much as a break is, but it is
-  section layout, which this codec does not read beyond the last section's page
-  geometry and running content (`docx.section.multiple`). A document that
-  paginates with section breaks rather than page breaks still reads as one flow.
+  the layout breaks a row only where the page runs out, so nothing acts on it.
+- A row's `w:cantSplit` is `TableRow.CanSplit`, read as the on/off property it
+  is and written back. A row without it may break across a page, as in Word.
+- A page break that opens its paragraph - nothing of the paragraph before it -
+  starts that paragraph on the new page. Nothing is split, so nothing is
+  demoted: the paragraph is what the page begins with. If the paragraph already
+  starts a page, from a break held over from the one before or from
+  `w:pageBreakBefore`, the boundary is kept once and `docx.pagebreak.repeated`
+  reports the blank page the second would make.
+- A column break, `w:br w:type="column"`, is a page break in a section of one
+  column. ECMA-376's `ST_BrType` says the text restarts on the next page when the
+  section is not divided into columns, and Word and LibreOffice both start one;
+  it is read exactly as a `w:type="page"` break is, including the cases above.
+  In a section of several columns it moves to the next column, and is
+  `ParagraphStyle.ColumnBreakBefore` on the paragraph it starts, travelling
+  there exactly as a page break does; one with text on both sides of it in its
+  paragraph is a line break and reported as `docx.break.column`, as a page
+  break there is. Which section a paragraph is in is found before the content
+  is read, because a section's properties follow its paragraphs. In a header,
+  a footer or a text box it stays a line break. A write puts a
+  `w:br w:type="column"` run first in the paragraph that has the break.
+- Text columns. `w:cols` gives the page a column count and the gap between
+  columns, `w:space`, or half an inch when that is absent. A section that lists
+  its columns (`w:equalWidth="0"`) is read as their count and the mean of their
+  spaces; widths that differ by more than a point are held as equal columns and
+  reported as `docx.columns.unequal`. Where every section has the same
+  columns, the page holds them and that is all. Where sections differ, each
+  is a `DocumentSection` over its own paragraphs with its own columns, and
+  `docx.section.columns` says so; the page then records the columns of the
+  section holding the most paragraphs rather than the last's, because a
+  two-column document whose producer ended it with a continuous break before
+  one empty paragraph has a one-column last section holding nothing. Columns
+  that leave no room keep the page and lose the columns
+  (`docx.columns.geometry`). The separator line (`w:sep`) is not read.
+- A section break starts a page unless it says it does not. `w:type` on the
+  `w:sectPr` of the section that follows says how that section starts:
+  `nextPage`, which is also what an absent `w:type` means, `oddPage` and
+  `evenPage` put its first paragraph on a new page, as `PageBreakBefore`, and
+  `continuous` runs it on below the section before. A section's own break and a
+  page break the paragraph before it ended with are one boundary, not two.
+  `oddPage` and `evenPage` can put a blank page in front of the section to
+  land it on the side they name; that page is not made, and
+  `docx.section.parity` says so. `nextColumn` is read as `continuous`.
+- A section's own paper and margins. The last section's `w:pgSz` and
+  `w:pgMar` are the document's page; a section that states others keeps them
+  as `DocumentSection.Page`, and its text is laid out between its own left and
+  right margins, under its own top margin on a page it starts. That is what
+  makes a magazine whose sections are set two inches in, or six, lay out in
+  columns of the width it was set in rather than the last section's. The
+  running content is still the last section's (`docx.section.multiple`).
+- A write states `w:cols` with the count and the gap. A document with sections
+  writes each boundary as a `w:sectPr` in the `w:pPr` of the section's last
+  paragraph, with that section's page, or the document's, its columns and
+  `w:type="continuous"`; a section
+  that starts a page says so with its first paragraph's `w:pageBreakBefore`,
+  which is where the model keeps it, so the `w:sectPr` does not say it twice.
+  A section ending in a table gets an empty paragraph after the table to hold
+  its `w:sectPr`, as Word writes it. The body's own `w:sectPr` closes the last
+  section, `continuous` too.
 - Block nesting deeper than `DocumentLimits.MaxGroupDepth` is abandoned with a
   `docx.limit.depth` diagnostic.
 - DOCX packages above `DocumentLimits.MaxDocumentBytes` are not parsed.
@@ -235,13 +297,18 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `document.metadata.emitted` | Info | Document properties the caller supplied reached `docProps`; the message names the fields. |
 | `document.metadata.dropped` | Warning | A property OOXML states no equivalent for was not written. `CreatorApplication` is the one: OOXML names a producing application only. |
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
-| `docx.table.style` | Warning | A table named a table style; banding and conditional formatting are not applied. |
+| `docx.table.style` | Warning | A table named a table style; its paragraph and run properties were applied, banding, conditional formatting and the borders it states were not. |
 | `docx.table.rowheight` | Warning | A row stated an exact height; it was applied as a minimum so its text is not clipped. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
 | `docx.pagebreak.split` | Warning | A `w:br w:type="page"` had text after it in the same paragraph; it was read as a line break, because pages break between paragraphs here and not inside one. |
 | `docx.pagebreak.repeated` | Warning | A paragraph stated more than one page break; the first was kept and the blank pages the others make were dropped. |
 | `docx.pagebreak.trailing` | Warning | A page break in the last paragraph of a part was dropped; there is no following paragraph for it to start. |
-| `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row is placed whole, so it has no page boundary inside it. |
+| `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks. |
+| `docx.break.column` | Warning | A column break with text before and after it in the same paragraph was read as a line break; columns break between paragraphs here, not inside one. |
+| `docx.section.columns` | Info | The sections differ in their columns; each section keeps its own, and the page records those of the section holding the most paragraphs. |
+| `docx.section.parity` | Warning | A section starting on an odd or even page was read as starting on the next page; the blank page it can put before itself is not made. |
+| `docx.columns.unequal` | Info | A section listed columns of unequal width; they were read as equal columns. |
+| `docx.columns.geometry` | Warning | A section's columns left no room to write in a column; the page was kept and read as one column. |
 | `docx.limit.depth` | Warning | Block nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `docx.styles.missing` | Warning | Content named styles but the package has no styles part. Reported once. |
 | `docx.styles.unknown` | Warning | A `w:pStyle`/`w:rStyle` named a style the table does not define. Once per id. |
@@ -259,7 +326,11 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's, or a page-relative vertical offset kept as stated. |
 
-Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, and `docx.text.control`.
+Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, `docx.shape.page`, and `docx.text.control`.
+`docx.shape.page` says a shape anchored to a page by number was written beside
+the paragraph it was read with, its vertical offset measured from the page
+(`relativeFrom="page"`): WordprocessingML anchors every drawing to a paragraph
+and has no way to name the page.
 `docx.text.control` is the counterpart to ODT's `odt.text.control`: XML 1.0 has
 no representation for most control characters, not even an escape, so one that
 reaches the writer is dropped and reported. It is not a contrived input — the

@@ -57,16 +57,18 @@ internal static class OdtReader
             OdtStyles styles = OdtStyles.Load(archive, content, options.Limits, diagnostics);
             var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
             var images = new OdtImageLoader(archive, manifest, options.Limits, resources);
-            RichTextDocument document = ReadContent(content, styles, images, options.Limits, diagnostics);
 
             // One resolution, used by both. The page and the header that sits on
             // it belong to the same master page, and reading them from two
             // different ones would put a Letter header on an A4 page without
-            // anything saying so.
+            // anything saying so. The page is read before the content, because a
+            // frame anchored to a page states its position from the page's edges.
             XElement? master = ResolveMasterPage(content, styles);
+            PageGeometry? page = ReadPageGeometry(master, styles, diagnostics);
+            RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics);
             document = document.WithRunningContent(
                 ReadRunningContent(master, styles, images, options.Limits, diagnostics));
-            document = document.WithPageGeometry(ReadPageGeometry(master, styles, diagnostics));
+            document = document.WithPageGeometry(page);
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             return new DocumentReadResult(
                 document,
@@ -95,6 +97,7 @@ internal static class OdtReader
         XDocument content,
         OdtStyles styles,
         OdtImageLoader images,
+        PageGeometry? page,
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics)
     {
@@ -110,7 +113,7 @@ internal static class OdtReader
         }
 
         var builder = new OdtDocumentBuilder(limits, diagnostics);
-        var context = new OdtReadContext(styles, images, builder);
+        var context = new OdtReadContext(styles, images, builder, page);
         ReadBlockContent(body.Elements(), context, list: null, depth: 0);
 
         // A break after the last paragraph asks for a page with nothing on it,
@@ -387,7 +390,9 @@ internal static class OdtReader
     /// so this follows that reference rather than guessing at the first layout -
     /// a document can define several, and only the named one is the page. Which
     /// master page arrives here is <see cref="ResolveMasterPage"/>'s decision.
-    /// A layout that leaves no column to write on is dropped and reported.
+    /// A layout that leaves no column to write on is dropped and reported. The
+    /// text columns the layout divides the page into are read with it; see
+    /// <see cref="ReadColumns"/>.
     /// </remarks>
     private static PageGeometry? ReadPageGeometry(
         XElement? master, OdtStyles styles, List<DocumentDiagnostic> diagnostics)
@@ -428,12 +433,92 @@ internal static class OdtReader
             Length(properties, "margin-bottom"));
 
         if (geometry.IsUsable)
-            return geometry;
+            return ReadColumns(properties, geometry, diagnostics);
 
         diagnostics.Add(DocumentDiagnostic.Warning(
             "odt.page.geometry",
             "An ODT page layout gave a page with no room to write on; the page was not read."));
         return null;
+    }
+
+    /// <summary>
+    /// ODF's <c>style:columns</c>: the text columns a page layout divides its text
+    /// area into.
+    /// </summary>
+    /// <remarks>
+    /// <c>fo:column-count</c> says how many, and <c>fo:column-gap</c> how far
+    /// apart when the columns are equal. A producer that lists the columns
+    /// states each gap instead, as the end indent of one column and the start
+    /// indent of the next, and LibreOffice writes both forms; the listed one is
+    /// read when the attribute is absent. Listed columns of different relative
+    /// widths are held as equal ones, which keeps every line in the column it was
+    /// written in, and reported.
+    /// </remarks>
+    private static PageGeometry ReadColumns(
+        XElement properties, PageGeometry geometry, List<DocumentDiagnostic> diagnostics)
+    {
+        if (TryReadColumns(properties, diagnostics.Add) is not (int count, double gap))
+            return geometry;
+
+        PageGeometry divided = geometry.WithColumns(count, gap);
+        if (!divided.HasColumns)
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "odt.columns.geometry",
+                "An ODT page layout's columns left no room to write in a column; the page was read as one column."));
+        }
+
+        return divided;
+    }
+
+    /// <summary>
+    /// The columns a <c>style:columns</c> under <paramref name="properties"/>
+    /// states - a page layout's or a section's - or null for one column.
+    /// </summary>
+    private static (int Count, double Gap)? TryReadColumns(XElement properties, Action<DocumentDiagnostic> report)
+    {
+        XElement? columns = properties.Element(OdtNamespaces.Style + "columns");
+        if (columns is null ||
+            !int.TryParse(
+                (string?)columns.Attribute(OdtNamespaces.Fo + "column-count"),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int count) ||
+            count <= 1)
+        {
+            return null;
+        }
+
+        List<XElement> listed = [.. columns.Elements(OdtNamespaces.Style + "column")];
+        if (!OdtUnits.TryParseLength((string?)columns.Attribute(OdtNamespaces.Fo + "column-gap"), out double gap))
+            gap = listed.Count >= 2 ? Length(listed[0], "end-indent") + Length(listed[1], "start-indent") : 0;
+
+        if (HasUnequalWidths(listed))
+        {
+            report(DocumentDiagnostic.Info(
+                "odt.columns.unequal",
+                "ODT columns were listed with unequal widths; they were read as equal columns."));
+        }
+
+        return (count, Math.Max(0, gap));
+    }
+
+    /// <summary>
+    /// True when listed columns differ in <c>style:rel-width</c> by more than a
+    /// percent - more than the rounding a producer leaves when it shares a width
+    /// out in whole units, as LibreOffice's 10922 against 10925 does.
+    /// </summary>
+    private static bool HasUnequalWidths(List<XElement> listed)
+    {
+        var widths = new List<double>();
+        foreach (XElement column in listed)
+        {
+            string? relative = ((string?)column.Attribute(OdtNamespaces.Style + "rel-width"))?.TrimEnd('*');
+            if (double.TryParse(relative, NumberStyles.Float, CultureInfo.InvariantCulture, out double width) && width > 0)
+                widths.Add(width);
+        }
+
+        return widths.Count >= 2 && (widths.Max() - widths.Min()) / widths.Max() > 0.01;
     }
 
     private static double Length(XElement properties, string name) =>
@@ -453,7 +538,7 @@ internal static class OdtReader
     /// </remarks>
     private static bool ReadShape(XElement drawing, OdtReadContext context, int depth)
     {
-        if (!OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "width"), out double width) ||
+        if (!TryReadFrameWidth(drawing, out double width) ||
             !OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "height"), out double height) ||
             width <= 0 || height <= 0)
         {
@@ -478,6 +563,7 @@ internal static class OdtReader
         double y = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "y"), out double top)
             ? top
             : 0;
+        (int anchorPage, x, y) = PlaceOnPage(drawing, styleName, x, y, width, height, context);
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -492,8 +578,103 @@ internal static class OdtReader
             behindText: behindText,
             wrap: wrap,
             wrapSide: wrapSide,
-            zOrder: ZIndex(drawing)));
+            zOrder: ZIndex(drawing),
+            anchorPage: anchorPage));
         return true;
+    }
+
+    /// <summary>
+    /// A drawing's width: <c>svg:width</c>, or for a frame that states none, the
+    /// <c>fo:min-width</c> of its text box.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice writes a text box that grows to its text that way, and the
+    /// width is what its lines wrap to. Without it the frame was read as body
+    /// text, wherever it was anchored. A box sized only by <c>fo:min-height</c>
+    /// is still read that way: its height is what its text needs, which is not
+    /// known here, and a box of the minimum would clip the text it was made to
+    /// hold.
+    /// </remarks>
+    private static bool TryReadFrameWidth(XElement drawing, out double width) =>
+        OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "width"), out width) ||
+        OdtUnits.TryParseLength(
+            (string?)drawing.Element(OdtNamespaces.Draw + "text-box")?.Attribute(OdtNamespaces.Fo + "min-width"),
+            out width);
+
+    /// <summary>
+    /// The page a drawing is anchored to by number, and its position in the
+    /// model's terms: x from the text column's left edge, y from the page's top
+    /// edge. A drawing anchored any other way comes back as it went in, with no
+    /// page.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ODF's <c>text:anchor-page-number</c> names the physical page a
+    /// page-anchored drawing stands on. Without a number the drawing stands on
+    /// whatever page its position in the text reaches, which is the paragraph
+    /// anchor the model already has.
+    /// </para>
+    /// <para>
+    /// The graphic style says which area the position is measured in
+    /// (<c>style:horizontal-rel</c>, <c>style:vertical-rel</c>: the whole page,
+    /// or its content area) and how (<c>style:horizontal-pos</c>,
+    /// <c>style:vertical-pos</c>: from the stated offset, or at an edge or the
+    /// middle of the area). A style that says nothing measures from the page,
+    /// which is the area a page anchor names. Without a page to measure against
+    /// the margins are taken as zero.
+    /// </para>
+    /// </remarks>
+    private static (int Page, double X, double Y) PlaceOnPage(
+        XElement drawing, string? styleName, double x, double y, double width, double height, OdtReadContext context)
+    {
+        if (!string.Equals((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type"), "page", StringComparison.Ordinal) ||
+            !int.TryParse(
+                (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-page-number"),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int page) ||
+            page < 1)
+        {
+            return (0, x, y);
+        }
+
+        XElement? properties = null;
+        if (!string.IsNullOrWhiteSpace(styleName))
+            context.Styles.GraphicProperties.TryGetValue(styleName, out properties);
+
+        PageGeometry? geometry = context.Page;
+        double pageWidth = geometry?.Width ?? 0;
+        double pageHeight = geometry?.Height ?? 0;
+        double marginLeft = geometry?.MarginLeft ?? 0;
+        double marginTop = geometry?.MarginTop ?? 0;
+
+        // The area each offset is measured in, as its left (or top) edge from the
+        // page's, and its extent.
+        bool contentWide = string.Equals(
+            (string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-rel"), "page-content", StringComparison.Ordinal);
+        bool contentHigh = string.Equals(
+            (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-rel"), "page-content", StringComparison.Ordinal);
+        double areaLeft = contentWide ? marginLeft : 0;
+        double areaWidth = contentWide ? geometry?.ContentWidth ?? 0 : pageWidth;
+        double areaTop = contentHigh ? marginTop : 0;
+        double areaHeight = contentHigh ? geometry?.ContentHeight ?? 0 : pageHeight;
+
+        double left = (string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-pos") switch
+        {
+            "left" or "inside" => areaLeft,
+            "center" => areaLeft + ((areaWidth - width) / 2),
+            "right" or "outside" => areaLeft + areaWidth - width,
+            _ => areaLeft + x,
+        };
+        double top = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-pos") switch
+        {
+            "top" => areaTop,
+            "middle" => areaTop + ((areaHeight - height) / 2),
+            "bottom" => areaTop + areaHeight - height,
+            _ => areaTop + y,
+        };
+
+        return (page, left - marginLeft, top);
     }
 
     /// <summary>
@@ -731,9 +912,22 @@ internal static class OdtReader
             // A section is a named region of ordinary body content; an index is a
             // generated one whose text:index-body holds real paragraphs. Both are
             // walked so the words inside them survive.
+            // A section with columns of its own is a DocumentSection over the
+            // paragraphs read inside it; one without is ordinary body content.
             if (name == OdtNamespaces.Text + "section")
             {
+                int sectionStart = builder.CurrentParagraphIndex;
                 ReadBlockContent(element.Elements(), context, list, depth + 1);
+                string? sectionStyle = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
+                if (sectionStyle is not null &&
+                    context.Styles.SectionProperties.TryGetValue(sectionStyle, out XElement? sectionProperties) &&
+                    TryReadColumns(sectionProperties, builder.AddDiagnosticOnce)
+                        is (int count, double gap))
+                {
+                    builder.AddSection(new DocumentSection(
+                        sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap));
+                }
+
                 continue;
             }
 
@@ -922,13 +1116,22 @@ internal static class OdtReader
         // attributes describe the same gap and either of them asking for a page
         // gets one, so a paragraph saying nothing stronger than "I do not start a
         // page" cannot talk the paragraph above it out of ending one.
-        if (context.TakePageBreak())
-            paragraphStyle = paragraphStyle with { PageBreakBefore = true };
+        switch (context.TakeBreak())
+        {
+            case OdtBreak.Page:
+                paragraphStyle = paragraphStyle with { PageBreakBefore = true, ColumnBreakBefore = false };
+                break;
+            case OdtBreak.Column when !paragraphStyle.PageBreakBefore:
+                paragraphStyle = paragraphStyle with { ColumnBreakBefore = true };
+                break;
+        }
 
-        if (string.Equals(breakAfter, "column", StringComparison.Ordinal))
-            ReportColumnBreak(context.Builder);
-
-        context.HoldPageBreak(string.Equals(breakAfter, "page", StringComparison.Ordinal));
+        context.HoldBreak(breakAfter switch
+        {
+            "page" => OdtBreak.Page,
+            "column" => OdtBreak.Column,
+            _ => OdtBreak.None,
+        });
 
         // The list wins over whatever indent the paragraph style carried: inside a
         // list the nesting is the indent, and ODF list paragraph styles routinely
@@ -1189,6 +1392,7 @@ internal static class OdtReader
         double y = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "y"), out double top)
             ? top
             : 0;
+        (int anchorPage, x, y) = PlaceOnPage(frame, styleName, x, y, width, height, context);
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -1203,7 +1407,8 @@ internal static class OdtReader
             behindText: behindText,
             wrap: wrap,
             wrapSide: wrapSide,
-            zOrder: ZIndex(frame)));
+            zOrder: ZIndex(frame),
+            anchorPage: anchorPage));
         return true;
     }
 
@@ -1266,22 +1471,20 @@ internal static class OdtReader
         // ODF gives fo:break-before three values and only one of them is a page.
         // A column break moves to the next column of the same page, so reading it
         // as a page break would add a page the document never asked for; it is
-        // reported instead, because a model with no columns cannot hold it and a
-        // construct that vanishes without a word is the defect this whole
-        // property exists to close. Both of the other values still override what
-        // the chain carried, since an inherited break has to be cancellable and
-        // auto is what a producer writes to cancel it.
+        // the model's column break instead, which a layout takes as a page break
+        // only where the page has one column. Each value overrides what the chain
+        // carried, since an inherited break has to be cancellable and auto is
+        // what a producer writes to cancel it.
         switch ((string?)properties.Attribute(OdtNamespaces.Fo + "break-before"))
         {
             case "page":
-                style = style with { PageBreakBefore = true };
+                style = style with { PageBreakBefore = true, ColumnBreakBefore = false };
                 break;
             case "column":
-                ReportColumnBreak(builder);
-                style = style with { PageBreakBefore = false };
+                style = style with { PageBreakBefore = false, ColumnBreakBefore = true };
                 break;
             case "auto":
-                style = style with { PageBreakBefore = false };
+                style = style with { PageBreakBefore = false, ColumnBreakBefore = false };
                 break;
         }
 
@@ -1353,18 +1556,6 @@ internal static class OdtReader
 
         return style;
     }
-
-    /// <summary>
-    /// Says that a column break was met and not kept. The model breaks pages and
-    /// has no notion of a column, so there is nothing to write it into - but a
-    /// column break is a real instruction in the document, and the reader that
-    /// silently answered "no break" to it is the one that let every page break in
-    /// every format disappear without trace.
-    /// </summary>
-    private static void ReportColumnBreak(OdtDocumentBuilder builder) =>
-        builder.AddDiagnosticOnce(
-            "odt.break.column",
-            "A column break was not represented; this model breaks pages and has no columns.");
 
     private static int IndentLevelFor(double points) =>
         Math.Max(0, (int)Math.Round(points / OdtUnits.PointsPerIndentLevel, MidpointRounding.AwayFromZero));

@@ -56,6 +56,16 @@ public static class RtfWriter
         WritePageGeometry(sb, document.PageGeometry);
         WriteRunningContent(sb, document.RunningContent, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
 
+        if (document.Sections.Count > 0)
+        {
+            AddOnce(
+                diagnostics,
+                reported,
+                "rtf.sections",
+                "The document's sections, each with columns and margins of its own, were not written; " +
+                "RTF is written here with one page and one set of columns for the whole document.");
+        }
+
         if (document.Tables.Count > 0)
         {
             // RTF states a table as \trowd and \cellx runs. This codec's reader
@@ -173,8 +183,19 @@ public static class RtfWriter
         // of its stripe and saved without one would come back stacked whichever
         // way the reader happened to walk them.
         sb.Append("\\shpz").Append(shape.ZOrder.ToString(CultureInfo.InvariantCulture));
-        // Against the column and the paragraph, which is what the offsets mean.
-        sb.Append("\\shpbxcolumn\\shpbypara\\shpwr3");
+        // Against the column and the paragraph, which is what the offsets mean -
+        // or the page, for a shape standing on one, which RTF can say but cannot
+        // number.
+        if (shape.IsPageAnchored)
+        {
+            AddOnce(
+                diagnostics,
+                reported,
+                "rtf.shape.page",
+                "A shape anchored to a page by number was written beside its paragraph, measured from the page; RTF cannot name the page.");
+        }
+
+        sb.Append(shape.IsPageAnchored ? "\\shpbxcolumn\\shpbypage\\shpwr3" : "\\shpbxcolumn\\shpbypara\\shpwr3");
 
         if (shape.Fill is ShapeFill fill)
         {
@@ -259,6 +280,11 @@ public static class RtfWriter
             Append(sb, "headery", geometry.HeaderDistance);
         if (geometry.FooterDistance > 0)
             Append(sb, "footery", geometry.FooterDistance);
+        if (geometry.HasColumns)
+        {
+            sb.Append("\\cols").Append(geometry.ColumnCount.ToString(CultureInfo.InvariantCulture));
+            Append(sb, "colsx", geometry.ColumnGap);
+        }
     }
 
     /// <summary>One control word carrying a length, converted from points to twips.</summary>
@@ -404,10 +430,16 @@ public static class RtfWriter
     /// </remarks>
     private static void WritePageBreak(StringBuilder sb, ParagraphStyle style, bool first)
     {
-        if (!style.PageBreakBefore)
+        if (style.PageBreakBefore)
+        {
+            sb.Append(first ? "\\pagebb" : "\\page");
             return;
+        }
 
-        sb.Append(first ? "\\pagebb" : "\\page");
+        // RTF has no paragraph property for a column break, only the control
+        // word, which a reader carries to the paragraph that follows it.
+        if (style.ColumnBreakBefore)
+            sb.Append("\\column");
     }
 
     /// <summary>
@@ -426,7 +458,7 @@ public static class RtfWriter
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
-        if (!style.PageBreakBefore)
+        if (!style.PageBreakBefore && !style.ColumnBreakBefore)
             return;
 
         AddOnce(

@@ -107,6 +107,16 @@ public sealed class LayoutLine
 
     /// <summary>Which model paragraph this line came from. Carried through for diagnostics.</summary>
     public int ParagraphIndex { get; }
+
+    /// <summary>Moves every piece of the line <paramref name="dx"/> points across, into another text column.</summary>
+    internal void Shift(double dx)
+    {
+        if (dx == 0)
+            return;
+
+        foreach (LayoutPiece piece in _pieces)
+            piece.X += dx;
+    }
 }
 
 /// <summary>One rendered page.</summary>
@@ -165,7 +175,7 @@ public sealed class LayoutCell
         Borders = borders;
     }
 
-    public BRect Bounds { get; }
+    public BRect Bounds { get; internal set; }
 
     /// <summary>The cell's background, or <see cref="BColor.Empty"/> for none.</summary>
     public BColor Shading { get; }

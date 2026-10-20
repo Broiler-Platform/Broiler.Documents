@@ -96,6 +96,13 @@ internal sealed class OdtStyles
         new Dictionary<string, XElement>(StringComparer.Ordinal);
 
     /// <summary>
+    /// The <c>style:section-properties</c> of every section style, by name: where
+    /// a <c>text:section</c> states the columns its text is laid out in.
+    /// </summary>
+    public IReadOnlyDictionary<string, XElement> SectionProperties { get; init; } =
+        new Dictionary<string, XElement>(StringComparer.Ordinal);
+
+    /// <summary>
     /// The <c>style:table-cell-properties</c> of every style that has them, by
     /// name. A cell names one, and that is where ODF states its background and
     /// its borders.
@@ -143,6 +150,7 @@ internal sealed class OdtStyles
         var cellProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var columnProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var rowProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
+        var sectionProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var gradients = new Dictionary<string, XElement>(StringComparer.Ordinal);
         XElement? masterStyles = null;
         List<XElement> pageLayouts = [];
@@ -163,6 +171,7 @@ internal sealed class OdtStyles
                     cellProperties,
                     columnProperties,
                     rowProperties,
+                    sectionProperties,
                     gradients);
                 masterStyles = stylesXml.Root.Element(OdtNamespaces.Office + "master-styles");
                 pageLayouts = [.. stylesXml.Root.Descendants(OdtNamespaces.Style + "page-layout")];
@@ -181,6 +190,7 @@ internal sealed class OdtStyles
                 cellProperties,
                 columnProperties,
                 rowProperties,
+                sectionProperties,
                 gradients);
         }
 
@@ -188,12 +198,69 @@ internal sealed class OdtStyles
         {
             MasterStyles = masterStyles,
             PageLayouts = pageLayouts,
-            GraphicProperties = graphicProperties,
+            GraphicProperties = ResolveGraphicChains(styles, graphicProperties, limits.MaxGroupDepth),
             TableCellProperties = cellProperties,
             TableColumnProperties = columnProperties,
             TableRowProperties = rowProperties,
+            SectionProperties = sectionProperties,
             Gradients = gradients,
         };
+    }
+
+    /// <summary>
+    /// Each graphic style's properties with what its parents state beneath them.
+    /// </summary>
+    /// <remarks>
+    /// ODF styles inherit through <c>style:parent-style-name</c>, and LibreOffice
+    /// relies on it for frames: the paint and border of a text box live in a
+    /// named style such as <c>encarts</c>, and the automatic style the frame
+    /// names only adds where it stands. Read alone, that automatic style left the
+    /// box unpainted. Attributes are merged root first, so the nearest statement
+    /// wins; child elements are taken whole from the nearest style that has any.
+    /// A chain that loops or runs past <paramref name="maxDepth"/> stops there.
+    /// </remarks>
+    private static Dictionary<string, XElement> ResolveGraphicChains(
+        Dictionary<StyleKey, StyleDefinition> styles,
+        Dictionary<string, XElement> own,
+        int maxDepth)
+    {
+        var resolved = new Dictionary<string, XElement>(own, StringComparer.Ordinal);
+        foreach (StyleKey key in styles.Keys)
+        {
+            if (!string.Equals(key.Family, "graphic", StringComparison.Ordinal))
+                continue;
+
+            var chain = new List<XElement>();
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            string? current = key.Name;
+            while (current is not null && visited.Count <= maxDepth && visited.Add(current))
+            {
+                if (own.TryGetValue(current, out XElement? properties))
+                    chain.Add(properties);
+
+                current = styles.TryGetValue(new StyleKey("graphic", current), out StyleDefinition? definition)
+                    ? definition.ParentStyleName
+                    : null;
+            }
+
+            if (chain.Count < 2)
+                continue;
+
+            var merged = new XElement(chain[0].Name);
+            for (int i = chain.Count - 1; i >= 0; i--)
+            {
+                foreach (XAttribute attribute in chain[i].Attributes())
+                    merged.SetAttributeValue(attribute.Name, attribute.Value);
+            }
+
+            XElement? withChildren = chain.Find(properties => properties.HasElements);
+            if (withChildren is not null)
+                merged.Add(withChildren.Elements());
+
+            resolved[key.Name] = merged;
+        }
+
+        return resolved;
     }
 
     /// <summary>
@@ -211,6 +278,7 @@ internal sealed class OdtStyles
         Dictionary<string, XElement> cellProperties,
         Dictionary<string, XElement> columnProperties,
         Dictionary<string, XElement> rowProperties,
+        Dictionary<string, XElement> sectionProperties,
         Dictionary<string, XElement> gradients)
     {
         foreach (XElement fontFace in root.Descendants(OdtNamespaces.Style + "font-face"))
@@ -250,6 +318,10 @@ internal sealed class OdtStyles
             XElement? tableRow = style.Element(OdtNamespaces.Style + "table-row-properties");
             if (tableRow is not null)
                 rowProperties[name] = tableRow;
+
+            XElement? section = style.Element(OdtNamespaces.Style + "section-properties");
+            if (section is not null)
+                sectionProperties[name] = section;
         }
 
         foreach (XElement gradient in root.Descendants(OdtNamespaces.Draw + "gradient"))

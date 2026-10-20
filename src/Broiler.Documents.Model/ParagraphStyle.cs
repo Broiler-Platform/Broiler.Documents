@@ -55,6 +55,27 @@ public readonly record struct ParagraphStyle
     /// </remarks>
     public bool PageBreakBefore { get; init; }
 
+    /// <summary>
+    /// Whether the paragraph starts the next text column.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A newsletter ends a column early this way: DOCX's
+    /// <c>w:br w:type="column"</c>, ODF's <c>fo:break-before="column"</c>, RTF's
+    /// <c>\column</c>. It is held as <see cref="PageBreakBefore"/> is, on the
+    /// paragraph that starts after it, for the same reasons.
+    /// </para>
+    /// <para>
+    /// Where the page has one column there is no next column on it, and the
+    /// break starts the next page instead. That is what ECMA-376 says of
+    /// <c>ST_BrType</c> and what Word and LibreOffice draw, so a reader that knows
+    /// the paragraph is in a section of one column states a page break, and a
+    /// layout that finds this on a page of one column takes it as one.
+    /// <see cref="PageBreakBefore"/> wins where both are set.
+    /// </para>
+    /// </remarks>
+    public bool ColumnBreakBefore { get; init; }
+
     /// <summary>Left-aligned, single-spaced, no list, no indent.</summary>
     public static ParagraphStyle Default => new() { LineSpacing = 1f };
 }

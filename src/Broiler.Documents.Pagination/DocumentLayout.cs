@@ -23,11 +23,18 @@ namespace Broiler.Documents.Pagination;
 /// </para>
 /// <para>
 /// <b>What this is not.</b> It is not a word processor's layout engine and does
-/// not try to be one. There are no columns, floats, footnotes, hyphenation,
-/// kerning pairs, or bidirectional reordering here - mostly because the document
-/// model has no way to express them, so there is nothing to lay out. Tables
-/// break between rows and never inside one. The shared paginator the PDF roadmap
-/// tracks as
+/// not try to be one. There are no floats, footnotes, hyphenation, kerning
+/// pairs, or bidirectional reordering here - mostly because the document model
+/// has no way to express them, so there is nothing to lay out. A table row
+/// breaks across a page cell by cell unless it says it may not, or holds a nested
+/// table or a cell that spans rows. Text columns are filled one after the
+/// other. A section's columns are balanced where the next section follows on
+/// the same page, as Word and LibreOffice balance them, a table row moving as
+/// one piece, unless the section holds a column break there; the page's own
+/// columns, and the last section's, are not, so the last page of a two-column
+/// document can end with a full first column beside an empty second. A wrapping shape is measured as
+/// though every column were the first. The shared paginator the PDF
+/// roadmap tracks as
 /// <c>Broiler.Documents.Pagination</c> is where a component-level version of
 /// this belongs; until it exists this is an application head's own layout, and
 /// its numbers are this tool's, not the component's.
@@ -76,6 +83,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _documentShapes = document.Shapes;
         _paragraphTops.Clear();
         _wrap = new TextWrapExclusions();
+        AddPageExclusions(1);
 
         // A continuous render has no page break to place, so it lays out against
         // an effectively unbounded column and then shrinks the page to the
@@ -83,14 +91,84 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // with pagination on, one extra line before a break moves every
         // subsequent page and a one-line difference reads as a whole-document one.
         double columnHeight = setup.Continuous ? double.MaxValue : setup.ContentHeightPoints;
+        TextColumns pageColumns = TextColumns.For(document.PageGeometry, setup, _notes);
+        var sectionColumns = new Dictionary<DocumentSection, TextColumns>();
+
+        // A section's own margins are measured on the document's own paper, so
+        // they apply where the box being filled is that paper; a render asked
+        // for other paper lays every section out within that paper's margins.
+        bool sectionPages = document.PageGeometry is PageGeometry own && IsBoxOf(setup, own);
+        if (!sectionPages && document.Sections.Any(section => section.Page is not null))
+        {
+            _notes.Add("laid every section out within the margins of the page asked for: " +
+                "the margins some sections state are measured on the document's own paper.");
+        }
 
         var pages = new List<LayoutPage>();
         var currentLines = new List<LayoutLine>();
         var currentCells = new List<LayoutCell>();
-        double y = setup.ContentTopPoints;
+        double pageTop = setup.ContentTopPoints;
+        double y = pageTop;
         double contentBottom = setup.ContentTopPoints + columnHeight;
         bool truncated = false;
         int ignoredBreaks = 0;
+
+        // The top and foot of the text on a page the section starts: its own
+        // margins where it states them, the box's otherwise.
+        (double Top, double Bottom) BandOf(DocumentSection? section)
+        {
+            if (setup.Continuous || !sectionPages || section?.Page is not PageGeometry page)
+                return (setup.ContentTopPoints, setup.ContentTopPoints + columnHeight);
+
+            double top = Math.Clamp(page.MarginTop, 0, setup.HeightPoints - 1);
+            return (top, Math.Max(top + 1, setup.HeightPoints - page.MarginBottom));
+        }
+
+        TextColumns ColumnsOf(DocumentSection? section)
+        {
+            if (section is null)
+                return pageColumns;
+
+            if (!sectionColumns.TryGetValue(section, out TextColumns found))
+            {
+                double left = setup.ContentLeftPoints;
+                double width = setup.ContentWidthPoints;
+                if (sectionPages && section.Page is PageGeometry page)
+                {
+                    left = Math.Clamp(page.MarginLeft, 0, setup.WidthPoints - 1);
+                    width = Math.Max(1, setup.WidthPoints - page.MarginRight - left);
+                }
+
+                found = TextColumns.For(
+                    section.ColumnCount, section.ColumnGap, width, left - setup.ContentLeftPoints,
+                    setup.Continuous, _notes, "a section's");
+                sectionColumns.Add(section, found);
+            }
+
+            return found;
+        }
+
+        // The stretch of the body being filled: a section with columns of its
+        // own, or, where no section covers the text, the page's columns. A
+        // section that follows another on the same page starts below it, so its
+        // columns start there, and the text above is content its first column
+        // already has beneath it when a break asks.
+        DocumentSection? region = null;
+        TextColumns columns = pageColumns;
+        double regionTop = pageTop;
+        double regionDepth = regionTop;
+        var regionLines = new List<FlowItem>();
+        bool regionUnbalanced = false;
+        double spacingAfterPrevious = 0;
+
+        // The column being filled, and how many of the page's lines were there
+        // before it started: a column holds something once the page has more.
+        // With one column that is "the page holds something", which is the test
+        // every break below made before there were columns.
+        int column = 0;
+        int columnStart = 0;
+        bool ColumnHasContent() =>
+            currentLines.Count > columnStart || (column == 0 && regionTop > pageTop);
 
         var numbering = new ListNumbering();
 
@@ -99,6 +177,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
             currentLines = [];
             currentCells = [];
+            column = 0;
+            columnStart = 0;
 
             // Both of these are page-local and neither was being emptied, which is
             // the same defect twice. An anchor top is a y within the page it was
@@ -111,33 +191,170 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // on one page.
             _paragraphTops.Clear();
             _wrap = new TextWrapExclusions();
+            AddPageExclusions(pages.Count + 1);
 
-            y = setup.ContentTopPoints;
+            (pageTop, contentBottom) = BandOf(region);
+            y = pageTop;
+            regionTop = y;
+            regionDepth = y;
+            regionLines.Clear();
+            regionUnbalanced = false;
             if (pages.Count >= _settings.MaxPages)
                 truncated = true;
+        }
+
+        void NextColumn()
+        {
+            regionDepth = Math.Max(regionDepth, y);
+            column++;
+            columnStart = currentLines.Count;
+            y = regionTop;
+        }
+
+        // A full column moves on to the next one at the top of the same stretch,
+        // and the last column of a page to the next page. So does a column that
+        // holds nothing yet: it starts below a section above it, too low on the
+        // page for even one line, and the next column starts just as low.
+        void BreakColumn()
+        {
+            if (column + 1 >= columns.Count || currentLines.Count == columnStart)
+            {
+                BreakPage();
+                return;
+            }
+
+            NextColumn();
+        }
+
+        // Where one stretch gives way to the next on the same page, the one above
+        // ends below its deepest column - or, for a section the next one follows
+        // on from, at the height that shares its lines out evenly between its
+        // columns, which is how Word ends a section at a continuous break and
+        // LibreOffice ends a text:section - and the next starts there, in its
+        // first column. Where the next starts a page, the page break that follows
+        // starts it at the top.
+        void EnterRegion(DocumentSection? next, bool startsPage)
+        {
+            if (!startsPage)
+            {
+                // The space after the last paragraph, measured in the column it
+                // is in, before y moves down to the deepest one.
+                FlowItem? last = regionLines.Count > 0 ? regionLines[^1] : null;
+                double trailing = last is null ? 0 : Math.Max(0, y - (last.Top + last.Height));
+                y = Math.Max(regionDepth, y);
+                if (region is not null && columns.Count > 1 && !regionUnbalanced && last is not null)
+                {
+                    if (BalanceColumns(regionLines, columns, regionTop, contentBottom - regionTop, _paragraphTops) is double height)
+                    {
+                        y = regionTop + height + trailing;
+
+                        // A wrapping shape hangs from its paragraph, and the
+                        // paragraphs moved: the page's exclusions are made again
+                        // from where they are now, or the text below would wrap
+                        // around boxes that are no longer there.
+                        _wrap = new TextWrapExclusions();
+                        AddPageExclusions(pages.Count + 1);
+                        foreach (DocumentShape shape in _documentShapes)
+                        {
+                            if (shape.Wraps && !shape.IsPageAnchored &&
+                                _paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchor))
+                            {
+                                _wrap.Add(shape, anchor + shape.OffsetY);
+                            }
+                        }
+                    }
+                }
+            }
+
+            region = next;
+            columns = ColumnsOf(next);
+
+            // A section that opens a page, the first included, sets its top and
+            // foot; one that follows on a page keeps those of the page it is on.
+            if (currentLines.Count == 0 && currentCells.Count == 0)
+            {
+                (pageTop, contentBottom) = BandOf(next);
+                y = pageTop;
+            }
+
+            column = 0;
+            columnStart = currentLines.Count;
+            regionTop = y;
+            regionDepth = y;
+            regionLines.Clear();
+            regionUnbalanced = false;
+        }
+
+        // A row is placed whole, and is shared out between balanced columns as
+        // one piece, with its cell boxes.
+        void PlaceRow(RowBox row)
+        {
+            int linesFrom = currentLines.Count;
+            int cellsFrom = currentCells.Count;
+            row.PlaceAt(y, columns.Offset(column), currentLines, currentCells, _paragraphTops);
+            if (region is not null && columns.Count > 1)
+            {
+                regionLines.Add(new FlowItem(
+                    currentLines.GetRange(linesFrom, currentLines.Count - linesFrom),
+                    currentCells.GetRange(cellsFrom, currentCells.Count - cellsFrom),
+                    y, row.Height, column, GapBetween: 0, GapAtTop: 0, StartsParagraph: false));
+            }
         }
 
         int paragraphIndex = 0;
         while (paragraphIndex < document.ParagraphCount && !truncated)
         {
-            if (DocumentTable.StartingAt(document.Tables, paragraphIndex) is DocumentTable table)
+            DocumentTable? table = DocumentTable.StartingAt(document.Tables, paragraphIndex);
+            DocumentSection? section = DocumentSection.Containing(document.Sections, paragraphIndex);
+            if (!ReferenceEquals(section, region))
             {
-                // A row is placed whole. Its cells are laid out beside each other,
-                // so a row broken across a page would have to break every cell at
-                // the same place - which is a table layout, and this is not one.
-                foreach (RowBox row in ComposeTable(table, document, setup, setup.ContentLeftPoints, setup.ContentWidthPoints))
+                bool startsPage = table is null && !setup.Continuous && currentLines.Count > 0 &&
+                    document.Paragraphs[paragraphIndex].Style.PageBreakBefore;
+                EnterRegion(section, startsPage);
+            }
+
+            if (table is not null)
+            {
+                // A row that does not fit where it is breaks across the page when
+                // it may: what fits stays, and the rest of each cell carries on in
+                // the next column. One that may not moves on whole, and one that
+                // cannot fit even a fresh column is placed there anyway and runs
+                // off its foot, because a row that waited for room it will never
+                // have would stop the layout.
+                foreach (RowBox composedRow in ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width))
                 {
-                    if (y + row.Height > contentBottom && currentLines.Count > 0)
+                    RowBox? row = composedRow;
+                    while (row is not null && !truncated)
                     {
-                        BreakPage();
-                        if (truncated)
-                            break;
+                        if (y + row.Height > contentBottom)
+                        {
+                            if (row.CanSplit && row.SplitAt(contentBottom - y) is (RowBox fitted, var rest))
+                            {
+                                PlaceRow(fitted);
+                                y += fitted.Height;
+                                row = rest;
+                                if (row is not null)
+                                    BreakColumn();
+                                continue;
+                            }
+
+                            if (ColumnHasContent())
+                            {
+                                BreakColumn();
+                                continue;
+                            }
+                        }
+
+                        PlaceRow(row);
+                        y += row.Height;
+                        row = null;
                     }
 
-                    row.PlaceAt(y, currentLines, currentCells, _paragraphTops);
-                    y += row.Height;
+                    if (truncated)
+                        break;
                 }
 
+                spacingAfterPrevious = 0;
                 paragraphIndex = table.ParagraphEnd;
                 continue;
             }
@@ -161,7 +378,24 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 if (truncated)
                     break;
             }
-            else if (style.PageBreakBefore && setup.Continuous)
+            else if (style.ColumnBreakBefore && !style.PageBreakBefore && !setup.Continuous && ColumnHasContent())
+            {
+                // A column break moves to the top of the next column of the
+                // stretch being filled, and from its last column, or where it has
+                // only one, to the next page.
+                regionUnbalanced = true;
+                if (column + 1 < columns.Count)
+                {
+                    NextColumn();
+                }
+                else
+                {
+                    BreakPage();
+                    if (truncated)
+                        break;
+                }
+            }
+            else if ((style.PageBreakBefore || style.ColumnBreakBefore) && setup.Continuous)
             {
                 ignoredBreaks++;
             }
@@ -174,38 +408,91 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // it, which is what a single forward pass can honestly say.
             foreach (DocumentShape shape in _documentShapes)
             {
-                if (shape.Wraps && shape.ParagraphIndex == paragraphIndex)
+                if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
                     _wrap.Add(shape, y + shape.OffsetY);
             }
 
-            // Space before never opens a page: a paragraph that starts a page
-            // starts at the top margin, the way every page-based renderer does it.
-            double spacingBefore = currentLines.Count > 0 ? Math.Max(0, style.SpacingBefore) : 0;
+            // Space before never opens a page, or a column: a paragraph that
+            // starts one starts at the top margin, the way every page-based
+            // renderer does it.
+            double spacingBefore = ColumnHasContent() ? Math.Max(0, style.SpacingBefore) : 0;
+
+            // Composed against the first column and moved across as it is placed:
+            // the columns are equally wide, so a line wraps the same in any of
+            // them, and a paragraph that runs out of room part way through
+            // continues in the next one with nothing composed again.
             ParagraphLines composed = ComposeParagraph(
-                paragraph, marker, setup, paragraphIndex, wrapTop: y + spacingBefore);
+                paragraph, marker, setup, paragraphIndex,
+                columnWidthOverride: columns.Width, wrapTop: y + spacingBefore);
             y += spacingBefore;
 
+            bool first = true;
             foreach (LayoutLine line in composed.Lines)
             {
                 y += line.LeadingSkip;
-                if (y + line.Height > contentBottom && currentLines.Count > 0)
+                if (y + line.Height > contentBottom && ColumnHasContent())
                 {
-                    BreakPage();
+                    BreakColumn();
                     if (truncated)
                         break;
                 }
 
                 line.Top = y;
+                line.Shift(columns.Offset(column));
                 currentLines.Add(line);
                 y += line.Height;
+
+                // What balancing needs to share the lines out again: the space
+                // each leaves above it below another line, and at a column's top.
+                if (region is not null && columns.Count > 1)
+                {
+                    double between = line.LeadingSkip +
+                        (first ? spacingAfterPrevious + Math.Max(0, style.SpacingBefore) : 0);
+                    regionLines.Add(new FlowItem(
+                        [line], [], line.Top, line.Height, column, between, line.LeadingSkip, first));
+                }
+
+                first = false;
             }
 
-            y += Math.Max(0, style.SpacingAfter);
+            spacingAfterPrevious = Math.Max(0, style.SpacingAfter);
+            y += spacingAfterPrevious;
             paragraphIndex++;
         }
 
         if (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0)
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
+
+        // A shape anchored to a page the text never reached still has to stand
+        // on it, so the pages up to it are made, empty but for their running
+        // bands, as LibreOffice makes them. A continuous render has one page and
+        // says what it left off instead.
+        int lastAnchor = _documentShapes.Count == 0 ? 0 : _documentShapes.Max(shape => shape.AnchorPage);
+        if (setup.Continuous)
+        {
+            int unplaced = _documentShapes.Count(shape => shape.AnchorPage > 1);
+            if (unplaced > 0)
+            {
+                _notes.Add(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "left out {0} shape(s) anchored to a page after the first: --continuous renders one tall page.",
+                    unplaced));
+            }
+        }
+        else
+        {
+            _paragraphTops.Clear();
+            while (pages.Count < lastAnchor && !truncated)
+            {
+                if (pages.Count >= _settings.MaxPages)
+                {
+                    truncated = true;
+                    break;
+                }
+
+                pages.Add(NewPage(pages.Count + 1, setup, [], []));
+            }
+        }
 
         if (ignoredBreaks > 0)
         {
@@ -278,13 +565,35 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // OrderBy rather than Sort, because it is stable: shapes that state no
         // order all sit at zero and keep the order they were read in, which is the
         // answer this gave before z-order was modelled.
-        List<LayoutShape> shapes = PlaceShapes(setup);
+        List<LayoutShape> shapes = PlaceShapes(setup, number);
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup));
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
         shapes = [.. shapes.OrderBy(shape => shape.ZOrder)];
 
         return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells);
     }
+
+    /// <summary>
+    /// Adds the wrapping shapes anchored to page <paramref name="number"/> to the
+    /// exclusions, which are page-local and were just emptied for it.
+    /// </summary>
+    private void AddPageExclusions(int number)
+    {
+        foreach (DocumentShape shape in _documentShapes)
+        {
+            if (shape.Wraps && shape.AnchorPage == number)
+                _wrap.Add(shape, shape.OffsetY);
+        }
+    }
+
+    /// <summary>True when <paramref name="setup"/> is the paper and margins <paramref name="page"/> states.</summary>
+    private static bool IsBoxOf(DocumentPageBox setup, PageGeometry page) =>
+        Math.Abs(setup.WidthPoints - page.Width) < 0.01 &&
+        Math.Abs(setup.HeightPoints - page.Height) < 0.01 &&
+        Math.Abs(setup.MarginLeftPoints - page.MarginLeft) < 0.01 &&
+        Math.Abs(setup.MarginRightPoints - page.MarginRight) < 0.01 &&
+        Math.Abs(setup.MarginTopPoints - page.MarginTop) < 0.01 &&
+        Math.Abs(setup.MarginBottomPoints - page.MarginBottom) < 0.01;
 
     /// <summary>
     /// Places a running band's shapes on every page it applies to. There is no
@@ -318,15 +627,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
-    /// Places the document's floating shapes for a page.
+    /// Places the document's floating shapes for page <paramref name="number"/>.
     /// </summary>
     /// <remarks>
     /// A shape's x is measured from the text column's left edge - which is how a
     /// letterhead's stripe sits in the margin without any page geometry - and its
     /// y from the top of the paragraph it is anchored to. A shape whose paragraph
-    /// has not been laid out on this page is not drawn on it.
+    /// has not been laid out on this page is not drawn on it. A shape anchored to
+    /// a page is drawn on that page, its y measured from the page's top edge.
     /// </remarks>
-    private List<LayoutShape> PlaceShapes(DocumentPageBox setup)
+    private List<LayoutShape> PlaceShapes(DocumentPageBox setup, int number)
     {
         var placed = new List<LayoutShape>();
         if (_documentShapes.Count == 0)
@@ -334,8 +644,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         foreach (DocumentShape shape in _documentShapes)
         {
-            if (!_paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchorTop))
+            double anchorTop;
+            if (shape.IsPageAnchored)
+            {
+                if (shape.AnchorPage != number)
+                    continue;
+
+                anchorTop = 0;
+            }
+            else if (!_paragraphTops.TryGetValue(shape.ParagraphIndex, out anchorTop))
+            {
                 continue;
+            }
 
             var bounds = new BRect(setup.ContentLeftPoints + shape.OffsetX, anchorTop + shape.OffsetY,
                 Math.Max(0, shape.Width), Math.Max(0, shape.Height));
@@ -366,7 +686,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         foreach (TableRow row in table.Rows)
         {
-            var box = new RowBox();
+            // A row may break across a page only where every cell can be cut on
+            // its own line boundary. A nested table's boxes and a box that spans
+            // rows would each need cutting too, so a row holding either stays whole.
+            var box = new RowBox
+            {
+                CanSplit = row.CanSplit &&
+                    row.Cells.All(cell => cell.RowSpan == 1 && !cell.IsRowSpanContinuation && cell.Tables.Count == 0),
+            };
             foreach (TableCell cell in row.Cells)
             {
                 (double cellLeft, double cellWidth) = ColumnSpanBox(edges, cell);
@@ -377,6 +704,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 box.Lines.AddRange(lines);
                 box.Cells.AddRange(nested);
+                box.Contents.Add(new CellLines(lines, height));
                 box.Height = Math.Max(box.Height, height);
 
                 // A cell the merge above it covers is drawn by no one: the cell
@@ -484,7 +812,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 foreach (RowBox row in ComposeTable(nested, document, setup, left, width))
                 {
-                    row.PlaceAt(y, lines, cells, _paragraphTops);
+                    row.PlaceAt(y, 0, lines, cells, _paragraphTops);
                     y += row.Height;
                 }
 
@@ -525,6 +853,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         public double ExtraHeight { get; set; }
     }
 
+    /// <summary>One cell's composed lines, in order, and the height they take.</summary>
+    private sealed record CellLines(List<LayoutLine> Lines, double Height);
+
     /// <summary>
     /// One composed table row: its lines and any nested cell boxes, positioned
     /// relative to the row's top, and the cells whose boxes this row draws.
@@ -539,18 +870,111 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         public List<CellBox> Boxes { get; } = [];
 
-        /// <summary>Moves the row to <paramref name="top"/> and hands it to the page.</summary>
-        public void PlaceAt(double top, List<LayoutLine> lines, List<LayoutCell> cells, Dictionary<int, double> paragraphTops)
+        /// <summary>Each cell's own lines, so the row can be cut cell by cell.</summary>
+        public List<CellLines> Contents { get; } = [];
+
+        /// <summary>True when the row may break across a page; see <see cref="TableRow.CanSplit"/>.</summary>
+        public bool CanSplit { get; init; }
+
+        /// <summary>
+        /// Cuts the row where <paramref name="room"/> runs out: each cell keeps the
+        /// lines that end within it, and the rest of that cell continues at the top
+        /// of the second part, its first line where the cut is.
+        /// </summary>
+        /// <returns>
+        /// Null when no line of any cell fits, so there is nothing to leave behind;
+        /// the whole row, and no second part, when every line fits and only the
+        /// space after the last paragraph does not.
+        /// </returns>
+        /// <remarks>
+        /// Each cell is cut on its own line boundary, as Word and LibreOffice cut
+        /// one, rather than at one height for the whole row: a line across the
+        /// cut would be drawn in half on two pages. The first part's boxes run
+        /// down to the cut, so a cell whose text ended higher still reaches the
+        /// foot of the page, and both parts draw their borders.
+        /// </remarks>
+        public (RowBox Fitted, RowBox? Remainder)? SplitAt(double room)
+        {
+            var cuts = new double?[Contents.Count];
+            bool kept = false;
+            bool carried = false;
+            for (int i = 0; i < Contents.Count; i++)
+            {
+                foreach (LayoutLine line in Contents[i].Lines)
+                {
+                    if (line.Top + line.Height <= room)
+                    {
+                        kept = true;
+                        continue;
+                    }
+
+                    cuts[i] = line.Top;
+                    carried = true;
+                    break;
+                }
+            }
+
+            if (!kept)
+                return null;
+            if (!carried)
+                return (this, null);
+
+            var fitted = new RowBox { Height = room, CanSplit = true };
+            var rest = new RowBox { CanSplit = true };
+            fitted.Boxes.AddRange(Boxes);
+            rest.Boxes.AddRange(Boxes);
+            for (int i = 0; i < Contents.Count; i++)
+            {
+                CellLines content = Contents[i];
+                if (cuts[i] is not double cut)
+                {
+                    fitted.Lines.AddRange(content.Lines);
+                    fitted.Contents.Add(content);
+                    rest.Contents.Add(new CellLines([], 0));
+                    continue;
+                }
+
+                var before = new List<LayoutLine>();
+                var after = new List<LayoutLine>();
+                foreach (LayoutLine line in content.Lines)
+                {
+                    if (line.Top < cut)
+                    {
+                        before.Add(line);
+                        continue;
+                    }
+
+                    line.Top -= cut;
+                    after.Add(line);
+                }
+
+                double remaining = Math.Max(0, content.Height - cut);
+                fitted.Lines.AddRange(before);
+                fitted.Contents.Add(new CellLines(before, cut));
+                rest.Lines.AddRange(after);
+                rest.Contents.Add(new CellLines(after, remaining));
+                rest.Height = Math.Max(rest.Height, remaining);
+            }
+
+            return (fitted, rest);
+        }
+
+        /// <summary>
+        /// Moves the row to <paramref name="top"/>, and <paramref name="shift"/>
+        /// points across into the text column it lands in, and hands it to the page.
+        /// </summary>
+        public void PlaceAt(double top, double shift, List<LayoutLine> lines, List<LayoutCell> cells, Dictionary<int, double> paragraphTops)
         {
             foreach (CellBox box in Boxes)
-                cells.Add(new LayoutCell(new BRect(box.Left, top, box.Width, Height + box.ExtraHeight), box.Cell.Shading, box.Cell.Borders));
+                cells.Add(new LayoutCell(new BRect(box.Left + shift, top, box.Width, Height + box.ExtraHeight), box.Cell.Shading, box.Cell.Borders));
 
             foreach (LayoutCell cell in Cells)
-                cells.Add(new LayoutCell(new BRect(cell.Bounds.Left, cell.Bounds.Top + top, cell.Bounds.Width, cell.Bounds.Height), cell.Shading, cell.Borders));
+                cells.Add(new LayoutCell(new BRect(cell.Bounds.Left + shift, cell.Bounds.Top + top, cell.Bounds.Width, cell.Bounds.Height), cell.Shading, cell.Borders));
 
             foreach (LayoutLine line in Lines)
             {
                 line.Top += top;
+                line.Shift(shift);
                 lines.Add(line);
                 paragraphTops.TryAdd(line.ParagraphIndex, line.Top);
             }
@@ -1106,6 +1530,193 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         TextCapitalization.AllCaps => text.ToUpperInvariant(),
         _ => text,
     };
+
+    /// <summary>
+    /// The text columns a page is divided into: how many, how wide, and how far
+    /// each one sits from the first.
+    /// </summary>
+    /// <remarks>
+    /// The width comes from the box being laid out, not from the document's own
+    /// page, because a render can ask for different paper and the columns then
+    /// share out what that paper leaves. A continuous render has no page to fill
+    /// column by column and lays the text out as one; so does a page whose
+    /// columns would come out narrower than <see cref="MinimumWidth"/>, which a
+    /// word cannot be fitted into and the layout would otherwise spend a line
+    /// per character on.
+    /// </remarks>
+    private readonly record struct TextColumns(int Count, double Width, double Stride, double Left = 0)
+    {
+        /// <summary>A column narrower than this, in points, is not laid out as one.</summary>
+        private const double MinimumWidth = 18;
+
+        public static TextColumns For(PageGeometry? geometry, DocumentPageBox setup, List<string> notes)
+        {
+            if (geometry is null || !geometry.HasColumns || !geometry.IsUsable)
+                return new TextColumns(1, setup.ContentWidthPoints, 0);
+
+            return For(geometry.ColumnCount, geometry.ColumnGap, setup.ContentWidthPoints, 0, setup.Continuous, notes, "the document's");
+        }
+
+        /// <summary>
+        /// The columns <paramref name="count"/> and <paramref name="gap"/> make
+        /// of a text area <paramref name="width"/> wide, starting
+        /// <paramref name="left"/> points right of the box's own,
+        /// <paramref name="owner"/> naming whose they are in a note that says
+        /// they were laid out as one. A note is made once, however many sections
+        /// it applies to.
+        /// </summary>
+        public static TextColumns For(
+            int count, double gap, double width, double left, bool continuous, List<string> notes, string owner)
+        {
+            var single = new TextColumns(1, width, 0, left);
+            if (count <= 1)
+                return single;
+
+            if (continuous)
+            {
+                Note(notes, string.Format(
+                    CultureInfo.InvariantCulture,
+                    "laid out {0} {1} text columns as one: --continuous renders one tall page, " +
+                    "so there is no column bottom to move on from.",
+                    owner,
+                    count));
+                return single;
+            }
+
+            double each = (width - (gap * (count - 1))) / count;
+            if (!(each >= MinimumWidth))
+            {
+                Note(notes, string.Format(
+                    CultureInfo.InvariantCulture,
+                    "laid out {0} {1} text columns as one: on this page each would be narrower than {2} points.",
+                    owner,
+                    count,
+                    MinimumWidth));
+                return single;
+            }
+
+            return new TextColumns(count, each, each + gap, left);
+        }
+
+        private static void Note(List<string> notes, string note)
+        {
+            if (!notes.Contains(note))
+                notes.Add(note);
+        }
+
+        /// <summary>How far right of the box's text area <paramref name="column"/> starts.</summary>
+        public double Offset(int column) => Left + (column * Stride);
+    }
+
+    /// <summary>
+    /// A piece of a section's columns on the page being filled - a line, or a
+    /// table row with its lines and cell boxes - with what balancing needs to
+    /// place it again: where it is, the column it is in, the space it leaves
+    /// above it below another piece of the same column, and the space it leaves
+    /// at the top of a column, where space before a paragraph is dropped.
+    /// </summary>
+    private sealed record FlowItem(
+        List<LayoutLine> Lines,
+        List<LayoutCell> Cells,
+        double Top,
+        double Height,
+        int Column,
+        double GapBetween,
+        double GapAtTop,
+        bool StartsParagraph);
+
+    /// <summary>
+    /// Shares <paramref name="flow"/> out between the columns again, each column
+    /// filled in turn to the least height that still takes every line, and
+    /// returns that height; or returns null, moving nothing, when the lines do
+    /// not fit in <paramref name="room"/> however they are shared.
+    /// </summary>
+    /// <remarks>
+    /// The pieces stay in order and each column takes as many as fit before the
+    /// next one starts, which is how Word and LibreOffice balance the columns of
+    /// a section that ends on a page with text after it; a table row is one
+    /// piece. The first keeps the space it was placed with below the section
+    /// above. A taller height never needs more columns, so the least one is found
+    /// by halving the room until what is left is too small to see.
+    /// </remarks>
+    private static double? BalanceColumns(
+        List<FlowItem> flow, TextColumns columns, double top, double room, Dictionary<int, double> paragraphTops)
+    {
+        double lead = Math.Max(0, flow[0].Top - top);
+        if (Pack(flow, columns.Count, room, lead, null) is null)
+            return null;
+
+        double low = flow.Max(item => item.GapAtTop + item.Height);
+        double high = room;
+        while (high - low > 0.01)
+        {
+            double middle = (low + high) / 2;
+            if (Pack(flow, columns.Count, middle, lead, null) is null)
+                low = middle;
+            else
+                high = middle;
+        }
+
+        var placement = new (int Column, double Top)[flow.Count];
+        double used = Pack(flow, columns.Count, high, lead, placement) ?? room;
+        for (int i = 0; i < flow.Count; i++)
+        {
+            FlowItem item = flow[i];
+            double down = top + placement[i].Top - item.Top;
+            double across = columns.Offset(placement[i].Column) - columns.Offset(item.Column);
+            foreach (LayoutLine line in item.Lines)
+            {
+                // A paragraph's anchor moves with its first line: the line that
+                // starts it, or, in a cell, the line its top was taken from.
+                if (paragraphTops.TryGetValue(line.ParagraphIndex, out double anchor) &&
+                    (item.StartsParagraph || Math.Abs(anchor - line.Top) < 0.001))
+                {
+                    paragraphTops[line.ParagraphIndex] = anchor + down;
+                }
+
+                line.Top += down;
+                line.Shift(across);
+            }
+
+            foreach (LayoutCell cell in item.Cells)
+                cell.Bounds = new BRect(cell.Bounds.Left + across, cell.Bounds.Top + down, cell.Bounds.Width, cell.Bounds.Height);
+        }
+
+        return used;
+    }
+
+    /// <summary>
+    /// Fills <paramref name="count"/> columns of <paramref name="height"/> with
+    /// <paramref name="flow"/> in order and returns the depth of the deepest, or
+    /// null when the lines need more columns than there are.
+    /// </summary>
+    private static double? Pack(List<FlowItem> flow, int count, double height, double lead, (int Column, double Top)[]? placement)
+    {
+        int column = 0;
+        double y = 0;
+        double used = 0;
+        for (int i = 0; i < flow.Count; i++)
+        {
+            FlowItem item = flow[i];
+            double gap = i == 0 ? lead : item.GapBetween;
+            if (i > 0 && y + gap + item.Height > height)
+            {
+                if (++column >= count)
+                    return null;
+
+                y = 0;
+                gap = item.GapAtTop;
+            }
+
+            if (placement is not null)
+                placement[i] = (column, y + gap);
+
+            y += gap + item.Height;
+            used = Math.Max(used, y);
+        }
+
+        return used;
+    }
 
     /// <summary>The lines one paragraph produced, before pagination places them.</summary>
     private sealed class ParagraphLines(List<LayoutLine> lines)

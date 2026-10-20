@@ -84,12 +84,13 @@ toolkit behind it.
   formatting on the automatic style that inherits from it, so the most specific
   declaration wins. `page` is a break. `auto` is not, and cancels one the chain
   carried, which is exactly what a producer writes it for. `column` is not a page
-  break either: it moves to the next column of the same page. It overrides an
-  inherited break and is reported as `odt.break.column`, because a model with no
-  columns has nowhere to keep it. A write states `fo:break-before="page"` and
-  states nothing at all when there is no break — an automatic style here inherits
-  from `Standard`, which states none, so absence already says it, and writing
-  `auto` would give every ordinary paragraph an automatic style of its own.
+  break either: it moves to the next column of the same page, and is
+  `ParagraphStyle.ColumnBreakBefore`, which a layout takes as a page break only
+  where the page has one column. Each value overrides an inherited one. A write
+  states `fo:break-before="page"` or `"column"` and states nothing at all when
+  there is no break — an automatic style here inherits from `Standard`, which
+  states none, so absence already says it, and writing `auto` would give every
+  ordinary paragraph an automatic style of its own.
 
   `fo:break-after="page"` is **read onto the paragraph that follows**, not
   dropped. The two spellings are one break in one gap: a break stated after
@@ -100,6 +101,8 @@ toolkit behind it.
   model can write it, and it is the difference between a `break-after` document
   paginating here the way it paginates in the application that wrote it and
   paginating a page short. Nothing is ever written back as `fo:break-after`.
+  `fo:break-after="column"` travels to the next paragraph the same way, as its
+  column break.
   Where both ends of one gap speak, either asking for a page gets one: a
   `break-after` above beats a `break-before` of `auto` below, because `auto` says
   only that this paragraph does not itself start a page.
@@ -157,6 +160,29 @@ toolkit behind it.
   the source asked for, and lays the body out on the second. The header and
   footer are read from the same master page as the paper, because a Letter header
   on an A4 page is not a thing any document said.
+- The text columns the same page layout divides its page into:
+  `style:columns`' `fo:column-count`, and `fo:column-gap` or, when a producer
+  lists the columns instead, the end indent of the first and the start indent of
+  the second. Listed columns whose `style:rel-width` differs by more than a
+  percent are held as equal ones (`odt.columns.unequal`); LibreOffice's 10922
+  against 10925 is rounding and is not reported. Columns that leave no room keep
+  the page and lose the columns, with `odt.columns.geometry`. A write states the
+  count and the gap. The column separator (`style:column-sep`) is not read.
+- The columns of a `text:section`, read from its section style's
+  `style:section-properties` the way a page layout's are. A section with more
+  than one column is a `DocumentSection` over the paragraphs it holds; one
+  without columns is only its paragraphs, as before. A section inside another
+  with columns is laid out in the outer one's, so the outer section is the one
+  kept. LibreOffice balances a section's columns where the text after it goes
+  on on the same page, and the layout here does the same; a section that
+  states `text:dont-balance-text-columns` is balanced anyway.
+- A write puts each section with columns in a `text:section` named
+  `Section1`, `Section2` and on, with an automatic section style stating its
+  columns. ODF lays a section's columns out inside the page's, where the model
+  lets them stand in for the page's, so a document that has sections and a
+  page of several columns is written with a page of one, and each stretch no
+  section holds goes in a `text:section` with the page's columns. What is laid
+  out in which columns comes back; the page then states one column.
 - The master-page chain, followed by one link. The master page the body begins on
   supplies the *first* page and the one its `style:next-style-name` names supplies
   the rest, which is how a letterhead states that the band belongs to page one and
@@ -188,7 +214,10 @@ toolkit behind it.
   stated either way, so a stripe the letter is written on top of and a stamp
   meant to cover it each stay on the side of the text they were authored on. A
   frame standing between paragraphs is read this way too, where before it was
-  skipped as holding no body text — which lost the picture.
+  skipped as holding no body text — which lost the picture. A graphic style
+  inherits through `style:parent-style-name`, the nearest statement winning, so
+  a frame whose automatic style says only where it stands takes its paint and
+  wrapping from the named style beneath it, as LibreOffice writes text boxes.
 - A written package is deterministic: two writes of one document produce
   byte-identical output. Every entry carries a fixed timestamp, `mimetype` is
   first and stored uncompressed per ODF 1.3 part 2 §3.3, and `meta.xml` names the
@@ -219,6 +248,10 @@ toolkit behind it.
   attribute, which would tell the next reader something stronger than the
   document knows. A cell's paragraphs are a range, so an edit that spans out of a cell and
   into the body does not keep the grid over what it merged.
+- A row's `fo:keep-together="always"` keeps it on one page and is
+  `TableRow.CanSplit` false; `auto`, or saying nothing, lets it break across a
+  page, as LibreOffice breaks it. A write states `always` in the row's style and
+  nothing otherwise.
 - A floating picture keeps its position, its layer and its wrapping.
   `style:wrap` is read, and its two names that read backwards are read the way
   ODF means them: `run-through` is text through the shape, and `none` is no text
@@ -236,8 +269,20 @@ toolkit behind it.
   states no run-through is
   read as `background`, which is not ODF's own default; it is what this reader
   has always done, and a box wrongly in front would hide the text under it. A
-  page-anchored frame is placed against its paragraph, since that is the only
-  anchor the model has, and a frame that states no box stays in the text. Crops,
+  frame anchored to a page by number (`text:anchor-type="page"` with
+  `text:anchor-page-number`) is `DocumentShape.AnchorPage`: it stands on that
+  page, and the layout makes the pages it needs to have one, as LibreOffice
+  does. Its position is taken from the area the graphic style names -
+  `style:horizontal-rel`/`style:vertical-rel` of `page` or `page-content`, and
+  `page` when the style says nothing - and from `style:horizontal-pos` and
+  `style:vertical-pos`, then turned into the model's terms: across from the text
+  column, down from the page's top edge. A page anchor with no number is read as
+  the paragraph anchor it amounts to. A write puts a page-anchored drawing in the
+  body ahead of the text, as LibreOffice does, with its number and a style
+  stating both areas. A text box whose frame states no `svg:width` takes its
+  text box's `fo:min-width`; one sized only by `fo:min-height` still stays in the
+  text, because the height its text needs is not known here and a box of the
+  minimum would clip it. A frame that states no box stays in the text. Crops,
   rotation, and frame effects are dropped.
 - SVG, EMF, and WMF — what a producer stores for charts, formulas, and object
   replacement images — are not carried, because they cannot be decoded to pixels
@@ -308,7 +353,6 @@ blank:
 | `odt.align.justify` | Warning | A justified paragraph was read as left-aligned. |
 | `odt.linespacing.fixed` | Warning | A fixed line height was not represented. |
 | `odt.linespacing.range` | Warning | A positive line-height percentage overflowed or underflowed the model's float multiplier; the inherited spacing was retained. |
-| `odt.break.column` | Warning | A `fo:break-before`/`-after` of `column` was read as no break; the model breaks pages and has no columns. |
 | `odt.break.after` | Warning | A `fo:break-after="page"` had no following paragraph in the same flow to carry it to — the flow ended, or the next block was a table, or the cell did — and was dropped. |
 | `odt.text.transform` | Warning | A `lowercase`/`capitalize` transform was dropped. |
 | `odt.styles.unknown` | Warning | A style reference named an undefined style. Once per family and name. |
@@ -324,15 +368,20 @@ blank:
 | `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `odt.image.denied` | Warning | A picture was not read into the document because the caller's resource policy did not permit it; the message names the denial. |
 | `odt.page.geometry` | Warning | A page layout described a page with no room to write on, so the page was not read. |
+| `odt.columns.geometry` | Warning | A page layout's `style:columns` left no room to write in a column; the page was kept and read as one column. |
+| `odt.columns.unequal` | Info | A page layout listed columns of different relative widths; they were read as equal columns. |
 | `odt.limit.depth` | Warning | Block or inline nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `odt.limit.run` | Warning | A paragraph hit `MaxRunLength` and was truncated. |
 | `odt.limit.spaces` | Warning | A `text:s` count exceeded `MaxRunLength` and was clamped. |
 | `odt.limit.paragraphs` | Warning | Input exceeded `MaxParagraphCount`; remaining paragraphs were dropped. |
 
 Write diagnostics are `odt.link`, `odt.image.placeholder`, `odt.image.size`,
-`odt.color.alpha`, `odt.text.control`, and `odt.image.omitted` — the last one
-reporting a picture the caller's resource policy did not permit the write to
-pass on, which is the writer's counterpart to `odt.image.denied`.
+`odt.color.alpha`, `odt.text.control`, `odt.section.page`, and
+`odt.image.omitted` — the last one reporting a picture the caller's resource
+policy did not permit the write to pass on, which is the writer's counterpart to
+`odt.image.denied`. `odt.section.page` reports a section that states its own
+paper or margins, which are not written: a `text:section` has no page of its
+own, and its text is written within the document's.
 `odt.text.control` covers every string that comes from the model, a picture's
 description as well as run text; the description path was unguarded and threw
 out of the serializer rather than reporting.

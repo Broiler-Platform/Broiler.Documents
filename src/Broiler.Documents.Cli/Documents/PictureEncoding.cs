@@ -101,13 +101,15 @@ internal static class PictureEncoding
         if (paragraphs is null)
             return (document, resources, 0);
 
-        // The paragraph count is unchanged, so every table still spans the
-        // paragraphs it did, and the rest of the document comes across whole.
+        // The paragraph count is unchanged, so every table and section still
+        // spans the paragraphs it did, and the rest of the document comes across
+        // whole.
         RichTextDocument rebuilt = RichTextDocument.FromParagraphs(paragraphs)
             .WithRunningContent(document.RunningContent)
             .WithShapes(document.Shapes)
             .WithPageGeometry(document.PageGeometry)
             .WithTables(document.Tables)
+            .WithSections(document.Sections)
             .WithStyleDefaults(document.StyleDefaults);
 
         return (rebuilt, builder!.Build(), encoded.Count);
