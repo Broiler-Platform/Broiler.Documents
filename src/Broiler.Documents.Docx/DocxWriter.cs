@@ -286,7 +286,10 @@ public static class DocxWriter
             // Written with an explicit atLeast rather than bare: the model's height
             // is a minimum, and saying so removes the ambiguity the reader has to
             // resolve by convention when a producer omits the rule.
+            // CT_TrPr is a choice, not a sequence, so the order here is free.
             var properties = new XElement(DocxNamespaces.Wordprocessing + "trPr");
+            if (!row.CanSplit)
+                properties.Add(new XElement(DocxNamespaces.Wordprocessing + "cantSplit"));
             if (row.IsHeader)
                 properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tblHeader"));
             if (row.MinHeight > 0)

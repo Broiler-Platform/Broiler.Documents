@@ -481,10 +481,6 @@ Each needs its own approval and does not block V1.
   defects behind them are fixed and what remains is ordinary disagreement between
   two layout engines. The reviewer chose further fixes; keep these rows open
   rather than classifying them as `documented` or `accepted` differences.
-- **Table rows across pages.** The layout places a row whole, so a row taller
-  than a page runs off its foot and the pages its continuation would fill are
-  never made. LibreOffice breaks such a row (`tdf134965.odt`, 23 pages here
-  against 29).
 - **Long-document line height.** The office suite's `long-flow-multipage` seed
   reaches `severe` on the blurred difference while coverage stays `close`: a
   small per-line leading difference accumulates over pages. This is in the CLI's

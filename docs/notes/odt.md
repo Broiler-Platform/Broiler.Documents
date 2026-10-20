@@ -228,6 +228,10 @@ toolkit behind it.
   attribute, which would tell the next reader something stronger than the
   document knows. A cell's paragraphs are a range, so an edit that spans out of a cell and
   into the body does not keep the grid over what it merged.
+- A row's `fo:keep-together="always"` keeps it on one page and is
+  `TableRow.CanSplit` false; `auto`, or saying nothing, lets it break across a
+  page, as LibreOffice breaks it. A write states `always` in the row's style and
+  nothing otherwise.
 - A floating picture keeps its position, its layer and its wrapping.
   `style:wrap` is read, and its two names that read backwards are read the way
   ODF means them: `run-through` is text through the shape, and `none` is no text

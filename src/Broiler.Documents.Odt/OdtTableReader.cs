@@ -96,7 +96,8 @@ internal static class OdtTableReader
             rows.Add(new TableRow(
                 cells,
                 row.Parent?.Name == OdtNamespaces.Table + "table-header-rows",
-                ReadRowMinHeight(row, context.Styles)));
+                ReadRowMinHeight(row, context.Styles),
+                ReadRowCanSplit(row, context.Styles)));
         }
 
         context.Builder.AddTable(new DocumentTable(
@@ -199,6 +200,21 @@ internal static class OdtTableReader
         }
 
         return Math.Max(0, height);
+    }
+
+    /// <summary>
+    /// ODF's <c>fo:keep-together</c> on a row: <c>always</c> keeps the row on one
+    /// page, and <c>auto</c>, or saying nothing, lets it break across one.
+    /// </summary>
+    private static bool ReadRowCanSplit(XElement row, OdtStyles styles)
+    {
+        string? styleName = (string?)row.Attribute(OdtNamespaces.Table + "style-name");
+        return styleName is null ||
+            !styles.TableRowProperties.TryGetValue(styleName, out XElement? properties) ||
+            !string.Equals(
+                (string?)properties.Attribute(OdtNamespaces.Fo + "keep-together"),
+                "always",
+                StringComparison.Ordinal);
     }
 
     /// <summary>A table's columns, looking through the groups ODF wraps them in.</summary>

@@ -396,11 +396,12 @@ this step, because it measures the codecs rather than this tool.
 
 **The layout engine is this tool's, not the component's.** It does word wrapping,
 alignment, indents, list markers, line and paragraph spacing, inline images,
-tables (broken between rows, never inside one), running headers and footers,
-anchored shapes in their stated stacking order, and pagination. It has no
-columns, floats, footnotes, hyphenation, kerning pairs, or bidirectional
-reordering — mostly because the document model cannot express them, so there is
-nothing to lay out. The shared paginator planned as
+tables (a row breaks across a page cell by cell unless it says it may not),
+text columns filled one after another, running headers and footers, anchored
+shapes in their stated stacking order, and pagination. It has no floats,
+footnotes, hyphenation, kerning pairs, or bidirectional reordering — mostly
+because the document model cannot express them, so there is nothing to lay
+out. The shared paginator planned as
 `Broiler.Documents.Pagination` ([roadmap](../roadmap.md#shared-export-foundation-phase-6))
 is where a component-level version belongs; until it exists, the numbers here
 are this tool's own. That is fine for the job: a comparison between two exports run

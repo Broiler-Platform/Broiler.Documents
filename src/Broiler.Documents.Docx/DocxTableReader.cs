@@ -81,7 +81,7 @@ internal static class DocxTableReader
                 column += span;
             }
 
-            rows.Add(new RowDraft(cells, ReadRowMinHeight(row, ref exactHeightSeen)));
+            rows.Add(new RowDraft(cells, ReadRowMinHeight(row, ref exactHeightSeen), !ReadCantSplit(row)));
             if (rows.Count >= context.Builder.Limits.MaxParagraphCount)
                 break;
         }
@@ -139,8 +139,28 @@ internal static class DocxTableReader
         public List<DocumentTable> Tables = [];
     }
 
-    /// <summary>A row being read: its cells, and the height it asked for.</summary>
-    private readonly record struct RowDraft(List<CellDraft> Cells, double MinHeight);
+    /// <summary>A row being read: its cells, the height it asked for, and whether it may break across a page.</summary>
+    private readonly record struct RowDraft(List<CellDraft> Cells, double MinHeight, bool CanSplit);
+
+    /// <summary>
+    /// ECMA-376 §17.4.6: <c>w:cantSplit</c>, which keeps a row on one page. It is
+    /// an on/off property, so a bare element is on and the file has to spell
+    /// <c>false</c> to turn it off.
+    /// </summary>
+    private static bool ReadCantSplit(XElement row)
+    {
+        XElement? cantSplit = row
+            .Element(DocxNamespaces.Wordprocessing + "trPr")?
+            .Element(DocxNamespaces.Wordprocessing + "cantSplit");
+        if (cantSplit is null)
+            return false;
+
+        string? value = DocxValueReader.WordValue(cantSplit);
+        return value is null ||
+            !(value.Equals("false", StringComparison.OrdinalIgnoreCase) ||
+              value.Equals("0", StringComparison.Ordinal) ||
+              value.Equals("off", StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>
     /// ECMA-376 §17.4.81: the height a row states, in points, as a minimum.
@@ -191,7 +211,8 @@ internal static class DocxTableReader
             cell.Borders,
             cell.Merge == VerticalMerge.Continue,
             cell.Tables))],
-            minHeight: row.MinHeight);
+            minHeight: row.MinHeight,
+            canSplit: row.CanSplit);
 
     /// <summary>
     /// Turns <c>w:vMerge</c> continuations into a row span on the cell that

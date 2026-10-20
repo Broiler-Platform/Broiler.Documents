@@ -172,7 +172,7 @@ public sealed class DocumentTable(
 }
 
 /// <summary>One row of a <see cref="DocumentTable"/>.</summary>
-public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = false, double minHeight = 0)
+public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = false, double minHeight = 0, bool canSplit = true)
 {
     public IReadOnlyList<TableCell> Cells { get; } = cells is null || cells.Count == 0 ? [] : [.. cells];
 
@@ -199,12 +199,26 @@ public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = fal
     /// </remarks>
     public double MinHeight { get; } = double.IsFinite(minHeight) && minHeight > 0 ? minHeight : 0;
 
+    /// <summary>
+    /// True when the row may break across a page: the lines of its cells that fit
+    /// stay on the page and the rest continue at the top of the next one.
+    /// </summary>
+    /// <remarks>
+    /// True by default, because it is the default of every format that states it
+    /// - DOCX's <c>w:cantSplit</c>, ODF's <c>fo:keep-together</c>, RTF's
+    /// <c>\trkeep</c> - and of every word processor that lays one out. A row of a
+    /// long comment table can be taller than a page, and one placed whole runs
+    /// off the foot of it. False keeps the row on one page whenever it fits on
+    /// one.
+    /// </remarks>
+    public bool CanSplit { get; } = canSplit;
+
     internal TableRow Shifted(int at, int removed, int inserted)
     {
         var cells = new List<TableCell>(Cells.Count);
         foreach (TableCell cell in Cells)
             cells.Add(cell.Shifted(at, removed, inserted));
-        return new TableRow(cells, IsHeader, MinHeight);
+        return new TableRow(cells, IsHeader, MinHeight, CanSplit);
     }
 }
 

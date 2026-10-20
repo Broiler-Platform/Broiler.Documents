@@ -295,4 +295,32 @@ public sealed class OdtTableTests
             OdtDocumentCodec.WriteToArray(source),
             OdtDocumentCodec.WriteToArray(source));
     }
+
+    [Theory]
+    [InlineData("fo:keep-together=\"always\"", false)]
+    [InlineData("fo:keep-together=\"auto\"", true)]
+    [InlineData("style:min-row-height=\"20pt\"", true)]
+    public void A_Row_May_Break_Across_A_Page_Unless_It_Keeps_Together(string properties, bool canSplit)
+    {
+        RichTextDocument document = ReadWithRowStyle(
+            properties,
+            Table(Columns(2), StyledRow("ro1", Cell("a1"), Cell("b1")), Row(Cell("a2"), Cell("b2"))));
+
+        DocumentTable table = Assert.Single(document.Tables);
+        Assert.Equal(canSplit, table.Rows[0].CanSplit);
+        Assert.True(table.Rows[1].CanSplit);
+    }
+
+    [Fact]
+    public void A_Row_That_Keeps_Together_Round_Trips()
+    {
+        RichTextDocument source = ReadWithRowStyle(
+            "fo:keep-together=\"always\" style:min-row-height=\"30pt\"",
+            Table(Columns(2), StyledRow("ro1", Cell("a1"), Cell("b1")), Row(Cell("a2"), Cell("b2"))));
+
+        DocumentTable table = Assert.Single(RoundTrip(source).Tables);
+        Assert.False(table.Rows[0].CanSplit);
+        Assert.Equal(30, table.Rows[0].MinHeight, 3);
+        Assert.True(table.Rows[1].CanSplit);
+    }
 }

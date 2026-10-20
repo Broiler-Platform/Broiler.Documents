@@ -306,10 +306,10 @@ public static class OdtWriter
         foreach (TableRow row in table.Rows)
         {
             var tr = new XElement(OdtNamespaces.Table + "table-row");
-            if (row.MinHeight > 0)
+            if (row.MinHeight > 0 || !row.CanSplit)
             {
                 tr.Add(new XAttribute(
-                    OdtNamespaces.Table + "style-name", context.GetRowStyleName(row.MinHeight)));
+                    OdtNamespaces.Table + "style-name", context.GetRowStyleName(row.MinHeight, row.CanSplit)));
             }
 
             int column = 0;
@@ -1432,28 +1432,34 @@ public static class OdtWriter
         }
 
         /// <summary>
-        /// The row style for one height, created on first use. As with a column,
-        /// ODF puts the measurement in a named style rather than on the row.
+        /// The row style for one height, and for a row that must stay on one page,
+        /// created on first use. As with a column, ODF puts the measurement in a
+        /// named style rather than on the row.
         /// </summary>
         /// <remarks>
         /// Written as <c>style:min-row-height</c> and never <c>style:row-height</c>:
         /// the model's height is a floor, and the fixed attribute would tell the
-        /// next reader something stronger than this document knows.
+        /// next reader something stronger than this document knows. A row that may
+        /// break says nothing, because <c>fo:keep-together</c>'s default lets it.
         /// </remarks>
-        public string GetRowStyleName(double height)
+        public string GetRowStyleName(double height, bool canSplit = true)
         {
-            string key = OdtUnits.FormatPoints(height);
+            string key = (height > 0 ? OdtUnits.FormatPoints(height) : string.Empty) + (canSplit ? string.Empty : "|keep");
             if (_rowStyleNames.TryGetValue(key, out string? existing))
                 return existing;
+
+            var properties = new XElement(OdtNamespaces.Style + "table-row-properties");
+            if (height > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Style + "min-row-height", OdtUnits.FormatPoints(height)));
+            if (!canSplit)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-together", "always"));
 
             string name = "ro" + (_rowStyleNames.Count + 1).ToString(CultureInfo.InvariantCulture);
             _tableStyles.Add(new XElement(
                 OdtNamespaces.Style + "style",
                 new XAttribute(OdtNamespaces.Style + "name", name),
                 new XAttribute(OdtNamespaces.Style + "family", "table-row"),
-                new XElement(
-                    OdtNamespaces.Style + "table-row-properties",
-                    new XAttribute(OdtNamespaces.Style + "min-row-height", key))));
+                properties));
 
             _rowStyleNames[key] = name;
             return name;

@@ -146,8 +146,8 @@ internal sealed class DocxDocumentBuilder(
 
     /// <summary>
     /// Drops a page break that reached the end of a table cell. Word splits
-    /// the row a break inside a table falls in; a row is placed whole here,
-    /// so there is no boundary inside one to move it to, and the paragraph
+    /// the row a break inside a table falls in; a row breaks here only where
+    /// the page runs out, so there is no boundary to move it to, and the paragraph
     /// that follows in the flat list is a page's worth of layout away from
     /// where the break was written. It is dropped and said out loud rather
     /// than landing somewhere the document never asked for.
@@ -161,7 +161,7 @@ internal sealed class DocxDocumentBuilder(
         _pageBreakStartsNextParagraph = false;
         AddDiagnosticOnce(
             "docx.pagebreak.table",
-            "A page break at the end of a table cell was dropped; a row is placed whole, so it has no page boundary inside it.");
+            "A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks.");
     }
 
     public void StartParagraph(ParagraphStyle style)

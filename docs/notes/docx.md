@@ -218,7 +218,9 @@ Open XML WordprocessingML package parts.
   flat list, so the paragraph after a cell's last one is the neighbouring cell's
   or the body's past the table, and neither is the row Word splits there. A
   break on a paragraph *within* a cell is read and written back as stated, but
-  the layout places a row whole, so nothing acts on it.
+  the layout breaks a row only where the page runs out, so nothing acts on it.
+- A row's `w:cantSplit` is `TableRow.CanSplit`, read as the on/off property it
+  is and written back. A row without it may break across a page, as in Word.
 - A page break that opens its paragraph - nothing of the paragraph before it -
   starts that paragraph on the new page. Nothing is split, so nothing is
   demoted: the paragraph is what the page begins with. If the paragraph already
@@ -277,7 +279,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.pagebreak.split` | Warning | A `w:br w:type="page"` had text after it in the same paragraph; it was read as a line break, because pages break between paragraphs here and not inside one. |
 | `docx.pagebreak.repeated` | Warning | A paragraph stated more than one page break; the first was kept and the blank pages the others make were dropped. |
 | `docx.pagebreak.trailing` | Warning | A page break in the last paragraph of a part was dropped; there is no following paragraph for it to start. |
-| `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row is placed whole, so it has no page boundary inside it. |
+| `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks. |
 | `docx.break.column` | Warning | A column break in a section of several columns was read as a line break; the model has no break that moves to the next column. |
 | `docx.section.columns` | Info | The sections differ in their columns; the columns of the section holding the most paragraphs were read. |
 | `docx.columns.unequal` | Info | A section listed columns of unequal width; they were read as equal columns. |

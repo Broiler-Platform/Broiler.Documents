@@ -25,8 +25,9 @@ namespace Broiler.Documents.Pagination;
 /// <b>What this is not.</b> It is not a word processor's layout engine and does
 /// not try to be one. There are no floats, footnotes, hyphenation, kerning
 /// pairs, or bidirectional reordering here - mostly because the document model
-/// has no way to express them, so there is nothing to lay out. Tables break
-/// between rows and never inside one. Text columns are filled one after the
+/// has no way to express them, so there is nothing to lay out. A table row
+/// breaks across a page cell by cell unless it says it may not, or holds a nested
+/// table or a cell that spans rows. Text columns are filled one after the
 /// other and never balanced, so the last page of a two-column document can end
 /// with a full first column beside an empty second; and a wrapping shape is
 /// measured as though every column were the first. The shared paginator the PDF
@@ -151,20 +152,43 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             if (DocumentTable.StartingAt(document.Tables, paragraphIndex) is DocumentTable table)
             {
-                // A row is placed whole. Its cells are laid out beside each other,
-                // so a row broken across a page would have to break every cell at
-                // the same place - which is a table layout, and this is not one.
-                foreach (RowBox row in ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width))
+                // A row that does not fit where it is breaks across the page when
+                // it may: what fits stays, and the rest of each cell carries on in
+                // the next column. One that may not moves on whole, and one that
+                // cannot fit even a fresh column is placed there anyway and runs
+                // off its foot, because a row that waited for room it will never
+                // have would stop the layout.
+                foreach (RowBox composedRow in ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width))
                 {
-                    if (y + row.Height > contentBottom && ColumnHasContent())
+                    RowBox? row = composedRow;
+                    while (row is not null && !truncated)
                     {
-                        BreakColumn();
-                        if (truncated)
-                            break;
+                        if (y + row.Height > contentBottom)
+                        {
+                            if (row.CanSplit && row.SplitAt(contentBottom - y) is (RowBox fitted, var rest))
+                            {
+                                fitted.PlaceAt(y, columns.Offset(column), currentLines, currentCells, _paragraphTops);
+                                y += fitted.Height;
+                                row = rest;
+                                if (row is not null)
+                                    BreakColumn();
+                                continue;
+                            }
+
+                            if (ColumnHasContent())
+                            {
+                                BreakColumn();
+                                continue;
+                            }
+                        }
+
+                        row.PlaceAt(y, columns.Offset(column), currentLines, currentCells, _paragraphTops);
+                        y += row.Height;
+                        row = null;
                     }
 
-                    row.PlaceAt(y, columns.Offset(column), currentLines, currentCells, _paragraphTops);
-                    y += row.Height;
+                    if (truncated)
+                        break;
                 }
 
                 paragraphIndex = table.ParagraphEnd;
@@ -403,7 +427,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         foreach (TableRow row in table.Rows)
         {
-            var box = new RowBox();
+            // A row may break across a page only where every cell can be cut on
+            // its own line boundary. A nested table's boxes and a box that spans
+            // rows would each need cutting too, so a row holding either stays whole.
+            var box = new RowBox
+            {
+                CanSplit = row.CanSplit &&
+                    row.Cells.All(cell => cell.RowSpan == 1 && !cell.IsRowSpanContinuation && cell.Tables.Count == 0),
+            };
             foreach (TableCell cell in row.Cells)
             {
                 (double cellLeft, double cellWidth) = ColumnSpanBox(edges, cell);
@@ -414,6 +445,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 box.Lines.AddRange(lines);
                 box.Cells.AddRange(nested);
+                box.Contents.Add(new CellLines(lines, height));
                 box.Height = Math.Max(box.Height, height);
 
                 // A cell the merge above it covers is drawn by no one: the cell
@@ -562,6 +594,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         public double ExtraHeight { get; set; }
     }
 
+    /// <summary>One cell's composed lines, in order, and the height they take.</summary>
+    private sealed record CellLines(List<LayoutLine> Lines, double Height);
+
     /// <summary>
     /// One composed table row: its lines and any nested cell boxes, positioned
     /// relative to the row's top, and the cells whose boxes this row draws.
@@ -575,6 +610,95 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         public List<LayoutCell> Cells { get; } = [];
 
         public List<CellBox> Boxes { get; } = [];
+
+        /// <summary>Each cell's own lines, so the row can be cut cell by cell.</summary>
+        public List<CellLines> Contents { get; } = [];
+
+        /// <summary>True when the row may break across a page; see <see cref="TableRow.CanSplit"/>.</summary>
+        public bool CanSplit { get; init; }
+
+        /// <summary>
+        /// Cuts the row where <paramref name="room"/> runs out: each cell keeps the
+        /// lines that end within it, and the rest of that cell continues at the top
+        /// of the second part, its first line where the cut is.
+        /// </summary>
+        /// <returns>
+        /// Null when no line of any cell fits, so there is nothing to leave behind;
+        /// the whole row, and no second part, when every line fits and only the
+        /// space after the last paragraph does not.
+        /// </returns>
+        /// <remarks>
+        /// Each cell is cut on its own line boundary, as Word and LibreOffice cut
+        /// one, rather than at one height for the whole row: a line across the
+        /// cut would be drawn in half on two pages. The first part's boxes run
+        /// down to the cut, so a cell whose text ended higher still reaches the
+        /// foot of the page, and both parts draw their borders.
+        /// </remarks>
+        public (RowBox Fitted, RowBox? Remainder)? SplitAt(double room)
+        {
+            var cuts = new double?[Contents.Count];
+            bool kept = false;
+            bool carried = false;
+            for (int i = 0; i < Contents.Count; i++)
+            {
+                foreach (LayoutLine line in Contents[i].Lines)
+                {
+                    if (line.Top + line.Height <= room)
+                    {
+                        kept = true;
+                        continue;
+                    }
+
+                    cuts[i] = line.Top;
+                    carried = true;
+                    break;
+                }
+            }
+
+            if (!kept)
+                return null;
+            if (!carried)
+                return (this, null);
+
+            var fitted = new RowBox { Height = room, CanSplit = true };
+            var rest = new RowBox { CanSplit = true };
+            fitted.Boxes.AddRange(Boxes);
+            rest.Boxes.AddRange(Boxes);
+            for (int i = 0; i < Contents.Count; i++)
+            {
+                CellLines content = Contents[i];
+                if (cuts[i] is not double cut)
+                {
+                    fitted.Lines.AddRange(content.Lines);
+                    fitted.Contents.Add(content);
+                    rest.Contents.Add(new CellLines([], 0));
+                    continue;
+                }
+
+                var before = new List<LayoutLine>();
+                var after = new List<LayoutLine>();
+                foreach (LayoutLine line in content.Lines)
+                {
+                    if (line.Top < cut)
+                    {
+                        before.Add(line);
+                        continue;
+                    }
+
+                    line.Top -= cut;
+                    after.Add(line);
+                }
+
+                double remaining = Math.Max(0, content.Height - cut);
+                fitted.Lines.AddRange(before);
+                fitted.Contents.Add(new CellLines(before, cut));
+                rest.Lines.AddRange(after);
+                rest.Contents.Add(new CellLines(after, remaining));
+                rest.Height = Math.Max(rest.Height, remaining);
+            }
+
+            return (fitted, rest);
+        }
 
         /// <summary>
         /// Moves the row to <paramref name="top"/>, and <paramref name="shift"/>
