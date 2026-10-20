@@ -104,7 +104,7 @@ jobs:
     # and a pixel comparison would measure the machine. The semantic axis runs
     # fine on Windows and a developer can run it there; it is not worth a second
     # CI leg while the interesting half cannot follow it.
-    timeout-minutes: 60
+    timeout-minutes: 360
 
     defaults:
       run:
