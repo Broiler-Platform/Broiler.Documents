@@ -400,10 +400,16 @@ family needs the upstream test and what in the file shows it was generated.
 | A table row was placed whole, so one longer than a page ran off it (`tdf134965.odt`, 23 pages against 29) | Fixed. A row breaks across pages cell by cell unless it says it may not (`TableRow.CanSplit`) |
 | A frame anchored to a page by number was placed beside a paragraph (`tdf135056.odt`, 4 pages against 17) | Fixed. `DocumentShape.AnchorPage`, and both layouts make the pages up to it |
 | Sections were one flow in one set of columns (`tdf123163-1.docx`) | Fixed. `DocumentSection` carries its columns and margins, a DOCX section break starts its page, a column break moves to the next column, and a section's columns are balanced where the next follows on the page. The document stays four pages short for its fourteen missing pictures |
+| A family the font mapping does not name was drawn with the host fallback and measured with an estimate of 125% (`tdf168017.docx`, set in Arial Narrow, 33 pages against 29) | Fixed in the CLI. Such a family is measured from the host fallback face it is drawn with |
+| An empty paragraph was as tall as the document's default rather than its paragraph mark | Fixed. `RichTextParagraph.MarkStyle`, read from DOCX's `w:pPr/w:rPr`, ODF's paragraph text properties and RTF's formatting at `\par`, and written back by DOCX |
+| A DOCX section that named no header continued nothing, and `first` and `even` parts were read whether or not `w:titlePg` and `w:evenAndOddHeaders` turned them on | Fixed. Each type the last section leaves out continues from the nearest section before it (ECMA-376 §17.10.5); a part the document does not turn on is not read, and the writer turns on the even parts it writes |
+| A header or footer that ran past its margin was left out | Fixed. It is set at its declared distance and the text moves clear of it (ECMA-376 §17.6.11), each page at its own section's distances and margins |
 
 The [note on the second ranked run](../notes/office-extras-columns-verification-2026-10-20.md)
-has the numbers for the last eight rows, and the documents in that run that
-were not this component's reading.
+has the numbers for the eight rows before the last four, and the documents in
+that run that were not this component's reading; the
+[note on the third](../notes/office-extras-marks-and-bands-verification-2026-10-20.md)
+has the last four, and why its other two documents still stand where they do.
 
 Still open, and tracked in the [roadmap](../roadmap.md#test-suites-and-tooling):
 the per-line leading drift on `long-flow-multipage`, the nested-list marker

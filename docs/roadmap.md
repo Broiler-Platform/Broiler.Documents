@@ -81,9 +81,12 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **Sections, the rest.** A `DocumentSection` carries its columns and its own
   margins, a DOCX section break starts the page it says it does, and the
   layout balances a section's columns where the next follows on the same page.
-  Still not read: a section's own running content (`docx.section.multiple`),
+  Still not read: a section's own running content where it differs from the
+  last section's - the model holds one set, the last section's, with each
+  type it leaves out continued from before it (`docx.section.multiple`) -
   the blank page an odd- or even-page start can make (`docx.section.parity`),
-  a section's own paper size (the page is drawn at the document's), RTF's
+  a section's own paper size (the page is drawn at the document's, which
+  puts `tdf123163-1.docx`'s `geometry` band at `off` by two or three pixels), RTF's
   `\sect` and its break kinds, and ODF's `text:dont-balance-text-columns`.
   ODT, RTF, HTML and the PDF writer do not write a section's margins, and the
   PDF writer lays every page out as one column (`pdf.write.feature-unsupported`).
@@ -91,6 +94,16 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   twelve pages against sixteen. None of its fourteen pictures is in the
   package (`docx.image.missing`); LibreOffice keeps a box of the size each
   states, one of them a whole page, and this reader keeps nothing of them.
+- **A picture whose payload is missing.** Keeping that box needs an image the
+  model holds without its bytes: every writer, the resource policy and both
+  layouts assume an `InlineImage` has a resource. Decide what such an image is
+  and what each writer does with it before a reader makes one.
+- **List numbering.** The model records that a paragraph is numbered and how
+  deep, and nothing else, so the layout counts from one at every list and picks
+  the marker from the indent. `tdf168017.docx` numbers its clauses from a
+  `w:start` of 4, 9 and 12 and draws "4." as "1."; a clause indented half an
+  inch at level 0 draws "17." as "a.". A list's identity, start, restart and
+  level format are model changes that reach every codec.
 
 ## Spreadsheet formats
 
