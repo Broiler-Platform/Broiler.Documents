@@ -398,7 +398,11 @@ internal static class ExtrasConformance
             string filesRoot = Path.Combine(downloadRoot, "api-files");
             Directory.CreateDirectory(filesRoot);
 
-            var downloaded = new List<ExtrasSample>(candidates.Count);
+            int totalCandidates = candidates.Count;
+            int downloadStep = totalCandidates > 0 ? Math.Max(1, (int)Math.Ceiling(totalCandidates / 100.0)) : 1;
+            int downloadedCount = 0;
+
+            var downloaded = new List<ExtrasSample>(totalCandidates);
             await Parallelism.ForEachAsync(candidates, 8, async candidate =>
             {
                 string fullSubpath = string.IsNullOrEmpty(subpath)
@@ -418,6 +422,16 @@ internal static class ExtrasConformance
                 {
                     downloaded.Add(new ExtrasSample(
                         candidate.RelativePath, candidate.Extension, candidate.Format, localPath, sourceUrl));
+                }
+
+                int current = Interlocked.Increment(ref downloadedCount);
+                if (current % downloadStep == 0 || current == totalCandidates)
+                {
+                    int percent = (int)Math.Min(100, Math.Round(current * 100.0 / totalCandidates));
+                    Console.WriteLine(
+                        "download    " + current.ToString(CultureInfo.InvariantCulture) + "/" +
+                        totalCandidates.ToString(CultureInfo.InvariantCulture) +
+                        " (" + percent.ToString(CultureInfo.InvariantCulture) + "%)");
                 }
             }).ConfigureAwait(false);
 

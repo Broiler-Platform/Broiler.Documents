@@ -198,6 +198,10 @@ internal static class Program
 
             log.AddRange(await space.MaterialiseAsync(options.Jobs, options.Only).ConfigureAwait(false));
 
+            int totalDocs = space.Documents.Count;
+            int statusStep = totalDocs > 0 ? Math.Max(1, (int)Math.Ceiling(totalDocs / 100.0)) : 1;
+            int completedDocs = 0;
+
             await Parallelism.ForEachAsync(space.Documents, options.Jobs, async document =>
             {
                 if (options.Axis is "semantic" or "all")
@@ -230,6 +234,16 @@ internal static class Program
                 {
                     log.Add(CheckResult.Skip("pixel", "pixel/" + document.Key,
                         rasterReason));
+                }
+
+                int current = Interlocked.Increment(ref completedDocs);
+                if (current % statusStep == 0 || current == totalDocs)
+                {
+                    int percent = (int)Math.Min(100, Math.Round(current * 100.0 / totalDocs));
+                    Console.WriteLine(
+                        "status      " + current.ToString(CultureInfo.InvariantCulture) + "/" +
+                        totalDocs.ToString(CultureInfo.InvariantCulture) +
+                        " (" + percent.ToString(CultureInfo.InvariantCulture) + "%)");
                 }
             }).ConfigureAwait(false);
 
@@ -362,8 +376,13 @@ internal static class Program
                 .AcquireSamplesAsync(workspace, options.ExtrasUrl, options.ExtrasDirectory, options.Only, options.MaxFiles)
                 .ConfigureAwait(false);
 
-            Console.WriteLine("corpus      " + samples.Count.ToString(CultureInfo.InvariantCulture) +
-                              " extras sample(s) from " + sourceLabel);
+            int totalSamples = samples.Count;
+            int statusStep = totalSamples > 0 ? Math.Max(1, (int)Math.Ceiling(totalSamples / 100.0)) : 1;
+            int completedSamples = 0;
+
+            Console.WriteLine("corpus      " + totalSamples.ToString(CultureInfo.InvariantCulture) +
+                              " extras sample(s) from " + sourceLabel +
+                              " (status every " + statusStep.ToString(CultureInfo.InvariantCulture) + " document(s))");
             Console.WriteLine("axis        " + options.Axis);
             Console.WriteLine("workspace   " + workspace);
 
@@ -392,6 +411,16 @@ internal static class Program
                         readings.Add(reading);
                     if (render is not null)
                         renders.Add(render);
+                }
+
+                int current = Interlocked.Increment(ref completedSamples);
+                if (current % statusStep == 0 || current == totalSamples)
+                {
+                    int percent = (int)Math.Min(100, Math.Round(current * 100.0 / totalSamples));
+                    Console.WriteLine(
+                        "status      " + current.ToString(CultureInfo.InvariantCulture) + "/" +
+                        totalSamples.ToString(CultureInfo.InvariantCulture) +
+                        " (" + percent.ToString(CultureInfo.InvariantCulture) + "%)");
                 }
             }).ConfigureAwait(false);
 
