@@ -36,13 +36,29 @@ for parsing and writes deterministic UTF-8 HTML with `HtmlSerializer`.
 | A `<style>` type-selector rule, `p { ... }` | The base beneath an element's own `style` attribute | A rule whose selector is a bare element name, or a selector list every item of which is one, contributes its declarations to those elements. The element's own inline `style` attribute wins property by property, so a property the inline style does not state still arrives and a property both state takes the inline value. Whatever this reader already does with a declaration it does with one resolved from here, the page break included: applying the stylesheet to a paragraph's line spacing and not to its page break would be a distinction no document makes. Two type rules stating one property for one element resolve by source order, the later winning, which is what CSS says for two rules of equal specificity. Comments are stripped first, the `<!--` / `-->` pair a word processor wraps a stylesheet in included, and a nested block is removed from a rule body before the declarations are split. A rule this codec does not implement is skipped and reported once as `html.css.rule`. |
 | CSS `@page` `size` and margins | `PageGeometry` | The one rule read out of a `<style>` element rather than off an element. `size` takes a CSS page name (`a3`-`a5`, `b4`, `b5`, JIS `b4`/`b5`, `letter`, `legal`, `ledger`), one length, or two, with `portrait`/`landscape` orienting it; margins take the shorthand in all four arities and the four longhands. Only the first unnamed rule is read - a `@page cover` states the page for part of a document and this model holds one. Margin boxes are stepped over. A rule leaving no column to write in is refused rather than honoured. |
 
-Text and attributes are HTML-decoded. Normal HTML whitespace collapses to single
+Text and attributes are HTML-decoded once by the DOM parser. The codec does not
+decode the resulting text again, so literal entity spellings survive read/write
+round trips and link targets/font names keep their authored values. Stylesheet
+text is raw CSS and does not undergo HTML entity decoding.
+Normal HTML whitespace collapses to single
 spaces; `<pre>`, and any element declaring `white-space: pre`, `pre-wrap` or
 `break-spaces`, preserves it. What collapses is the five characters CSS names —
 space, tab, line feed, carriage return, form feed — and a non-breaking space is
 deliberately not one of them, so `&nbsp;` beside an ordinary space keeps both.
 Under a preserving declaration nothing is trimmed either, including at the start
 of the paragraph, which is what the declaration is for.
+
+Numeric CSS lengths and line-height multipliers must be finite. NaN, infinity,
+numeric overflow and unit conversions that overflow are ignored, preserving
+the inherited model value. `HtmlFiniteLengthTests` covers font sizes, paragraph
+margins and line height.
+
+Declaration semicolons and font-family list commas are recognized outside quoted
+strings. A quoted family such as `'Alpha;Beta'` or `'Alpha,Beta'` remains one
+name, in both inline styles and supported type rules. Quoted family names remove
+only their matching outer quote pair and decode escaped quotes/backslashes,
+including those emitted by the writer. General CSS hexadecimal escape decoding
+remains outside this subset.
 
 ## Writer Mapping
 

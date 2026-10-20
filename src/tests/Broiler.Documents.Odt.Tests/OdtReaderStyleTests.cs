@@ -203,6 +203,21 @@ public sealed class OdtReaderStyleTests
         Assert.Contains(result.Diagnostics, d => d.Code == "odt.linespacing.fixed");
     }
 
+    [Theory]
+    [InlineData("1e100%")]
+    [InlineData("1e-100%")]
+    public void Reports_Percentages_That_Cannot_Be_Represented_In_The_Model(string height)
+    {
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            OdtTestPackage.StyledParagraph("P1", "x"),
+            OdtTestPackage.Style("Base", "<style:paragraph-properties fo:line-height=\"150%\"/>") +
+            "<style:style style:name=\"P1\" style:family=\"paragraph\" style:parent-style-name=\"Base\">" +
+            "<style:paragraph-properties fo:line-height=\"" + height + "\"/></style:style>");
+
+        Assert.Equal(1.5f, result.Document.Paragraphs[0].Style.LineSpacing);
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.linespacing.range");
+    }
+
     [Fact]
     public void Resolves_A_Parent_Style_Chain_Root_First()
     {

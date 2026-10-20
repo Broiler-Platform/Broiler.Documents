@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Dom;
@@ -265,7 +264,7 @@ internal static class HtmlReader
         InlineStyle style,
         ICollection<DocumentDiagnostic> diagnostics)
     {
-        string? href = WebUtility.HtmlDecode(element.GetAttribute("href"))?.Trim();
+        string? href = element.GetAttribute("href")?.Trim();
         if (string.IsNullOrEmpty(href))
             return style;
 
@@ -280,11 +279,11 @@ internal static class HtmlReader
 
     private static InlineStyle ApplyFontElement(DomElement element, InlineStyle style)
     {
-        string? face = HtmlCss.ParseFontFamily(WebUtility.HtmlDecode(element.GetAttribute("face")));
+        string? face = HtmlCss.ParseFontFamily(element.GetAttribute("face"));
         if (face is not null)
             style = style with { FontFamily = face };
 
-        if (HtmlCss.TryParseColor(WebUtility.HtmlDecode(element.GetAttribute("color")), out BColor color))
+        if (HtmlCss.TryParseColor(element.GetAttribute("color"), out BColor color))
             style = style with { Foreground = color };
 
         return style;
@@ -594,7 +593,8 @@ internal static class HtmlReader
 
         public void AppendText(string text, InlineStyle style, bool preserveWhitespace)
         {
-            string normalized = NormalizeText(WebUtility.HtmlDecode(text) ?? string.Empty, preserveWhitespace);
+            // DOM text already has its HTML character references decoded.
+            string normalized = NormalizeText(text, preserveWhitespace);
             if (normalized.Length == 0)
                 return;
 

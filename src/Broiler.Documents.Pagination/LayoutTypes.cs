@@ -19,7 +19,8 @@ namespace Broiler.Documents.Pagination;
 /// than as a flag someone has to remember to honour.
 /// </remarks>
 public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BColor highlight, bool underline, bool strikethrough,
-    string? link, InlineImage? image, double width, double ascent, double descent, bool oblique = false, bool isTab = false)
+    string? link, InlineImage? image, double width, double ascent, double descent, bool oblique = false, bool isTab = false,
+    double lineGap = 0)
 {
     public string Text { get; } = text;
 
@@ -55,6 +56,9 @@ public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BCol
 
     /// <summary>Height below the baseline in points.</summary>
     public double Descent { get; } = descent;
+
+    /// <summary>Additional leading below the glyph box, in points.</summary>
+    public double LineGap { get; } = lineGap;
 
     /// <summary>
     /// True when this piece is italic but will be drawn with an upright face, so
@@ -276,6 +280,12 @@ public sealed record LayoutSettings
     /// fallback. No font discovery is performed by the paginator.
     /// </summary>
     public Func<BFontStyle, (double Ascent, double Descent)?>? FontVerticalMetrics { get; init; }
+
+    /// <summary>
+    /// Optional additional leading from the same mapped face as
+    /// <see cref="FontVerticalMetrics"/>. Invalid values use no extra gap.
+    /// </summary>
+    public Func<BFontStyle, double?>? FontLineGap { get; init; }
 
     /// <summary>Gap between a list marker and the text it introduces, in points.</summary>
     public double ListMarkerGapPoints { get; init; } = 6.0;

@@ -176,6 +176,7 @@ public sealed class RenderPipeline
             SynthesizeItalic = !line.Has("no-synthetic-italic"),
             ItalicFaceAvailable = fonts.HasItalicFace,
             FontVerticalMetrics = fonts.VerticalMetrics,
+            FontLineGap = fonts.LineGap,
         };
 
         string formatName = line.Get("image-format", "png")!;

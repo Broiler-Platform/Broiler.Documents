@@ -307,6 +307,7 @@ blank:
 | `odt.link` | Warning | A hyperlink with a disallowed or relative target was dropped. |
 | `odt.align.justify` | Warning | A justified paragraph was read as left-aligned. |
 | `odt.linespacing.fixed` | Warning | A fixed line height was not represented. |
+| `odt.linespacing.range` | Warning | A positive line-height percentage overflowed or underflowed the model's float multiplier; the inherited spacing was retained. |
 | `odt.break.column` | Warning | A `fo:break-before`/`-after` of `column` was read as no break; the model breaks pages and has no columns. |
 | `odt.break.after` | Warning | A `fo:break-after="page"` had no following paragraph in the same flow to carry it to — the flow ended, or the next block was a table, or the cell did — and was dropped. |
 | `odt.text.transform` | Warning | A `lowercase`/`capitalize` transform was dropped. |

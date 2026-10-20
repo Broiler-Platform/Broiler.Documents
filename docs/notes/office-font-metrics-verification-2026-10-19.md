@@ -14,8 +14,10 @@ the resolved baseline is shared by differently sized runs. No ambient font
 discovery, global metrics registration or new dependency was introduced.
 
 Missing mappings or unavailable/invalid metrics retain the existing fallback.
-The change does not claim full OpenType line-layout behavior: line gap and
-`OS/2` typographic metric selection remain outside this calculation.
+This step did not claim full OpenType line-layout behavior: line gap and `OS/2`
+typographic metric selection remained outside this calculation. A later
+[line-gap correction](office-font-line-gap-verification-2026-10-20.md) adds the
+mapped face's `hhea` leading.
 
 Local before/after office evidence uses Windows, LibreOffice 26.2.6.3, Poppler
 26.07.0, 144 DPI and explicitly mapped local Liberation fonts in both runs:

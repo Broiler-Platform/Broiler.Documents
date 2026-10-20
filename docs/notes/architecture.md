@@ -201,15 +201,20 @@ Graphics fallback. Text, tabs and empty lines use the same provider. The CLI
 supplies the explicitly mapped font's `hhea` ascent and descent, scaled from font
 units to points, caching inspection per file for that render configuration.
 Unmapped families retain fallback metrics. The paginator performs no installed
-font discovery and holds no global metrics provider. This is not full OpenType
-line-spacing selection: `hhea` line gap and `OS/2` typographic metric selection
-are not incorporated.
+font discovery and holds no global metrics provider. The CLI also supplies the
+mapped face's `hhea` line gap as leading below the glyph box. This is not full
+OpenType line-spacing selection: `OS/2` typographic metric selection is not
+incorporated.
 
-The paginator anchors a footer's complete line block at `PageGeometry.FooterDistance`
+The paginator anchors a header's complete line block at `PageGeometry.HeaderDistance`
+below the top edge and a footer's block at `PageGeometry.FooterDistance`
 above the bottom edge of the effective page box. Without document page geometry,
-it centres the block in the bottom margin. An invalid distance or a block that
+it centres each block in its margin. An invalid distance or a block that
 cannot fit at that distance is diagnosed and omitted rather than drawn over the
-body. Header text still uses centred placement. Running content does not appear
+body. Header and footer blocks include paragraph spacing: before-spacing between
+paragraphs and after-spacing after each paragraph, matching body layout. The
+first paragraph's before-spacing is suppressed. These gaps count towards margin
+fit and distance anchoring. Running content does not appear
 in continuous layout.
 
 ## Graphics and Media prerequisites

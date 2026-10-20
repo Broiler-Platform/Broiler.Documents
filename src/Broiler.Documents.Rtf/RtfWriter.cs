@@ -44,13 +44,17 @@ public static class RtfWriter
         DocumentConversionContext resources = (options ?? DocumentWriteOptions.Default).Resources;
         var reported = new HashSet<string>(StringComparer.Ordinal);
         CollectResources(document, fonts, colors);
+        if (document.StyleDefaults.FontFamily is string defaultFamily)
+            fonts.Intern(defaultFamily);
 
         var sb = new StringBuilder();
-        sb.Append("{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1");
+        sb.Append("{\\rtf1\\ansi\\ansicpg1252\\deff")
+            .Append(document.StyleDefaults.FontFamily is string family ? fonts.IndexOf(family) : 0)
+            .Append("\\uc1");
         WriteFontTable(sb, fonts);
         WriteColorTable(sb, colors);
         WritePageGeometry(sb, document.PageGeometry);
-        WriteRunningContent(sb, document.RunningContent, fonts, colors, resources, diagnostics, reported);
+        WriteRunningContent(sb, document.RunningContent, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
 
         if (document.Tables.Count > 0)
         {
@@ -75,10 +79,10 @@ public static class RtfWriter
             foreach (DocumentShape shape in document.Shapes)
             {
                 if (shape.ParagraphIndex == i)
-                    WriteShape(sb, shape, fonts, colors, resources, diagnostics, reported);
+                    WriteShape(sb, shape, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
             }
 
-            WriteRuns(sb, paragraph, fonts, colors, resources, diagnostics, reported);
+            WriteRuns(sb, paragraph, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
             sb.Append("\\par\n");
         }
 
@@ -102,7 +106,24 @@ public static class RtfWriter
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors)
     {
-        foreach (RichTextParagraph paragraph in document.Paragraphs)
+        CollectParagraphResources(document.Paragraphs, fonts, colors);
+        foreach (DocumentShape shape in document.Shapes)
+            CollectParagraphResources(shape.Paragraphs, fonts, colors);
+
+        foreach ((_, bool isHeader, PageSelection selection) in RunningDestinations)
+        {
+            CollectParagraphResources(isHeader
+                ? document.RunningContent.Header(selection)
+                : document.RunningContent.Footer(selection), fonts, colors);
+        }
+    }
+
+    private static void CollectParagraphResources(
+        IReadOnlyList<RichTextParagraph> paragraphs,
+        ResourceTable<string> fonts,
+        ResourceTable<BColor> colors)
+    {
+        foreach (RichTextParagraph paragraph in paragraphs)
         {
             foreach (StyleRun run in paragraph.Runs)
             {
@@ -129,6 +150,7 @@ public static class RtfWriter
     private static void WriteShape(
         StringBuilder sb,
         DocumentShape shape,
+        DocumentStyleDefaults defaults,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
         DocumentConversionContext resources,
@@ -196,7 +218,7 @@ public static class RtfWriter
                 WriteParagraphProperties(sb, paragraph.Style);
                 ReportBreakOutsideTheBody(paragraph.Style, diagnostics, reported);
                 sb.Append(' ');
-                WriteRuns(sb, paragraph, fonts, colors, resources, diagnostics, reported);
+                WriteRuns(sb, paragraph, defaults, fonts, colors, resources, diagnostics, reported);
                 sb.Append("\\par");
             }
 
@@ -256,6 +278,7 @@ public static class RtfWriter
     private static void WriteRunningContent(
         StringBuilder sb,
         RunningContent running,
+        DocumentStyleDefaults defaults,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
         DocumentConversionContext resources,
@@ -285,7 +308,7 @@ public static class RtfWriter
                 WriteParagraphProperties(sb, paragraph.Style);
                 ReportBreakOutsideTheBody(paragraph.Style, diagnostics, reported);
                 sb.Append(' ');
-                WriteRuns(sb, paragraph, fonts, colors, resources, diagnostics, reported);
+                WriteRuns(sb, paragraph, defaults, fonts, colors, resources, diagnostics, reported);
                 sb.Append("\\par");
             }
 
@@ -310,7 +333,7 @@ public static class RtfWriter
         for (int i = 0; i < families.Count; i++)
         {
             sb.Append("{\\f").Append(i + 1).Append("\\fnil ");
-            AppendEscaped(sb, families[i]);
+            AppendEscaped(sb, families[i], fontName: true);
             sb.Append(";}");
         }
 
@@ -417,6 +440,7 @@ public static class RtfWriter
     private static void WriteRuns(
         StringBuilder sb,
         RichTextParagraph paragraph,
+        DocumentStyleDefaults defaults,
         ResourceTable<string> fonts,
         ResourceTable<BColor> colors,
         DocumentConversionContext resources,
@@ -428,7 +452,13 @@ public static class RtfWriter
         {
             string text = paragraph.Text.Substring(offset, run.Length);
             offset += run.Length;
-            WriteRun(sb, text, run.Style, fonts, colors, resources, diagnostics, reported);
+            InlineStyle style = run.Style;
+            // RTF's \plain resets the size to 12pt. Materialize a different
+            // inherited size so it survives in every text destination.
+            if (defaults.FontSizePoints != DocumentStyleDefaults.FallbackFontSizePoints &&
+                (style.FontSize is not float size || !float.IsFinite(size) || size <= 0))
+                style = style with { FontSize = defaults.FontSizeOf(style) };
+            WriteRun(sb, text, style, fonts, colors, resources, diagnostics, reported);
         }
     }
 
@@ -693,12 +723,13 @@ public static class RtfWriter
         return b.ToString();
     }
 
-    private static void AppendEscaped(StringBuilder sb, string text)
+    private static void AppendEscaped(StringBuilder sb, string text, bool fontName = false)
     {
         foreach (char c in text)
         {
             switch (c)
             {
+                case ';' when fontName: sb.Append("\\u59?"); break;
                 case '\\': sb.Append("\\\\"); break;
                 case '{': sb.Append("\\{"); break;
                 case '}': sb.Append("\\}"); break;

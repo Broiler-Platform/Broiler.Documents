@@ -58,6 +58,40 @@ public sealed class LineMetricsTests
     }
 
     [Fact]
+    public void Supplied_Line_Gap_Advances_Lines_Without_Moving_The_First_Baseline()
+    {
+        using var images = new ImageStore();
+        var layout = new DocumentLayout(new LayoutSettings
+        {
+            FontVerticalMetrics = _ => (8.0, 2.0),
+            FontLineGap = _ => 1.5,
+        }, images);
+        LayoutResult result = layout.Layout(RichTextDocument.FromPlainText("one\u2028two"), DocumentPageBox.Default);
+
+        Assert.Equal(2, result.Pages[0].Lines.Count);
+        Assert.All(result.Pages[0].Lines, line => Assert.Equal(11.5, line.Height, 6));
+        Assert.All(result.Pages[0].Lines, line => Assert.Equal(8, line.Baseline, 6));
+        Assert.Equal(11.5, result.Pages[0].Lines[1].Top - result.Pages[0].Lines[0].Top, 6);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void Invalid_Supplied_Line_Gap_Uses_No_Extra_Leading(double gap)
+    {
+        using var images = new ImageStore();
+        var layout = new DocumentLayout(new LayoutSettings
+        {
+            FontVerticalMetrics = _ => (8.0, 2.0),
+            FontLineGap = _ => gap,
+        }, images);
+
+        Assert.Equal(10, layout.Layout(RichTextDocument.FromPlainText("one"), DocumentPageBox.Default)
+            .Pages[0].Lines[0].Height, 6);
+    }
+
+    [Fact]
     public void Explicitly_Sized_Text_Does_Not_Inherit_An_Unused_Default_Fonts_Height()
     {
         var document = RichTextDocument.FromPlainText("first\u2028second\u2028third");

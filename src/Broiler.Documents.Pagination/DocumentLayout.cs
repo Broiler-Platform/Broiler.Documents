@@ -46,6 +46,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private readonly LineWrapper _lineWrapper = new(settings.TabStopPoints);
     private readonly List<string> _notes = [];
     private RunningContent _running = RunningContent.Empty;
+    private double? _headerDistance;
     private double? _footerDistance;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
     private TextWrapExclusions _wrap = new();
@@ -70,6 +71,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // pages for a header to repeat on and no bottom margin for a footer to sit
         // in. Drawing them there would put a page number in the middle of nothing.
         _running = setup.Continuous ? RunningContent.Empty : document.RunningContent;
+        _headerDistance = document.PageGeometry?.HeaderDistance;
         _footerDistance = document.PageGeometry?.FooterDistance;
         _documentShapes = document.Shapes;
         _paragraphTops.Clear();
@@ -257,7 +259,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             _running.EffectiveHeader(selection),
             setup,
             top: 0,
-            band: setup.MarginTopPoints));
+            band: setup.MarginTopPoints,
+            topDistance: _headerDistance));
         all.AddRange(RunningLines(
             _running.EffectiveFooter(selection),
             setup,
@@ -584,13 +587,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
-    /// Lays running content inside its margin band. A footer with a declared
-    /// distance is anchored by the bottom of its line block; otherwise the block
-    /// is centred as before. Content that cannot fit is reported, not drawn
-    /// across the body. Header distance placement remains separate work.
+    /// Lays running content inside its margin band. A declared distance anchors
+    /// the top of a header block or the bottom of a footer block; otherwise the
+    /// block is centred. Content that cannot fit is reported, not drawn across
+    /// the body.
     /// </summary>
     private List<LayoutLine> RunningLines(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double top, double band,
-        double? bottomDistance = null)
+        double? bottomDistance = null, double? topDistance = null)
     {
         var lines = new List<LayoutLine>();
         if (paragraphs.Count == 0)
@@ -599,11 +602,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double height = 0;
         foreach (RichTextParagraph paragraph in paragraphs)
         {
+            if (lines.Count > 0)
+                height += Math.Max(0, paragraph.Style.SpacingBefore);
+
             foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1).Lines)
             {
+                line.Top = height;
                 lines.Add(line);
                 height += line.Height;
             }
+
+            height += Math.Max(0, paragraph.Style.SpacingAfter);
         }
 
         if (height > band)
@@ -619,13 +628,21 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             return [];
         }
 
-        double y = bottomDistance is double offset
+        if (topDistance is double headerDistance &&
+            (!double.IsFinite(headerDistance) || headerDistance < 0 || headerDistance + height > band))
+        {
+            _notes.Add("a header could not fit at its declared distance inside the top margin and was not drawn.");
+            return [];
+        }
+
+        double y = topDistance is double headerOffset
+            ? top + headerOffset
+            : bottomDistance is double offset
             ? top + band - offset - height
             : top + ((band - height) / 2);
         foreach (LayoutLine line in lines)
         {
-            line.Top = y;
-            y += line.Height;
+            line.Top += y;
         }
 
         return lines;
@@ -768,9 +785,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // A populated line is measured from the fonts it actually draws. The
         // fallback face is only for empty lines; including it in every maximum
         // silently adds leading when all runs use a smaller or shorter face.
-        var emptyMetrics = pieces.Count == 0 ? VerticalMetrics(defaultFont) : (Ascent: 0.0, Descent: 0.0);
+        var emptyMetrics = pieces.Count == 0 ? VerticalMetrics(defaultFont) : (Ascent: 0.0, Descent: 0.0, LineGap: 0.0);
         double ascent = emptyMetrics.Ascent;
         double descent = emptyMetrics.Descent;
+        double lineGap = emptyMetrics.LineGap;
         double used = 0;
 
         // The marker is placed already and sits outside the text column, so it
@@ -781,6 +799,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             ascent = Math.Max(ascent, pieces[i].Ascent);
             descent = Math.Max(descent, pieces[i].Descent);
+            lineGap = Math.Max(lineGap, pieces[i].LineGap);
             if (i >= first)
                 used += pieces[i].Width;
         }
@@ -814,7 +833,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             x += pieces[i].Width + (CountSpaces(pieces[i].Text) * wordSpacing);
         }
 
-        double natural = ascent + descent;
+        double natural = ascent + descent + lineGap;
         double spacing = style.LineSpacing > 0 ? style.LineSpacing : 1f;
 
         // Extra leading goes below the baseline. Putting it above would push the
@@ -1020,7 +1039,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
 
         double width = BTextMeasurer.MeasureAdvance(text, font);
-        var (ascent, descent) = VerticalMetrics(font);
+        var (ascent, descent, lineGap) = VerticalMetrics(font);
 
         // Shearing is a fallback for a family with no designed italic face. It
         // does not change the advance, so nothing in the layout moves either way.
@@ -1029,7 +1048,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             !(_settings.ItalicFaceAvailable?.Invoke(font.FamilyName) ?? false);
 
         return new LayoutPiece(text, font, color, style.Background, underline, style.Strikethrough, style.LinkHref, null,
-            width, ascent, descent, oblique);
+            width, ascent, descent, oblique: oblique, lineGap: lineGap);
     }
 
     /// <summary>
@@ -1040,20 +1059,23 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private LayoutPiece MakeTabPiece(InlineStyle style)
     {
         BFontStyle font = FontFor(style);
-        var (ascent, descent) = VerticalMetrics(font);
+        var (ascent, descent, lineGap) = VerticalMetrics(font);
 
         return new LayoutPiece(string.Empty, font, LayoutColors.Or(style.Foreground, _settings.DefaultForeground), style.Background, underline: false,
-            strikethrough: false, style.LinkHref, null, 0, ascent, descent, oblique: false, isTab: true);
+            strikethrough: false, style.LinkHref, null, 0, ascent, descent, oblique: false, isTab: true, lineGap: lineGap);
     }
 
-    private (double Ascent, double Descent) VerticalMetrics(BFontStyle font)
+    private (double Ascent, double Descent, double LineGap) VerticalMetrics(BFontStyle font)
     {
+        double lineGap = _settings.FontLineGap?.Invoke(font) is double gap && double.IsFinite(gap) && gap >= 0
+            ? gap
+            : 0;
         if (_settings.FontVerticalMetrics?.Invoke(font) is { } metrics &&
             double.IsFinite(metrics.Ascent) && double.IsFinite(metrics.Descent) &&
             metrics.Ascent > 0 && metrics.Descent >= 0 && double.IsFinite(metrics.Ascent + metrics.Descent))
-            return metrics;
+            return (metrics.Ascent, metrics.Descent, lineGap);
         double ascent = font.Size * 0.8;
-        return (ascent, Math.Max(0, BTextMeasurer.GetLineHeight(font) - ascent));
+        return (ascent, Math.Max(0, BTextMeasurer.GetLineHeight(font) - ascent), 0);
     }
 
     private LayoutPiece MakeImagePiece(InlineStyle style)

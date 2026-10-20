@@ -122,6 +122,62 @@ public sealed class DocumentLayoutRunningContentTests
     [InlineData(0)]
     [InlineData(12)]
     [InlineData(36)]
+    public void A_Docx_Header_Starts_At_Its_Declared_Distance_From_The_Page_Edge(double distance)
+    {
+        RichTextDocument document = WithRunning("body", "letterhead", null)
+            .WithPageGeometry(PageGeometry.A4 with { HeaderDistance = distance });
+        using var stream = new MemoryStream();
+        var codec = new Broiler.Documents.Docx.DocxDocumentCodec();
+        codec.Write(document, stream);
+        stream.Position = 0;
+        LayoutResult result = Layout(codec.Read(stream).Document);
+        LayoutLine header = Assert.IsType<LayoutLine>(Line(result, "letterhead"));
+
+        Assert.Equal(distance, header.Top, 3);
+    }
+
+    [Fact]
+    public void Multiple_Header_Lines_Are_Anchored_As_One_Block()
+    {
+        RichTextDocument document = WithRunning("body", "first\u2028last", null)
+            .WithPageGeometry(PageGeometry.A4 with { HeaderDistance = 12 });
+        LayoutResult result = Layout(document);
+        LayoutLine first = Assert.IsType<LayoutLine>(Line(result, "first"));
+        LayoutLine last = Assert.IsType<LayoutLine>(Line(result, "last"));
+        Assert.Equal(12, first.Top, 3);
+        Assert.Equal(first.Top + first.Height, last.Top, 3);
+    }
+
+    [Theory]
+    [InlineData(72)]
+    [InlineData(-1)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void A_Header_That_Cannot_Fit_At_Its_Declared_Distance_Is_Reported(double distance)
+    {
+        LayoutResult result = Layout(WithRunning("body", "letterhead", null)
+            .WithPageGeometry(PageGeometry.A4 with { HeaderDistance = distance }));
+        Assert.Null(Line(result, "letterhead"));
+        Assert.Contains(result.Notes, note => note.Contains("declared distance", StringComparison.Ordinal));
+        Assert.NotNull(Line(result, "body"));
+    }
+
+    [Fact]
+    public void A_Reused_Layout_Does_Not_Keep_The_Previous_Documents_Header_Distance()
+    {
+        using var images = new ImageStore();
+        var layout = new DocumentLayout(new LayoutSettings(), images);
+        RichTextDocument plain = WithRunning("body", "letterhead", null);
+        layout.Layout(plain.WithPageGeometry(PageGeometry.A4 with { HeaderDistance = 12 }), PageSetup.Default);
+        LayoutResult result = layout.Layout(plain, PageSetup.Default);
+        LayoutLine header = Assert.IsType<LayoutLine>(Line(result, "letterhead"));
+        Assert.Equal(result.Setup.MarginTopPoints / 2, header.Top + header.Height / 2, 3);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(12)]
+    [InlineData(36)]
     public void A_Docx_Footer_Ends_At_Its_Declared_Distance_From_The_Page_Edge(double distance)
     {
         var geometry = new PageGeometry(600, 800, 72, 72, 72, 72, 24, distance);
@@ -185,6 +241,55 @@ public sealed class DocumentLayoutRunningContentTests
         LayoutLine footer = Assert.IsType<LayoutLine>(Line(result, "footer"));
         Assert.Equal(result.Setup.HeightPoints - result.Setup.MarginBottomPoints / 2,
             footer.Top + footer.Height / 2, 3);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Running_Paragraph_Spacing_Is_Included_In_Placement_And_Anchoring(bool header)
+    {
+        RichTextParagraph[] paragraphs =
+        [
+            RichTextParagraph.Plain("first").WithParagraphStyle(ParagraphStyle.Default with
+                { SpacingBefore = 100, SpacingAfter = 7 }),
+            RichTextParagraph.Plain("last").WithParagraphStyle(ParagraphStyle.Default with
+                { SpacingBefore = 5, SpacingAfter = 11 }),
+        ];
+        RunningContent running = header
+            ? RunningContent.Empty.WithHeader(PageSelection.Default, paragraphs)
+            : RunningContent.Empty.WithFooter(PageSelection.Default, paragraphs);
+        LayoutResult result = Layout(RichTextDocument.FromPlainText("body")
+            .WithPageGeometry(PageGeometry.A4 with { HeaderDistance = 12, FooterDistance = 12 })
+            .WithRunningContent(running));
+        LayoutLine first = Assert.IsType<LayoutLine>(Line(result, "first"));
+        LayoutLine last = Assert.IsType<LayoutLine>(Line(result, "last"));
+
+        Assert.Equal(first.Top + first.Height + 12, last.Top, 3);
+        if (header)
+            Assert.Equal(12, first.Top, 3);
+        else
+            Assert.Equal(result.Setup.HeightPoints - 12 - 11, last.Top + last.Height, 3);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Running_Paragraph_Spacing_Is_Counted_When_Checking_The_Margin_Fit(bool header)
+    {
+        RichTextParagraph[] paragraphs =
+        [
+            RichTextParagraph.Plain("first").WithParagraphStyle(ParagraphStyle.Default with { SpacingAfter = 72 }),
+            RichTextParagraph.Plain("last"),
+        ];
+        RunningContent running = header
+            ? RunningContent.Empty.WithHeader(PageSelection.Default, paragraphs)
+            : RunningContent.Empty.WithFooter(PageSelection.Default, paragraphs);
+        LayoutResult result = Layout(RichTextDocument.FromPlainText("body").WithRunningContent(running));
+
+        Assert.Null(Line(result, "first"));
+        Assert.Null(Line(result, "last"));
+        Assert.NotNull(Line(result, "body"));
+        Assert.Contains(result.Notes, note => note.Contains("taller than its page margin", StringComparison.Ordinal));
     }
 
     [Fact]

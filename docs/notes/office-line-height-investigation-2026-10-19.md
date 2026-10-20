@@ -2,6 +2,8 @@
 
 Follow-up: [mapped-font vertical metrics verification](office-font-metrics-verification-2026-10-19.md)
 records a later CLI change that reduces the DOCX row's measured difference.
+[Mapped-font line-gap verification](office-font-line-gap-verification-2026-10-20.md)
+records the subsequent leading correction.
 
 Investigation of the four `line-break-within-paragraph` render rows found a
 separate reproducible paginator bug: populated lines included the default font

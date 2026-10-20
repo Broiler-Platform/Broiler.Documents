@@ -39,6 +39,7 @@ public static class RtfReader
         public RtfDestination FieldHost;
         public int UnicodeSkip;
         public int CodePage;
+        public int DocumentCodePage;
         public int LineSpacing;
         public bool MultipleLineSpacing;
     }
@@ -48,6 +49,7 @@ public static class RtfReader
         private readonly List<DocumentDiagnostic> _diagnostics = [];
         private readonly RtfColorTable _colors = new();
         private readonly RtfFontTable _fonts = new();
+        private int? _defaultFont;
         private readonly Stack<State> _stack = new();
         private readonly Accumulator _builder;
         private readonly Dictionary<RtfDestination, Accumulator> _running = [];
@@ -124,6 +126,7 @@ public static class RtfReader
                 FieldHost = RtfDestination.Normal,
                 UnicodeSkip = 1,
                 CodePage = options.DefaultCodePage,
+                DocumentCodePage = options.DefaultCodePage,
             };
         }
 
@@ -135,6 +138,9 @@ public static class RtfReader
                 {
                     case RtfTokenType.GroupStart:
                         _sawStar = false;
+                        // A scope delimiter ends Unicode fallback data before
+                        // the delimiter; the next group's text is real text.
+                        _pendingUnicodeSkip = 0;
                         // Pending text belongs to the destination that produced it.
                         // Flushing lazily was fine while everything landed in one
                         // accumulator; now a header's text would be attributed to
@@ -162,6 +168,10 @@ public static class RtfReader
 
             FlushPending();
             RichTextDocument document = _builder.Build(_state.Para)
+                .WithStyleDefaults(DocumentStyleDefaults.Default with
+                {
+                    FontFamily = _defaultFont is int font ? _fonts.GetName(font) : null,
+                })
                 .WithRunningContent(BuildRunningContent())
                 .WithPageGeometry(BuildPageGeometry());
             if (_shapes.Count > 0)
@@ -177,6 +187,7 @@ public static class RtfReader
         private void HandleGroupEnd()
         {
             _sawStar = false;
+            _pendingUnicodeSkip = 0;
             State closing = _state;
 
             if (closing.Dest == RtfDestination.FieldInstruction)
@@ -205,6 +216,14 @@ public static class RtfReader
             bool star = _sawStar;
             _sawStar = false;
             string kw = token.Keyword;
+
+            // A control word (including its argument) counts as one fallback
+            // character and must not apply formatting or emit content.
+            if (_pendingUnicodeSkip > 0)
+            {
+                _pendingUnicodeSkip--;
+                return;
+            }
 
             // List definitions are opaque, including nested destinations. A
             // field, header or font table inside one must not escape into the
@@ -339,6 +358,7 @@ public static class RtfReader
         {
             switch (kw)
             {
+                case "deff": if (has && p >= 0) _defaultFont = p; break;
                 case "b": _state.Char = _state.Char with { Bold = !(has && p == 0) }; break;
                 case "i": _state.Char = _state.Char with { Italic = !(has && p == 0) }; break;
                 case "strike": _state.Char = _state.Char with { Strikethrough = !(has && p == 0) }; break;
@@ -346,7 +366,13 @@ public static class RtfReader
                 case "ulnone": _state.Char = _state.Char with { Underline = false }; break;
                 case "caps": _state.Char = ApplyCapitalization(_state.Char, TextCapitalization.AllCaps, !(has && p == 0)); break;
                 case "scaps": _state.Char = ApplyCapitalization(_state.Char, TextCapitalization.SmallCaps, !(has && p == 0)); break;
-                case "plain": _state.Char = InlineStyle.Default; break;
+                case "plain":
+                    _state.Char = InlineStyle.Default;
+                    int defaultCharset = _defaultFont is int defaultIndex ? _fonts.GetCharset(defaultIndex) : -1;
+                    _state.CodePage = defaultCharset >= 0
+                        ? RtfCodePage.CharsetToCodePage(defaultCharset)
+                        : _state.DocumentCodePage;
+                    break;
                 case "fs": _state.Char = _state.Char with { FontSize = has ? p / 2f : null }; break;
                 case "f":
                     int charset = _fonts.GetCharset(p);
@@ -357,7 +383,10 @@ public static class RtfReader
                 case "cf": _state.Char = _state.Char with { Foreground = _colors.Get(p) }; break;
                 case "cb":
                 case "highlight": _state.Char = _state.Char with { Background = _colors.Get(p) }; break;
-                case "ansicpg": if (has) _state.CodePage = p; break;
+                case "ansicpg":
+                    if (has)
+                        _state.DocumentCodePage = _state.CodePage = p;
+                    break;
                 case "uc": _state.UnicodeSkip = has ? Math.Max(0, p) : 1; break;
                 case "u": HandleUnicode(p); break;
 
@@ -488,6 +517,19 @@ public static class RtfReader
 
             _sawStar = false;
 
+            if (_state.Dest == RtfDestination.FontTable)
+            {
+                if (symbol is '\\' or '{' or '}')
+                {
+                    if (_pendingUnicodeSkip > 0)
+                        _pendingUnicodeSkip--;
+                    else
+                        _fontName.Append(symbol);
+                }
+
+                return;
+            }
+
             // A field instruction is text, and the three literal escapes belong
             // in it. They used to be dropped here, which is why the \l switch
             // Word spells a same-document link with - an escaped backslash, then
@@ -512,6 +554,15 @@ public static class RtfReader
             if (!KeepsText(_state.Dest))
                 return;
 
+            // An escaped character is one Unicode fallback character, just
+            // like a literal byte or a hex escape. Consume it here so the next
+            // real text character is not skipped instead.
+            if (_pendingUnicodeSkip > 0 && symbol is '\\' or '{' or '}' or '~' or '_' or '-')
+            {
+                _pendingUnicodeSkip--;
+                return;
+            }
+
             switch (symbol)
             {
                 case '\\': AppendBody("\\"); break;
@@ -528,6 +579,19 @@ public static class RtfReader
 
         private void HandleByte(byte value)
         {
+            if (_state.Dest == RtfDestination.FontTable)
+            {
+                if (_pendingUnicodeSkip > 0)
+                    _pendingUnicodeSkip--;
+                else
+                {
+                    ReportCodePageIfNeeded(value);
+                    _fontName.Append((char)RtfCodePage.DecodeByte(value, _state.CodePage));
+                }
+
+                return;
+            }
+
             if (!KeepsText(_state.Dest))
                 return;
 
@@ -619,6 +683,14 @@ public static class RtfReader
                 case "fcharset":
                     _fontCharset = parameter;
                     break;
+                case "uc":
+                    _state.UnicodeSkip = Math.Max(0, parameter);
+                    break;
+                case "u":
+                    int code = parameter < 0 ? parameter + 65536 : parameter;
+                    _fontName.Append((char)(code is >= 0 and <= 0xFFFF ? code : 0xFFFD));
+                    _pendingUnicodeSkip = _state.UnicodeSkip;
+                    break;
                 default:
                     break;
             }
@@ -626,15 +698,27 @@ public static class RtfReader
 
         private void HandleFontTableText(string text)
         {
+            int skip = Math.Min(_pendingUnicodeSkip, text.Length);
+            _pendingUnicodeSkip -= skip;
+            text = text[skip..];
             int semicolon = text.IndexOf(';');
-            if (semicolon < 0)
+            int length = semicolon < 0 ? text.Length : semicolon;
+            for (int i = 0; i < length; i++)
             {
-                _fontName.Append(text);
-                return;
+                char ch = text[i];
+                if (ch <= 0xFF)
+                {
+                    ReportCodePageIfNeeded((byte)ch);
+                    _fontName.Append(RtfCodePage.DecodeByte((byte)ch, _state.CodePage));
+                }
+                else
+                {
+                    _fontName.Append(ch);
+                }
             }
 
-            _fontName.Append(text, 0, semicolon);
-            CommitFont();
+            if (semicolon >= 0)
+                CommitFont();
         }
 
         private void CommitFont()

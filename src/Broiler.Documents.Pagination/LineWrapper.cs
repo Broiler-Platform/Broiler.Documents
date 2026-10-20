@@ -171,12 +171,13 @@ internal sealed class LineWrapper(double tabStopPoints)
     {
         double factor = width / piece.Width;
         return new LayoutPiece(piece.Text, piece.Font, piece.Color, piece.Highlight, piece.Underline,
-            piece.Strikethrough, piece.Link, piece.Image, width, piece.Ascent * factor, piece.Descent * factor);
+            piece.Strikethrough, piece.Link, piece.Image, width, piece.Ascent * factor, piece.Descent * factor,
+            lineGap: piece.LineGap * factor);
     }
 
     private static LayoutPiece Retext(LayoutPiece source, string text, double width) =>
         new(text, source.Font, source.Color, source.Highlight, source.Underline, 
-            source.Strikethrough, source.Link, null, width, source.Ascent, source.Descent);
+            source.Strikethrough, source.Link, null, width, source.Ascent, source.Descent, lineGap: source.LineGap);
 
     /// <summary>
     /// The width a line has used once a tab reaching <paramref name="used"/> has

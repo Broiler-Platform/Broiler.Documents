@@ -1324,7 +1324,16 @@ internal static class OdtReader
                 return style with { LineSpacing = 1f };
 
             if (OdtUnits.TryParsePercentage(lineHeight, out double multiplier) && multiplier > 0)
-                return style with { LineSpacing = (float)multiplier };
+            {
+                float projected = (float)multiplier;
+                if (float.IsFinite(projected) && projected > 0)
+                    return style with { LineSpacing = projected };
+
+                builder.AddDiagnosticOnce(
+                    "odt.linespacing.range",
+                    "An ODT line-spacing percentage was outside the model's representable range and was ignored.");
+                return style;
+            }
 
             // A fixed line height is a length, not a multiple of the font size,
             // and the model stores only the multiple.

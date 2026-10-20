@@ -43,6 +43,7 @@ public sealed class FontResolution
     private readonly List<string> _notes = [];
     private readonly HashSet<string> _unmapped = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TrueTypeFont?> _metricFonts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int?> _metricLineGaps = new(StringComparer.OrdinalIgnoreCase);
 
     private FontResolution(Dictionary<string, FontFaceSet> families) => _families = families;
 
@@ -139,16 +140,100 @@ public sealed class FontResolution
         if (!TryResolve(font.FamilyName, font.Weight >= BFontWeight.Bold,
             font.Slant is BFontSlant.Italic or BFontSlant.Oblique, out string path))
             return null;
-        if (!_metricFonts.TryGetValue(path, out TrueTypeFont? face))
-        {
-            face = TrueTypeFont.LoadFromFile(path);
-            _metricFonts[path] = face;
-        }
+        TrueTypeFont? face = MetricFace(path);
         if (face is null || face.UnitsPerEm <= 0 || face.Ascender <= 0 || face.Descender > 0)
             return null;
         double scale = font.Size / face.UnitsPerEm;
         return (face.Ascender * scale, -face.Descender * scale);
     }
+
+    /// <summary>The hhea line gap from an explicitly mapped face, in points.</summary>
+    public double? LineGap(BFontStyle font)
+    {
+        if (!TryResolve(font.FamilyName, font.Weight >= BFontWeight.Bold,
+            font.Slant is BFontSlant.Italic or BFontSlant.Oblique, out string path))
+            return null;
+
+        TrueTypeFont? face = MetricFace(path);
+        if (face is null || face.UnitsPerEm <= 0)
+            return null;
+        if (!_metricLineGaps.TryGetValue(path, out int? lineGap))
+        {
+            lineGap = ReadHheaLineGap(path);
+            _metricLineGaps[path] = lineGap;
+        }
+
+        return lineGap is >= 0 ? lineGap.Value * font.Size / face.UnitsPerEm : null;
+    }
+
+    private TrueTypeFont? MetricFace(string path)
+    {
+        if (!_metricFonts.TryGetValue(path, out TrueTypeFont? face))
+        {
+            face = TrueTypeFont.LoadFromFile(path);
+            _metricFonts[path] = face;
+        }
+
+        return face;
+    }
+
+    /// <summary>Reads the signed lineGap field from the first face's hhea table.</summary>
+    internal static int? ReadHheaLineGap(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var reader = new BinaryReader(stream);
+            long faceOffset = 0;
+            uint signature = ReadUInt32BigEndian(reader);
+            if (signature == 0x74746366) // ttcf
+            {
+                _ = ReadUInt32BigEndian(reader); // collection version
+                uint faceCount = ReadUInt32BigEndian(reader);
+                if (faceCount == 0)
+                    return null;
+                faceOffset = ReadUInt32BigEndian(reader);
+                if (faceOffset < 0 || faceOffset > stream.Length - 12)
+                    return null;
+                stream.Position = faceOffset;
+                _ = ReadUInt32BigEndian(reader);
+            }
+
+            ushort tableCount = ReadUInt16BigEndian(reader);
+            if (tableCount > 4096 || faceOffset > stream.Length - 12)
+                return null;
+            stream.Position = faceOffset + 12;
+
+            for (int i = 0; i < tableCount; i++)
+            {
+                uint tag = ReadUInt32BigEndian(reader);
+                _ = ReadUInt32BigEndian(reader); // checksum
+                uint offset = ReadUInt32BigEndian(reader);
+                uint length = ReadUInt32BigEndian(reader);
+                if (tag != 0x68686561) // hhea
+                    continue;
+                if (length < 10 || offset > stream.Length - 10)
+                    return null;
+                stream.Position = offset + 8;
+                return unchecked((short)ReadUInt16BigEndian(reader));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    private static ushort ReadUInt16BigEndian(BinaryReader reader) =>
+        (ushort)((reader.ReadByte() << 8) | reader.ReadByte());
+
+    private static uint ReadUInt32BigEndian(BinaryReader reader) =>
+        ((uint)reader.ReadByte() << 24) |
+        ((uint)reader.ReadByte() << 16) |
+        ((uint)reader.ReadByte() << 8) |
+        reader.ReadByte();
 
     private static string Describe(string? path) => path ?? "(none)";
 

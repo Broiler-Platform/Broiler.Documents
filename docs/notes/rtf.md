@@ -7,7 +7,23 @@ document model (ADR 0005), and what it emits when writing. The reader is total
 below are exercised by `RtfConformanceTests`, `RtfLimitTests`,
 `RtfPageBreakTests`, `RtfSecurityTests`, `RtfCapitalizationTests`,
 `RtfRunningContentTests`, `RtfPageGeometryTests`, `RtfShapeTests`, and
-`RtfRoundTripTests` and `RtfLineSpacingTests`.
+`RtfRoundTripTests`, `RtfLineSpacingTests`, `RtfDefaultFontTests`, and
+`RtfFontNameTests`, plus `RtfResourceTableTests` for resource collection across
+body, running content and shape text, and `RtfDefaultSizeTests` for inherited
+font sizes on export.
+
+`RtfUnicodeFallbackTests` covers escaped fallback characters after `\uN`:
+literal text, hexadecimal bytes and character-producing control symbols count
+towards `\ucN`, so the following real text is retained. A zero fallback count
+keeps the escaped character.
+
+A control word and its argument count as one fallback character too; when
+skipped they neither emit content nor change formatting.
+
+An opening or closing group brace ends any unfinished Unicode fallback skipping
+before the delimiter. The next group's text, or text after a header/footer
+destination, is therefore retained even when the preceding fallback is shorter
+than its `\ucN` count.
 
 ## Honoured — read into the model
 
@@ -19,10 +35,38 @@ below are exercised by `RtfConformanceTests`, `RtfLimitTests`,
 | Control symbols | `\\` `\{` `\}` `\~` (nbsp) `\_` (nb-hyphen) `\-` (optional hyphen, dropped) `\`+CR/LF (→ paragraph) `\*` (destination marker) |
 | Encoding | `\'hh` `\uN` `\ucN` `\ansicpgN` `\fcharsetN` (per font) |
 | Tables | `\fonttbl` `\colortbl` |
+| Document default font | `\deffN` resolves the declared font-table entry into `DocumentStyleDefaults.FontFamily`; `\plain` returns runs to that inherited family |
 | Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only, including the `\l` switch that spells a same-document reference: it is read as `#name` and written back the same way. The name may not contain a quote — the field argument is quoted and RTF has no escape for one inside it, so a quote would truncate the target silently; the shared rule refuses it for every format. Targets otherwise follow that rule, or `rtf.link`) |
 | Running content | `\header` `\headerf` `\headerl` `\headerr` `\footer` `\footerf` `\footerl` `\footerr` (→ `RunningContent`, not the body flow) |
 | Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN` (→ `PageGeometry`) |
 | Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fLine` `lineColor` (→ `DocumentShape`) |
+
+## Default font
+
+An explicit `\deffN` selects the font-table family inherited by runs with no
+`\fN`, including runs reset with `\plain`. The family is resolved after reading
+the table, so the declaration may precede it. Missing declarations, unknown
+indices and blank font names leave the model's default family unspecified.
+An explicit run font continues to override the document default.
+
+`\plain` resets byte decoding along with the character style: it restores the
+declared default font's charset, or the document's `\ansicpgN`/caller default
+code page when that font entry is unavailable. A previous run's font charset
+does not leak past the reset. This is covered by `RtfPlainCodePageTests`.
+
+The writer includes the document's default family in the font table and selects
+it with `\deffN`. If no default family is stated, it retains the blank `\f0`
+entry as the default, preserving an unspecified family on read-back.
+
+Font-table names decode `\uN` with group-scoped `\ucN` fallback counts,
+literal high bytes and hex-byte escapes using the active code page, and escaped braces/backslashes.
+This preserves non-ASCII family names emitted by the writer, including UTF-16
+surrogate pairs. The decoded names remain table metadata and never enter body
+text.
+
+A semicolon within a font name is emitted as `\u59?`, keeping it distinct from
+the raw semicolon that terminates the table entry. Both the default family and
+explicit run families preserve it on read-back.
 
 ## Line spacing
 
@@ -164,7 +208,7 @@ understand, which this is not.
 ## Ignored — parsed, no effect on the model
 
 Unrecognized formatting control words are silently ignored (predictable
-degradation), for example `\deff`, `\lang`,
+degradation), for example `\lang`,
 `\viewkind`, `\widowctrl`, `\kerning`, `\sect`/`\sectd` and the section break
 kinds (`\sbkpage` and the rest), and the document and section options other than
 the page geometry above. The character-set words `\ansi`, `\mac`, `\pc` and
@@ -234,8 +278,8 @@ Group nesting is iterative (no recursion), so depth cannot overflow the stack.
 ## Writing (model → RTF)
 
 The writer emits the honoured subset above as pure ASCII: a
-`{\rtf1\ansi\ansicpg1252\deff0\uc1` header, `\fonttbl`/`\colortbl` built from
-the styles used, the page geometry and the header and footer destinations the
+`{\rtf1\ansi\ansicpg1252\deffN\uc1` header, `\fonttbl`/`\colortbl` built from
+the styles used and the declared default family, the page geometry and the header and footer destinations the
 document states - before the body, where a reader takes them as section
 properties - one group-wrapped run per style, and a `\par` after every
 paragraph. A document that states no page writes no `\paperw`, because
@@ -243,6 +287,17 @@ inventing one would put words in the author's mouth. Non-ASCII characters are
 escaped as `\uN?`; there is no raw-byte mode, so a caller that sets
 `AsciiOnly=false` is told once as `document.capability.not-composed` rather than
 quietly handed the escaped form it did not ask for.
+
+Font and colour collection includes body paragraphs, body-shape text, and all
+six header/footer paragraph variants before either table is emitted. A resource
+used only in running content or a shape therefore has a defined table index,
+preserving its family, foreground colour and highlight on read-back.
+
+When a run inherits a document default size other than 12 points, the writer
+emits that size explicitly. This applies to body, header/footer and shape text;
+explicit run sizes retain precedence. On read-back the effective size is
+preserved as a run property rather than a custom document default. RTF's integer
+half-point precision still applies.
 
 A page break is written as `\page`, at the head of the paragraph it belongs to:
 both spellings say the same thing and Word and Writer honour both, but `\page`
@@ -279,13 +334,11 @@ no paint, which is a shape it drops. In the table and the floating picture alike
 what is on the page is worth more than the structure around it.
 
 Round-trip is otherwise lossless for any document the reader can
-produce, with three further documented exceptions: list kind
-is not written (it is not read either, so it stays at its default); a
-**non-ASCII font-family name** is escaped as `\uN` on write, which the font-table
-reader does not decode (font names are read as their literal bytes) — so such a
-name does not survive a round-trip; and a **page break inside running content or
+produce, with two further documented exceptions: list kind
+is not written (it is not read either, so it stays at its default); and a
+**page break inside running content or
 a shape** is read (`\pagebb` is honoured in those destinations too) but not
-written back, per `rtf.pagebreak.dropped` above. All three are rare and safe
+written back, per `rtf.pagebreak.dropped` above. Both are rare and safe
 (never lossy for text, formatting, colors, sizes, alignment, or hyperlinks).
 
 ## Diagnostics

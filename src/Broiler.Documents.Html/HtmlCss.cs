@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Net;
 using System.Text;
 using Broiler.Graphics.Color;
 
@@ -15,10 +14,14 @@ internal static class HtmlCss
         if (string.IsNullOrWhiteSpace(style))
             return declarations;
 
-        string decoded = WebUtility.HtmlDecode(style) ?? string.Empty;
-        string[] parts = decoded.Split(';');
-        foreach (string part in parts)
+        // Attributes are already decoded by the DOM parser; stylesheet text
+        // is raw CSS and must not undergo HTML character-reference decoding.
+        int start = 0;
+        while (start < style.Length)
         {
+            int end = FindUnquotedDelimiter(style, ';', start);
+            string part = style[start..end];
+            start = end + 1;
             int colon = part.IndexOf(':');
             if (colon <= 0)
                 continue;
@@ -134,8 +137,47 @@ internal static class HtmlCss
         if (string.IsNullOrWhiteSpace(value))
             return null;
 
-        string first = value.Split(',')[0].Trim().Trim('"', '\'');
+        string first = value[..FindUnquotedDelimiter(value, ',', 0)].Trim();
+        if (first.Length >= 2 && first[0] is '\'' or '"' && first[^1] == first[0])
+        {
+            first = first[1..^1];
+            var decoded = new StringBuilder(first.Length);
+            for (int i = 0; i < first.Length; i++)
+            {
+                if (first[i] == '\\' && i + 1 < first.Length && first[i + 1] is '\\' or '\'' or '"')
+                    i++;
+                decoded.Append(first[i]);
+            }
+
+            first = decoded.ToString();
+        }
         return first.Length == 0 ? null : first;
+    }
+
+    private static int FindUnquotedDelimiter(string text, char delimiter, int start)
+    {
+        char quote = '\0';
+        for (int i = start; i < text.Length; i++)
+        {
+            char ch = text[i];
+            if (ch == '\\')
+            {
+                i++; // An escaped quote or delimiter does not end the value.
+                continue;
+            }
+
+            if (quote != '\0')
+            {
+                if (ch == quote)
+                    quote = '\0';
+            }
+            else if (ch is '\'' or '"')
+                quote = ch;
+            else if (ch == delimiter)
+                return i;
+        }
+
+        return text.Length;
     }
 
     public static bool TryParseFontSize(string? value, out float size)
@@ -209,10 +251,14 @@ internal static class HtmlCss
             multiplier = 72f / 101.6f;
         }
 
-        if (!float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out float valueNumber))
+        if (!float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out float valueNumber) ||
+            !float.IsFinite(valueNumber))
             return false;
 
-        points = Math.Max(0, valueNumber * multiplier);
+        float converted = valueNumber * multiplier;
+        if (!float.IsFinite(converted))
+            return false;
+        points = Math.Max(0, converted);
         return true;
     }
 
@@ -230,7 +276,8 @@ internal static class HtmlCss
         }
 
         if (trimmed.EndsWith('%') &&
-            float.TryParse(trimmed[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out float percent))
+            float.TryParse(trimmed[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out float percent) &&
+            float.IsFinite(percent))
         {
             spacing = Math.Max(0, percent / 100f);
             return true;
@@ -242,7 +289,8 @@ internal static class HtmlCss
             return true;
         }
 
-        if (float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out float multiplier))
+        if (float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out float multiplier) &&
+            float.IsFinite(multiplier))
         {
             spacing = Math.Max(0, multiplier);
             return true;
