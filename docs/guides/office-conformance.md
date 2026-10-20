@@ -22,6 +22,7 @@ runs that nightly.
 - [The baseline](#the-baseline)
 - [The tool register](#the-tool-register)
 - [Determinism](#determinism)
+- [The upstream ranking](#the-upstream-ranking)
 - [What it has found](#what-it-has-found)
 - [What it cannot tell you](#what-it-cannot-tell-you)
 
@@ -55,7 +56,10 @@ of one fact - WPT ships a corpus and a specification, and this has neither.
 
 ## Where the documents come from
 
-Nothing is committed and nothing is downloaded.
+Nothing is committed, and for the seed corpus nothing is downloaded. (The
+[upstream ranking](#the-upstream-ranking) is the one mode that fetches
+documents, and it fetches them at run time into the workspace, never into the
+tree.)
 
 [ADR 0013](../adr/0013-standards-ip-provenance-and-claims-beyond-pdf.md) gives every
 format its own rights record, each rejects third-party document artifacts by
@@ -332,6 +336,46 @@ Conversions are **not** batched. Ten documents in one invocation cost about a
 fifth of ten invocations, and one unreadable document takes the batch with it
 while the per-document exit codes are lost. Correct attribution of a failure to a
 document is worth more than the wall clock on a nightly job.
+
+## The upstream ranking
+
+Given `--extras-url` or `--extras-dir`, the runner does something else: it
+takes every supported sample under LibreOffice's `sw/qa/extras` tree, renders
+each with LibreOffice and with `broilerdoc`, scores the disagreement, and
+writes the top few as an issue (`--issue-out`, `--create-github-issue`). The
+nightly workflow runs it that way. There is no baseline: the ranking is a list
+of places to look, not a verdict.
+
+The score is dominated by the page-count gap, and that is why one family of
+samples is kept out of it. **Fuzzer output is set aside.** LibreOffice keeps
+about two dozen fuzzed files in that tree as crash regressions (23 of the
+supported ones on 2026-10-20), and the upstream test for each
+asserts only that LibreOffice survives it. What LibreOffice draws from one is
+its handling of the damage - twenty pages of a table whose `cellpadding` the
+fuzzer set to 65536 - which is not a reference. The first ranked run was three
+of them, and every fix that read them more faithfully pushed them higher,
+because the pages LibreOffice adds are the ones it invents; the
+[note on that run](../notes/office-extras-forcepoint-verification-2026-10-20.md)
+has the numbers.
+
+The families are in `tests/office/extras-crash-regressions.json`, each a
+pattern on the file name with its origin and the upstream evidence for it:
+`forcepoint`, `ofz` (OSS-Fuzz) and `fuzzer-testcase` (`LIBREOFFICE-XXXXXXXX`).
+A sample in one is not converted by LibreOffice and never enters the ranking.
+It is not ignored either. `broilerdoc` is asked to read, dump and render it as
+it would be for a document, and each of those has to end in a documented exit
+code (0 to 6, [the CLI guide](cli.md#exit-codes)). Refusing a damaged file is
+an answer; exit 70, a crash or a hang is a defect on any input. Such a failure
+fails the run as `robust/<sample>`, is listed in full above the ranking in the
+issue, and gets an issue filed even on a run that ranked nothing.
+
+The line is fuzzed against written, not "tested for crashing". A minimised bug
+document such as `crashHyphen.fodt` is also tested upstream only for not
+crashing, but it is a document LibreOffice lays out on purpose, so it stays
+ranked. The file lists such names under `stillRanked`, and
+`OfficeControlGuardTests` fails if a pattern starts matching one, if a family
+loses its evidence, or if a listed example stops matching its own family. A new
+family needs the upstream test and what in the file shows it was generated.
 
 ## What it has found
 

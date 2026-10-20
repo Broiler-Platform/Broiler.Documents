@@ -142,8 +142,11 @@ internal static class Program
 
         if (!options.SeedCorpus && (options.ExtrasUrl is not null || options.ExtrasDirectory is not null))
         {
+            CrashRegressions crashRegressions = CrashRegressions.Load(
+                options.CrashRegressions ?? Path.Combine(root, "tests", "office", "extras-crash-regressions.json"));
             return await RunExtrasAsync(
-                options, tool, libreOffice, rasterizer, rasterReason, fontArguments, workspace, platform)
+                options, tool, libreOffice, rasterizer, rasterReason, fontArguments, workspace, platform,
+                crashRegressions)
                 .ConfigureAwait(false);
         }
 
@@ -340,7 +343,8 @@ internal static class Program
         string rasterReason,
         IReadOnlyList<string> fontArguments,
         string workspace,
-        string platform)
+        string platform,
+        CrashRegressions crashRegressions)
     {
         _ = rasterReason;
         var log = new RunLog();
@@ -381,16 +385,47 @@ internal static class Program
             int statusStep = totalSamples > 0 ? Math.Max(1, (int)Math.Ceiling(totalSamples / 100.0)) : 1;
             int completedSamples = 0;
 
+            Dictionary<string, string> families = samples
+                .Select(sample => (sample.Id, Family: crashRegressions.FamilyOf(sample)))
+                .Where(entry => entry.Family is not null)
+                .ToDictionary(entry => entry.Id, entry => entry.Family!, StringComparer.Ordinal);
+
             Console.WriteLine("corpus      " + totalSamples.ToString(CultureInfo.InvariantCulture) +
                               " extras sample(s) from " + sourceLabel +
                               " (status every " + statusStep.ToString(CultureInfo.InvariantCulture) + " document(s))");
+            Console.WriteLine("set aside   " + families.Count.ToString(CultureInfo.InvariantCulture) +
+                              " crash-regression input(s), checked for robustness only" +
+                              (families.Count == 0
+                                  ? string.Empty
+                                  : " (" + string.Join(", ", families.Values
+                                      .GroupBy(family => family, StringComparer.Ordinal)
+                                      .OrderBy(group => group.Key, StringComparer.Ordinal)
+                                      .Select(group => group.Key + " " + group.Count().ToString(CultureInfo.InvariantCulture))) + ")"));
             Console.WriteLine("axis        " + options.Axis);
             Console.WriteLine("workspace   " + workspace);
 
             await Parallelism.ForEachAsync(samples, options.Jobs, async sample =>
             {
-                (IReadOnlyList<CheckResult> sampleResults, SemanticReading? reading, RenderRow? render, ExtrasDifference diff) =
-                    await ExtrasConformance.EvaluateSampleAsync(
+                SemanticReading? reading = null;
+                RenderRow? render = null;
+                IReadOnlyList<CheckResult> sampleResults;
+                ExtrasDifference diff;
+                if (families.TryGetValue(sample.Id, out string? family))
+                {
+                    (sampleResults, diff) = await ExtrasConformance.EvaluateCrashRegressionAsync(
+                        tool,
+                        sample,
+                        family,
+                        workspace,
+                        options.Axis,
+                        options.Dpi,
+                        options.MaxPages,
+                        options.FontDirectories,
+                        fontArguments).ConfigureAwait(false);
+                }
+                else
+                {
+                    (sampleResults, reading, render, diff) = await ExtrasConformance.EvaluateSampleAsync(
                         tool,
                         libreOffice,
                         rasterizer,
@@ -403,6 +438,7 @@ internal static class Program
                         fontArguments,
                         options.LibreOfficeTimeout,
                         NextProfile).ConfigureAwait(false);
+                }
 
                 log.AddRange(sampleResults);
                 lock (differences)
@@ -442,6 +478,16 @@ internal static class Program
                 File.WriteAllText(options.IssueReport, issueMarkdown, new UTF8Encoding(false));
             }
 
+            IReadOnlyList<ExtrasDifference> unhandled = ExtrasConformance.CrashRegressionFailures(differences);
+            if (unhandled.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine(unhandled.Count.ToString(CultureInfo.InvariantCulture) +
+                                  " crash-regression input(s) not handled");
+                foreach (ExtrasDifference d in unhandled)
+                    Console.WriteLine("  " + d.Sample.Id + " (" + d.CrashRegressionFamily + ") - " + d.Summary);
+            }
+
             IReadOnlyList<ExtrasDifference> top = ExtrasConformance.TopDifferences(differences, options.TopDifferences);
             if (top.Count > 0)
             {
@@ -457,11 +503,15 @@ internal static class Program
                 }
             }
 
-            if (options.CreateGitHubIssue && top.Count > 0)
+            // A crash on a fuzzed file is filed even on a run that ranked nothing,
+            // because it is the one finding about those files that is a defect.
+            if (options.CreateGitHubIssue && (top.Count > 0 || unhandled.Count > 0))
             {
-                string title = "Office conformance: top " +
-                               top.Count.ToString(CultureInfo.InvariantCulture) +
-                               " major difference(s) in LibreOffice sw/qa/extras";
+                string title = top.Count > 0
+                    ? "Office conformance: top " + top.Count.ToString(CultureInfo.InvariantCulture) +
+                      " major difference(s) in LibreOffice sw/qa/extras"
+                    : "Office conformance: " + unhandled.Count.ToString(CultureInfo.InvariantCulture) +
+                      " crash-regression input(s) not handled in LibreOffice sw/qa/extras";
                 string? issueUrl = await ExtrasConformance
                     .CreateOrUpdateGitHubIssueAsync(options.GitHubRepo, title, issueMarkdown, options.TopDifferences)
                     .ConfigureAwait(false);
@@ -695,6 +745,7 @@ internal static class Program
         string? ExtrasDirectory,
         string? IssueReport,
         string? GitHubRepo,
+        string? CrashRegressions,
         int TopDifferences,
         int? MaxFiles,
         bool CreateGitHubIssue,
@@ -715,6 +766,7 @@ internal static class Program
             string? tool = null, soffice = null, pdftoppm = null, manifest = null, baseline = null;
             string? tools = null, workspace = null, fontSet = null, only = null, json = null, junit = null;
             string? extrasUrl = null, extrasDir = null, issueOut = null, githubRepo = null;
+            string? crashRegressions = null;
             string axis = "all";
             var fontDirectories = new List<string>();
             bool keep = false, verbose = false, update = false, restamp = false;
@@ -763,6 +815,7 @@ internal static class Program
                     case "--extras-dir": extrasDir = Value(argument); break;
                     case "--issue-out": issueOut = Value(argument); break;
                     case "--github-repo": githubRepo = Value(argument); break;
+                    case "--crash-regressions": crashRegressions = Value(argument); break;
                     case "--top-differences" or "-x": topDifferences = Integer(argument, 1); break;
                     case "--max-files": maxFiles = Integer(argument, 1); break;
                     case "--create-github-issue": createIssue = true; break;
@@ -796,7 +849,7 @@ internal static class Program
 
             return new Options(
                 tool, soffice, pdftoppm, manifest, baseline, tools, workspace, fontDirectories, fontSet,
-                axis, only, json, junit, extrasUrl, extrasDir, issueOut, githubRepo, topDifferences,
+                axis, only, json, junit, extrasUrl, extrasDir, issueOut, githubRepo, crashRegressions, topDifferences,
                 maxFiles, createIssue, seedCorpus, keep, verbose, update, restamp, allowPending, help,
                 jobs, dpi, maxPages, TimeSpan.FromSeconds(timeout));
         }
@@ -818,6 +871,9 @@ internal static class Program
             output.WriteLine("  --issue-out <path>       Write the Markdown GitHub issue report for the top differences.");
             output.WriteLine("  --create-github-issue    Create or update a GitHub issue with the top differences.");
             output.WriteLine("  --github-repo <o/r>      Target GitHub repository (defaults to GITHUB_REPOSITORY).");
+            output.WriteLine("  --crash-regressions <path>");
+            output.WriteLine("                           Fuzzer families kept out of the extras ranking.");
+            output.WriteLine("                           (tests/office/extras-crash-regressions.json)");
             output.WriteLine("  --max-files <n>          Maximum number of extras sample files to evaluate.");
             output.WriteLine("  --seed-corpus            Run the authored seed corpus instead of sw/qa/extras.");
             output.WriteLine("  --manifest <path>        The seed corpus. (tests/office/office-corpus.json)");
