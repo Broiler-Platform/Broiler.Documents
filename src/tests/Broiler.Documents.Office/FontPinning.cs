@@ -63,6 +63,24 @@ internal static class FontPinning
             }
         }
 
+        // The families a foreign document names instead, each drawn with the
+        // pinned face LibreOffice substitutes for it. See MetricAliases.
+        foreach ((string alias, string target) in MetricAliases)
+        {
+            if (mapped.Contains(alias))
+                continue;
+
+            string key = Squash(target);
+            foreach ((string suffix, string style) in Styles)
+            {
+                if (!faces.TryGetValue(key + suffix, out string? path))
+                    continue;
+
+                arguments.Add("--font-file");
+                arguments.Add(alias + style + "=" + path);
+            }
+        }
+
         // The generics, chosen from the pinned families by the only signal their
         // names carry. A heuristic, and a shallow one - but the alternative is a
         // manifest field stating three more names that would then have to be
@@ -147,6 +165,38 @@ internal static class FontPinning
         ("-Oblique", ":italic"),
         ("-BoldItalic", ":bolditalic"),
         ("-BoldOblique", ":bolditalic"),
+    ];
+
+    /// <summary>
+    /// The proprietary families real documents name, and the metric-compatible
+    /// face LibreOffice draws each with.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The seed corpus names only families it pins, so this never mattered
+    /// there. The <c>sw/qa/extras</c> ranking reads documents written in Word,
+    /// which ask for Times New Roman, Arial and Calibri. LibreOffice finds none
+    /// of them installed and fontconfig's metric aliases hand it Liberation
+    /// Serif, Liberation Sans and Carlito - the faces the workflow installs for
+    /// exactly that reason, advance for advance the same widths. broilerdoc was
+    /// given no such mapping, drew every one of them in its host fallback, and
+    /// set a serif glossary in DejaVu Sans: wider glyphs, more lines, more
+    /// pages, and a page-count gap in the ranking that belonged to the harness.
+    /// </para>
+    /// <para>
+    /// The pairs are fontconfig's own (<c>30-metric-aliases.conf</c>), limited to
+    /// faces with metrics made to match. A family that is itself pinned keeps its
+    /// own face, and an alias whose target is not installed is left unmapped and
+    /// reported under <c>fonts.unmappedFamilies</c> as before.
+    /// </para>
+    /// </remarks>
+    private static readonly (string Alias, string Target)[] MetricAliases =
+    [
+        ("Times New Roman", "Liberation Serif"),
+        ("Arial", "Liberation Sans"),
+        ("Courier New", "Liberation Mono"),
+        ("Calibri", "Carlito"),
+        ("Cambria", "Caladea"),
     ];
 
     private static readonly (string Generic, Func<string, bool> Matches)[] Generics =
