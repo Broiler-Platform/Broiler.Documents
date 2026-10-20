@@ -16,17 +16,30 @@ internal static class DocxTableReader
     /// <see cref="DocumentTable"/> over the range they occupy.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The paragraphs go where they always went. What is new is that the reader
     /// now also records which of them each cell holds, so the grid, the spans,
     /// the borders, and the shading survive instead of the text arriving as an
     /// undifferentiated run of paragraphs in row order.
+    /// </para>
+    /// <para>
+    /// The cells are read under the table's own style, so their paragraphs and
+    /// runs inherit what it states. A table nested in a cell is read by this
+    /// same method and takes its own style, or the default one, rather than its
+    /// parent's: the style belongs to a table, not to everything inside it.
+    /// </para>
     /// </remarks>
     internal static void Read(
         XElement table, DocxReadContext context, int depth,
-        Action<IEnumerable<XElement>, int> readBlocks)
+        Action<IEnumerable<XElement>, DocxReadContext, int> readBlocks)
     {
         int start = context.Builder.CurrentParagraphIndex;
         XElement? properties = table.Element(DocxNamespaces.Wordprocessing + "tblPr");
+        DocxReadContext cellContext = context with
+        {
+            TableStyle = context.Styles.TableStyleFor(
+                DocxValueReader.WordValue(properties?.Element(DocxNamespaces.Wordprocessing + "tblStyle"))),
+        };
         CellBorders tableBorders = ReadTableBorders(properties);
         var rows = new List<RowDraft>();
         bool exactHeightSeen = false;
@@ -45,7 +58,7 @@ internal static class DocxTableReader
                 // collected here rather than landing beside this one in the body.
                 var nested = new List<DocumentTable>();
                 context.Builder.PushTableSink(nested);
-                readBlocks(cell.Elements(), depth + 1);
+                readBlocks(cell.Elements(), cellContext, depth + 1);
                 context.Builder.PopTableSink();
 
                 // A cell ends the reach of a page break stated in its last
@@ -94,8 +107,8 @@ internal static class DocxTableReader
         {
             context.Builder.AddDiagnosticOnce(
                 "docx.table.style",
-                "A DOCX table named a table style; banding, conditional formatting, " +
-                "and the borders a style states are not applied.");
+                "A DOCX table named a table style; its paragraph and run properties were applied, " +
+                "but banding, conditional formatting, and the borders a style states are not.");
         }
     }
 

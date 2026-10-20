@@ -170,8 +170,7 @@ internal static class DocxReader
 
             if (name == DocxNamespaces.Wordprocessing + "tbl")
             {
-                DocxTableReader.Read(element, context, depth + 1,
-                    (children, childDepth) => ReadBlockContent(children, context, childDepth));
+                DocxTableReader.Read(element, context, depth + 1, ReadBlockContent);
                 continue;
             }
 
@@ -456,12 +455,13 @@ internal static class DocxReader
 
     /// <summary>
     /// The character formatting a run inherits before its own <c>w:rPr</c>:
-    /// document defaults followed by the paragraph style chain's run properties.
+    /// document defaults, the table style's run properties inside a table, then
+    /// the paragraph style chain's run properties.
     /// </summary>
     private static InlineStyle ReadInheritedRunStyle(string? paragraphStyleId, DocxReadContext context)
     {
         InlineStyle style = InlineStyle.Default;
-        foreach (XElement rPr in context.Styles.RunPropertiesForParagraph(paragraphStyleId))
+        foreach (XElement rPr in context.Styles.RunPropertiesForParagraph(paragraphStyleId, context.TableStyle))
             style = ApplyRunProperties(rPr, style, context.Styles.Theme);
 
         return style;
@@ -1046,7 +1046,7 @@ internal static class DocxReader
         DocxReadContext context)
     {
         ParagraphStyle style = ParagraphStyle.Default;
-        foreach (XElement styleParagraphProperties in context.Styles.ParagraphProperties(paragraphStyleId))
+        foreach (XElement styleParagraphProperties in context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle))
             style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style);
 
         return ApplyParagraphProperties(pPr, context.Numbering, style);

@@ -165,16 +165,24 @@ Open XML WordprocessingML package parts.
 - An image linked with `r:link` rather than embedded is not fetched; reading it
   would mean a network or file request driven by document content (ADR 0004).
 - Style resolution covers the attributes `RichTextDocument` models. Style
-  features outside it — character spacing/scaling, table styles, numbering-level
-  overrides, conditional table formatting — are ignored, as are theme colors
+  features outside it — character spacing/scaling, numbering-level overrides,
+  conditional table formatting — are ignored, as are theme colors
   (`w:themeColor`); Word writes the computed RGB into `w:val` alongside them,
   which is what the reader uses.
-- Table styles are not applied. A `w:tblStyle` names formatting held in the
-  styles part — banding, conditional first-row and first-column formatting, and
-  the borders a style states — and only what the table and its cells state
-  directly is read, with `docx.table.style`. Cell vertical alignment, text direction, and
-  table indent and alignment are not represented either; a table starts at the
-  left margin.
+- A table style's own `w:pPr` and `w:rPr` are applied to the paragraphs and
+  runs in its cells, between the document defaults and the paragraph style, as
+  ECMA-376 §17.7.2 orders them: `Table Grid` takes Word's default ten points
+  after and 1.15 line back out of every cell, and a paragraph style or direct
+  formatting that says otherwise still wins. A table that names no style takes
+  the default table style; a nested table takes its own, not its parent's; and a
+  `w:tblStyle` that names a paragraph style applies nothing. Word's compatibility
+  rule that lets a table style override an 11 or 12 point size or a left
+  alignment stated by the default paragraph style is not modelled. The rest of a
+  table style — banding, conditional first-row and first-column formatting
+  (`w:tblStylePr`), and the borders and shading it states — is not applied, and
+  a table naming a style reports `docx.table.style`. Cell vertical alignment,
+  text direction, and table indent and alignment are not represented either; a
+  table starts at the left margin.
 - A table's cells are paragraph ranges, so an edit that adds or removes
   paragraphs moves them and one that spans out of a cell into the body does not
   keep the grid over what it merged. The ranges are moved through the one place
@@ -235,7 +243,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `document.metadata.emitted` | Info | Document properties the caller supplied reached `docProps`; the message names the fields. |
 | `document.metadata.dropped` | Warning | A property OOXML states no equivalent for was not written. `CreatorApplication` is the one: OOXML names a producing application only. |
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
-| `docx.table.style` | Warning | A table named a table style; banding and conditional formatting are not applied. |
+| `docx.table.style` | Warning | A table named a table style; its paragraph and run properties were applied, banding, conditional formatting and the borders it states were not. |
 | `docx.table.rowheight` | Warning | A row stated an exact height; it was applied as a minimum so its text is not clipped. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
 | `docx.pagebreak.split` | Warning | A `w:br w:type="page"` had text after it in the same paragraph; it was read as a line break, because pages break between paragraphs here and not inside one. |

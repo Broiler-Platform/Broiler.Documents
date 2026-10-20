@@ -11,6 +11,12 @@ internal enum RunningBand
 }
 
 /// <summary>Everything a read needs to turn one element into document content.</summary>
+/// <param name="TableStyle">
+/// The table style governing the cell being read, null outside a table. A cell's
+/// paragraphs inherit from it before their own paragraph style; see
+/// <see cref="DocxStyles.ParagraphProperties"/>.
+/// </param>
 internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumbering Numbering, DocxStyles Styles,
-    DocxImageLoader Images, DocxDocumentBuilder Builder, PageGeometry? Page = null, RunningBand Band = RunningBand.Body);
+    DocxImageLoader Images, DocxDocumentBuilder Builder, PageGeometry? Page = null, RunningBand Band = RunningBand.Body,
+    string? TableStyle = null);
 
