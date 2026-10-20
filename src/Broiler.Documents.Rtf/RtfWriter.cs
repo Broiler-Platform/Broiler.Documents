@@ -259,6 +259,11 @@ public static class RtfWriter
             Append(sb, "headery", geometry.HeaderDistance);
         if (geometry.FooterDistance > 0)
             Append(sb, "footery", geometry.FooterDistance);
+        if (geometry.HasColumns)
+        {
+            sb.Append("\\cols").Append(geometry.ColumnCount.ToString(CultureInfo.InvariantCulture));
+            Append(sb, "colsx", geometry.ColumnGap);
+        }
     }
 
     /// <summary>One control word carrying a length, converted from points to twips.</summary>

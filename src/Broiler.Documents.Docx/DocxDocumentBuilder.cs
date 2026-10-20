@@ -26,6 +26,7 @@ internal sealed class DocxDocumentBuilder(
     private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
     private InlineStyle _pageBreakStyle = InlineStyle.Default;
     private bool _pageBreakSeen;
+    private bool _pageBreakLeadsParagraph;
     private bool _pageBreakStartsNextParagraph;
     private int _tableCount;
     private int _unsupportedBlockCount;
@@ -109,6 +110,7 @@ internal sealed class DocxDocumentBuilder(
     /// until the paragraph ends.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The run's style is kept because the break may turn out not to be the
     /// last thing in its paragraph. Word honours a break with text after it
     /// by splitting the paragraph across the boundary, and a paragraph
@@ -116,6 +118,12 @@ internal sealed class DocxDocumentBuilder(
     /// before". That case is demoted to the line break every other
     /// <c>w:br</c> becomes, and reported, rather than pulling the text that
     /// followed the break back onto the previous page.
+    /// </para>
+    /// <para>
+    /// A break with nothing before it in its paragraph splits nothing: all of
+    /// the paragraph's text is on the far side of the boundary, so the
+    /// paragraph is the one that starts the page. See <see cref="AppendText"/>.
+    /// </para>
     /// </remarks>
     public void NotePageBreak(InlineStyle style)
     {
@@ -132,6 +140,7 @@ internal sealed class DocxDocumentBuilder(
         }
 
         _pageBreakSeen = true;
+        _pageBreakLeadsParagraph = _segments.Count == 0;
         _pageBreakStyle = style;
     }
 
@@ -178,10 +187,15 @@ internal sealed class DocxDocumentBuilder(
 
         // Text after a page break run is the case NotePageBreak cannot
         // carry: the break is inside the paragraph rather than at the end
-        // of it. Demoting it here, on the first content that follows,
-        // keeps the reader a single forward pass.
+        // of it. Deciding here, on the first content that follows, keeps the
+        // reader a single forward pass.
         if (_pageBreakSeen)
-            DemotePageBreakToLineBreak();
+        {
+            if (_pageBreakLeadsParagraph)
+                StartParagraphOnNewPage();
+            else
+                DemotePageBreakToLineBreak();
+        }
 
         if (text.Length > limits.MaxRunLength)
         {
@@ -197,6 +211,28 @@ internal sealed class DocxDocumentBuilder(
         }
 
         _segments.Add(new Segment(text, style));
+    }
+
+    /// <summary>
+    /// Turns a page break that opened its paragraph into the paragraph's own
+    /// break: nothing of the paragraph was before it, so nothing is left on
+    /// the page before, and the whole paragraph starts the next one. A
+    /// paragraph that already starts a page - a break held over from the one
+    /// before, or its style's <c>w:pageBreakBefore</c> - keeps the one page
+    /// boundary and reports the blank page the second would make.
+    /// </summary>
+    private void StartParagraphOnNewPage()
+    {
+        _pageBreakSeen = false;
+        if (_paragraphStyle.PageBreakBefore)
+        {
+            AddDiagnosticOnce(
+                "docx.pagebreak.repeated",
+                "A paragraph stated more than one page break; the extra breaks, and the blank pages they make, were dropped.");
+            return;
+        }
+
+        _paragraphStyle = _paragraphStyle with { PageBreakBefore = true };
     }
 
     /// <summary>

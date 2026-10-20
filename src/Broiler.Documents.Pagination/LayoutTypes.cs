@@ -107,6 +107,16 @@ public sealed class LayoutLine
 
     /// <summary>Which model paragraph this line came from. Carried through for diagnostics.</summary>
     public int ParagraphIndex { get; }
+
+    /// <summary>Moves every piece of the line <paramref name="dx"/> points across, into another text column.</summary>
+    internal void Shift(double dx)
+    {
+        if (dx == 0)
+            return;
+
+        foreach (LayoutPiece piece in _pieces)
+            piece.X += dx;
+    }
 }
 
 /// <summary>One rendered page.</summary>

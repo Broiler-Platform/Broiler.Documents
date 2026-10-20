@@ -85,8 +85,8 @@ toolkit behind it.
   declaration wins. `page` is a break. `auto` is not, and cancels one the chain
   carried, which is exactly what a producer writes it for. `column` is not a page
   break either: it moves to the next column of the same page. It overrides an
-  inherited break and is reported as `odt.break.column`, because a model with no
-  columns has nowhere to keep it. A write states `fo:break-before="page"` and
+  inherited break and is reported as `odt.break.column`, because the model lays
+  text out in columns but has no break that moves to the next one. A write states `fo:break-before="page"` and
   states nothing at all when there is no break — an automatic style here inherits
   from `Standard`, which states none, so absence already says it, and writing
   `auto` would give every ordinary paragraph an automatic style of its own.
@@ -157,6 +157,15 @@ toolkit behind it.
   the source asked for, and lays the body out on the second. The header and
   footer are read from the same master page as the paper, because a Letter header
   on an A4 page is not a thing any document said.
+- The text columns the same page layout divides its page into:
+  `style:columns`' `fo:column-count`, and `fo:column-gap` or, when a producer
+  lists the columns instead, the end indent of the first and the start indent of
+  the second. Listed columns whose `style:rel-width` differs by more than a
+  percent are held as equal ones (`odt.columns.unequal`); LibreOffice's 10922
+  against 10925 is rounding and is not reported. Columns that leave no room keep
+  the page and lose the columns, with `odt.columns.geometry`. A write states the
+  count and the gap. The column separator (`style:column-sep`) and the columns of
+  a `text:section` are not read.
 - The master-page chain, followed by one link. The master page the body begins on
   supplies the *first* page and the one its `style:next-style-name` names supplies
   the rest, which is how a letterhead states that the band belongs to page one and
@@ -308,7 +317,7 @@ blank:
 | `odt.align.justify` | Warning | A justified paragraph was read as left-aligned. |
 | `odt.linespacing.fixed` | Warning | A fixed line height was not represented. |
 | `odt.linespacing.range` | Warning | A positive line-height percentage overflowed or underflowed the model's float multiplier; the inherited spacing was retained. |
-| `odt.break.column` | Warning | A `fo:break-before`/`-after` of `column` was read as no break; the model breaks pages and has no columns. |
+| `odt.break.column` | Warning | A `fo:break-before`/`-after` of `column` was read as no break; the model has columns but no break that moves to the next one. |
 | `odt.break.after` | Warning | A `fo:break-after="page"` had no following paragraph in the same flow to carry it to — the flow ended, or the next block was a table, or the cell did — and was dropped. |
 | `odt.text.transform` | Warning | A `lowercase`/`capitalize` transform was dropped. |
 | `odt.styles.unknown` | Warning | A style reference named an undefined style. Once per family and name. |
@@ -324,6 +333,8 @@ blank:
 | `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `odt.image.denied` | Warning | A picture was not read into the document because the caller's resource policy did not permit it; the message names the denial. |
 | `odt.page.geometry` | Warning | A page layout described a page with no room to write on, so the page was not read. |
+| `odt.columns.geometry` | Warning | A page layout's `style:columns` left no room to write in a column; the page was kept and read as one column. |
+| `odt.columns.unequal` | Info | A page layout listed columns of different relative widths; they were read as equal columns. |
 | `odt.limit.depth` | Warning | Block or inline nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `odt.limit.run` | Warning | A paragraph hit `MaxRunLength` and was truncated. |
 | `odt.limit.spaces` | Warning | A `text:s` count exceeded `MaxRunLength` and was clamped. |

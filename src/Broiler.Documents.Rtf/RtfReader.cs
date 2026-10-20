@@ -61,6 +61,8 @@ public static class RtfReader
         private int _marginBottom;
         private int _headerDistance;
         private int _footerDistance;
+        private int _columns = 1;
+        private int _columnGap = 720;
         private readonly StringBuilder _shapePropertyName = new();
         private readonly StringBuilder _shapePropertyValue = new();
         private readonly List<DocumentShape> _shapes = [];
@@ -458,6 +460,11 @@ public static class RtfReader
                 case "margb": if (has) _marginBottom = p; return;
                 case "headery": if (has) _headerDistance = p; return;
                 case "footery": if (has) _footerDistance = p; return;
+
+                // \cols is a count, not a length; \colsx is the gap, which the
+                // specification puts at 720 twips when the control word is absent.
+                case "cols": if (has) _columns = p; return;
+                case "colsx": if (has) _columnGap = p; return;
 
                 // A drawing. Its geometry rides on the control words here and
                 // its paint arrives as {\sp{\sn name}{\sv value}} pairs, so the
@@ -892,12 +899,29 @@ public static class RtfReader
                 _footerDistance / 20d);
 
             if (geometry.IsUsable)
-                return geometry;
+                return BuildColumns(geometry);
 
             _diagnostics.Add(DocumentDiagnostic.Warning(
                 "rtf.page.geometry",
                 "RTF section properties gave a page with no room to write on; the page was not read."));
             return null;
+        }
+
+        /// <summary>The page divided into the columns <c>\cols</c> and <c>\colsx</c> state.</summary>
+        private PageGeometry BuildColumns(PageGeometry geometry)
+        {
+            if (_columns <= 1)
+                return geometry;
+
+            PageGeometry divided = geometry.WithColumns(_columns, Math.Max(0, _columnGap) / 20d);
+            if (!divided.HasColumns)
+            {
+                _diagnostics.Add(DocumentDiagnostic.Warning(
+                    "rtf.columns.geometry",
+                    "RTF section columns left no room to write in a column; the page was read as one column."));
+            }
+
+            return divided;
         }
 
         private void BeginShape()

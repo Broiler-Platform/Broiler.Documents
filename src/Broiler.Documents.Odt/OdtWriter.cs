@@ -1104,7 +1104,7 @@ public static class OdtWriter
             ? geometry
             : new PageGeometry(612, 792, 72, 72, 72, 72);
 
-        return new XElement(
+        var properties = new XElement(
             OdtNamespaces.Style + "page-layout-properties",
             new XAttribute(OdtNamespaces.Fo + "page-width", OdtUnits.FormatPoints(page.Width)),
             new XAttribute(OdtNamespaces.Fo + "page-height", OdtUnits.FormatPoints(page.Height)),
@@ -1115,6 +1115,20 @@ public static class OdtWriter
             new XAttribute(OdtNamespaces.Fo + "margin-bottom", OdtUnits.FormatPoints(page.MarginBottom)),
             new XAttribute(OdtNamespaces.Fo + "margin-left", OdtUnits.FormatPoints(page.MarginLeft)),
             new XAttribute(OdtNamespaces.Fo + "margin-right", OdtUnits.FormatPoints(page.MarginRight)));
+
+        // Equal columns need nothing but the count and the gap; listing each
+        // column is for widths that differ, which the model does not hold.
+        if (page.HasColumns)
+        {
+            properties.Add(new XElement(
+                OdtNamespaces.Style + "columns",
+                new XAttribute(
+                    OdtNamespaces.Fo + "column-count",
+                    page.ColumnCount.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute(OdtNamespaces.Fo + "column-gap", OdtUnits.FormatPoints(page.ColumnGap))));
+        }
+
+        return properties;
     }
 
     private static XDocument BuildStyles(

@@ -219,11 +219,39 @@ Open XML WordprocessingML package parts.
   or the body's past the table, and neither is the row Word splits there. A
   break on a paragraph *within* a cell is read and written back as stated, but
   the layout places a row whole, so nothing acts on it.
+- A page break that opens its paragraph - nothing of the paragraph before it -
+  starts that paragraph on the new page. Nothing is split, so nothing is
+  demoted: the paragraph is what the page begins with. If the paragraph already
+  starts a page, from a break held over from the one before or from
+  `w:pageBreakBefore`, the boundary is kept once and `docx.pagebreak.repeated`
+  reports the blank page the second would make.
+- A column break, `w:br w:type="column"`, is a page break in a section of one
+  column. ECMA-376 §17.18.3 says the text restarts on the next page when the
+  section is not divided into columns, and Word and LibreOffice both start one;
+  it is read exactly as a `w:type="page"` break is, including the cases above.
+  In a section of several columns it moves to the next column, which the model
+  has no break for: it is read as a line break and reported as
+  `docx.break.column`. Which section a paragraph is in is found before the
+  content is read, because a section's properties follow its paragraphs. In a
+  header, a footer or a text box it stays a line break.
+- Text columns. `w:cols` gives the page a column count and the gap between
+  columns, `w:space`, or half an inch when that is absent. A section that lists
+  its columns (`w:equalWidth="0"`) is read as their count and the mean of their
+  spaces; widths that differ by more than a point are held as equal columns and
+  reported as `docx.columns.unequal`. The model holds one set of columns for the
+  document, and takes it from the section holding the most paragraphs rather
+  than from the last: a two-column document whose producer ended it with a
+  continuous break before one empty paragraph has a one-column last section
+  holding nothing. Sections that disagree report `docx.section.columns`.
+  Columns that leave no room keep the page and lose the columns
+  (`docx.columns.geometry`). A write states `w:cols` with the count and the gap.
+  The separator line (`w:sep`) is not read.
 - Section breaks do not paginate. A `w:sectPr` in a paragraph's `w:pPr` with
   `w:type="nextPage"` is a page boundary as much as a break is, but it is
   section layout, which this codec does not read beyond the last section's page
-  geometry and running content (`docx.section.multiple`). A document that
-  paginates with section breaks rather than page breaks still reads as one flow.
+  geometry and running content (`docx.section.multiple`) and the columns above.
+  A document that paginates with section breaks rather than page breaks still
+  reads as one flow.
 - Block nesting deeper than `DocumentLimits.MaxGroupDepth` is abandoned with a
   `docx.limit.depth` diagnostic.
 - DOCX packages above `DocumentLimits.MaxDocumentBytes` are not parsed.
@@ -250,6 +278,10 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.pagebreak.repeated` | Warning | A paragraph stated more than one page break; the first was kept and the blank pages the others make were dropped. |
 | `docx.pagebreak.trailing` | Warning | A page break in the last paragraph of a part was dropped; there is no following paragraph for it to start. |
 | `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row is placed whole, so it has no page boundary inside it. |
+| `docx.break.column` | Warning | A column break in a section of several columns was read as a line break; the model has no break that moves to the next column. |
+| `docx.section.columns` | Info | The sections differ in their columns; the columns of the section holding the most paragraphs were read. |
+| `docx.columns.unequal` | Info | A section listed columns of unequal width; they were read as equal columns. |
+| `docx.columns.geometry` | Warning | A section's columns left no room to write in a column; the page was kept and read as one column. |
 | `docx.limit.depth` | Warning | Block nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `docx.styles.missing` | Warning | Content named styles but the package has no styles part. Reported once. |
 | `docx.styles.unknown` | Warning | A `w:pStyle`/`w:rStyle` named a style the table does not define. Once per id. |

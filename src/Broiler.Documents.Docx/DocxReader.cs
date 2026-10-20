@@ -63,8 +63,10 @@ internal static class DocxReader
             var reported = new HashSet<string>(StringComparer.Ordinal);
             // Read before the content, not after it: an anchor states which frame
             // its offsets are measured from, and converting one to the column the
-            // model anchors against needs the margins first.
-            PageGeometry? page = ReadPageGeometry(documentXml, diagnostics);
+            // model anchors against needs the margins first. The sections come
+            // first of all, because a section's properties follow its content.
+            DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"));
+            PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
             RichTextDocument document = ReadDocumentXml(
                 documentXml,
                 documentRelationships,
@@ -74,7 +76,8 @@ internal static class DocxReader
                 options.Limits,
                 diagnostics,
                 reported,
-                page);
+                page,
+                sections);
             document = document.WithRunningContent(ReadRunningContent(
                 archive,
                 documentXml,
@@ -120,7 +123,8 @@ internal static class DocxReader
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported,
-        PageGeometry? page)
+        PageGeometry? page,
+        DocxSections sections)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         if (body is null)
@@ -132,7 +136,7 @@ internal static class DocxReader
         }
 
         var builder = new DocxDocumentBuilder(limits, diagnostics, reported);
-        var context = new DocxReadContext(relationships, numbering, styles, images, builder, page);
+        var context = new DocxReadContext(relationships, numbering, styles, images, builder, page, Sections: sections);
         ReadBlockContent(body.Elements(), context, depth: 0);
         builder.ReportReadSummary(body.Elements().Any(IsContentBlock), styles.Count, images.ImageCount);
         return builder.Build();
@@ -337,14 +341,21 @@ internal static class DocxReader
     /// properties.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The body-level w:sectPr is the document's final section. A document split
     /// into several can give each its own page, and the model holds one, so the
     /// last one wins - the same choice the header and footer reader makes, and
     /// for the same reason: it is the section the running content belongs to.
     /// Geometry a producer states nonsensically is dropped rather than honoured.
+    /// </para>
+    /// <para>
+    /// The columns are the exception, and are taken from the section that holds
+    /// the most paragraphs; <see cref="DocxSections.Dominant"/> says why.
+    /// </para>
     /// </remarks>
     private static PageGeometry? ReadPageGeometry(
         XDocument documentXml,
+        DocxSections sections,
         List<DocumentDiagnostic> diagnostics)
     {
         XElement? sectPr = documentXml.Root
@@ -367,13 +378,50 @@ internal static class DocxReader
             DocxValueReader.Twips(margin, "header"),
             DocxValueReader.Twips(margin, "footer"));
 
-        if (geometry.IsUsable)
+        if (!geometry.IsUsable)
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "docx.section.geometry",
+                "DOCX section properties gave a page with no room to write on; the page was not read."));
+            return null;
+        }
+
+        return ReadColumns(geometry, sections, diagnostics);
+    }
+
+    /// <summary>Divides the page into the columns the dominant section states.</summary>
+    private static PageGeometry ReadColumns(
+        PageGeometry geometry,
+        DocxSections sections,
+        List<DocumentDiagnostic> diagnostics)
+    {
+        if (sections.ColumnsDiffer)
+        {
+            diagnostics.Add(DocumentDiagnostic.Info(
+                "docx.section.columns",
+                "DOCX sections differ in their columns; the columns of the section holding the most paragraphs were read."));
+        }
+
+        if (sections.HasUnequalColumns)
+        {
+            diagnostics.Add(DocumentDiagnostic.Info(
+                "docx.columns.unequal",
+                "A DOCX section listed columns of unequal width; they were read as equal columns."));
+        }
+
+        DocxColumns columns = sections.Dominant;
+        if (columns.Count <= 1)
             return geometry;
 
-        diagnostics.Add(DocumentDiagnostic.Warning(
-            "docx.section.geometry",
-            "DOCX section properties gave a page with no room to write on; the page was not read."));
-        return null;
+        PageGeometry divided = geometry.WithColumns(columns.Count, columns.Gap);
+        if (!divided.HasColumns)
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "docx.columns.geometry",
+                "DOCX section columns left no room to write in a column; the page was read as one column."));
+        }
+
+        return divided;
     }
 
     /// <summary>ECMA-376 §17.10.1: the header/footer types, defaulting to the one for every page.</summary>
@@ -451,6 +499,11 @@ internal static class DocxReader
         context.Builder.StartParagraph(paragraphStyle);
         ReadParagraphChildren(paragraph.Elements(), context, ReadInheritedRunStyle(paragraphStyleId, context));
         context.Builder.FinishParagraph();
+
+        // A paragraph belongs to the section it ends, so the cursor moves only
+        // once the paragraph's own breaks have been read against it.
+        if (context.Sections is not null && DocxSections.EndsSection(paragraph))
+            context.Sections.Advance();
     }
 
     /// <summary>
@@ -556,10 +609,18 @@ internal static class DocxReader
             // property, and it sits at the end of the paragraph *before* the
             // one that starts the page. The builder holds it until then; see
             // DocxDocumentBuilder.NotePageBreak.
-            if (child.Name == DocxNamespaces.Wordprocessing + "br" && IsPageBreak(child))
+            if (child.Name == DocxNamespaces.Wordprocessing + "br" && IsPageBreak(child, context))
             {
                 builder.NotePageBreak(style);
                 continue;
+            }
+
+            if (child.Name == DocxNamespaces.Wordprocessing + "br" && IsColumnBreak(child) && context.Sections is not null)
+            {
+                builder.AddDiagnosticOnce(
+                    "docx.break.column",
+                    "A DOCX column break in a section of several columns was read as a line break; " +
+                    "the model does not break columns.");
             }
 
             if (child.Name == DocxNamespaces.Wordprocessing + "br" ||
@@ -1283,17 +1344,34 @@ internal static class DocxReader
     }
 
     /// <summary>
-    /// Whether a <c>w:br</c> is a page break. The kind lives in <c>w:type</c>,
+    /// Whether a <c>w:br</c> starts a page. The kind lives in <c>w:type</c>,
     /// which is an enumeration and not one of the on/off attributes, so it is
-    /// matched exactly: an absent type is a line break, and <c>column</c> and
-    /// <c>textWrapping</c> are breaks with no page in them. Reading any
-    /// <c>w:br</c> as a page break would put a page boundary wherever a
-    /// two-column layout only changed column.
+    /// matched exactly: an absent type is a line break, and <c>textWrapping</c>
+    /// is a break with no page in it.
     /// </summary>
-    private static bool IsPageBreak(XElement br) =>
+    /// <remarks>
+    /// <c>column</c> is a page break only where there is no next column to move
+    /// to. ECMA-376 §17.18.3 says so of <c>ST_BrType</c>: when the section is not
+    /// divided into columns, the text restarts on the next page, and Word and
+    /// LibreOffice both start one. A document that opens each of its blocks with
+    /// one - LibreOffice's <c>FDO77715.docx</c> is forty pages of them - ran
+    /// every block on from the last while it was read as a line break. In a
+    /// section of several columns
+    /// it moves to the next column, which is not a page boundary at all. Outside
+    /// the body's flow - a header, a text box - there are no sections and it
+    /// stays a line break.
+    /// </remarks>
+    private static bool IsPageBreak(XElement br, DocxReadContext context) =>
         string.Equals(
             (string?)br.Attribute(DocxNamespaces.Wordprocessing + "type"),
             "page",
+            StringComparison.Ordinal) ||
+        (IsColumnBreak(br) && context.Sections is { CurrentColumnCount: <= 1 });
+
+    private static bool IsColumnBreak(XElement br) =>
+        string.Equals(
+            (string?)br.Attribute(DocxNamespaces.Wordprocessing + "type"),
+            "column",
             StringComparison.Ordinal);
 
     private static bool ReadOnOff(XElement element)

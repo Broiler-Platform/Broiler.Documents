@@ -387,7 +387,9 @@ internal static class OdtReader
     /// so this follows that reference rather than guessing at the first layout -
     /// a document can define several, and only the named one is the page. Which
     /// master page arrives here is <see cref="ResolveMasterPage"/>'s decision.
-    /// A layout that leaves no column to write on is dropped and reported.
+    /// A layout that leaves no column to write on is dropped and reported. The
+    /// text columns the layout divides the page into are read with it; see
+    /// <see cref="ReadColumns"/>.
     /// </remarks>
     private static PageGeometry? ReadPageGeometry(
         XElement? master, OdtStyles styles, List<DocumentDiagnostic> diagnostics)
@@ -428,12 +430,80 @@ internal static class OdtReader
             Length(properties, "margin-bottom"));
 
         if (geometry.IsUsable)
-            return geometry;
+            return ReadColumns(properties, geometry, diagnostics);
 
         diagnostics.Add(DocumentDiagnostic.Warning(
             "odt.page.geometry",
             "An ODT page layout gave a page with no room to write on; the page was not read."));
         return null;
+    }
+
+    /// <summary>
+    /// ODF 1.3 §17.12: the <c>style:columns</c> a page layout divides its text
+    /// area into.
+    /// </summary>
+    /// <remarks>
+    /// <c>fo:column-count</c> says how many, and <c>fo:column-gap</c> how far
+    /// apart when the columns are equal. A producer that lists the columns
+    /// states each gap instead, as the end indent of one column and the start
+    /// indent of the next, and LibreOffice writes both forms; the listed one is
+    /// read when the attribute is absent. Listed columns of different relative
+    /// widths are held as equal ones, which keeps every line in the column it was
+    /// written in, and reported.
+    /// </remarks>
+    private static PageGeometry ReadColumns(
+        XElement properties, PageGeometry geometry, List<DocumentDiagnostic> diagnostics)
+    {
+        XElement? columns = properties.Element(OdtNamespaces.Style + "columns");
+        if (columns is null ||
+            !int.TryParse(
+                (string?)columns.Attribute(OdtNamespaces.Fo + "column-count"),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int count) ||
+            count <= 1)
+        {
+            return geometry;
+        }
+
+        List<XElement> listed = [.. columns.Elements(OdtNamespaces.Style + "column")];
+        if (!OdtUnits.TryParseLength((string?)columns.Attribute(OdtNamespaces.Fo + "column-gap"), out double gap))
+            gap = listed.Count >= 2 ? Length(listed[0], "end-indent") + Length(listed[1], "start-indent") : 0;
+
+        if (HasUnequalWidths(listed))
+        {
+            diagnostics.Add(DocumentDiagnostic.Info(
+                "odt.columns.unequal",
+                "An ODT page layout listed columns of unequal width; they were read as equal columns."));
+        }
+
+        PageGeometry divided = geometry.WithColumns(count, gap);
+        if (!divided.HasColumns)
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "odt.columns.geometry",
+                "An ODT page layout's columns left no room to write in a column; the page was read as one column."));
+        }
+
+        return divided;
+    }
+
+    /// <summary>
+    /// True when listed columns differ in <c>style:rel-width</c> by more than a
+    /// percent - more than the rounding a producer leaves when it shares a width
+    /// out in whole units, as LibreOffice's 10922 against 10925 does.
+    /// </summary>
+    private static bool HasUnequalWidths(List<XElement> listed)
+    {
+        var widths = new List<double>();
+        foreach (XElement column in listed)
+        {
+            string? relative = ((string?)column.Attribute(OdtNamespaces.Style + "rel-width"))?.TrimEnd('*');
+            if (double.TryParse(relative, NumberStyles.Float, CultureInfo.InvariantCulture, out double width) && width > 0)
+                widths.Add(width);
+        }
+
+        return widths.Count >= 2 && (widths.Max() - widths.Min()) / widths.Max() > 0.01;
     }
 
     private static double Length(XElement properties, string name) =>
@@ -1266,9 +1336,9 @@ internal static class OdtReader
         // ODF gives fo:break-before three values and only one of them is a page.
         // A column break moves to the next column of the same page, so reading it
         // as a page break would add a page the document never asked for; it is
-        // reported instead, because a model with no columns cannot hold it and a
-        // construct that vanishes without a word is the defect this whole
-        // property exists to close. Both of the other values still override what
+        // reported instead, because the model has columns but no break that moves
+        // to the next one, and a construct that vanishes without a word is the
+        // defect this whole property exists to close. Both of the other values still override what
         // the chain carried, since an inherited break has to be cancellable and
         // auto is what a producer writes to cancel it.
         switch ((string?)properties.Attribute(OdtNamespaces.Fo + "break-before"))
@@ -1355,16 +1425,16 @@ internal static class OdtReader
     }
 
     /// <summary>
-    /// Says that a column break was met and not kept. The model breaks pages and
-    /// has no notion of a column, so there is nothing to write it into - but a
-    /// column break is a real instruction in the document, and the reader that
-    /// silently answered "no break" to it is the one that let every page break in
-    /// every format disappear without trace.
+    /// Says that a column break was met and not kept. The model divides a page
+    /// into columns but has no break that moves to the next one, so there is
+    /// nothing to write it into - but a column break is a real instruction in the
+    /// document, and the reader that silently answered "no break" to it is the
+    /// one that let every page break in every format disappear without trace.
     /// </summary>
     private static void ReportColumnBreak(OdtDocumentBuilder builder) =>
         builder.AddDiagnosticOnce(
             "odt.break.column",
-            "A column break was not represented; this model breaks pages and has no columns.");
+            "A column break was not represented; this model lays text out in columns but does not break them.");
 
     private static int IndentLevelFor(double points) =>
         Math.Max(0, (int)Math.Round(points / OdtUnits.PointsPerIndentLevel, MidpointRounding.AwayFromZero));

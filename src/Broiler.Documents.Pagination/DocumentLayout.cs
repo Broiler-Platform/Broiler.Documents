@@ -23,11 +23,14 @@ namespace Broiler.Documents.Pagination;
 /// </para>
 /// <para>
 /// <b>What this is not.</b> It is not a word processor's layout engine and does
-/// not try to be one. There are no columns, floats, footnotes, hyphenation,
-/// kerning pairs, or bidirectional reordering here - mostly because the document
-/// model has no way to express them, so there is nothing to lay out. Tables
-/// break between rows and never inside one. The shared paginator the PDF roadmap
-/// tracks as
+/// not try to be one. There are no floats, footnotes, hyphenation, kerning
+/// pairs, or bidirectional reordering here - mostly because the document model
+/// has no way to express them, so there is nothing to lay out. Tables break
+/// between rows and never inside one. Text columns are filled one after the
+/// other and never balanced, so the last page of a two-column document can end
+/// with a full first column beside an empty second; and a wrapping shape is
+/// measured as though every column were the first. The shared paginator the PDF
+/// roadmap tracks as
 /// <c>Broiler.Documents.Pagination</c> is where a component-level version of
 /// this belongs; until it exists this is an application head's own layout, and
 /// its numbers are this tool's, not the component's.
@@ -83,6 +86,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // with pagination on, one extra line before a break moves every
         // subsequent page and a one-line difference reads as a whole-document one.
         double columnHeight = setup.Continuous ? double.MaxValue : setup.ContentHeightPoints;
+        TextColumns columns = TextColumns.For(document.PageGeometry, setup, _notes);
 
         var pages = new List<LayoutPage>();
         var currentLines = new List<LayoutLine>();
@@ -92,6 +96,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         bool truncated = false;
         int ignoredBreaks = 0;
 
+        // The column being filled, and how many of the page's lines were there
+        // before it started: a column holds something once the page has more.
+        // With one column that is "the page holds something", which is the test
+        // every break below made before there were columns.
+        int column = 0;
+        int columnStart = 0;
+        bool ColumnHasContent() => currentLines.Count > columnStart;
+
         var numbering = new ListNumbering();
 
         void BreakPage()
@@ -99,6 +111,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
             currentLines = [];
             currentCells = [];
+            column = 0;
+            columnStart = 0;
 
             // Both of these are page-local and neither was being emptied, which is
             // the same defect twice. An anchor top is a y within the page it was
@@ -117,6 +131,21 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 truncated = true;
         }
 
+        // A full column moves on to the next one at the top of the same page, and
+        // the last column of a page to the next page.
+        void BreakColumn()
+        {
+            if (column + 1 >= columns.Count)
+            {
+                BreakPage();
+                return;
+            }
+
+            column++;
+            columnStart = currentLines.Count;
+            y = setup.ContentTopPoints;
+        }
+
         int paragraphIndex = 0;
         while (paragraphIndex < document.ParagraphCount && !truncated)
         {
@@ -125,16 +154,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // A row is placed whole. Its cells are laid out beside each other,
                 // so a row broken across a page would have to break every cell at
                 // the same place - which is a table layout, and this is not one.
-                foreach (RowBox row in ComposeTable(table, document, setup, setup.ContentLeftPoints, setup.ContentWidthPoints))
+                foreach (RowBox row in ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width))
                 {
-                    if (y + row.Height > contentBottom && currentLines.Count > 0)
+                    if (y + row.Height > contentBottom && ColumnHasContent())
                     {
-                        BreakPage();
+                        BreakColumn();
                         if (truncated)
                             break;
                     }
 
-                    row.PlaceAt(y, currentLines, currentCells, _paragraphTops);
+                    row.PlaceAt(y, columns.Offset(column), currentLines, currentCells, _paragraphTops);
                     y += row.Height;
                 }
 
@@ -178,24 +207,32 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     _wrap.Add(shape, y + shape.OffsetY);
             }
 
-            // Space before never opens a page: a paragraph that starts a page
-            // starts at the top margin, the way every page-based renderer does it.
-            double spacingBefore = currentLines.Count > 0 ? Math.Max(0, style.SpacingBefore) : 0;
+            // Space before never opens a page, or a column: a paragraph that
+            // starts one starts at the top margin, the way every page-based
+            // renderer does it.
+            double spacingBefore = ColumnHasContent() ? Math.Max(0, style.SpacingBefore) : 0;
+
+            // Composed against the first column and moved across as it is placed:
+            // the columns are equally wide, so a line wraps the same in any of
+            // them, and a paragraph that runs out of room part way through
+            // continues in the next one with nothing composed again.
             ParagraphLines composed = ComposeParagraph(
-                paragraph, marker, setup, paragraphIndex, wrapTop: y + spacingBefore);
+                paragraph, marker, setup, paragraphIndex,
+                columnWidthOverride: columns.Width, wrapTop: y + spacingBefore);
             y += spacingBefore;
 
             foreach (LayoutLine line in composed.Lines)
             {
                 y += line.LeadingSkip;
-                if (y + line.Height > contentBottom && currentLines.Count > 0)
+                if (y + line.Height > contentBottom && ColumnHasContent())
                 {
-                    BreakPage();
+                    BreakColumn();
                     if (truncated)
                         break;
                 }
 
                 line.Top = y;
+                line.Shift(columns.Offset(column));
                 currentLines.Add(line);
                 y += line.Height;
             }
@@ -484,7 +521,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 foreach (RowBox row in ComposeTable(nested, document, setup, left, width))
                 {
-                    row.PlaceAt(y, lines, cells, _paragraphTops);
+                    row.PlaceAt(y, 0, lines, cells, _paragraphTops);
                     y += row.Height;
                 }
 
@@ -539,18 +576,22 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         public List<CellBox> Boxes { get; } = [];
 
-        /// <summary>Moves the row to <paramref name="top"/> and hands it to the page.</summary>
-        public void PlaceAt(double top, List<LayoutLine> lines, List<LayoutCell> cells, Dictionary<int, double> paragraphTops)
+        /// <summary>
+        /// Moves the row to <paramref name="top"/>, and <paramref name="shift"/>
+        /// points across into the text column it lands in, and hands it to the page.
+        /// </summary>
+        public void PlaceAt(double top, double shift, List<LayoutLine> lines, List<LayoutCell> cells, Dictionary<int, double> paragraphTops)
         {
             foreach (CellBox box in Boxes)
-                cells.Add(new LayoutCell(new BRect(box.Left, top, box.Width, Height + box.ExtraHeight), box.Cell.Shading, box.Cell.Borders));
+                cells.Add(new LayoutCell(new BRect(box.Left + shift, top, box.Width, Height + box.ExtraHeight), box.Cell.Shading, box.Cell.Borders));
 
             foreach (LayoutCell cell in Cells)
-                cells.Add(new LayoutCell(new BRect(cell.Bounds.Left, cell.Bounds.Top + top, cell.Bounds.Width, cell.Bounds.Height), cell.Shading, cell.Borders));
+                cells.Add(new LayoutCell(new BRect(cell.Bounds.Left + shift, cell.Bounds.Top + top, cell.Bounds.Width, cell.Bounds.Height), cell.Shading, cell.Borders));
 
             foreach (LayoutLine line in Lines)
             {
                 line.Top += top;
+                line.Shift(shift);
                 lines.Add(line);
                 paragraphTops.TryAdd(line.ParagraphIndex, line.Top);
             }
@@ -1106,6 +1147,58 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         TextCapitalization.AllCaps => text.ToUpperInvariant(),
         _ => text,
     };
+
+    /// <summary>
+    /// The text columns a page is divided into: how many, how wide, and how far
+    /// each one sits from the first.
+    /// </summary>
+    /// <remarks>
+    /// The width comes from the box being laid out, not from the document's own
+    /// page, because a render can ask for different paper and the columns then
+    /// share out what that paper leaves. A continuous render has no page to fill
+    /// column by column and lays the text out as one; so does a page whose
+    /// columns would come out narrower than <see cref="MinimumWidth"/>, which a
+    /// word cannot be fitted into and the layout would otherwise spend a line
+    /// per character on.
+    /// </remarks>
+    private readonly record struct TextColumns(int Count, double Width, double Stride)
+    {
+        /// <summary>A column narrower than this, in points, is not laid out as one.</summary>
+        private const double MinimumWidth = 18;
+
+        public static TextColumns For(PageGeometry? geometry, DocumentPageBox setup, List<string> notes)
+        {
+            var single = new TextColumns(1, setup.ContentWidthPoints, 0);
+            if (geometry is null || !geometry.HasColumns || !geometry.IsUsable)
+                return single;
+
+            if (setup.Continuous)
+            {
+                notes.Add(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "laid out the document's {0} text columns as one: --continuous renders one tall page, " +
+                    "so there is no column bottom to move on from.",
+                    geometry.ColumnCount));
+                return single;
+            }
+
+            double width = (setup.ContentWidthPoints - (geometry.ColumnGap * (geometry.ColumnCount - 1))) / geometry.ColumnCount;
+            if (!(width >= MinimumWidth))
+            {
+                notes.Add(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "laid out the document's {0} text columns as one: on this page each would be narrower than {1} points.",
+                    geometry.ColumnCount,
+                    MinimumWidth));
+                return single;
+            }
+
+            return new TextColumns(geometry.ColumnCount, width, width + geometry.ColumnGap);
+        }
+
+        /// <summary>How far right of the first column <paramref name="column"/> starts.</summary>
+        public double Offset(int column) => column * Stride;
+    }
 
     /// <summary>The lines one paragraph produced, before pagination places them.</summary>
     private sealed class ParagraphLines(List<LayoutLine> lines)

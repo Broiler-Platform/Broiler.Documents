@@ -163,9 +163,9 @@ public static class DocxWriter
             sectPr.Add(reference);
         }
 
-        if (hasFirst || running.DifferentFirstPage)
-            sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "titlePg"));
-
+        // CT_SectPr is a sequence: the page size and margins, then the columns,
+        // then w:titlePg. A consumer that validates the order rejects the part
+        // otherwise, so the flag is held until the geometry is written.
         if (geometry is not null && geometry.IsUsable)
         {
             sectPr.Add(new XElement(
@@ -181,7 +181,18 @@ public static class DocxWriter
                 WordAttribute("header", Twips(geometry.HeaderDistance)),
                 WordAttribute("footer", Twips(geometry.FooterDistance)),
                 WordAttribute("gutter", "0")));
+
+            if (geometry.HasColumns)
+            {
+                sectPr.Add(new XElement(
+                    DocxNamespaces.Wordprocessing + "cols",
+                    WordAttribute("num", geometry.ColumnCount.ToString(CultureInfo.InvariantCulture)),
+                    WordAttribute("space", Twips(geometry.ColumnGap))));
+            }
         }
+
+        if (hasFirst || running.DifferentFirstPage)
+            sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "titlePg"));
 
         return sectPr;
     }

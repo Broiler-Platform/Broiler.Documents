@@ -171,6 +171,12 @@ document whose margins leave no column to write in gets none either, and is told
 so as `rtf.page.geometry` - the numbers are real, but the page they describe is
 not one anything can lay out.
 
+`\cols` divides the page into that many text columns, `\colsx` apart - 720
+twips when it is absent, as the specification says. Columns that leave no room
+keep the page and lose the columns, as `rtf.columns.geometry`. A write states
+both when there is more than one column. `\column`, the column break, is not
+read.
+
 This is the page, not sections. Everything else a section states is still
 ignored, including the section break kinds above.
 
@@ -390,6 +396,7 @@ anything a caller asked for that this codec does not do.
 | `rtf.codepage` | Info | Read | A code page this build does not carry decoded its high bytes through a Latin-1 fallback; `\uN` text is unaffected. Once per read. |
 | `rtf.embedded` | Info | Read | Pictures and objects were skipped. Once per read, and replaced by `document.capability.not-composed` when decoding was asked for. |
 | `rtf.page.geometry` | Warning | Read | The section properties described a page with no room to write on, so the page was not read. |
+| `rtf.columns.geometry` | Warning | Read | `\cols` and `\colsx` left no room to write in a column; the page was kept and read as one column. |
 | `rtf.pagebreak.empty` | Info | Read | A page break with no paragraph after it asks for a blank page, which this model cannot hold; the break was dropped. Once per read. |
 | `rtf.trailing` | Info | Read | Content followed the root group's closing brace; it is not part of the document and was not read. Once per read. |
 | `rtf.link` | Warning | Read, write | A hyperlink target the shared rule refuses. Reading drops the link; writing keeps the run as plain text. |
