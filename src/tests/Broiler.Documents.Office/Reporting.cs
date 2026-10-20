@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -237,8 +238,8 @@ internal static class OfficeReporting
             foreach (CheckResult result in group)
             {
                 writer.WriteStartElement("testcase");
-                writer.WriteAttributeString("classname", result.Group);
-                writer.WriteAttributeString("name", result.Name);
+                writer.WriteAttributeString("classname", SanitizeXml(result.Group));
+                writer.WriteAttributeString("name", SanitizeXml(result.Name));
                 writer.WriteAttributeString(
                     "time", result.Duration.TotalSeconds.ToString("0.000", CultureInfo.InvariantCulture));
 
@@ -246,7 +247,7 @@ internal static class OfficeReporting
                 {
                     writer.WriteStartElement("failure");
                     writer.WriteAttributeString("message", Single(result.Detail));
-                    writer.WriteString(result.Detail ?? string.Empty);
+                    writer.WriteString(SanitizeXml(result.Detail ?? string.Empty));
                     writer.WriteEndElement();
                 }
                 else if (result.Outcome == CheckOutcome.Skipped)
@@ -318,7 +319,47 @@ internal static class OfficeReporting
     }
 
     private static string Single(string? text) =>
-        (text ?? string.Empty).ReplaceLineEndings(" ").Trim();
+        SanitizeXml((text ?? string.Empty).ReplaceLineEndings(" ").Trim());
+
+    /// <summary>
+    /// Replaces characters that XML 1.0 forbids (such as U+0000 control characters
+    /// or unpaired UTF-16 surrogates emitted by malformed/fuzzed documents in
+    /// <c>sw/qa/extras</c>) with U+FFFD so <see cref="XmlWriter"/> never throws.
+    /// </summary>
+    private static string SanitizeXml(string text)
+    {
+        if (text.Length == 0)
+            return string.Empty;
+
+        var clean = new StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (char.IsHighSurrogate(c))
+            {
+                if (i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]) &&
+                    XmlConvert.IsXmlSurrogatePair(text[i + 1], c))
+                {
+                    clean.Append(c);
+                    clean.Append(text[++i]);
+                }
+                else
+                {
+                    clean.Append('\uFFFD');
+                }
+            }
+            else if (char.IsLowSurrogate(c))
+            {
+                clean.Append('\uFFFD');
+            }
+            else
+            {
+                clean.Append(XmlConvert.IsXmlChar(c) ? c : '\uFFFD');
+            }
+        }
+
+        return clean.ToString();
+    }
 }
 
 /// <summary>The facts about a run that a reader needs before any of its numbers mean anything.</summary>
