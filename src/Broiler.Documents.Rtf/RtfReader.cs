@@ -132,8 +132,10 @@ public static class RtfReader
 
         public DocumentReadResult Run(IReadOnlyList<RtfToken> tokens)
         {
-            foreach (RtfToken token in tokens)
+            int next = 0;
+            while (next < tokens.Count)
             {
+                RtfToken token = tokens[next++];
                 switch (token.Type)
                 {
                     case RtfTokenType.GroupStart:
@@ -149,7 +151,19 @@ public static class RtfReader
                         _stack.Push(_state);
                         break;
                     case RtfTokenType.GroupEnd:
-                        HandleGroupEnd();
+                        // The document is the {\rtf1 ...} group and ends with it.
+                        // Whatever follows its closing brace is not part of it, and
+                        // Word and LibreOffice both stop there. Reading on turned
+                        // the bytes after the end into body text: a file whose last
+                        // section had been repeated past the brace came out with
+                        // that section's footer, and the picture data beside it,
+                        // once for every copy.
+                        if (HandleGroupEnd())
+                        {
+                            ReportTrailingContent(tokens, next);
+                            next = tokens.Count;
+                        }
+
                         break;
                     case RtfTokenType.ControlWord:
                         HandleControlWord(token);
@@ -184,7 +198,11 @@ public static class RtfReader
             return new DocumentReadResult(document, _diagnostics, DocumentReadResult.StatusFrom(_diagnostics));
         }
 
-        private void HandleGroupEnd()
+        /// <summary>
+        /// Closes the current group, and says whether the group it closed was the
+        /// root one. A closing brace with no group open closes nothing.
+        /// </summary>
+        private bool HandleGroupEnd()
         {
             _sawStar = false;
             _pendingUnicodeSkip = 0;
@@ -207,8 +225,46 @@ public static class RtfReader
             else if (closing.Dest == RtfDestination.Shape)
                 FinishShape();
 
-            if (_stack.Count > 0)
-                _state = _stack.Pop();
+            if (_stack.Count == 0)
+                return false;
+
+            _state = _stack.Pop();
+            return _stack.Count == 0;
+        }
+
+        /// <summary>
+        /// Says once that the stream went on past the root group's closing brace.
+        /// Blank text and further closing braces are not worth a word: a file that
+        /// ends in a newline, a NUL or one brace too many has nothing after its
+        /// document that anybody wrote.
+        /// </summary>
+        private void ReportTrailingContent(IReadOnlyList<RtfToken> tokens, int from)
+        {
+            for (int i = from; i < tokens.Count; i++)
+            {
+                RtfToken token = tokens[i];
+                if (token.Type == RtfTokenType.GroupEnd ||
+                    (token.Type == RtfTokenType.Text && IsBlank(token.Text)))
+                {
+                    continue;
+                }
+
+                _diagnostics.Add(DocumentDiagnostic.Info(
+                    "rtf.trailing",
+                    "Content after the document's closing brace is not part of the document and was ignored."));
+                return;
+            }
+        }
+
+        private static bool IsBlank(string text)
+        {
+            foreach (char c in text)
+            {
+                if (c is not ('\0' or ' ' or '\t' or '\f'))
+                    return false;
+            }
+
+            return true;
         }
 
         private void HandleControlWord(RtfToken token)
@@ -231,7 +287,23 @@ public static class RtfReader
             if (_state.Dest == RtfDestination.ListTable)
                 return;
 
-            // Destination-setting keywords take effect regardless of the current destination.
+            // So is every other destination this reader skips. Skipping a group
+            // means skipping the groups inside it too, and this used to stop one
+            // level down: a footnote's hyperlink set its own destination and its
+            // result landed in the body beside the footnote mark, and a header
+            // inside a stylesheet left the stylesheet to become the page's header.
+            // A picture is still reported, because the report is about what the
+            // document lost, and a picture inside a skipped \*\shppict is a
+            // picture this reader did not import.
+            if (_state.Dest == RtfDestination.Skip)
+            {
+                if (kw is "pict" or "object")
+                    ReportEmbedded();
+                return;
+            }
+
+            // Destination-setting keywords take effect in every destination the
+            // reader walks rather than skips.
             switch (kw)
             {
                 case "fonttbl":
@@ -265,22 +337,7 @@ public static class RtfReader
                 case "pict":
                 case "object":
                     _state.Dest = RtfDestination.Skip;
-                    if (!_reportedEmbedded)
-                    {
-                        // A caller that asked for image decoding gets a warning under
-                        // the shared capability code, not the bland note: it asked for
-                        // something this reader cannot do, and the document it receives
-                        // is missing content it expected.
-                        _diagnostics.Add(_embeddedDecodingRequested
-                            ? DocumentDiagnostic.Warning(
-                                DocumentDiagnosticCodes.CapabilityNotComposed,
-                                "Embedded image decoding was requested, but this reader composes no image service; pictures and objects were skipped.")
-                            : DocumentDiagnostic.Info(
-                                "rtf.embedded",
-                                "Embedded pictures/objects are not imported and were skipped."));
-                        _reportedEmbedded = true;
-                    }
-
+                    ReportEmbedded();
                     return;
                 // \titlepg is what makes \headerf and \footerf mean anything,
                 // and what makes a band the first page does not state empty there
@@ -1020,6 +1077,25 @@ public static class RtfReader
             _diagnostics.Add(DocumentDiagnostic.Info(
                 "rtf.pagebreak.empty",
                 "A page break with no paragraph after it asks for a blank page, which this model cannot hold; the break was dropped."));
+        }
+
+        private void ReportEmbedded()
+        {
+            if (_reportedEmbedded)
+                return;
+
+            // A caller that asked for image decoding gets a warning under
+            // the shared capability code, not the bland note: it asked for
+            // something this reader cannot do, and the document it receives
+            // is missing content it expected.
+            _diagnostics.Add(_embeddedDecodingRequested
+                ? DocumentDiagnostic.Warning(
+                    DocumentDiagnosticCodes.CapabilityNotComposed,
+                    "Embedded image decoding was requested, but this reader composes no image service; pictures and objects were skipped.")
+                : DocumentDiagnostic.Info(
+                    "rtf.embedded",
+                    "Embedded pictures/objects are not imported and were skipped."));
+            _reportedEmbedded = true;
         }
 
         private void AppendChar(int code) => AppendBody(((char)code).ToString());

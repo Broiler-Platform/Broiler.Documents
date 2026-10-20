@@ -24,10 +24,24 @@ internal static class HtmlReader
         "tbody", "td", "tfoot", "th", "thead", "tr",
     };
 
+    /// <summary>
+    /// Elements whose content is not text the document says: the ones the HTML
+    /// rendering rules give <c>display: none</c> ("Hidden elements"), and the
+    /// external or embedded content this reader does not fetch or draw.
+    /// </summary>
+    /// <remarks>
+    /// <c>noframes</c> and <c>noembed</c> cost the most when they were missing,
+    /// because the parser reads their content as raw text: a document that put
+    /// its markup inside one came out with that markup, tags and all, as its
+    /// prose. <c>rp</c> is on the rendering list and deliberately not on this
+    /// one. It holds the parentheses a reader without ruby support shows around
+    /// the annotation, and this model has no ruby.
+    /// </remarks>
     private static readonly HashSet<string> SkippedElements = new(StringComparer.OrdinalIgnoreCase)
     {
-        "base", "canvas", "embed", "head", "iframe", "img", "input", "link",
-        "meta", "noscript", "object", "script", "style", "svg", "template",
+        "area", "base", "basefont", "canvas", "datalist", "embed", "head",
+        "iframe", "img", "input", "link", "meta", "noembed", "noframes",
+        "noscript", "object", "param", "script", "style", "svg", "template",
         "title",
     };
 
@@ -594,6 +608,14 @@ internal static class HtmlReader
         public void AppendText(string text, InlineStyle style, bool preserveWhitespace)
         {
             // DOM text already has its HTML character references decoded.
+            //
+            // A NUL is not text. The tree builder ignores one in body content,
+            // so a document's DOM never holds it there; this parser keeps it,
+            // and the renderer drew it as a missing glyph in the middle of a
+            // word. Where the standard turns a NUL into U+FFFD instead - &#0;,
+            // and inside a textarea - it is dropped here too, because by the
+            // time the text arrives the two cases look the same.
+            text = text.Replace("\0", string.Empty, StringComparison.Ordinal);
             string normalized = NormalizeText(text, preserveWhitespace);
             if (normalized.Length == 0)
                 return;

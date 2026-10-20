@@ -9,8 +9,10 @@ below are exercised by `RtfConformanceTests`, `RtfLimitTests`,
 `RtfRunningContentTests`, `RtfPageGeometryTests`, `RtfShapeTests`, and
 `RtfRoundTripTests`, `RtfLineSpacingTests`, `RtfDefaultFontTests`, and
 `RtfFontNameTests`, plus `RtfResourceTableTests` for resource collection across
-body, running content and shape text, and `RtfDefaultSizeTests` for inherited
-font sizes on export.
+body, running content and shape text, `RtfDefaultSizeTests` for inherited
+font sizes on export, `RtfSkippedDestinationTests` for what a skipped
+destination keeps to itself, and `RtfDocumentEndTests` for where the document
+stops.
 
 `RtfUnicodeFallbackTests` covers escaped fallback characters after `\uN`:
 literal text, hexadecimal bytes and character-producing control symbols count
@@ -233,6 +235,16 @@ ignorable destination introduced by `\*` - `\*\shpinst` excepted, since the
 reader understands that one. `\binN` binary data is skipped at the tokenizer
 (reported as `rtf.bin` when it exceeds `MaxBinBytes`).
 
+A skipped destination is skipped with every group inside it. A destination the
+reader does understand - a field, a header or footer, a font or colour table, a
+shape - has no effect when it sits inside one this reader skips. That used to
+stop one level down: a hyperlink in a footnote put its text in the body beside
+the footnote mark (LibreOffice reads `A{\footnote ...link...}B` as `A1B`; this
+reader read it as `AlinkB` and now reads `AB`), and a header inside a stylesheet
+became the page's header. The one thing still said about a skipped subtree is
+that it held a picture or object, because `rtf.embedded` reports what the
+document lost and a picture inside `{\*\shppict ...}` is a picture all the same.
+
 `\listtable` and `\listoverridetable`, with or without `\*`, are detected
 and skipped. They produce one warning, `rtf.list`, per read, so the read status
 is `Partial`. The warning reports unsupported list semantics; it does not claim
@@ -245,6 +257,23 @@ limits still apply. This is detection, not list-table interpretation.
 `\header` and `\footer` are not on that list. Their content goes to the
 document's running content (above): none of it reaches the body, and none of it
 is lost.
+
+## The end of the document
+
+The document is the `{\rtf1 ...}` group and ends at its closing brace. What
+follows that brace is not read, which is what Word and LibreOffice both do: the
+grammar is `'{' <header> <document> '}'`, and bytes after the last brace are not
+in it. This reader used to carry on, so a stray `}` in the middle of a file
+ended the document for everybody else and not for it, and a file whose last
+section had been repeated past the brace came out with that section's footer
+and picture data once per copy.
+
+Trailing content is reported once as `rtf.trailing` (informational). Blank
+text (spaces, tabs, a NUL) and further closing braces are not reported, because
+a file ending in a newline, a terminator or one brace too many has nothing after
+its document that anybody wrote. A closing brace with no group open closes
+nothing and does not end the read, and a root group that never closes is read to
+the end of the input, as before.
 
 ## Limits (`DocumentLimits`)
 
@@ -362,6 +391,7 @@ anything a caller asked for that this codec does not do.
 | `rtf.embedded` | Info | Read | Pictures and objects were skipped. Once per read, and replaced by `document.capability.not-composed` when decoding was asked for. |
 | `rtf.page.geometry` | Warning | Read | The section properties described a page with no room to write on, so the page was not read. |
 | `rtf.pagebreak.empty` | Info | Read | A page break with no paragraph after it asks for a blank page, which this model cannot hold; the break was dropped. Once per read. |
+| `rtf.trailing` | Info | Read | Content followed the root group's closing brace; it is not part of the document and was not read. Once per read. |
 | `rtf.link` | Warning | Read, write | A hyperlink target the shared rule refuses. Reading drops the link; writing keeps the run as plain text. |
 | `rtf.pagebreak.dropped` | Warning | Write | A page break on a header, footer, or shape paragraph was not written; there is no page for it to start. |
 | `rtf.table.flattened` | Warning | Write | A table was written as its cell paragraphs, in row order; this codec carries no table structure. |
