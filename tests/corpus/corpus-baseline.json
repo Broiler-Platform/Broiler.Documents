@@ -1,7 +1,7 @@
 {
   "$schema": "corpus-baseline.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-09-06",
+  "updated": "2026-10-20",
   "policy": {
     "records": "Only the round trips that lose something or warn about something. Everything this corpus can do that is absent from the list below is asserted to round trip clean, so a new loss fails by not being listed.",
     "reproduce": "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at.",
@@ -301,7 +301,6 @@
       "source": "docx",
       "via": "rtf",
       "differences": [
-        "paragraph-style@p0: line spacing 1.5 vs 1",
         "paragraph-style@p1: list Bullet vs None"
       ],
       "diagnostics": [
@@ -309,7 +308,7 @@
       ],
       "state": "documented",
       "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -491,13 +490,12 @@
         "paragraph-style@p3: list Bullet vs None",
         "paragraph-style@p4: list Bullet vs None",
         "paragraph-style@p5: list Numbered vs None",
-        "paragraph-style@p6: list Numbered vs None",
-        "paragraph-style@p8: line spacing 1.5 vs 1"
+        "paragraph-style@p6: list Numbered vs None"
       ],
       "diagnostics": [],
       "state": "documented",
       "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
+      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -623,20 +621,6 @@
     },
     {
       "sample": "indent-spacing",
-      "source": "docx",
-      "via": "rtf",
-      "differences": [
-        "paragraph-style@p3: line spacing 1.5 vs 1"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "indent-spacing",
       "source": "html",
       "via": "markdown",
       "differences": [
@@ -657,20 +641,6 @@
     },
     {
       "sample": "indent-spacing",
-      "source": "html",
-      "via": "rtf",
-      "differences": [
-        "paragraph-style@p3: line spacing 1.5 vs 1"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "indent-spacing",
       "source": "odt",
       "via": "markdown",
       "differences": [
@@ -686,20 +656,6 @@
       "state": "documented",
       "reference": "docs/notes/markdown.md",
       "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "indent-spacing",
-      "source": "odt",
-      "via": "rtf",
-      "differences": [
-        "paragraph-style@p3: line spacing 1.5 vs 1"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
@@ -710,6 +666,7 @@
       "differences": [
         "paragraph-style@p1: indent level 1 vs 0",
         "paragraph-style@p2: indent level 2 vs 0",
+        "paragraph-style@p3: line spacing 1.5 vs 1",
         "paragraph-style@p3: spacing before 12 vs 0",
         "paragraph-style@p3: spacing after 12 vs 0"
       ],
@@ -1020,7 +977,6 @@
       "source": "odt",
       "via": "rtf",
       "differences": [
-        "paragraph-style@p1: line spacing 1.5 vs 1",
         "paragraph-style@p1: spacing before 5.669 vs 5.65",
         "paragraph-style@p2: list Bullet vs None",
         "paragraph-style@p3: list Bullet vs None",
@@ -1031,7 +987,7 @@
       ],
       "state": "documented",
       "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader ignores line-spacing control words. docs/notes/rtf.md lists \\sl and \\slmult under Ignored - parsed, no effect on the model. Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+      "why": "Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
     },
