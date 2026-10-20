@@ -1085,13 +1085,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             1.0,
             (columnWidthOverride ?? setup.ContentWidthPoints) - indent);
 
-        BFontStyle defaultFont = FontFor(InlineStyle.Default);
+        // An empty line has no run to measure, so it is as tall as the paragraph
+        // mark says - the document's default only where the mark says nothing.
+        BFontStyle defaultFont = FontFor(paragraph.MarkStyle);
         LayoutPiece? markerPiece = null;
         double hang = 0;
 
         if (marker is not null)
         {
-            InlineStyle markerStyle = paragraph.Runs.Count > 0 ? paragraph.Runs[0].Style : InlineStyle.Default;
+            InlineStyle markerStyle = paragraph.Runs.Count > 0 ? paragraph.Runs[0].Style : paragraph.MarkStyle;
             markerPiece = MakeTextPiece(marker, markerStyle, decorateLink: false);
             hang = Math.Min(columnWidth * 0.5, markerPiece.Width + _settings.ListMarkerGapPoints);
         }

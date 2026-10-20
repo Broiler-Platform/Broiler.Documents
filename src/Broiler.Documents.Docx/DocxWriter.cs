@@ -567,6 +567,16 @@ public static class DocxWriter
     {
         var element = new XElement(DocxNamespaces.Wordprocessing + "p");
         XElement? properties = BuildParagraphProperties(paragraph.Style);
+
+        // The mark's w:rPr closes CT_PPr's base properties and comes before a
+        // w:sectPr, which is added after this. A mark carries no link and no
+        // picture, so those parts of the model's style are not its to write.
+        if (BuildRunProperties(paragraph.MarkStyle with { LinkHref = null, Image = null }, context) is XElement mark)
+        {
+            properties ??= new XElement(DocxNamespaces.Wordprocessing + "pPr");
+            properties.Add(mark);
+        }
+
         if (properties is not null)
             element.Add(properties);
 

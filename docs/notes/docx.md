@@ -8,6 +8,12 @@ Open XML WordprocessingML package parts.
 - Main document package discovery through `_rels/.rels` with fallback to
   `word/document.xml`.
 - Paragraphs, empty paragraphs, tabs, and soft line breaks.
+- The paragraph mark's formatting, `w:pPr/w:rPr`, as
+  `RichTextParagraph.MarkStyle`: the run formatting the paragraph style gives,
+  then the mark's own. An empty paragraph has no run, and the mark is what its
+  line is as tall as; a document whose blank lines are 10-point marks under a
+  12-point default drew each a fifth too tall without it. Written back as
+  `w:rPr` at the end of `w:pPr`, before a section's `w:sectPr`.
 - Block-level containers, walked recursively so their paragraphs are read rather
   than dropped: tables (`w:tbl`/`w:tr`/`w:tc`, including nested tables),
   structured document tags (`w:sdt`), accepted revisions (`w:ins`, `w:moveTo`),

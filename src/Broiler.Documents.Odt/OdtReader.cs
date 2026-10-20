@@ -1149,7 +1149,10 @@ internal static class OdtReader
         foreach (XElement properties in context.Styles.TextPropertiesForParagraph(styleName))
             inherited = ApplyTextProperties(properties, inherited, context.Styles, context.Builder);
 
-        context.Builder.StartParagraph(paragraphStyle);
+        // ODF has no paragraph mark of its own: what an empty paragraph is as
+        // tall as is its paragraph style's text properties, the formatting every
+        // run in it starts from.
+        context.Builder.StartParagraph(paragraphStyle, inherited);
         ReadInlineContent(paragraph, context, inherited, depth + 1);
         context.Builder.FinishParagraph();
     }

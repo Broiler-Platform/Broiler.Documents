@@ -487,8 +487,9 @@ internal static class DocxReader
         string? paragraphStyleId = DocxValueReader.WordValue(pPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
 
         ParagraphStyle paragraphStyle = ReadParagraphStyle(pPr, paragraphStyleId, context);
-        context.Builder.StartParagraph(paragraphStyle);
-        ReadParagraphChildren(paragraph.Elements(), context, ReadInheritedRunStyle(paragraphStyleId, context));
+        InlineStyle inherited = ReadInheritedRunStyle(paragraphStyleId, context);
+        context.Builder.StartParagraph(paragraphStyle, ReadMarkStyle(pPr, inherited, context));
+        ReadParagraphChildren(paragraph.Elements(), context, inherited);
         context.Builder.FinishParagraph();
 
         // A paragraph belongs to the section it ends, so the cursor moves only
@@ -523,6 +524,29 @@ internal static class DocxReader
             style = ApplyRunProperties(rPr, style, context.Styles.Theme);
 
         return style;
+    }
+
+    /// <summary>
+    /// The paragraph mark's formatting: what a run would inherit, then the
+    /// <c>w:rPr</c> inside <c>w:pPr</c>, which ECMA-376 §17.3.1.29 says applies to
+    /// the mark and to nothing else.
+    /// </summary>
+    /// <remarks>
+    /// It is read as a run's is, character style first, so a mark that names
+    /// one gets what the style says.
+    /// </remarks>
+    private static InlineStyle ReadMarkStyle(XElement? pPr, InlineStyle inherited, DocxReadContext context)
+    {
+        XElement? rPr = pPr?.Element(DocxNamespaces.Wordprocessing + "rPr");
+        if (rPr is null)
+            return inherited;
+
+        InlineStyle style = inherited;
+        string? characterStyleId = DocxValueReader.WordValue(rPr.Element(DocxNamespaces.Wordprocessing + "rStyle"));
+        foreach (XElement styleRunProperties in context.Styles.RunPropertiesForCharacterStyle(characterStyleId))
+            style = ApplyRunProperties(styleRunProperties, style, context.Styles.Theme);
+
+        return ApplyRunProperties(rPr, style, context.Styles.Theme);
     }
 
     private static void ReadParagraphChildren(
