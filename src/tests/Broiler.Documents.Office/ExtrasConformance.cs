@@ -428,8 +428,10 @@ internal static class ExtrasConformance
                 if (current % downloadStep == 0 || current == totalCandidates)
                 {
                     int percent = (int)Math.Min(100, Math.Round(current * 100.0 / totalCandidates));
+                    string utc = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
                     Console.WriteLine(
-                        "download    " + current.ToString(CultureInfo.InvariantCulture) + "/" +
+                        "download    [" + utc + "] " +
+                        current.ToString(CultureInfo.InvariantCulture) + "/" +
                         totalCandidates.ToString(CultureInfo.InvariantCulture) +
                         " (" + percent.ToString(CultureInfo.InvariantCulture) + "%)");
                 }

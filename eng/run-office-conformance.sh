@@ -244,7 +244,11 @@ find_soffice() {
 
 # ---------------------------------------------------------------------------
 
-echo "--- Step 1: Provisioning LibreOffice and poppler ---"
+utc_now() {
+    date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+echo "--- [$(utc_now)] Step 1: Provisioning LibreOffice and poppler ---"
 
 if [[ "$SKIP_INSTALL" == "true" ]]; then
     echo "  ⏭ --skip-install given; using whatever is on PATH."
@@ -301,7 +305,7 @@ else
 fi
 
 echo ""
-echo "--- Step 2: Checking the LibreOffice version against the baseline ---"
+echo "--- [$(utc_now)] Step 2: Checking the LibreOffice version against the baseline ---"
 
 # `--version` on soffice.com exits 0 and prints one line. It is checked here
 # rather than inside the suite because a version mismatch is a fact about
@@ -326,7 +330,7 @@ else
 fi
 
 echo ""
-echo "--- Step 3: Materialising the pinned font set ---"
+echo "--- [$(utc_now)] Step 3: Materialising the pinned font set ---"
 
 if [[ ${#FONT_DIRS[@]} -eq 0 && -n "${BROILER_OFFICE_FONT_DIR:-}" ]]; then
     FONT_DIRS+=("$BROILER_OFFICE_FONT_DIR")
@@ -348,7 +352,7 @@ else
 fi
 
 echo ""
-echo "--- Step 4: Building the office conformance suite ---"
+echo "--- [$(utc_now)] Step 4: Building the office conformance suite ---"
 
 # `-c Release` and not a solution configuration: Broiler.Documents.slnx maps
 # every solution configuration to the project configuration `Release`, so this
@@ -361,7 +365,7 @@ fi
 echo "  ✓ Built."
 
 echo ""
-echo "--- Step 5: Running the office conformance suite ---"
+echo "--- [$(utc_now)] Step 5: Running the office conformance suite ---"
 
 RUNNER_ARGS=(
     --report "$JSON_FILE"

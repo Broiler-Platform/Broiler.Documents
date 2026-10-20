@@ -126,6 +126,7 @@ jobs:
       # measures. Carlito and Caladea play the same role for Calibri and Cambria.
       - name: Provision LibreOffice, poppler and the pinned fonts
         run: |
+          echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starting step: Provision LibreOffice, poppler and the pinned fonts"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libreoffice-writer \
@@ -139,6 +140,7 @@ jobs:
 
       - name: Build
         run: |
+          echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starting step: Build"
           dotnet build src/tests/Broiler.Documents.Office/Broiler.Documents.Office.csproj \
             -c Release --nologo
 
@@ -160,6 +162,7 @@ jobs:
           OFFICE_SEED_CORPUS: ${{ inputs.seedCorpus && 'true' || 'false' }}
           OFFICE_UPDATE_BASELINE: ${{ inputs.updateBaseline || 'false' }}
         run: |
+          echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starting step: Run the office conformance suite"
           # Deliberately not `set -e`. The runner exits with its failure count,
           # so aborting here would kill the step before the output is printed
           # and a failing run would arrive with no failures in it.

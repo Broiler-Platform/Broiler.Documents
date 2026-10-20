@@ -241,7 +241,8 @@ internal static class Program
                 {
                     int percent = (int)Math.Min(100, Math.Round(current * 100.0 / totalDocs));
                     Console.WriteLine(
-                        "status      " + current.ToString(CultureInfo.InvariantCulture) + "/" +
+                        "status      [" + UtcTimestamp() + "] " +
+                        current.ToString(CultureInfo.InvariantCulture) + "/" +
                         totalDocs.ToString(CultureInfo.InvariantCulture) +
                         " (" + percent.ToString(CultureInfo.InvariantCulture) + "%)");
                 }
@@ -418,7 +419,8 @@ internal static class Program
                 {
                     int percent = (int)Math.Min(100, Math.Round(current * 100.0 / totalSamples));
                     Console.WriteLine(
-                        "status      " + current.ToString(CultureInfo.InvariantCulture) + "/" +
+                        "status      [" + UtcTimestamp() + "] " +
+                        current.ToString(CultureInfo.InvariantCulture) + "/" +
                         totalSamples.ToString(CultureInfo.InvariantCulture) +
                         " (" + percent.ToString(CultureInfo.InvariantCulture) + "%)");
                 }
@@ -624,6 +626,9 @@ internal static class Program
         RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows"
         : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "macos"
         : "linux";
+
+    private static string UtcTimestamp() =>
+        DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Sorted by name, not by when the check finished.
