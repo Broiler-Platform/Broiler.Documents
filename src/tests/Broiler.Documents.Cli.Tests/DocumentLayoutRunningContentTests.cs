@@ -148,8 +148,67 @@ public sealed class DocumentLayoutRunningContentTests
         Assert.Equal(first.Top + first.Height, last.Top, 3);
     }
 
+    [Fact]
+    public void A_Header_Past_The_Top_Margin_Pushes_The_Text_Down()
+    {
+        // ECMA-376 §17.6.11: a positive top margin moves the text down off the
+        // header. A header set at the margin itself used to be left out, which
+        // took tdf168017.docx's header off every page of its last sections.
+        LayoutResult result = Layout(WithRunning("body", "letterhead", null)
+            .WithPageGeometry(PageGeometry.A4 with { HeaderDistance = 72 }));
+
+        LayoutLine header = Assert.IsType<LayoutLine>(Line(result, "letterhead"));
+        LayoutLine body = Assert.IsType<LayoutLine>(Line(result, "body"));
+        Assert.Equal(72, header.Top, 3);
+        Assert.Equal(header.Top + header.Height, body.Top, 3);
+        Assert.DoesNotContain(result.Notes, note => note.Contains("declared distance", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_Section_With_A_Page_Of_Its_Own_Sets_Its_Header_There()
+    {
+        // tdf168017.docx's first section sets its header 36 points down in a
+        // margin of 50; its last, at 36 in a margin of 36. Each page's header
+        // goes where its own section says, and only the second pushes its text.
+        PageGeometry last = PageGeometry.A4 with { MarginTop = 36, HeaderDistance = 36 };
+        PageGeometry first = PageGeometry.A4 with { MarginTop = 100, HeaderDistance = 20 };
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [
+                RichTextParagraph.Plain("first section"),
+                RichTextParagraph.Create("last section", InlineStyle.Default,
+                    ParagraphStyle.Default with { PageBreakBefore = true }),
+            ])
+            .WithPageGeometry(last)
+            .WithSections([new DocumentSection(0, 1, 1, 0, first), new DocumentSection(1, 1, 1, 0)])
+            .WithRunningContent(RunningContent.Empty.WithHeader(
+                PageSelection.Default, [RichTextParagraph.Plain("letterhead")]));
+
+        using var images = new ImageStore();
+        LayoutResult result = new DocumentLayout(new LayoutSettings(), images).Layout(
+            document,
+            new DocumentPageBox(last.Width, last.Height, last.MarginTop, last.MarginRight, last.MarginBottom, last.MarginLeft));
+
+        Assert.Equal(2, result.Pages.Count);
+        LayoutLine[] headers = [.. result.Pages.Select(page => page.Lines.Single(line =>
+            string.Concat(line.Pieces.Select(piece => piece.Text)) == "letterhead"))];
+        Assert.Equal(20, headers[0].Top, 3);
+        Assert.Equal(36, headers[1].Top, 3);
+        Assert.Equal(100, Line(result, "first section")!.Top, 3);
+        Assert.Equal(headers[1].Top + headers[1].Height, Line(result, "last section")!.Top, 3);
+    }
+
+    [Fact]
+    public void A_Header_That_Fits_Its_Margin_Moves_Nothing()
+    {
+        LayoutResult plain = Layout(RichTextDocument.FromPlainText("body").WithPageGeometry(PageGeometry.A4));
+        LayoutResult decorated = Layout(WithRunning("body", "letterhead", null)
+            .WithPageGeometry(PageGeometry.A4 with { HeaderDistance = 36 }));
+
+        Assert.Equal(Line(plain, "body")!.Top, Line(decorated, "body")!.Top, 3);
+    }
+
     [Theory]
-    [InlineData(72)]
+    [InlineData(500)]
     [InlineData(-1)]
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]
@@ -209,10 +268,28 @@ public sealed class DocumentLayoutRunningContentTests
     }
 
     [Fact]
+    public void A_Footer_Past_The_Bottom_Margin_Pushes_The_Text_Up()
+    {
+        // Enough lines to fill the page, so where the text stops is what the
+        // footer leaves it.
+        string body = string.Join("\n", Enumerable.Range(0, 200).Select(i => "line " + i));
+        LayoutResult result = Layout(WithRunning(body, null, "footer")
+            .WithPageGeometry(PageGeometry.A4 with { FooterDistance = 72 }));
+
+        LayoutLine footer = Assert.IsType<LayoutLine>(Line(result, "footer"));
+        Assert.Equal(result.Setup.HeightPoints - 72, footer.Top + footer.Height, 3);
+        LayoutLine lastOnPageOne = result.Pages[0].Lines
+            .Where(line => !ReferenceEquals(line, footer))
+            .MaxBy(line => line.Top + line.Height)!;
+        Assert.True(lastOnPageOne.Top + lastOnPageOne.Height <= footer.Top + 0.001);
+        Assert.True(result.Pages.Count > 1);
+    }
+
+    [Fact]
     public void A_Footer_That_Cannot_Fit_At_Its_Distance_Is_Reported()
     {
         RichTextDocument document = WithRunning("body", null, "footer")
-            .WithPageGeometry(PageGeometry.A4 with { FooterDistance = 72 });
+            .WithPageGeometry(PageGeometry.A4 with { FooterDistance = 500 });
         LayoutResult result = Layout(document);
         Assert.Null(Line(result, "footer"));
         Assert.Contains(result.Notes, note => note.Contains("footer", StringComparison.Ordinal));

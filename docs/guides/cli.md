@@ -402,7 +402,9 @@ alignment, indents, list markers, line and paragraph spacing, inline images,
 tables (a row breaks across a page cell by cell unless it says it may not),
 text columns filled one after another, sections in their own columns and
 margins with a section's columns balanced where the next follows on the page,
-running headers and footers, anchored shapes in their stated stacking order,
+running headers and footers - each at its own section's distance, with the text
+moved clear of one that runs past its margin - anchored shapes in their stated
+stacking order,
 and pagination. It has no floats,
 footnotes, hyphenation, kerning pairs, or bidirectional reordering — mostly
 because the document model cannot express them, so there is nothing to lay

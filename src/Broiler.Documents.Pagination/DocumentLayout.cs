@@ -55,6 +55,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private RunningContent _running = RunningContent.Empty;
     private double? _headerDistance;
     private double? _footerDistance;
+    private PageFrame? _frame;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
@@ -80,6 +81,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _running = setup.Continuous ? RunningContent.Empty : document.RunningContent;
         _headerDistance = document.PageGeometry?.HeaderDistance;
         _footerDistance = document.PageGeometry?.FooterDistance;
+        _frame = null;
         _documentShapes = document.Shapes;
         _paragraphTops.Clear();
         _wrap = new TextWrapExclusions();
@@ -114,15 +116,32 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         int ignoredBreaks = 0;
 
         // The top and foot of the text on a page the section starts: its own
-        // margins where it states them, the box's otherwise.
+        // margins where it states them, the box's otherwise, each moved clear
+        // of the header and footer the page draws.
         (double Top, double Bottom) BandOf(DocumentSection? section)
         {
-            if (setup.Continuous || !sectionPages || section?.Page is not PageGeometry page)
+            if (setup.Continuous)
                 return (setup.ContentTopPoints, setup.ContentTopPoints + columnHeight);
 
-            double top = Math.Clamp(page.MarginTop, 0, setup.HeightPoints - 1);
-            return (top, Math.Max(top + 1, setup.HeightPoints - page.MarginBottom));
+            if (!sectionPages || section?.Page is not PageGeometry page)
+            {
+                _frame = FrameFor(
+                    pages.Count + 1, setup, setup.MarginTopPoints, setup.MarginBottomPoints,
+                    _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints);
+            }
+            else
+            {
+                double left = Math.Clamp(page.MarginLeft, 0, setup.WidthPoints - 1);
+                _frame = FrameFor(
+                    pages.Count + 1, setup, Math.Clamp(page.MarginTop, 0, setup.HeightPoints - 1), page.MarginBottom,
+                    page.HeaderDistance, page.FooterDistance, left, Math.Max(1, setup.WidthPoints - page.MarginRight - left));
+            }
+
+            return (_frame.TextTop, _frame.TextBottom);
         }
+
+        (pageTop, contentBottom) = BandOf(null);
+        y = pageTop;
 
         TextColumns ColumnsOf(DocumentSection? section)
         {
@@ -535,25 +554,32 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     private LayoutPage NewPage(int number, DocumentPageBox setup, List<LayoutLine> lines, List<LayoutCell> cells)
     {
-        // Page one takes the first-page selection and even-numbered pages the
-        // even one, each falling back to the default.
-        PageSelection selection = number == 1
-            ? PageSelection.First
-            : number % 2 == 0 ? PageSelection.Even : PageSelection.Default;
+        PageSelection selection = SelectionFor(number);
+
+        // The frame the page's text was laid out in. A page made after the text
+        // ran out, to stand a page-anchored shape on, has none of its own and
+        // takes the last page's margins with its own header and footer.
+        PageFrame frame = _frame is { } current
+            ? current.Number == number ? current : FrameFor(number, setup, current)
+            : FrameFor(
+                number, setup, setup.MarginTopPoints, setup.MarginBottomPoints,
+                _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints);
 
         var all = new List<LayoutLine>(lines);
         all.AddRange(RunningLines(
             _running.EffectiveHeader(selection),
             setup,
+            frame,
             top: 0,
-            band: setup.MarginTopPoints,
-            topDistance: _headerDistance));
+            band: frame.TextTop,
+            topDistance: frame.HeaderDistance));
         all.AddRange(RunningLines(
             _running.EffectiveFooter(selection),
             setup,
-            top: setup.ContentTopPoints + setup.ContentHeightPoints,
-            band: setup.MarginBottomPoints,
-            bottomDistance: _footerDistance));
+            frame,
+            top: frame.TextBottom,
+            band: setup.HeightPoints - frame.TextBottom,
+            bottomDistance: frame.FooterDistance));
 
         // One list and one ordering across the body and the running bands, because
         // that is how the formats state it: a letterhead's stripe is anchored in
@@ -572,6 +598,83 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells);
     }
+
+    /// <summary>
+    /// Page one takes the first-page selection and even-numbered pages the even
+    /// one, each falling back to the default.
+    /// </summary>
+    private static PageSelection SelectionFor(int number) =>
+        number == 1
+            ? PageSelection.First
+            : number % 2 == 0 ? PageSelection.Even : PageSelection.Default;
+
+    /// <summary>
+    /// The margins, header and footer distances and text band of page
+    /// <paramref name="number"/>, its text moved clear of the header and footer
+    /// that page draws.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A header sits at its declared distance from the top edge, and where it
+    /// runs past the top margin the text starts below it rather than under it:
+    /// ECMA-376 §17.6.11 says a positive top margin pushes the text down to keep
+    /// it off the header, and a positive bottom margin up off the footer, and
+    /// Word and LibreOffice both draw it so. This layout used to leave such a
+    /// header out. A contract whose last sections set the header at the top
+    /// margin itself, with no room between, drew no header on any page.
+    /// </para>
+    /// <para>
+    /// A band with no declared distance is centred in its margin and moves
+    /// nothing, and a band that would take more than half of the text's height
+    /// moves nothing either: it is reported and left out, as one taller than
+    /// its margin always was, rather than squeezing the text to a sliver.
+    /// </para>
+    /// </remarks>
+    private PageFrame FrameFor(int number, DocumentPageBox setup, double marginTop, double marginBottom,
+        double? headerDistance, double? footerDistance, double left, double width)
+    {
+        double top = marginTop;
+        double bottom = Math.Max(top + 1, setup.HeightPoints - marginBottom);
+        PageSelection selection = SelectionFor(number);
+
+        if (headerDistance is double fromTop && double.IsFinite(fromTop) && fromTop >= 0)
+        {
+            double header = RunningHeight(_running.EffectiveHeader(selection), setup, left, width);
+            double overrun = fromTop + header - top;
+            if (header > 0 && overrun > 0 && overrun <= (bottom - top) / 2)
+                top += overrun;
+        }
+
+        if (footerDistance is double fromBottom && double.IsFinite(fromBottom) && fromBottom >= 0)
+        {
+            double footer = RunningHeight(_running.EffectiveFooter(selection), setup, left, width);
+            double overrun = fromBottom + footer - (setup.HeightPoints - bottom);
+            if (footer > 0 && overrun > 0 && overrun <= (bottom - top) / 2)
+                bottom -= overrun;
+        }
+
+        return new PageFrame(number, marginTop, marginBottom, headerDistance, footerDistance, left, width, top, bottom);
+    }
+
+    /// <summary>Page <paramref name="number"/>'s frame on the paper and margins of <paramref name="like"/>.</summary>
+    private PageFrame FrameFor(int number, DocumentPageBox setup, PageFrame like) =>
+        FrameFor(number, setup, like.MarginTop, like.MarginBottom, like.HeaderDistance, like.FooterDistance, like.Left, like.Width);
+
+    /// <summary>
+    /// The paper a page is laid out on: the margins and band distances it takes
+    /// them from, the text column its header and footer are set in, and where its
+    /// text starts and ends.
+    /// </summary>
+    private sealed record PageFrame(
+        int Number,
+        double MarginTop,
+        double MarginBottom,
+        double? HeaderDistance,
+        double? FooterDistance,
+        double Left,
+        double Width,
+        double TextTop,
+        double TextBottom);
 
     /// <summary>
     /// Adds the wrapping shapes anchored to page <paramref name="number"/> to the
@@ -1016,28 +1119,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// block is centred. Content that cannot fit is reported, not drawn across
     /// the body.
     /// </summary>
-    private List<LayoutLine> RunningLines(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double top, double band,
-        double? bottomDistance = null, double? topDistance = null)
+    private List<LayoutLine> RunningLines(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, PageFrame frame,
+        double top, double band, double? bottomDistance = null, double? topDistance = null)
     {
-        var lines = new List<LayoutLine>();
-        if (paragraphs.Count == 0)
+        (List<LayoutLine> lines, double height) = ComposeRunning(paragraphs, setup, frame.Left, frame.Width);
+        if (lines.Count == 0)
             return lines;
-
-        double height = 0;
-        foreach (RichTextParagraph paragraph in paragraphs)
-        {
-            if (lines.Count > 0)
-                height += Math.Max(0, paragraph.Style.SpacingBefore);
-
-            foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1).Lines)
-            {
-                line.Top = height;
-                lines.Add(line);
-                height += line.Height;
-            }
-
-            height += Math.Max(0, paragraph.Style.SpacingAfter);
-        }
 
         if (height > band)
         {
@@ -1071,6 +1158,37 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         return lines;
     }
+
+    /// <summary>
+    /// A running band's lines, each placed from the top of the band, and the
+    /// band's height with its paragraphs' spacing.
+    /// </summary>
+    private (List<LayoutLine> Lines, double Height) ComposeRunning(
+        IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double left, double width)
+    {
+        var lines = new List<LayoutLine>();
+        double height = 0;
+        foreach (RichTextParagraph paragraph in paragraphs)
+        {
+            if (lines.Count > 0)
+                height += Math.Max(0, paragraph.Style.SpacingBefore);
+
+            foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1, left, width).Lines)
+            {
+                line.Top = height;
+                lines.Add(line);
+                height += line.Height;
+            }
+
+            height += Math.Max(0, paragraph.Style.SpacingAfter);
+        }
+
+        return (lines, height);
+    }
+
+    /// <summary>How tall a running band is, or zero for one with nothing in it.</summary>
+    private double RunningHeight(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double left, double width) =>
+        paragraphs.Count == 0 ? 0 : ComposeRunning(paragraphs, setup, left, width).Height;
 
     /// <summary>Wraps one paragraph into lines, without deciding which page they land on.</summary>
     private ParagraphLines ComposeParagraph(RichTextParagraph paragraph, string? marker, DocumentPageBox setup, int paragraphIndex,
