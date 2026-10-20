@@ -98,7 +98,8 @@ internal static class OfficeReporting
         IReadOnlyList<CheckResult> results,
         IReadOnlyList<SemanticReading> readings,
         IReadOnlyList<RenderRow> renders,
-        RunHeader header)
+        RunHeader header,
+        IReadOnlyList<ExtrasDifference>? topDifferences = null)
     {
         var root = new JsonObject
         {
@@ -176,6 +177,27 @@ internal static class OfficeReporting
         }
 
         root["renders"] = rendered;
+
+        if (topDifferences is not null)
+        {
+            var top = new JsonArray();
+            foreach (ExtrasDifference diff in topDifferences)
+            {
+                top.Add(new JsonObject
+                {
+                    ["id"] = diff.Sample.Id,
+                    ["extension"] = diff.Sample.Extension,
+                    ["format"] = diff.Sample.Format,
+                    ["sourceUrl"] = diff.Sample.SourceUrl,
+                    ["severityScore"] = diff.SeverityScore,
+                    ["summary"] = diff.Summary,
+                    ["broilerReadFailed"] = diff.BroilerReadFailed,
+                    ["broilerExitCode"] = diff.BroilerExitCode,
+                });
+            }
+
+            root["majorDifferences"] = top;
+        }
 
         var options = new JsonSerializerOptions
         {

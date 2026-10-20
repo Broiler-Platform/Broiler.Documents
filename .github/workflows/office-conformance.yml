@@ -1,8 +1,9 @@
 name: Office conformance
 
-# LibreOffice writes the documents, broilerdoc reads them, and the disagreements
-# are held against tests/office/office-baseline.json. What that proves, and the
-# considerable list of what it does not, is in docs/guides/office-conformance.md.
+# Downloads supported sample documents from LibreOffice's sw/qa/extras corpus,
+# renders them with LibreOffice headless and broilerdoc, compares the outputs,
+# and creates or updates a GitHub issue with the top x major differences
+# (default x = 3). See docs/guides/office-conformance.md for details.
 #
 # Nightly and dispatchable rather than a pull-request check, for four reasons in
 # descending order of weight.
@@ -53,6 +54,28 @@ on:
         description: Resolution for both rasterisers
         required: false
         default: '144'
+      extrasUrl:
+        description: GitHub tree URL for LibreOffice sw/qa/extras samples
+        required: false
+        default: 'https://github.com/LibreOffice/core/tree/master/sw/qa/extras'
+      topDifferences:
+        description: Number of major differences to report in the GitHub issue (default 3)
+        required: false
+        default: '3'
+      maxFiles:
+        description: Optional cap on the number of extras sample files to evaluate
+        required: false
+        default: ''
+      createIssue:
+        description: Create or update a GitHub issue with the top x major differences
+        type: boolean
+        required: false
+        default: true
+      seedCorpus:
+        description: Run the authored seed corpus instead of sw/qa/extras
+        type: boolean
+        required: false
+        default: false
       updateBaseline:
         description: >
           Regenerate tests/office/office-baseline.json from this run and upload it
@@ -64,6 +87,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: office-conformance
@@ -125,9 +149,15 @@ jobs:
       # write the rest of the command. Quoted environment variables do neither.
       - name: Run the office conformance suite
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OFFICE_AXIS: ${{ inputs.axis || 'all' }}
           OFFICE_DPI: ${{ inputs.dpi || '144' }}
           OFFICE_ONLY: ${{ inputs.only || '' }}
+          OFFICE_EXTRAS_URL: ${{ inputs.extrasUrl || 'https://github.com/LibreOffice/core/tree/master/sw/qa/extras' }}
+          OFFICE_TOP_DIFFERENCES: ${{ inputs.topDifferences || '3' }}
+          OFFICE_MAX_FILES: ${{ inputs.maxFiles || '' }}
+          OFFICE_CREATE_ISSUE: ${{ inputs.createIssue == false && 'false' || 'true' }}
+          OFFICE_SEED_CORPUS: ${{ inputs.seedCorpus && 'true' || 'false' }}
           OFFICE_UPDATE_BASELINE: ${{ inputs.updateBaseline || 'false' }}
         run: |
           # Deliberately not `set -e`. The runner exits with its failure count,
@@ -140,9 +170,20 @@ jobs:
             --dpi "$OFFICE_DPI"
             --font-dir /usr/share/fonts/truetype
             --font-set office-fonts-1
+            --extras-url "$OFFICE_EXTRAS_URL"
+            --top-differences "$OFFICE_TOP_DIFFERENCES"
           )
           if [ -n "$OFFICE_ONLY" ]; then
             ARGS+=(--only "$OFFICE_ONLY")
+          fi
+          if [ -n "$OFFICE_MAX_FILES" ]; then
+            ARGS+=(--max-files "$OFFICE_MAX_FILES")
+          fi
+          if [ "$OFFICE_CREATE_ISSUE" = "true" ] && [ "$OFFICE_SEED_CORPUS" != "true" ] && [ "$OFFICE_UPDATE_BASELINE" != "true" ]; then
+            ARGS+=(--create-github-issue)
+          fi
+          if [ "$OFFICE_SEED_CORPUS" = "true" ]; then
+            ARGS+=(--seed-corpus)
           fi
           if [ "$OFFICE_UPDATE_BASELINE" = "true" ]; then
             ARGS+=(--update-baseline --restamp)
@@ -158,13 +199,15 @@ jobs:
             echo "::error::The suite could not run. Exit 99 is a defect in the harness."
             exit 1
           fi
-          # Both greps, for the reason ci.yml gives: the first says nothing
-          # failed, the second says something actually ran. A suite that
-          # materialised nothing would otherwise print a clean line over an
-          # empty run.
-          if ! grep -qE '^[0-9]+/[0-9]+ passed, 0 failed\.$' ./test-results/office-results.log; then
-            echo "::error::The office conformance suite did not report a clean run."
-            exit 1
+          if [ "$OFFICE_SEED_CORPUS" = "true" ]; then
+            # Both greps, for the reason ci.yml gives: the first says nothing
+            # failed, the second says something actually ran. A suite that
+            # materialised nothing would otherwise print a clean line over an
+            # empty run.
+            if ! grep -qE '^[0-9]+/[0-9]+ passed, 0 failed\.$' ./test-results/office-results.log; then
+              echo "::error::The office conformance suite did not report a clean run."
+              exit 1
+            fi
           fi
           if grep -qE '^0/0 passed' ./test-results/office-results.log; then
             echo "::warning::The suite executed no checks. Either a tool could not be driven or the corpus is empty; the log names which."

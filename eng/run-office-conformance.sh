@@ -2,15 +2,26 @@
 # run-office-conformance.sh - Provision LibreOffice and poppler, materialise the
 # pinned font set, and run the office conformance suite against them.
 #
-# LibreOffice writes the documents, broilerdoc reads them, and the disagreements
-# are held against tests/office/office-baseline.json. See
-# docs/guides/office-conformance.md for what that does and does not prove.
+# By default, downloads supported sample documents from LibreOffice's
+# sw/qa/extras corpus, renders them with LibreOffice headless and broilerdoc,
+# compares the results, and reports (or files a GitHub issue with) the top x
+# major differences (default x = 3). Pass --seed-corpus to run the authored seed
+# corpus against tests/office/office-baseline.json instead.
 #
 # Usage:
 #     ./eng/run-office-conformance.sh [OPTIONS]
 #
 # Options:
 #     --output-dir <dir>       Where the log and reports go (default: ./test-results)
+#     --extras-url <url>       GitHub tree URL for LibreOffice sw/qa/extras
+#                              (default: https://github.com/LibreOffice/core/tree/master/sw/qa/extras)
+#     --extras-dir <dir>       Local directory of sw/qa/extras samples
+#     --top-differences <n>    Number of major differences to report (default: 3)
+#     --issue-out <path>       Markdown file for the top major differences report
+#     --create-github-issue    Create or update a GitHub issue with the top differences
+#     --github-repo <o/r>      Target GitHub repository (defaults to GITHUB_REPOSITORY)
+#     --max-files <n>          Maximum number of extras sample files to evaluate
+#     --seed-corpus            Run the authored seed corpus instead of sw/qa/extras
 #     --axis <kind>            semantic, pixel, or all (default: all)
 #     --only <substring>       Run only documents whose seed/format key contains this
 #     --jobs <n>               Concurrent documents
@@ -48,6 +59,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 OUTPUT_DIR="$REPO_ROOT/test-results"
+EXTRAS_URL="https://github.com/LibreOffice/core/tree/master/sw/qa/extras"
+EXTRAS_DIR=""
+TOP_DIFFERENCES="3"
+ISSUE_OUT=""
+CREATE_GITHUB_ISSUE=false
+GITHUB_REPO="${GITHUB_REPOSITORY:-}"
+MAX_FILES=""
+SEED_CORPUS=false
 AXIS="all"
 ONLY=""
 JOBS=""
@@ -85,6 +104,14 @@ usage() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --output-dir) OUTPUT_DIR="$2"; shift 2 ;;
+        --extras-url) EXTRAS_URL="$2"; shift 2 ;;
+        --extras-dir) EXTRAS_DIR="$2"; shift 2 ;;
+        --top-differences|-x) TOP_DIFFERENCES="$2"; shift 2 ;;
+        --issue-out) ISSUE_OUT="$2"; shift 2 ;;
+        --create-github-issue) CREATE_GITHUB_ISSUE=true; shift ;;
+        --github-repo) GITHUB_REPO="$2"; shift 2 ;;
+        --max-files) MAX_FILES="$2"; shift 2 ;;
+        --seed-corpus) SEED_CORPUS=true; shift ;;
         --axis) AXIS="$2"; shift 2 ;;
         --only) ONLY="$2"; shift 2 ;;
         --jobs) JOBS="$2"; shift 2 ;;
@@ -113,6 +140,7 @@ LOG_FILE="$OUTPUT_DIR/office-results.log"
 JSON_FILE="$OUTPUT_DIR/office-results.json"
 JUNIT_FILE="$OUTPUT_DIR/office-results.junit.xml"
 SUMMARY_FILE="$OUTPUT_DIR/office-summary.txt"
+ISSUE_FILE="${ISSUE_OUT:-$OUTPUT_DIR/office-major-differences.md}"
 FAILURE_MARKER="$OUTPUT_DIR/office-toolchain-failure.json"
 
 # Removed at startup so a marker left by an earlier run can never be attributed
@@ -343,6 +371,20 @@ RUNNER_ARGS=(
     --soffice "$SOFFICE"
 )
 
+if [[ "$SEED_CORPUS" == "true" || "$UPDATE_BASELINE" == "true" ]]; then
+    RUNNER_ARGS+=(--seed-corpus)
+else
+    if [[ -n "$EXTRAS_DIR" ]]; then
+        RUNNER_ARGS+=(--extras-dir "$EXTRAS_DIR")
+    else
+        RUNNER_ARGS+=(--extras-url "$EXTRAS_URL")
+    fi
+    RUNNER_ARGS+=(--top-differences "$TOP_DIFFERENCES" --issue-out "$ISSUE_FILE")
+    [[ -n "$MAX_FILES" ]] && RUNNER_ARGS+=(--max-files "$MAX_FILES")
+    [[ "$CREATE_GITHUB_ISSUE" == "true" ]] && RUNNER_ARGS+=(--create-github-issue)
+    [[ -n "$GITHUB_REPO" ]] && RUNNER_ARGS+=(--github-repo "$GITHUB_REPO")
+fi
+
 [[ -n "$ONLY" ]] && RUNNER_ARGS+=(--only "$ONLY")
 [[ -n "$JOBS" ]] && RUNNER_ARGS+=(--jobs "$JOBS")
 [[ -n "${BROILER_PDFTOPPM:-}" ]] && RUNNER_ARGS+=(--pdftoppm "$BROILER_PDFTOPPM")
@@ -384,7 +426,7 @@ echo ""
 echo "--- Summary ---"
 
 {
-    grep -E '^(tool|libreoffice|rasterizer|fonts|corpus|axis|baseline) ' "$LOG_FILE" || true
+    grep -E '^(tool|libreoffice|rasterizer|fonts|corpus|axis|baseline|issue) ' "$LOG_FILE" || true
     echo ""
     sed -n '/^by group$/,$p' "$LOG_FILE" || true
 } | tee "$SUMMARY_FILE"
@@ -405,6 +447,7 @@ echo "  $LOG_FILE"
 echo "  $JSON_FILE"
 echo "  $JUNIT_FILE"
 echo "  $SUMMARY_FILE"
+[[ -f "$ISSUE_FILE" ]] && echo "  $ISSUE_FILE"
 echo ""
 echo "=== Done ==="
 

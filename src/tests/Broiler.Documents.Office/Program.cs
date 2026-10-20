@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Broiler.Documents.Corpus;
 
@@ -138,6 +139,13 @@ internal static class Program
               string.Join(", ", options.FontDirectories) + ", " +
               (fontArguments.Count / 2).ToString(CultureInfo.InvariantCulture) + " mapping(s)"));
 
+        if (!options.SeedCorpus && (options.ExtrasUrl is not null || options.ExtrasDirectory is not null))
+        {
+            return await RunExtrasAsync(
+                options, tool, libreOffice, rasterizer, rasterReason, fontArguments, workspace, platform)
+                .ConfigureAwait(false);
+        }
+
         OfficeBaseline? baseline = File.Exists(baselinePath) ? OfficeBaseline.Load(baselinePath) : null;
         var observedStamp = new ToolchainStamp(
             libreOffice.Version, rasterizer?.Version, options.FontSet, platform, options.Dpi);
@@ -220,7 +228,7 @@ internal static class Program
                 else if (options.Axis is "pixel" or "all")
                 {
                     log.Add(CheckResult.Skip("pixel", "pixel/" + document.Key,
-                        "no rasteriser is available, so the two renderings could not be compared."));
+                        rasterReason));
                 }
             }).ConfigureAwait(false);
 
@@ -290,6 +298,147 @@ internal static class Program
 
             if (options.JsonReport is not null)
                 OfficeReporting.WriteJson(options.JsonReport, results, readings, renders, header);
+
+            if (options.JUnitReport is not null)
+                OfficeReporting.WriteJUnit(options.JUnitReport, results);
+
+            OfficeReporting.WriteConsole(Console.Out, results, options.Verbose);
+
+            int failed = results.Count(result => result.Outcome == CheckOutcome.Failed);
+            return Math.Min(failed, 99);
+        }
+        finally
+        {
+            if (options.Keep)
+                Console.WriteLine("kept        " + workspace);
+            else
+                Delete(workspace);
+        }
+    }
+
+    private static async Task<int> RunExtrasAsync(
+        Options options,
+        BroilerDocTool tool,
+        LibreOfficeTool libreOffice,
+        Rasterizer? rasterizer,
+        string rasterReason,
+        IReadOnlyList<string> fontArguments,
+        string workspace,
+        string platform)
+    {
+        _ = rasterReason;
+        var log = new RunLog();
+        var readings = new List<SemanticReading>();
+        var renders = new List<RenderRow>();
+        var differences = new List<ExtrasDifference>();
+        int profileSlot = -1;
+
+        string NextProfile()
+        {
+            int slot = Interlocked.Increment(ref profileSlot);
+            return Path.Combine(workspace, "profile", slot.ToString(CultureInfo.InvariantCulture));
+        }
+
+        string sourceLabel = options.ExtrasDirectory ?? options.ExtrasUrl ?? ExtrasConformance.DefaultExtrasUrl;
+
+        try
+        {
+            Directory.CreateDirectory(workspace);
+
+            if (rasterizer is not null)
+            {
+                string selfTestDir = Path.Combine(workspace, "self-test");
+                Directory.CreateDirectory(selfTestDir);
+                string? selfTest = InkProfile.SelfTest(selfTestDir);
+                if (selfTest is not null)
+                {
+                    Console.Error.WriteLine("error: the image self-test failed: " + selfTest);
+                    return 99;
+                }
+            }
+
+            IReadOnlyList<ExtrasSample> samples = await ExtrasConformance
+                .AcquireSamplesAsync(workspace, options.ExtrasUrl, options.ExtrasDirectory, options.Only, options.MaxFiles)
+                .ConfigureAwait(false);
+
+            Console.WriteLine("corpus      " + samples.Count.ToString(CultureInfo.InvariantCulture) +
+                              " extras sample(s) from " + sourceLabel);
+            Console.WriteLine("axis        " + options.Axis);
+            Console.WriteLine("workspace   " + workspace);
+
+            await Parallelism.ForEachAsync(samples, options.Jobs, async sample =>
+            {
+                (IReadOnlyList<CheckResult> sampleResults, SemanticReading? reading, RenderRow? render, ExtrasDifference diff) =
+                    await ExtrasConformance.EvaluateSampleAsync(
+                        tool,
+                        libreOffice,
+                        rasterizer,
+                        sample,
+                        workspace,
+                        options.Axis,
+                        options.Dpi,
+                        options.MaxPages,
+                        options.FontDirectories,
+                        fontArguments,
+                        options.LibreOfficeTimeout,
+                        NextProfile).ConfigureAwait(false);
+
+                log.AddRange(sampleResults);
+                lock (differences)
+                {
+                    differences.Add(diff);
+                    if (reading is not null)
+                        readings.Add(reading);
+                    if (render is not null)
+                        renders.Add(render);
+                }
+            }).ConfigureAwait(false);
+
+            IReadOnlyList<CheckResult> results = Ordered(log.Results);
+            var header = new RunHeader(
+                tool.Description, libreOffice.Version, rasterizer?.Version, options.FontSet,
+                platform, options.Dpi, true);
+
+            string issueMarkdown = ExtrasConformance.FormatIssueMarkdown(
+                sourceLabel, header, samples, differences, options.TopDifferences);
+
+            if (options.IssueReport is not null)
+            {
+                string? issueDir = Path.GetDirectoryName(Path.GetFullPath(options.IssueReport));
+                if (!string.IsNullOrEmpty(issueDir))
+                    Directory.CreateDirectory(issueDir);
+                File.WriteAllText(options.IssueReport, issueMarkdown, new UTF8Encoding(false));
+            }
+
+            IReadOnlyList<ExtrasDifference> top = ExtrasConformance.TopDifferences(differences, options.TopDifferences);
+            if (top.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine("top " + top.Count.ToString(CultureInfo.InvariantCulture) + " major difference(s)");
+                for (int i = 0; i < top.Count; i++)
+                {
+                    ExtrasDifference d = top[i];
+                    Console.WriteLine(
+                        "  " + (i + 1).ToString(CultureInfo.InvariantCulture) + ". " +
+                        d.Sample.Id + " [score " + d.SeverityScore.ToString("0.00", CultureInfo.InvariantCulture) + "] - " +
+                        d.Summary);
+                }
+            }
+
+            if (options.CreateGitHubIssue && top.Count > 0)
+            {
+                string title = "Office conformance: top " +
+                               top.Count.ToString(CultureInfo.InvariantCulture) +
+                               " major difference(s) in LibreOffice sw/qa/extras";
+                string? issueUrl = await ExtrasConformance
+                    .CreateOrUpdateGitHubIssueAsync(options.GitHubRepo, title, issueMarkdown, options.TopDifferences)
+                    .ConfigureAwait(false);
+                if (issueUrl is not null)
+                    Console.WriteLine("issue       " + issueUrl);
+            }
+
+            if (options.JsonReport is not null)
+                OfficeReporting.WriteJson(options.JsonReport, results, readings, renders, header, top);
 
             if (options.JUnitReport is not null)
                 OfficeReporting.WriteJUnit(options.JUnitReport, results);
@@ -493,7 +642,7 @@ internal static class Program
         throw new DirectoryNotFoundException("Broiler.Documents component root not found.");
     }
 
-    private sealed record Options(
+    internal sealed record Options(
         string? ToolPath,
         string? SofficePath,
         string? PdftoppmPath,
@@ -507,6 +656,14 @@ internal static class Program
         string? Only,
         string? JsonReport,
         string? JUnitReport,
+        string? ExtrasUrl,
+        string? ExtrasDirectory,
+        string? IssueReport,
+        string? GitHubRepo,
+        int TopDifferences,
+        int? MaxFiles,
+        bool CreateGitHubIssue,
+        bool SeedCorpus,
         bool Keep,
         bool Verbose,
         bool UpdateBaseline,
@@ -522,12 +679,15 @@ internal static class Program
         {
             string? tool = null, soffice = null, pdftoppm = null, manifest = null, baseline = null;
             string? tools = null, workspace = null, fontSet = null, only = null, json = null, junit = null;
+            string? extrasUrl = null, extrasDir = null, issueOut = null, githubRepo = null;
             string axis = "all";
             var fontDirectories = new List<string>();
             bool keep = false, verbose = false, update = false, restamp = false;
-            bool allowPending = false, help = false;
+            bool allowPending = false, help = false, createIssue = false, seedCorpus = false;
             int jobs = Environment.ProcessorCount;
             int dpi = 144, maxPages = 40, timeout = 120;
+            int topDifferences = ExtrasConformance.DefaultTopDifferences;
+            int? maxFiles = null;
 
             for (int index = 0; index < arguments.Length; index++)
             {
@@ -564,6 +724,14 @@ internal static class Program
                     case "--only": only = Value(argument); break;
                     case "--report": json = Value(argument); break;
                     case "--junit": junit = Value(argument); break;
+                    case "--extras-url": extrasUrl = Value(argument); break;
+                    case "--extras-dir": extrasDir = Value(argument); break;
+                    case "--issue-out": issueOut = Value(argument); break;
+                    case "--github-repo": githubRepo = Value(argument); break;
+                    case "--top-differences" or "-x": topDifferences = Integer(argument, 1); break;
+                    case "--max-files": maxFiles = Integer(argument, 1); break;
+                    case "--create-github-issue": createIssue = true; break;
+                    case "--seed-corpus": seedCorpus = true; break;
                     case "--jobs": jobs = Integer(argument, 1); break;
                     case "--dpi": dpi = Integer(argument, 24); break;
                     case "--max-pages": maxPages = Integer(argument, 1); break;
@@ -593,21 +761,30 @@ internal static class Program
 
             return new Options(
                 tool, soffice, pdftoppm, manifest, baseline, tools, workspace, fontDirectories, fontSet,
-                axis, only, json, junit, keep, verbose, update, restamp, allowPending, help, jobs, dpi,
-                maxPages, TimeSpan.FromSeconds(timeout));
+                axis, only, json, junit, extrasUrl, extrasDir, issueOut, githubRepo, topDifferences,
+                maxFiles, createIssue, seedCorpus, keep, verbose, update, restamp, allowPending, help,
+                jobs, dpi, maxPages, TimeSpan.FromSeconds(timeout));
         }
 
         public static void WriteUsage(TextWriter output)
         {
             output.WriteLine("usage: broilerdoc-office [options]");
             output.WriteLine();
-            output.WriteLine("LibreOffice writes the documents, broilerdoc reads them, and the");
-            output.WriteLine("disagreements are held against tests/office/office-baseline.json.");
+            output.WriteLine("LibreOffice writes or renders the documents, broilerdoc reads and renders them,");
+            output.WriteLine("and the disagreements are compared or ranked into a GitHub issue report.");
             output.WriteLine();
             output.WriteLine("options");
             output.WriteLine("  --tool <path>            The built broilerdoc. Located from this build when absent.");
             output.WriteLine("  --soffice <path>         The LibreOffice binary. Probed when absent.");
             output.WriteLine("  --pdftoppm <path>        The poppler rasteriser. Probed when absent.");
+            output.WriteLine("  --extras-url <url>       GitHub tree URL for LibreOffice sw/qa/extras samples.");
+            output.WriteLine("  --extras-dir <dir>       Local directory of sw/qa/extras samples.");
+            output.WriteLine("  --top-differences <n>    Number of major differences to report (default 3).");
+            output.WriteLine("  --issue-out <path>       Write the Markdown GitHub issue report for the top differences.");
+            output.WriteLine("  --create-github-issue    Create or update a GitHub issue with the top differences.");
+            output.WriteLine("  --github-repo <o/r>      Target GitHub repository (defaults to GITHUB_REPOSITORY).");
+            output.WriteLine("  --max-files <n>          Maximum number of extras sample files to evaluate.");
+            output.WriteLine("  --seed-corpus            Run the authored seed corpus instead of sw/qa/extras.");
             output.WriteLine("  --manifest <path>        The seed corpus. (tests/office/office-corpus.json)");
             output.WriteLine("  --baseline <path>        The committed expectations. (tests/office/office-baseline.json)");
             output.WriteLine("  --tools <path>           The external tool register. (tests/office/tools/manifest.json)");
@@ -615,7 +792,7 @@ internal static class Program
             output.WriteLine("  --font-dir <dir>         Pin a font directory for both sides. Repeatable.");
             output.WriteLine("  --font-set <name>        The name the baseline stamp records for that set.");
             output.WriteLine("  --axis <kind>            semantic, pixel, or all. (default all)");
-            output.WriteLine("  --only <substring>       Run only documents whose seed/format key contains this.");
+            output.WriteLine("  --only <substring>       Run only documents whose key contains this.");
             output.WriteLine("  --report <path>          Write the JSON report.");
             output.WriteLine("  --junit <path>           Write the JUnit XML report.");
             output.WriteLine("  --jobs <n>               Concurrent documents. (default processor count)");
