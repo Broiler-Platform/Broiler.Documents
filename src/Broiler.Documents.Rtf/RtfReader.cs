@@ -528,6 +528,7 @@ public static class RtfReader
                     EndParagraph();
                     break;
                 case "page": PageBreak(); break;
+                case "column": ColumnBreak(); break;
                 case "line": AppendChar(0x2028); break; // soft line break
                 case "tab":
                 case "cell": AppendBody("\t"); break;
@@ -1081,6 +1082,23 @@ public static class RtfReader
         }
 
         /// <summary>
+        /// <c>\column</c>: the text after it starts the next column, or - in a
+        /// section of one column, where there is no next column - the next page,
+        /// as Word draws it.
+        /// </summary>
+        private void ColumnBreak()
+        {
+            if (_columns <= 1)
+            {
+                PageBreak();
+                return;
+            }
+
+            FlushPending();
+            Active.BreakColumn(_state.Para);
+        }
+
+        /// <summary>
         /// A break with no paragraph to land on - one at the end of the document,
         /// or a second with nothing between it and the first.
         /// </summary>
@@ -1226,6 +1244,22 @@ public static class RtfReader
         /// <summary>Whether a <c>\page</c> is still waiting for a paragraph.</summary>
         public bool PageBreakPending { get; private set; }
 
+        /// <summary>Whether a <c>\column</c> is still waiting for a paragraph.</summary>
+        public bool ColumnBreakPending { get; private set; }
+
+        /// <summary>
+        /// Takes a column break before whatever comes next, closing the paragraph
+        /// it interrupted the way <see cref="BreakPage"/> does. A page break
+        /// already waiting goes further and is the one kept.
+        /// </summary>
+        public void BreakColumn(ParagraphStyle style)
+        {
+            if (_current.Length > 0)
+                EndParagraph(style);
+
+            ColumnBreakPending = true;
+        }
+
         /// <summary>
         /// Takes a break before whatever comes next, and says whether one was
         /// already waiting with nothing in between - a break that asked for a page
@@ -1298,11 +1332,20 @@ public static class RtfReader
         /// </remarks>
         private ParagraphStyle Spend(ParagraphStyle style)
         {
-            if (!PageBreakPending)
-                return style;
+            if (PageBreakPending)
+            {
+                PageBreakPending = false;
+                ColumnBreakPending = false;
+                return style with { PageBreakBefore = true };
+            }
 
-            PageBreakPending = false;
-            return style with { PageBreakBefore = true };
+            if (ColumnBreakPending)
+            {
+                ColumnBreakPending = false;
+                return style with { ColumnBreakBefore = true };
+            }
+
+            return style;
         }
     }
 }

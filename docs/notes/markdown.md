@@ -46,6 +46,7 @@ is intentionally conservative.
 | Monospace font family | Code span |
 | `LinkHref` | Inline link |
 | `PageBreakBefore` | Nothing, reported as `markdown.page-break` |
+| `ColumnBreakBefore` | Nothing, reported as `markdown.column-break` |
 
 The writer escapes the characters that would otherwise be read back as markup:
 `\` `` ` `` `*` `_` `[` `]` `(` `)` `#` `+` `-` `.` `!` and `~`. The tilde
@@ -71,7 +72,9 @@ whole of the difference, because until the model could carry a page break every
 codec here dropped one in silence. It has its own code rather than joining
 `markdown.paragraph-style`: that diagnostic names the three fields it drops, and
 a reader deciding whether a document can be re-exported to something paginated is
-asking a different question than one chasing lost spacing.
+asking a different question than one chasing lost spacing. A paragraph that
+starts the next column is written the same way and reported as
+`markdown.column-break`, for the same reason: Markdown has no columns either.
 
 ## Security And Limits
 

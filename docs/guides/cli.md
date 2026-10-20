@@ -397,8 +397,10 @@ this step, because it measures the codecs rather than this tool.
 **The layout engine is this tool's, not the component's.** It does word wrapping,
 alignment, indents, list markers, line and paragraph spacing, inline images,
 tables (a row breaks across a page cell by cell unless it says it may not),
-text columns filled one after another, running headers and footers, anchored
-shapes in their stated stacking order, and pagination. It has no floats,
+text columns filled one after another, sections in their own columns and
+margins with a section's columns balanced where the next follows on the page,
+running headers and footers, anchored shapes in their stated stacking order,
+and pagination. It has no floats,
 footnotes, hyphenation, kerning pairs, or bidirectional reordering — mostly
 because the document model cannot express them, so there is nothing to lay
 out. The shared paginator planned as

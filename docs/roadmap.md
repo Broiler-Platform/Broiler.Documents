@@ -78,12 +78,19 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **Nested list markers through RTF.** In the office suite, LibreOffice's text
   projection and `broilerdoc dump` disagree on the marker of a nested level
   (`◦` against `•`). Find out which side is right.
-- **Sections.** A document holds one page and one set of text columns. DOCX
-  section breaks of `w:type="nextPage"` do not start a page, a section's own
-  columns give way to the columns of the section holding the most paragraphs,
-  a column break in a section of several columns is a line break, and the
-  columns of an ODF `text:section` are not read. `tdf123163-1.docx` is
-  thirty-one sections of one to four columns.
+- **Sections, the rest.** A `DocumentSection` carries its columns and its own
+  margins, a DOCX section break starts the page it says it does, and the
+  layout balances a section's columns where the next follows on the same page.
+  Still not read: a section's own running content (`docx.section.multiple`),
+  the blank page an odd- or even-page start can make (`docx.section.parity`),
+  a section's own paper size (the page is drawn at the document's), RTF's
+  `\sect` and its break kinds, and ODF's `text:dont-balance-text-columns`.
+  ODT, RTF, HTML and the PDF writer do not write a section's margins, and the
+  PDF writer lays every page out as one column (`pdf.write.feature-unsupported`).
+  `tdf123163-1.docx`, thirty-one sections of one to four columns, still draws
+  twelve pages against sixteen. None of its fourteen pictures is in the
+  package (`docx.image.missing`); LibreOffice keeps a box of the size each
+  states, one of them a whole page, and this reader keeps nothing of them.
 
 ## Spreadsheet formats
 

@@ -48,7 +48,8 @@ Open XML WordprocessingML package parts.
   | --- | --- | --- |
   | `w:pPr/w:pageBreakBefore` | `ParagraphStyle.PageBreakBefore` on that paragraph | `w:pPr/w:pageBreakBefore`, first in `w:pPr` |
   | `w:r/w:br w:type="page"` at the end of a paragraph | `PageBreakBefore` on the **following** paragraph | as `w:pageBreakBefore` on that following paragraph |
-  | `w:br` with no type, or `w:type="column"`/`"textWrapping"` | the line break it has always been (`U+2028`) | `w:br` |
+  | `w:r/w:br w:type="column"` | a page break in a section of one column; `ParagraphStyle.ColumnBreakBefore` on the **following** paragraph in a section of several | `w:br w:type="column"` opening the paragraph that has `ColumnBreakBefore` |
+  | `w:br` with no type, or `w:type="textWrapping"` | the line break it has always been (`U+2028`) | `w:br` |
 
   `w:pageBreakBefore` follows the on/off rule the character properties do:
   present means on, and `w:val="false"`, `"0"` or `"off"` turns off a break the
@@ -228,32 +229,55 @@ Open XML WordprocessingML package parts.
   `w:pageBreakBefore`, the boundary is kept once and `docx.pagebreak.repeated`
   reports the blank page the second would make.
 - A column break, `w:br w:type="column"`, is a page break in a section of one
-  column. ECMA-376 §17.18.3 says the text restarts on the next page when the
+  column. ECMA-376's `ST_BrType` says the text restarts on the next page when the
   section is not divided into columns, and Word and LibreOffice both start one;
   it is read exactly as a `w:type="page"` break is, including the cases above.
-  In a section of several columns it moves to the next column, which the model
-  has no break for: it is read as a line break and reported as
-  `docx.break.column`. Which section a paragraph is in is found before the
-  content is read, because a section's properties follow its paragraphs. In a
-  header, a footer or a text box it stays a line break.
+  In a section of several columns it moves to the next column, and is
+  `ParagraphStyle.ColumnBreakBefore` on the paragraph it starts, travelling
+  there exactly as a page break does; one with text on both sides of it in its
+  paragraph is a line break and reported as `docx.break.column`, as a page
+  break there is. Which section a paragraph is in is found before the content
+  is read, because a section's properties follow its paragraphs. In a header,
+  a footer or a text box it stays a line break. A write puts a
+  `w:br w:type="column"` run first in the paragraph that has the break.
 - Text columns. `w:cols` gives the page a column count and the gap between
   columns, `w:space`, or half an inch when that is absent. A section that lists
   its columns (`w:equalWidth="0"`) is read as their count and the mean of their
   spaces; widths that differ by more than a point are held as equal columns and
-  reported as `docx.columns.unequal`. The model holds one set of columns for the
-  document, and takes it from the section holding the most paragraphs rather
-  than from the last: a two-column document whose producer ended it with a
-  continuous break before one empty paragraph has a one-column last section
-  holding nothing. Sections that disagree report `docx.section.columns`.
-  Columns that leave no room keep the page and lose the columns
-  (`docx.columns.geometry`). A write states `w:cols` with the count and the gap.
-  The separator line (`w:sep`) is not read.
-- Section breaks do not paginate. A `w:sectPr` in a paragraph's `w:pPr` with
-  `w:type="nextPage"` is a page boundary as much as a break is, but it is
-  section layout, which this codec does not read beyond the last section's page
-  geometry and running content (`docx.section.multiple`) and the columns above.
-  A document that paginates with section breaks rather than page breaks still
-  reads as one flow.
+  reported as `docx.columns.unequal`. Where every section has the same
+  columns, the page holds them and that is all. Where sections differ, each
+  is a `DocumentSection` over its own paragraphs with its own columns, and
+  `docx.section.columns` says so; the page then records the columns of the
+  section holding the most paragraphs rather than the last's, because a
+  two-column document whose producer ended it with a continuous break before
+  one empty paragraph has a one-column last section holding nothing. Columns
+  that leave no room keep the page and lose the columns
+  (`docx.columns.geometry`). The separator line (`w:sep`) is not read.
+- A section break starts a page unless it says it does not. `w:type` on the
+  `w:sectPr` of the section that follows says how that section starts:
+  `nextPage`, which is also what an absent `w:type` means, `oddPage` and
+  `evenPage` put its first paragraph on a new page, as `PageBreakBefore`, and
+  `continuous` runs it on below the section before. A section's own break and a
+  page break the paragraph before it ended with are one boundary, not two.
+  `oddPage` and `evenPage` can put a blank page in front of the section to
+  land it on the side they name; that page is not made, and
+  `docx.section.parity` says so. `nextColumn` is read as `continuous`.
+- A section's own paper and margins. The last section's `w:pgSz` and
+  `w:pgMar` are the document's page; a section that states others keeps them
+  as `DocumentSection.Page`, and its text is laid out between its own left and
+  right margins, under its own top margin on a page it starts. That is what
+  makes a magazine whose sections are set two inches in, or six, lay out in
+  columns of the width it was set in rather than the last section's. The
+  running content is still the last section's (`docx.section.multiple`).
+- A write states `w:cols` with the count and the gap. A document with sections
+  writes each boundary as a `w:sectPr` in the `w:pPr` of the section's last
+  paragraph, with that section's page, or the document's, its columns and
+  `w:type="continuous"`; a section
+  that starts a page says so with its first paragraph's `w:pageBreakBefore`,
+  which is where the model keeps it, so the `w:sectPr` does not say it twice.
+  A section ending in a table gets an empty paragraph after the table to hold
+  its `w:sectPr`, as Word writes it. The body's own `w:sectPr` closes the last
+  section, `continuous` too.
 - Block nesting deeper than `DocumentLimits.MaxGroupDepth` is abandoned with a
   `docx.limit.depth` diagnostic.
 - DOCX packages above `DocumentLimits.MaxDocumentBytes` are not parsed.
@@ -280,8 +304,9 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.pagebreak.repeated` | Warning | A paragraph stated more than one page break; the first was kept and the blank pages the others make were dropped. |
 | `docx.pagebreak.trailing` | Warning | A page break in the last paragraph of a part was dropped; there is no following paragraph for it to start. |
 | `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks. |
-| `docx.break.column` | Warning | A column break in a section of several columns was read as a line break; the model has no break that moves to the next column. |
-| `docx.section.columns` | Info | The sections differ in their columns; the columns of the section holding the most paragraphs were read. |
+| `docx.break.column` | Warning | A column break with text before and after it in the same paragraph was read as a line break; columns break between paragraphs here, not inside one. |
+| `docx.section.columns` | Info | The sections differ in their columns; each section keeps its own, and the page records those of the section holding the most paragraphs. |
+| `docx.section.parity` | Warning | A section starting on an odd or even page was read as starting on the next page; the blank page it can put before itself is not made. |
 | `docx.columns.unequal` | Info | A section listed columns of unequal width; they were read as equal columns. |
 | `docx.columns.geometry` | Warning | A section's columns left no room to write in a column; the page was kept and read as one column. |
 | `docx.limit.depth` | Warning | Block nesting hit `MaxGroupDepth`; the deepest content was skipped. |

@@ -143,7 +143,7 @@ internal static class DocxTableReader
     private readonly record struct RowDraft(List<CellDraft> Cells, double MinHeight, bool CanSplit);
 
     /// <summary>
-    /// ECMA-376 §17.4.6: <c>w:cantSplit</c>, which keeps a row on one page. It is
+    /// ECMA-376's <c>w:cantSplit</c>, which keeps a row on one page. It is
     /// an on/off property, so a bare element is on and the file has to spell
     /// <c>false</c> to turn it off.
     /// </summary>

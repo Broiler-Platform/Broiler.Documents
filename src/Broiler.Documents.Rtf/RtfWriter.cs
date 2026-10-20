@@ -56,6 +56,16 @@ public static class RtfWriter
         WritePageGeometry(sb, document.PageGeometry);
         WriteRunningContent(sb, document.RunningContent, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
 
+        if (document.Sections.Count > 0)
+        {
+            AddOnce(
+                diagnostics,
+                reported,
+                "rtf.sections",
+                "The document's sections, each with columns and margins of its own, were not written; " +
+                "RTF is written here with one page and one set of columns for the whole document.");
+        }
+
         if (document.Tables.Count > 0)
         {
             // RTF states a table as \trowd and \cellx runs. This codec's reader
@@ -420,10 +430,16 @@ public static class RtfWriter
     /// </remarks>
     private static void WritePageBreak(StringBuilder sb, ParagraphStyle style, bool first)
     {
-        if (!style.PageBreakBefore)
+        if (style.PageBreakBefore)
+        {
+            sb.Append(first ? "\\pagebb" : "\\page");
             return;
+        }
 
-        sb.Append(first ? "\\pagebb" : "\\page");
+        // RTF has no paragraph property for a column break, only the control
+        // word, which a reader carries to the paragraph that follows it.
+        if (style.ColumnBreakBefore)
+            sb.Append("\\column");
     }
 
     /// <summary>
@@ -442,7 +458,7 @@ public static class RtfWriter
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
-        if (!style.PageBreakBefore)
+        if (!style.PageBreakBefore && !style.ColumnBreakBefore)
             return;
 
         AddOnce(

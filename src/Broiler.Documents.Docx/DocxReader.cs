@@ -90,6 +90,7 @@ internal static class DocxReader
                 reported,
                 page));
             document = document.WithPageGeometry(page);
+            document = document.WithSections(sections.ToModel(document.ParagraphCount, page));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             return new DocumentReadResult(
                 document,
@@ -343,9 +344,10 @@ internal static class DocxReader
     /// <remarks>
     /// <para>
     /// The body-level w:sectPr is the document's final section. A document split
-    /// into several can give each its own page, and the model holds one, so the
-    /// last one wins - the same choice the header and footer reader makes, and
-    /// for the same reason: it is the section the running content belongs to.
+    /// into several can give each its own page; the last one is the document's -
+    /// the same choice the header and footer reader makes, and for the same
+    /// reason: it is the section the running content belongs to - and a section
+    /// that states another keeps it as its own <see cref="DocumentSection.Page"/>.
     /// Geometry a producer states nonsensically is dropped rather than honoured.
     /// </para>
     /// <para>
@@ -363,22 +365,10 @@ internal static class DocxReader
             ?.Elements(DocxNamespaces.Wordprocessing + "sectPr")
             .LastOrDefault();
 
-        XElement? size = sectPr?.Element(DocxNamespaces.Wordprocessing + "pgSz");
-        if (size is null)
+        if (sectPr?.Element(DocxNamespaces.Wordprocessing + "pgSz") is null)
             return null;
 
-        XElement? margin = sectPr!.Element(DocxNamespaces.Wordprocessing + "pgMar");
-        var geometry = new PageGeometry(
-            DocxValueReader.Twips(size, "w"),
-            DocxValueReader.Twips(size, "h"),
-            DocxValueReader.Twips(margin, "left"),
-            DocxValueReader.Twips(margin, "right"),
-            DocxValueReader.Twips(margin, "top"),
-            DocxValueReader.Twips(margin, "bottom"),
-            DocxValueReader.Twips(margin, "header"),
-            DocxValueReader.Twips(margin, "footer"));
-
-        if (!geometry.IsUsable)
+        if (DocxSections.ReadPage(sectPr) is not PageGeometry geometry)
         {
             diagnostics.Add(DocumentDiagnostic.Warning(
                 "docx.section.geometry",
@@ -399,7 +389,8 @@ internal static class DocxReader
         {
             diagnostics.Add(DocumentDiagnostic.Info(
                 "docx.section.columns",
-                "DOCX sections differ in their columns; the columns of the section holding the most paragraphs were read."));
+                "DOCX sections differ in their columns; each section keeps its own, and the page records " +
+                "those of the section holding the most paragraphs."));
         }
 
         if (sections.HasUnequalColumns)
@@ -501,9 +492,23 @@ internal static class DocxReader
         context.Builder.FinishParagraph();
 
         // A paragraph belongs to the section it ends, so the cursor moves only
-        // once the paragraph's own breaks have been read against it.
+        // once the paragraph's own breaks have been read against it. The next
+        // section then says whether it starts a page; its first paragraph is
+        // where that break lands, as if the paragraph before had ended on one.
         if (context.Sections is not null && DocxSections.EndsSection(paragraph))
-            context.Sections.Advance();
+        {
+            context.Sections.Advance(context.Builder.CurrentParagraphIndex);
+            if (context.Sections.CurrentStartsPage)
+                context.Builder.HoldPageBreak();
+
+            if (context.Sections.CurrentWantsParity)
+            {
+                context.Builder.AddDiagnosticOnce(
+                    "docx.section.parity",
+                    "A DOCX section starting on an odd or even page was read as starting on the next page; " +
+                    "the blank page it can put before itself is not made.");
+            }
+        }
     }
 
     /// <summary>
@@ -615,12 +620,12 @@ internal static class DocxReader
                 continue;
             }
 
+            // In a section of several columns the break moves to the next one,
+            // and travels to the paragraph it starts exactly as a page break does.
             if (child.Name == DocxNamespaces.Wordprocessing + "br" && IsColumnBreak(child) && context.Sections is not null)
             {
-                builder.AddDiagnosticOnce(
-                    "docx.break.column",
-                    "A DOCX column break in a section of several columns was read as a line break; " +
-                    "the model does not break columns.");
+                builder.NotePageBreak(style, column: true);
+                continue;
             }
 
             if (child.Name == DocxNamespaces.Wordprocessing + "br" ||
@@ -1351,15 +1356,15 @@ internal static class DocxReader
     /// </summary>
     /// <remarks>
     /// <c>column</c> is a page break only where there is no next column to move
-    /// to. ECMA-376 §17.18.3 says so of <c>ST_BrType</c>: when the section is not
+    /// to. ECMA-376 says so of <c>ST_BrType</c>: when the section is not
     /// divided into columns, the text restarts on the next page, and Word and
     /// LibreOffice both start one. A document that opens each of its blocks with
     /// one - LibreOffice's <c>FDO77715.docx</c> is forty pages of them - ran
     /// every block on from the last while it was read as a line break. In a
-    /// section of several columns
-    /// it moves to the next column, which is not a page boundary at all. Outside
-    /// the body's flow - a header, a text box - there are no sections and it
-    /// stays a line break.
+    /// section of several columns it moves to the next column, which is not a
+    /// page boundary at all, and is read as
+    /// <see cref="ParagraphStyle.ColumnBreakBefore"/>. Outside the body's flow -
+    /// a header, a text box - there are no sections and it stays a line break.
     /// </remarks>
     private static bool IsPageBreak(XElement br, DocxReadContext context) =>
         string.Equals(

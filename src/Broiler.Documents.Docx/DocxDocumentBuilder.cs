@@ -28,6 +28,11 @@ internal sealed class DocxDocumentBuilder(
     private bool _pageBreakSeen;
     private bool _pageBreakLeadsParagraph;
     private bool _pageBreakStartsNextParagraph;
+
+    // Whether the break being carried is a column break rather than a page
+    // break. Both travel the same way, so one set of flags carries either.
+    private bool _breakIsColumn;
+    private bool _heldBreakIsColumn;
     private int _tableCount;
     private int _unsupportedBlockCount;
 
@@ -124,8 +129,13 @@ internal sealed class DocxDocumentBuilder(
     /// the paragraph's text is on the far side of the boundary, so the
     /// paragraph is the one that starts the page. See <see cref="AppendText"/>.
     /// </para>
+    /// <para>
+    /// A column break in a section of several columns travels exactly the
+    /// same way and lands as <see cref="ParagraphStyle.ColumnBreakBefore"/>;
+    /// <paramref name="column"/> says which this is.
+    /// </para>
     /// </remarks>
-    public void NotePageBreak(InlineStyle style)
+    public void NotePageBreak(InlineStyle style, bool column = false)
     {
         // Two breaks with nothing between them are two page boundaries and
         // a blank page in the middle. The flag holds one, and the one kept
@@ -142,6 +152,19 @@ internal sealed class DocxDocumentBuilder(
         _pageBreakSeen = true;
         _pageBreakLeadsParagraph = _segments.Count == 0;
         _pageBreakStyle = style;
+        _breakIsColumn = column;
+    }
+
+    /// <summary>
+    /// Starts the next paragraph on a new page: a section that begins on a page
+    /// of its own, whose break is stated in no run at all. A break the paragraph
+    /// just ended with already does that, and one boundary is one boundary; a
+    /// column break held over becomes the page break, which goes further.
+    /// </summary>
+    public void HoldPageBreak()
+    {
+        _pageBreakStartsNextParagraph = true;
+        _heldBreakIsColumn = false;
     }
 
     /// <summary>
@@ -173,8 +196,11 @@ internal sealed class DocxDocumentBuilder(
         // so this sets the flag rather than counting anything.
         if (_pageBreakStartsNextParagraph)
         {
-            style = style with { PageBreakBefore = true };
+            style = _heldBreakIsColumn
+                ? style with { ColumnBreakBefore = true }
+                : style with { PageBreakBefore = true };
             _pageBreakStartsNextParagraph = false;
+            _heldBreakIsColumn = false;
         }
 
         _paragraphStyle = style;
@@ -224,7 +250,7 @@ internal sealed class DocxDocumentBuilder(
     private void StartParagraphOnNewPage()
     {
         _pageBreakSeen = false;
-        if (_paragraphStyle.PageBreakBefore)
+        if (_paragraphStyle.PageBreakBefore || (_breakIsColumn && _paragraphStyle.ColumnBreakBefore))
         {
             AddDiagnosticOnce(
                 "docx.pagebreak.repeated",
@@ -232,7 +258,9 @@ internal sealed class DocxDocumentBuilder(
             return;
         }
 
-        _paragraphStyle = _paragraphStyle with { PageBreakBefore = true };
+        _paragraphStyle = _breakIsColumn
+            ? _paragraphStyle with { ColumnBreakBefore = true }
+            : _paragraphStyle with { PageBreakBefore = true };
     }
 
     /// <summary>
@@ -245,9 +273,20 @@ internal sealed class DocxDocumentBuilder(
     {
         InlineStyle style = _pageBreakStyle;
         _pageBreakSeen = false;
-        AddDiagnosticOnce(
-            "docx.pagebreak.split",
-            "A page break with text after it in the same paragraph was read as a line break; pages here break between paragraphs, not inside one.");
+        if (_breakIsColumn)
+        {
+            AddDiagnosticOnce(
+                "docx.break.column",
+                "A column break with text before and after it in the same paragraph was read as a line break; " +
+                "columns here break between paragraphs, not inside one.");
+        }
+        else
+        {
+            AddDiagnosticOnce(
+                "docx.pagebreak.split",
+                "A page break with text after it in the same paragraph was read as a line break; pages here break between paragraphs, not inside one.");
+        }
+
         AppendText(((char)0x2028).ToString(), style);
     }
 
@@ -260,6 +299,7 @@ internal sealed class DocxDocumentBuilder(
         {
             _pageBreakSeen = false;
             _pageBreakStartsNextParagraph = true;
+            _heldBreakIsColumn = _breakIsColumn;
         }
 
         if (_paragraphs.Count >= limits.MaxParagraphCount)

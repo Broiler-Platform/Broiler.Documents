@@ -64,4 +64,52 @@ public sealed class RtfColumnTests
         Assert.Equal(2, page.ColumnCount);
         Assert.Equal(27, page.ColumnGap, 3);
     }
+
+    [Fact]
+    public void A_Column_Break_In_Columns_Starts_The_Next_Column()
+    {
+        RichTextDocument document = RtfReader.Read(
+            Encoding.ASCII.GetBytes("{\\rtf1" + Letter + "\\cols2 one\\column two\\par}")).Document;
+
+        Assert.Equal("one", document.Paragraphs[0].Text);
+        Assert.Equal("two", document.Paragraphs[1].Text);
+        Assert.True(document.Paragraphs[1].Style.ColumnBreakBefore);
+        Assert.False(document.Paragraphs[1].Style.PageBreakBefore);
+    }
+
+    [Fact]
+    public void A_Column_Break_In_One_Column_Starts_The_Next_Page()
+    {
+        RichTextDocument document = RtfReader.Read(
+            Encoding.ASCII.GetBytes("{\\rtf1" + Letter + " one\\column two\\par}")).Document;
+
+        Assert.True(document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.False(document.Paragraphs[1].Style.ColumnBreakBefore);
+    }
+
+    [Fact]
+    public void A_Column_Break_Round_Trips_In_Columns()
+    {
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("one"),
+            RichTextParagraph.Create("two", InlineStyle.Default, ParagraphStyle.Default with { ColumnBreakBefore = true }),
+        ]).WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72, ColumnCount: 2, ColumnGap: 36));
+
+        RichTextDocument read = RtfReader.Read(RtfWriter.WriteToArray(source)).Document;
+
+        Assert.Equal("two", read.Paragraphs[1].Text);
+        Assert.True(read.Paragraphs[1].Style.ColumnBreakBefore);
+    }
+
+    [Fact]
+    public void Sections_Are_Reported_And_Not_Written()
+    {
+        RichTextDocument source = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("a"), RichTextParagraph.Plain("b")])
+            .WithSections([new DocumentSection(1, 1, 2, 18)]);
+
+        DocumentWriteResult result = RtfWriter.Write(source, new MemoryStream());
+
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "rtf.sections");
+    }
 }

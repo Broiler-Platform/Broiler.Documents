@@ -142,4 +142,114 @@ public sealed class OdtColumnTests
 
         Assert.Equal(1, page.ColumnCount);
     }
+
+    private static RichTextParagraph Breaking(string text) =>
+        RichTextParagraph.Create(text, InlineStyle.Default, ParagraphStyle.Default with { ColumnBreakBefore = true });
+
+    [Fact]
+    public void A_Column_Break_Round_Trips()
+    {
+        RichTextDocument source = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("one"), Breaking("two")]);
+
+        RichTextParagraph two = RoundTrip(source).Paragraphs[1];
+
+        Assert.True(two.Style.ColumnBreakBefore);
+        Assert.False(two.Style.PageBreakBefore);
+    }
+
+    [Fact]
+    public void A_Section_With_Columns_Is_A_Section()
+    {
+        string sectionStyle =
+            "<style:style style:name=\"Sect1\" style:family=\"section\">" +
+            "<style:section-properties><style:columns fo:column-count=\"3\" fo:column-gap=\"0.25in\"/>" +
+            "</style:section-properties></style:style>";
+        string body =
+            OdtTestPackage.Paragraph("before") +
+            "<text:section text:style-name=\"Sect1\" text:name=\"Section1\">" +
+            OdtTestPackage.Paragraph("in one") + OdtTestPackage.Paragraph("in two") +
+            "</text:section>" +
+            OdtTestPackage.Paragraph("after");
+
+        DocumentReadResult result = OdtTestPackage.ReadBody(body, sectionStyle);
+
+        DocumentSection section = Assert.Single(result.Document.Sections);
+        Assert.Equal(1, section.ParagraphIndex);
+        Assert.Equal(2, section.ParagraphCount);
+        Assert.Equal(3, section.ColumnCount);
+        Assert.Equal(18, section.ColumnGap, 3);
+    }
+
+    [Fact]
+    public void A_Section_Without_Columns_Is_Only_Its_Paragraphs()
+    {
+        string body =
+            "<text:section text:name=\"Plain\">" + OdtTestPackage.Paragraph("inside") + "</text:section>";
+
+        DocumentReadResult result = OdtTestPackage.ReadBody(body);
+
+        Assert.Empty(result.Document.Sections);
+        Assert.Equal("inside", Assert.Single(result.Document.Paragraphs).Text);
+    }
+
+    [Fact]
+    public void An_Outer_Section_With_Columns_Holds_The_Inner_One()
+    {
+        string styles =
+            "<style:style style:name=\"Two\" style:family=\"section\">" +
+            "<style:section-properties><style:columns fo:column-count=\"2\" fo:column-gap=\"0.25in\"/>" +
+            "</style:section-properties></style:style>" +
+            "<style:style style:name=\"Three\" style:family=\"section\">" +
+            "<style:section-properties><style:columns fo:column-count=\"3\" fo:column-gap=\"0.25in\"/>" +
+            "</style:section-properties></style:style>";
+        string body =
+            "<text:section text:style-name=\"Two\" text:name=\"Outer\">" +
+            OdtTestPackage.Paragraph("a") +
+            "<text:section text:style-name=\"Three\" text:name=\"Inner\">" + OdtTestPackage.Paragraph("b") + "</text:section>" +
+            OdtTestPackage.Paragraph("c") +
+            "</text:section>";
+
+        DocumentSection section = Assert.Single(OdtTestPackage.ReadBody(body, styles).Document.Sections);
+
+        Assert.Equal(0, section.ParagraphIndex);
+        Assert.Equal(3, section.ParagraphCount);
+        Assert.Equal(2, section.ColumnCount);
+    }
+
+    [Fact]
+    public void Sections_Round_Trip()
+    {
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+            Enumerable.Range(0, 5).Select(i => RichTextParagraph.Plain("p" + i)).ToList())
+            .WithSections([new DocumentSection(1, 2, 2, 18), new DocumentSection(3, 1, 4, 9)]);
+
+        RichTextDocument read = RoundTrip(source);
+
+        Assert.Equal("p0\np1\np2\np3\np4", read.PlainText);
+        Assert.Collection(
+            read.Sections,
+            first => Assert.Equal((1, 2, 2), (first.ParagraphIndex, first.ParagraphCount, first.ColumnCount)),
+            second => Assert.Equal((3, 1, 4), (second.ParagraphIndex, second.ParagraphCount, second.ColumnCount)));
+        Assert.Equal(18, read.Sections[0].ColumnGap, 2);
+    }
+
+    [Fact]
+    public void A_One_Column_Section_On_A_Page_Of_Columns_Comes_Back_In_One_Column()
+    {
+        // ODF lays a section's columns out inside the page's, where the model
+        // lets them stand in for the page's. So the page is written with one
+        // column, and the page's columns go on the stretch no section holds.
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+            Enumerable.Range(0, 4).Select(i => RichTextParagraph.Plain("p" + i)).ToList())
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72, ColumnCount: 2, ColumnGap: 18))
+            .WithSections([new DocumentSection(0, 1, 1, 0), new DocumentSection(1, 2, 3, 9)]);
+
+        RichTextDocument read = RoundTrip(source);
+
+        Assert.Equal(1, read.PageGeometry!.ColumnCount);
+        Assert.Null(DocumentSection.Containing(read.Sections, 0));
+        Assert.Equal(3, DocumentSection.Containing(read.Sections, 1)!.ColumnCount);
+        DocumentSection last = DocumentSection.Containing(read.Sections, 3)!;
+        Assert.Equal((2, 18.0), (last.ColumnCount, Math.Round(last.ColumnGap, 2)));
+    }
 }

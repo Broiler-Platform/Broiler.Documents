@@ -175,7 +175,7 @@ public sealed class LayoutCell
         Borders = borders;
     }
 
-    public BRect Bounds { get; }
+    public BRect Bounds { get; internal set; }
 
     /// <summary>The cell's background, or <see cref="BColor.Empty"/> for none.</summary>
     public BColor Shading { get; }

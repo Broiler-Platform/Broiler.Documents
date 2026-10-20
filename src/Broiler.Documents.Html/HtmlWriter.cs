@@ -46,6 +46,17 @@ public static class HtmlWriter
         DocumentConversionContext resources = (options ?? DocumentWriteOptions.Default).Resources;
 
         var diagnostics = new List<DocumentDiagnostic>();
+        if (document.Sections.Count > 0 || document.PageGeometry is { HasColumns: true })
+        {
+            // CSS could state columns, but a browser balances them over the
+            // whole body rather than filling a page at a time, so writing them
+            // would describe a different layout rather than this one.
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "html.columns",
+                "The document's sections and text columns were not written; this writer lays the body out " +
+                "as one column."));
+        }
+
         if (document.Tables.Count > 0)
         {
             diagnostics.Add(DocumentDiagnostic.Warning(
@@ -367,6 +378,8 @@ public static class HtmlWriter
         // where the paragraph starts rather than how it looks once it is there.
         if (style.PageBreakBefore)
             declarations.Add(PageBreakBeforeDeclaration);
+        else if (style.ColumnBreakBefore)
+            declarations.Add("break-before: column");
 
         if (style.Alignment == TextAlignment.Center)
             declarations.Add("text-align: center");

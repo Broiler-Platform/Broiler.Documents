@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
+using Broiler.Documents.Model;
 
 namespace Broiler.Documents.Docx;
 
@@ -28,10 +29,11 @@ namespace Broiler.Documents.Docx;
 /// </remarks>
 internal sealed class DocxSections
 {
-    /// <summary>The column spacing ECMA-376 §17.6.4 assumes when <c>w:space</c> is absent: half an inch.</summary>
+    /// <summary>The column spacing assumed when <c>w:space</c> is absent: half an inch.</summary>
     private const double DefaultGapPoints = 36;
 
     private readonly List<Section> _sections;
+    private readonly List<int> _ends = [];
     private int _current;
 
     private DocxSections(List<Section> sections) => _sections = sections;
@@ -45,6 +47,22 @@ internal sealed class DocxSections
     /// whether one is a page break.
     /// </summary>
     public int CurrentColumnCount => _sections[Math.Min(_current, _sections.Count - 1)].Columns.Count;
+
+    /// <summary>
+    /// True when the section the read has just entered starts on a new page:
+    /// ECMA-376's <c>nextPage</c>, <c>oddPage</c> and <c>evenPage</c>, and
+    /// an absent <c>w:type</c>, whose default is <c>nextPage</c>. A section with
+    /// no paragraphs of its own starts nothing.
+    /// </summary>
+    public bool CurrentStartsPage =>
+        _current < _sections.Count && _sections[_current].StartsPage && _sections[_current].Paragraphs > 0;
+
+    /// <summary>
+    /// True when the section the read has just entered starts on a page of a
+    /// given parity, which can put a blank page before it.
+    /// </summary>
+    public bool CurrentWantsParity =>
+        _current < _sections.Count && _sections[_current].WantsParity && _sections[_current].Paragraphs > 0;
 
     /// <summary>
     /// The columns of the section that holds the most paragraphs, which is
@@ -89,7 +107,7 @@ internal sealed class DocxSections
     {
         var sections = new List<Section>();
         if (body is null)
-            return new DocxSections([new Section(DocxColumns.Single, 0)]);
+            return new DocxSections([new Section(DocxColumns.Single, 0, StartsPage: false, WantsParity: false, Page: null)]);
 
         int paragraphs = 0;
         foreach (XElement paragraph in BodyParagraphs(body))
@@ -100,25 +118,116 @@ internal sealed class DocxSections
                 XElement sectPr = paragraph
                     .Element(DocxNamespaces.Wordprocessing + "pPr")!
                     .Element(DocxNamespaces.Wordprocessing + "sectPr")!;
-                sections.Add(new Section(ReadColumns(sectPr), paragraphs));
+                sections.Add(ReadSection(sectPr, paragraphs));
                 paragraphs = 0;
             }
         }
 
         XElement? final = body.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault();
-        sections.Add(new Section(ReadColumns(final), paragraphs));
+        sections.Add(ReadSection(final, paragraphs));
         return new DocxSections(sections);
+    }
+
+    private static Section ReadSection(XElement? sectPr, int paragraphs)
+    {
+        // w:type says how the section starts against the one before it, and is
+        // read only where there is one before it.
+        string type = DocxValueReader.WordValue(sectPr?.Element(DocxNamespaces.Wordprocessing + "type")) ?? "nextPage";
+        return new Section(
+            ReadColumns(sectPr),
+            paragraphs,
+            StartsPage: type is "nextPage" or "oddPage" or "evenPage",
+            WantsParity: type is "oddPage" or "evenPage",
+            Page: ReadPage(sectPr));
+    }
+
+    /// <summary>
+    /// The paper and margins a <c>w:sectPr</c> states in <c>w:pgSz</c> and
+    /// <c>w:pgMar</c>, without its columns; null when it states no paper, or a
+    /// page with no room to write on.
+    /// </summary>
+    public static PageGeometry? ReadPage(XElement? sectPr)
+    {
+        XElement? size = sectPr?.Element(DocxNamespaces.Wordprocessing + "pgSz");
+        if (size is null)
+            return null;
+
+        XElement? margin = sectPr!.Element(DocxNamespaces.Wordprocessing + "pgMar");
+        var geometry = new PageGeometry(
+            DocxValueReader.Twips(size, "w"),
+            DocxValueReader.Twips(size, "h"),
+            DocxValueReader.Twips(margin, "left"),
+            DocxValueReader.Twips(margin, "right"),
+            DocxValueReader.Twips(margin, "top"),
+            DocxValueReader.Twips(margin, "bottom"),
+            DocxValueReader.Twips(margin, "header"),
+            DocxValueReader.Twips(margin, "footer"));
+        return geometry.IsUsable ? geometry : null;
     }
 
     /// <summary>True when <paramref name="paragraph"/> is the last of its section.</summary>
     public static bool EndsSection(XElement paragraph) =>
         paragraph.Element(DocxNamespaces.Wordprocessing + "pPr")?.Element(DocxNamespaces.Wordprocessing + "sectPr") is not null;
 
-    /// <summary>Moves the read past a paragraph that ended a section.</summary>
-    public void Advance() => _current++;
+    /// <summary>
+    /// Moves the read past a paragraph that ended a section, recording where in
+    /// the paragraphs read the section ended.
+    /// </summary>
+    public void Advance(int paragraphEnd)
+    {
+        _ends.Add(paragraphEnd);
+        _current++;
+    }
 
     /// <summary>
-    /// ECMA-376 §17.6.4: the columns a <c>w:sectPr</c> states. An absent
+    /// The sections as the model holds them, over the <paramref name="paragraphCount"/>
+    /// paragraphs the read produced: one per section, each with its own columns
+    /// and, where it states paper or margins other than <paramref name="page"/>,
+    /// its own page; or none when every section has the same columns and the
+    /// same page, and the document's page says it all.
+    /// </summary>
+    /// <remarks>
+    /// The ranges are where the read was when each section ended, not the
+    /// scan's counts, because the read is what numbered the paragraphs. A
+    /// section that holds none is left out.
+    /// </remarks>
+    public IReadOnlyList<DocumentSection> ToModel(int paragraphCount, PageGeometry? page)
+    {
+        var sections = new List<DocumentSection>(_sections.Count);
+        bool differ = ColumnsDiffer;
+        int start = 0;
+        for (int i = 0; i < _sections.Count; i++)
+        {
+            int end = i < _ends.Count ? Math.Min(_ends[i], paragraphCount) : paragraphCount;
+            if (end > start)
+            {
+                PageGeometry? own = SamePage(_sections[i].Page, page) ? null : _sections[i].Page;
+                differ |= own is not null;
+                sections.Add(new DocumentSection(
+                    start, end - start, _sections[i].Columns.Count, _sections[i].Columns.Gap, own));
+            }
+
+            start = Math.Max(start, end);
+        }
+
+        return differ ? sections : [];
+    }
+
+    /// <summary>
+    /// True when a section's page is the document's, or states none: the same
+    /// paper and margins, whatever the columns and the header and footer
+    /// distances.
+    /// </summary>
+    private static bool SamePage(PageGeometry? section, PageGeometry? page) =>
+        section is null || page is null ||
+        (Near(section.Width, page.Width) && Near(section.Height, page.Height) &&
+         Near(section.MarginLeft, page.MarginLeft) && Near(section.MarginRight, page.MarginRight) &&
+         Near(section.MarginTop, page.MarginTop) && Near(section.MarginBottom, page.MarginBottom));
+
+    private static bool Near(double a, double b) => Math.Abs(a - b) < 0.01;
+
+    /// <summary>
+    /// ECMA-376's <c>w:cols</c>: the columns a <c>w:sectPr</c> states. An absent
     /// <c>w:cols</c>, or one of a single column, is one column.
     /// </summary>
     /// <remarks>
@@ -197,7 +306,7 @@ internal sealed class DocxSections
          value.Equals("0", StringComparison.Ordinal) ||
          value.Equals("off", StringComparison.OrdinalIgnoreCase));
 
-    private sealed record Section(DocxColumns Columns, int Paragraphs);
+    private sealed record Section(DocxColumns Columns, int Paragraphs, bool StartsPage, bool WantsParity, PageGeometry? Page);
 }
 
 /// <summary>A section's text columns: how many, and the gap between them in points.</summary>

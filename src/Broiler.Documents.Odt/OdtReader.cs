@@ -442,7 +442,7 @@ internal static class OdtReader
     }
 
     /// <summary>
-    /// ODF 1.3 §17.12: the <c>style:columns</c> a page layout divides its text
+    /// ODF's <c>style:columns</c>: the text columns a page layout divides its text
     /// area into.
     /// </summary>
     /// <remarks>
@@ -457,28 +457,8 @@ internal static class OdtReader
     private static PageGeometry ReadColumns(
         XElement properties, PageGeometry geometry, List<DocumentDiagnostic> diagnostics)
     {
-        XElement? columns = properties.Element(OdtNamespaces.Style + "columns");
-        if (columns is null ||
-            !int.TryParse(
-                (string?)columns.Attribute(OdtNamespaces.Fo + "column-count"),
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out int count) ||
-            count <= 1)
-        {
+        if (TryReadColumns(properties, diagnostics.Add) is not (int count, double gap))
             return geometry;
-        }
-
-        List<XElement> listed = [.. columns.Elements(OdtNamespaces.Style + "column")];
-        if (!OdtUnits.TryParseLength((string?)columns.Attribute(OdtNamespaces.Fo + "column-gap"), out double gap))
-            gap = listed.Count >= 2 ? Length(listed[0], "end-indent") + Length(listed[1], "start-indent") : 0;
-
-        if (HasUnequalWidths(listed))
-        {
-            diagnostics.Add(DocumentDiagnostic.Info(
-                "odt.columns.unequal",
-                "An ODT page layout listed columns of unequal width; they were read as equal columns."));
-        }
 
         PageGeometry divided = geometry.WithColumns(count, gap);
         if (!divided.HasColumns)
@@ -489,6 +469,38 @@ internal static class OdtReader
         }
 
         return divided;
+    }
+
+    /// <summary>
+    /// The columns a <c>style:columns</c> under <paramref name="properties"/>
+    /// states - a page layout's or a section's - or null for one column.
+    /// </summary>
+    private static (int Count, double Gap)? TryReadColumns(XElement properties, Action<DocumentDiagnostic> report)
+    {
+        XElement? columns = properties.Element(OdtNamespaces.Style + "columns");
+        if (columns is null ||
+            !int.TryParse(
+                (string?)columns.Attribute(OdtNamespaces.Fo + "column-count"),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int count) ||
+            count <= 1)
+        {
+            return null;
+        }
+
+        List<XElement> listed = [.. columns.Elements(OdtNamespaces.Style + "column")];
+        if (!OdtUnits.TryParseLength((string?)columns.Attribute(OdtNamespaces.Fo + "column-gap"), out double gap))
+            gap = listed.Count >= 2 ? Length(listed[0], "end-indent") + Length(listed[1], "start-indent") : 0;
+
+        if (HasUnequalWidths(listed))
+        {
+            report(DocumentDiagnostic.Info(
+                "odt.columns.unequal",
+                "ODT columns were listed with unequal widths; they were read as equal columns."));
+        }
+
+        return (count, Math.Max(0, gap));
     }
 
     /// <summary>
@@ -900,9 +912,22 @@ internal static class OdtReader
             // A section is a named region of ordinary body content; an index is a
             // generated one whose text:index-body holds real paragraphs. Both are
             // walked so the words inside them survive.
+            // A section with columns of its own is a DocumentSection over the
+            // paragraphs read inside it; one without is ordinary body content.
             if (name == OdtNamespaces.Text + "section")
             {
+                int sectionStart = builder.CurrentParagraphIndex;
                 ReadBlockContent(element.Elements(), context, list, depth + 1);
+                string? sectionStyle = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
+                if (sectionStyle is not null &&
+                    context.Styles.SectionProperties.TryGetValue(sectionStyle, out XElement? sectionProperties) &&
+                    TryReadColumns(sectionProperties, builder.AddDiagnosticOnce)
+                        is (int count, double gap))
+                {
+                    builder.AddSection(new DocumentSection(
+                        sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap));
+                }
+
                 continue;
             }
 
@@ -1091,13 +1116,22 @@ internal static class OdtReader
         // attributes describe the same gap and either of them asking for a page
         // gets one, so a paragraph saying nothing stronger than "I do not start a
         // page" cannot talk the paragraph above it out of ending one.
-        if (context.TakePageBreak())
-            paragraphStyle = paragraphStyle with { PageBreakBefore = true };
+        switch (context.TakeBreak())
+        {
+            case OdtBreak.Page:
+                paragraphStyle = paragraphStyle with { PageBreakBefore = true, ColumnBreakBefore = false };
+                break;
+            case OdtBreak.Column when !paragraphStyle.PageBreakBefore:
+                paragraphStyle = paragraphStyle with { ColumnBreakBefore = true };
+                break;
+        }
 
-        if (string.Equals(breakAfter, "column", StringComparison.Ordinal))
-            ReportColumnBreak(context.Builder);
-
-        context.HoldPageBreak(string.Equals(breakAfter, "page", StringComparison.Ordinal));
+        context.HoldBreak(breakAfter switch
+        {
+            "page" => OdtBreak.Page,
+            "column" => OdtBreak.Column,
+            _ => OdtBreak.None,
+        });
 
         // The list wins over whatever indent the paragraph style carried: inside a
         // list the nesting is the indent, and ODF list paragraph styles routinely
@@ -1437,22 +1471,20 @@ internal static class OdtReader
         // ODF gives fo:break-before three values and only one of them is a page.
         // A column break moves to the next column of the same page, so reading it
         // as a page break would add a page the document never asked for; it is
-        // reported instead, because the model has columns but no break that moves
-        // to the next one, and a construct that vanishes without a word is the
-        // defect this whole property exists to close. Both of the other values still override what
-        // the chain carried, since an inherited break has to be cancellable and
-        // auto is what a producer writes to cancel it.
+        // the model's column break instead, which a layout takes as a page break
+        // only where the page has one column. Each value overrides what the chain
+        // carried, since an inherited break has to be cancellable and auto is
+        // what a producer writes to cancel it.
         switch ((string?)properties.Attribute(OdtNamespaces.Fo + "break-before"))
         {
             case "page":
-                style = style with { PageBreakBefore = true };
+                style = style with { PageBreakBefore = true, ColumnBreakBefore = false };
                 break;
             case "column":
-                ReportColumnBreak(builder);
-                style = style with { PageBreakBefore = false };
+                style = style with { PageBreakBefore = false, ColumnBreakBefore = true };
                 break;
             case "auto":
-                style = style with { PageBreakBefore = false };
+                style = style with { PageBreakBefore = false, ColumnBreakBefore = false };
                 break;
         }
 
@@ -1524,18 +1556,6 @@ internal static class OdtReader
 
         return style;
     }
-
-    /// <summary>
-    /// Says that a column break was met and not kept. The model divides a page
-    /// into columns but has no break that moves to the next one, so there is
-    /// nothing to write it into - but a column break is a real instruction in the
-    /// document, and the reader that silently answered "no break" to it is the
-    /// one that let every page break in every format disappear without trace.
-    /// </summary>
-    private static void ReportColumnBreak(OdtDocumentBuilder builder) =>
-        builder.AddDiagnosticOnce(
-            "odt.break.column",
-            "A column break was not represented; this model lays text out in columns but does not break them.");
 
     private static int IndentLevelFor(double points) =>
         Math.Max(0, (int)Math.Round(points / OdtUnits.PointsPerIndentLevel, MidpointRounding.AwayFromZero));

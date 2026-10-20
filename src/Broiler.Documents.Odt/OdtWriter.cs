@@ -60,7 +60,7 @@ public static class OdtWriter
                 OdtNamespaces.MimeTypePart,
                 Encoding.ASCII.GetBytes(OdtNamespaces.PackageMediaType));
             AddXmlEntry(archive, OdtNamespaces.ContentPart, content);
-            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(document.RunningContent, document.PageGeometry, context));
+            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(document.RunningContent, PageOf(document), context));
             AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta(metadata));
             foreach (OdtPicturePart picture in context.Pictures)
                 AddDeflatedEntry(archive, picture.PartPath, picture.Data.Span);
@@ -246,11 +246,90 @@ public static class OdtWriter
                 text.Add(BuildShape(shape, context));
         }
 
-        foreach (XElement block in BuildBlocks(document, document.Tables, 0, document.ParagraphCount, context))
+        // A section with columns of its own is a text:section around its
+        // paragraphs, named after the columns it states; the stretches between
+        // sections are the body as it always was.
+        if (document.Sections.Any(section => section.Page is not null))
+        {
+            context.AddDiagnosticOnce(
+                "odt.section.page",
+                "A section's own page and margins were not written; its text is written within the document's page.");
+        }
+
+        int index = 0;
+        int written = 0;
+        foreach (DocumentSection section in WrittenSections(document))
+        {
+            foreach (XElement block in BuildBlocks(document, document.Tables, index, section.ParagraphIndex, context))
+                text.Add(block);
+
+            var element = new XElement(
+                OdtNamespaces.Text + "section",
+                new XAttribute(
+                    OdtNamespaces.Text + "style-name",
+                    context.GetSectionStyleName(section.ColumnCount, section.ColumnGap)),
+                new XAttribute(
+                    OdtNamespaces.Text + "name",
+                    "Section" + (++written).ToString(CultureInfo.InvariantCulture)));
+            foreach (XElement block in BuildBlocks(document, document.Tables, section.ParagraphIndex, section.ParagraphEnd, context))
+                element.Add(block);
+
+            text.Add(element);
+            index = section.ParagraphEnd;
+        }
+
+        foreach (XElement block in BuildBlocks(document, document.Tables, index, document.ParagraphCount, context))
             text.Add(block);
 
         return text;
     }
+
+    /// <summary>
+    /// The sections written as <c>text:section</c>, in order: each of the
+    /// document's that has columns, and, where the page has columns and the
+    /// document has sections, each stretch between them with the page's.
+    /// </summary>
+    /// <remarks>
+    /// The model lets a section's columns stand in for the page's, and ODF lays
+    /// a section's columns out inside the page's, so a one-column section on a
+    /// two-column page would come back laid out in two. Such a document's page
+    /// is written with one column (see <see cref="PageOf"/>) and the page's
+    /// columns go on the stretches no section holds, which a read takes back as
+    /// sections of those columns: what is laid out in which columns survives,
+    /// though the page then states one.
+    /// </remarks>
+    private static List<DocumentSection> WrittenSections(RichTextDocument document)
+    {
+        var written = new List<DocumentSection>();
+        PageGeometry? page = PageColumnsGoOnSections(document) ? document.PageGeometry : null;
+        int index = 0;
+        foreach (DocumentSection section in document.Sections.OrderBy(section => section.ParagraphIndex))
+        {
+            if (section.ParagraphIndex < index || section.ParagraphEnd > document.ParagraphCount)
+                continue;
+
+            if (page is not null && section.ParagraphIndex > index)
+                written.Add(new DocumentSection(index, section.ParagraphIndex - index, page.ColumnCount, page.ColumnGap));
+
+            written.Add(section);
+            index = section.ParagraphEnd;
+        }
+
+        if (page is not null && index < document.ParagraphCount)
+            written.Add(new DocumentSection(index, document.ParagraphCount - index, page.ColumnCount, page.ColumnGap));
+
+        written.RemoveAll(section => section.ColumnCount <= 1);
+        return written;
+    }
+
+    private static bool PageColumnsGoOnSections(RichTextDocument document) =>
+        document.Sections.Count > 0 && document.PageGeometry is { HasColumns: true };
+
+    /// <summary>The page the styles state: the document's, with one column where its sections carry the columns.</summary>
+    private static PageGeometry? PageOf(RichTextDocument document) =>
+        PageColumnsGoOnSections(document)
+            ? document.PageGeometry! with { ColumnCount = 1, ColumnGap = 0 }
+            : document.PageGeometry;
 
     /// <summary>
     /// The block-level content of a paragraph range: lists, paragraphs, and a
@@ -901,6 +980,8 @@ public static class OdtWriter
         // document have to agree.
         if (style.PageBreakBefore)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "break-before", "page"));
+        else if (style.ColumnBreakBefore)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "break-before", "column"));
 
         return properties;
     }
@@ -1322,6 +1403,7 @@ public static class OdtWriter
         private readonly List<XElement> _tableStyles = [];
         private readonly Dictionary<string, string> _columnStyleNames = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _rowStyleNames = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _sectionStyleNames = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _cellStyleNames = new(StringComparer.Ordinal);
         private int _tableCount;
         private readonly List<XElement> _gradients = [];
@@ -1436,6 +1518,32 @@ public static class OdtWriter
 
         /// <summary>The styles a table's columns and cells are written with.</summary>
         public IReadOnlyList<XElement> TableStyles => _tableStyles;
+
+        /// <summary>
+        /// The section style for one set of columns, created on first use and
+        /// kept with the table styles in the automatic styles.
+        /// </summary>
+        public string GetSectionStyleName(int count, double gap)
+        {
+            string key = count.ToString(CultureInfo.InvariantCulture) + "|" + OdtUnits.FormatPoints(gap);
+            if (_sectionStyleNames.TryGetValue(key, out string? existing))
+                return existing;
+
+            string name = "Sect" + (_sectionStyleNames.Count + 1).ToString(CultureInfo.InvariantCulture);
+            _tableStyles.Add(new XElement(
+                OdtNamespaces.Style + "style",
+                new XAttribute(OdtNamespaces.Style + "name", name),
+                new XAttribute(OdtNamespaces.Style + "family", "section"),
+                new XElement(
+                    OdtNamespaces.Style + "section-properties",
+                    new XElement(
+                        OdtNamespaces.Style + "columns",
+                        new XAttribute(OdtNamespaces.Fo + "column-count", count.ToString(CultureInfo.InvariantCulture)),
+                        new XAttribute(OdtNamespaces.Fo + "column-gap", OdtUnits.FormatPoints(gap))))));
+
+            _sectionStyleNames[key] = name;
+            return name;
+        }
 
         /// <summary>A name per table, which ODF requires and uses as its identity.</summary>
         public string NextTableName() =>

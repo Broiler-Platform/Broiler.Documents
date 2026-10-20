@@ -33,7 +33,7 @@ below rather than leaving a page count to imply otherwise.
    section holding the most paragraphs.
 3. **A column break with no column to move to was a line break.**
    `FDO77715.docx` opens each of its blocks with `w:br w:type="column"` in a
-   section of one column. ECMA-376 §17.18.3 says such a break restarts the text
+   section of one column. ECMA-376's `ST_BrType` says such a break restarts the text
    on the next page, and Word and LibreOffice both start one; this reader read
    it as a line break, and every block ran on from the last. It is now a page
    break exactly where the section it is in has one column. Which section that
@@ -86,16 +86,17 @@ remain in them are no longer hidden behind the wider fallback.
   draft law, some of whose rows are longer than a page. LibreOffice breaks such a
   row across pages; the layout here places a row whole, so a row taller than the
   page runs off its bottom and the pages its continuation would have filled are
-  never made. That is a table layout this component does not have, and the
-  [roadmap](../roadmap.md#test-suites-and-tooling) carries it. The document's two
-  footnotes are skipped as `odt.note`; the model has no footnotes.
+  never made. That was a table layout this component did not have; it does
+  now, under [Follow-ups](#follow-ups). The document's two footnotes are
+  skipped as `odt.note`; the model has no footnotes.
 - **`tdf123163-1.docx`, 12 pages against 16.** A magazine laid out in
   thirty-one sections: eight of them start a new page, and eleven are in two,
   three or four columns. Section breaks do not paginate here and the model holds
   one page and one set of columns, so the document is laid out as one flow in
   the columns of the section that holds the most paragraphs. The floating
   pictures and the exact row heights it is also read with
-  (`docx.image.shape`, `docx.table.rowheight`) add to the gap.
+  (`docx.image.shape`, `docx.table.rowheight`) add to the gap. Sections are
+  under [Follow-ups](#follow-ups), with what is left of this one.
 - **`tdf135056.odt`, 4 pages against 17.** A magazine template whose text is
   cut down to single letters. Six of its frames are anchored to a page by number
   (`text:anchor-type="page"`, `text:anchor-page-number` 1, 4, 5 and 17), and
@@ -105,8 +106,8 @@ remain in them are no longer hidden behind the wider fallback.
   says, and nothing asks for a seventeenth page. A page anchor is a model
   change that reaches both layouts and every writer, and the frame on page 17
   states its width only as the text box's `fo:min-width`, which is not read
-  either; both are on the [roadmap](../roadmap.md#format-fidelity) rather than
-  in this change.
+  either. Both were left out of this change and made under
+  [Follow-ups](#follow-ups).
 
 ## Measured
 
@@ -151,3 +152,72 @@ checks on the base commit and with these changes, with and without the font
 aliases - the identical rows, 46 of them pixel rows that the extra fonts account
 for and the forty-seventh `text/lists-nested/rtf` - so nothing here moves the
 seed baseline.
+
+## Follow-ups
+
+Three of the four left above were model changes, made after this note in
+three commits of their own. Each was measured as the run above was, over the
+same ten files with the same tools and fonts; the column for each commit is a
+run of that commit's build.
+
+1. **A table row breaks across pages.** A row that does not fit the room left
+   is cut cell by cell, each cell keeping the lines that end above the foot of
+   the page, and the rest continues at the top of the next column or page.
+   `TableRow.CanSplit` says whether a row may; DOCX reads and writes
+   `w:cantSplit` and ODT `fo:keep-together`. A row holding a nested table or a
+   cell that spans rows stays whole.
+2. **A shape can be anchored to a page.** `DocumentShape.AnchorPage` holds the
+   page an ODF `text:anchor-type="page"` frame names, both layouts stand it
+   there and make the pages up to it, and a text box sized by `fo:min-width` is
+   a frame. Graphic styles now inherit through `style:parent-style-name`, which
+   is what paints `tdf135056`'s boxes.
+3. **Sections.** `DocumentSection` holds a paragraph range with its own
+   columns and, where it states them, its own margins. A DOCX section break
+   starts a page unless it is `continuous`, a column break in a section of
+   several columns moves to the next column (`ParagraphStyle.ColumnBreakBefore`,
+   read and written by DOCX, ODT, RTF and HTML), and an ODF `text:section` with
+   columns is a section. The layout lays each section out in its own columns
+   between its own margins, and balances a section's columns, table rows
+   included, where the next section follows on the same page, as Word and
+   LibreOffice do.
+
+| Sample | Before | Rows | Page anchors | Sections | LibreOffice |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `tdf134965.odt` | 23 (1558.46) | 31 (1178.71) | 31 | 31 | 29 |
+| `fdo68607.docx` | 9 (1187.95) | 8 (1144.98) | 8 | 8 | 8 |
+| `test_segfault_while_save.docx` | 7 (1247.15) | 7 (1259.16) | 7 | 7 | 8 |
+| `tdf135056.odt` | 4 (1446.12) | 4 | 17 (926.21) | 17 | 17 |
+| `tdf123163-1.docx` | 12 (1631.69) | 12 | 12 | 12 (1619.51) | 16 |
+
+"Before" is the font-aliases column above; the other five samples did not
+move. `tdf134965` now runs two pages long rather than six short, and
+`fdo68607` lands on LibreOffice's count. `test_segfault_while_save` scores a
+little worse with its rows broken where they fall: its page count is
+unchanged. `tdf135056` draws its seventeen pages and its boxes.
+
+`tdf123163-1` is the one that stays far off. With its sections laid out in
+their own columns and margins it is twelve pages, as it was, and scores a
+little better; the four pages are elsewhere. None of its fourteen pictures is
+in the package (`docx.image.missing`), and LibreOffice keeps a box of the
+size each states - one of them, 562 by 642 points, is its third page - where
+this reader keeps nothing. The inline ones alone come to about 1,840 points
+of height, about two and a half of this document's pages of text. Keeping a missing
+picture's box is a reader decision of its own and is not made here.
+
+A first cut of the sections layout drew `tdf123163-1` at twenty pages: each
+section was squeezed into the margins of the last one, the only page the
+model held, which in this document is 241 points wide. That is why a section
+carries its own margins.
+
+### Validation
+
+New regressions: `DocumentLayoutRowSplitTests` (7),
+`DocumentLayoutPageAnchorTests` (6), `OdtPageAnchorTests` (9) and
+`DocumentLayoutSectionTests` (16), with cases added to `DocxTableTests`,
+`OdtTableTests`, `DocxShapeTests`, `OdtShapeTests`, `RtfShapeTests`,
+`PdfWriterTests`, `DocxColumnTests`, `OdtColumnTests`, `RtfColumnTests`,
+`HtmlPageBreakTests`, `MarkdownWriterTests` and `PdfPageBreakTests`. The full
+solution passes: 2,985 tests across the fourteen test projects, 2,982 passing
+and three skipped as before. The corpus suite passes 2320/2320, and the seed
+corpus fails the same 47 of 779 checks, row for row, as it did before the
+follow-ups.

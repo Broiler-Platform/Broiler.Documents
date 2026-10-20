@@ -192,9 +192,11 @@ internal static class HtmlReader
             // but a break does not: it happens once, where it was stated, and a
             // div carrying one is not three page breaks because it holds three
             // paragraphs.
+            bool pageBreak = DeclaresPageBreakBefore(element, styleSheet, builder);
             builder.StartParagraph(childParagraph with
             {
-                PageBreakBefore = DeclaresPageBreakBefore(element, styleSheet, builder),
+                PageBreakBefore = pageBreak,
+                ColumnBreakBefore = !pageBreak && DeclaresColumnBreakBefore(element, styleSheet),
             });
             ReadChildren(element, builder, styleSheet, childInline, childParagraph, childPreserveWhitespace);
             builder.FinishParagraph(force: true);
@@ -479,6 +481,21 @@ internal static class HtmlReader
         }
 
         return breaks;
+    }
+
+    /// <summary>
+    /// Whether the style resolved for this paragraph starts the next column:
+    /// CSS Fragmentation's <c>break-before: column</c>, or the
+    /// <c>column-break-before: always</c> older engines wrote. It is not
+    /// inherited, for the reason a page break is not.
+    /// </summary>
+    private static bool DeclaresColumnBreakBefore(DomElement element, HtmlStyleSheet styleSheet)
+    {
+        IReadOnlyDictionary<string, string> declarations = styleSheet.DeclarationsFor(element);
+        return (declarations.TryGetValue("break-before", out string? value) &&
+                value.Trim().Equals("column", StringComparison.OrdinalIgnoreCase)) ||
+               (declarations.TryGetValue("column-break-before", out string? legacy) &&
+                legacy.Trim().Equals("always", StringComparison.OrdinalIgnoreCase));
     }
 
     private static ParagraphStyle ApplyParagraphElement(

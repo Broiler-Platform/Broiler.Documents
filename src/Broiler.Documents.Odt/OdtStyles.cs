@@ -96,6 +96,13 @@ internal sealed class OdtStyles
         new Dictionary<string, XElement>(StringComparer.Ordinal);
 
     /// <summary>
+    /// The <c>style:section-properties</c> of every section style, by name: where
+    /// a <c>text:section</c> states the columns its text is laid out in.
+    /// </summary>
+    public IReadOnlyDictionary<string, XElement> SectionProperties { get; init; } =
+        new Dictionary<string, XElement>(StringComparer.Ordinal);
+
+    /// <summary>
     /// The <c>style:table-cell-properties</c> of every style that has them, by
     /// name. A cell names one, and that is where ODF states its background and
     /// its borders.
@@ -143,6 +150,7 @@ internal sealed class OdtStyles
         var cellProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var columnProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var rowProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
+        var sectionProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var gradients = new Dictionary<string, XElement>(StringComparer.Ordinal);
         XElement? masterStyles = null;
         List<XElement> pageLayouts = [];
@@ -163,6 +171,7 @@ internal sealed class OdtStyles
                     cellProperties,
                     columnProperties,
                     rowProperties,
+                    sectionProperties,
                     gradients);
                 masterStyles = stylesXml.Root.Element(OdtNamespaces.Office + "master-styles");
                 pageLayouts = [.. stylesXml.Root.Descendants(OdtNamespaces.Style + "page-layout")];
@@ -181,6 +190,7 @@ internal sealed class OdtStyles
                 cellProperties,
                 columnProperties,
                 rowProperties,
+                sectionProperties,
                 gradients);
         }
 
@@ -192,6 +202,7 @@ internal sealed class OdtStyles
             TableCellProperties = cellProperties,
             TableColumnProperties = columnProperties,
             TableRowProperties = rowProperties,
+            SectionProperties = sectionProperties,
             Gradients = gradients,
         };
     }
@@ -267,6 +278,7 @@ internal sealed class OdtStyles
         Dictionary<string, XElement> cellProperties,
         Dictionary<string, XElement> columnProperties,
         Dictionary<string, XElement> rowProperties,
+        Dictionary<string, XElement> sectionProperties,
         Dictionary<string, XElement> gradients)
     {
         foreach (XElement fontFace in root.Descendants(OdtNamespaces.Style + "font-face"))
@@ -306,6 +318,10 @@ internal sealed class OdtStyles
             XElement? tableRow = style.Element(OdtNamespaces.Style + "table-row-properties");
             if (tableRow is not null)
                 rowProperties[name] = tableRow;
+
+            XElement? section = style.Element(OdtNamespaces.Style + "section-properties");
+            if (section is not null)
+                sectionProperties[name] = section;
         }
 
         foreach (XElement gradient in root.Descendants(OdtNamespaces.Draw + "gradient"))

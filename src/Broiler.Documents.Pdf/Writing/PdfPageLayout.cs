@@ -165,6 +165,17 @@ internal sealed class PdfPageLayout(
 
         AddPageExclusions(document.Shapes, 1, setup.Height);
 
+        // This layout fills the document's page as one column, so text columns -
+        // the page's or a section's - and a section's own margins are not drawn,
+        // and a column break is the page break a page of one column makes of it.
+        if (document.PageGeometry?.HasColumns == true || document.Sections.Count > 0)
+        {
+            _diagnostics.Warning(
+                PdfDiagnosticCodes.WriteFeatureUnsupported,
+                "The document's sections and text columns were laid out as one column on the document's page; " +
+                "a column break starts a new page.");
+        }
+
         var anchors = new Dictionary<int, (PdfLayoutPage Page, double Top)>();
         for (int paragraphIndex = 0; paragraphIndex < document.ParagraphCount; paragraphIndex++)
         {
@@ -210,7 +221,7 @@ internal sealed class PdfPageLayout(
             // one is asking to start on a fresh page and is already on one. It is
             // the same guard the overflow break below uses, and the same rule the
             // CLI layout states on its own break.
-            if (style.PageBreakBefore && page.Runs.Count > 0)
+            if ((style.PageBreakBefore || style.ColumnBreakBefore) && page.Runs.Count > 0)
                 BreakPage();
 
             y -= style.SpacingBefore;

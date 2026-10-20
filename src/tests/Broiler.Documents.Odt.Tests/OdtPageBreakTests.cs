@@ -58,7 +58,7 @@ public sealed class OdtPageBreakTests
 
         Assert.False(StyleOf(result, 0).PageBreakBefore);
         Assert.False(StyleOf(result, 1).PageBreakBefore);
-        Assert.False(Reports(result, "odt.break.column"));
+        Assert.False(StyleOf(result, 1).ColumnBreakBefore);
         Assert.False(Reports(result, "odt.break.after"));
     }
 
@@ -98,12 +98,12 @@ public sealed class OdtPageBreakTests
     }
 
     [Fact]
-    public void A_Column_Break_Is_Not_A_Page_Break_And_Is_Reported()
+    public void A_Column_Break_Is_A_Column_Break_And_Not_A_Page_Break()
     {
         // fo:break-before shares its three values with XSL, and only one of them
         // is a page. A column break moves to the next column of the same page, so
-        // reading it as a page break would invent a page; the model has no
-        // columns, so it is reported rather than kept.
+        // reading it as a page break would invent a page; it is the model's
+        // column break, and overrides the page break the parent style carried.
         DocumentReadResult result = OdtTestPackage.ReadStyled(
             OdtTestPackage.StyledParagraph("P1", "body"),
             "<office:styles>" + OdtTestPackage.Style("Chapter", BreakBeforePage) + "</office:styles>",
@@ -113,18 +113,19 @@ public sealed class OdtPageBreakTests
                 parent: "Chapter"));
 
         Assert.False(StyleOf(result, 0).PageBreakBefore);
-        Assert.True(Reports(result, "odt.break.column"));
+        Assert.True(StyleOf(result, 0).ColumnBreakBefore);
     }
 
     [Fact]
-    public void A_Column_Break_After_Is_Reported_Too()
+    public void A_Column_Break_After_Starts_The_Next_Paragraph_In_The_Next_Column()
     {
         DocumentReadResult result = OdtTestPackage.ReadBody(
             OdtTestPackage.StyledParagraph("P1", "first") + OdtTestPackage.Paragraph("second"),
             OdtTestPackage.Style("P1", "<style:paragraph-properties fo:break-after=\"column\"/>"));
 
+        Assert.False(StyleOf(result, 0).ColumnBreakBefore);
         Assert.False(StyleOf(result, 1).PageBreakBefore);
-        Assert.True(Reports(result, "odt.break.column"));
+        Assert.True(StyleOf(result, 1).ColumnBreakBefore);
     }
 
     [Fact]

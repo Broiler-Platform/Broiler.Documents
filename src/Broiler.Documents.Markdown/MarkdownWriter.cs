@@ -83,6 +83,13 @@ public static class MarkdownWriter
                 "Markdown has no page break; a paragraph that starts a new page was written " +
                 "as an ordinary paragraph."));
         }
+        else if (style.ColumnBreakBefore)
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "markdown.column-break",
+                "Markdown has no columns; a paragraph that starts the next column was written " +
+                "as an ordinary paragraph."));
+        }
 
         if (style.Alignment != TextAlignment.Left ||
             Math.Abs(style.LineSpacing - 1f) > 0.001f ||

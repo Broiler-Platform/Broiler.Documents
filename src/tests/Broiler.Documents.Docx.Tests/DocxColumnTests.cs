@@ -165,7 +165,7 @@ public sealed class DocxColumnTests
     [Fact]
     public void A_Column_Break_In_A_Single_Column_Starts_The_Paragraph_It_Opens_On_A_New_Page()
     {
-        // ECMA-376 §17.18.3: where the section is not divided into columns, a
+        // ECMA-376's ST_BrType: where the section is not divided into columns, a
         // column break restarts the text on the next page.
         DocumentReadResult result = Read(
             DocxTestPackage.Paragraph("index") + ColumnBreakFirst("block") + Section());
@@ -199,14 +199,38 @@ public sealed class DocxColumnTests
     }
 
     [Fact]
-    public void A_Column_Break_In_A_Section_Of_Columns_Is_Not_A_Page_Break()
+    public void A_Column_Break_In_A_Section_Of_Columns_Starts_The_Next_Column()
     {
         DocumentReadResult result = Read(
             DocxTestPackage.Paragraph("one") + ColumnBreakFirst("two") +
             Section("<w:cols w:num=\"2\"/>"));
 
-        Assert.False(result.Document.Paragraphs[1].Style.PageBreakBefore);
-        Assert.Equal(LineBreak + "two", result.Document.Paragraphs[1].Text);
+        ParagraphStyle style = result.Document.Paragraphs[1].Style;
+        Assert.True(style.ColumnBreakBefore);
+        Assert.False(style.PageBreakBefore);
+        Assert.Equal("two", result.Document.Paragraphs[1].Text);
+    }
+
+    [Fact]
+    public void A_Column_Break_At_The_End_Of_A_Paragraph_In_Columns_Starts_The_Next()
+    {
+        DocumentReadResult result = Read(
+            "<w:p><w:r><w:t>one</w:t><w:br w:type=\"column\"/></w:r></w:p>" +
+            DocxTestPackage.Paragraph("two") +
+            Section("<w:cols w:num=\"2\"/>"));
+
+        Assert.Equal("one", result.Document.Paragraphs[0].Text);
+        Assert.True(result.Document.Paragraphs[1].Style.ColumnBreakBefore);
+    }
+
+    [Fact]
+    public void A_Column_Break_Inside_A_Paragraph_In_Columns_Is_A_Line_Break_And_Says_So()
+    {
+        DocumentReadResult result = Read(
+            "<w:p><w:r><w:t>one</w:t><w:br w:type=\"column\"/><w:t>two</w:t></w:r></w:p>" +
+            Section("<w:cols w:num=\"2\"/>"));
+
+        Assert.Equal("one" + LineBreak + "two", result.Document.Paragraphs[0].Text);
         Assert.True(Reports(result, "docx.break.column"));
     }
 
@@ -219,12 +243,12 @@ public sealed class DocxColumnTests
             ColumnBreakFirst("in columns") +
             SectionEnd("end of columns", "<w:cols w:num=\"2\"/>") +
             ColumnBreakFirst("on its own page") +
-            Section());
+            Section("<w:type w:val=\"continuous\"/>"));
 
         RichTextParagraph inColumns = result.Document.Paragraphs[0];
         RichTextParagraph ownPage = result.Document.Paragraphs[2];
+        Assert.True(inColumns.Style.ColumnBreakBefore);
         Assert.False(inColumns.Style.PageBreakBefore);
-        Assert.Equal(LineBreak + "in columns", inColumns.Text);
         Assert.True(ownPage.Style.PageBreakBefore);
         Assert.Equal("on its own page", ownPage.Text);
     }
@@ -238,10 +262,101 @@ public sealed class DocxColumnTests
             "<w:p><w:pPr>" + Section("<w:cols w:num=\"2\"/>") + "</w:pPr>" +
             "<w:r><w:br w:type=\"column\"/><w:t>last of the columns</w:t></w:r></w:p>" +
             DocxTestPackage.Paragraph("after") +
-            Section());
+            Section("<w:type w:val=\"continuous\"/>"));
 
+        Assert.True(result.Document.Paragraphs[0].Style.ColumnBreakBefore);
         Assert.False(result.Document.Paragraphs[0].Style.PageBreakBefore);
         Assert.False(result.Document.Paragraphs[1].Style.PageBreakBefore);
+    }
+
+    [Theory]
+    [InlineData("", true)]
+    [InlineData("<w:type w:val=\"nextPage\"/>", true)]
+    [InlineData("<w:type w:val=\"continuous\"/>", false)]
+    [InlineData("<w:type w:val=\"nextColumn\"/>", false)]
+    public void A_Section_That_Starts_A_Page_Starts_One(string type, bool startsPage)
+    {
+        // w:type belongs to the section it starts, and its default is nextPage.
+        DocumentReadResult result = Read(
+            SectionEnd("first section", string.Empty) +
+            DocxTestPackage.Paragraph("second section") +
+            Section(type));
+
+        Assert.False(result.Document.Paragraphs[0].Style.PageBreakBefore);
+        Assert.Equal(startsPage, result.Document.Paragraphs[1].Style.PageBreakBefore);
+    }
+
+    [Fact]
+    public void A_Section_On_An_Odd_Page_Starts_A_Page_And_Says_What_It_Did_Not_Make()
+    {
+        DocumentReadResult result = Read(
+            SectionEnd("first section", string.Empty) +
+            DocxTestPackage.Paragraph("second section") +
+            Section("<w:type w:val=\"oddPage\"/>"));
+
+        Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.True(Reports(result, "docx.section.parity"));
+    }
+
+    [Fact]
+    public void A_Section_Break_And_A_Page_Break_At_The_Same_Place_Are_One_Boundary()
+    {
+        DocumentReadResult result = Read(
+            "<w:p><w:pPr>" + Section(string.Empty) + "</w:pPr>" +
+            "<w:r><w:t>first</w:t><w:br w:type=\"page\"/></w:r></w:p>" +
+            DocxTestPackage.Paragraph("second") +
+            Section());
+
+        Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.False(Reports(result, "docx.pagebreak.repeated"));
+    }
+
+    [Fact]
+    public void Sections_With_Their_Own_Columns_Are_Kept_As_Sections()
+    {
+        DocumentReadResult result = Read(
+            DocxTestPackage.Paragraph("title") +
+            SectionEnd("abstract", string.Empty) +
+            DocxTestPackage.Table([[DocxTestPackage.Paragraph("a"), DocxTestPackage.Paragraph("b")]]) +
+            DocxTestPackage.Paragraph("body one") +
+            SectionEnd("body two", "<w:type w:val=\"continuous\"/><w:cols w:num=\"2\" w:space=\"360\"/>") +
+            DocxTestPackage.Paragraph("end") +
+            Section("<w:type w:val=\"continuous\"/>"));
+
+        Assert.Collection(
+            result.Document.Sections,
+            first =>
+            {
+                Assert.Equal(0, first.ParagraphIndex);
+                Assert.Equal(2, first.ParagraphCount);
+                Assert.Equal(1, first.ColumnCount);
+            },
+            second =>
+            {
+                // The table's cell paragraphs are the section's too.
+                Assert.Equal(2, second.ParagraphIndex);
+                Assert.Equal(4, second.ParagraphCount);
+                Assert.Equal(2, second.ColumnCount);
+                Assert.Equal(18, second.ColumnGap, 3);
+            },
+            third =>
+            {
+                Assert.Equal(6, third.ParagraphIndex);
+                Assert.Equal(1, third.ParagraphCount);
+                Assert.Equal(1, third.ColumnCount);
+            });
+    }
+
+    [Fact]
+    public void Sections_That_Agree_On_Their_Columns_Leave_Them_To_The_Page()
+    {
+        DocumentReadResult result = Read(
+            SectionEnd("first", "<w:cols w:num=\"2\"/>") +
+            DocxTestPackage.Paragraph("second") +
+            Section("<w:cols w:num=\"2\"/>"));
+
+        Assert.Empty(result.Document.Sections);
+        Assert.Equal(2, GeometryOf(result).ColumnCount);
     }
 
     [Fact]
@@ -340,5 +455,135 @@ public sealed class DocxColumnTests
         using var reader = new StreamReader(archive.GetEntry("word/document.xml")!.Open());
 
         Assert.DoesNotContain("w:cols", reader.ReadToEnd(), StringComparison.Ordinal);
+    }
+
+    private static RichTextDocument RoundTrip(RichTextDocument document)
+    {
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(document), writable: false);
+        return new DocxDocumentCodec().Read(stream).Document;
+    }
+
+    private static RichTextParagraph Breaking(string text) =>
+        RichTextParagraph.Create(text, InlineStyle.Default, ParagraphStyle.Default with { ColumnBreakBefore = true });
+
+    [Fact]
+    public void A_Column_Break_Round_Trips_In_A_Page_Of_Columns()
+    {
+        RichTextDocument source = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("one"), Breaking("two")])
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72, ColumnCount: 2, ColumnGap: 36));
+
+        RichTextParagraph two = RoundTrip(source).Paragraphs[1];
+
+        Assert.Equal("two", two.Text);
+        Assert.True(two.Style.ColumnBreakBefore);
+        Assert.False(two.Style.PageBreakBefore);
+    }
+
+    [Fact]
+    public void A_Column_Break_On_A_Page_Of_One_Column_Comes_Back_As_The_Page_Break_It_Is()
+    {
+        RichTextDocument source = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("one"), Breaking("two")])
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72));
+
+        Assert.True(RoundTrip(source).Paragraphs[1].Style.PageBreakBefore);
+    }
+
+    [Fact]
+    public void Sections_Round_Trip_With_Their_Columns()
+    {
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+            Enumerable.Range(0, 6).Select(i => RichTextParagraph.Plain("p" + i)).ToList())
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72))
+            .WithSections(
+            [
+                new DocumentSection(0, 2, 1, 0),
+                new DocumentSection(2, 3, 3, 18),
+                new DocumentSection(5, 1, 1, 0),
+            ]);
+
+        RichTextDocument read = RoundTrip(source);
+
+        Assert.Equal(6, read.ParagraphCount);
+        Assert.Collection(
+            read.Sections,
+            first => Assert.Equal((0, 2, 1), (first.ParagraphIndex, first.ParagraphCount, first.ColumnCount)),
+            second =>
+            {
+                Assert.Equal((2, 3, 3), (second.ParagraphIndex, second.ParagraphCount, second.ColumnCount));
+                Assert.Equal(18, second.ColumnGap, 3);
+            },
+            third => Assert.Equal((5, 1, 1), (third.ParagraphIndex, third.ParagraphCount, third.ColumnCount)));
+
+        // The breaks between them are continuous: no section starts a page.
+        Assert.All(read.Paragraphs, paragraph => Assert.False(paragraph.Style.PageBreakBefore));
+    }
+
+    [Fact]
+    public void A_Section_Ending_In_A_Table_Is_Closed_After_It()
+    {
+        var table = new DocumentTable(0, 2, [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)])]);
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Plain("a"), RichTextParagraph.Plain("b"), RichTextParagraph.Plain("after")])
+            .WithTables([table])
+            .WithSections([new DocumentSection(0, 2, 2, 18), new DocumentSection(2, 1, 1, 0)]);
+
+        RichTextDocument read = RoundTrip(source);
+
+        // Word's own shape: an empty paragraph after the table holds the
+        // section's properties, so the section gains it.
+        Assert.Equal("a\nb\n\nafter", read.PlainText);
+        Assert.Equal(2, read.Sections[0].ColumnCount);
+        Assert.Equal(3, read.Sections[0].ParagraphCount);
+    }
+
+    [Fact]
+    public void A_Section_With_Its_Own_Margins_Keeps_Them()
+    {
+        // The middle section is two inches in from either side; the others, and
+        // so the document, are an inch in.
+        const string narrow =
+            "<w:sectPr><w:type w:val=\"continuous\"/><w:pgSz w:w=\"12240\" w:h=\"15840\"/>" +
+            "<w:pgMar w:left=\"2880\" w:right=\"2880\" w:top=\"1440\" w:bottom=\"1440\"/></w:sectPr>";
+        DocumentReadResult result = Read(
+            SectionEnd("first", string.Empty) +
+            "<w:p><w:pPr>" + narrow + "</w:pPr><w:r><w:t>second</w:t></w:r></w:p>" +
+            DocxTestPackage.Paragraph("third") +
+            Section("<w:type w:val=\"continuous\"/>"));
+
+        Assert.Equal(72, GeometryOf(result).MarginLeft, 3);
+        Assert.Collection(
+            result.Document.Sections,
+            first => Assert.Null(first.Page),
+            second =>
+            {
+                PageGeometry page = Assert.IsType<PageGeometry>(second.Page);
+                Assert.Equal((144.0, 144.0), (page.MarginLeft, page.MarginRight));
+                Assert.Equal(1, second.ColumnCount);
+            },
+            third => Assert.Null(third.Page));
+    }
+
+    [Fact]
+    public void A_Section_Page_Round_Trips()
+    {
+        PageGeometry letter = new(612, 792, 72, 72, 72, 72);
+        PageGeometry narrow = new(612, 792, 144, 144, 90, 72);
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Plain("a"), RichTextParagraph.Plain("b"), RichTextParagraph.Plain("c")])
+            .WithPageGeometry(letter)
+            .WithSections(
+            [
+                new DocumentSection(0, 1, 1, 0),
+                new DocumentSection(1, 1, 2, 18, narrow),
+                new DocumentSection(2, 1, 1, 0),
+            ]);
+
+        RichTextDocument read = RoundTrip(source);
+
+        Assert.Equal(72, read.PageGeometry!.MarginLeft, 3);
+        PageGeometry page = Assert.IsType<PageGeometry>(read.Sections[1].Page);
+        Assert.Equal((144.0, 144.0, 90.0), (page.MarginLeft, page.MarginRight, page.MarginTop));
+        Assert.Null(read.Sections[0].Page);
+        Assert.Null(read.Sections[2].Page);
     }
 }

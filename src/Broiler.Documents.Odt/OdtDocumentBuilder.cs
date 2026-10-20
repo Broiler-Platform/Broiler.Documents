@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Globalization;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
@@ -15,6 +16,7 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
     private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
     private readonly List<DocumentShape> _shapes = [];
     private readonly List<DocumentTable> _tables = [];
+    private readonly List<DocumentSection> _sections = [];
     private readonly Stack<List<DocumentTable>> _tableSinks = new();
     private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
     private bool _pendingSpace;
@@ -234,6 +236,21 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
 
     public void AddShape(DocumentShape shape) => _shapes.Add(shape);
 
+    /// <summary>
+    /// Records a section with columns of its own. A section is closed after the
+    /// sections inside it, so one that holds an earlier one replaces it: the
+    /// outer section's columns are the ones its paragraphs are laid out in.
+    /// </summary>
+    public void AddSection(DocumentSection section)
+    {
+        if (section.ParagraphCount <= 0)
+            return;
+
+        _sections.RemoveAll(inner =>
+            inner.ParagraphIndex >= section.ParagraphIndex && inner.ParagraphEnd <= section.ParagraphEnd);
+        _sections.Add(section);
+    }
+
     public RichTextDocument Build()
     {
         RichTextDocument document = _paragraphs.Count == 0
@@ -243,11 +260,21 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
         if (_shapes.Count > 0)
             document = document.WithShapes(_shapes);
 
+        if (_sections.Count > 0)
+            document = document.WithSections([.. _sections.OrderBy(section => section.ParagraphIndex)]);
+
         return _tables.Count == 0 ? document : document.WithTables(_tables);
     }
 
     public void AddDiagnosticOnce(string code, string message) =>
         AddDiagnosticOnce(code, code, message);
+
+    /// <summary>Adds <paramref name="diagnostic"/> at its own severity, once per code.</summary>
+    public void AddDiagnosticOnce(DocumentDiagnostic diagnostic)
+    {
+        if (_diagnosticOnce.Add(diagnostic.Code))
+            _diagnostics.Add(diagnostic);
+    }
 
     public void AddDiagnosticOnce(string key, string code, string message)
     {
