@@ -48,6 +48,26 @@ deliberately not one of them, so `&nbsp;` beside an ordinary space keeps both.
 Under a preserving declaration nothing is trimmed either, including at the start
 of the paragraph, which is what the declaration is for.
 
+Elements whose content is not text the document says are skipped with
+everything inside them: the ones the HTML rendering rules hide (`area`, `base`,
+`basefont`, `datalist`, `head`, `link`, `meta`, `noembed`, `noframes`, `param`,
+`script`, `style`, `template`, `title`), and the external or embedded content
+this reader neither fetches nor draws, of which an image, an object, an embed or
+an iframe is reported as `html.skip.external`.
+`noframes` and `noembed` were missing from that list until a document showed
+what it cost: the parser reads both as raw text, so markup inside one came out
+as the document's prose, tags and all. `rp` is on the rendering list and kept
+here on purpose - it holds the parentheses shown around a ruby annotation by a
+reader with no ruby support, which this model is.
+
+A NUL is not text. The tree builder ignores one in body content, so a
+conforming DOM never holds it there; the parser this codec uses keeps it, and
+the renderer drew it as a missing glyph in the middle of a word, so the reader
+drops it. Where the standard turns a NUL into U+FFFD instead - `&#0;`, and
+inside a `textarea` - it is dropped as well, because by the time the text
+reaches the reader the two cases cannot be told apart. Other control characters
+are left alone: CSS asks for them to be drawn visibly rather than removed.
+
 Numeric CSS lengths and line-height multipliers must be finite. NaN, infinity,
 numeric overflow and unit conversions that overflow are ignored, preserving
 the inherited model value. `HtmlFiniteLengthTests` covers font sizes, paragraph

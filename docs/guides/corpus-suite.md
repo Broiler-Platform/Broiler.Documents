@@ -133,7 +133,7 @@ commit.
 ## The baseline
 
 `tests/corpus/corpus-baseline.json` records only the round trips that lose
-something or warn about something — 67 rows. Everything absent from it
+something or warn about something — 64 rows. Everything absent from it
 is asserted to be lossless and silent, so **a new loss fails by not being
 listed**. That way round keeps the file readable and keeps the check that matters
 from depending on somebody having written a row for the case that broke.
@@ -147,7 +147,7 @@ Every row carries a state:
 
 | State | Meaning | Count |
 | --- | --- | --- |
-| `documented` | A limitation one of the codec notes states. The row cites it, and a guard checks the cited file exists. | 66 |
+| `documented` | A limitation one of the codec notes states. The row cites it, and a guard checks the cited file exists. | 63 |
 | `suspected-defect` | A difference nobody decided on — which the [CLI guide](cli.md) says is exactly what round-tripping is good for. | 0 |
 | `accepted` | The normalized model's own behaviour, looked at and accepted. | 1 |
 

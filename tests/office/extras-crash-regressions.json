@@ -1,0 +1,91 @@
+{
+  "$schema": "extras-crash-regressions.schema.json",
+  "schemaVersion": 1,
+  "updated": "2026-10-20",
+  "policy": {
+    "records": "The families of LibreOffice sw/qa/extras samples that are fuzzer output rather than documents. LibreOffice keeps them as crash regressions: the upstream test for each one asserts only that LibreOffice survives it - that loading does not crash, assert or hang. What LibreOffice draws from such a file is its handling of the damage - a fuzzed cellpadding of 65536, a backslash turned into a letter - and that is not a reference anybody should be held to.",
+    "rule": "A sample whose file name matches a family's pattern (a .NET regular expression, case-insensitive) is set aside. It is not converted by LibreOffice and not compared with it, and it never enters the ranked differences. broilerdoc is still asked to read, dump and render it, and each of those has to end in one of the documented exit codes 0-6. Exit 70, a crash, or a run killed for hanging is a defect on any input, and the report lists every such failure above the ranking.",
+    "why": "The ranking is dominated by the page-count gap, and LibreOffice lays these files out over twenty pages of damage. The first ranked run (issue 116) was three of them, and reading them more correctly pushed them higher: forcepoint102.rtf went from 4 pages to 1 against LibreOffice's 21 and its severity rose. Left in the ranking, this family would hold the top of every report.",
+    "scope": "A family is fuzzer output, not a document that once crashed LibreOffice. A minimised bug document such as crashHyphen.fodt is also tested upstream only for not crashing, but it is a valid document LibreOffice lays out on purpose, so its rendering is a reference and it stays ranked. The names under stillRanked hold that line, and a guard fails if a pattern starts matching one.",
+    "adding": "A new family needs an origin and evidence a reader can follow: the upstream test that loads the file only to check it does not crash, and what in the file shows it was generated rather than written. List the files it matches under examples - the guard checks every one."
+  },
+  "families": [
+    {
+      "id": "forcepoint",
+      "pattern": "forcepoint",
+      "origin": "LibreOffice's forcepoint series of crash reproducers, named forcepoint<N>, forcepoint<N>-<M> or with forcepoint in a bug document's name.",
+      "evidence": "sw/qa/extras/layout/layout.cxx loads each layout file under the comment '//just care it doesn't crash/assert' (testForcepoint91 and its neighbours). sw/qa/extras/odfimport/odfimport.cxx loads forcepoint101.fodt under '// just care that it doesn't crash/assert', and asserts that forcepoint108.fodt fails to load at all. The files show the damage: forcepoint102.rtf has a byte where the backslash of \\colortbl was and a stylesheet group that never closes; forcepoint91.html has cellpadding=65536 and a table width of 2285779150443901191; forcepoint99.html puts its markup inside <noframes>.",
+      "examples": [
+        "layout/data/forcepoint-swfootnoteframe-1.rtf",
+        "layout/data/forcepoint100.html",
+        "layout/data/forcepoint102.rtf",
+        "layout/data/forcepoint103.html",
+        "layout/data/forcepoint72-1.rtf",
+        "layout/data/forcepoint75-1.rtf",
+        "layout/data/forcepoint76-1.rtf",
+        "layout/data/forcepoint89.html",
+        "layout/data/forcepoint90.rtf",
+        "layout/data/forcepoint91.html",
+        "layout/data/forcepoint93-1.rtf",
+        "layout/data/forcepoint93-2.rtf",
+        "layout/data/forcepoint94.html",
+        "layout/data/forcepoint98.html",
+        "layout/data/forcepoint99.html",
+        "layout/data/tdf147485-forcepoint.docx",
+        "odfimport/data/forcepoint101.fodt",
+        "odfimport/data/forcepoint108.fodt"
+      ]
+    },
+    {
+      "id": "ofz",
+      "pattern": "^ofz[0-9]",
+      "origin": "OSS-Fuzz reproducers, named ofz followed by the OSS-Fuzz issue number.",
+      "evidence": "sw/qa/extras/uiwriter/uiwriter10.cxx loads ofz18563.docx in testOfz18563 under '// only care that it doesn't assert/crash'. sw/qa/extras/layout/layout6.cxx loads ofz64109-1.fodt under '//just care it doesn't assert', and exports ofz574847387-1.rtf to PDF only to show that its layout finishes - without the fix it never did.",
+      "examples": [
+        "layout/data/ofz574847387-1.rtf",
+        "layout/data/ofz64109-1.fodt",
+        "uiwriter/data/ofz18563.docx"
+      ]
+    },
+    {
+      "id": "fuzzer-testcase",
+      "pattern": "^LIBREOFFICE-[A-Z0-9]{8}\\.",
+      "origin": "Fuzzer testcases kept under their testcase id, LIBREOFFICE- followed by eight letters and digits.",
+      "evidence": "sw/qa/extras/layout/layout.cxx loads both in testN4LA0OHZ and testUXTSOREL under '//just care it doesn't crash/assert'. LIBREOFFICE-N4LA0OHZ.rtf spells its tables {\\fontttbl and {]colortbl; LIBREOFFICE-UXTSOREL.rtf opens with a mangled \\rtf and gives a font \\cpg92233720 followed by a stray character and more digits.",
+      "examples": [
+        "layout/data/LIBREOFFICE-N4LA0OHZ.rtf",
+        "layout/data/LIBREOFFICE-UXTSOREL.rtf"
+      ]
+    }
+  ],
+  "stillRanked": [
+    {
+      "name": "layout/data/crashHyphen.fodt",
+      "why": "Tested upstream only for not crashing, under the same comment as the forcepoint files, but it is a valid document that reproduced a hyphenation crash, and LibreOffice's layout of it is deliberate."
+    },
+    {
+      "name": "layout/data/tdf152983-1-min.docx",
+      "why": "A minimised bug document, tested upstream only for not crashing. Minimised is not fuzzed: what is left is a document."
+    },
+    {
+      "name": "uiwriter/data/txbx_crash.odt",
+      "why": "A document that once crashed Writer; nothing about it was generated."
+    },
+    {
+      "name": "uiwriter/data/AtPageTextBoxCrash.odt",
+      "why": "A document that once crashed Writer; nothing about it was generated."
+    },
+    {
+      "name": "ooxmlexport/data/file_crash.docx",
+      "why": "A document that once crashed the exporter; nothing about it was generated."
+    },
+    {
+      "name": "ooxmlexport/data/testCrashWhileSave.docx",
+      "why": "A document that once crashed on save; nothing about it was generated."
+    },
+    {
+      "name": "ooxmlexport/data/test_msword_hang.docx",
+      "why": "A document that once hung Word; nothing about it was generated."
+    }
+  ]
+}
