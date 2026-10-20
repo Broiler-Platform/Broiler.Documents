@@ -1,3 +1,5 @@
+using Broiler.Documents.Model;
+
 namespace Broiler.Documents.Odt;
 
 /// <summary>Everything a read needs to turn one element into document content.</summary>
@@ -9,10 +11,16 @@ namespace Broiler.Documents.Odt;
 /// body content and shares the body's, which is the same answer read the
 /// other way round.
 /// </remarks>
+/// <param name="Page">
+/// The page the body is laid out on, when the document states one: a frame
+/// anchored to a page states its position from the page's edges, and the model
+/// measures from the text column.
+/// </param>
 internal sealed record OdtReadContext(
     OdtStyles Styles,
     OdtImageLoader Images,
-    OdtDocumentBuilder Builder)
+    OdtDocumentBuilder Builder,
+    PageGeometry? Page = null)
 {
     private bool _pendingPageBreak;
 

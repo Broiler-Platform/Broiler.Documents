@@ -197,7 +197,10 @@ toolkit behind it.
   stated either way, so a stripe the letter is written on top of and a stamp
   meant to cover it each stay on the side of the text they were authored on. A
   frame standing between paragraphs is read this way too, where before it was
-  skipped as holding no body text — which lost the picture.
+  skipped as holding no body text — which lost the picture. A graphic style
+  inherits through `style:parent-style-name`, the nearest statement winning, so
+  a frame whose automatic style says only where it stands takes its paint and
+  wrapping from the named style beneath it, as LibreOffice writes text boxes.
 - A written package is deterministic: two writes of one document produce
   byte-identical output. Every entry carries a fixed timestamp, `mimetype` is
   first and stored uncompressed per ODF 1.3 part 2 §3.3, and `meta.xml` names the
@@ -249,8 +252,20 @@ toolkit behind it.
   states no run-through is
   read as `background`, which is not ODF's own default; it is what this reader
   has always done, and a box wrongly in front would hide the text under it. A
-  page-anchored frame is placed against its paragraph, since that is the only
-  anchor the model has, and a frame that states no box stays in the text. Crops,
+  frame anchored to a page by number (`text:anchor-type="page"` with
+  `text:anchor-page-number`) is `DocumentShape.AnchorPage`: it stands on that
+  page, and the layout makes the pages it needs to have one, as LibreOffice
+  does. Its position is taken from the area the graphic style names -
+  `style:horizontal-rel`/`style:vertical-rel` of `page` or `page-content`, and
+  `page` when the style says nothing - and from `style:horizontal-pos` and
+  `style:vertical-pos`, then turned into the model's terms: across from the text
+  column, down from the page's top edge. A page anchor with no number is read as
+  the paragraph anchor it amounts to. A write puts a page-anchored drawing in the
+  body ahead of the text, as LibreOffice does, with its number and a style
+  stating both areas. A text box whose frame states no `svg:width` takes its
+  text box's `fo:min-width`; one sized only by `fo:min-height` still stays in the
+  text, because the height its text needs is not known here and a box of the
+  minimum would clip it. A frame that states no box stays in the text. Crops,
   rotation, and frame effects are dropped.
 - SVG, EMF, and WMF — what a producer stores for charts, formulas, and object
   replacement images — are not carried, because they cannot be decoded to pixels

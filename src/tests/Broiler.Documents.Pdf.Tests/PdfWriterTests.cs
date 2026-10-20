@@ -505,4 +505,18 @@ public sealed partial class PdfWriterTests
 
     [System.Text.RegularExpressions.GeneratedRegex(@"\(1\. ")]
     private static partial System.Text.RegularExpressions.Regex MyRegex();
+
+    [Fact]
+    public void A_Shape_Anchored_To_A_Later_Page_Gets_That_Page()
+    {
+        // The writer's own layout makes the pages up to a page anchor, as the
+        // pagination layout does, rather than drawing the shape beside its
+        // paragraph with an offset measured from somewhere else.
+        var shape = new DocumentShape(0, 0, 100, 50, 20, ShapeFill.Solid(BColor.Black), anchorPage: 3);
+        RichTextDocument document = RichTextDocument.FromPlainText("body").WithShapes([shape]);
+
+        (_, PdfWriteResult result) = Write(document);
+
+        Assert.Equal(3, result.PageCount);
+    }
 }

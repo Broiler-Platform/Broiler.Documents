@@ -405,6 +405,7 @@ anything a caller asked for that this codec does not do.
 | `rtf.image.format` | Warning | Write | RTF carries PNG and JPEG pictures; one in another format was dropped. |
 | `rtf.image.omitted` | Warning | Write | The caller's resource policy did not permit a picture into the output; the message names the denial. |
 | `rtf.image.anchored` | Warning | Write | A floating picture was written into its paragraph; its position beside the text was not kept. |
+| `rtf.shape.page` | Warning | Write | A shape anchored to a page by number was written beside its paragraph with `\shpbypage`; RTF can measure from the page but not name it. |
 | `document.capability.not-composed` | Warning | Read, write | Something the caller asked for that this codec does not compose: `DecodeEmbeddedObjects` on a document that carries a picture or object, or `AsciiOnly=false` on a write. |
 
 ## Standards and rights

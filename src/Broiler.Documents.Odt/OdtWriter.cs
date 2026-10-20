@@ -102,7 +102,7 @@ public static class OdtWriter
 
         var element = new XElement(
             OdtNamespaces.Draw + "custom-shape",
-            new XAttribute(OdtNamespaces.Text + "anchor-type", "paragraph"),
+            AnchorAttributes(shape),
             new XAttribute(
                 OdtNamespaces.Draw + "z-index",
                 shape.ZOrder.ToString(CultureInfo.InvariantCulture)),
@@ -166,7 +166,7 @@ public static class OdtWriter
             new XAttribute(
                 OdtNamespaces.Draw + "name",
                 "Image" + part.Index.ToString(CultureInfo.InvariantCulture)),
-            new XAttribute(OdtNamespaces.Text + "anchor-type", "paragraph"),
+            AnchorAttributes(shape),
             new XAttribute(OdtNamespaces.Svg + "x", OdtUnits.FormatPoints(shape.OffsetX)),
             new XAttribute(OdtNamespaces.Svg + "y", OdtUnits.FormatPoints(shape.OffsetY)),
             new XAttribute(OdtNamespaces.Svg + "width", OdtUnits.FormatPoints(shape.Width)),
@@ -184,6 +184,22 @@ public static class OdtWriter
 
         return frame;
     }
+
+    /// <summary>
+    /// How a shape is anchored: to its paragraph, or to a page by number. The
+    /// graphic style a page-anchored shape is written with says the offsets are
+    /// measured from the page's content area across and from its top edge down,
+    /// which is how the model measures them.
+    /// </summary>
+    private static XAttribute[] AnchorAttributes(DocumentShape shape) => shape.IsPageAnchored
+        ?
+        [
+            new XAttribute(OdtNamespaces.Text + "anchor-type", "page"),
+            new XAttribute(
+                OdtNamespaces.Text + "anchor-page-number",
+                shape.AnchorPage.ToString(CultureInfo.InvariantCulture)),
+        ]
+        : [new XAttribute(OdtNamespaces.Text + "anchor-type", "paragraph")];
 
     private static XDocument BuildContent(XElement body, OdtWriteContext context)
     {
@@ -221,6 +237,15 @@ public static class OdtWriter
     private static XElement BuildBody(RichTextDocument document, OdtWriteContext context)
     {
         var text = new XElement(OdtNamespaces.Office + "text");
+
+        // A drawing anchored to a page belongs to no paragraph, so it is written
+        // where LibreOffice writes one: in the body, ahead of the text.
+        foreach (DocumentShape shape in document.Shapes)
+        {
+            if (shape.IsPageAnchored)
+                text.Add(BuildShape(shape, context));
+        }
+
         foreach (XElement block in BuildBlocks(document, document.Tables, 0, document.ParagraphCount, context))
             text.Add(block);
 
@@ -398,7 +423,7 @@ public static class OdtWriter
     {
         foreach (DocumentShape shape in document.Shapes)
         {
-            if (shape.ParagraphIndex == paragraphIndex)
+            if (!shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
                 yield return shape;
         }
     }
@@ -1346,6 +1371,14 @@ public static class OdtWriter
                     },
                     _ => "run-through",
                 }));
+
+            if (shape.IsPageAnchored)
+            {
+                properties.Add(new XAttribute(OdtNamespaces.Style + "horizontal-pos", "from-left"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "horizontal-rel", "page-content"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-pos", "from-top"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-rel", "page"));
+            }
 
             if (shape.Fill is ShapeFill fill && fill.IsGradient)
             {

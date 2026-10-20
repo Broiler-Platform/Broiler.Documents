@@ -173,8 +173,19 @@ public static class RtfWriter
         // of its stripe and saved without one would come back stacked whichever
         // way the reader happened to walk them.
         sb.Append("\\shpz").Append(shape.ZOrder.ToString(CultureInfo.InvariantCulture));
-        // Against the column and the paragraph, which is what the offsets mean.
-        sb.Append("\\shpbxcolumn\\shpbypara\\shpwr3");
+        // Against the column and the paragraph, which is what the offsets mean -
+        // or the page, for a shape standing on one, which RTF can say but cannot
+        // number.
+        if (shape.IsPageAnchored)
+        {
+            AddOnce(
+                diagnostics,
+                reported,
+                "rtf.shape.page",
+                "A shape anchored to a page by number was written beside its paragraph, measured from the page; RTF cannot name the page.");
+        }
+
+        sb.Append(shape.IsPageAnchored ? "\\shpbxcolumn\\shpbypage\\shpwr3" : "\\shpbxcolumn\\shpbypara\\shpwr3");
 
         if (shape.Fill is ShapeFill fill)
         {

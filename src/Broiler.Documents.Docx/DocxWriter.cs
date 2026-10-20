@@ -260,8 +260,21 @@ public static class DocxWriter
         // of the one it belongs to - which is where Word puts it too.
         foreach (DocumentShape shape in document.Shapes)
         {
-            if (shape.ParagraphIndex == index)
-                element.Add(BuildShapeRun(shape, context));
+            if (shape.ParagraphIndex != index)
+                continue;
+
+            // WordprocessingML measures a drawing from the page but anchors it
+            // to a paragraph, so a shape standing on a page by number keeps its
+            // place on the page and loses the number.
+            if (shape.IsPageAnchored)
+            {
+                context.AddDiagnosticOnce(
+                    "docx.shape.page",
+                    "A shape anchored to a page by number was written beside the paragraph it was read with, " +
+                    "measured from the page; WordprocessingML cannot name the page.");
+            }
+
+            element.Add(BuildShapeRun(shape, context, shape.IsPageAnchored));
         }
 
         return element;

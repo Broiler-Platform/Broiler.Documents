@@ -80,6 +80,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _documentShapes = document.Shapes;
         _paragraphTops.Clear();
         _wrap = new TextWrapExclusions();
+        AddPageExclusions(1);
 
         // A continuous render has no page break to place, so it lays out against
         // an effectively unbounded column and then shrinks the page to the
@@ -126,6 +127,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // on one page.
             _paragraphTops.Clear();
             _wrap = new TextWrapExclusions();
+            AddPageExclusions(pages.Count + 1);
 
             y = setup.ContentTopPoints;
             if (pages.Count >= _settings.MaxPages)
@@ -227,7 +229,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // it, which is what a single forward pass can honestly say.
             foreach (DocumentShape shape in _documentShapes)
             {
-                if (shape.Wraps && shape.ParagraphIndex == paragraphIndex)
+                if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
                     _wrap.Add(shape, y + shape.OffsetY);
             }
 
@@ -267,6 +269,37 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         if (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0)
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
+
+        // A shape anchored to a page the text never reached still has to stand
+        // on it, so the pages up to it are made, empty but for their running
+        // bands, as LibreOffice makes them. A continuous render has one page and
+        // says what it left off instead.
+        int lastAnchor = _documentShapes.Count == 0 ? 0 : _documentShapes.Max(shape => shape.AnchorPage);
+        if (setup.Continuous)
+        {
+            int unplaced = _documentShapes.Count(shape => shape.AnchorPage > 1);
+            if (unplaced > 0)
+            {
+                _notes.Add(string.Format(
+                    CultureInfo.InvariantCulture,
+                    "left out {0} shape(s) anchored to a page after the first: --continuous renders one tall page.",
+                    unplaced));
+            }
+        }
+        else
+        {
+            _paragraphTops.Clear();
+            while (pages.Count < lastAnchor && !truncated)
+            {
+                if (pages.Count >= _settings.MaxPages)
+                {
+                    truncated = true;
+                    break;
+                }
+
+                pages.Add(NewPage(pages.Count + 1, setup, [], []));
+            }
+        }
 
         if (ignoredBreaks > 0)
         {
@@ -339,12 +372,25 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // OrderBy rather than Sort, because it is stable: shapes that state no
         // order all sit at zero and keep the order they were read in, which is the
         // answer this gave before z-order was modelled.
-        List<LayoutShape> shapes = PlaceShapes(setup);
+        List<LayoutShape> shapes = PlaceShapes(setup, number);
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup));
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
         shapes = [.. shapes.OrderBy(shape => shape.ZOrder)];
 
         return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells);
+    }
+
+    /// <summary>
+    /// Adds the wrapping shapes anchored to page <paramref name="number"/> to the
+    /// exclusions, which are page-local and were just emptied for it.
+    /// </summary>
+    private void AddPageExclusions(int number)
+    {
+        foreach (DocumentShape shape in _documentShapes)
+        {
+            if (shape.Wraps && shape.AnchorPage == number)
+                _wrap.Add(shape, shape.OffsetY);
+        }
     }
 
     /// <summary>
@@ -379,15 +425,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
-    /// Places the document's floating shapes for a page.
+    /// Places the document's floating shapes for page <paramref name="number"/>.
     /// </summary>
     /// <remarks>
     /// A shape's x is measured from the text column's left edge - which is how a
     /// letterhead's stripe sits in the margin without any page geometry - and its
     /// y from the top of the paragraph it is anchored to. A shape whose paragraph
-    /// has not been laid out on this page is not drawn on it.
+    /// has not been laid out on this page is not drawn on it. A shape anchored to
+    /// a page is drawn on that page, its y measured from the page's top edge.
     /// </remarks>
-    private List<LayoutShape> PlaceShapes(DocumentPageBox setup)
+    private List<LayoutShape> PlaceShapes(DocumentPageBox setup, int number)
     {
         var placed = new List<LayoutShape>();
         if (_documentShapes.Count == 0)
@@ -395,8 +442,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         foreach (DocumentShape shape in _documentShapes)
         {
-            if (!_paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchorTop))
+            double anchorTop;
+            if (shape.IsPageAnchored)
+            {
+                if (shape.AnchorPage != number)
+                    continue;
+
+                anchorTop = 0;
+            }
+            else if (!_paragraphTops.TryGetValue(shape.ParagraphIndex, out anchorTop))
+            {
                 continue;
+            }
 
             var bounds = new BRect(setup.ContentLeftPoints + shape.OffsetX, anchorTop + shape.OffsetY,
                 Math.Max(0, shape.Width), Math.Max(0, shape.Height));

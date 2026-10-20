@@ -188,12 +188,68 @@ internal sealed class OdtStyles
         {
             MasterStyles = masterStyles,
             PageLayouts = pageLayouts,
-            GraphicProperties = graphicProperties,
+            GraphicProperties = ResolveGraphicChains(styles, graphicProperties, limits.MaxGroupDepth),
             TableCellProperties = cellProperties,
             TableColumnProperties = columnProperties,
             TableRowProperties = rowProperties,
             Gradients = gradients,
         };
+    }
+
+    /// <summary>
+    /// Each graphic style's properties with what its parents state beneath them.
+    /// </summary>
+    /// <remarks>
+    /// ODF styles inherit through <c>style:parent-style-name</c>, and LibreOffice
+    /// relies on it for frames: the paint and border of a text box live in a
+    /// named style such as <c>encarts</c>, and the automatic style the frame
+    /// names only adds where it stands. Read alone, that automatic style left the
+    /// box unpainted. Attributes are merged root first, so the nearest statement
+    /// wins; child elements are taken whole from the nearest style that has any.
+    /// A chain that loops or runs past <paramref name="maxDepth"/> stops there.
+    /// </remarks>
+    private static Dictionary<string, XElement> ResolveGraphicChains(
+        Dictionary<StyleKey, StyleDefinition> styles,
+        Dictionary<string, XElement> own,
+        int maxDepth)
+    {
+        var resolved = new Dictionary<string, XElement>(own, StringComparer.Ordinal);
+        foreach (StyleKey key in styles.Keys)
+        {
+            if (!string.Equals(key.Family, "graphic", StringComparison.Ordinal))
+                continue;
+
+            var chain = new List<XElement>();
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            string? current = key.Name;
+            while (current is not null && visited.Count <= maxDepth && visited.Add(current))
+            {
+                if (own.TryGetValue(current, out XElement? properties))
+                    chain.Add(properties);
+
+                current = styles.TryGetValue(new StyleKey("graphic", current), out StyleDefinition? definition)
+                    ? definition.ParentStyleName
+                    : null;
+            }
+
+            if (chain.Count < 2)
+                continue;
+
+            var merged = new XElement(chain[0].Name);
+            for (int i = chain.Count - 1; i >= 0; i--)
+            {
+                foreach (XAttribute attribute in chain[i].Attributes())
+                    merged.SetAttributeValue(attribute.Name, attribute.Value);
+            }
+
+            XElement? withChildren = chain.Find(properties => properties.HasElements);
+            if (withChildren is not null)
+                merged.Add(withChildren.Elements());
+
+            resolved[key.Name] = merged;
+        }
+
+        return resolved;
     }
 
     /// <summary>

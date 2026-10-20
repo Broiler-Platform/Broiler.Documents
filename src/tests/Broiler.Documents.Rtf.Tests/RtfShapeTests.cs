@@ -196,4 +196,16 @@ public sealed class RtfShapeTests
         Assert.Contains("\\shpz4", Ascii(source), StringComparison.Ordinal);
         Assert.Equal(4, Assert.Single(RoundTrip(source).Shapes).ZOrder);
     }
+
+    [Fact]
+    public void A_Page_Anchored_Shape_Is_Measured_From_The_Page_And_Says_It_Lost_The_Number()
+    {
+        var shape = new DocumentShape(0, 10, 300, 100, 50, Green, anchorPage: 3);
+        DocumentWriteResult result = RtfWriter.Write(WithShapes(shape), new MemoryStream());
+        string rtf = Ascii(WithShapes(shape));
+
+        Assert.Contains("\\shpbypage", rtf, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\shpbypara", rtf, StringComparison.Ordinal);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "rtf.shape.page");
+    }
 }

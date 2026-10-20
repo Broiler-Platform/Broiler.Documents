@@ -57,16 +57,18 @@ internal static class OdtReader
             OdtStyles styles = OdtStyles.Load(archive, content, options.Limits, diagnostics);
             var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
             var images = new OdtImageLoader(archive, manifest, options.Limits, resources);
-            RichTextDocument document = ReadContent(content, styles, images, options.Limits, diagnostics);
 
             // One resolution, used by both. The page and the header that sits on
             // it belong to the same master page, and reading them from two
             // different ones would put a Letter header on an A4 page without
-            // anything saying so.
+            // anything saying so. The page is read before the content, because a
+            // frame anchored to a page states its position from the page's edges.
             XElement? master = ResolveMasterPage(content, styles);
+            PageGeometry? page = ReadPageGeometry(master, styles, diagnostics);
+            RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics);
             document = document.WithRunningContent(
                 ReadRunningContent(master, styles, images, options.Limits, diagnostics));
-            document = document.WithPageGeometry(ReadPageGeometry(master, styles, diagnostics));
+            document = document.WithPageGeometry(page);
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             return new DocumentReadResult(
                 document,
@@ -95,6 +97,7 @@ internal static class OdtReader
         XDocument content,
         OdtStyles styles,
         OdtImageLoader images,
+        PageGeometry? page,
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics)
     {
@@ -110,7 +113,7 @@ internal static class OdtReader
         }
 
         var builder = new OdtDocumentBuilder(limits, diagnostics);
-        var context = new OdtReadContext(styles, images, builder);
+        var context = new OdtReadContext(styles, images, builder, page);
         ReadBlockContent(body.Elements(), context, list: null, depth: 0);
 
         // A break after the last paragraph asks for a page with nothing on it,
@@ -523,7 +526,7 @@ internal static class OdtReader
     /// </remarks>
     private static bool ReadShape(XElement drawing, OdtReadContext context, int depth)
     {
-        if (!OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "width"), out double width) ||
+        if (!TryReadFrameWidth(drawing, out double width) ||
             !OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "height"), out double height) ||
             width <= 0 || height <= 0)
         {
@@ -548,6 +551,7 @@ internal static class OdtReader
         double y = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "y"), out double top)
             ? top
             : 0;
+        (int anchorPage, x, y) = PlaceOnPage(drawing, styleName, x, y, width, height, context);
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -562,8 +566,103 @@ internal static class OdtReader
             behindText: behindText,
             wrap: wrap,
             wrapSide: wrapSide,
-            zOrder: ZIndex(drawing)));
+            zOrder: ZIndex(drawing),
+            anchorPage: anchorPage));
         return true;
+    }
+
+    /// <summary>
+    /// A drawing's width: <c>svg:width</c>, or for a frame that states none, the
+    /// <c>fo:min-width</c> of its text box.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice writes a text box that grows to its text that way, and the
+    /// width is what its lines wrap to. Without it the frame was read as body
+    /// text, wherever it was anchored. A box sized only by <c>fo:min-height</c>
+    /// is still read that way: its height is what its text needs, which is not
+    /// known here, and a box of the minimum would clip the text it was made to
+    /// hold.
+    /// </remarks>
+    private static bool TryReadFrameWidth(XElement drawing, out double width) =>
+        OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "width"), out width) ||
+        OdtUnits.TryParseLength(
+            (string?)drawing.Element(OdtNamespaces.Draw + "text-box")?.Attribute(OdtNamespaces.Fo + "min-width"),
+            out width);
+
+    /// <summary>
+    /// The page a drawing is anchored to by number, and its position in the
+    /// model's terms: x from the text column's left edge, y from the page's top
+    /// edge. A drawing anchored any other way comes back as it went in, with no
+    /// page.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ODF's <c>text:anchor-page-number</c> names the physical page a
+    /// page-anchored drawing stands on. Without a number the drawing stands on
+    /// whatever page its position in the text reaches, which is the paragraph
+    /// anchor the model already has.
+    /// </para>
+    /// <para>
+    /// The graphic style says which area the position is measured in
+    /// (<c>style:horizontal-rel</c>, <c>style:vertical-rel</c>: the whole page,
+    /// or its content area) and how (<c>style:horizontal-pos</c>,
+    /// <c>style:vertical-pos</c>: from the stated offset, or at an edge or the
+    /// middle of the area). A style that says nothing measures from the page,
+    /// which is the area a page anchor names. Without a page to measure against
+    /// the margins are taken as zero.
+    /// </para>
+    /// </remarks>
+    private static (int Page, double X, double Y) PlaceOnPage(
+        XElement drawing, string? styleName, double x, double y, double width, double height, OdtReadContext context)
+    {
+        if (!string.Equals((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type"), "page", StringComparison.Ordinal) ||
+            !int.TryParse(
+                (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-page-number"),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int page) ||
+            page < 1)
+        {
+            return (0, x, y);
+        }
+
+        XElement? properties = null;
+        if (!string.IsNullOrWhiteSpace(styleName))
+            context.Styles.GraphicProperties.TryGetValue(styleName, out properties);
+
+        PageGeometry? geometry = context.Page;
+        double pageWidth = geometry?.Width ?? 0;
+        double pageHeight = geometry?.Height ?? 0;
+        double marginLeft = geometry?.MarginLeft ?? 0;
+        double marginTop = geometry?.MarginTop ?? 0;
+
+        // The area each offset is measured in, as its left (or top) edge from the
+        // page's, and its extent.
+        bool contentWide = string.Equals(
+            (string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-rel"), "page-content", StringComparison.Ordinal);
+        bool contentHigh = string.Equals(
+            (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-rel"), "page-content", StringComparison.Ordinal);
+        double areaLeft = contentWide ? marginLeft : 0;
+        double areaWidth = contentWide ? geometry?.ContentWidth ?? 0 : pageWidth;
+        double areaTop = contentHigh ? marginTop : 0;
+        double areaHeight = contentHigh ? geometry?.ContentHeight ?? 0 : pageHeight;
+
+        double left = (string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-pos") switch
+        {
+            "left" or "inside" => areaLeft,
+            "center" => areaLeft + ((areaWidth - width) / 2),
+            "right" or "outside" => areaLeft + areaWidth - width,
+            _ => areaLeft + x,
+        };
+        double top = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-pos") switch
+        {
+            "top" => areaTop,
+            "middle" => areaTop + ((areaHeight - height) / 2),
+            "bottom" => areaTop + areaHeight - height,
+            _ => areaTop + y,
+        };
+
+        return (page, left - marginLeft, top);
     }
 
     /// <summary>
@@ -1259,6 +1358,7 @@ internal static class OdtReader
         double y = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "y"), out double top)
             ? top
             : 0;
+        (int anchorPage, x, y) = PlaceOnPage(frame, styleName, x, y, width, height, context);
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -1273,7 +1373,8 @@ internal static class OdtReader
             behindText: behindText,
             wrap: wrap,
             wrapSide: wrapSide,
-            zOrder: ZIndex(frame)));
+            zOrder: ZIndex(frame),
+            anchorPage: anchorPage));
         return true;
     }
 

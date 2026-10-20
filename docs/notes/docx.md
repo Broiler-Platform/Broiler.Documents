@@ -301,7 +301,11 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's, or a page-relative vertical offset kept as stated. |
 
-Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, and `docx.text.control`.
+Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, `docx.shape.page`, and `docx.text.control`.
+`docx.shape.page` says a shape anchored to a page by number was written beside
+the paragraph it was read with, its vertical offset measured from the page
+(`relativeFrom="page"`): WordprocessingML anchors every drawing to a paragraph
+and has no way to name the page.
 `docx.text.control` is the counterpart to ODT's `odt.text.control`: XML 1.0 has
 no representation for most control characters, not even an escape, so one that
 reaches the writer is dropped and reported. It is not a contrived input — the

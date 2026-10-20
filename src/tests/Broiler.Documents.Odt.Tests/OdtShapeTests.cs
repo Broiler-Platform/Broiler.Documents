@@ -253,4 +253,36 @@ public sealed class OdtShapeTests
             ContentOf(OdtDocumentCodec.WriteToArray(RichTextDocument.FromPlainText("body"))),
             StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void A_Frame_Takes_The_Paint_Its_Style_Inherits()
+    {
+        // How LibreOffice writes a text box: the paint and border in a named
+        // style, and an automatic style on the frame that says only where it is.
+        string named =
+            "<office:styles>" +
+            "<style:style style:name=\"Frame\" style:family=\"graphic\">" +
+            "<style:graphic-properties draw:fill=\"none\" svg:stroke-color=\"#000000\" style:wrap=\"parallel\"/></style:style>" +
+            "<style:style style:name=\"encarts\" style:family=\"graphic\" style:parent-style-name=\"Frame\">" +
+            "<style:graphic-properties draw:fill=\"solid\" draw:fill-color=\"#ffcc99\"/></style:style>" +
+            "</office:styles>";
+        string automatic =
+            "<style:style style:name=\"fr1\" style:family=\"graphic\" style:parent-style-name=\"encarts\">" +
+            "<style:graphic-properties style:wrap=\"none\"/></style:style>";
+        string frame =
+            "<text:p><draw:frame draw:style-name=\"fr1\" text:anchor-type=\"paragraph\" " +
+            "svg:width=\"2in\" svg:height=\"1in\"><draw:text-box><text:p>boxed</text:p></draw:text-box></draw:frame>body</text:p>";
+
+        using var stream = new MemoryStream(OdtTestPackage.FromBody(frame, automatic, named), writable: false);
+        DocumentShape shape = Assert.Single(new OdtDocumentCodec().Read(stream).Document.Shapes);
+
+        Assert.NotNull(shape.Fill);
+        Assert.Equal(0xFF, shape.Fill!.Start.R);
+        Assert.Equal(0xCC, shape.Fill.Start.G);
+        Assert.Equal(0x99, shape.Fill.Start.B);
+
+        // The nearest statement wins: the frame's own style says none, which is
+        // ODF's top-and-bottom, over the grandparent's parallel.
+        Assert.Equal(ShapeWrap.TopAndBottom, shape.Wrap);
+    }
 }
