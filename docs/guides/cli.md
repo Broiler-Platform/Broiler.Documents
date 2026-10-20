@@ -280,7 +280,10 @@ broilerdoc render report.docx --out report.png \
 
 `--font-dir` scans a directory and maps faces by filename; `--font-file` pins one
 explicitly and always wins. Families a document asks for that have no mapping are
-listed in the manifest under `fonts.unmappedFamilies`.
+listed in the manifest under `fonts.unmappedFamilies`. Such a family is drawn with
+the host fallback face (`fonts.hostFallback`), and its lines are measured from that
+face too, so a document set in a family the mapping leaves out breaks its lines
+and pages where the face it is drawn in puts them.
 
 Italic deserves a note. Broiler.Graphics does not synthesize a slant, so an
 italic run with no italic face mapped would draw upright — and a codec that
