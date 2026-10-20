@@ -27,6 +27,7 @@ public sealed partial class OfficeControlGuardTests
     private const string Corpus = "tests/office/office-corpus.json";
     private const string BaselineFile = "tests/office/office-baseline.json";
     private const string Tools = "tests/office/tools/manifest.json";
+    private const string CrashRegressionsFile = "tests/office/extras-crash-regressions.json";
     private const string Runner = "src/tests/Broiler.Documents.Office";
 
     private static readonly string[] DocumentExtensions =
@@ -47,10 +48,11 @@ public sealed partial class OfficeControlGuardTests
         // fails in milliseconds with the file named.
         foreach (string relative in new[]
                  {
-                     Corpus, BaselineFile, Tools,
+                     Corpus, BaselineFile, Tools, CrashRegressionsFile,
                      "tests/office/office-corpus.schema.json",
                      "tests/office/office-baseline.schema.json",
                      "tests/office/tools/manifest.schema.json",
+                     "tests/office/extras-crash-regressions.schema.json",
                  })
         {
             string path = Path.Combine(PdfGuardRoots.Component, relative);
@@ -409,6 +411,111 @@ public sealed partial class OfficeControlGuardTests
                 string.Join(", ", permitted) + "].");
         }
     }
+
+    [Fact]
+    public void Every_Crash_Regression_Family_Carries_Its_Evidence()
+    {
+        // A family takes samples out of the ranking for good, and nothing in a
+        // run says it was wrong to. So the claim that a file is fuzzer output has
+        // to come with what it rests on, the way an approved tool names who
+        // approved it.
+        using JsonDocument file = Load(CrashRegressionsFile);
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (JsonElement family in file.RootElement.GetProperty("families").EnumerateArray())
+        {
+            string id = family.GetProperty("id").GetString() ?? string.Empty;
+            Assert.True(id.Length > 0, "A crash-regression family has no id.");
+            Assert.True(ids.Add(id), "The crash-regression family '" + id + "' is listed twice.");
+
+            Exception? invalid = Record.Exception(() => CrashRegressionPattern(family));
+            Assert.True(invalid is null, id + " has a pattern .NET cannot compile: " + invalid?.Message);
+
+            foreach (string field in new[] { "origin", "evidence" })
+            {
+                Assert.False(
+                    string.IsNullOrWhiteSpace(family.GetProperty(field).GetString()),
+                    id + " gives no " + field + ".");
+            }
+
+            Assert.True(
+                family.GetProperty("examples").GetArrayLength() > 0,
+                id + " lists no file it matches, so nothing shows the pattern does what its origin says.");
+        }
+    }
+
+    [Fact]
+    public void Every_Crash_Regression_Example_Matches_Its_Own_Family_And_No_Other()
+    {
+        using JsonDocument file = Load(CrashRegressionsFile);
+        JsonElement[] families = [.. file.RootElement.GetProperty("families").EnumerateArray()];
+        foreach (JsonElement family in families)
+        {
+            string id = family.GetProperty("id").GetString() ?? "?";
+            foreach (JsonElement example in family.GetProperty("examples").EnumerateArray())
+            {
+                string name = Path.GetFileName(example.GetString() ?? string.Empty);
+                string[] matching = [.. families
+                    .Where(candidate => CrashRegressionPattern(candidate).IsMatch(name))
+                    .Select(candidate => candidate.GetProperty("id").GetString() ?? "?")];
+
+                Assert.True(
+                    matching.SequenceEqual([id], StringComparer.Ordinal),
+                    name + " is listed under " + id + " and matches [" + string.Join(", ", matching) + "]. " +
+                    "An example has to match its own family's pattern and no other, or the counts the " +
+                    "report gives per family stop meaning anything.");
+            }
+        }
+    }
+
+    [Fact]
+    public void No_Crash_Regression_Family_Matches_A_Document_That_Stays_Ranked()
+    {
+        // The line the file draws: fuzzer output is set aside, a real document
+        // that once crashed LibreOffice is not. A pattern widened to catch the
+        // next fuzz family by its "crash" in the name would quietly take these
+        // out of the ranking too, and they are documents LibreOffice lays out on
+        // purpose.
+        using JsonDocument file = Load(CrashRegressionsFile);
+        JsonElement[] families = [.. file.RootElement.GetProperty("families").EnumerateArray()];
+        JsonElement[] kept = [.. file.RootElement.GetProperty("stillRanked").EnumerateArray()];
+        Assert.NotEmpty(kept);
+
+        foreach (JsonElement document in kept)
+        {
+            string name = Path.GetFileName(document.GetProperty("name").GetString() ?? string.Empty);
+            Assert.False(
+                string.IsNullOrWhiteSpace(document.GetProperty("why").GetString()),
+                name + " is kept in the ranking and says nothing about why.");
+
+            foreach (JsonElement family in families)
+            {
+                Assert.False(
+                    CrashRegressionPattern(family).IsMatch(name),
+                    (family.GetProperty("id").GetString() ?? "?") + " matches " + name +
+                    ", which extras-crash-regressions.json says stays ranked.");
+            }
+        }
+    }
+
+    [Fact]
+    public void The_Runner_Reads_The_Crash_Regression_File_This_Guard_Checks()
+    {
+        // The runner's side is read out of the source for the reason the other
+        // runner guards give: this project does not link against it. A runner
+        // reading some other file by default would make every guard above a
+        // check on a file nothing uses.
+        string program = File.ReadAllText(Path.Combine(PdfGuardRoots.Component, Runner, "Program.cs"));
+        Assert.Contains("\"extras-crash-regressions.json\"", program, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A family's pattern as the runner compiles it: case-insensitive, and
+    /// applied to the file name rather than the path.
+    /// </summary>
+    private static Regex CrashRegressionPattern(JsonElement family) => new(
+        family.GetProperty("pattern").GetString() ?? string.Empty,
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
 
     /// <summary>The band words a Bands list declares, in the order it declares them.</summary>
     private static string[] Vocabulary(string source, string member)

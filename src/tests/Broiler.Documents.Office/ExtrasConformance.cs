@@ -39,6 +39,11 @@ internal sealed record ExtrasSample(
 /// together with a deterministic severity score so the top <c>x</c> major
 /// differences can be ranked and reported.
 /// </summary>
+/// <param name="CrashRegressionFamily">
+/// The <see cref="CrashRegressions"/> family the sample belongs to, or null for
+/// a document. A sample in a family was never compared with LibreOffice; the
+/// only thing recorded about it is whether <c>broilerdoc</c> handled it.
+/// </param>
 internal sealed record ExtrasDifference(
     ExtrasSample Sample,
     bool BroilerReadFailed,
@@ -49,12 +54,18 @@ internal sealed record ExtrasDifference(
     RenderRow? Render,
     string? DiffImagePath,
     double SeverityScore,
-    string Summary)
+    string Summary,
+    string? CrashRegressionFamily = null)
 {
+    /// <summary>True for a crash-regression input, which is never ranked.</summary>
+    public bool SetAside => CrashRegressionFamily is not null;
+
     /// <summary>
     /// True when either the semantic projection or the pixel rendering diverged
     /// between LibreOffice and <c>broilerdoc</c>, or when <c>broilerdoc</c>
-    /// failed to read or render a document that LibreOffice handled.
+    /// failed to read or render a document that LibreOffice handled. For a
+    /// crash-regression input it is only the second: there was nothing to
+    /// diverge from.
     /// </summary>
     public bool HasDifference =>
         BroilerReadFailed ||
@@ -699,27 +710,9 @@ internal static class ExtrasConformance
                         string bdPxDir = Path.Combine(workspace, "bd-px", safeKey);
                         Directory.CreateDirectory(bdPxDir);
 
-                        var renderArgs = new List<string>
-                        {
-                            "render", inputSourcePath,
-                            "--from", sample.Format,
-                            "--out", Path.Combine(bdPxDir, "page-{page}.bmp"),
-                            "--image-format", "bmp",
-                            "--dpi", dpi.ToString(CultureInfo.InvariantCulture),
-                            "--max-pages", maxPages.ToString(CultureInfo.InvariantCulture),
-                            "--background", "#FFFFFF",
-                            "--json", "--quiet",
-                        };
-
-                        foreach (string directory in fontDirectories)
-                        {
-                            renderArgs.Add("--font-dir");
-                            renderArgs.Add(directory);
-                        }
-
-                        renderArgs.AddRange(fontArguments);
-
-                        ToolRun rendered = await tool.RunAsync([.. renderArgs]).ConfigureAwait(false);
+                        ToolRun rendered = await tool
+                            .RunAsync([.. RenderArguments(sample, bdPxDir, dpi, maxPages, fontDirectories, fontArguments)])
+                            .ConfigureAwait(false);
                         if (rendered.ExitCode != 0)
                         {
                             broilerReadFailed = true;
@@ -872,6 +865,156 @@ internal static class ExtrasConformance
     }
 
     /// <summary>
+    /// Checks a crash-regression input for the one thing it can tell this suite:
+    /// whether <c>broilerdoc</c> handles it.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice is not run. Its reading of a fuzzed file is not a reference,
+    /// and the upstream test for each of these exists because LibreOffice once
+    /// crashed or hung on it - a minute of conversion buys nothing worth
+    /// comparing. <c>broilerdoc</c> is asked what the axis would have asked it
+    /// on a document, and each run has to end in a documented exit code. Refusing
+    /// a damaged file is an answer; exit 70, a crash or a hang is not.
+    /// </remarks>
+    public static async Task<(IReadOnlyList<CheckResult> Results, ExtrasDifference Difference)> EvaluateCrashRegressionAsync(
+        BroilerDocTool tool,
+        ExtrasSample sample,
+        string family,
+        string workspace,
+        string axis,
+        int dpi,
+        int maxPages,
+        IReadOnlyList<string> fontDirectories,
+        IReadOnlyList<string> fontArguments)
+    {
+        var commands = new List<IReadOnlyList<string>>();
+        if (axis is "semantic" or "all")
+        {
+            commands.Add(["info", sample.LocalPath, "--from", sample.Format, "--json", "--quiet"]);
+            commands.Add(["dump", sample.LocalPath, "--from", sample.Format, "--as", "text", "--quiet"]);
+        }
+
+        if (axis is "pixel" or "all")
+        {
+            string bdPxDir = Path.Combine(workspace, "bd-px", SanitizePath(sample.Id));
+            Directory.CreateDirectory(bdPxDir);
+            commands.Add(RenderArguments(sample, bdPxDir, dpi, maxPages, fontDirectories, fontArguments));
+        }
+
+        var results = new List<CheckResult>();
+        ToolRun? unhandled = null;
+        TimeSpan duration = TimeSpan.Zero;
+        foreach (IReadOnlyList<string> arguments in commands)
+        {
+            ToolRun run = await tool.RunAsync([.. arguments]).ConfigureAwait(false);
+            duration += run.Duration;
+            if (!IsHandledExit(run.ExitCode))
+            {
+                unhandled = run;
+                break;
+            }
+        }
+
+        string? error = null;
+        if (unhandled is null)
+        {
+            results.Add(CheckResult.Pass("robust", "robust/" + sample.Id, duration));
+        }
+        else
+        {
+            error = FirstNonEmptyLine(unhandled.StandardError) ?? "no message";
+            results.Add(CheckResult.Fail(
+                "robust",
+                "robust/" + sample.Id,
+                "broilerdoc " + unhandled.Arguments[0] + " " + DescribeExit(unhandled.ExitCode) + ": " + error +
+                ". A crash-regression input (" + family + ") may be refused, but only with a documented exit code.",
+                unhandled.CommandLine()));
+        }
+
+        string reason = "a crash-regression input (" + family + "): LibreOffice's reading of a fuzzed file is " +
+                        "not a reference, so it was not compared.";
+        if (axis is "semantic" or "all")
+            results.Add(CheckResult.Skip("text", "text/" + sample.Id, reason));
+        if (axis is "pixel" or "all")
+            results.Add(CheckResult.Skip("pixel", "pixel/" + sample.Id, reason));
+
+        bool failed = unhandled is not null;
+        int exitCode = unhandled?.ExitCode ?? 0;
+        var difference = new ExtrasDifference(
+            sample,
+            failed,
+            exitCode,
+            error,
+            LibreOfficeFailed: false,
+            Semantic: null,
+            Render: null,
+            DiffImagePath: null,
+            ComputeSeverityScore(failed, exitCode, libreOfficeFailed: false, semantic: null, render: null),
+            failed
+                ? "broilerdoc " + unhandled!.Arguments[0] + " " + DescribeExit(exitCode) + " (" + error + ")"
+                : "handled",
+            family);
+
+        return (results, difference);
+    }
+
+    /// <summary>
+    /// Whether an exit code is one <c>docs/guides/cli.md</c> documents as an
+    /// answer. Everything else is not: 70 is defined there as always a defect,
+    /// a signal or abort is a crash, and -1 is a run the harness killed for
+    /// hanging.
+    /// </summary>
+    public static bool IsHandledExit(int exitCode) => exitCode is >= 0 and <= 6;
+
+    private static string DescribeExit(int exitCode) => exitCode == -1
+        ? "did not exit and was killed"
+        : "exited " + exitCode.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The <c>render</c> invocation both paths use, so a crash-regression input
+    /// is rendered exactly as a document would have been.
+    /// </summary>
+    private static List<string> RenderArguments(
+        ExtrasSample sample,
+        string outputDirectory,
+        int dpi,
+        int maxPages,
+        IReadOnlyList<string> fontDirectories,
+        IReadOnlyList<string> fontArguments)
+    {
+        var arguments = new List<string>
+        {
+            "render", sample.LocalPath,
+            "--from", sample.Format,
+            "--out", Path.Combine(outputDirectory, "page-{page}.bmp"),
+            "--image-format", "bmp",
+            "--dpi", dpi.ToString(CultureInfo.InvariantCulture),
+            "--max-pages", maxPages.ToString(CultureInfo.InvariantCulture),
+            "--background", "#FFFFFF",
+            "--json", "--quiet",
+        };
+
+        foreach (string directory in fontDirectories)
+        {
+            arguments.Add("--font-dir");
+            arguments.Add(directory);
+        }
+
+        arguments.AddRange(fontArguments);
+        return arguments;
+    }
+
+    /// <summary>
+    /// The crash-regression inputs <c>broilerdoc</c> did not handle, in sample
+    /// order. They are reported in full rather than ranked: there should be
+    /// none, and each one is a defect.
+    /// </summary>
+    public static IReadOnlyList<ExtrasDifference> CrashRegressionFailures(IEnumerable<ExtrasDifference> differences) =>
+        [.. differences
+            .Where(diff => diff.SetAside && diff.BroilerReadFailed)
+            .OrderBy(diff => diff.Sample.Id, StringComparer.Ordinal)];
+
+    /// <summary>
     /// Computes a deterministic composite severity score so that the top <c>x</c>
     /// major differences can be ordered from most severe to least severe.
     /// </summary>
@@ -922,8 +1065,9 @@ internal static class ExtrasConformance
     }
 
     /// <summary>
-    /// Ranks all evaluated samples and returns the top <paramref name="topCount"/>
-    /// major differences.
+    /// Ranks the evaluated documents and returns the top <paramref name="topCount"/>
+    /// major differences. Crash-regression inputs are not ranked: their failures,
+    /// if any, are reported by <see cref="CrashRegressionFailures"/> instead.
     /// </summary>
     public static IReadOnlyList<ExtrasDifference> TopDifferences(
         IEnumerable<ExtrasDifference> differences,
@@ -931,7 +1075,7 @@ internal static class ExtrasConformance
     {
         int limit = Math.Max(1, topCount);
         return differences
-            .Where(diff => diff.HasDifference)
+            .Where(diff => !diff.SetAside && diff.HasDifference)
             .OrderByDescending(diff => diff.SeverityScore)
             .ThenBy(diff => diff.Sample.Id, StringComparer.Ordinal)
             .Take(limit)
@@ -951,7 +1095,10 @@ internal static class ExtrasConformance
         int topCount = DefaultTopDifferences)
     {
         IReadOnlyList<ExtrasDifference> top = TopDifferences(allDifferences, topCount);
-        int totalWithDifferences = allDifferences.Count(diff => diff.HasDifference);
+        ExtrasDifference[] documents = [.. allDifferences.Where(diff => !diff.SetAside)];
+        ExtrasDifference[] setAside = [.. allDifferences.Where(diff => diff.SetAside)];
+        IReadOnlyList<ExtrasDifference> unhandled = CrashRegressionFailures(setAside);
+        int totalWithDifferences = documents.Count(diff => diff.HasDifference);
 
         var sb = new StringBuilder();
         sb.AppendLine("## Office Conformance Major Differences (`sw/qa/extras`)");
@@ -964,7 +1111,12 @@ internal static class ExtrasConformance
         sb.AppendLine("| :--- | :--- |");
         sb.AppendLine("| **Corpus Source** | `" + extrasSource + "` |");
         sb.AppendLine("| **Supported Samples Evaluated** | " + allSamples.Count.ToString(CultureInfo.InvariantCulture) + " |");
-        sb.AppendLine("| **Samples With Differences** | " + totalWithDifferences.ToString(CultureInfo.InvariantCulture) + " |");
+        sb.AppendLine("| **Documents Compared With LibreOffice** | " + documents.Length.ToString(CultureInfo.InvariantCulture) + " |");
+        sb.AppendLine("| **Crash-Regression Inputs Set Aside** | " + setAside.Length.ToString(CultureInfo.InvariantCulture) +
+                      (unhandled.Count > 0
+                          ? " (**" + unhandled.Count.ToString(CultureInfo.InvariantCulture) + " not handled**)"
+                          : string.Empty) + " |");
+        sb.AppendLine("| **Documents With Differences** | " + totalWithDifferences.ToString(CultureInfo.InvariantCulture) + " |");
         sb.AppendLine("| **Top Major Differences Reported** | " + top.Count.ToString(CultureInfo.InvariantCulture) + " (requested top " + topCount.ToString(CultureInfo.InvariantCulture) + ") |");
         sb.AppendLine("| **LibreOffice** | `" + (header.LibreOffice ?? "none") + "` |");
         sb.AppendLine("| **Rasteriser** | `" + (header.Rasterizer ?? "none") + "` |");
@@ -974,20 +1126,26 @@ internal static class ExtrasConformance
         // Breakdown by format
         sb.AppendLine("### Format Breakdown");
         sb.AppendLine();
-        sb.AppendLine("| Format | Samples | With Differences |");
-        sb.AppendLine("| :--- | ---: | ---: |");
+        sb.AppendLine("| Format | Documents | With Differences | Set Aside |");
+        sb.AppendLine("| :--- | ---: | ---: | ---: |");
         foreach (IGrouping<string, ExtrasDifference> group in allDifferences
                      .GroupBy(d => d.Sample.Format, StringComparer.OrdinalIgnoreCase)
                      .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
-            int diffCount = group.Count(d => d.HasDifference);
+            int documentCount = group.Count(d => !d.SetAside);
+            int diffCount = group.Count(d => !d.SetAside && d.HasDifference);
+            int setAsideCount = group.Count(d => d.SetAside);
             sb.AppendLine(
                 "| `" + group.Key + "` | " +
-                group.Count().ToString(CultureInfo.InvariantCulture) + " | " +
-                diffCount.ToString(CultureInfo.InvariantCulture) + " |");
+                documentCount.ToString(CultureInfo.InvariantCulture) + " | " +
+                diffCount.ToString(CultureInfo.InvariantCulture) + " | " +
+                setAsideCount.ToString(CultureInfo.InvariantCulture) + " |");
         }
 
         sb.AppendLine();
+
+        if (setAside.Length > 0)
+            AppendCrashRegressions(sb, setAside, unhandled);
 
         if (top.Count == 0)
         {
@@ -1067,6 +1225,51 @@ internal static class ExtrasConformance
         }
 
         return sb.ToString().ReplaceLineEndings("\n");
+    }
+
+    /// <summary>
+    /// Says what was set aside and why, and lists every input <c>broilerdoc</c>
+    /// did not handle. Placed above the ranking because a crash is a defect on
+    /// any input, and the ranking is about something else.
+    /// </summary>
+    private static void AppendCrashRegressions(
+        StringBuilder sb,
+        IReadOnlyList<ExtrasDifference> setAside,
+        IReadOnlyList<ExtrasDifference> unhandled)
+    {
+        string families = string.Join(", ", setAside
+            .GroupBy(diff => diff.CrashRegressionFamily!, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => "`" + group.Key + "` " + group.Count().ToString(CultureInfo.InvariantCulture)));
+
+        sb.AppendLine("### Crash-Regression Inputs");
+        sb.AppendLine();
+        sb.AppendLine(
+            setAside.Count.ToString(CultureInfo.InvariantCulture) + " sample(s) are fuzzer output that LibreOffice " +
+            "keeps as crash regressions (" + families + "; families from " +
+            "`tests/office/extras-crash-regressions.json`). They are not compared with LibreOffice, whose " +
+            "reading of a fuzzed file is not a reference, and they are not ranked. `broilerdoc` still has to " +
+            "handle each one with a documented exit code.");
+        sb.AppendLine();
+
+        if (unhandled.Count == 0)
+        {
+            sb.AppendLine("All " + setAside.Count.ToString(CultureInfo.InvariantCulture) + " were handled.");
+            sb.AppendLine();
+            return;
+        }
+
+        sb.AppendLine("**" + unhandled.Count.ToString(CultureInfo.InvariantCulture) + " were not handled:**");
+        sb.AppendLine();
+        foreach (ExtrasDifference diff in unhandled)
+        {
+            string sampleLink = diff.Sample.SourceUrl is not null
+                ? "[`" + diff.Sample.Id + "`](" + diff.Sample.SourceUrl + ")"
+                : "`" + diff.Sample.Id + "`";
+            sb.AppendLine("- " + sampleLink + " (`" + diff.CrashRegressionFamily + "`): " + diff.Summary);
+        }
+
+        sb.AppendLine();
     }
 
     /// <summary>

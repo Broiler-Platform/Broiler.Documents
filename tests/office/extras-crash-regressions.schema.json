@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/documents-extras-crash-regressions-1.json",
+  "title": "Broiler.Documents set-aside families for the LibreOffice sw/qa/extras ranking",
+  "description": "The families of upstream samples that are fuzzer output rather than documents. The extras runner sets them aside: it does not compare them with LibreOffice and does not rank them, and it still requires broilerdoc to handle each one with a documented exit code. A family is a claim about where a file came from, so it carries the evidence for that claim and the files it is known to match.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "updated", "policy", "families", "stillRanked"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "updated": { "type": "string", "format": "date" },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Why the file exists, in prose, next to the rows it governs.",
+      "required": ["records", "rule", "why", "scope", "adding"],
+      "properties": {
+        "records": { "type": "string", "minLength": 1 },
+        "rule": { "type": "string", "minLength": 1 },
+        "why": { "type": "string", "minLength": 1 },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where the line is: fuzzer output is set aside, a real document that once crashed LibreOffice is not."
+        },
+        "adding": { "type": "string", "minLength": 1 }
+      }
+    },
+    "families": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/family" }
+    },
+    "stillRanked": {
+      "type": "array",
+      "description": "Samples that look like they might belong to a family and must not: no pattern may match one. Each is a path relative to sw/qa/extras.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "why"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "why": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "family": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "pattern", "origin", "evidence", "examples"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A .NET regular expression, matched case-insensitively against the sample's file name - not its path."
+        },
+        "origin": { "type": "string", "minLength": 1 },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The upstream test that asserts only that LibreOffice survives the file, and what in the file shows it was generated."
+        },
+        "examples": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Every file the family is known to match, as a path relative to sw/qa/extras.",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

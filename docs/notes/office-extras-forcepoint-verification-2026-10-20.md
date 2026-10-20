@@ -100,10 +100,13 @@ regression. For `forcepoint91.html` the fix did not reach the worst page the
 score is taken from, so the number did not move; the NUL glyphs it removed were
 on another page.
 
-Until the ranking tells a crash-regression input from a document, this family
-will keep the top of the report, and every fix that reads them more faithfully
-will push them higher. That is a decision about the runner rather than about a
-codec, and is left for one.
+Until the ranking told a crash-regression input from a document, this family
+would have kept the top of the report, and every fix that read them more
+faithfully would have pushed them higher. That was a decision about the runner
+rather than about a codec, and it was taken separately: fuzzer output is now
+set aside from the ranking and checked only for being handled, as
+[the office guide](../guides/office-conformance.md#the-upstream-ranking)
+describes.
 
 ## Validation
 
