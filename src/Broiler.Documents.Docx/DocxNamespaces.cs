@@ -44,6 +44,8 @@ internal static class DocxNamespaces
 
     public const string ImageRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
 
+    public const string SettingsRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings";
+
     public const string DocumentContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
 
     public const string NumberingContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml";
@@ -51,6 +53,8 @@ internal static class DocxNamespaces
     public const string HeaderContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml";
 
     public const string FooterContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml";
+
+    public const string SettingsContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml";
 
     public const string PackageContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 }

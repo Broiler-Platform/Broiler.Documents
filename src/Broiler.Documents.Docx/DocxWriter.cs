@@ -53,6 +53,8 @@ public static class DocxWriter
                 AddXmlEntry(archive, "word/_rels/document.xml.rels", BuildDocumentRelationships(context));
             if (context.HasNumbering)
                 AddXmlEntry(archive, "word/numbering.xml", BuildNumbering());
+            if (context.SettingsRelationshipId is not null)
+                AddXmlEntry(archive, "word/settings.xml", BuildSettings());
             foreach (DocxRunningPart part in context.RunningParts)
                 AddXmlEntry(archive, part.PartPath, part.Xml);
             foreach (DocxImagePart image in context.Images)
@@ -90,6 +92,11 @@ public static class DocxWriter
                 running.Footer(selection), running.FooterShapes(selection),
                 isHeader: false, selection, context);
         }
+
+        // An even part is drawn only where the settings turn even pages on, so
+        // writing one without w:evenAndOddHeaders writes a part Word ignores.
+        if (context.RunningParts.Any(static part => part.Selection == PageSelection.Even))
+            context.AddSettings();
     }
 
     /// <remarks>
@@ -1348,6 +1355,14 @@ public static class DocxWriter
                 new XAttribute("ContentType", DocxNamespaces.NumberingContentType)));
         }
 
+        if (context.SettingsRelationshipId is not null)
+        {
+            types.Add(new XElement(
+                DocxNamespaces.ContentTypes + "Override",
+                new XAttribute("PartName", "/word/settings.xml"),
+                new XAttribute("ContentType", DocxNamespaces.SettingsContentType)));
+        }
+
         foreach (DocxRunningPart part in context.RunningParts)
         {
             types.Add(new XElement(
@@ -1436,6 +1451,15 @@ public static class DocxWriter
                 new XAttribute("Target", "numbering.xml")));
         }
 
+        if (context.SettingsRelationshipId is string settingsId)
+        {
+            root.Add(new XElement(
+                DocxNamespaces.PackageRelationships + "Relationship",
+                new XAttribute("Id", settingsId),
+                new XAttribute("Type", DocxNamespaces.SettingsRelationship),
+                new XAttribute("Target", "settings.xml")));
+        }
+
         foreach (KeyValuePair<string, string> relationship in context.HyperlinkRelationships.OrderBy(pair => pair.Value, StringComparer.Ordinal))
         {
             root.Add(new XElement(
@@ -1468,6 +1492,18 @@ public static class DocxWriter
 
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root);
     }
+
+    /// <summary>
+    /// The settings part, written only to turn on distinct even-page headers and
+    /// footers, which is the one setting the model holds.
+    /// </summary>
+    private static XDocument BuildSettings() =>
+        new(
+            new XDeclaration("1.0", "utf-8", "yes"),
+            new XElement(
+                DocxNamespaces.Wordprocessing + "settings",
+                new XAttribute(XNamespace.Xmlns + "w", DocxNamespaces.Wordprocessing.NamespaceName),
+                new XElement(DocxNamespaces.Wordprocessing + "evenAndOddHeaders")));
 
     private static XDocument BuildNumbering()
     {
@@ -1572,7 +1608,21 @@ public static class DocxWriter
         public DocumentConversionContext Resources { get; } = resources;
 
         public bool HasDocumentRelationships =>
-            HasNumbering || _hyperlinks.Count > 0 || _imageOrder.Count > 0 || _runningParts.Count > 0;
+            HasNumbering || _hyperlinks.Count > 0 || _imageOrder.Count > 0 || _runningParts.Count > 0 ||
+            SettingsRelationshipId is not null;
+
+        /// <summary>The settings part's relationship, or null when none is written.</summary>
+        public string? SettingsRelationshipId { get; private set; }
+
+        /// <summary>Registers the settings part, once.</summary>
+        public void AddSettings()
+        {
+            if (SettingsRelationshipId is not null)
+                return;
+
+            SettingsRelationshipId = "rId" + _nextRelationshipId.ToString(CultureInfo.InvariantCulture);
+            _nextRelationshipId++;
+        }
 
         public static string NumberingRelationshipId => "rId1";
 
