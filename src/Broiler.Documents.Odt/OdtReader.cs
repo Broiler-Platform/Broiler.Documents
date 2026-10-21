@@ -573,7 +573,7 @@ internal static class OdtReader
         double y = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "y"), out double top)
             ? top
             : 0;
-        (int anchorPage, x, y) = PlaceOnPage(drawing, styleName, x, y, width, height, context);
+        (int anchorPage, x, y, bool fromPage) = PlaceOnPage(drawing, styleName, x, y, width, height, context);
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -589,7 +589,8 @@ internal static class OdtReader
             wrap: wrap,
             wrapSide: wrapSide,
             zOrder: ZIndex(drawing),
-            anchorPage: anchorPage));
+            anchorPage: anchorPage,
+            offsetFromPage: fromPage));
         return true;
     }
 
@@ -614,8 +615,10 @@ internal static class OdtReader
     /// <summary>
     /// The page a drawing is anchored to by number, and its position in the
     /// model's terms: x from the text column's left edge, y from the page's top
-    /// edge. A drawing anchored any other way comes back as it went in, with no
-    /// page.
+    /// edge. A paragraph's drawing whose style measures it down the page
+    /// (<c>style:vertical-rel</c> of <c>page</c> or <c>page-content</c>) gets its y
+    /// from the page's top edge too, and no number: it is on whichever page its
+    /// paragraph is. A drawing anchored any other way comes back as it went in.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -634,10 +637,15 @@ internal static class OdtReader
     /// the margins are taken as zero.
     /// </para>
     /// </remarks>
-    private static (int Page, double X, double Y) PlaceOnPage(
+    private static (int Page, double X, double Y, bool FromPage) PlaceOnPage(
         XElement drawing, string? styleName, double x, double y, double width, double height, OdtReadContext context)
     {
-        if (!string.Equals((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type"), "page", StringComparison.Ordinal) ||
+        XElement? properties = null;
+        if (!string.IsNullOrWhiteSpace(styleName))
+            context.Styles.GraphicProperties.TryGetValue(styleName, out properties);
+
+        string? anchorType = (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type");
+        if (!string.Equals(anchorType, "page", StringComparison.Ordinal) ||
             !int.TryParse(
                 (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-page-number"),
                 NumberStyles.Integer,
@@ -645,12 +653,25 @@ internal static class OdtReader
                 out int page) ||
             page < 1)
         {
-            return (0, x, y);
-        }
+            string? verticalRel = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-rel");
+            if (anchorType is "paragraph" or "char" && verticalRel is "page" or "page-content")
+            {
+                double frameTop = verticalRel == "page-content" ? context.Page?.MarginTop ?? 0 : 0;
+                double frameHeight = verticalRel == "page-content"
+                    ? context.Page?.ContentHeight ?? 0
+                    : context.Page?.Height ?? 0;
+                double fromTop = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-pos") switch
+                {
+                    "top" => frameTop,
+                    "middle" => frameTop + ((frameHeight - height) / 2),
+                    "bottom" => frameTop + frameHeight - height,
+                    _ => frameTop + y,
+                };
+                return (0, x, fromTop, true);
+            }
 
-        XElement? properties = null;
-        if (!string.IsNullOrWhiteSpace(styleName))
-            context.Styles.GraphicProperties.TryGetValue(styleName, out properties);
+            return (0, x, y, false);
+        }
 
         PageGeometry? geometry = context.Page;
         double pageWidth = geometry?.Width ?? 0;
@@ -684,7 +705,7 @@ internal static class OdtReader
             _ => areaTop + y,
         };
 
-        return (page, left - marginLeft, top);
+        return (page, left - marginLeft, top, false);
     }
 
     /// <summary>
@@ -1494,7 +1515,7 @@ internal static class OdtReader
         double y = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "y"), out double top)
             ? top
             : 0;
-        (int anchorPage, x, y) = PlaceOnPage(frame, styleName, x, y, width, height, context);
+        (int anchorPage, x, y, bool fromPage) = PlaceOnPage(frame, styleName, x, y, width, height, context);
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -1510,7 +1531,8 @@ internal static class OdtReader
             wrap: wrap,
             wrapSide: wrapSide,
             zOrder: ZIndex(frame),
-            anchorPage: anchorPage));
+            anchorPage: anchorPage,
+            offsetFromPage: fromPage));
         return true;
     }
 

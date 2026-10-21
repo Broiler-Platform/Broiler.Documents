@@ -1513,6 +1513,15 @@ public static class OdtWriter
                 properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-pos", "from-top"));
                 properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-rel", "page"));
             }
+            else if (shape.OffsetFromPage)
+            {
+                // Still the paragraph's frame, and still across from its column,
+                // but down from the top of the page the paragraph is on.
+                properties.Add(new XAttribute(OdtNamespaces.Style + "horizontal-pos", "from-left"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "horizontal-rel", "paragraph"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-pos", "from-top"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-rel", "page"));
+            }
 
             if (shape.Fill is ShapeFill fill && fill.IsGradient)
             {

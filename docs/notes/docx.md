@@ -186,13 +186,19 @@ Open XML WordprocessingML package parts.
   source, so it survives a resize; crops that meet or cross leave no rectangle to
   draw and are ignored rather than losing the picture. The crop is applied before
   the mask, so the ellipse is inscribed in the part actually drawn.
-- A vertical `relativeFrom` other than `paragraph` or `line` is not converted.
-  Those frames measure from the page, and where a paragraph sits on a page is a
-  layout result the reader does not have — a shape on the fortieth paragraph
-  could land on any page. The offset is kept as stated and measured from the
-  anchoring paragraph instead, with `docx.anchor.relativefrom`. `insideMargin`
-  and `outsideMargin` name a side that depends on the page's parity, so
-  horizontally they are read as an odd page's, reported with the same code.
+- A vertical `relativeFrom` of `page`, `topMargin`, `margin` or `bottomMargin`
+  measures from the page, and where a paragraph sits on a page is a layout
+  result the reader does not have — a shape on the fortieth paragraph could land
+  on any page. So the model holds the frame rather than a converted offset:
+  `DocumentShape.OffsetFromPage`, with the offset turned into one from the page's
+  top edge through the geometry, and the layout places the shape that far down
+  whichever page its paragraph is on. The offset used to be kept as stated and
+  measured from the paragraph, which hung a full-page backdrop anchored at
+  nought from the page's top below its paragraph. A write states
+  `relativeFrom="page"`. `insideMargin` and `outsideMargin` name a side that
+  depends on the page's parity: vertically they are kept as stated and measured
+  from the paragraph, horizontally they are read as an odd page's, and both are
+  reported as `docx.anchor.relativefrom`.
 - EMF/WMF metafiles — what Word embeds for charts, SmartArt, and shape fallbacks
   — are not carried, because they cannot be decoded to pixels here. They are
   reported as `docx.image.format` rather than kept as a picture that would draw
@@ -366,7 +372,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.limit` | Warning | An image part exceeded `MaxBinBytes` and was skipped. |
 | `docx.image.shape` | Warning | A drawing held no embedded picture. |
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
-| `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's, or a page-relative vertical offset kept as stated. |
+| `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's horizontally, or kept as stated and measured from the paragraph vertically. |
 | `docx.background.fill` | Warning | The page background's VML fill was one the model cannot hold, and was read as one colour: a rectangular (`gradientRadial`) gradient as its outer colour, a pattern of two colours or a picture fill as `w:background`'s own colour. |
 
 Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, `docx.shape.page`, and `docx.text.control`.

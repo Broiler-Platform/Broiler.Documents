@@ -83,6 +83,24 @@ public sealed class DocumentLayoutPageAnchorTests
     }
 
     [Fact]
+    public void A_Shape_Measured_From_The_Page_Stands_There_On_Its_Paragraphs_Page()
+    {
+        // A full-page backdrop anchored to a paragraph on the second page, at
+        // nought from the page's top: on page two, from its top edge, and not
+        // hanging below the paragraph, which is where an offset from the
+        // paragraph would put it.
+        int perPage = Layout(Body(400)).Pages[0].Lines.Count;
+        LayoutResult result = Layout(Body(
+            perPage + 5,
+            new DocumentShape(perPage + 2, -72, 0, 612, 792, Red, offsetFromPage: true)));
+
+        Assert.Empty(result.Pages[0].Shapes);
+        LayoutShape shape = Assert.Single(result.Pages[1].Shapes);
+        Assert.Equal(0, shape.Bounds.Top, 3);
+        Assert.Equal(0, shape.Bounds.Left, 3);
+    }
+
+    [Fact]
     public void The_Pages_It_Makes_Stop_At_The_Page_Limit()
     {
         LayoutResult result = Layout(Body(1, new DocumentShape(0, 0, 0, 50, 20, Red, anchorPage: 50)), maxPages: 5);

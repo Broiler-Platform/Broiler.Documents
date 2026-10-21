@@ -870,10 +870,11 @@ internal static class DocxReader
             return false;
 
         (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
+        (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
             HorizontalOffset(anchor, context),
-            VerticalOffset(anchor, context),
+            offsetY,
             boxWidth,
             boxHeight,
             fill: null,
@@ -884,7 +885,8 @@ internal static class DocxReader
             wrap: Wrap,
             wrapSide: Side,
             wrapDistance: Distance,
-            zOrder: RelativeHeight(anchor)));
+            zOrder: RelativeHeight(anchor),
+            offsetFromPage: fromPage));
         return true;
     }
 
@@ -923,10 +925,11 @@ internal static class DocxReader
             return false;
 
         (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
+        (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
             HorizontalOffset(anchor, context),
-            VerticalOffset(anchor, context),
+            offsetY,
             width,
             height,
             fill,
@@ -937,7 +940,8 @@ internal static class DocxReader
             wrap: Wrap,
             wrapSide: Side,
             wrapDistance: Distance,
-            zOrder: RelativeHeight(anchor)));
+            zOrder: RelativeHeight(anchor),
+            offsetFromPage: fromPage));
         return true;
     }
 
@@ -1100,18 +1104,21 @@ internal static class DocxReader
     }
 
     /// <summary>
-    /// The vertical offset in points from the top of the anchoring paragraph,
-    /// which is what <see cref="DocumentShape.OffsetY"/> measures.
+    /// The vertical offset in points, and whether it is measured from the top of
+    /// the page the anchoring paragraph lands on rather than from the paragraph:
+    /// the two things <see cref="DocumentShape.OffsetY"/> and
+    /// <see cref="DocumentShape.OffsetFromPage"/> hold.
     /// </summary>
     /// <remarks>
-    /// Only the frames that are already paragraph-relative convert, because the
-    /// rest are measured from the page and where a paragraph sits on the page is
-    /// a layout result this reader does not have - a shape on the fortieth
-    /// paragraph could be on any page of the document. Those keep the offset they
-    /// stated, which is what every anchor used to get, and say so rather than
-    /// being converted by a guess that is right only at the top of the column.
+    /// A frame on the paragraph or its line is kept as stated. One on the page or
+    /// a margin is turned into an offset from the page's top edge, through the
+    /// geometry for the margins. Where the paragraph sits on that page is a layout
+    /// result this reader does not have, which is why the model holds the frame
+    /// rather than an offset converted by a guess. Only the mirrored margins,
+    /// whose side depends on the page's parity, and a margin with no page to
+    /// measure it on are kept as stated and reported.
     /// </remarks>
-    private static double VerticalOffset(XElement anchor, DocxReadContext context)
+    private static (double Offset, bool FromPage) VerticalOffset(XElement anchor, DocxReadContext context)
     {
         double offset = EmuToPoints(PositionOffset(anchor, "positionV"));
         string? from = RelativeFrom(anchor, "positionV");
@@ -1124,9 +1131,9 @@ internal static class DocxReader
         if (context.Band != RunningBand.Body)
         {
             if (context.Page is not PageGeometry running)
-                return offset;
+                return (offset, false);
 
-            return from switch
+            return (from switch
             {
                 "margin" => offset + running.MarginTop,
                 "bottomMargin" => offset + running.Height - running.MarginBottom,
@@ -1135,26 +1142,36 @@ internal static class DocxReader
                 // "page" and "topMargin" both measure from the page's top edge,
                 // and a header's own band starts there too.
                 _ => offset,
-            };
+            }, false);
         }
 
-        switch (from)
-        {
-            case null:
-            case "paragraph":
-            case "line":
-                return offset;
+        if (from is null or "paragraph" or "line")
+            return (offset, false);
 
-            default:
-                context.Builder.AddDiagnosticOnce(
-                    "docx.anchor.relativefrom:v",
-                    "docx.anchor.relativefrom",
-                    "A floating DOCX object stated its vertical position against the page or a margin. " +
-                    "The model measures one from the paragraph a shape is anchored to, so the offset " +
-                    "was kept as stated and is measured from there instead.");
-                return offset;
-        }
+        if (FromPageTop(from, offset, context.Page) is double fromPage)
+            return (fromPage, true);
+
+        context.Builder.AddDiagnosticOnce(
+            "docx.anchor.relativefrom:v",
+            "docx.anchor.relativefrom",
+            "A floating DOCX object stated its vertical position against a margin this reader could not place " +
+            "on the page; the offset was kept as stated and is measured from its paragraph instead.");
+        return (offset, false);
     }
+
+    /// <summary>
+    /// An offset stated against the page or one of its margins, as points from
+    /// the page's top edge, or null for a frame that cannot be placed so: a
+    /// mirrored margin, whose side depends on the page's parity, or a margin of a
+    /// page the document does not state.
+    /// </summary>
+    private static double? FromPageTop(string from, double offset, PageGeometry? page) => from switch
+    {
+        "page" or "topMargin" => offset,
+        "margin" when page is not null => offset + page.MarginTop,
+        "bottomMargin" when page is not null => offset + page.Height - page.MarginBottom,
+        _ => null,
+    };
 
     /// <summary>English Metric Units to points: 12700 EMU to the point.</summary>
     private static double EmuToPoints(string? value) =>

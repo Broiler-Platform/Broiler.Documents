@@ -63,7 +63,8 @@ public sealed class DocumentShape(
     WrapSide wrapSide = WrapSide.Largest,
     double wrapDistance = 0,
     int zOrder = 0,
-    int anchorPage = 0)
+    int anchorPage = 0,
+    bool offsetFromPage = false)
 {
 
     /// <summary>The paragraph the shape is anchored to.</summary>
@@ -72,7 +73,10 @@ public sealed class DocumentShape(
     /// <summary>Points from the text column's left edge; negative puts the shape in the margin.</summary>
     public double OffsetX { get; } = offsetX;
 
-    /// <summary>Points from the top of the anchoring paragraph, or of the page when <see cref="IsPageAnchored"/>.</summary>
+    /// <summary>
+    /// Points from the top of the anchoring paragraph, or of the page when
+    /// <see cref="IsPageAnchored"/> or <see cref="OffsetFromPage"/>.
+    /// </summary>
     public double OffsetY { get; } = offsetY;
 
     public double Width { get; } = width;
@@ -168,6 +172,36 @@ public sealed class DocumentShape(
 
     /// <summary>True when the shape stands on a page by number rather than beside a paragraph.</summary>
     public bool IsPageAnchored => AnchorPage > 0;
+
+    /// <summary>
+    /// True when <see cref="OffsetY"/> is measured from the top edge of the page
+    /// the anchoring paragraph lands on, rather than from the paragraph.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The page a paragraph lands on is a layout result, so a reader cannot turn
+    /// such an offset into one from the paragraph, and a shape it kept the offset
+    /// for was drawn that far below its paragraph instead. Every format states
+    /// it: DOCX's <c>relativeFrom="page"</c>, VML's
+    /// <c>mso-position-vertical-relative:page</c>, ODF's
+    /// <c>style:vertical-rel="page"</c> on a paragraph's frame, RTF's
+    /// <c>\shpbypage</c>. A full-page backdrop is the plain case: anchored to the
+    /// first paragraph of each page, at nought from the page's top.
+    /// </para>
+    /// <para>
+    /// The shape still travels with its paragraph: it is on whichever page the
+    /// paragraph is. A shape anchored to a page by number already measures from
+    /// the page, and this says nothing more for one.
+    /// </para>
+    /// </remarks>
+    public bool OffsetFromPage { get; } = offsetFromPage && anchorPage <= 0;
+
+    /// <summary>
+    /// The top of the shape's box on its page, given the top of the paragraph it
+    /// hangs from there, in the same coordinates.
+    /// </summary>
+    public double TopOnPage(double paragraphTop) =>
+        IsPageAnchored || OffsetFromPage ? OffsetY : paragraphTop + OffsetY;
 
     /// <summary>The shape's own text, empty when it holds none.</summary>
     public IReadOnlyList<RichTextParagraph> Paragraphs { get; } = paragraphs is null || paragraphs.Count == 0

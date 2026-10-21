@@ -205,6 +205,37 @@ public sealed class OdtShapeTests
     }
 
     [Fact]
+    public void A_Paragraph_Frame_Measured_Down_The_Page_Is_Measured_From_Its_Top()
+    {
+        // style:vertical-rel="page" on a paragraph's frame: the offset is from
+        // the top of the page the paragraph is on, not from the paragraph.
+        string styles =
+            "<style:style style:name=\"gr1\" style:family=\"graphic\">" +
+            "<style:graphic-properties draw:fill=\"solid\" draw:fill-color=\"#ff0000\" " +
+            "style:vertical-pos=\"from-top\" style:vertical-rel=\"page\"/></style:style>";
+        string content =
+            "<text:p><draw:custom-shape text:anchor-type=\"paragraph\" draw:style-name=\"gr1\" " +
+            "svg:width=\"2cm\" svg:height=\"3cm\" svg:x=\"0cm\" svg:y=\"2.54cm\"/>body</text:p>";
+
+        DocumentShape shape = Assert.Single(OdtTestPackage.ReadBody(content, styles).Document.Shapes);
+
+        Assert.True(shape.OffsetFromPage);
+        Assert.Equal(72, shape.OffsetY, 1);
+    }
+
+    [Fact]
+    public void A_Frame_Measured_From_The_Page_Round_Trips_Through_The_Writer()
+    {
+        RichTextDocument source = WithShapes(
+            new DocumentShape(0, 0, 72, 30, 200, ShapeFill.Solid(BColor.Black), offsetFromPage: true));
+
+        DocumentShape shape = Assert.Single(RoundTrip(source).Shapes);
+
+        Assert.True(shape.OffsetFromPage);
+        Assert.Equal(72, shape.OffsetY, 1);
+    }
+
+    [Fact]
     public void A_Gradient_Angle_Round_Trips_Through_The_Writer()
     {
         RichTextDocument source = WithShapes(

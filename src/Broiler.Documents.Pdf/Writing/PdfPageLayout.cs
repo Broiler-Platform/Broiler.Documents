@@ -246,7 +246,7 @@ internal sealed class PdfPageLayout(
             foreach (DocumentShape shape in document.Shapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
-                    _wrap.Add(shape, -(y - shape.OffsetY));
+                    _wrap.Add(shape, shape.OffsetFromPage ? shape.OffsetY - setup.Height : -(y - shape.OffsetY));
             }
 
             string marker = PdfModelProjector.FormatListMarker(style.ListKind, listNumber);
@@ -837,7 +837,9 @@ internal sealed class PdfPageLayout(
             }
 
             double left = setup.MarginLeft + shape.OffsetX;
-            double top = anchor.Top - shape.OffsetY;
+            // Measured from the page's top edge rather than the paragraph's where
+            // the shape says so, on whichever page the paragraph is.
+            double top = shape.OffsetFromPage ? setup.Height - shape.OffsetY : anchor.Top - shape.OffsetY;
             anchor.Page.Shapes.Add(new PdfPlacedShape(
                 left,
                 top - shape.Height,

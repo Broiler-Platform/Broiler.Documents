@@ -195,7 +195,9 @@ public static class RtfWriter
                 "A shape anchored to a page by number was written beside its paragraph, measured from the page; RTF cannot name the page.");
         }
 
-        sb.Append(shape.IsPageAnchored ? "\\shpbxcolumn\\shpbypage\\shpwr3" : "\\shpbxcolumn\\shpbypara\\shpwr3");
+        sb.Append(shape.IsPageAnchored || shape.OffsetFromPage
+            ? "\\shpbxcolumn\\shpbypage\\shpwr3"
+            : "\\shpbxcolumn\\shpbypara\\shpwr3");
 
         if (shape.Fill is ShapeFill fill)
         {

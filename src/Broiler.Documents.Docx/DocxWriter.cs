@@ -417,7 +417,7 @@ public static class DocxWriter
                     "measured from the page; WordprocessingML cannot name the page.");
             }
 
-            element.Add(BuildShapeRun(shape, context, shape.IsPageAnchored));
+            element.Add(BuildShapeRun(shape, context, shape.IsPageAnchored || shape.OffsetFromPage));
         }
 
         return element;

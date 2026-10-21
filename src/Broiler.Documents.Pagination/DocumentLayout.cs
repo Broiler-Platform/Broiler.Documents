@@ -281,7 +281,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             if (shape.Wraps && !shape.IsPageAnchored &&
                                 _paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchor))
                             {
-                                _wrap.Add(shape, anchor + shape.OffsetY);
+                                _wrap.Add(shape, shape.TopOnPage(anchor));
                             }
                         }
                     }
@@ -431,7 +431,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             foreach (DocumentShape shape in _documentShapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
-                    _wrap.Add(shape, y + shape.OffsetY);
+                    _wrap.Add(shape, shape.TopOnPage(y));
             }
 
             // Space before never opens a page, or a column: a paragraph that
@@ -764,7 +764,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 continue;
             }
 
-            var bounds = new BRect(setup.ContentLeftPoints + shape.OffsetX, anchorTop + shape.OffsetY,
+            var bounds = new BRect(setup.ContentLeftPoints + shape.OffsetX, shape.TopOnPage(anchorTop),
                 Math.Max(0, shape.Width), Math.Max(0, shape.Height));
 
             if (bounds.Width <= 0 || bounds.Height <= 0)

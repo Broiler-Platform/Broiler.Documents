@@ -92,6 +92,11 @@ public static class RtfReader
         private int _shapeRight;
         private int _shapeBottom;
         private int _shapeZ;
+
+        // What a shape's \shptop is measured from: 0 the top margin, 1 the page,
+        // 2 the paragraph - posrelv's numbering, which \shpbymargin, \shpbypage
+        // and \shpbypara state too.
+        private int _shapeVerticalFrame = 2;
         private BColor _shapeFillStart = BColor.Empty;
         private BColor _shapeFillEnd = BColor.Empty;
         private BColor _shapeLineColor = BColor.Empty;
@@ -538,6 +543,9 @@ public static class RtfReader
                 // over it are both in the body here, and this is the only thing
                 // saying which the reader sees.
                 case "shpz": if (has) _shapeZ = p; return;
+                case "shpbymargin": _shapeVerticalFrame = 0; return;
+                case "shpbypage": _shapeVerticalFrame = 1; return;
+                case "shpbypara": _shapeVerticalFrame = 2; return;
                 case "sp": _state.Dest = RtfDestination.ShapeProperty; BeginShapeProperty(); return;
                 case "sn": _state.Dest = RtfDestination.ShapePropertyName; return;
                 case "sv": _state.Dest = RtfDestination.ShapePropertyValue; return;
@@ -1011,6 +1019,7 @@ public static class RtfReader
             _shapeRight = 0;
             _shapeBottom = 0;
             _shapeZ = 0;
+            _shapeVerticalFrame = 2;
             _shapeFillStart = BColor.Empty;
             _shapeFillEnd = BColor.Empty;
             _shapeLineColor = BColor.Empty;
@@ -1070,6 +1079,10 @@ public static class RtfReader
                 case "fLine":
                     _shapeHasLine = number != 0;
                     break;
+                case "posrelv":
+                    // 3 is the line, which the model holds as its paragraph.
+                    _shapeVerticalFrame = number is 0 or 1 ? (int)number : 2;
+                    break;
                 default:
                     break;
             }
@@ -1101,16 +1114,23 @@ public static class RtfReader
             if (width <= 0 || height <= 0 || (fill is null && paragraphs.Count == 0))
                 return;
 
+            // A shape measured from the page or its top margin is placed from the
+            // top of the page its paragraph is on, which the model holds as such.
+            double top = _shapeTop / 20d;
+            if (_shapeVerticalFrame == 0)
+                top += (_sectionTop ?? _marginTop) / 20d;
+
             _shapes.Add(new DocumentShape(
                 _builder.ParagraphCount,
                 _shapeLeft / 20d,
-                _shapeTop / 20d,
+                top,
                 width,
                 height,
                 fill,
                 _shapeHasLine ? _shapeLineColor : BColor.Empty,
                 paragraphs,
-                zOrder: _shapeZ));
+                zOrder: _shapeZ,
+                offsetFromPage: _shapeVerticalFrame != 2));
         }
 
         /// <summary>The headers and footers the document's running destinations collected.</summary>

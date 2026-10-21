@@ -43,7 +43,7 @@ than its `\ucN` count.
 | Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only, including the `\l` switch that spells a same-document reference: it is read as `#name` and written back the same way. The name may not contain a quote — the field argument is quoted and RTF has no escape for one inside it, so a quote would truncate the target silently; the shared rule refuses it for every format. Targets otherwise follow that rule, or `rtf.link`) |
 | Running content | `\header` `\headerf` `\headerl` `\headerr` `\footer` `\footerf` `\footerl` `\footerr` (→ `RunningContent`, not the body flow) |
 | Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN`, and the first section's `\pgwsxnN` `\pghsxnN` `\marglsxnN` `\margrsxnN` `\margtsxnN` `\margbsxnN` over them (→ `PageGeometry`) |
-| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fLine` `lineColor` (→ `DocumentShape`) |
+| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shpbypara` `\shpbypage` `\shpbymargin` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fLine` `lineColor` `posrelv` (→ `DocumentShape`) |
 
 ## Default font
 
@@ -257,7 +257,11 @@ so it is the only thing left saying which the reader sees. A shape
 colour is one integer holding blue, green and red in that order, which is the
 reverse of how the rest of the format writes one and the easiest thing here to
 get backwards. `\shptxt` carries the shape's own text, which stays out of the
-body for the same reason a header's does.
+body for the same reason a header's does. `\shpbypage` and `\shpbymargin`, or a `posrelv` of 1
+or 0, measure `\shptop` from the page or its top margin rather than from the
+paragraph: `DocumentShape.OffsetFromPage`, with the margin added, and the shape
+stands that far down whichever page its paragraph is on. They were not read,
+and such a shape hung that far below its paragraph.
 
 Every other shape property is ignored, `pib` - a picture inside a shape - among
 them. A shape that ends with neither fill nor text is dropped, and so is one
@@ -472,7 +476,7 @@ anything a caller asked for that this codec does not do.
 | `rtf.image.format` | Warning | Write | RTF carries PNG and JPEG pictures; one in another format was dropped. |
 | `rtf.image.omitted` | Warning | Write | The caller's resource policy did not permit a picture into the output; the message names the denial. |
 | `rtf.image.anchored` | Warning | Write | A floating picture was written into its paragraph; its position beside the text was not kept. |
-| `rtf.shape.page` | Warning | Write | A shape anchored to a page by number was written beside its paragraph with `\shpbypage`; RTF can measure from the page but not name it. |
+| `rtf.shape.page` | Warning | Write | A shape anchored to a page by number was written beside its paragraph with `\shpbypage`; RTF can measure from the page but not name it. A shape measured from the page its paragraph is on (`DocumentShape.OffsetFromPage`) is written with `\shpbypage` too, and is not reported: that is exactly what RTF says. |
 | `document.capability.not-composed` | Warning | Read, write | Something the caller asked for that this codec does not compose: `DecodeEmbeddedObjects` on a document that carries a picture or object, or `AsciiOnly=false` on a write. |
 
 ## Standards and rights
