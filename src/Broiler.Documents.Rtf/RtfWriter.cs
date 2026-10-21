@@ -149,6 +149,8 @@ public static class RtfWriter
             foreach (StyleRun run in paragraph.Runs)
             {
                 InlineStyle style = run.Style;
+                if (style.Note is DocumentNote note)
+                    CollectParagraphResources(note.Paragraphs, fonts, colors);
                 if (style.FontFamily is not null)
                     fonts.Intern(style.FontFamily);
                 if (!style.Foreground.IsEmpty)
@@ -531,7 +533,8 @@ public static class RtfWriter
         ResourceTable<BColor> colors,
         DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics,
-        HashSet<string> reported)
+        HashSet<string> reported,
+        bool inNote = false)
     {
         int offset = 0;
         foreach (StyleRun run in paragraph.Runs)
@@ -544,8 +547,73 @@ public static class RtfWriter
             if (defaults.FontSizePoints != DocumentStyleDefaults.FallbackFontSizePoints &&
                 (style.FontSize is not float size || !float.IsFinite(size) || size <= 0))
                 style = style with { FontSize = defaults.FontSizeOf(style) };
+            if (style.Note is DocumentNote note)
+            {
+                if (inNote)
+                {
+                    AddOnce(diagnostics, reported, "rtf.note.nested", "A note inside a note was dropped: RTF cannot nest them.");
+                    continue;
+                }
+
+                for (int i = 0; i < text.Length; i++)
+                    WriteNote(sb, note, style, defaults, fonts, colors, resources, diagnostics, reported);
+                continue;
+            }
+
             WriteRun(sb, text, style, fonts, colors, resources, diagnostics, reported);
         }
+    }
+
+    /// <summary>
+    /// Writes a citation as Word does: the label as a raised <c>\chftn</c>, then
+    /// the <c>\footnote</c> group holding the note's paragraphs, each opened
+    /// with <c>\pard\plain</c>, the first with its label again.
+    /// <c>\ftnalt</c> makes it an endnote.
+    /// </summary>
+    /// <remarks>
+    /// RTF has no word for a label the author typed. Word writes such a label as
+    /// text in front of the group, without <c>\chftn</c>, and so does this, which
+    /// a reader takes as text and a numbered note.
+    /// </remarks>
+    private static void WriteNote(
+        StringBuilder sb,
+        DocumentNote note,
+        InlineStyle style,
+        DocumentStyleDefaults defaults,
+        ResourceTable<string> fonts,
+        ResourceTable<BColor> colors,
+        DocumentConversionContext resources,
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> reported)
+    {
+        string label = note.CustomMark is string mark ? EscapedText(mark) : "\\chftn";
+        string format = FormatControlWords(style with { Note = null }, fonts, colors);
+        sb.Append('{').Append(format).Append("\\super ").Append(label).Append('}');
+        sb.Append("{\\footnote");
+        if (note.Kind == NoteKind.Endnote)
+            sb.Append("\\ftnalt");
+
+        for (int i = 0; i < note.Paragraphs.Count; i++)
+        {
+            RichTextParagraph paragraph = note.Paragraphs[i];
+            if (i > 0)
+                sb.Append("\\par");
+            sb.Append("\\pard\\plain");
+            WriteParagraphProperties(sb, paragraph.Style, colors);
+            sb.Append(' ');
+            if (i == 0)
+                sb.Append("{\\super ").Append(label).Append("} ");
+            WriteRuns(sb, paragraph, defaults, fonts, colors, resources, diagnostics, reported, inNote: true);
+        }
+
+        sb.Append('}');
+    }
+
+    private static string EscapedText(string text)
+    {
+        var escaped = new StringBuilder();
+        AppendEscaped(escaped, text);
+        return escaped.ToString();
     }
 
     private static void WriteRun(

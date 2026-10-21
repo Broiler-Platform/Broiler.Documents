@@ -164,6 +164,8 @@ public static class DocumentReport
                     statistics.LinkRuns++;
                 if (style.IsImage)
                     statistics.Images++;
+                if (style.IsNote)
+                    statistics.Notes++;
                 if (!style.Foreground.IsEmpty)
                     statistics.ColoredRuns++;
                 if (!style.Background.IsEmpty)
@@ -215,6 +217,9 @@ public sealed class DocumentStatistics
 
     public int Images { get; set; }
 
+    /// <summary>Footnotes and endnotes the body cites.</summary>
+    public int Notes { get; set; }
+
     public int ListParagraphs { get; set; }
 
     public int AlignedParagraphs { get; set; }
@@ -249,6 +254,7 @@ public sealed class DocumentStatistics
             ["highlightedRuns"] = HighlightedRuns,
             ["linkRuns"] = LinkRuns,
             ["images"] = Images,
+            ["notes"] = Notes,
             ["listParagraphs"] = ListParagraphs,
             ["alignedParagraphs"] = AlignedParagraphs,
             ["indentedParagraphs"] = IndentedParagraphs,
@@ -273,6 +279,7 @@ public sealed class DocumentStatistics
         yield return new KeyValuePair<string, long>("highlightedRuns", HighlightedRuns);
         yield return new KeyValuePair<string, long>("linkRuns", LinkRuns);
         yield return new KeyValuePair<string, long>("images", Images);
+        yield return new KeyValuePair<string, long>("notes", Notes);
         yield return new KeyValuePair<string, long>("listParagraphs", ListParagraphs);
         yield return new KeyValuePair<string, long>("alignedParagraphs", AlignedParagraphs);
         yield return new KeyValuePair<string, long>("indentedParagraphs", IndentedParagraphs);

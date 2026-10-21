@@ -68,6 +68,16 @@ public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BCol
 
     /// <summary>Where this piece starts, relative to the page's left edge. Filled in during placement.</summary>
     public double X { get; internal set; }
+
+    /// <summary>
+    /// How far above the line's baseline this piece's own baseline sits, in
+    /// points: a note's citation is raised, as superscript is. Zero for
+    /// everything else. <see cref="Ascent"/> already includes it.
+    /// </summary>
+    public double Rise { get; internal set; }
+
+    /// <summary>The note this piece is the citation of, or null.</summary>
+    public DocumentNote? Note { get; internal set; }
 }
 
 /// <summary>One laid-out line, positioned on its page.</summary>

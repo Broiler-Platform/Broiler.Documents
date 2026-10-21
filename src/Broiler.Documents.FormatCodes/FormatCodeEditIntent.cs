@@ -56,6 +56,10 @@ public enum FormatCodeProperty
     // The single character an embedded image occupies. Like the other structure
     // properties it is removed by deleting that character.
     Image,
+
+    // The single character a footnote or endnote citation occupies; deleting
+    // it deletes the note.
+    Note,
 }
 
 /// <summary>

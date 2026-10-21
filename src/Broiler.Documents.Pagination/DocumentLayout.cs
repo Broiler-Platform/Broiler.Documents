@@ -23,9 +23,11 @@ namespace Broiler.Documents.Pagination;
 /// </para>
 /// <para>
 /// <b>What this is not.</b> It is not a word processor's layout engine and does
-/// not try to be one. There are no floats, footnotes, hyphenation, kerning
-/// pairs, or bidirectional reordering here - mostly because the document model
-/// has no way to express them, so there is nothing to lay out. A table row
+/// not try to be one. There is no hyphenation, kerning, or bidirectional
+/// reordering here - mostly because the document model has no way to express
+/// them, so there is nothing to lay out. A footnote is set at the foot of the
+/// page its citation is on and is not split across pages; endnotes follow the
+/// body. A table row
 /// breaks across a page cell by cell unless it says it may not, or holds a cell
 /// that spans rows; a table nested in a cell breaks between its own rows. Text
 /// columns are filled one after the
@@ -71,6 +73,30 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private readonly Dictionary<DocumentShape, double> _grownHeights = [];
     private ListNumberer _lists = new();
 
+    // How the body's notes are labelled, and each footnote's lines, composed
+    // once against the page's text width.
+    private NoteNumberer _noteLabels = new();
+    private bool _raisedNoteLabels;
+    private readonly Dictionary<DocumentNote, NoteBlock> _noteBlocks = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>A citation's size against its text, and how far it is raised: LibreOffice's superscript.</summary>
+    private const double CitationScale = 0.58;
+
+    private const double CitationRise = 0.33;
+
+    /// <summary>
+    /// The line above a page's footnotes: LibreOffice's default, a quarter of
+    /// the text's width, 0.018 cm thick, 0.101 cm clear of the text above and
+    /// of the notes below.
+    /// </summary>
+    private const double SeparatorWidthRatio = 0.25;
+
+    private const double SeparatorThickness = 0.51;
+
+    private const double SeparatorGap = 2.86;
+
+    private const double SeparatorBlock = SeparatorGap + SeparatorThickness + SeparatorGap;
+
     /// <summary>
     /// U+2028 LINE SEPARATOR, which is how the model spells a break inside a
     /// paragraph. Every codec reads and writes it - <c>text:line-break</c>,
@@ -98,6 +124,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _documentShapes = document.Shapes;
         _background = document.PageBackground;
         _styleDefaults = document.StyleDefaults;
+        _noteLabels = NoteNumberer.For(document.Paragraphs, document.NoteNumbering);
+        _raisedNoteLabels = document.NoteNumbering.RaisedLabels;
+        _noteBlocks.Clear();
         _paragraphTops.Clear();
         _grownHeights.Clear();
         foreach (DocumentShape shape in _documentShapes)
@@ -252,8 +281,96 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         var numbering = new ListNumberer();
         _lists = numbering;
 
+        // The footnotes cited on the page being filled, and how much of the
+        // foot of its text they take. The text's foot moves up by that much as
+        // each is cited, so everything below that measures room against
+        // contentBottom leaves room for them. A note is set on the page where
+        // it is first cited; in a continuous render, which has no page foot,
+        // footnotes follow the body with the endnotes.
+        var pageNotes = new List<DocumentNote>();
+        var placedNotes = new HashSet<DocumentNote>(ReferenceEqualityComparer.Instance);
+        double noteArea = 0;
+
+        // The height the footnotes cited in these lines would add to the page.
+        double NotesHeight(IEnumerable<LayoutLine> lines)
+        {
+            if (setup.Continuous)
+                return 0;
+
+            double height = 0;
+            bool first = pageNotes.Count == 0;
+            foreach (DocumentNote note in CitedNotes(lines))
+            {
+                if (note.Kind != NoteKind.Footnote || placedNotes.Contains(note))
+                    continue;
+
+                if (first)
+                {
+                    height += SeparatorBlock;
+                    first = false;
+                }
+
+                height += NoteBlockFor(note, setup).Height;
+            }
+
+            return height;
+        }
+
+        // Takes the footnotes cited in lines just placed onto the page.
+        void TakeNotes(IEnumerable<LayoutLine> lines)
+        {
+            if (setup.Continuous)
+                return;
+
+            foreach (DocumentNote note in CitedNotes(lines))
+            {
+                if (note.Kind != NoteKind.Footnote || !placedNotes.Add(note))
+                    continue;
+
+                double height = NoteBlockFor(note, setup).Height + (pageNotes.Count == 0 ? SeparatorBlock : 0);
+                pageNotes.Add(note);
+                noteArea += height;
+                contentBottom -= height;
+            }
+        }
+
+        // Sets the page's footnotes at the foot of its text, under their line.
+        void SetNotes()
+        {
+            if (pageNotes.Count == 0)
+                return;
+
+            double foot = contentBottom + noteArea;
+            double top = foot - noteArea;
+            double left = _frame?.Left ?? setup.ContentLeftPoints;
+            double width = _frame?.Width ?? setup.ContentWidthPoints;
+            currentCells.Add(new LayoutCell(
+                new BRect(left, top + SeparatorGap, width * SeparatorWidthRatio, SeparatorThickness),
+                _settings.DefaultForeground,
+                default));
+
+            double noteTop = top + SeparatorBlock;
+            foreach (DocumentNote note in pageNotes)
+            {
+                NoteBlock block = NoteBlockFor(note, setup);
+                foreach ((LayoutLine line, double offset) in block.Lines)
+                {
+                    line.Top = noteTop + offset;
+                    line.Shift(left - setup.ContentLeftPoints);
+                    currentLines.Add(line);
+                }
+
+                noteTop += block.Height;
+            }
+
+            contentBottom = foot;
+            noteArea = 0;
+            pageNotes.Clear();
+        }
+
         void BreakPage()
         {
+            SetNotes();
             currentLines.AddRange(floatLines);
             currentCells.AddRange(floatCells);
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
@@ -554,6 +671,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             int linesFrom = currentLines.Count;
             int cellsFrom = currentCells.Count;
             row.PlaceAt(y, columns.Offset(column), currentLines, currentCells, _paragraphTops);
+            TakeNotes(currentLines.Skip(linesFrom));
             if (region is not null && columns.Count > 1)
             {
                 regionLines.Add(new FlowItem(
@@ -632,7 +750,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
                     {
-                        if (y + row.Height > contentBottom)
+                        if (y + row.Height > contentBottom - NotesHeight(row.Lines))
                         {
                             if (row.CanSplit && row.SplitAt(contentBottom - y) is (RowBox fitted, var rest))
                             {
@@ -739,7 +857,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             foreach (LayoutLine line in composed.Lines)
             {
                 y += line.LeadingSkip;
-                if (y + line.Height > contentBottom && ColumnHasContent())
+
+                // A line that cites a footnote needs room for the note at the
+                // foot of the page as well as for itself.
+                if (y + line.Height > contentBottom - NotesHeight([line]) && ColumnHasContent())
                 {
                     BreakColumn();
                     if (truncated)
@@ -749,6 +870,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 line.Top = y;
                 line.Shift(columns.Offset(column));
                 currentLines.Add(line);
+                TakeNotes([line]);
                 y += line.Height;
 
                 // What balancing needs to share the lines out again: the space
@@ -769,11 +891,60 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             paragraphIndex++;
         }
 
+        // Endnotes follow the body, under a line of their own, in the order
+        // they are cited; in a continuous render the footnotes go with them.
+        List<DocumentNote> trailing = [.. DocumentNote.CitedIn(document.Paragraphs)
+            .Distinct<DocumentNote>(ReferenceEqualityComparer.Instance)
+            .Where(note => note.Kind == NoteKind.Endnote || setup.Continuous)];
+        if (trailing.Count > 0 && !truncated)
+        {
+            region = null;
+            columns = pageColumns;
+            column = 0;
+            columnStart = currentLines.Count;
+            if (y + SeparatorBlock > contentBottom && currentLines.Count > 0)
+                BreakPage();
+
+            currentCells.Add(new LayoutCell(
+                new BRect(_frame?.Left ?? setup.ContentLeftPoints, y + SeparatorGap,
+                    (_frame?.Width ?? setup.ContentWidthPoints) * SeparatorWidthRatio, SeparatorThickness),
+                _settings.DefaultForeground,
+                default));
+            y += SeparatorBlock;
+
+            foreach (DocumentNote note in trailing)
+            {
+                for (int i = 0; i < note.Paragraphs.Count && !truncated; i++)
+                {
+                    RichTextParagraph paragraph = note.Paragraphs[i];
+                    ParagraphLines composed = ComposeNoteParagraph(note, i, setup);
+                    y += i == 0 ? 0 : Math.Max(0, paragraph.Style.SpacingBefore);
+                    foreach (LayoutLine line in composed.Lines)
+                    {
+                        if (y + line.Height > contentBottom && currentLines.Count > columnStart)
+                        {
+                            BreakPage();
+                            if (truncated)
+                                break;
+                            columnStart = 0;
+                        }
+
+                        line.Top = y;
+                        currentLines.Add(line);
+                        y += line.Height;
+                    }
+
+                    y += Math.Max(0, paragraph.Style.SpacingAfter);
+                }
+            }
+        }
+
         // A floating table that ran past the last page of text still has rows
         // to stand on the pages after it.
         while (floatCarry is not null && !truncated)
             BreakPage();
 
+        SetNotes();
         currentLines.AddRange(floatLines);
         currentCells.AddRange(floatCells);
         if (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0)
@@ -1612,6 +1783,82 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private double RunningHeight(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, double left, double width) =>
         paragraphs.Count == 0 ? 0 : ComposeRunning(paragraphs, setup, left, width).Height;
 
+    /// <summary>The notes cited in <paramref name="lines"/>, in the order they are cited.</summary>
+    private static IEnumerable<DocumentNote> CitedNotes(IEnumerable<LayoutLine> lines)
+    {
+        foreach (LayoutLine line in lines)
+        {
+            foreach (LayoutPiece piece in line.Pieces)
+            {
+                if (piece.Note is DocumentNote note)
+                    yield return note;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A footnote's lines, each with its top below the note's own, and how tall
+    /// the note is. Composed once: a note is set on one page.
+    /// </summary>
+    /// <remarks>
+    /// The label opens the first paragraph as a list marker does, in the
+    /// hanging indent, and the text wraps beneath the text rather than beneath
+    /// the label - LibreOffice's footnote paragraph style. The width is the
+    /// page's text width whatever columns the citation is in.
+    /// </remarks>
+    private NoteBlock NoteBlockFor(DocumentNote note, DocumentPageBox setup)
+    {
+        if (_noteBlocks.TryGetValue(note, out NoteBlock? block))
+            return block;
+
+        var lines = new List<(LayoutLine, double)>();
+        double y = 0;
+        for (int i = 0; i < note.Paragraphs.Count; i++)
+        {
+            RichTextParagraph paragraph = note.Paragraphs[i];
+            if (i > 0)
+                y += Math.Max(0, paragraph.Style.SpacingBefore);
+
+            ParagraphLines composed = ComposeNoteParagraph(note, i, setup);
+            foreach (LayoutLine line in composed.Lines)
+            {
+                lines.Add((line, y));
+                y += line.Height;
+            }
+
+            if (i < note.Paragraphs.Count - 1)
+                y += Math.Max(0, paragraph.Style.SpacingAfter);
+        }
+
+        block = new NoteBlock(lines, y);
+        _noteBlocks.Add(note, block);
+        return block;
+    }
+
+    /// <summary>
+    /// One paragraph of a note, the first opened with the note's label: raised
+    /// and followed by a space where the document sets labels as Word does, in
+    /// the hanging indent where it sets them as LibreOffice does.
+    /// </summary>
+    private ParagraphLines ComposeNoteParagraph(DocumentNote note, int index, DocumentPageBox setup)
+    {
+        RichTextParagraph paragraph = note.Paragraphs[index];
+        if (index > 0)
+            return ComposeParagraph(paragraph, marker: null, setup, -1);
+
+        if (!_raisedNoteLabels)
+            return ComposeParagraph(paragraph, _noteLabels.Label(note), setup, -1);
+
+        InlineStyle style = (paragraph.Length > 0 ? paragraph.StyleAt(0) : paragraph.MarkStyle) with { Note = null, Image = null };
+        RichTextParagraph labelled = paragraph
+            .InsertText(0, " ", style)
+            .InsertText(0, DocumentNote.PlaceholderText, style with { Note = note });
+        return ComposeParagraph(labelled, marker: null, setup, -1);
+    }
+
+    /// <summary>A note's composed lines, each with its offset from the note's top, and the note's height.</summary>
+    private sealed record NoteBlock(List<(LayoutLine Line, double Offset)> Lines, double Height);
+
     /// <summary>Wraps one paragraph into lines, without deciding which page they land on.</summary>
     private ParagraphLines ComposeParagraph(RichTextParagraph paragraph, string? marker, DocumentPageBox setup, int paragraphIndex,
         double? columnLeftOverride = null, double? columnWidthOverride = null, double? wrapTop = null)
@@ -1849,6 +2096,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             string text = paragraph.Text.Substring(offset, length);
             offset += run.Length;
 
+            // A citation is its note's label, raised and smaller, and part of
+            // the word it follows: no line breaks between "text" and its "1".
+            if (run.Style.Note is DocumentNote note)
+            {
+                word ??= LayoutToken.Empty();
+                for (int i = 0; i < length; i++)
+                    word.Add(MakeCitationPiece(note, run.Style));
+                continue;
+            }
+
             foreach ((string fragment, bool whitespace, bool image, bool tab, bool forcedBreak) in Fragments(text, run.Style))
             {
                 if (forcedBreak)
@@ -2046,6 +2303,24 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         return new LayoutPiece(text, font, color, style.Background, underline, style.Strikethrough, style.LinkHref, null,
             width, ascent, descent, oblique: oblique, lineGap: lineGap);
+    }
+
+    /// <summary>
+    /// A note's citation: its label at <see cref="CitationScale"/> of the run's
+    /// size, its baseline <see cref="CitationRise"/> of that size above the line's.
+    /// </summary>
+    private LayoutPiece MakeCitationPiece(DocumentNote note, InlineStyle style)
+    {
+        InlineStyle plain = style with { Note = null, Image = null };
+        LayoutPiece small = MakeTextPiece(_noteLabels.Label(note), plain, _settings.DecorateLinks, CitationScale);
+        double rise = FontFor(plain).Size * CitationRise;
+        return new LayoutPiece(small.Text, small.Font, small.Color, small.Highlight, small.Underline, small.Strikethrough,
+            small.Link, null, small.Width, small.Ascent + rise, Math.Max(0, small.Descent - rise), small.Oblique,
+            lineGap: small.LineGap)
+        {
+            Rise = rise,
+            Note = note,
+        };
     }
 
     /// <summary>

@@ -39,12 +39,32 @@ public static class MarkdownWriter
         }
 
         var builder = new StringBuilder();
+        var notes = new NoteNumberer(document.NoteNumbering);
         for (int i = 0; i < document.ParagraphCount; i++)
         {
             if (i > 0)
                 builder.Append("\n\n");
 
-            WriteParagraph(builder, document.Paragraphs[i], resources, diagnostics);
+            WriteParagraph(builder, document.Paragraphs[i], notes, resources, diagnostics);
+        }
+
+        // Footnote syntax, which GitHub and most Markdown dialects read: the
+        // citation [^1] in the text, and the note's paragraphs under [^1]: after
+        // the body, the ones after its first indented. An endnote is written
+        // the same way; Markdown has only the one kind.
+        var written = new HashSet<DocumentNote>(ReferenceEqualityComparer.Instance);
+        foreach (DocumentNote note in document.Notes)
+        {
+            if (!written.Add(note))
+                continue;
+
+            builder.Append("\n\n[^").Append(notes.Label(note)).Append("]: ");
+            for (int i = 0; i < note.Paragraphs.Count; i++)
+            {
+                if (i > 0)
+                    builder.Append("\n\n    ");
+                AppendRuns(builder, note.Paragraphs[i], notes, resources, diagnostics, inNote: true);
+            }
         }
 
         builder.Append('\n');
@@ -85,6 +105,7 @@ public static class MarkdownWriter
     private static void WriteParagraph(
         StringBuilder builder,
         RichTextParagraph paragraph,
+        NoteNumberer notes,
         DocumentConversionContext resources,
         List<DocumentDiagnostic> diagnostics)
     {
@@ -131,11 +152,30 @@ public static class MarkdownWriter
                 "Markdown writer dropped paragraph alignment, line spacing or height, or spacing values."));
         }
 
+        AppendRuns(builder, paragraph, notes, resources, diagnostics, inNote: false);
+    }
+
+    private static void AppendRuns(
+        StringBuilder builder,
+        RichTextParagraph paragraph,
+        NoteNumberer notes,
+        DocumentConversionContext resources,
+        List<DocumentDiagnostic> diagnostics,
+        bool inNote)
+    {
         int offset = 0;
         foreach (StyleRun run in paragraph.Runs)
         {
             string text = paragraph.Text.Substring(offset, run.Length);
             offset += run.Length;
+            if (run.Style.Note is DocumentNote note)
+            {
+                // A note inside a note has nowhere to go and is left out.
+                if (!inNote)
+                    builder.Append("[^").Append(notes.Label(note)).Append(']');
+                continue;
+            }
+
             builder.Append(FormatRun(text, run.Style, resources, diagnostics));
         }
     }

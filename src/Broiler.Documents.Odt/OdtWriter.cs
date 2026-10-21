@@ -39,7 +39,10 @@ public static class OdtWriter
         ArgumentNullException.ThrowIfNull(destination);
 
         DocumentWriteOptions writeOptions = options ?? DocumentWriteOptions.Default;
-        var context = new OdtWriteContext(writeOptions.Resources);
+        var context = new OdtWriteContext(writeOptions.Resources)
+        {
+            Notes = new NoteNumberer(document.NoteNumbering),
+        };
 
         // The caller's metadata, never the source document's.
         DocumentMetadata metadata = writeOptions.Metadata;
@@ -60,7 +63,8 @@ public static class OdtWriter
                 OdtNamespaces.MimeTypePart,
                 Encoding.ASCII.GetBytes(OdtNamespaces.PackageMediaType));
             AddXmlEntry(archive, OdtNamespaces.ContentPart, content);
-            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(document.RunningContent, PageOf(document), document.PageBackground, context));
+            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(
+                document.RunningContent, PageOf(document), document.PageBackground, document.NoteNumbering, context));
             AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta(metadata));
             foreach (OdtPicturePart picture in context.Pictures)
                 AddDeflatedEntry(archive, picture.PartPath, picture.Data.Span);
@@ -896,7 +900,10 @@ public static class OdtWriter
             if (character == InlineImage.Placeholder)
             {
                 Flush();
-                AddPicture(host, style.Image, state, context);
+                if (style.Note is DocumentNote note)
+                    AddNote(host, note, state, context);
+                else
+                    AddPicture(host, style.Image, state, context);
                 i++;
                 continue;
             }
@@ -927,6 +934,91 @@ public static class OdtWriter
 
         Flush();
     }
+
+    /// <summary>
+    /// Writes a citation as the <c>text:note</c> that holds its note: the label
+    /// LibreOffice would draw in <c>text:note-citation</c>, and the note's
+    /// paragraphs in <c>text:note-body</c>.
+    /// </summary>
+    /// <remarks>
+    /// A note inside a note is not valid ODF, and the model only holds one when
+    /// a caller built it; it is dropped and reported.
+    /// </remarks>
+    private static void AddNote(XElement host, DocumentNote note, ParagraphState state, OdtWriteContext context)
+    {
+        if (context.InNote)
+        {
+            context.AddDiagnosticOnce("odt.note.nested", "A note inside a note was dropped: ODF cannot nest them.");
+            return;
+        }
+
+        string label = context.Notes.Label(note);
+        string id = (note.Kind == NoteKind.Endnote ? "edn" : "ftn") +
+            (++context.NoteCount).ToString(CultureInfo.InvariantCulture);
+
+        var citation = new XElement(OdtNamespaces.Text + "note-citation", label);
+        if (note.CustomMark is not null)
+            citation.Add(new XAttribute(OdtNamespaces.Text + "label", note.CustomMark));
+
+        context.InNote = true;
+        var body = new XElement(
+            OdtNamespaces.Text + "note-body",
+            note.Paragraphs.Select(paragraph => BuildParagraph(paragraph, context, inList: false)).ToList());
+        context.InNote = false;
+
+        host.Add(new XElement(
+            OdtNamespaces.Text + "note",
+            new XAttribute(OdtNamespaces.Text + "id", id),
+            new XAttribute(OdtNamespaces.Text + "note-class", note.Kind == NoteKind.Endnote ? "endnote" : "footnote"),
+            citation,
+            body));
+        state.HasContent = true;
+    }
+
+    /// <summary>
+    /// The <c>text:notes-configuration</c> of each class, written only where the
+    /// document numbers that class differently from what a reader assumes.
+    /// </summary>
+    /// <remarks>
+    /// A document whose notes raise the label at their head names a raised
+    /// character style for it, which is how ODF says so.
+    /// </remarks>
+    private static IEnumerable<XElement> BuildNotesConfigurations(NoteNumbering numbering, OdtWriteContext context)
+    {
+        NoteNumbering standard = NoteNumbering.Default;
+        if (numbering.RaisedLabels)
+        {
+            yield return new XElement(
+                OdtNamespaces.Style + "style",
+                new XAttribute(OdtNamespaces.Style + "name", RaisedNoteLabelStyle),
+                new XAttribute(OdtNamespaces.Style + "family", "text"),
+                new XElement(
+                    OdtNamespaces.Style + "text-properties",
+                    new XAttribute(OdtNamespaces.Style + "text-position", "super 58%")));
+        }
+
+        if (numbering.FootnoteFormat != standard.FootnoteFormat || numbering.FootnoteStart != standard.FootnoteStart ||
+            numbering.RaisedLabels)
+        {
+            yield return NotesConfiguration("footnote", numbering.FootnoteFormat, numbering.FootnoteStart, numbering.RaisedLabels, context);
+        }
+
+        if (numbering.EndnoteFormat != standard.EndnoteFormat || numbering.EndnoteStart != standard.EndnoteStart ||
+            numbering.RaisedLabels)
+        {
+            yield return NotesConfiguration("endnote", numbering.EndnoteFormat, numbering.EndnoteStart, numbering.RaisedLabels, context);
+        }
+    }
+
+    private const string RaisedNoteLabelStyle = "Raised_20_Note_20_Label";
+
+    private static XElement NotesConfiguration(string noteClass, ListNumberFormat format, int start, bool raised, OdtWriteContext context) =>
+        new(
+            OdtNamespaces.Text + "notes-configuration",
+            new XAttribute(OdtNamespaces.Text + "note-class", noteClass),
+            raised ? new XAttribute(OdtNamespaces.Text + "citation-style-name", RaisedNoteLabelStyle) : null,
+            new XAttribute(OdtNamespaces.Style + "num-format", NumberFormat(format, context)),
+            new XAttribute(OdtNamespaces.Text + "start-value", Math.Max(0, start - 1).ToString(CultureInfo.InvariantCulture)));
 
     private static void AddSpaces(XElement host, int count, ParagraphState state)
     {
@@ -1516,6 +1608,7 @@ public static class OdtWriter
         RunningContent running,
         PageGeometry? geometry,
         ShapeFill? background,
+        NoteNumbering noteNumbering,
         OdtWriteContext context)
     {
         // Built before the tree, not inside it. BuildRunningParts registers the
@@ -1554,7 +1647,8 @@ public static class OdtWriter
                     new XAttribute(OdtNamespaces.Style + "name", "Standard"),
                     new XAttribute(OdtNamespaces.Style + "family", "paragraph"),
                     new XAttribute(OdtNamespaces.Style + "class", "text")),
-                BuildPageGradient(background)),
+                BuildPageGradient(background),
+                BuildNotesConfigurations(noteNumbering, context)),
             new XElement(
                 OdtNamespaces.Office + "automatic-styles",
                 new XElement(
@@ -1685,6 +1779,15 @@ public static class OdtWriter
         private readonly Dictionary<string, string> _cellStyleNames = new(StringComparer.Ordinal);
         private int _tableCount;
         private readonly List<XElement> _gradients = [];
+
+        /// <summary>Labels the notes as they are written, in the order they are cited.</summary>
+        public NoteNumberer Notes { get; init; } = new();
+
+        /// <summary>How many notes have been written, which their ids count.</summary>
+        public int NoteCount { get; set; }
+
+        /// <summary>True while a note's own paragraphs are being written.</summary>
+        public bool InNote { get; set; }
 
         /// <summary>
         /// What the caller's policy decided about this document's resources. A

@@ -177,7 +177,11 @@ internal sealed class LineWrapper(double tabStopPoints)
 
     private static LayoutPiece Retext(LayoutPiece source, string text, double width) =>
         new(text, source.Font, source.Color, source.Highlight, source.Underline, 
-            source.Strikethrough, source.Link, null, width, source.Ascent, source.Descent, lineGap: source.LineGap);
+            source.Strikethrough, source.Link, null, width, source.Ascent, source.Descent, lineGap: source.LineGap)
+        {
+            Rise = source.Rise,
+            Note = source.Note,
+        };
 
     /// <summary>
     /// The width a line has used once a tab reaching <paramref name="used"/> has

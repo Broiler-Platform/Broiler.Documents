@@ -184,22 +184,25 @@ internal sealed class DocxNumbering
     public ListKind KindFor(int numId) =>
         _nums.TryGetValue(numId, out NumEntry? entry) ? new ListReference(entry.Definition, 0).Kind : ListKind.Bullet;
 
+    /// <summary>A <c>w:numFmt</c> value, decimal for one this model does not draw.</summary>
+    public static ListNumberFormat NumberFormat(string? numFmt) => numFmt switch
+    {
+        null or "decimal" => ListNumberFormat.Decimal,
+        "decimalZero" => ListNumberFormat.DecimalZero,
+        "lowerLetter" => ListNumberFormat.LowerLetter,
+        "upperLetter" => ListNumberFormat.UpperLetter,
+        "lowerRoman" => ListNumberFormat.LowerRoman,
+        "upperRoman" => ListNumberFormat.UpperRoman,
+        "bullet" => ListNumberFormat.Bullet,
+        "none" => ListNumberFormat.None,
+        _ => ListNumberFormat.Decimal,
+    };
+
     private static ListLevel ReadLevel(XElement lvl, int ilvl, ref bool reportedFormat, List<DocumentDiagnostic>? diagnostics)
     {
         XNamespace w = DocxNamespaces.Wordprocessing;
         string? numFmt = DocxValueReader.WordValue(lvl.Element(w + "numFmt"));
-        ListNumberFormat format = numFmt switch
-        {
-            null or "decimal" => ListNumberFormat.Decimal,
-            "decimalZero" => ListNumberFormat.DecimalZero,
-            "lowerLetter" => ListNumberFormat.LowerLetter,
-            "upperLetter" => ListNumberFormat.UpperLetter,
-            "lowerRoman" => ListNumberFormat.LowerRoman,
-            "upperRoman" => ListNumberFormat.UpperRoman,
-            "bullet" => ListNumberFormat.Bullet,
-            "none" => ListNumberFormat.None,
-            _ => ListNumberFormat.Decimal,
-        };
+        ListNumberFormat format = NumberFormat(numFmt);
 
         if (numFmt is not null && format == ListNumberFormat.Decimal && numFmt != "decimal" && !reportedFormat)
         {

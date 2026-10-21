@@ -387,8 +387,10 @@ public sealed class DocumentPagePainter
             // The renderer puts the baseline at origin.Y + size * 0.8, and the
             // line's baseline may come from host-supplied font metrics. Subtract
             // the renderer's origin offset, not the measured ascent, to keep
-            // differently sized runs on that same resolved baseline.
-            double originY = baseline - (piece.Font.Size * 0.8);
+            // differently sized runs on that same resolved baseline. A raised
+            // piece - a note's citation - sits that much above it.
+            double pieceBaseline = baseline - piece.Rise;
+            double originY = pieceBaseline - (piece.Font.Size * 0.8);
             var run = new BTextRun(piece.Text, piece.Font, piece.Color);
 
             if (piece.Oblique)
@@ -398,7 +400,7 @@ public sealed class DocumentPagePainter
                 // Written directly because BMatrix3x2 offers translation and scale
                 // and nothing else.
                 double slant = _settings.ObliqueSlant;
-                list.PushTransform(new BMatrix3x2(1, 0, -slant, 1, slant * baseline, 0));
+                list.PushTransform(new BMatrix3x2(1, 0, -slant, 1, slant * pieceBaseline, 0));
                 list.DrawText(run, new BPoint(piece.X, originY));
                 list.PopTransform();
             }
@@ -412,14 +414,14 @@ public sealed class DocumentPagePainter
             if (piece.Underline)
             {
                 list.FillRect(
-                    new BRect(piece.X, baseline + (piece.Font.Size * 0.10), piece.Width, thickness),
+                    new BRect(piece.X, pieceBaseline + (piece.Font.Size * 0.10), piece.Width, thickness),
                     piece.Color);
             }
 
             if (piece.Strikethrough)
             {
                 list.FillRect(
-                    new BRect(piece.X, baseline - (piece.Font.Size * 0.26), piece.Width, thickness),
+                    new BRect(piece.X, pieceBaseline - (piece.Font.Size * 0.26), piece.Width, thickness),
                     piece.Color);
             }
         }

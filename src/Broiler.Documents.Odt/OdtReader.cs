@@ -180,6 +180,7 @@ internal static class OdtReader
         document = document.WithStyleDefaults(ReadStyleDefaults(styles));
         document = document.WithPageBackground(
             ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
+        document = document.WithNoteNumbering(ReadNoteNumbering(styles));
         DocumentMetadata metadata = readMetadata();
         return new DocumentReadResult(
             document,
@@ -1569,9 +1570,7 @@ internal static class OdtReader
 
             if (name == OdtNamespaces.Text + "note")
             {
-                builder.AddDiagnosticOnce(
-                    "odt.note",
-                    "ODT footnote and endnote bodies are not part of the paragraph and were skipped.");
+                ReadNote(element, context, style, depth);
                 continue;
             }
 
@@ -1603,6 +1602,123 @@ internal static class OdtReader
     }
 
     /// <summary>Inline elements that carry no text and are skipped silently.</summary>
+    /// <summary>
+    /// Reads a <c>text:note</c> into a citation: one placeholder in the
+    /// paragraph, holding the note's own paragraphs.
+    /// </summary>
+    /// <remarks>
+    /// The citation's number is not read. LibreOffice writes the number it
+    /// last drew into <c>text:note-citation</c>, and the model numbers notes in
+    /// the order they are cited, which gives the same number for every note
+    /// that has one. A <c>text:label</c> is a mark the author typed instead,
+    /// and is kept. A note inside a note is not valid ODF; one found there is
+    /// read as the note's text and nothing more.
+    /// </remarks>
+    private static void ReadNote(XElement note, OdtReadContext context, InlineStyle style, int depth)
+    {
+        if (context.InNote)
+        {
+            context.Builder.AddDiagnosticOnce(
+                "odt.note.nested",
+                "An ODT note inside a note was read as plain text of the outer note.");
+            return;
+        }
+
+        NoteKind kind = string.Equals(
+            (string?)note.Attribute(OdtNamespaces.Text + "note-class"), "endnote", StringComparison.Ordinal)
+            ? NoteKind.Endnote
+            : NoteKind.Footnote;
+        string? label = (string?)note.Element(OdtNamespaces.Text + "note-citation")?.Attribute(OdtNamespaces.Text + "label");
+
+        var builder = new OdtDocumentBuilder(context.Builder.Limits, context.Builder.Diagnostics);
+        var nested = new OdtReadContext(context.Styles, context.Images, builder) { InNote = true };
+        XElement? body = note.Element(OdtNamespaces.Text + "note-body");
+        if (body is not null)
+            ReadBlockContent(body.Elements(), nested, list: null, depth + 1);
+        nested.DropPageBreak();
+
+        RichTextDocument built = builder.Build();
+        if (built.Tables.Count > 0 || built.Shapes.Count > 0)
+        {
+            context.Builder.AddDiagnosticOnce(
+                "odt.note.content",
+                "A table or shape in an ODT note was read as its text; a note holds paragraphs only.");
+        }
+
+        var documentNote = new DocumentNote(kind, built.Paragraphs, label?.Trim());
+        context.Builder.AppendLiteral(DocumentNote.PlaceholderText, style with { Note = documentNote, Image = null });
+    }
+
+    /// <summary>
+    /// How the document numbers its notes, from the
+    /// <c>text:notes-configuration</c> of each class in <c>office:styles</c>.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice writes <c>text:start-value</c> counting from zero - the
+    /// default first note is 1 and is written <c>0</c> - and reads it that way.
+    /// </remarks>
+    private static NoteNumbering ReadNoteNumbering(OdtStyles styles)
+    {
+        NoteNumbering numbering = NoteNumbering.Default;
+        foreach (XElement configuration in styles.NotesConfigurations)
+        {
+            string? numFormat = (string?)configuration.Attribute(OdtNamespaces.Style + "num-format");
+            int? start = int.TryParse(
+                (string?)configuration.Attribute(OdtNamespaces.Text + "start-value"),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out int value) && value >= 0 && value < 100000
+                ? value + 1
+                : null;
+
+            if (string.Equals((string?)configuration.Attribute(OdtNamespaces.Text + "note-class"), "endnote", StringComparison.Ordinal))
+            {
+                numbering = numbering with
+                {
+                    EndnoteFormat = numFormat is null ? numbering.EndnoteFormat : OdtStyles.NumberFormat(numFormat),
+                    EndnoteStart = start ?? numbering.EndnoteStart,
+                };
+            }
+            else
+            {
+                numbering = numbering with
+                {
+                    FootnoteFormat = numFormat is null ? numbering.FootnoteFormat : OdtStyles.NumberFormat(numFormat),
+                    FootnoteStart = start ?? numbering.FootnoteStart,
+                    RaisedLabels = IsRaised(styles, (string?)configuration.Attribute(OdtNamespaces.Text + "citation-style-name")),
+                };
+            }
+        }
+
+        return numbering;
+    }
+
+    /// <summary>
+    /// Whether a text style raises its text: a <c>style:text-position</c> of
+    /// <c>super</c> or a positive percentage. That is how ODF states the
+    /// character style of the label at the head of a note.
+    /// </summary>
+    private static bool IsRaised(OdtStyles styles, string? styleName)
+    {
+        if (string.IsNullOrEmpty(styleName))
+            return false;
+
+        foreach (XElement properties in styles.TextPropertiesForSpan(styleName).Reverse())
+        {
+            string? position = ((string?)properties.Attribute(OdtNamespaces.Style + "text-position"))?.Trim();
+            if (string.IsNullOrEmpty(position))
+                continue;
+
+            string first = position.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+            return first == "super" ||
+                (first.EndsWith('%') &&
+                 double.TryParse(first[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out double percent) &&
+                 percent > 0);
+        }
+
+        return false;
+    }
+
     private static bool IsIgnorableInline(XName name)
     {
         // draw:a is not listed: a clickable picture wraps its frame in one, and

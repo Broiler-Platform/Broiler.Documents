@@ -166,6 +166,21 @@ public sealed class MarkdownWriterTests
         Assert.DoesNotContain("\uFFFC", markdown, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_Note_Is_Written_In_Footnote_Syntax()
+    {
+        var note = new DocumentNote(NoteKind.Footnote, [RichTextParagraph.Plain("one"), RichTextParagraph.Plain("two")]);
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            MakeParagraph(
+                ParagraphStyle.Default,
+                ("Body", InlineStyle.Default),
+                (DocumentNote.PlaceholderText, InlineStyle.Default with { Note = note })),
+        ]);
+
+        Assert.Equal("Body[^1]\n\n[^1]: one\n\n    two\n", Write(document));
+    }
+
     private static string Write(RichTextDocument document, DocumentWriteOptions? options = null) =>
         System.Text.Encoding.UTF8.GetString(MarkdownDocumentCodec.WriteToArray(document, options));
 

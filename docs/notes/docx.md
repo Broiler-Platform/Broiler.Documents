@@ -36,6 +36,22 @@ Open XML WordprocessingML package parts.
   `w:customXml`/`w:smartTag` wrappers, and `mc:AlternateContent` (first
   `mc:Choice`, else `mc:Fallback`). A container's paragraphs are read in
   document order, which for a table is row-major.
+- Footnotes and endnotes: a `w:footnoteReference` or `w:endnoteReference` in
+  the body, a table cell or a frame becomes one citation character holding a
+  `DocumentNote`, read from the `w:footnote` or `w:endnote` with that id in the
+  part the document's relationships name. The separators Word keeps in the same
+  part are not notes. A note's first paragraph opens with `w:footnoteRef`, the
+  label repeated, and the space after it; both are left out, and whether that
+  label is superscript (Word's FootnoteReference style) is read as the
+  document's `NoteNumbering.RaisedLabels`. `w:customMarkFollows` makes the text
+  after the reference the note's own mark. `w:footnotePr` and `w:endnotePr` in
+  the settings part, and in the last section, give each kind's `w:numFmt` and
+  `w:numStart`. A reference in a header, a text box or a note, and one naming a
+  note the part does not hold, is reported (`docx.note.placement`,
+  `docx.note.missing`); a table or shape in a note is read as its text
+  (`docx.note.content`). Written back as `word/footnotes.xml` and
+  `word/endnotes.xml`, each with Word's two separators, the citation raised
+  with `w:vertAlign`.
 - Tables, as a `DocumentTable` over the paragraphs of their cells: the
   `w:tblGrid` column widths, `w:gridSpan` and `w:vMerge` spans, per-cell and
   per-table borders (`w:tcBorders`, `w:tblBorders`, including the `insideH` and
@@ -264,8 +280,8 @@ Open XML WordprocessingML package parts.
 ## Intentional Limits
 
 - Tracked deletions, embedded objects, fields, comments, headers, footers,
-  footnotes, and section layout are skipped or approximated with diagnostics
-  where applicable.
+  and section layout are skipped or approximated with diagnostics where
+  applicable.
 - A floating picture keeps its position, its layer, its stacking and its
   wrapping. `behindDoc` is the shape against the text and `relativeHeight` is the
   shape against the other shapes; both are read and both are written. An anchor
@@ -530,8 +546,14 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.background.fill` | Warning | The page background's VML fill was one the model cannot hold, and was read as one colour: a rectangular (`gradientRadial`) gradient as its outer colour, a pattern of two colours or a picture fill as `w:background`'s own colour. |
 | `docx.shape.group` | Warning | A drawing group held a picture, or groups nested past sixteen deep, which were not read; its drawn boxes were. |
 | `docx.shape.fill` | Warning | A VML shape's fill was read as one colour, for the same reasons, or a DrawingML shape's pattern fill (`a:pattFill`) as its background colour. |
+| `docx.note.placement` | Warning | A note reference in a header, a footer, a text box or a note was skipped: only the body cites notes. |
+| `docx.note.missing` | Warning | A note reference named an id its notes part does not hold, and was skipped. |
+| `docx.note.content` | Warning | A table or shape in a note was read as its text; a note holds paragraphs only. |
+| `docx.notes` | Error | A notes part could not be parsed, or exceeded `MaxBinBytes` (`.limit` suffix). |
 
-Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, `docx.shape.page`, and `docx.text.control`.
+Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, `docx.note.nested`, `docx.shape.page`, and `docx.text.control`.
+`docx.note.nested` says a note cited inside a note was dropped: WordprocessingML
+cannot nest them.
 `docx.shape.page` says a shape anchored to a page by number was written beside
 the paragraph it was read with, its vertical offset measured from the page
 (`relativeFrom="page"`): WordprocessingML anchors every drawing to a paragraph

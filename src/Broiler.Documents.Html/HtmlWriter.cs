@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Documents.Resources;
@@ -128,7 +129,43 @@ public static class HtmlWriter
             }
         }
 
-        foreach (RichTextParagraph paragraph in rich.Paragraphs)
+        var notes = new NoteNumberer(rich.NoteNumbering);
+        AppendParagraphs(document, body, rich.Paragraphs, notes, resources, diagnostics);
+
+        // HTML has no notes. They are written after the body, under a rule,
+        // each opened with its label, and the citation is the label raised.
+        IReadOnlyList<DocumentNote> cited = rich.Notes;
+        if (cited.Count > 0)
+        {
+            diagnostics.Add(DocumentDiagnostic.Info(
+                "html.note",
+                "Footnotes and endnotes were written as paragraphs after the body, each opened with its label."));
+            body.AppendChild(document.CreateElement("hr"));
+            var written = new HashSet<DocumentNote>(ReferenceEqualityComparer.Instance);
+            foreach (DocumentNote note in cited)
+            {
+                if (!written.Add(note))
+                    continue;
+
+                RichTextParagraph first = note.Paragraphs[0];
+                RichTextParagraph labelled = first.InsertText(0, notes.Label(note) + " ", first.StyleAt(0) with { Note = null, Image = null });
+                AppendParagraphs(document, body, [labelled, .. note.Paragraphs.Skip(1)], notes, resources, diagnostics, inNote: true);
+            }
+        }
+
+        return document;
+    }
+
+    private static void AppendParagraphs(
+        DomDocument document,
+        DomElement body,
+        IEnumerable<RichTextParagraph> paragraphs,
+        NoteNumberer notes,
+        DocumentConversionContext resources,
+        List<DocumentDiagnostic> diagnostics,
+        bool inNote = false)
+    {
+        foreach (RichTextParagraph paragraph in paragraphs)
         {
             DomElement p = document.CreateElement("p");
             string paragraphStyle = FormatParagraphStyle(paragraph.Style, diagnostics);
@@ -148,10 +185,8 @@ public static class HtmlWriter
                 p.SetAttribute("style", paragraphStyle);
 
             body.AppendChild(p);
-            AppendRuns(document, p, paragraph, resources, diagnostics);
+            AppendRuns(document, p, paragraph, notes, resources, diagnostics, inNote);
         }
-
-        return document;
     }
 
     /// <summary>
@@ -205,14 +240,29 @@ public static class HtmlWriter
         DomDocument document,
         DomNode parent,
         RichTextParagraph paragraph,
+        NoteNumberer notes,
         DocumentConversionContext resources,
-        List<DocumentDiagnostic> diagnostics)
+        List<DocumentDiagnostic> diagnostics,
+        bool inNote)
     {
         int offset = 0;
         foreach (StyleRun run in paragraph.Runs)
         {
             string text = paragraph.Text.Substring(offset, run.Length);
             offset += run.Length;
+
+            if (run.Style.Note is DocumentNote note)
+            {
+                // A note inside a note has nowhere to go and is left out.
+                if (!inNote)
+                {
+                    DomElement sup = document.CreateElement("sup");
+                    sup.AppendChild(document.CreateTextNode(notes.Label(note)));
+                    parent.AppendChild(sup);
+                }
+
+                continue;
+            }
 
             DomNode target = CreateRunContainer(document, run.Style, diagnostics);
             if (target is DomElement element)

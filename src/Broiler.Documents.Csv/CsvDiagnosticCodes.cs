@@ -51,6 +51,9 @@ public static class CsvDiagnosticCodes
     /// <summary>A picture was left out.</summary>
     public const string ImageOmitted = "csv.image.omitted";
 
+    /// <summary>A footnote or endnote was left out, with its citation.</summary>
+    public const string NoteOmitted = "csv.note.omitted";
+
     /// <summary>Floating shapes were left out.</summary>
     public const string ShapeOmitted = "csv.shape.omitted";
 

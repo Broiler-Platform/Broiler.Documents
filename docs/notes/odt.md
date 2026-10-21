@@ -78,6 +78,17 @@ toolkit behind it.
   marks — `text:date`, `text:page-number`, `text:bookmark-ref`, and the rest —
   contribute the value they last computed, which is the text a reader can plainly
   see on the page.
+- Footnotes and endnotes (`text:note`), as a `DocumentNote` held by one
+  citation character where the note stands. `text:note-class` says which kind,
+  and the paragraphs of `text:note-body` are the note's text; a table or shape
+  in one is read as its text (`odt.note.content`), and a note inside a note,
+  which ODF does not allow, as nothing (`odt.note.nested`). The number in
+  `text:note-citation` is not read: notes are numbered in the order they are
+  cited, as LibreOffice numbers them, and a `text:label` the author typed is
+  kept as the note's own mark. `text:notes-configuration` in `office:styles`
+  gives each kind's `style:num-format` and `text:start-value`, which LibreOffice
+  counts from zero, and whether its `text:citation-style-name` raises the label
+  at the head of the note. All of it is written back the same way.
 - Styles from `styles.xml` and `content.xml`, resolved per ODF 1.3 §16.2: the
   family's `style:default-style`, then the `style:parent-style-name` chain from
   its root down to the style the content names, then the next more specific
@@ -279,8 +290,7 @@ toolkit behind it.
 - Tracked changes are not applied. The document is read as it stands, and
   `text:tracked-changes` — where the deleted text lives — is skipped with a
   diagnostic.
-- Comments (`office:annotation`), footnotes and endnotes (`text:note`) are not
-  part of the body and are not imported.
+- Comments (`office:annotation`) are not part of the body and are not imported.
 - Table styles beyond a cell's own background and borders are not applied, and
   cell vertical alignment and a table's own alignment and indent are not
   represented; a table starts at the left margin.
@@ -418,7 +428,8 @@ blank:
 | `odt.frame.textbox` | Warning | A text box was read as body content; its frame position is not represented. |
 | `odt.frame.block` | Warning | A page-anchored frame held neither body text nor a picture and was skipped. |
 | `odt.annotation` | Warning | Comment content is not part of the body and was skipped. |
-| `odt.note` | Warning | Footnote and endnote bodies are not part of the paragraph and were skipped. |
+| `odt.note.nested` | Warning | A note inside a note was read as nothing, or, writing, dropped: ODF cannot nest them. |
+| `odt.note.content` | Warning | A table or shape in a note was read as its text; a note holds paragraphs only. |
 | `odt.revision.tracked` | Warning | Tracked changes were not applied. |
 | `odt.link` | Warning | A hyperlink with a disallowed or relative target was dropped. |
 | `odt.align.justify` | Warning | A justified paragraph was read as left-aligned. |

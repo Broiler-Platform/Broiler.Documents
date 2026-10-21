@@ -120,6 +120,22 @@ public static class ModelJson
         };
 
         entry["image"] = style.Image is null ? null : Describe(style.Image);
+
+        // Only on a citation, so the description of every other run is as it was.
+        if (style.Note is DocumentNote note)
+        {
+            var paragraphs = new JsonArray();
+            foreach (RichTextParagraph paragraph in note.Paragraphs)
+                paragraphs.Add(paragraph.Text);
+
+            entry["note"] = new JsonObject
+            {
+                ["kind"] = note.Kind.ToString().ToLowerInvariant(),
+                ["customMark"] = note.CustomMark,
+                ["paragraphs"] = paragraphs,
+            };
+        }
+
         return entry;
     }
 

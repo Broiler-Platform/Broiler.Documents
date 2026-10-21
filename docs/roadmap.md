@@ -126,6 +126,19 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **RTF tables, the rest.** The reader reads a row's cells, borders, shading,
   padding and height; merged cells, row borders, `\trpadd` and nested tables
   are not read, and the writer writes a table as its paragraphs.
+- **Notes, the rest.** Footnotes and endnotes are read, written and laid out
+  in DOCX, ODT and RTF ([architecture notes](notes/architecture.md)). Not yet:
+  a note too tall for the page it is cited on is not split across pages;
+  numbering restarts per page or section (`w:numRestart`,
+  `text:start-numbering-at`) and footnotes collected at the document's end
+  (`text:footnotes-position`, `w:pos`) are not read; the separator is
+  LibreOffice's default whatever the document states (`style:footnote-sep`,
+  Word's separator note); LibreOffice puts an ODT document's endnotes on a page
+  of their own, and here they follow the body; a note cited in a header, a
+  footer or a text box is not read, and a table or floating shape in a note is
+  read as its text. The PDF writer draws a citation as its label and leaves the
+  note out (`pdf.write.feature-unsupported`), and the HTML and Markdown readers
+  do not read back the notes their writers write.
 - **List numbering.** The model records that a paragraph is numbered and how
   deep, and nothing else, so the layout counts from one at every list and picks
   the marker from the indent. `tdf168017.docx` numbers its clauses from a

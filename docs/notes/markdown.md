@@ -45,6 +45,7 @@ is intentionally conservative.
 | Bold / italic / strike | `**` / `*` / `~~` |
 | Monospace font family | Code span |
 | `LinkHref` | Inline link |
+| `InlineStyle.Note` | `[^label]` in the text, and `[^label]: text` after the body, the note's later paragraphs indented, as GitHub and most dialects write a footnote. The reader does not read the syntax back. |
 | `PageBreakBefore` | Nothing, reported as `markdown.page-break` |
 | `ColumnBreakBefore` | Nothing, reported as `markdown.column-break` |
 

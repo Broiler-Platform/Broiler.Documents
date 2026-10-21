@@ -68,6 +68,14 @@ internal static class DocxReader
             DocxSettings settings = ReadSettings(archive, documentRelationships, baseDirectory, options.Limits, diagnostics);
             DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"));
             PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
+            DocxNotes notes = DocxNotes.Load(
+                archive,
+                documentRelationships,
+                baseDirectory,
+                settings.Root,
+                documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body")?.Element(DocxNamespaces.Wordprocessing + "sectPr"),
+                options.Limits,
+                diagnostics);
             RichTextDocument document = ReadDocumentXml(
                 documentXml,
                 documentRelationships,
@@ -78,7 +86,8 @@ internal static class DocxReader
                 diagnostics,
                 reported,
                 page,
-                sections);
+                sections,
+                notes);
             IReadOnlyList<RunningContent> running = ReadRunningContent(
                 archive,
                 documentXml,
@@ -95,6 +104,7 @@ internal static class DocxReader
             document = document.WithPageGeometry(page);
             document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
+            document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithPageBackground(DocxVml.ReadBackground(
                 documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "background"),
                 settings.DisplayBackgroundShape,
@@ -136,7 +146,8 @@ internal static class DocxReader
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported,
         PageGeometry? page,
-        DocxSections sections)
+        DocxSections sections,
+        DocxNotes notes)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         if (body is null)
@@ -148,7 +159,7 @@ internal static class DocxReader
         }
 
         var builder = new DocxDocumentBuilder(limits, diagnostics, reported);
-        var context = new DocxReadContext(relationships, numbering, styles, images, builder, page, Sections: sections);
+        var context = new DocxReadContext(relationships, numbering, styles, images, builder, page, Sections: sections, Notes: notes);
         ReadBlockContent(body.Elements(), context, depth: 0);
         builder.ReportReadSummary(body.Elements().Any(IsContentBlock), styles.Count, images.ImageCount);
         return builder.Build();
@@ -422,7 +433,7 @@ internal static class DocxReader
     /// Whether the page background is shown (<c>w:displayBackgroundShape</c>,
     /// §17.15.1.25).
     /// </param>
-    private readonly record struct DocxSettings(bool EvenAndOddHeaders, bool DisplayBackgroundShape);
+    private readonly record struct DocxSettings(bool EvenAndOddHeaders, bool DisplayBackgroundShape, XElement? Root = null);
 
     /// <summary>
     /// The settings part's switches this reader acts on. A package with no
@@ -446,7 +457,8 @@ internal static class DocxReader
         XElement? displayBackground = root?.Element(DocxNamespaces.Wordprocessing + "displayBackgroundShape");
         return new DocxSettings(
             evenAndOdd is not null && ReadOnOff(evenAndOdd),
-            displayBackground is not null && ReadOnOff(displayBackground));
+            displayBackground is not null && ReadOnOff(displayBackground),
+            root);
     }
 
     /// <summary>
@@ -821,6 +833,8 @@ internal static class DocxReader
         InlineStyle style)
     {
         DocxDocumentBuilder builder = context.Builder;
+        DocumentNote? awaitingMark = null;
+        InlineStyle awaitingStyle = style;
         foreach (XElement child in elements)
         {
             if (child.Name == DocxNamespaces.Wordprocessing + "rPr")
@@ -828,7 +842,45 @@ internal static class DocxReader
 
             if (child.Name == DocxNamespaces.Wordprocessing + "t")
             {
+                if (awaitingMark is not null)
+                {
+                    // w:customMarkFollows: the text after the reference is the
+                    // note's own label, not body text.
+                    var marked = new DocumentNote(awaitingMark.Kind, awaitingMark.Paragraphs, child.Value.Trim());
+                    builder.AppendText(DocumentNote.PlaceholderText, awaitingStyle with { Note = marked });
+                    awaitingMark = null;
+                    continue;
+                }
+
                 builder.AppendText(child.Value, style);
+                continue;
+            }
+
+            if (child.Name == DocxNamespaces.Wordprocessing + "footnoteReference" ||
+                child.Name == DocxNamespaces.Wordprocessing + "endnoteReference")
+            {
+                DocumentNote? note = ReadNote(child, context);
+                if (note is null)
+                    continue;
+
+                if (child.Attribute(DocxNamespaces.Wordprocessing + "customMarkFollows") is XAttribute follows &&
+                    (string?)follows is "1" or "true" or "on")
+                {
+                    awaitingMark = note;
+                    awaitingStyle = style with { Image = null };
+                    continue;
+                }
+
+                builder.AppendText(DocumentNote.PlaceholderText, style with { Note = note, Image = null });
+                continue;
+            }
+
+            // The label a note's own text repeats: drawn from the citation, so
+            // not read as text.
+            if (child.Name == DocxNamespaces.Wordprocessing + "footnoteRef" ||
+                child.Name == DocxNamespaces.Wordprocessing + "endnoteRef")
+            {
+                context.SkipNoteLabel?.Invoke(child.Parent);
                 continue;
             }
 
@@ -904,6 +956,115 @@ internal static class DocxReader
             if (child.Name == DocxNamespaces.Wordprocessing + "object")
                 builder.AddDiagnosticOnce("docx.skip.embedded", "Embedded DOCX object content was skipped.");
         }
+
+        // A reference whose custom mark never came is numbered after all.
+        if (awaitingMark is not null)
+            builder.AppendText(DocumentNote.PlaceholderText, awaitingStyle with { Note = awaitingMark });
+    }
+
+    /// <summary>
+    /// Reads the note a <c>w:footnoteReference</c> or <c>w:endnoteReference</c>
+    /// names, from its part, into a note of its own paragraphs.
+    /// </summary>
+    /// <remarks>
+    /// The note's first paragraph opens with <c>w:footnoteRef</c>, Word's
+    /// repetition of the label, and then the space Word puts between label and
+    /// text. The label is drawn from the citation, and the space with it, so
+    /// both are left out and the note starts at its first word, as an ODT note
+    /// does. A reference in a note, or one naming no note, is reported and
+    /// dropped.
+    /// </remarks>
+    private static DocumentNote? ReadNote(XElement reference, DocxReadContext context)
+    {
+        NoteKind kind = reference.Name.LocalName == "endnoteReference" ? NoteKind.Endnote : NoteKind.Footnote;
+        if (context.Notes is null || context.InNote)
+        {
+            context.Builder.AddDiagnosticOnce(
+                "docx.note.placement",
+                "A DOCX note reference outside the body, or inside a note, was skipped.");
+            return null;
+        }
+
+        XElement? note = DocxValueReader.TryReadInt(reference.Attribute(DocxNamespaces.Wordprocessing + "id"), out int id)
+            ? context.Notes.Find(kind, id)
+            : null;
+        if (note is null)
+        {
+            context.Builder.AddDiagnosticOnce(
+                "docx.note.missing",
+                "A DOCX note reference named a note its part does not hold, and was skipped.");
+            return null;
+        }
+
+        var builder = new DocxDocumentBuilder(
+            context.Builder.Limits,
+            context.Builder.Diagnostics,
+            context.Builder.Reported);
+        bool skipping = false;
+        DocxNotes notes = context.Notes;
+        var nested = new DocxReadContext(
+            kind == NoteKind.Endnote ? context.Notes.EndnoteRelationships : context.Notes.FootnoteRelationships,
+            context.Numbering,
+            context.Styles,
+            context.Images,
+            builder,
+            context.Page,
+            context.Band)
+        {
+            InNote = true,
+            SkipNoteLabel = run =>
+            {
+                skipping = true;
+                notes.LabelsRaised ??= IsRaisedRun(run, context.Styles);
+            },
+        };
+        ReadBlockContent(note.Elements(), nested, depth: 0);
+
+        RichTextDocument built = builder.Build();
+        if (built.Tables.Count > 0 || built.Shapes.Count > 0)
+        {
+            context.Builder.AddDiagnosticOnce(
+                "docx.note.content",
+                "A table or shape in a DOCX note was read as its text; a note holds paragraphs only.");
+        }
+
+        IReadOnlyList<RichTextParagraph> paragraphs = built.Paragraphs;
+        if (skipping && paragraphs.Count > 0)
+            paragraphs = [TrimLeadingSpace(paragraphs[0]), .. paragraphs.Skip(1)];
+
+        return new DocumentNote(kind, paragraphs);
+    }
+
+    /// <summary>
+    /// Whether a run is superscript, by its own <c>w:vertAlign</c> or its
+    /// character style's - Word's FootnoteReference style raises the label at
+    /// the head of a note that way.
+    /// </summary>
+    private static bool IsRaisedRun(XElement? run, DocxStyles styles)
+    {
+        XElement? rPr = run?.Element(DocxNamespaces.Wordprocessing + "rPr");
+        string? own = DocxValueReader.WordValue(rPr?.Element(DocxNamespaces.Wordprocessing + "vertAlign"));
+        if (own is not null)
+            return own == "superscript";
+
+        string? styleId = DocxValueReader.WordValue(rPr?.Element(DocxNamespaces.Wordprocessing + "rStyle"));
+        bool raised = false;
+        foreach (XElement properties in styles.RunPropertiesForCharacterStyle(styleId))
+        {
+            if (DocxValueReader.WordValue(properties.Element(DocxNamespaces.Wordprocessing + "vertAlign")) is string value)
+                raised = value == "superscript";
+        }
+
+        return raised;
+    }
+
+    private static RichTextParagraph TrimLeadingSpace(RichTextParagraph paragraph)
+    {
+        int count = 0;
+        while (count < paragraph.Length && paragraph.Text[count] is ' ' or '\t')
+            count++;
+
+        return count == 0 ? paragraph : paragraph.RemoveRange(0, count);
     }
 
     /// <summary>

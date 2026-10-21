@@ -164,6 +164,14 @@ by ADR 0008).
   `style:default-style`. The size always resolves, at 12 points. The family may
   be absent: the renderer then uses its own face, while the PDF writer refuses
   to pick one.
+- **Notes.** A footnote or endnote is a `DocumentNote`, held by the one
+  `U+FFFC` character that cites it through `InlineStyle.Note`, as a picture is
+  held through `InlineStyle.Image`. The note travels with its citation through
+  every edit, and deleting the citation deletes it. Its label is not stored:
+  `NoteNumberer` labels notes in the order they are cited, in the format
+  `RichTextDocument.NoteNumbering` states, so the page, the PDF, every writer
+  and the text dump agree. DOCX, ODT and RTF read and write them; HTML and
+  Markdown write them after the body; CSV drops them.
 - **Page geometry.** `PageGeometry` is the page a document says it was written
   for: size, margins, header and footer distances, one per document. DOCX, ODT,
   RTF and HTML state it; PDF import infers it. It describes the page and places
@@ -216,6 +224,18 @@ paragraphs and after-spacing after each paragraph, matching body layout. The
 first paragraph's before-spacing is suppressed. These gaps count towards margin
 fit and distance anchoring. Running content does not appear
 in continuous layout.
+
+A footnote is set at the foot of the page its citation is first placed on,
+under LibreOffice's separator: a quarter of the text's width, 0.51 points thick,
+2.86 points clear above and below. Each cited note moves the foot of the text
+up by its height before the line that cites it is placed, so a line whose note
+does not fit goes to the next page with its note. A note is not split across
+pages. The citation is its label at 58% of its text's size, raised by 33%, as
+LibreOffice sets superscript. A note's label opens its first paragraph in the
+hanging indent, or, where `NoteNumbering.RaisedLabels` says the document sets
+labels as Word does, raised and followed by a space. Endnotes follow the body
+under the same line; a continuous render, which has no page foot, sets the
+footnotes there too.
 
 ## Graphics and Media prerequisites
 

@@ -227,18 +227,6 @@ public sealed class OdtReaderTests
     }
 
     [Fact]
-    public void Skips_Footnote_Bodies()
-    {
-        DocumentReadResult result = OdtTestPackage.ReadBody(
-            "<text:p>kept<text:note text:note-class=\"footnote\">" +
-            "<text:note-body><text:p>the note</text:p></text:note-body>" +
-            "</text:note></text:p>");
-
-        Assert.Equal("kept", result.Document.Paragraphs[0].Text);
-        Assert.Contains(result.Diagnostics, d => d.Code == "odt.note");
-    }
-
-    [Fact]
     public void Reports_An_Unsupported_Block_By_Name()
     {
         DocumentReadResult result = OdtTestPackage.ReadBody("<text:page-sequence/>");

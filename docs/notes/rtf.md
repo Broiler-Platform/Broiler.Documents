@@ -48,6 +48,23 @@ than its `\ucN` count.
 | Frames | `\abswN` `\abshN` `\posxN` `\posyN` `\posxl` `\posxc` `\posxr` `\posxi` `\posxo` `\posyil` `\posyt` `\posyc` `\posyb` `\posyin` `\posyout` `\phcol` `\phmrg` `\phpg` `\pvmrg` `\pvpg` `\pvpara` `\wraparound` `\nowrap` `\overlay` `\wrapthrough` `\dxfrtextN` `\dfrmtxtxN` `\dfrmtxtyN` (→ a `DocumentShape` holding the framed paragraphs; see Drawings) |
 | Page background | The shape in `{\*ackground}`, read where `iewbksp1` shows it, as LibreOffice takes `iewbksp` for Word's `w:displayBackgroundShape`; its fill is a shape's (→ `RichTextDocument.PageBackground`). A write states both. A `fillFocus` near 50 is an axial gradient, on a page or a shape. |
 
+## Notes
+
+A `\footnote` group in the body, a table cell or a frame is a note, cited
+where the group stands: one citation character holding a `DocumentNote`
+whose paragraphs are the group's, `\par` between them. `\ftnalt` makes it an
+endnote. Word writes the citation's label as `{\super\chftn}` just before the
+group and repeats it at the head of the note's text; the label is drawn from
+the citation, so the `\chftn` and the space after it in the note are left
+out, and the one in the body draws nothing. A label the author typed instead
+of `\chftn` stays body text, and the note is numbered. A `\footnote` in a
+header, a footer, a shape or another note has nothing to be cited from and is
+skipped as before; a header, font or colour table, list table or shape stated
+inside a note is skipped with everything in it, so it cannot reach the
+document. The writer writes each note the same way, `{\super\chftn}` then
+`{\footnote\pard\plain{\super\chftn} ...}`, a note's own mark in place of
+`\chftn`.
+
 ## Default font
 
 An explicit `\deffN` selects the font-table family inherited by runs with no
@@ -383,7 +400,7 @@ nested marker reconstruction are not implemented.
 asked for embedded decoding, because a caller that asked for something this
 reader does not compose is owed an answer to the question rather than a note
 about the document. Skipped with them are the following non-content
-destinations: `\info` `\stylesheet` `\footnote` `\annotation`
+destinations: `\info` `\stylesheet` `\annotation`
 `\colorschememapping` `\latentstyles` `\datastore` `\themedata` `\generator`
 `\revtbl` `\pntext`, plus any unknown
 ignorable destination introduced by `\*` - `\*\shpinst` excepted, since the
@@ -395,8 +412,9 @@ reader does understand - a field, a header or footer, a font or colour table, a
 shape - has no effect when it sits inside one this reader skips. That used to
 stop one level down: a hyperlink in a footnote put its text in the body beside
 the footnote mark (LibreOffice reads `A{\footnote ...link...}B` as `A1B`; this
-reader read it as `AlinkB` and now reads `AB`), and a header inside a stylesheet
-became the page's header. The one thing still said about a skipped subtree is
+reader read it as `AlinkB`, then as `AB` while footnotes were skipped, and now
+as `A1B` with the link in the note), and a header inside a stylesheet became
+the page's header. The one thing still said about a skipped subtree is
 that it held a picture or object, because `rtf.embedded` reports what the
 document lost and a picture inside `{\*\shppict ...}` is a picture all the same.
 
@@ -555,6 +573,7 @@ anything a caller asked for that this codec does not do.
 | `rtf.pagebreak.dropped` | Warning | Write | A page or column break on a header, footer, or shape paragraph was not written; there is no page for it to start. |
 | `rtf.sections` | Warning | Write | The document's sections, each with columns and margins of its own, were not written; the page and its columns were written for the whole document. |
 | `rtf.table.flattened` | Warning | Write | A table was written as its cell paragraphs, in row order; this codec carries no table structure. |
+| `rtf.note.nested` | Warning | Write | A note cited inside a note was dropped; RTF cannot nest them. |
 | `rtf.image.format` | Warning | Write | RTF carries PNG and JPEG pictures; one in another format was dropped. |
 | `rtf.image.omitted` | Warning | Write | The caller's resource policy did not permit a picture into the output; the message names the denial. |
 | `rtf.image.anchored` | Warning | Write | A floating picture was written into its paragraph; its position beside the text was not kept. |

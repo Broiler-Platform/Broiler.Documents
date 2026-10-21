@@ -99,6 +99,7 @@ it.
 | Inline style fields | CSS on `<span>` or `<a>` |
 | `LinkHref` | `<a href="...">` |
 | `InlineStyle.Image` | `<img src="data:...;base64,...">` with `alt` and a CSS size |
+| `InlineStyle.Note` | The note's label in `<sup>`, and the note's paragraphs after the body, under an `<hr>`, the first opened with the label. HTML has no notes; reported once as `html.note`. The reader reads such a page back as text. |
 | Paragraph alignment, line spacing, indent, spacing | CSS on `<p>`. A stated line height is written as a `line-height` length, which reads back as the least a line is; an exact one is reported once as `html.lineheight.exact`. |
 | `ParagraphStyle.ColumnBreakBefore` | `break-before: column`, where the paragraph starts no page. There is no CSS2 spelling to prefer for it. |
 | `ParagraphStyle.PageBreakBefore` | `page-break-before: always`, in the paragraph's own `style` attribute beside whatever else that paragraph declares. The CSS2 property rather than the CSS3 `break-before: page`, even though the reader takes either: what is written has to be understood by whoever opens the file, and this is the spelling every browser and every word processor has read for twenty years — CSS Fragmentation keeps it as an alias for exactly that reason. Writing both spellings was the other option and was rejected, because it states one break twice and a consumer resolving them in the wrong order would be entitled to honour the second. |

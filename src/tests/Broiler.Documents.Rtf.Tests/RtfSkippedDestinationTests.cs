@@ -17,7 +17,6 @@ public sealed class RtfSkippedDestinationTests
     {
         string[] hosts =
         [
-            @"\footnote",
             @"\annotation",
             @"\stylesheet",
             @"\info",
@@ -59,17 +58,51 @@ public sealed class RtfSkippedDestinationTests
         Assert.All(result.Diagnostics, d => Assert.Equal("rtf.embedded", d.Code));
     }
 
+    /// <summary>
+    /// A note is read now, not skipped, and what is stated inside it stays
+    /// there: the body has the note's citation and nothing else of it.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Payloads))]
+    public void Nested_Destinations_Cannot_Escape_A_Note(string payload)
+    {
+        const string Prefix = @"{\rtf1{\fonttbl{\f0 Real;}}{\colortbl;\red0\green0\blue255;}\f0\cf1 Before";
+        DocumentReadResult result = Read(Prefix + @"{\footnote " + payload + "}After}");
+
+        RichTextParagraph paragraph = Assert.Single(result.Document.Paragraphs);
+        Assert.Equal("Before" + DocumentNote.PlaceholderText + "After", paragraph.Text);
+        Assert.NotNull(paragraph.StyleAt(6).Note);
+        Assert.Equal("Real", paragraph.StyleAt(7).FontFamily);
+        Assert.True(result.Document.RunningContent.IsEmpty);
+        Assert.Empty(result.Document.Shapes);
+    }
+
+    public static TheoryData<string> Payloads()
+    {
+        var data = new TheoryData<string>();
+        foreach (object[] row in HostsAndPayloads())
+        {
+            if ((string)row[0] == @"\annotation")
+                data.Add((string)row[1]);
+        }
+
+        return data;
+    }
+
     [Fact]
     public void A_Footnote_Keeps_Its_Hyperlink()
     {
         // LibreOffice reads this as "A1B": the link is in the footnote, under
-        // the mark. This reader skips footnotes, so it has "AB" - and used to
-        // have "AlinkB", with the footnote's link text in the sentence.
+        // the mark. This reader used to have "AlinkB", with the footnote's link
+        // text in the sentence, and then "AB", with the footnote skipped.
         DocumentReadResult result = Read(
             @"{\rtf1 A{\footnote\pard {\field{\*\fldinst HYPERLINK ""https://example.test""}{\fldrslt link}}}B\par}");
 
-        Assert.Equal("AB", result.Document.PlainText);
+        Assert.Equal("A" + DocumentNote.PlaceholderText + "B", result.Document.PlainText);
         Assert.Null(result.Document.Paragraphs[0].StyleAt(1).LinkHref);
+        DocumentNote note = Assert.Single(result.Document.Notes);
+        Assert.Equal("link", note.PlainText);
+        Assert.Equal("https://example.test", note.Paragraphs[0].StyleAt(0).LinkHref);
         Assert.Empty(result.Diagnostics);
     }
 
@@ -107,7 +140,7 @@ public sealed class RtfSkippedDestinationTests
     public void Destinations_Outside_A_Skipped_One_Still_Take_Effect()
     {
         DocumentReadResult result = Read(
-            @"{\rtf1{\footnote note}{\field{\*\fldinst HYPERLINK ""https://example.test""}{\fldrslt link}}{\header Head\par}}");
+            @"{\rtf1{\annotation note}{\field{\*\fldinst HYPERLINK ""https://example.test""}{\fldrslt link}}{\header Head\par}}");
 
         Assert.Equal("link", result.Document.PlainText);
         Assert.Equal("https://example.test", result.Document.Paragraphs[0].StyleAt(0).LinkHref);

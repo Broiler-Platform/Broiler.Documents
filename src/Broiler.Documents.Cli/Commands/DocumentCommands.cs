@@ -263,11 +263,13 @@ public static class DocumentCommands
     /// <remarks>
     /// Only a paragraph in a list its document defined gets one. A list known
     /// only by its kind has no label anybody stated, and the dump has never
-    /// invented one for it.
+    /// invented one for it. A note's citation is its label too, as LibreOffice
+    /// writes it, and the note's own text is not part of the body's.
     /// </remarks>
     internal static string LabelledText(RichTextDocument document)
     {
         var numberer = new ListNumberer();
+        var notes = new NoteNumberer(document.NoteNumbering);
         var builder = new StringBuilder();
         for (int i = 0; i < document.ParagraphCount; i++)
         {
@@ -279,7 +281,16 @@ public static class DocumentCommands
             if (paragraph.Style.List is not null && label is not null)
                 builder.Append(label).Append(' ');
 
-            builder.Append(paragraph.Text);
+            int offset = 0;
+            foreach (StyleRun run in paragraph.Runs)
+            {
+                int length = Math.Min(run.Length, paragraph.Length - offset);
+                if (run.Style.Note is DocumentNote note)
+                    builder.Append(notes.Label(note));
+                else
+                    builder.Append(paragraph.Text, offset, length);
+                offset += length;
+            }
         }
 
         return builder.ToString();
@@ -383,6 +394,8 @@ public static class DocumentCommands
                     flags.Add("link");
                 if (run.Style.IsImage && !flags.Contains("image"))
                     flags.Add("image");
+                if (run.Style.IsNote && !flags.Contains("note"))
+                    flags.Add("note");
             }
 
             builder.Append(i.ToString("D4", CultureInfo.InvariantCulture));
