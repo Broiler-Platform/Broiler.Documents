@@ -128,8 +128,12 @@ internal static class TextProjection
                 // 4a. Spaces that are only a space to a reader. Which of
                 //     them a writer reaches for is a layout decision, and
                 //     the two sides make it differently for the same
-                //     document.
+                //     document. LibreOffice's RTF import puts a U+2006 in
+                //     front of each space in a run to lay the run out wider
+                //     (tdf#123703), where broilerdoc keeps the run and widens
+                //     it in layout.
                 case '\u00A0':
+                case '\u2006':
                 case '\u2007':
                 case '\u202F':
                 // 5. A tab is one space here. Its width is a formatting

@@ -68,6 +68,13 @@ public static class RtfReader
         private readonly RtfColorTable _colors = new();
         private readonly RtfFontTable _fonts = new();
         private int? _defaultFont;
+
+        // Whether runs of spaces are laid out wider. LibreOffice assumes so of
+        // an RTF document unless it says otherwise, in one of the three ways
+        // HandleBodyControlWord and WidensSpaceRuns look for.
+        private bool _widensSpaceRuns = true;
+        private bool _sawGenerator;
+        private readonly StringBuilder _generator = new();
         private readonly Stack<State> _stack = new();
         private readonly Accumulator _builder;
         private readonly Dictionary<RtfDestination, Accumulator> _running = [];
@@ -247,6 +254,7 @@ public static class RtfReader
                 .WithStyleDefaults(DocumentStyleDefaults.Default with
                 {
                     FontFamily = _defaultFont is int font ? _fonts.GetName(font) : null,
+                    WidensSpaceRuns = WidensSpaceRuns(),
                 })
                 .WithRunningContent(BuildRunningContent())
                 .WithPageGeometry(BuildPageGeometry())
@@ -432,6 +440,10 @@ public static class RtfReader
                     }
                     return;
 
+                case "generator":
+                    _state.Dest = RtfDestination.Generator;
+                    _sawGenerator = true;
+                    return;
                 case "info":
                 case "stylesheet":
                 case "footnote":
@@ -440,7 +452,6 @@ public static class RtfReader
                 case "latentstyles":
                 case "datastore":
                 case "themedata":
-                case "generator":
                 case "revtbl":
                 case "pntext":
                     _state.Dest = RtfDestination.Skip;
@@ -463,6 +474,7 @@ public static class RtfReader
                 case RtfDestination.Skip:
                 case RtfDestination.Field:
                 case RtfDestination.FieldInstruction:
+                case RtfDestination.Generator:
                     return;
                 case RtfDestination.FontTable:
                     HandleFontTableControlWord(kw, token.Parameter);
@@ -484,6 +496,12 @@ public static class RtfReader
             switch (kw)
             {
                 case "deff": if (has && p >= 0) _defaultFont = p; break;
+                // Two of the ways an RTF document says it was not written by
+                // Word, as LibreOffice takes them: a double-byte style font other
+                // than the one Word's compatibility settings fix (tdf#123703), and
+                // \dntblnsbdb (tdf#128428). The third is the generator's name.
+                case "stshfdbch": if (p != 31505) _widensSpaceRuns = false; break;
+                case "dntblnsbdb": _widensSpaceRuns = false; break;
                 case "b": _state.Char = _state.Char with { Bold = !(has && p == 0) }; break;
                 case "i": _state.Char = _state.Char with { Italic = !(has && p == 0) }; break;
                 case "strike": _state.Char = _state.Char with { Strikethrough = !(has && p == 0) }; break;
@@ -861,6 +879,7 @@ public static class RtfReader
                 case RtfDestination.FontTable: HandleFontTableText(text); break;
                 case RtfDestination.ColorTable: HandleColorTableText(text); break;
                 case RtfDestination.FieldInstruction: _fieldInstruction.Append(text); break;
+                case RtfDestination.Generator: _generator.Append(text); break;
                 case RtfDestination.Normal:
                 case RtfDestination.FieldResult:
                 case RtfDestination.Header:
@@ -1042,6 +1061,16 @@ public static class RtfReader
                 return accumulator;
             }
         }
+
+        /// <summary>
+        /// Whether this document's runs of spaces are laid out wider: unless it
+        /// said otherwise, or names a generator that is not Microsoft's - a
+        /// document LibreOffice or this writer saved spaces its runs as their
+        /// font does, and says so with a generator of its own.
+        /// </summary>
+        private bool WidensSpaceRuns() =>
+            _widensSpaceRuns &&
+            (!_sawGenerator || _generator.ToString().TrimStart().StartsWith("Microsoft", StringComparison.OrdinalIgnoreCase));
 
         /// <summary>
         /// Whether text reaching this destination is kept at all.

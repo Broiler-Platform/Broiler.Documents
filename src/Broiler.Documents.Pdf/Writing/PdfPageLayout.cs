@@ -125,9 +125,12 @@ internal sealed class PdfPageLayout(
         // What a run with no size and no family falls back to. The document's own
         // defaults outrank the write options, because those are the author's
         // statement and these are a caller's answer for a document that made none.
-        _defaults = document.StyleDefaults.IsDefault
-            ? new DocumentStyleDefaults { FontSizePoints = _options.DefaultFontSize }
-            : document.StyleDefaults;
+        // Laying runs of spaces out wider is neither a size nor a family, so it
+        // does not make a document's unstated twelve points outrank the option.
+        DocumentStyleDefaults own = document.StyleDefaults;
+        _defaults = (own with { WidensSpaceRuns = false }).IsDefault
+            ? own with { FontSizePoints = _options.DefaultFontSize }
+            : own;
 
         var pages = new List<PdfLayoutPage>();
         var page = new PdfLayoutPage();
@@ -1189,8 +1192,9 @@ internal sealed class PdfPageLayout(
                 StartLine();
 
                 // A word wider than the whole line is broken by character; the
-                // alternative is a run that overflows the page.
-                if (wordWidth > available)
+                // alternative is a run that overflows the page. The spaces after
+                // it are not part of that: they hang past the line's end.
+                if (wordWidth - word.HangingWidth > available)
                 {
                     foreach (Word part in SplitOversizedWord(word, available))
                     {
@@ -1230,10 +1234,11 @@ internal sealed class PdfPageLayout(
 
         // A tab is a gap, not glyphs, so it stays its own piece: merging it into
         // its neighbours would fold its width into a run the viewer sets from the
-        // font's own advances, and the text after it would close the gap up.
-        if (last is not null && !last.IsTab && !word.IsTab && last.SameStyleAs(word))
+        // font's own advances, and the text after it would close the gap up. A
+        // run of spaces laid out wider than its font is the same kind of gap.
+        if (last is not null && !last.IsTab && !word.IsTab && last.SpaceExtra == 0 && last.SameStyleAs(word))
         {
-            line.Pieces[^1] = last.Extend(word.Text, word.Width);
+            line.Pieces[^1] = last.Extend(word.Text, word.Width, word.SpaceExtra);
         }
         else
         {
@@ -1261,7 +1266,8 @@ internal sealed class PdfPageLayout(
             if (last.Text.Length == 0 || !IsBreakSpace(last.Text[^1]))
                 return;
 
-            double spaceWidth = CharacterWidth(last.Font, last.Text[^1], last.FontSize);
+            double spaceWidth = CharacterWidth(last.Font, last.Text[^1], last.FontSize) +
+                (last.Text[^1] == ' ' ? last.SpaceExtra : 0);
             LayoutPiece trimmed = last.WithoutLastCharacter(spaceWidth);
             line.Width -= spaceWidth;
             if (trimmed.Text.Length == 0)
@@ -1329,12 +1335,12 @@ internal sealed class PdfPageLayout(
             }
 
             RunStyle style = Resolve(run.Style);
-            foreach (Word word in SplitWords(runText, style))
+            foreach (Word word in SplitWords(runText, style, _defaults.FontFamilyOf(run.Style)))
                 yield return word;
         }
     }
 
-    private IEnumerable<Word> SplitWords(string text, RunStyle style)
+    private IEnumerable<Word> SplitWords(string text, RunStyle style, string? family)
     {
         int index = 0;
         while (index < text.Length)
@@ -1378,8 +1384,15 @@ internal sealed class PdfPageLayout(
                 continue;
             }
 
+            // A document that lays runs of spaces out wider says so of the run
+            // this word ends with, and each of its spaces carries a share.
+            int spaces = index - wordEnd;
+            double spaceExtra = spaces > 1
+                ? _defaults.SpaceRunExtraWidth(text[wordEnd..index], family, style.FontSize) / spaces
+                : 0;
+
             string piece = text[start..index];
-            yield return MakeWord(piece, style, isSpace: wordEnd == start);
+            yield return MakeWord(piece, style, isSpace: wordEnd == start, spaceExtra);
         }
     }
 
@@ -1404,13 +1417,20 @@ internal sealed class PdfPageLayout(
     private static double NextTabStop(double used) =>
         (Math.Floor(Math.Max(0, used) / TabStopWidth) + 1) * TabStopWidth;
 
-    private Word MakeWord(string text, RunStyle style, bool isSpace)
+    private Word MakeWord(string text, RunStyle style, bool isSpace, double spaceExtra = 0)
     {
         string encodable = MakeEncodable(text);
         double width = 0;
         foreach (char c in encodable)
             width += CharacterWidth(style.Font, c, style.FontSize);
-        return new Word(encodable, width, style, isSpace);
+
+        int trailing = 0;
+        while (trailing < encodable.Length && encodable[^(trailing + 1)] == ' ')
+            trailing++;
+
+        double spaceWidth = CharacterWidth(style.Font, ' ', style.FontSize) + spaceExtra;
+        return new Word(encodable, width + (trailing * spaceExtra), style, isSpace,
+            spaceExtra: spaceExtra, hangingWidth: trailing * spaceWidth);
     }
 
     private double CharacterWidth(PdfStandardFont font, char character, double fontSize) =>
@@ -1588,10 +1608,12 @@ internal sealed class PdfPageLayout(
     private readonly struct Word(
         string text,
         double width,
-RunStyle style,
+        RunStyle style,
         bool isSpace,
         bool isTab = false,
-        bool isForcedBreak = false)
+        bool isForcedBreak = false,
+        double spaceExtra = 0,
+        double hangingWidth = 0)
     {
 
         /// <summary>
@@ -1623,6 +1645,15 @@ RunStyle style,
         /// <summary>True for the break U+2028 makes: end this line here.</summary>
         public bool IsForcedBreak { get; } = isForcedBreak;
 
+        /// <summary>
+        /// What each of the spaces this word ends with adds to its font's width:
+        /// non-zero where they are a run a document lays out wider.
+        /// </summary>
+        public double SpaceExtra { get; } = spaceExtra;
+
+        /// <summary>The width of the spaces this word ends with, which may hang past a line's end.</summary>
+        public double HangingWidth { get; } = hangingWidth;
+
         public PdfStandardFont Font => Style.Font;
 
         public double FontSize => Style.FontSize;
@@ -1630,10 +1661,10 @@ RunStyle style,
         public Word WithText(string text, double width) =>
             new(text, width, Style, IsSpace, IsTab, IsForcedBreak);
 
-        public LayoutPiece ToPiece() => new(Text, Width, Style, IsTab);
+        public LayoutPiece ToPiece() => new(Text, Width, Style, IsTab, SpaceExtra);
     }
 
-    private sealed class LayoutPiece(string text, double width, RunStyle style, bool isTab = false)
+    private sealed class LayoutPiece(string text, double width, RunStyle style, bool isTab = false, double spaceExtra = 0)
     {
         public string Text { get; } = text;
 
@@ -1660,11 +1691,17 @@ RunStyle style,
 
         public bool SameStyleAs(Word word) => Style.Matches(word.Style);
 
-        public LayoutPiece Extend(string text, double width) =>
-            new(Text + text, Width + width, Style);
+        /// <summary>
+        /// What each space this piece ends with adds to its font's width. A piece
+        /// with any is a gap the text after it may not be drawn into.
+        /// </summary>
+        public double SpaceExtra { get; } = spaceExtra;
+
+        public LayoutPiece Extend(string text, double width, double spaceExtra) =>
+            new(Text + text, Width + width, Style, spaceExtra: spaceExtra);
 
         public LayoutPiece WithoutLastCharacter(double width) =>
-            new(Text[..^1], Width - width, Style);
+            new(Text[..^1], Width - width, Style, spaceExtra: SpaceExtra);
     }
 
     private sealed class LayoutLine
