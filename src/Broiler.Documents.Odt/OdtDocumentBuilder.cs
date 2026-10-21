@@ -19,6 +19,7 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
     private readonly List<DocumentSection> _sections = [];
     private readonly Stack<List<DocumentTable>> _tableSinks = new();
     private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
+    private InlineStyle _markStyle = InlineStyle.Default;
     private bool _pendingSpace;
     private InlineStyle _pendingSpaceStyle = InlineStyle.Default;
     private int _length;
@@ -88,13 +89,14 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
             " unsupported block(s)."));
     }
 
-    public void StartParagraph(ParagraphStyle style)
+    public void StartParagraph(ParagraphStyle style, InlineStyle markStyle = default)
     {
         _segments.Clear();
         _length = 0;
         _pendingSpace = false;
         _pendingSpaceStyle = InlineStyle.Default;
         _paragraphStyle = style;
+        _markStyle = markStyle;
     }
 
     /// <summary>
@@ -212,7 +214,9 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
             return;
         }
 
-        RichTextParagraph paragraph = RichTextParagraph.Empty.WithParagraphStyle(_paragraphStyle);
+        RichTextParagraph paragraph = RichTextParagraph.Empty
+            .WithParagraphStyle(_paragraphStyle)
+            .WithMarkStyle(_markStyle);
         int offset = 0;
         foreach (Segment segment in _segments)
         {
@@ -224,6 +228,7 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
         _segments.Clear();
         _length = 0;
         _paragraphStyle = ParagraphStyle.Default;
+        _markStyle = InlineStyle.Default;
     }
 
     /// <summary>The paragraph a shape met right now would be anchored to.</summary>

@@ -11,11 +11,12 @@ namespace Broiler.Documents.Model;
 /// </summary>
 public sealed class RichTextParagraph
 {
-    private RichTextParagraph(string text, ParagraphStyle style, IReadOnlyList<StyleRun> runs)
+    private RichTextParagraph(string text, ParagraphStyle style, IReadOnlyList<StyleRun> runs, InlineStyle markStyle = default)
     {
         Text = text;
         Style = style;
         Runs = runs;
+        MarkStyle = markStyle;
     }
 
     /// <summary>An empty paragraph with default styling.</summary>
@@ -28,6 +29,28 @@ public sealed class RichTextParagraph
 
     /// <summary>The normalized inline runs, in order, covering <see cref="Text"/>.</summary>
     public IReadOnlyList<StyleRun> Runs { get; }
+
+    /// <summary>
+    /// The character formatting of the paragraph's end, which is what an empty
+    /// line in it is as tall as.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A paragraph with no text has no run to take a font from, and is still a
+    /// line of the page. Word states the size of that line on the paragraph mark,
+    /// <c>w:pPr/w:rPr</c>, and Word and LibreOffice both draw the empty paragraph
+    /// at it. Without it the line came out at the document's default size, and a
+    /// document whose blank lines are 10 points under a 12-point default drew
+    /// each of them a fifth too tall.
+    /// </para>
+    /// <para>
+    /// It belongs to the paragraph rather than to any run, so editing the text
+    /// keeps it, and a split gives both halves the one mark. <see cref="StyleAt"/>
+    /// still reports the default for an empty paragraph: what text typed into
+    /// one takes is the editor's decision, and nothing here changes it.
+    /// </para>
+    /// </remarks>
+    public InlineStyle MarkStyle { get; }
 
     public int Length => Text.Length;
 
@@ -67,7 +90,10 @@ public sealed class RichTextParagraph
     /// <summary>The inline style a caret at <paramref name="offset"/> would inherit for new text.</summary>
     public InlineStyle StyleBefore(int offset) => offset <= 0 ? StyleAt(0) : StyleAt(offset - 1);
 
-    public RichTextParagraph WithParagraphStyle(ParagraphStyle style) => new(Text, style, Runs);
+    public RichTextParagraph WithParagraphStyle(ParagraphStyle style) => new(Text, style, Runs, MarkStyle);
+
+    /// <summary>Returns this paragraph with <paramref name="style"/> as its <see cref="MarkStyle"/>.</summary>
+    public RichTextParagraph WithMarkStyle(InlineStyle style) => new(Text, Style, Runs, style);
 
     public RichTextParagraph InsertText(int offset, string text, InlineStyle style)
     {
@@ -102,7 +128,7 @@ public sealed class RichTextParagraph
             runs.Add(new StyleRun(text.Length, style));
 
         string newText = string.Concat(Text.AsSpan(0, offset), text, Text.AsSpan(offset));
-        return new RichTextParagraph(newText, Style, Normalize(runs));
+        return new RichTextParagraph(newText, Style, Normalize(runs), MarkStyle);
     }
 
     public RichTextParagraph RemoveRange(int start, int length)
@@ -126,7 +152,7 @@ public sealed class RichTextParagraph
             pos = runEnd;
         }
 
-        return new RichTextParagraph(Text.Remove(start, length), Style, Normalize(runs));
+        return new RichTextParagraph(Text.Remove(start, length), Style, Normalize(runs), MarkStyle);
     }
 
     public RichTextParagraph ApplyInlineStyle(int start, int length, InlineStyleDelta delta)
@@ -164,7 +190,7 @@ public sealed class RichTextParagraph
             pos = runEnd;
         }
 
-        return new RichTextParagraph(Text, Style, Normalize(runs));
+        return new RichTextParagraph(Text, Style, Normalize(runs), MarkStyle);
     }
 
     /// <summary>Splits into a head (before <paramref name="offset"/>) and tail (from it).</summary>
@@ -181,21 +207,22 @@ public sealed class RichTextParagraph
         //
         // Merge needs no equivalent care: Append keeps the first paragraph's
         // style, so the surviving break is the one that was already there.
-        var head = new RichTextParagraph(Text[..offset], Style, SliceRuns(0, offset));
+        var head = new RichTextParagraph(Text[..offset], Style, SliceRuns(0, offset), MarkStyle);
         var tail = new RichTextParagraph(
             Text[offset..],
             Style with { PageBreakBefore = false, ColumnBreakBefore = false },
-            SliceRuns(offset, Text.Length - offset));
+            SliceRuns(offset, Text.Length - offset),
+            MarkStyle);
         return (head, tail);
     }
 
-    /// <summary>Concatenates <paramref name="other"/> onto this paragraph, keeping this paragraph's style.</summary>
+    /// <summary>Concatenates <paramref name="other"/> onto this paragraph, keeping this paragraph's style and mark.</summary>
     public RichTextParagraph Append(RichTextParagraph other)
     {
         var combined = new List<StyleRun>(Runs.Count + other.Runs.Count);
         combined.AddRange(Runs);
         combined.AddRange(other.Runs);
-        return new RichTextParagraph(Text + other.Text, Style, Normalize(combined));
+        return new RichTextParagraph(Text + other.Text, Style, Normalize(combined), MarkStyle);
     }
 
     private StyleRun[] SliceRuns(int start, int length)

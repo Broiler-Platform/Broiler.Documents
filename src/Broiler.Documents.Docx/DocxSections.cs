@@ -128,6 +128,32 @@ internal sealed class DocxSections
         return new DocxSections(sections);
     }
 
+    /// <summary>
+    /// The <c>w:sectPr</c> of every section the body has, in order, the
+    /// body-level one last; a body that states none has none here.
+    /// </summary>
+    public static IReadOnlyList<XElement> Properties(XElement? body)
+    {
+        if (body is null)
+            return [];
+
+        var properties = new List<XElement>();
+        foreach (XElement paragraph in BodyParagraphs(body))
+        {
+            if (EndsSection(paragraph))
+            {
+                properties.Add(paragraph
+                    .Element(DocxNamespaces.Wordprocessing + "pPr")!
+                    .Element(DocxNamespaces.Wordprocessing + "sectPr")!);
+            }
+        }
+
+        if (body.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault() is XElement final)
+            properties.Add(final);
+
+        return properties;
+    }
+
     private static Section ReadSection(XElement? sectPr, int paragraphs)
     {
         // w:type says how the section starts against the one before it, and is

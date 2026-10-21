@@ -44,8 +44,13 @@ public sealed class FontResolution
     private readonly HashSet<string> _unmapped = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, TrueTypeFont?> _metricFonts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int?> _metricLineGaps = new(StringComparer.OrdinalIgnoreCase);
+    private readonly string? _hostFallback;
 
-    private FontResolution(Dictionary<string, FontFaceSet> families) => _families = families;
+    private FontResolution(Dictionary<string, FontFaceSet> families, string? hostFallback)
+    {
+        _families = families;
+        _hostFallback = hostFallback;
+    }
 
     /// <summary>True when at least one family was pinned to a file.</summary>
     public bool HasMappings => _families.Count > 0;
@@ -63,11 +68,20 @@ public sealed class FontResolution
     /// Builds a mapping from <c>--font-file family=path</c> and <c>--font-dir</c>
     /// options. An empty mapping is legal and means "use whatever the host has".
     /// </summary>
-    public static FontResolution FromCommandLine(CommandLine line)
+    public static FontResolution FromCommandLine(CommandLine line) => FromCommandLine(line, HostFallbackFile());
+
+    /// <summary>
+    /// Builds a mapping as <see cref="FromCommandLine(CommandLine)"/> does, with
+    /// <paramref name="hostFallback"/> standing for the file the host draws an
+    /// unmapped family with.
+    /// </summary>
+    internal static FontResolution FromCommandLine(CommandLine line, string? hostFallback)
     {
         ArgumentNullException.ThrowIfNull(line);
 
-        var resolution = new FontResolution(new Dictionary<string, FontFaceSet>(StringComparer.OrdinalIgnoreCase));
+        var resolution = new FontResolution(
+            new Dictionary<string, FontFaceSet>(StringComparer.OrdinalIgnoreCase),
+            hostFallback);
 
         foreach (string directory in line.GetAll("font-dir"))
             resolution.AddDirectory(directory);
@@ -134,11 +148,21 @@ public sealed class FontResolution
     /// <summary>The face Broiler.Graphics falls back to when a family is not mapped.</summary>
     public static string DescribeHostFallback() => BImageRenderer.DescribeSystemTextFont();
 
-    /// <summary>Vertical metrics from an explicitly mapped face, or null for the host fallback.</summary>
+    /// <summary>
+    /// Vertical metrics from the face a run is drawn with, or null when no face
+    /// file can be named.
+    /// </summary>
+    /// <remarks>
+    /// A family with no mapping is drawn with the host's fallback face, so that
+    /// face is the one measured. Leaving it unmeasured gave every such run the
+    /// layout's estimate - 80% ascent and a rounded 125% line, 13 points at 10 -
+    /// while the glyphs were the fallback's: DejaVu Sans on the conformance host,
+    /// whose line at 10 points is 11.64. A document set in a family the mapping
+    /// does not name, such as Arial Narrow, ran a tenth longer than its text.
+    /// </remarks>
     public (double Ascent, double Descent)? VerticalMetrics(BFontStyle font)
     {
-        if (!TryResolve(font.FamilyName, font.Weight >= BFontWeight.Bold,
-            font.Slant is BFontSlant.Italic or BFontSlant.Oblique, out string path))
+        if (MetricPath(font) is not string path)
             return null;
         TrueTypeFont? face = MetricFace(path);
         if (face is null || face.UnitsPerEm <= 0 || face.Ascender <= 0 || face.Descender > 0)
@@ -147,11 +171,10 @@ public sealed class FontResolution
         return (face.Ascender * scale, -face.Descender * scale);
     }
 
-    /// <summary>The hhea line gap from an explicitly mapped face, in points.</summary>
+    /// <summary>The hhea line gap from the face a run is drawn with, in points.</summary>
     public double? LineGap(BFontStyle font)
     {
-        if (!TryResolve(font.FamilyName, font.Weight >= BFontWeight.Bold,
-            font.Slant is BFontSlant.Italic or BFontSlant.Oblique, out string path))
+        if (MetricPath(font) is not string path)
             return null;
 
         TrueTypeFont? face = MetricFace(path);
@@ -164,6 +187,32 @@ public sealed class FontResolution
         }
 
         return lineGap is >= 0 ? lineGap.Value * font.Size / face.UnitsPerEm : null;
+    }
+
+    /// <summary>
+    /// The file a run in <paramref name="font"/> is drawn with: its mapped face,
+    /// or the host fallback when the family has none.
+    /// </summary>
+    /// <remarks>
+    /// The fallback is one face for every weight and slant, as the renderer's
+    /// own fallback is, so a bold run in an unmapped family is measured with the
+    /// regular face. DejaVu Sans states the same ascent and descent for both.
+    /// </remarks>
+    internal string? MetricPath(BFontStyle font) =>
+        TryResolve(font.FamilyName, font.Weight >= BFontWeight.Bold,
+            font.Slant is BFontSlant.Italic or BFontSlant.Oblique, out string path)
+            ? path
+            : _hostFallback;
+
+    /// <summary>
+    /// The file the host draws an unmapped family with, or null when the renderer
+    /// names none that exists - a host with no fonts draws with a built-in face
+    /// that has no file to measure.
+    /// </summary>
+    private static string? HostFallbackFile()
+    {
+        string described = DescribeHostFallback();
+        return File.Exists(described) ? described : null;
     }
 
     private TrueTypeFont? MetricFace(string path)

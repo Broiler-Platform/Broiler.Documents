@@ -24,6 +24,7 @@ internal sealed class DocxDocumentBuilder(
     private readonly List<DocumentTable> _tables = [];
     private readonly Stack<List<DocumentTable>> _tableSinks = new();
     private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
+    private InlineStyle _markStyle = InlineStyle.Default;
     private InlineStyle _pageBreakStyle = InlineStyle.Default;
     private bool _pageBreakSeen;
     private bool _pageBreakLeadsParagraph;
@@ -187,9 +188,10 @@ internal sealed class DocxDocumentBuilder(
             "A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks.");
     }
 
-    public void StartParagraph(ParagraphStyle style)
+    public void StartParagraph(ParagraphStyle style, InlineStyle markStyle = default)
     {
         _segments.Clear();
+        _markStyle = markStyle;
 
         // The two spellings mean one break. A paragraph reached by a
         // w:br that also states w:pageBreakBefore starts one page, not two,
@@ -309,7 +311,9 @@ internal sealed class DocxDocumentBuilder(
             return;
         }
 
-        RichTextParagraph paragraph = RichTextParagraph.Empty.WithParagraphStyle(_paragraphStyle);
+        RichTextParagraph paragraph = RichTextParagraph.Empty
+            .WithParagraphStyle(_paragraphStyle)
+            .WithMarkStyle(_markStyle);
         int offset = 0;
         foreach (Segment segment in _segments)
         {
@@ -320,6 +324,7 @@ internal sealed class DocxDocumentBuilder(
         _paragraphs.Add(paragraph);
         _segments.Clear();
         _paragraphStyle = ParagraphStyle.Default;
+        _markStyle = InlineStyle.Default;
     }
 
     /// <summary>The paragraph a shape met right now would be anchored to.</summary>

@@ -123,6 +123,46 @@ public sealed class LineMetricsTests
     }
 
     [Fact]
+    public void An_Empty_Paragraph_Is_As_Tall_As_Its_Mark()
+    {
+        // A blank 10-point line under a 12-point default is a 10-point line.
+        // Measured at the default, tdf168017.docx's 36 blank lines pushed the
+        // rest of its first page onto the second.
+        using var images = new ImageStore();
+        var layout = new DocumentLayout(new LayoutSettings
+        {
+            DefaultFontSizePoints = 12,
+            FontVerticalMetrics = font => (font.Size * 0.8, font.Size * 0.2),
+        }, images);
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [
+                RichTextParagraph.Empty.WithMarkStyle(new InlineStyle { FontSize = 10f }),
+                RichTextParagraph.Empty,
+            ]);
+
+        IReadOnlyList<LayoutLine> lines = layout.Layout(document, DocumentPageBox.Default).Pages[0].Lines;
+
+        Assert.Equal(10, lines[0].Height, 6);
+        Assert.Equal(8, lines[0].Baseline, 6);
+        Assert.Equal(12, lines[1].Height, 6);
+    }
+
+    [Fact]
+    public void A_Mark_Does_Not_Change_A_Line_That_Has_Text()
+    {
+        using var images = new ImageStore();
+        var layout = new DocumentLayout(new LayoutSettings
+        {
+            FontVerticalMetrics = font => (font.Size * 0.8, font.Size * 0.2),
+        }, images);
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Create("text", new InlineStyle { FontSize = 10f })
+                .WithMarkStyle(new InlineStyle { FontSize = 30f })]);
+
+        Assert.Equal(10, layout.Layout(document, DocumentPageBox.Default).Pages[0].Lines[0].Height, 6);
+    }
+
+    [Fact]
     public void Mixed_Sizes_And_Line_Spacing_Still_Reserve_Room_For_The_Largest_Run()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("small LARGE");

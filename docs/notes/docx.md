@@ -8,6 +8,12 @@ Open XML WordprocessingML package parts.
 - Main document package discovery through `_rels/.rels` with fallback to
   `word/document.xml`.
 - Paragraphs, empty paragraphs, tabs, and soft line breaks.
+- The paragraph mark's formatting, `w:pPr/w:rPr`, as
+  `RichTextParagraph.MarkStyle`: the run formatting the paragraph style gives,
+  then the mark's own. An empty paragraph has no run, and the mark is what its
+  line is as tall as; a document whose blank lines are 10-point marks under a
+  12-point default drew each a fifth too tall without it. Written back as
+  `w:rPr` at the end of `w:pPr`, before a section's `w:sectPr`.
 - Block-level containers, walked recursively so their paragraphs are read rather
   than dropped: tables (`w:tbl`/`w:tr`/`w:tc`, including nested tables),
   structured document tags (`w:sdt`), accepted revisions (`w:ins`, `w:moveTo`),
@@ -97,7 +103,14 @@ Open XML WordprocessingML package parts.
   default one. A letterhead is the case: a first-page header, a default footer,
   and no footer on page one. Unread, the empty first-page slot fell back and a
   page number was drawn under the letterhead. It is written back whenever a First
-  part exists or the model says the first page is different.
+  part exists or the model says the first page is different. A `first` part in a
+  section without it is not read (`docx.header.first`): Word draws the default
+  there, and the model would draw the first.
+- `w:evenAndOddHeaders` in `word/settings.xml`, which is what makes an `even`
+  part mean anything. Without it Word and LibreOffice draw the default header
+  and footer on every page, so an `even` part is not read
+  (`docx.header.even`); a write that has an Even part writes a settings part
+  turning it on, without which Word would ignore the part it was given.
 - A header's and a footer's shapes, read onto the running content rather than
   into the body. They are placed against the page: `svg`-style horizontal offsets
   stay measured from the text column, while the vertical one is measured from the
@@ -268,7 +281,10 @@ Open XML WordprocessingML package parts.
   right margins, under its own top margin on a page it starts. That is what
   makes a magazine whose sections are set two inches in, or six, lay out in
   columns of the width it was set in rather than the last section's. The
-  running content is still the last section's (`docx.section.multiple`).
+  running content is the last section's (`docx.section.multiple`), and each
+  header and footer type it does not name continues from the nearest section
+  before it that does, as ECMA-376 §17.10.5 says. A contract that names its
+  header and footer in the first of nine sections carries them on every page.
 - A write states `w:cols` with the count and the gap. A document with sections
   writes each boundary as a `w:sectPr` in the `w:pPr` of the section's last
   paragraph, with that section's page, or the document's, its columns and
@@ -306,6 +322,9 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks. |
 | `docx.break.column` | Warning | A column break with text before and after it in the same paragraph was read as a line break; columns break between paragraphs here, not inside one. |
 | `docx.section.columns` | Info | The sections differ in their columns; each section keeps its own, and the page records those of the section holding the most paragraphs. |
+| `docx.section.multiple` | Info | The body has more than one section; the header and footer read are the last section's, each it does not name continuing from the section before it. |
+| `docx.header.first` | Info | A `first` header or footer was not read, because its section does not set `w:titlePg`; the first page carries the default one. |
+| `docx.header.even` | Info | An `even` header or footer was not read, because the document does not set `w:evenAndOddHeaders`; even pages carry the default one. |
 | `docx.section.parity` | Warning | A section starting on an odd or even page was read as starting on the next page; the blank page it can put before itself is not made. |
 | `docx.columns.unequal` | Info | A section listed columns of unequal width; they were read as equal columns. |
 | `docx.columns.geometry` | Warning | A section's columns left no room to write in a column; the page was kept and read as one column. |

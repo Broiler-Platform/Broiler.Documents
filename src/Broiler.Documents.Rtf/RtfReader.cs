@@ -1061,7 +1061,10 @@ public static class RtfReader
         private void EndParagraph()
         {
             FlushPending();
-            Active.EndParagraph(_state.Para);
+
+            // The character formatting in effect at \par is the paragraph mark's,
+            // which is what an empty paragraph is as tall as.
+            Active.EndParagraph(_state.Para, _state.Char with { LinkHref = null, Image = null });
         }
 
         /// <summary>
@@ -1292,7 +1295,7 @@ public static class RtfReader
             _current = _current.InsertText(_current.Length, text, style);
         }
 
-        public void EndParagraph(ParagraphStyle style)
+        public void EndParagraph(ParagraphStyle style, InlineStyle mark = default)
         {
             if (LimitHit)
                 return;
@@ -1302,7 +1305,7 @@ public static class RtfReader
                 return;
             }
 
-            _paragraphs.Add(_current.WithParagraphStyle(Spend(style)));
+            _paragraphs.Add(_current.WithParagraphStyle(Spend(style)).WithMarkStyle(mark));
             _current = RichTextParagraph.Create(string.Empty, InlineStyle.Default, style);
         }
 

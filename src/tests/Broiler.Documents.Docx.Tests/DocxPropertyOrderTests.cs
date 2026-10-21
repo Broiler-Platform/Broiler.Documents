@@ -85,6 +85,28 @@ public sealed class DocxPropertyOrderTests
         AssertSequenceOrder(properties, ParagraphPropertySequence, "CT_PPr");
     }
 
+    [Fact]
+    public void A_Mark_And_A_Section_Break_Close_The_Paragraph_Properties_In_Ct_PPr_Order()
+    {
+        // The mark's w:rPr and a section's w:sectPr are the two CT_PPr adds after
+        // the base properties, and the section break is put in after the rest of
+        // the paragraph is built - so they meet only on the paragraph that ends a
+        // section, which is where this checks them.
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [
+                RichTextParagraph.Create("one", InlineStyle.Default, ParagraphStyle.Default with { SpacingAfter = 6f })
+                    .WithMarkStyle(InlineStyle.Default with { FontSize = 10f }),
+                RichTextParagraph.Plain("two"),
+            ])
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72))
+            .WithSections([new DocumentSection(0, 1, 2, 18), new DocumentSection(1, 1, 1, 0)]);
+
+        XElement properties = ParagraphProperties(DocxDocumentCodec.WriteToArray(document));
+
+        AssertPresent(properties, "spacing", "rPr", "sectPr");
+        AssertSequenceOrder(properties, ParagraphPropertySequence, "CT_PPr");
+    }
+
     // Both capitalizations, because the model makes them exclusive and only one
     // of the two can be in any single written paragraph. They are adjacent in
     // the sequence, so neither placement is harder than the other - but neither

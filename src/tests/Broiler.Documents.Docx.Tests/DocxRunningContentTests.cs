@@ -94,7 +94,7 @@ public sealed class DocxRunningContentTests
     public void Keeps_The_Type_A_Reference_Declares()
     {
         DocumentReadResult result = Read(
-            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/></w:sectPr>");
+            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/><w:titlePg/></w:sectPr>");
 
         RunningContent running = result.Document.RunningContent;
         Assert.Equal("the letterhead", TextOf(running.Header(PageSelection.First)));
@@ -167,7 +167,7 @@ public sealed class DocxRunningContentTests
         // paragraphs apart would let a first page with a header of its own borrow
         // the default's stripe.
         DocumentReadResult result = Read(
-            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/></w:sectPr>",
+            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/><w:titlePg/></w:sectPr>",
             headerInnerXml: "<w:p>" + ShapeRun("AECF00") + "<w:r><w:t>first page</w:t></w:r></w:p>");
 
         RunningContent running = result.Document.RunningContent;
@@ -237,7 +237,7 @@ public sealed class DocxRunningContentTests
     {
         RichTextDocument source = Read(
             "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/>" +
-            "<w:footerReference r:id=\"rF\" w:type=\"default\"/></w:sectPr>").Document;
+            "<w:footerReference r:id=\"rF\" w:type=\"default\"/><w:titlePg/></w:sectPr>").Document;
 
         using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false);
         RunningContent running = new DocxDocumentCodec().Read(stream).Document.RunningContent;
@@ -250,7 +250,7 @@ public sealed class DocxRunningContentTests
     public void Writes_The_Parts_And_Declares_Them_In_The_Package()
     {
         RichTextDocument source = Read(
-            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/></w:sectPr>").Document;
+            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/><w:titlePg/></w:sectPr>").Document;
 
         byte[] bytes = DocxDocumentCodec.WriteToArray(source);
         using var archive = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
@@ -326,5 +326,182 @@ public sealed class DocxRunningContentTests
 
         Assert.True(back.DifferentFirstPage);
         Assert.Empty(back.EffectiveFooter(PageSelection.First));
+    }
+
+    /// <summary>A body paragraph that ends a section whose properties are <paramref name="sectPrInnerXml"/>.</summary>
+    private static string SectionEnd(string text, string sectPrInnerXml) =>
+        "<w:p><w:pPr><w:sectPr>" + sectPrInnerXml + "</w:sectPr></w:pPr>" +
+        "<w:r><w:t>" + text + "</w:t></w:r></w:p>";
+
+    [Fact]
+    public void A_Section_That_Names_No_Header_Continues_The_One_Before_It()
+    {
+        // ECMA-376 §17.10.5: a section with no reference of a type has the
+        // previous section's. tdf168017.docx names its header and footer in the
+        // first of nine sections and draws them on every page.
+        DocumentReadResult result = Read(
+            "<w:sectPr/>",
+            body:
+                SectionEnd("one", "<w:headerReference r:id=\"rH\" w:type=\"default\"/>" +
+                    "<w:footerReference r:id=\"rF\" w:type=\"default\"/>") +
+                SectionEnd("two", string.Empty) +
+                DocxTestPackage.Paragraph("three"));
+
+        RunningContent running = result.Document.RunningContent;
+        Assert.Equal("the letterhead", TextOf(running.Header(PageSelection.Default)));
+        Assert.Equal("page one", TextOf(running.Footer(PageSelection.Default)));
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.section.multiple");
+    }
+
+    [Fact]
+    public void Each_Type_Continues_On_Its_Own()
+    {
+        // The last section states its own footer and no header: the footer is
+        // its own, and only the header continues from before.
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["word/_rels/document.xml.rels"] =
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                Rels +
+                "<Relationship Id=\"rF2\" " +
+                "Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer\" " +
+                "Target=\"footer2.xml\"/>" +
+                "</Relationships>",
+            ["word/header1.xml"] = Part("hdr", "the letterhead"),
+            ["word/footer1.xml"] = Part("ftr", "page one"),
+            ["word/footer2.xml"] = Part("ftr", "the last section's footer"),
+        };
+
+        using var stream = new MemoryStream(
+            DocxTestPackage.FromBody(
+                SectionEnd("one", "<w:headerReference r:id=\"rH\" w:type=\"default\"/>" +
+                    "<w:footerReference r:id=\"rF\" w:type=\"default\"/>") +
+                DocxTestPackage.Paragraph("two") +
+                "<w:sectPr><w:footerReference r:id=\"rF2\" w:type=\"default\"/></w:sectPr>",
+                parts),
+            writable: false);
+        RunningContent running = new DocxDocumentCodec().Read(stream).Document.RunningContent;
+
+        Assert.Equal("the letterhead", TextOf(running.Header(PageSelection.Default)));
+        Assert.Equal("the last section's footer", TextOf(running.Footer(PageSelection.Default)));
+    }
+
+    [Fact]
+    public void A_Continued_Header_Takes_The_Nearest_Section_Before()
+    {
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["word/_rels/document.xml.rels"] =
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                Rels +
+                "<Relationship Id=\"rH2\" " +
+                "Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/header\" " +
+                "Target=\"header2.xml\"/>" +
+                "</Relationships>",
+            ["word/header1.xml"] = Part("hdr", "the first section's header"),
+            ["word/header2.xml"] = Part("hdr", "the second section's header"),
+            ["word/footer1.xml"] = Part("ftr", "page one"),
+        };
+
+        using var stream = new MemoryStream(
+            DocxTestPackage.FromBody(
+                SectionEnd("one", "<w:headerReference r:id=\"rH\" w:type=\"default\"/>") +
+                SectionEnd("two", "<w:headerReference r:id=\"rH2\" w:type=\"default\"/>") +
+                DocxTestPackage.Paragraph("three") +
+                "<w:sectPr/>",
+                parts),
+            writable: false);
+        RunningContent running = new DocxDocumentCodec().Read(stream).Document.RunningContent;
+
+        Assert.Equal("the second section's header", TextOf(running.Header(PageSelection.Default)));
+    }
+
+    [Fact]
+    public void A_First_Page_Part_Is_Not_Read_Without_TitlePg()
+    {
+        // The model draws a First part on page one wherever there is one; Word
+        // draws it only where the section asks for a different first page.
+        DocumentReadResult result = Read(
+            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"first\"/></w:sectPr>");
+
+        Assert.Empty(result.Document.RunningContent.Header(PageSelection.First));
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.header.first");
+    }
+
+    [Fact]
+    public void An_Even_Page_Part_Is_Not_Read_Unless_The_Settings_Turn_Even_Pages_On()
+    {
+        // tdf168017.docx names an even footer holding a lone page number and does
+        // not set w:evenAndOddHeaders; Word and LibreOffice draw the default
+        // footer on every page.
+        DocumentReadResult result = Read(
+            "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"even\"/>" +
+            "<w:footerReference r:id=\"rF\" w:type=\"default\"/></w:sectPr>");
+
+        RunningContent running = result.Document.RunningContent;
+        Assert.Empty(running.Header(PageSelection.Even));
+        Assert.Equal("page one", TextOf(running.Footer(PageSelection.Default)));
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.header.even");
+    }
+
+    [Theory]
+    [InlineData("<w:evenAndOddHeaders/>", true)]
+    [InlineData("<w:evenAndOddHeaders w:val=\"false\"/>", false)]
+    public void W_EvenAndOddHeaders_Decides_Whether_An_Even_Part_Is_Read(string setting, bool read)
+    {
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["word/_rels/document.xml.rels"] =
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                Rels + "</Relationships>",
+            ["word/header1.xml"] = Part("hdr", "the even header"),
+            ["word/footer1.xml"] = Part("ftr", "page one"),
+            ["word/settings.xml"] = Wrap("settings", setting),
+        };
+
+        using var stream = new MemoryStream(
+            DocxTestPackage.FromBody(
+                DocxTestPackage.Paragraph("body") +
+                "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"even\"/></w:sectPr>",
+                parts),
+            writable: false);
+        RunningContent running = new DocxDocumentCodec().Read(stream).Document.RunningContent;
+
+        Assert.Equal(read ? "the even header" : string.Empty, TextOf(running.Header(PageSelection.Even)));
+    }
+
+    [Fact]
+    public void An_Even_Page_Part_Is_Written_With_The_Setting_That_Turns_It_On()
+    {
+        RichTextDocument source = RichTextDocument.FromPlainText("body").WithRunningContent(
+            RunningContent.Empty
+                .WithHeader(PageSelection.Default, [RichTextParagraph.Plain("odd")])
+                .WithHeader(PageSelection.Even, [RichTextParagraph.Plain("even")]));
+
+        byte[] bytes = DocxDocumentCodec.WriteToArray(source);
+        using (var archive = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read))
+        {
+            using var settings = new StreamReader(archive.GetEntry("word/settings.xml")!.Open());
+            Assert.Contains("evenAndOddHeaders", settings.ReadToEnd());
+            using var types = new StreamReader(archive.GetEntry("[Content_Types].xml")!.Open());
+            Assert.Contains("wordprocessingml.settings+xml", types.ReadToEnd());
+            using var relationships = new StreamReader(archive.GetEntry("word/_rels/document.xml.rels")!.Open());
+            Assert.Contains("relationships/settings", relationships.ReadToEnd());
+        }
+
+        using var stream = new MemoryStream(bytes, writable: false);
+        RunningContent back = new DocxDocumentCodec().Read(stream).Document.RunningContent;
+        Assert.Equal("even", TextOf(back.Header(PageSelection.Even)));
+        Assert.Equal("odd", TextOf(back.Header(PageSelection.Default)));
+    }
+
+    [Fact]
+    public void No_Settings_Part_Is_Written_Without_An_Even_Page_Part()
+    {
+        RichTextDocument source = RichTextDocument.FromPlainText("body").WithRunningContent(
+            RunningContent.Empty.WithHeader(PageSelection.Default, [RichTextParagraph.Plain("header")]));
+
+        using var archive = new ZipArchive(new MemoryStream(DocxDocumentCodec.WriteToArray(source)), ZipArchiveMode.Read);
+        Assert.Null(archive.GetEntry("word/settings.xml"));
     }
 }

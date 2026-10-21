@@ -251,7 +251,7 @@ public sealed class RichTextDocument
             head.InsertText(head.Length, lines[0], inherited),
         };
         for (int i = 1; i < lines.Length - 1; i++)
-            replacement.Add(RichTextParagraph.Create(lines[i], inherited, target.Style));
+            replacement.Add(RichTextParagraph.Create(lines[i], inherited, target.Style).WithMarkStyle(target.MarkStyle));
         replacement.Add(tail.InsertText(0, lines[^1], inherited));
 
         RichTextDocument document = ReplaceRange(at.ParagraphIndex, 1, replacement);

@@ -12,7 +12,10 @@ toolkit behind it.
   resolved through relationships the way an OPC package does.
 - Paragraphs (`text:p`) and headings (`text:h`). A heading is read as an ordinary
   paragraph carrying whatever its named style resolves to; the model has no
-  heading rank.
+  heading rank. ODF has no paragraph mark of its own, so a paragraph's
+  `RichTextParagraph.MarkStyle` is its paragraph style's text properties - what
+  an empty paragraph is as tall as. It is not written back: an empty paragraph
+  written here takes its height from the document's defaults.
 - Block-level containers, walked recursively so their paragraphs are read rather
   than dropped: lists (`text:list`, including nested lists and `text:list-header`),
   tables (`table:table`, including the header-row and row-group wrappers),

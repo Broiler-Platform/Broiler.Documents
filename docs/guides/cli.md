@@ -280,7 +280,10 @@ broilerdoc render report.docx --out report.png \
 
 `--font-dir` scans a directory and maps faces by filename; `--font-file` pins one
 explicitly and always wins. Families a document asks for that have no mapping are
-listed in the manifest under `fonts.unmappedFamilies`.
+listed in the manifest under `fonts.unmappedFamilies`. Such a family is drawn with
+the host fallback face (`fonts.hostFallback`), and its lines are measured from that
+face too, so a document set in a family the mapping leaves out breaks its lines
+and pages where the face it is drawn in puts them.
 
 Italic deserves a note. Broiler.Graphics does not synthesize a slant, so an
 italic run with no italic face mapped would draw upright — and a codec that
@@ -399,7 +402,9 @@ alignment, indents, list markers, line and paragraph spacing, inline images,
 tables (a row breaks across a page cell by cell unless it says it may not),
 text columns filled one after another, sections in their own columns and
 margins with a section's columns balanced where the next follows on the page,
-running headers and footers, anchored shapes in their stated stacking order,
+running headers and footers - each at its own section's distance, with the text
+moved clear of one that runs past its margin - anchored shapes in their stated
+stacking order,
 and pagination. It has no floats,
 footnotes, hyphenation, kerning pairs, or bidirectional reordering — mostly
 because the document model cannot express them, so there is nothing to lay
