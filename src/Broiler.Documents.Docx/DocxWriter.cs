@@ -1319,11 +1319,7 @@ public static class DocxWriter
             ? new XElement(DocxNamespaces.Drawing + "ln", new XElement(DocxNamespaces.Drawing + "noFill"))
             : new XElement(
                 DocxNamespaces.Drawing + "ln",
-                new XElement(
-                    DocxNamespaces.Drawing + "solidFill",
-                    new XElement(
-                        DocxNamespaces.Drawing + "srgbClr",
-                        new XAttribute("val", HexColor(shape.Outline))))));
+                new XElement(DocxNamespaces.Drawing + "solidFill", DrawingColor(shape.Outline))));
 
         var wsp = new XElement(DocxNamespaces.WordShape + "wsp", properties);
         if (shape.HasText)
@@ -1445,11 +1441,7 @@ public static class DocxWriter
     {
         if (!fill.IsGradient)
         {
-            return new XElement(
-                DocxNamespaces.Drawing + "solidFill",
-                new XElement(
-                    DocxNamespaces.Drawing + "srgbClr",
-                    new XAttribute("val", HexColor(fill.Start))));
+            return new XElement(DocxNamespaces.Drawing + "solidFill", DrawingColor(fill.Start));
         }
 
         // DrawingML has no mirrored gradient; it states one as three stops, the
@@ -1474,7 +1466,24 @@ public static class DocxWriter
         new(
             DocxNamespaces.Drawing + "gs",
             new XAttribute("pos", position.ToString(CultureInfo.InvariantCulture)),
-            new XElement(DocxNamespaces.Drawing + "srgbClr", new XAttribute("val", HexColor(color))));
+            DrawingColor(color));
+
+    /// <summary>
+    /// A DrawingML colour: <c>a:srgbClr</c>, with an <c>a:alpha</c> when the
+    /// colour is not opaque, as a theme colour read under one may not be.
+    /// </summary>
+    private static XElement DrawingColor(BColor color)
+    {
+        var element = new XElement(DocxNamespaces.Drawing + "srgbClr", new XAttribute("val", HexColor(color)));
+        if (color.A < 255)
+        {
+            element.Add(new XElement(
+                DocxNamespaces.Drawing + "alpha",
+                new XAttribute("val", ((int)Math.Round(color.A / 255d * 100000)).ToString(CultureInfo.InvariantCulture))));
+        }
+
+        return element;
+    }
 
     /// <summary>Points to twips: 20 to the point, which is what a section states.</summary>
     private static string Twips(double points) =>

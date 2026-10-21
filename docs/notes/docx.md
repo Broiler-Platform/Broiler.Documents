@@ -163,6 +163,17 @@ Open XML WordprocessingML package parts.
   is `strokecolor`, VML's default black, or none where `stroked` turns it off;
   its text is the `w:txbxContent` in its `v:textbox`. They were read as nothing
   before, and the text in them was lost.
+- A DrawingML shape's colours - its fill, its gradient's stops and its outline -
+  are read from `a:srgbClr`, `a:sysClr` (its `lastClr`), a few `a:prstClr` names,
+  and `a:schemeClr` resolved through the theme's colour scheme (ECMA-376
+  §20.1.6.2), with `bg1`/`tx1`/`bg2`/`tx2` mapped to `lt1`/`dk1`/`lt2`/`dk2` as
+  Word's default `w:clrSchemeMapping` maps them. The transforms under any of them
+  are applied in order (§20.1.2.3) with LibreOffice's arithmetic, measured against
+  its rendering: `a:shade` and `a:tint` toward black and white in linear RGB at a
+  gamma of 2.3, `a:lumMod`, `a:lumOff` and `a:satMod` on the HSL colour, `a:alpha`
+  as the colour's opacity, which the writer writes back. A template's themed box
+  was read as having no fill before, and was dropped. `phClr` - a colour a
+  style supplies - is not resolved.
 - Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
   shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
   `wp:positionV`, converted from whichever frame the anchor names into the text

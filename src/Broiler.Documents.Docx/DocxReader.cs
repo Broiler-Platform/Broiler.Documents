@@ -972,7 +972,7 @@ internal static class DocxReader
             return false;
 
         XElement? spPr = wsp.Element(DocxNamespaces.WordShape + "spPr");
-        ShapeFill? fill = ReadFill(spPr, context.Builder);
+        ShapeFill? fill = ReadFill(spPr, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ReadShapeText(wsp, context);
         if (fill is null && paragraphs.Count == 0)
             return false;
@@ -986,7 +986,7 @@ internal static class DocxReader
             width,
             height,
             fill,
-            ReadOutline(spPr),
+            ReadOutline(spPr, context.Styles.Theme),
             paragraphs,
             image: null,
             behindText: BehindDoc(anchor),
@@ -1374,10 +1374,13 @@ internal static class DocxReader
             ? emu / 12700d
             : 0;
 
-    private static ShapeFill? ReadFill(XElement? spPr, DocxDocumentBuilder builder)
+    private static ShapeFill? ReadFill(XElement? spPr, DocxReadContext context)
     {
         if (spPr is null)
             return null;
+
+        DocxDocumentBuilder builder = context.Builder;
+        DocxTheme theme = context.Styles.Theme;
 
         XElement? gradient = spPr.Element(DocxNamespaces.Drawing + "gradFill");
         if (gradient is not null)
@@ -1396,9 +1399,9 @@ internal static class DocxReader
             // Three stops whose first and last agree are how DrawingML spells a
             // mirrored gradient; Word writes VML's 50% focus that way.
             if (stops.Count == 3 &&
-                TryReadShapeColor(stops[0], out BColor outer) &&
-                TryReadShapeColor(stops[1], out BColor inner) &&
-                TryReadShapeColor(stops[2], out BColor last) &&
+                TryReadShapeColor(stops[0], theme, out BColor outer) &&
+                TryReadShapeColor(stops[1], theme, out BColor inner) &&
+                TryReadShapeColor(stops[2], theme, out BColor last) &&
                 outer == last)
             {
                 return new ShapeFill(outer, inner, angle, Axial: true);
@@ -1412,33 +1415,32 @@ internal static class DocxReader
             }
 
             if (stops.Count >= 2 &&
-                TryReadShapeColor(stops[0], out BColor start) &&
-                TryReadShapeColor(stops[^1], out BColor end))
+                TryReadShapeColor(stops[0], theme, out BColor start) &&
+                TryReadShapeColor(stops[^1], theme, out BColor end))
             {
                 return new ShapeFill(start, end, angle);
             }
         }
 
         XElement? solid = spPr.Element(DocxNamespaces.Drawing + "solidFill");
-        return solid is not null && TryReadShapeColor(solid, out BColor color)
+        return solid is not null && TryReadShapeColor(solid, theme, out BColor color)
             ? ShapeFill.Solid(color)
             : null;
     }
 
-    private static BColor ReadOutline(XElement? spPr)
+    private static BColor ReadOutline(XElement? spPr, DocxTheme theme)
     {
         XElement? line = spPr?.Element(DocxNamespaces.Drawing + "ln");
         if (line is null || line.Element(DocxNamespaces.Drawing + "noFill") is not null)
             return BColor.Empty;
 
         XElement? solid = line.Element(DocxNamespaces.Drawing + "solidFill");
-        return solid is not null && TryReadShapeColor(solid, out BColor color) ? color : BColor.Empty;
+        return solid is not null && TryReadShapeColor(solid, theme, out BColor color) ? color : BColor.Empty;
     }
 
-    private static bool TryReadShapeColor(XElement parent, out BColor color) =>
-        DocxValueReader.TryParseHexColor(
-            (string?)parent.Element(DocxNamespaces.Drawing + "srgbClr")?.Attribute("val"),
-            out color);
+    /// <summary>A DrawingML colour, a theme's included; see <see cref="DocxDrawingColor"/>.</summary>
+    private static bool TryReadShapeColor(XElement? parent, DocxTheme theme, out BColor color) =>
+        DocxDrawingColor.TryRead(parent, theme, out color);
 
     /// <summary>A text box paragraphs, read with the same walker the body uses.</summary>
     private static IReadOnlyList<RichTextParagraph> ReadShapeText(XElement wsp, DocxReadContext context)
