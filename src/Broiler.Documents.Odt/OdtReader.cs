@@ -1761,17 +1761,20 @@ internal static class OdtReader
         ParagraphStyle style,
         OdtDocumentBuilder builder)
     {
+        // Each form replaces the others where a style states it: a percentage
+        // is proportional, a length exact (ODF 1.3 fo:line-height), and
+        // style:line-height-at-least the least a line is.
         string? lineHeight = (string?)properties.Attribute(OdtNamespaces.Fo + "line-height");
         if (lineHeight is not null)
         {
             if (lineHeight.Equals("normal", StringComparison.OrdinalIgnoreCase))
-                return style with { LineSpacing = 1f };
+                return Proportional(style, 1f);
 
             if (OdtUnits.TryParsePercentage(lineHeight, out double multiplier) && multiplier > 0)
             {
                 float projected = (float)multiplier;
                 if (float.IsFinite(projected) && projected > 0)
-                    return style with { LineSpacing = projected };
+                    return Proportional(style, projected);
 
                 builder.AddDiagnosticOnce(
                     "odt.linespacing.range",
@@ -1779,23 +1782,38 @@ internal static class OdtReader
                 return style;
             }
 
-            // A fixed line height is a length, not a multiple of the font size,
-            // and the model stores only the multiple.
-            builder.AddDiagnosticOnce(
-                "odt.linespacing.fixed",
-                "A fixed ODT line height was not represented; the model stores a spacing multiplier.");
+            if (TryLineHeight(lineHeight, out float exact))
+                return style with { LineSpacing = 1f, LineHeightRule = LineHeightRule.Exact, LineHeight = exact };
+
             return style;
         }
 
-        if (properties.Attribute(OdtNamespaces.Style + "line-height-at-least") is not null ||
-            properties.Attribute(OdtNamespaces.Style + "line-spacing") is not null)
+        if (TryLineHeight((string?)properties.Attribute(OdtNamespaces.Style + "line-height-at-least"), out float least))
+            return style with { LineSpacing = 1f, LineHeightRule = LineHeightRule.AtLeast, LineHeight = least };
+
+        // Leading added between lines is a third kind, which the model does not
+        // hold.
+        if (properties.Attribute(OdtNamespaces.Style + "line-spacing") is not null)
         {
             builder.AddDiagnosticOnce(
-                "odt.linespacing.fixed",
-                "A fixed ODT line height was not represented; the model stores a spacing multiplier.");
+                "odt.linespacing.leading",
+                "ODT line spacing stated as leading between lines was not represented.");
         }
 
         return style;
+
+        static ParagraphStyle Proportional(ParagraphStyle style, float spacing) =>
+            style with { LineSpacing = spacing, LineHeightRule = LineHeightRule.Proportional, LineHeight = 0f };
+
+        static bool TryLineHeight(string? value, out float height)
+        {
+            height = 0;
+            if (!OdtUnits.TryParseLength(value, out double points) || !(points > 0))
+                return false;
+
+            height = (float)Math.Min(points, ParagraphStyle.MaxLineHeight);
+            return true;
+        }
     }
 
     private static int IndentLevelFor(double points) =>

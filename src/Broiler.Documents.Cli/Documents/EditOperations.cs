@@ -62,7 +62,8 @@ public static class EditOperations
         "               font (family name or default); size (points or default);",
         "               link (URL or off).",
         "  para keys    align (left|center|right|justify); list (none|bullet|numbered);",
-        "               indent (level); linespacing (multiplier); before, after (points);",
+        "               indent (level); linespacing (multiplier); lineheight (points,",
+        "               exact); minlineheight (points, at least); before, after (points);",
         "               pagebreak (on|off), which starts the paragraph on a new page.",
         "  image keys   file (path, required); width, height (points, default the encoded",
         "               pixel size read as CSS pixels); alt; name. This field runs to the",
@@ -484,11 +485,19 @@ public static class EditOperations
                 "list" or "listkind" => delta with { ListKind = List(value) },
                 "indent" or "indentlevel" => delta with { IndentLevel = NonNegativeInt(key, value) },
                 "linespacing" => delta with { LineSpacing = PositivePoints(key, value) },
+                "lineheight" => delta with
+                {
+                    LineHeightRule = LineHeightRule.Exact, LineHeight = LineHeightPoints(key, value), LineSpacing = 1f,
+                },
+                "minlineheight" => delta with
+                {
+                    LineHeightRule = LineHeightRule.AtLeast, LineHeight = LineHeightPoints(key, value), LineSpacing = 1f,
+                },
                 "before" or "spacingbefore" => delta with { SpacingBefore = Points(key, value) },
                 "after" or "spacingafter" => delta with { SpacingAfter = Points(key, value) },
                 "pagebreak" or "pagebreakbefore" => delta with { PageBreakBefore = Switch(key, value) },
                 _ => throw new UsageException("Unknown paragraph property \"" + key + "\". Known: align, list, indent, " +
-                                        "linespacing, before, after, pagebreak."),
+                                        "linespacing, lineheight, minlineheight, before, after, pagebreak."),
             };
         }
 
@@ -600,6 +609,9 @@ public static class EditOperations
             throw new UsageException(key + " must be greater than zero.");
         return parsed;
     }
+
+    private static float LineHeightPoints(string key, string value) =>
+        Math.Min(PositivePoints(key, value), ParagraphStyle.MaxLineHeight);
 
     private static int NonNegativeInt(string key, string value)
     {

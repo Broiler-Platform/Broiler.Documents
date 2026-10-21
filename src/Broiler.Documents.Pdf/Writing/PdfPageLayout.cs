@@ -219,7 +219,6 @@ internal sealed class PdfPageLayout(
 
             RichTextParagraph paragraph = document.Paragraphs[paragraphIndex];
             ParagraphStyle style = paragraph.Style;
-            double lineSpacing = style.LineSpacing > 0 ? style.LineSpacing : 1f;
 
             if (style.ListKind == ListKind.Numbered && previousList == ListKind.Numbered)
                 listNumber++;
@@ -282,7 +281,7 @@ internal sealed class PdfPageLayout(
                 // width: a line of unusually tall text can reach a little into a
                 // shape it only just cleared.
                 double lineY = y;
-                double estimate = EmptyLineHeight() * lineSpacing;
+                double estimate = style.LineBoxHeight(EmptyLineHeight());
                 lines = BreakParagraph(
                     paragraph,
                     _ =>
@@ -299,7 +298,7 @@ internal sealed class PdfPageLayout(
             {
                 // An empty paragraph still advances by one line so blank lines and
                 // opt-in page boundaries survive a round trip.
-                y -= EmptyLineHeight() * lineSpacing;
+                y -= style.LineBoxHeight(EmptyLineHeight());
                 y -= SpacingAfter(style, EmptyLineHeight());
                 if (y < bottom)
                     BreakPage();
@@ -312,7 +311,7 @@ internal sealed class PdfPageLayout(
             {
                 LayoutLine line = lines[lineIndex];
                 TextBand band = lineIndex < bands.Count ? bands[lineIndex] : new TextBand(0, available);
-                double lineHeight = line.Height * lineSpacing;
+                double lineHeight = style.LineBoxHeight(line.Height);
                 if (y - lineHeight < bottom && page.Runs.Count > 0)
                     BreakPage();
 
@@ -581,7 +580,6 @@ internal sealed class PdfPageLayout(
 
             RichTextParagraph paragraph = document.Paragraphs[index];
             ParagraphStyle style = paragraph.Style;
-            double lineSpacing = style.LineSpacing > 0 ? style.LineSpacing : 1f;
 
             if (style.ListKind == ListKind.Numbered && previousList == ListKind.Numbered)
                 listNumber++;
@@ -600,7 +598,7 @@ internal sealed class PdfPageLayout(
 
             if (lines.Count == 0)
             {
-                content.Height += EmptyLineHeight() * lineSpacing;
+                content.Height += style.LineBoxHeight(EmptyLineHeight());
                 content.Height += SpacingAfter(style, EmptyLineHeight());
                 content.Anchors.Add((index, content.Height));
                 index++;
@@ -611,7 +609,7 @@ internal sealed class PdfPageLayout(
             double lastLineHeight = 0;
             foreach (LayoutLine line in lines)
             {
-                double lineHeight = line.Height * lineSpacing;
+                double lineHeight = style.LineBoxHeight(line.Height);
                 content.Height += lineHeight;
                 lastLineHeight = lineHeight;
                 content.Lines.Add(new PlacedLine(
@@ -914,12 +912,11 @@ internal sealed class PdfPageLayout(
         foreach (RichTextParagraph paragraph in shape.Paragraphs)
         {
             List<LayoutLine> broken = BreakParagraph(paragraph, shape.Width, marker: string.Empty);
-            double spacing = paragraph.Style.LineSpacing > 0 ? paragraph.Style.LineSpacing : 1f;
             foreach (LayoutLine line in broken)
-                height += line.Height * spacing;
+                height += paragraph.Style.LineBoxHeight(line.Height);
 
             if (broken.Count == 0)
-                height += EmptyLineHeight() * spacing;
+                height += paragraph.Style.LineBoxHeight(EmptyLineHeight());
         }
 
         return Math.Max(stated, height);
@@ -942,15 +939,14 @@ internal sealed class PdfPageLayout(
         foreach (RichTextParagraph paragraph in paragraphs)
         {
             List<LayoutLine> broken = BreakParagraph(paragraph, available, marker: string.Empty);
-            double spacing = paragraph.Style.LineSpacing > 0 ? paragraph.Style.LineSpacing : 1f;
             for (int i = 0; i < broken.Count; i++)
             {
                 lines.Add((broken[i], paragraph.Style, i == broken.Count - 1));
-                height += broken[i].Height * spacing;
+                height += paragraph.Style.LineBoxHeight(broken[i].Height);
             }
 
             if (broken.Count == 0)
-                height += EmptyLineHeight() * spacing;
+                height += paragraph.Style.LineBoxHeight(EmptyLineHeight());
         }
 
         if (height > margin)
@@ -966,8 +962,7 @@ internal sealed class PdfPageLayout(
         double y = firstBaseline + (height / 2);
         foreach ((LayoutLine line, ParagraphStyle style, bool isLast) in lines)
         {
-            double spacing = style.LineSpacing > 0 ? style.LineSpacing : 1f;
-            y -= line.Height * spacing;
+            y -= style.LineBoxHeight(line.Height);
             Place(page, line, left, available, y, style.Alignment, isLast);
         }
     }

@@ -1047,7 +1047,17 @@ public static class OdtWriter
                 OdtUnits.FormatInches(style.IndentLevel * OdtUnits.PointsPerIndentLevel)));
         }
 
-        if (Math.Abs(style.LineSpacing - 1f) > 0.001f && style.LineSpacing > 0)
+        if (style.LineHeightRule == LineHeightRule.Exact && style.LineHeight > 0)
+        {
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "line-height", OdtUnits.FormatPoints(style.LineHeight)));
+        }
+        else if (style.LineHeightRule == LineHeightRule.AtLeast && style.LineHeight > 0)
+        {
+            properties.Add(new XAttribute(
+                OdtNamespaces.Style + "line-height-at-least",
+                OdtUnits.FormatPoints(style.LineHeight)));
+        }
+        else if (Math.Abs(style.LineSpacing - 1f) > 0.001f && style.LineSpacing > 0)
         {
             properties.Add(new XAttribute(
                 OdtNamespaces.Fo + "line-height",

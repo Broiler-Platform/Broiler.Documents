@@ -1,3 +1,4 @@
+using System;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Model;
@@ -17,8 +18,48 @@ public readonly record struct ParagraphStyle
 {
     public TextAlignment Alignment { get; init; }
 
-    /// <summary>Line spacing multiplier; <c>1</c> is single-spaced.</summary>
+    /// <summary>
+    /// Line spacing multiplier; <c>1</c> is single-spaced. Applies where
+    /// <see cref="LineHeightRule"/> is <see cref="Model.LineHeightRule.Proportional"/>.
+    /// </summary>
     public float LineSpacing { get; init; }
+
+    /// <summary>
+    /// Whether the lines are as tall as their text times <see cref="LineSpacing"/>,
+    /// at least <see cref="LineHeight"/>, or exactly that.
+    /// </summary>
+    /// <remarks>
+    /// A form drawn in frames sets every line at ten points whatever its font
+    /// (RTF's <c>\sl-200</c>), and a letter keeps its lines at least as tall as
+    /// its body text with a smaller footnote face among them. Neither is a
+    /// multiplier of the line's own height, and both were read as single
+    /// spacing.
+    /// </remarks>
+    public LineHeightRule LineHeightRule { get; init; }
+
+    /// <summary>
+    /// The height a line is at least, or exactly, in points; nought where
+    /// <see cref="LineHeightRule"/> is proportional.
+    /// </summary>
+    public float LineHeight { get; init; }
+
+    /// <summary>
+    /// The largest line height a reader keeps, in points: 1584, Word's limit
+    /// for an exact or at-least height. A file stating more is clamped to it, so
+    /// a hostile height cannot lay every line out a page tall.
+    /// </summary>
+    public const float MaxLineHeight = 1584f;
+
+    /// <summary>
+    /// The height of a line box whose text is <paramref name="natural"/> points
+    /// tall, under this paragraph's rule.
+    /// </summary>
+    public double LineBoxHeight(double natural) => LineHeightRule switch
+    {
+        LineHeightRule.Exact when LineHeight > 0 => LineHeight,
+        LineHeightRule.AtLeast => Math.Max(natural, LineHeight),
+        _ => natural * (LineSpacing > 0 ? LineSpacing : 1f),
+    };
 
     public ListKind ListKind { get; init; }
 

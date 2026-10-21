@@ -364,7 +364,11 @@ public static class DocumentCommands
                 flags.Add(style.ListKind.ToString().ToLowerInvariant());
             if (style.IndentLevel > 0)
                 flags.Add("indent" + style.IndentLevel.ToString(CultureInfo.InvariantCulture));
-            if (Math.Abs(style.LineSpacing - 1f) > 0.001f)
+            if (style.LineHeightRule == LineHeightRule.Exact)
+                flags.Add("line" + style.LineHeight.ToString("0.##", CultureInfo.InvariantCulture) + "pt");
+            else if (style.LineHeightRule == LineHeightRule.AtLeast)
+                flags.Add("line>=" + style.LineHeight.ToString("0.##", CultureInfo.InvariantCulture) + "pt");
+            else if (Math.Abs(style.LineSpacing - 1f) > 0.001f)
                 flags.Add("spacing" + style.LineSpacing.ToString("0.##", CultureInfo.InvariantCulture));
 
             foreach (StyleRun run in paragraph.Runs)
