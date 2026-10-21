@@ -344,6 +344,12 @@ Open XML WordprocessingML package parts.
   `oddPage` and `evenPage` can put a blank page in front of the section to
   land it on the side they name; that page is not made, and
   `docx.section.parity` says so. `nextColumn` is read as `continuous`.
+  An empty body paragraph holding nothing but the `w:sectPr` is the section
+  mark and not a paragraph, as in LibreOffice's import: the section ends at the
+  paragraph before it. It stays where it is all its section holds, where no
+  paragraph follows it, and right after a table, below which it closes the
+  section. `tdf170602_exportContext.docx` puts its next-page mark in an empty
+  Heading 1 after a page break, which drew as a page of its own.
 - A section's own paper and margins. The last section's `w:pgSz` and
   `w:pgMar` are the document's page; a section that states others keeps them
   as `DocumentSection.Page`. A section that starts a page is laid out between

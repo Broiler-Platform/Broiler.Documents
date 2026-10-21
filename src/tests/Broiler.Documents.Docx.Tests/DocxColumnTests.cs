@@ -537,6 +537,44 @@ public sealed class DocxColumnTests
     }
 
     [Fact]
+    public void An_Empty_Paragraph_Holding_Only_A_Section_Mark_Is_Not_A_Paragraph()
+    {
+        // tdf170602_exportContext.docx: a paragraph ends on a page break, and
+        // the next-page section mark sits in an empty Heading 1 after it.
+        // LibreOffice makes no paragraph of it, and the next chapter starts the
+        // page the break and the section both ask for; read as a paragraph it
+        // drew a page of its own.
+        DocumentReadResult result = Read(
+            "<w:p><w:r><w:t>contents</w:t></w:r><w:r><w:br w:type=\"page\"/></w:r></w:p>" +
+            "<w:p><w:pPr><w:pStyle w:val=\"Heading1\"/>" + Section("<w:cols w:num=\"2\"/>") + "</w:pPr></w:p>" +
+            DocxTestPackage.Paragraph("chapter") +
+            Section());
+
+        RichTextDocument document = result.Document;
+        Assert.Equal("contents\nchapter", document.PlainText);
+        Assert.True(document.Paragraphs[1].Style.PageBreakBefore);
+
+        // The section it closed ends at the paragraph before it, its columns kept.
+        Assert.Equal(2, document.Sections.Count);
+        Assert.Equal(1, document.Sections[0].ParagraphCount);
+        Assert.Equal(2, document.Sections[0].ColumnCount);
+        Assert.Equal(1, document.Sections[1].ParagraphIndex);
+    }
+
+    [Fact]
+    public void A_Section_Mark_That_Is_All_Its_Section_Holds_Stays()
+    {
+        // Dropping it would drop the section; LibreOffice keeps it too.
+        DocumentReadResult result = Read(
+            "<w:p><w:pPr>" + Section("<w:cols w:num=\"2\"/>") + "</w:pPr></w:p>" +
+            DocxTestPackage.Paragraph("body") +
+            Section());
+
+        Assert.Equal(2, result.Document.ParagraphCount);
+        Assert.Equal(2, result.Document.Sections[0].ColumnCount);
+    }
+
+    [Fact]
     public void A_Section_With_Its_Own_Margins_Keeps_Them()
     {
         // The middle section is two inches in from either side; the others, and

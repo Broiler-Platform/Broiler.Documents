@@ -595,6 +595,19 @@ internal static class DocxReader
 
     private static void ReadParagraph(XElement paragraph, DocxReadContext context)
     {
+        // An empty paragraph that holds nothing but its section's properties is
+        // the section mark, not a line: the section ends at the paragraph
+        // before it. LibreOffice's import drops it the same way (writerfilter's
+        // DomainMapper, keeping the section's properties). tdf170602_exportContext.docx
+        // ends a paragraph on a page break and puts the next-page section mark
+        // in an empty Heading 1 after it, which drew as a page holding only a
+        // heading number where LibreOffice starts the next chapter.
+        if (context.Sections is not null && IsDroppableSectionMark(paragraph, context))
+        {
+            EndSection(context);
+            return;
+        }
+
         XElement? pPr = paragraph.Element(DocxNamespaces.Wordprocessing + "pPr");
         string? paragraphStyleId = DocxValueReader.WordValue(pPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
 
@@ -605,23 +618,73 @@ internal static class DocxReader
         context.Builder.FinishParagraph();
 
         // A paragraph belongs to the section it ends, so the cursor moves only
-        // once the paragraph's own breaks have been read against it. The next
-        // section then says whether it starts a page; its first paragraph is
-        // where that break lands, as if the paragraph before had ended on one.
+        // once the paragraph's own breaks have been read against it.
         if (context.Sections is not null && DocxSections.EndsSection(paragraph))
-        {
-            context.Sections.Advance(context.Builder.CurrentParagraphIndex);
-            if (context.Sections.CurrentStartsPage)
-                context.Builder.HoldPageBreak();
+            EndSection(context);
+    }
 
-            if (context.Sections.CurrentWantsParity)
+    /// <summary>
+    /// Moves the read into the next section. It says whether it starts a page;
+    /// its first paragraph is where that break lands, as if the paragraph before
+    /// had ended on one, and a page break that paragraph did end on is the same
+    /// boundary rather than a second.
+    /// </summary>
+    private static void EndSection(DocxReadContext context)
+    {
+        context.Sections!.Advance(context.Builder.CurrentParagraphIndex);
+        if (context.Sections.CurrentStartsPage)
+            context.Builder.HoldPageBreak();
+
+        if (context.Sections.CurrentWantsParity)
+        {
+            context.Builder.AddDiagnosticOnce(
+                "docx.section.parity",
+                "A DOCX section starting on an odd or even page was read as starting on the next page; " +
+                "the blank page it can put before itself is not made.");
+        }
+    }
+
+    /// <summary>
+    /// True when <paramref name="paragraph"/> is a body paragraph with nothing in
+    /// it but a <c>w:sectPr</c>, which LibreOffice does not make a paragraph of.
+    /// </summary>
+    /// <remarks>
+    /// As there, it is kept where it is all its section holds, which would
+    /// otherwise vanish, and where no paragraph follows it for the section after
+    /// it to start on. A column break, a field, a picture or any text keeps it:
+    /// those are content, and the conditions LibreOffice keeps one under. So
+    /// does a table just before it, below which it closes the section.
+    /// </remarks>
+    private static bool IsDroppableSectionMark(XElement paragraph, DocxReadContext context)
+    {
+        if (!DocxSections.EndsSection(paragraph) || paragraph.Parent?.Name != DocxNamespaces.Wordprocessing + "body")
+            return false;
+
+        // After a table it is what closes the section below the table, which is
+        // Word's own shape for a section ending in one; it stays.
+        if (paragraph.ElementsBeforeSelf().LastOrDefault()?.Name == DocxNamespaces.Wordprocessing + "tbl")
+            return false;
+
+        foreach (XElement child in paragraph.Elements())
+        {
+            if (child.Name.Namespace != DocxNamespaces.Wordprocessing)
+                return false;
+
+            switch (child.Name.LocalName)
             {
-                context.Builder.AddDiagnosticOnce(
-                    "docx.section.parity",
-                    "A DOCX section starting on an odd or even page was read as starting on the next page; " +
-                    "the blank page it can put before itself is not made.");
+                case "pPr" or "bookmarkStart" or "bookmarkEnd" or "proofErr" or "permStart" or "permEnd":
+                    continue;
+                case "r" when child.Elements().All(static part =>
+                    part.Name == DocxNamespaces.Wordprocessing + "rPr" ||
+                    part.Name == DocxNamespaces.Wordprocessing + "lastRenderedPageBreak"):
+                    continue;
+                default:
+                    return false;
             }
         }
+
+        return context.Sections!.CurrentHasParagraphs(context.Builder.CurrentParagraphIndex) &&
+            context.Sections.NextHasParagraphs;
     }
 
     /// <summary>

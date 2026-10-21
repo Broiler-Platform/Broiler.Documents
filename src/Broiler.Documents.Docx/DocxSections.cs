@@ -196,6 +196,15 @@ internal sealed class DocxSections
         paragraph.Element(DocxNamespaces.Wordprocessing + "pPr")?.Element(DocxNamespaces.Wordprocessing + "sectPr") is not null;
 
     /// <summary>
+    /// True when the section the read is in already holds a paragraph, the read
+    /// having made <paramref name="paragraphEnd"/> of them so far.
+    /// </summary>
+    public bool CurrentHasParagraphs(int paragraphEnd) => paragraphEnd > (_ends.Count > 0 ? _ends[^1] : 0);
+
+    /// <summary>True when the body has a paragraph after the section the read is in.</summary>
+    public bool NextHasParagraphs => _sections.Skip(_current + 1).Any(static section => section.Paragraphs > 0);
+
+    /// <summary>
     /// Moves the read past a paragraph that ended a section, recording where in
     /// the paragraphs read the section ended.
     /// </summary>
