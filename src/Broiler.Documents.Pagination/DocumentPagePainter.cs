@@ -315,11 +315,15 @@ public sealed class DocumentPagePainter
         if (diagonal)
             list.Append(new BRenderCommand.PushClip(bounds));
 
+        // Opaque bands overlap by half a point, so no seam shows between them.
+        // Translucent ones must not: where two overlap the colour is laid down
+        // twice, and a fade from transparent draws as stripes.
+        double overlap = fill.Start.A == 255 && fill.End.A == 255 ? 0.5 : 0;
         for (int i = 0; i < bands; i++)
         {
             BColor color = fill.ColorAt((double)i / (bands - 1));
             double from = (-extent / 2) + (step * i);
-            double to = from + step + 0.5; // overlap, so no seam shows
+            double to = from + step + overlap;
 
             if (!diagonal)
             {

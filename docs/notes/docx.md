@@ -171,7 +171,10 @@ Open XML WordprocessingML package parts.
   are applied in order (§20.1.2.3) with LibreOffice's arithmetic, measured against
   its rendering: `a:shade` and `a:tint` toward black and white in linear RGB at a
   gamma of 2.3, `a:lumMod`, `a:lumOff` and `a:satMod` on the HSL colour, `a:alpha`
-  as the colour's opacity, which the writer writes back. A template's themed box
+  as the colour's opacity, which the writer writes back. The page painter lays a
+  translucent gradient's bands edge to edge rather than overlapping them, and the
+  PDF writer, which emits no transparency group, blends a translucent fill over
+  white. A template's themed box
   was read as having no fill before, and was dropped. `phClr` - a colour a
   style supplies - is not resolved. A pattern fill, `a:pattFill`, is two colours
   the model cannot hold together - LibreOffice draws hatch lines in `a:fgClr`

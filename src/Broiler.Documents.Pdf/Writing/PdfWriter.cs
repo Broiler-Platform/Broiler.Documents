@@ -618,7 +618,7 @@ internal sealed class PdfWriter
 
         if (!fill.IsGradient)
         {
-            AppendAscii(content, FillColor(fill.Start));
+            AppendAscii(content, BoxFillColor(fill.Start));
             AppendAscii(content, Rectangle(x, y, width, height));
             return;
         }
@@ -643,7 +643,7 @@ internal sealed class PdfWriter
             double length = horizontal ? width : height;
             for (int i = 0; i < bands; i++)
             {
-                AppendAscii(content, FillColor(fill.ColorAt((double)i / (bands - 1))));
+                AppendAscii(content, BoxFillColor(fill.ColorAt((double)i / (bands - 1))));
                 double from = step * i;
                 double size = Math.Min(step + 0.5, length - from); // overlap, so no seam shows
                 double start = sign > 0 ? from : length - from - size;
@@ -660,7 +660,7 @@ internal sealed class PdfWriter
             $"{Number(x)} {Number(y)} {Number(width)} {Number(height)} re W n\n"));
         for (int i = 0; i < bands; i++)
         {
-            AppendAscii(content, FillColor(fill.ColorAt((double)i / (bands - 1))));
+            AppendAscii(content, BoxFillColor(fill.ColorAt((double)i / (bands - 1))));
             double from = (-extent / 2) + (step * i);
             double to = from + step + 0.5; // overlap, so no seam shows
             AppendAscii(content,
@@ -679,6 +679,23 @@ internal sealed class PdfWriter
 
     private static string FillColor(BColor color) =>
         $"{Number(color.Rf)} {Number(color.Gf)} {Number(color.Bf)} rg\n";
+
+    /// <summary>
+    /// A box fill's colour operator. The writer emits no transparency group, so
+    /// a fill colour that is not opaque - a theme colour under <c>a:alpha</c>, a
+    /// fade from transparent - is blended over white, the page it most often
+    /// lies on, rather than painted as if it were opaque.
+    /// </summary>
+    private static string BoxFillColor(BColor color)
+    {
+        if (color.IsEmpty || color.A == 255)
+            return FillColor(color);
+
+        double alpha = color.A / 255d;
+        return $"{Number(Blend(color.Rf))} {Number(Blend(color.Gf))} {Number(Blend(color.Bf))} rg\n";
+
+        double Blend(double channel) => (channel * alpha) + (1 - alpha);
+    }
 
     private static string Rectangle(double x, double y, double width, double height) =>
         $"{Number(x)} {Number(y)} {Number(width)} {Number(height)} re f\n";

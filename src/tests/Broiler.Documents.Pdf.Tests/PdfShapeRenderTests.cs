@@ -47,6 +47,17 @@ public sealed class PdfShapeRenderTests
     }
 
     [Fact]
+    public void A_Translucent_Fill_Is_Blended_Over_White_Rather_Than_Painted_Opaque()
+    {
+        // Half-transparent black: with no transparency group, mid grey is the
+        // colour it shows on a white page. Painted opaque it would be black.
+        string content = Write(WithShape(Stripe(ShapeFill.Solid(BColor.FromArgb(0x80, 0x00, 0x00, 0x00)))));
+
+        Assert.Contains("0.498 0.498 0.498 rg", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n0 0 0 rg\n0 -", content, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_Gradient_Shape_Is_Banded()
     {
         var fill = new ShapeFill(BColor.FromArgb(0xFF, 0xAE, 0xCF, 0x00), BColor.White, 90);
