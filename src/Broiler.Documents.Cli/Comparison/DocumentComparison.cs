@@ -239,6 +239,10 @@ public sealed class DocumentComparison
             yield return "indent level " + left.IndentLevel + " vs " + right.IndentLevel;
         if (!Near(left.LineSpacing, right.LineSpacing))
             yield return "line spacing " + Number(left.LineSpacing) + " vs " + Number(right.LineSpacing);
+        if (left.LineHeightRule != right.LineHeightRule)
+            yield return "line height rule " + left.LineHeightRule + " vs " + right.LineHeightRule;
+        if (!Near(left.LineHeight, right.LineHeight))
+            yield return "line height " + Number(left.LineHeight) + " vs " + Number(right.LineHeight);
         if (!Near(left.SpacingBefore, right.SpacingBefore))
             yield return "spacing before " + Number(left.SpacingBefore) + " vs " + Number(right.SpacingBefore);
         if (!Near(left.SpacingAfter, right.SpacingAfter))

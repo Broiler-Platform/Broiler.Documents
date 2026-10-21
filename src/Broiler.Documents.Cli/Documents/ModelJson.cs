@@ -72,6 +72,13 @@ public static class ModelJson
     {
         ["alignment"] = style.Alignment.ToString().ToLowerInvariant(),
         ["lineSpacing"] = style.LineSpacing,
+        ["lineHeightRule"] = style.LineHeightRule switch
+        {
+            LineHeightRule.AtLeast => "atLeast",
+            LineHeightRule.Exact => "exact",
+            _ => "proportional",
+        },
+        ["lineHeight"] = style.LineHeight,
         ["listKind"] = style.ListKind.ToString().ToLowerInvariant(),
         ["indentLevel"] = style.IndentLevel,
         ["spacingBefore"] = style.SpacingBefore,

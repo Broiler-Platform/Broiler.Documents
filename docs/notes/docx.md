@@ -57,7 +57,13 @@ Open XML WordprocessingML package parts.
   `tdf170602_exportContext.docx`'s headings, whose styles say only
   `w:cs="Arial"`, were drawn in Arial over a Times New Roman document.
 - Paragraph formatting: left/center/right alignment, line spacing, spacing
-  before/after, indentation, bullet lists, and numbered lists.
+  before/after, indentation, bullet lists, and numbered lists. `w:spacing w:line`
+  is read under all three of its rules (ECMA-376 §17.3.1.33): 240ths of a line
+  under `auto`, which an omitted `w:lineRule` means, and a height in twips under
+  `exact` and `atLeast` (`ParagraphStyle.LineHeightRule` and `LineHeight`, kept
+  within Word's 1584 points). Each replaces what a style below stated, and the
+  writer writes the rule back. The layout sets an exact line's baseline four
+  fifths of the way down it, as LibreOffice does.
 - Page breaks, read from both spellings WordprocessingML has for the one thing
   and written back as one:
 

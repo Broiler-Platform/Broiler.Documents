@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Html;
@@ -283,11 +284,8 @@ internal static class HtmlCss
             return true;
         }
 
-        if (TryParsePoints(trimmed, out float points) && HasLengthUnit(trimmed))
-        {
-            spacing = Math.Max(0, points / 12f);
-            return true;
-        }
+        if (HasLengthUnit(trimmed))
+            return false;
 
         if (float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out float multiplier) &&
             float.IsFinite(multiplier))
@@ -297,6 +295,26 @@ internal static class HtmlCss
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// A <c>line-height</c> given as a length, in points: the least a line is,
+    /// which is how LibreOffice's HTML import reads it (<c>svxcss1.cxx</c>,
+    /// <c>ParseCSS1_line_height</c>). It used to be taken as a multiple of
+    /// twelve points.
+    /// </summary>
+    public static bool TryParseLineHeightLength(string? value, out float points)
+    {
+        points = 0;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        string trimmed = value.Trim().ToLowerInvariant();
+        if (!HasLengthUnit(trimmed) || !TryParsePoints(trimmed, out float parsed) || parsed <= 0)
+            return false;
+
+        points = Math.Min(parsed, ParagraphStyle.MaxLineHeight);
+        return true;
     }
 
     public static string FormatColor(BColor color) =>

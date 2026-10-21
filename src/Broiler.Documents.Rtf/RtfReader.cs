@@ -727,16 +727,32 @@ public static class RtfReader
                 : style;
         }
 
+        /// <summary>
+        /// <c>\slN</c> and <c>\slmult</c>, in whichever order they came.
+        /// </summary>
+        /// <remarks>
+        /// Under <c>\slmult1</c> the amount is 240ths of a line; otherwise it is
+        /// twips, the least a line is where positive and exactly its height where
+        /// negative, which is how LibreOffice reads it (RTFKeyword::SL) and how
+        /// Word writes a form's fixed lines. Nought is single spacing. LibreOffice
+        /// takes a negative multiple by its size, and so does this.
+        /// </remarks>
         private void ApplyLineSpacing()
         {
-            // Only the multiplier form maps to ParagraphStyle.LineSpacing.
-            // Fixed/at-least heights remain outside the supported subset.
-            _state.Para = _state.Para with
-            {
-                LineSpacing = _state.MultipleLineSpacing && _state.LineSpacing > 0
-                    ? _state.LineSpacing / 240f
-                    : ParagraphStyle.Default.LineSpacing,
-            };
+            long amount = _state.LineSpacing;
+            _state.Para = amount == 0
+                ? _state.Para with { LineSpacing = 1f, LineHeightRule = LineHeightRule.Proportional, LineHeight = 0f }
+                : _state.MultipleLineSpacing
+                    ? _state.Para with
+                    {
+                        LineSpacing = (float)Math.Min(Math.Abs(amount) / 240d, 100d), LineHeightRule = LineHeightRule.Proportional, LineHeight = 0f,
+                    }
+                    : _state.Para with
+                    {
+                        LineSpacing = 1f,
+                        LineHeightRule = amount < 0 ? LineHeightRule.Exact : LineHeightRule.AtLeast,
+                        LineHeight = Math.Min(ParagraphStyle.MaxLineHeight, Math.Abs(amount) / 20f),
+                    };
         }
 
         private void HandleControlSymbol(char symbol)

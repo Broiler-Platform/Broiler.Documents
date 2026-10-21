@@ -417,6 +417,25 @@ public sealed partial class PdfWriterTests
 
     private static double PlacedX(string content, string run) => Placed(content, run).X;
 
+    [Theory]
+    [InlineData(LineHeightRule.Exact, 30)]
+    [InlineData(LineHeightRule.AtLeast, 30)]
+    [InlineData(LineHeightRule.Exact, 6)]
+    public void Lines_Of_A_Paragraph_That_States_Its_Height_Are_That_Far_Apart(LineHeightRule rule, double height)
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Create(
+                "first" + (char)0x2028 + "second",
+                InlineStyle.Default,
+                ParagraphStyle.Default with { LineHeightRule = rule, LineHeight = (float)height }),
+        ]);
+
+        string text = Latin1(Write(document, new PdfWriteOptions(compressStreams: false)).Bytes);
+
+        Assert.Equal(height, Placed(text, "first").Baseline - Placed(text, "second").Baseline, 3);
+    }
+
     [Fact]
     public void Places_The_Text_After_A_Tab_On_The_Next_Tab_Stop()
     {
