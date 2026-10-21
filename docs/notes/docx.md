@@ -178,6 +178,14 @@ Open XML WordprocessingML package parts.
   over `a:bgClr` - and is read as its background colour, which is nearly all of
   what shows, or as its foreground where it states no background; it is reported
   as `docx.shape.fill`.
+- A drawing group, `wpg:wgp`, is read as a floating shape for each `wps:wsp`
+  box in it, nested `wpg:grpSp` groups included. Each child's `a:xfrm` is mapped
+  through the `a:chOff`/`a:chExt` child space of every group above it into the
+  anchor's extent (ECMA-376 §20.1.7.6), and the children share the group's
+  anchor, `behindDoc`, `relativeHeight` and wrap, drawing in the order the group
+  lists them. The group was read as its first box at the size of the whole group
+  before. Rotation and flips are not applied, and a picture inside a group is not
+  read (`docx.shape.group`). A write puts each box back as a shape of its own.
 - Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
   shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
   `wp:positionV`, converted from whichever frame the anchor names into the text
@@ -455,6 +463,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's horizontally, or kept as stated and measured from the paragraph vertically. |
 | `docx.background.fill` | Warning | The page background's VML fill was one the model cannot hold, and was read as one colour: a rectangular (`gradientRadial`) gradient as its outer colour, a pattern of two colours or a picture fill as `w:background`'s own colour. |
+| `docx.shape.group` | Warning | A drawing group held a picture, or groups nested past sixteen deep, which were not read; its drawn boxes were. |
 | `docx.shape.fill` | Warning | A VML shape's fill was read as one colour, for the same reasons, or a DrawingML shape's pattern fill (`a:pattFill`) as its background colour. |
 
 Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, `docx.shape.page`, and `docx.text.control`.

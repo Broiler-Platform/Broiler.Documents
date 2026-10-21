@@ -62,6 +62,9 @@ public sealed class DocxRunningContentTests
         return new DocxDocumentCodec().Read(stream);
     }
 
+    /// <summary>A package whose one default header holds <paramref name="headerInnerXml"/>.</summary>
+    internal static DocumentReadResult ReadWithHeader(string headerInnerXml) => Read(HeaderRef, headerInnerXml);
+
     private const string HeaderRef =
         "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"default\"/></w:sectPr>";
 

@@ -955,8 +955,9 @@ internal static class DocxReader
     /// </remarks>
     private static bool ReadShape(XElement drawing, DocxReadContext context)
     {
-        XElement? wsp = drawing.Descendants(DocxNamespaces.WordShape + "wsp").FirstOrDefault();
-        if (wsp is null)
+        XElement? group = drawing.Descendants(DocxNamespaces.WordGroup + "wgp").FirstOrDefault();
+        XElement? wsp = group is null ? drawing.Descendants(DocxNamespaces.WordShape + "wsp").FirstOrDefault() : null;
+        if (group is null && wsp is null)
             return false;
 
         XElement? anchor =
@@ -971,6 +972,143 @@ internal static class DocxReader
         if (width <= 0 || height <= 0)
             return false;
 
+        if (group is not null)
+            return ReadShapeGroup(group, anchor, width, height, context);
+
+        return ReadDrawnShape(wsp!, anchor, 0, 0, width, height, context);
+    }
+
+    /// <summary>
+    /// Reads a <c>wpg:wgp</c> - several drawn boxes under one anchor - as a
+    /// floating shape for each box in it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A group states its children in a coordinate space of its own: its
+    /// <c>a:xfrm</c> says which rectangle of that space, <c>a:chOff</c> and
+    /// <c>a:chExt</c>, is drawn into the box it occupies, <c>a:off</c> and
+    /// <c>a:ext</c> (ECMA-376 §20.1.7.6, §20.5.2.17). The outermost group's box is
+    /// the anchor's extent; a group inside it states its box in its parent's
+    /// child space, and so on down. Each child's own <c>a:xfrm</c> is mapped
+    /// through every group above it into points from the anchor's corner, and the
+    /// child becomes a shape at the anchor's offset plus that.
+    /// </para>
+    /// <para>
+    /// The group was read as its first box before, at the size of the whole
+    /// group, which made a backdrop of a hatched rectangle and a fade over it
+    /// into the hatch alone, and lost a title bar's text box under it. The
+    /// children keep the group's anchor, stacking and wrapping, and draw in the
+    /// order the group lists them. Rotation and flips are not applied, and a
+    /// picture in a group is not read (<c>docx.shape.group</c>).
+    /// </para>
+    /// </remarks>
+    private static bool ReadShapeGroup(XElement group, XElement anchor, double width, double height, DocxReadContext context)
+    {
+        XElement? transform = group.Element(DocxNamespaces.WordGroup + "grpSpPr")?.Element(DocxNamespaces.Drawing + "xfrm");
+        (double childX, double childY, double childWidth, double childHeight) = ChildSpace(transform);
+        var frame = new GroupFrame(
+            0,
+            0,
+            childWidth > 0 ? width / childWidth : 1 / 12700d,
+            childHeight > 0 ? height / childHeight : 1 / 12700d,
+            childX,
+            childY);
+
+        int read = 0;
+        ReadGroupChildren(group, frame, anchor, context, ref read, depth: 0);
+        return read > 0;
+    }
+
+    private static void ReadGroupChildren(
+        XElement group, GroupFrame frame, XElement anchor, DocxReadContext context, ref int read, int depth)
+    {
+        foreach (XElement child in group.Elements())
+        {
+            if (child.Name == DocxNamespaces.WordShape + "wsp")
+            {
+                XElement? transform = child.Element(DocxNamespaces.WordShape + "spPr")?.Element(DocxNamespaces.Drawing + "xfrm");
+                (double x, double y, double w, double h) = frame.Map(transform);
+                if (ReadDrawnShape(child, anchor, x, y, w, h, context))
+                    read++;
+            }
+            else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
+            {
+                XElement? transform = child.Element(DocxNamespaces.WordGroup + "grpSpPr")?.Element(DocxNamespaces.Drawing + "xfrm");
+                (double x, double y, double w, double h) = frame.Map(transform);
+                (double childX, double childY, double childWidth, double childHeight) = ChildSpace(transform);
+                var nested = new GroupFrame(
+                    x,
+                    y,
+                    childWidth > 0 ? w / childWidth : frame.ScaleX,
+                    childHeight > 0 ? h / childHeight : frame.ScaleY,
+                    childX,
+                    childY);
+                ReadGroupChildren(child, nested, anchor, context, ref read, depth + 1);
+            }
+            else if (child.Name == DocxNamespaces.Picture + "pic" ||
+                     child.Name == DocxNamespaces.WordGroup + "grpSp")
+            {
+                context.Builder.AddDiagnosticOnce(
+                    "docx.shape.group",
+                    "A picture, or a group nested too deep, inside a DOCX drawing group was not read; the group's drawn boxes were.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The rectangle of a group's own coordinate space its box draws, in EMU:
+    /// <c>a:chOff</c> and <c>a:chExt</c>, or its <c>a:off</c> and <c>a:ext</c>
+    /// where it states no child space, which is a space one to one with its box.
+    /// </summary>
+    private static (double X, double Y, double Width, double Height) ChildSpace(XElement? transform)
+    {
+        XElement? offset = transform?.Element(DocxNamespaces.Drawing + "chOff") ?? transform?.Element(DocxNamespaces.Drawing + "off");
+        XElement? extent = transform?.Element(DocxNamespaces.Drawing + "chExt") ?? transform?.Element(DocxNamespaces.Drawing + "ext");
+        return (
+            Emu((string?)offset?.Attribute("x")),
+            Emu((string?)offset?.Attribute("y")),
+            Emu((string?)extent?.Attribute("cx")),
+            Emu((string?)extent?.Attribute("cy")));
+    }
+
+    private static double Emu(string? value) =>
+        long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long emu) ? emu : 0;
+
+    /// <summary>How deep groups nest before the reader stops following them.</summary>
+    private const int MaxGroupDepth = 16;
+
+    /// <summary>
+    /// One group's coordinate space against the anchor's box: a point of the
+    /// group's child space, in EMU, is this many points from the anchor's corner.
+    /// </summary>
+    private readonly record struct GroupFrame(
+        double OffsetX, double OffsetY, double ScaleX, double ScaleY, double ChildX, double ChildY)
+    {
+        /// <summary>A child's <c>a:xfrm</c> as a box in points from the anchor's corner.</summary>
+        public (double X, double Y, double Width, double Height) Map(XElement? transform)
+        {
+            XElement? offset = transform?.Element(DocxNamespaces.Drawing + "off");
+            XElement? extent = transform?.Element(DocxNamespaces.Drawing + "ext");
+            return (
+                OffsetX + ((Emu((string?)offset?.Attribute("x")) - ChildX) * ScaleX),
+                OffsetY + ((Emu((string?)offset?.Attribute("y")) - ChildY) * ScaleY),
+                Emu((string?)extent?.Attribute("cx")) * ScaleX,
+                Emu((string?)extent?.Attribute("cy")) * ScaleY);
+        }
+    }
+
+    /// <summary>
+    /// Adds one <c>wps:wsp</c> as a floating shape, its box
+    /// <paramref name="left"/> and <paramref name="top"/> points from the corner
+    /// of its anchor's: nought for a shape that is the whole drawing, more for a
+    /// box inside a group.
+    /// </summary>
+    private static bool ReadDrawnShape(
+        XElement wsp, XElement anchor, double left, double top, double width, double height, DocxReadContext context)
+    {
+        if (width <= 0 || height <= 0)
+            return false;
+
         XElement? spPr = wsp.Element(DocxNamespaces.WordShape + "spPr");
         ShapeFill? fill = ReadFill(spPr, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ReadShapeText(wsp, context);
@@ -981,8 +1119,8 @@ internal static class DocxReader
         (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
-            HorizontalOffset(anchor, context),
-            offsetY,
+            HorizontalOffset(anchor, context) + left,
+            offsetY + top,
             width,
             height,
             fill,
