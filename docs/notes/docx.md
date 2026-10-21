@@ -251,7 +251,9 @@ Open XML WordprocessingML package parts.
   break on a paragraph *within* a cell is read and written back as stated, but
   the layout breaks a row only where the page runs out, so nothing acts on it.
 - A row's `w:cantSplit` is `TableRow.CanSplit`, read as the on/off property it
-  is and written back. A row without it may break across a page, as in Word.
+  is and written back. A row without it may break across a page, as in Word,
+  including one whose cell holds a nested table: that breaks between the
+  nested table's rows, each of which goes to one page whole.
 - A page break that opens its paragraph - nothing of the paragraph before it -
   starts that paragraph on the new page. Nothing is split, so nothing is
   demoted: the paragraph is what the page begins with. If the paragraph already
