@@ -52,11 +52,14 @@ public sealed class DocumentSection(
     /// document's <see cref="RichTextDocument.PageGeometry"/>.
     /// </summary>
     /// <remarks>
-    /// A layout takes the left and right margins for the section's text wherever
-    /// it is, and the top and bottom margins on a page the section starts, as
-    /// Word does: a section that follows on the same page shares that page's
-    /// top and foot. The columns here are <see cref="ColumnCount"/> and
-    /// <see cref="ColumnGap"/>, not the page's.
+    /// A layout takes these margins on the pages the section starts and the
+    /// pages its text runs onto from there. A section that follows on the same
+    /// page - a continuous break - keeps the margins of the page it is on, and
+    /// its columns are spread across that page's text width, which is how
+    /// LibreOffice lays it out: such a section is a text section inside the page
+    /// style of the section that started the page, its own margins unused. Word
+    /// sets it between its own left and right margins instead. The columns here
+    /// are <see cref="ColumnCount"/> and <see cref="ColumnGap"/>, not the page's.
     /// </remarks>
     public PageGeometry? Page { get; } = page;
 

@@ -101,4 +101,41 @@ public sealed class DocumentLayoutSectionRunningTests
         Assert.All(result.Pages, page => Assert.True(Holds(page, "the first section's header")));
         Assert.All(result.Pages, page => Assert.False(Holds(page, "the last section's header")));
     }
+
+    [Fact]
+    public void A_Narrow_Section_That_Follows_On_A_Page_Keeps_The_Pages_Margins()
+    {
+        // tdf90697_complexBreaksHeaders.docx: narrow two-column sections follow
+        // each other on continuous breaks, each with right margins of its own.
+        // Page four started in one, and its header was set in that section's
+        // width and wrapped; LibreOffice keeps the page's margins and spreads
+        // the section's columns across them.
+        const string header = "alpha beta gamma delta epsilon zeta eta theta";
+        var paragraphs = new List<RichTextParagraph> { Body("opening") };
+        paragraphs.AddRange(Enumerable.Range(0, 120).Select(i => Body("line " + i)));
+        var narrow = new PageGeometry(612, 792, 72, 400, 72, 72);
+
+        RichTextDocument document = RichTextDocument.FromParagraphs(paragraphs)
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72))
+            .WithRunningContent(Header(header))
+            .WithSections(
+            [
+                new DocumentSection(0, 1, 1, 0),
+                new DocumentSection(1, paragraphs.Count - 1, 2, 12, narrow),
+            ]);
+
+        LayoutResult result = Layout(document);
+
+        Assert.True(result.Pages.Count >= 2, "the narrow section did not run onto a second page");
+        foreach (LayoutPage page in result.Pages)
+        {
+            // One header line, at the page's left margin.
+            LayoutLine top = Assert.Single(page.Lines, line => line.Top < 72);
+            Assert.Equal(header, string.Concat(top.Pieces.Select(piece => piece.Text)).Trim());
+        }
+
+        // The section's two columns share the page's 468 points: the second
+        // starts past the middle of the page, where in its own 140 it would not.
+        Assert.Contains(result.Pages[0].Lines, line => line.Top >= 72 && line.Pieces[0].X > 300);
+    }
 }

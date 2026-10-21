@@ -193,10 +193,35 @@ public sealed class DocumentLayoutSectionTests
     }
 
     [Fact]
-    public void A_Section_Lays_Its_Text_Out_Between_Its_Own_Margins()
+    public void A_Section_That_Starts_A_Page_Lays_Its_Text_Out_Between_Its_Own_Margins()
     {
-        // The document's page is Letter with inch margins; the middle section
-        // states two inches either side.
+        // The document's page is Letter with inch margins; the second section
+        // starts a page and states two inches either side.
+        PageGeometry letter = new(612, 792, 72, 72, 72, 72);
+        PageGeometry narrow = new(612, 792, 144, 144, 72, 72);
+        string words = string.Join(' ', Enumerable.Repeat("word", 60));
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+                [Line(words), Line(words, ParagraphStyle.Default with { PageBreakBefore = true })])
+            .WithPageGeometry(letter)
+            .WithSections([new DocumentSection(0, 1, 1, 0), new DocumentSection(1, 1, 1, 0, narrow)]);
+
+        LayoutResult result = Layout(document);
+
+        Assert.Equal(2, result.Pages.Count);
+        Assert.All(result.Pages[1].Lines, line => Assert.True(LeftOf(line) >= 144));
+        Assert.All(result.Pages[1].Lines, line =>
+            Assert.True(line.Pieces[^1].X + line.Pieces[^1].Width <= 612 - 144 + 0.5));
+        Assert.True(result.Pages[1].Lines.Count > result.Pages[0].Lines.Count);
+    }
+
+    [Fact]
+    public void A_Section_That_Follows_On_A_Page_Keeps_The_Pages_Margins()
+    {
+        // LibreOffice makes a section a continuous break opens a text section
+        // inside the page style of the section that started the page, and
+        // gives it columns but not margins of its own (writerfilter's
+        // SectionPropertyMap::CloseSectionGroup). Word sets it between its
+        // own; the comparison here is LibreOffice's.
         PageGeometry letter = new(612, 792, 72, 72, 72, 72);
         PageGeometry narrow = new(612, 792, 144, 144, 72, 72);
         string words = string.Join(' ', Enumerable.Repeat("word", 60));
@@ -211,12 +236,9 @@ public sealed class DocumentLayoutSectionTests
 
         LayoutPage page = Assert.Single(Layout(document).Pages);
 
-        Assert.All(page.Lines.Where(line => line.ParagraphIndex == 1), line => Assert.True(LeftOf(line) >= 144));
-        Assert.All(page.Lines.Where(line => line.ParagraphIndex == 1), line =>
-            Assert.True(line.Pieces[^1].X + line.Pieces[^1].Width <= 612 - 144 + 0.5));
-        Assert.Equal(72, LeftOf(page.Lines.First(line => line.ParagraphIndex == 2)), 3);
-        Assert.True(
-            page.Lines.Count(line => line.ParagraphIndex == 1) > page.Lines.Count(line => line.ParagraphIndex == 0));
+        Assert.All(page.Lines, line => Assert.Equal(72, LeftOf(line), 3));
+        Assert.Equal(
+            page.Lines.Count(line => line.ParagraphIndex == 0), page.Lines.Count(line => line.ParagraphIndex == 1));
     }
 
     [Fact]

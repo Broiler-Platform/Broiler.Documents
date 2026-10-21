@@ -346,10 +346,16 @@ Open XML WordprocessingML package parts.
   `docx.section.parity` says so. `nextColumn` is read as `continuous`.
 - A section's own paper and margins. The last section's `w:pgSz` and
   `w:pgMar` are the document's page; a section that states others keeps them
-  as `DocumentSection.Page`, and its text is laid out between its own left and
-  right margins, under its own top margin on a page it starts. That is what
+  as `DocumentSection.Page`. A section that starts a page is laid out between
+  its own margins there and on the pages its text runs onto. That is what
   makes a magazine whose sections are set two inches in, or six, lay out in
-  columns of the width it was set in rather than the last section's.
+  columns of the width it was set in rather than the last section's. A section
+  a `continuous` break opens keeps the margins of the page it is on, and its
+  columns are spread across that page's text width, as LibreOffice lays it out
+  (a text section inside the page style before it, with columns and no
+  margins of its own); Word would set it between its own. In
+  `tdf90697_complexBreaksHeaders.docx` a narrow two-column section that a
+  page began in set that page's header in its own width.
 - A section's own headers and footers. Each section's references are read,
   each header and footer type a section does not name continuing from the
   nearest section before it that does, as ECMA-376 §17.10.5 says, and each

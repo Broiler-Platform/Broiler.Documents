@@ -109,7 +109,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // subsequent page and a one-line difference reads as a whole-document one.
         double columnHeight = setup.Continuous ? double.MaxValue : setup.ContentHeightPoints;
         TextColumns pageColumns = TextColumns.For(document.PageGeometry, setup, _notes);
-        var sectionColumns = new Dictionary<DocumentSection, TextColumns>();
+        var sectionColumns = new Dictionary<(DocumentSection Section, DocumentSection? Page), TextColumns>();
 
         // A section's own margins are measured on the document's own paper, so
         // they apply where the box being filled is that paper; a render asked
@@ -130,9 +130,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         bool truncated = false;
         int ignoredBreaks = 0;
 
-        // The top and foot of the text on a page the section starts: its own
-        // margins where it states them, the box's otherwise, each moved clear
-        // of the header and footer the page draws.
+        // The top and foot of the text on a page, and the width its header is
+        // set in: the margins of the section that started the page where it
+        // states them, the box's otherwise, each moved clear of the header and
+        // footer the page draws.
         (double Top, double Bottom) BandOf(DocumentSection? section)
         {
             if (setup.Continuous)
@@ -161,12 +162,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // follows on the same page starts nothing, and the pages its text runs
         // onto keep the section that did, as LibreOffice keeps the page style.
         bool hasOwner = false;
+        DocumentSection? owner = null;
         DocumentSection? pendingOwner = null;
         bool hasPendingOwner = false;
 
         void TakeOwner(DocumentSection? section)
         {
             hasOwner = true;
+            owner = section;
             hasPendingOwner = false;
             pendingOwner = null;
             _running = setup.Continuous ? RunningContent.Empty : section?.RunningContent ?? _documentRunning;
@@ -176,16 +179,23 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         (pageTop, contentBottom) = BandOf(null);
         y = pageTop;
 
-        TextColumns ColumnsOf(DocumentSection? section)
+        // A section's columns are spread across the text width of the page it
+        // is on: the margins of the section that started the page. A section
+        // that follows on the same page - a continuous break - keeps that
+        // page's margins rather than its own, as LibreOffice lays it out, where
+        // such a section is a text section inside the page style of the one
+        // before it. A narrow two-column section that a continuous break opens
+        // used to set the whole page's header in its own narrow width.
+        TextColumns ColumnsOf(DocumentSection? section, DocumentSection? pageSection)
         {
             if (section is null)
                 return pageColumns;
 
-            if (!sectionColumns.TryGetValue(section, out TextColumns found))
+            if (!sectionColumns.TryGetValue((section, pageSection), out TextColumns found))
             {
                 double left = setup.ContentLeftPoints;
                 double width = setup.ContentWidthPoints;
-                if (sectionPages && section.Page is PageGeometry page)
+                if (sectionPages && pageSection?.Page is PageGeometry page)
                 {
                     left = Math.Clamp(page.MarginLeft, 0, setup.WidthPoints - 1);
                     width = Math.Max(1, setup.WidthPoints - page.MarginRight - left);
@@ -194,7 +204,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 found = TextColumns.For(
                     section.ColumnCount, section.ColumnGap, width, left - setup.ContentLeftPoints,
                     setup.Continuous, _notes, "a section's");
-                sectionColumns.Add(section, found);
+                sectionColumns.Add((section, pageSection), found);
             }
 
             return found;
@@ -261,9 +271,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             AddPageExclusions(pages.Count + 1);
 
             if (hasPendingOwner)
+            {
                 TakeOwner(pendingOwner);
+                if (ReferenceEquals(region, owner))
+                    columns = ColumnsOf(region, owner);
+            }
 
-            (pageTop, contentBottom) = BandOf(region);
+            (pageTop, contentBottom) = BandOf(owner);
             y = pageTop;
             regionTop = y;
             regionDepth = y;
@@ -473,7 +487,6 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             region = next;
-            columns = ColumnsOf(next);
 
             // A section that opens a page, the first included, sets its top and
             // foot; one that follows on a page keeps those of the page it is on.
@@ -482,7 +495,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 if (!hasOwner || opensPage)
                     TakeOwner(next);
 
-                (pageTop, contentBottom) = BandOf(next);
+                (pageTop, contentBottom) = BandOf(owner);
                 y = pageTop;
             }
             else if (opensPage)
@@ -493,6 +506,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 pendingOwner = next;
                 hasPendingOwner = true;
             }
+
+            columns = ColumnsOf(next, owner);
 
             column = 0;
             columnStart = currentLines.Count;
