@@ -42,6 +42,18 @@ public static class RtfReader
         public int DocumentCodePage;
         public int LineSpacing;
         public bool MultipleLineSpacing;
+
+        /// <summary>
+        /// <c>\intbl</c>: the paragraph is in a table. A paragraph property, so
+        /// <c>\pard</c> clears it and a group gives it back when it closes.
+        /// </summary>
+        public bool InTable;
+
+        /// <summary>
+        /// Inside <c>{\*\background ...}</c>: the shape there is the page's
+        /// background, not a shape on it.
+        /// </summary>
+        public bool InBackground;
     }
 
     private sealed class Worker
@@ -61,6 +73,20 @@ public static class RtfReader
         private int _marginBottom;
         private int _headerDistance;
         private int _footerDistance;
+
+        // The page the first section states. A section's \pgwsxn and the rest
+        // are its own page and override the document's \paperw and the rest,
+        // which RTF 1.9.1 gives as their defaults; null is a value the section
+        // did not state.
+        private int? _sectionWidth;
+        private int? _sectionHeight;
+        private int? _sectionLeft;
+        private int? _sectionRight;
+        private int? _sectionTop;
+        private int? _sectionBottom;
+        private bool _pastFirstSection;
+        private readonly RtfTableBuilder _table;
+        private readonly List<DocumentTable> _tables = [];
         private int _columns = 1;
         private int _columnGap = 720;
         private readonly StringBuilder _shapePropertyName = new();
@@ -72,6 +98,11 @@ public static class RtfReader
         private int _shapeRight;
         private int _shapeBottom;
         private int _shapeZ;
+
+        // What a shape's \shptop is measured from: 0 the top margin, 1 the page,
+        // 2 the paragraph - posrelv's numbering, which \shpbymargin, \shpbypage
+        // and \shpbypara state too.
+        private int _shapeVerticalFrame = 2;
         private BColor _shapeFillStart = BColor.Empty;
         private BColor _shapeFillEnd = BColor.Empty;
         private BColor _shapeLineColor = BColor.Empty;
@@ -79,6 +110,10 @@ public static class RtfReader
         private bool _shapeHasFill;
         private bool _shapeGradient;
         private bool _shapeHasLine = true;
+        private bool _shapeInBackground;
+        private double _shapeFillFocus;
+        private ShapeFill? _pageBackground;
+        private bool _viewBackground;
         private readonly int _maxParagraphs;
 
         // Buffered same-style body text (flushed when the style changes or the paragraph ends).
@@ -119,6 +154,7 @@ public static class RtfReader
             _embeddedDecodingRequested = options.DecodeEmbeddedObjects;
 #pragma warning restore CS0618
             _builder = new Accumulator(options.Limits.MaxParagraphCount);
+            _table = new RtfTableBuilder(_colors);
             _maxParagraphs = options.Limits.MaxParagraphCount;
             _state = new State
             {
@@ -183,15 +219,19 @@ public static class RtfReader
             }
 
             FlushPending();
+            FinishTable();
             RichTextDocument document = _builder.Build(_state.Para)
                 .WithStyleDefaults(DocumentStyleDefaults.Default with
                 {
                     FontFamily = _defaultFont is int font ? _fonts.GetName(font) : null,
                 })
                 .WithRunningContent(BuildRunningContent())
-                .WithPageGeometry(BuildPageGeometry());
+                .WithPageGeometry(BuildPageGeometry())
+                .WithPageBackground(_viewBackground ? _pageBackground : null);
             if (_shapes.Count > 0)
                 document = document.WithShapes(_shapes);
+            if (_tables.Count > 0)
+                document = document.WithTables(_tables);
             if (_builder.LimitHit)
                 _diagnostics.Add(DocumentDiagnostic.Warning("rtf.paragraphs", "Document exceeded MaxParagraphCount; extra paragraphs were dropped."));
             if (_builder.PageBreakPending)
@@ -389,7 +429,7 @@ public static class RtfReader
             // destination it does understand has to be let through - a shape
             // arrives as {\*\shpinst ...} and would otherwise be dropped here,
             // several hundred lines before the case that handles it.
-            if (star && kw is not "shpinst")
+            if (star && kw is not ("shpinst" or "background"))
             {
                 _state.Dest = RtfDestination.Skip;
                 return;
@@ -415,6 +455,9 @@ public static class RtfReader
 
         private void HandleBodyControlWord(string kw, int p, bool has)
         {
+            if (_table.HandleDefinitionWord(kw, p, has))
+                return;
+
             switch (kw)
             {
                 case "deff": if (has && p >= 0) _defaultFont = p; break;
@@ -461,6 +504,33 @@ public static class RtfReader
                 case "headery": if (has) _headerDistance = p; return;
                 case "footery": if (has) _footerDistance = p; return;
 
+                // The section's own page, which is the one its text is laid out
+                // on whatever the document says. The document's page is the one
+                // it opens on, so it is the first section's; a later section's
+                // page belongs to that section, which this reader does not read,
+                // and letting it overwrite the first would turn the whole
+                // document landscape for one landscape section at its end.
+                case "pgwsxn": if (has && !_pastFirstSection) _sectionWidth = p; return;
+                case "pghsxn": if (has && !_pastFirstSection) _sectionHeight = p; return;
+                case "marglsxn": if (has && !_pastFirstSection) _sectionLeft = p; return;
+                case "margrsxn": if (has && !_pastFirstSection) _sectionRight = p; return;
+                case "margtsxn": if (has && !_pastFirstSection) _sectionTop = p; return;
+                case "margbsxn": if (has && !_pastFirstSection) _sectionBottom = p; return;
+                // \sectd puts the section back to its defaults, which for the
+                // page are the document's.
+                case "sectd":
+                    if (!_pastFirstSection)
+                        _sectionWidth = _sectionHeight = _sectionLeft = _sectionRight = _sectionTop = _sectionBottom = null;
+                    return;
+                case "sect": _pastFirstSection = true; return;
+                // Orientation is a flag beside the size, not an instruction to
+                // swap it: the width and height a landscape section states are
+                // already the landscape page's. LibreOffice draws
+                // \lndscpsxn\pgwsxn11907\pghsxn16840 as a portrait page.
+                case "lndscpsxn":
+                case "landscape":
+                    return;
+
                 // \cols is a count, not a length; \colsx is the gap, which the
                 // specification puts at 720 twips when the control word is absent.
                 case "cols": if (has) _columns = p; return;
@@ -474,6 +544,10 @@ public static class RtfReader
                 // does, and only one group may close as the shape or it would be
                 // finished twice - once for the inner group and once for the outer.
                 case "shp": BeginShape(); return;
+                case "background": _state.InBackground = true; return;
+                // Whether the background is shown at all, which LibreOffice
+                // takes as Word's w:displayBackgroundShape.
+                case "viewbksp": _viewBackground = !has || p != 0; return;
                 case "shpinst": _state.Dest = RtfDestination.Shape; return;
                 case "shpleft": if (has) _shapeLeft = p; return;
                 case "shptop": if (has) _shapeTop = p; return;
@@ -484,6 +558,9 @@ public static class RtfReader
                 // over it are both in the body here, and this is the only thing
                 // saying which the reader sees.
                 case "shpz": if (has) _shapeZ = p; return;
+                case "shpbymargin": _shapeVerticalFrame = 0; return;
+                case "shpbypage": _shapeVerticalFrame = 1; return;
+                case "shpbypara": _shapeVerticalFrame = 2; return;
                 case "sp": _state.Dest = RtfDestination.ShapeProperty; BeginShapeProperty(); return;
                 case "sn": _state.Dest = RtfDestination.ShapePropertyName; return;
                 case "sv": _state.Dest = RtfDestination.ShapePropertyValue; return;
@@ -493,7 +570,9 @@ public static class RtfReader
                     _state.Para = ParagraphStyle.Default;
                     _state.LineSpacing = 0;
                     _state.MultipleLineSpacing = false;
+                    _state.InTable = false;
                     break;
+                case "intbl": _state.InTable = !(has && p == 0); break;
                 case "sl":
                     if (has)
                     {
@@ -523,15 +602,36 @@ public static class RtfReader
                 // does.
                 case "pagebb": _state.Para = _state.Para with { PageBreakBefore = !(has && p == 0) }; break;
 
-                case "par":
+                case "par": EndParagraph(); break;
+                // A row end in the body closes a row of the table. Anywhere else
+                // - a header, a shape's text - there is no table to close, and it
+                // ends the paragraph as it always did.
                 case "row":
-                    EndParagraph();
+                    if (InBody && _table.IsOpen)
+                    {
+                        FlushPending();
+                        _table.EndRow();
+                    }
+                    else
+                    {
+                        EndParagraph();
+                    }
+
                     break;
                 case "page": PageBreak(); break;
                 case "column": ColumnBreak(); break;
                 case "line": AppendChar(0x2028); break; // soft line break
-                case "tab":
-                case "cell": AppendBody("\t"); break;
+                case "tab": AppendBody("\t"); break;
+                case "cell":
+                    if (InBody)
+                        EndCell();
+                    else
+                        AppendBody("\t");
+                    break;
+                // A cell of a table nested in a cell. Nested tables are not
+                // read, so their text joins the outer cell's, and a tab keeps
+                // one inner cell's text off the next.
+                case "nestcell": AppendBody("\t"); break;
                 case "lquote": AppendChar(0x2018); break;
                 case "rquote": AppendChar(0x2019); break;
                 case "ldblquote": AppendChar(0x201C); break;
@@ -886,16 +986,18 @@ public static class RtfReader
         /// </summary>
         private PageGeometry? BuildPageGeometry()
         {
-            if (_paperWidth <= 0 || _paperHeight <= 0)
+            int width = _sectionWidth ?? _paperWidth;
+            int height = _sectionHeight ?? _paperHeight;
+            if (width <= 0 || height <= 0)
                 return null;
 
             var geometry = new PageGeometry(
-                _paperWidth / 20d,
-                _paperHeight / 20d,
-                _marginLeft / 20d,
-                _marginRight / 20d,
-                _marginTop / 20d,
-                _marginBottom / 20d,
+                width / 20d,
+                height / 20d,
+                (_sectionLeft ?? _marginLeft) / 20d,
+                (_sectionRight ?? _marginRight) / 20d,
+                (_sectionTop ?? _marginTop) / 20d,
+                (_sectionBottom ?? _marginBottom) / 20d,
                 _headerDistance / 20d,
                 _footerDistance / 20d);
 
@@ -932,6 +1034,7 @@ public static class RtfReader
             _shapeRight = 0;
             _shapeBottom = 0;
             _shapeZ = 0;
+            _shapeVerticalFrame = 2;
             _shapeFillStart = BColor.Empty;
             _shapeFillEnd = BColor.Empty;
             _shapeLineColor = BColor.Empty;
@@ -939,6 +1042,8 @@ public static class RtfReader
             _shapeHasFill = false;
             _shapeGradient = false;
             _shapeHasLine = true;
+            _shapeInBackground = _state.InBackground;
+            _shapeFillFocus = 0;
             _shapeText = null;
         }
 
@@ -978,6 +1083,9 @@ public static class RtfReader
                 case "fillType":
                     _shapeGradient = number != 0;
                     break;
+                case "fillFocus":
+                    _shapeFillFocus = number;
+                    break;
                 case "fillAngle":
                     // Word states it in 65536ths of a degree.
                     _shapeFillAngle = number / 65536d;
@@ -990,6 +1098,10 @@ public static class RtfReader
                     break;
                 case "fLine":
                     _shapeHasLine = number != 0;
+                    break;
+                case "posrelv":
+                    // 3 is the line, which the model holds as its paragraph.
+                    _shapeVerticalFrame = number is 0 or 1 ? (int)number : 2;
                     break;
                 default:
                     break;
@@ -1013,25 +1125,45 @@ public static class RtfReader
             ShapeFill? fill = null;
             if (_shapeHasFill && !_shapeFillStart.IsEmpty)
             {
+                // A focus near 50 mirrors the gradient, as VML's does.
                 fill = _shapeGradient && !_shapeFillEnd.IsEmpty
-                    ? new ShapeFill(_shapeFillStart, _shapeFillEnd, _shapeFillAngle)
+                    ? new ShapeFill(
+                        _shapeFillStart,
+                        _shapeFillEnd,
+                        _shapeFillAngle,
+                        Axial: Math.Abs(_shapeFillFocus) is >= 25 and <= 75)
                     : ShapeFill.Solid(_shapeFillStart);
+            }
+
+            // The page's background states no box; it is the page.
+            if (_shapeInBackground)
+            {
+                _shapeText = null;
+                _pageBackground = fill;
+                return;
             }
 
             _shapeText = null;
             if (width <= 0 || height <= 0 || (fill is null && paragraphs.Count == 0))
                 return;
 
+            // A shape measured from the page or its top margin is placed from the
+            // top of the page its paragraph is on, which the model holds as such.
+            double top = _shapeTop / 20d;
+            if (_shapeVerticalFrame == 0)
+                top += (_sectionTop ?? _marginTop) / 20d;
+
             _shapes.Add(new DocumentShape(
                 _builder.ParagraphCount,
                 _shapeLeft / 20d,
-                _shapeTop / 20d,
+                top,
                 width,
                 height,
                 fill,
                 _shapeHasLine ? _shapeLineColor : BColor.Empty,
                 paragraphs,
-                zOrder: _shapeZ));
+                zOrder: _shapeZ,
+                offsetFromPage: _shapeVerticalFrame != 2));
         }
 
         /// <summary>The headers and footers the document's running destinations collected.</summary>
@@ -1062,10 +1194,55 @@ public static class RtfReader
         {
             FlushPending();
 
-            // The character formatting in effect at \par is the paragraph mark's,
-            // which is what an empty paragraph is as tall as.
-            Active.EndParagraph(_state.Para, _state.Char with { LinkHref = null, Image = null });
+            // A body paragraph either belongs to the table being read or ends it:
+            // the first paragraph out of a table is where the table stops.
+            if (InBody)
+            {
+                if (_state.InTable)
+                    _table.NoteParagraph(_builder.ParagraphCount);
+                else
+                    FinishTable();
+            }
+
+            CloseParagraph();
         }
+
+        /// <summary>
+        /// Closes the paragraph with the character formatting in effect, which is
+        /// the paragraph mark's and what an empty paragraph is as tall as.
+        /// </summary>
+        private void CloseParagraph() =>
+            Active.EndParagraph(_state.Para, _state.Char with { LinkHref = null, Image = null });
+
+        /// <summary>
+        /// <c>\cell</c>: ends the cell's last paragraph, and the cell with it.
+        /// </summary>
+        /// <remarks>
+        /// It is a cell whether or not <c>\intbl</c> said so, because a cell end
+        /// can mean nothing else. It used to be read as a tab and <c>\row</c> as
+        /// a paragraph, so a table arrived as lines of tab-separated text: two
+        /// rows of seven and eighteen cells drew as three lines with no grid.
+        /// </remarks>
+        private void EndCell()
+        {
+            FlushPending();
+            _table.NoteParagraph(_builder.ParagraphCount);
+            CloseParagraph();
+            _table.EndCell(_builder.ParagraphCount);
+        }
+
+        private void FinishTable()
+        {
+            if (_table.Finish() is DocumentTable table)
+                _tables.Add(table);
+        }
+
+        /// <summary>
+        /// Whether text written now lands in the body flow, where a table can be:
+        /// not a header, a footer or a shape's text, whose paragraphs the model
+        /// holds as lists of their own.
+        /// </summary>
+        private bool InBody => ReferenceEquals(Active, _builder);
 
         /// <summary>
         /// Takes a <c>\page</c>, which RTF states in the character stream rather

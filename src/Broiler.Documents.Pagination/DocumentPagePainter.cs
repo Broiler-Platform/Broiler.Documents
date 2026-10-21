@@ -80,6 +80,10 @@ public sealed class DocumentPagePainter
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(resolveImage);
 
+        // The page's own colour goes under everything, the content box included.
+        if (page.Background is ShapeFill background)
+            DrawFill(list, new BRect(0, 0, page.WidthPoints, page.HeightPoints), background);
+
         if (_settings.ShowContentBox)
         {
             list.StrokeRect(new BRect(box.ContentLeftPoints, box.ContentTopPoints, box.ContentWidthPoints, box.ContentHeightPoints),
@@ -114,48 +118,13 @@ public sealed class DocumentPagePainter
     /// <summary>
     /// Paints one shape: its fill, its picture, its outline, then its own text.
     /// </summary>
-    /// <remarks>
-    /// A gradient is drawn as bands of solid colour because the render list has
-    /// no gradient primitive. The band count is the extent in points, capped, so
-    /// a band is about a point tall and the seams fall below what the eye picks
-    /// out at any sensible DPI.
-    /// </remarks>
     private void DrawShape(BRenderList list, LayoutShape shape, Func<InlineImage, BImageHandle?> resolveImage)
     {
         if (shape.Bounds.Width <= 0 || shape.Bounds.Height <= 0)
             return;
 
         if (shape.Fill is ShapeFill fill)
-        {
-            if (!fill.IsGradient)
-            {
-                list.FillRect(shape.Bounds, fill.Start);
-            }
-            else
-            {
-                // DrawingML measures the angle clockwise from the x axis. The
-                // render list fills rectangles, so the gradient is banded along
-                // whichever axis it runs closer to; a diagonal is approximated by
-                // the axis it is nearer.
-                double radians = fill.AngleDegrees * Math.PI / 180.0;
-                bool vertical = Math.Abs(Math.Sin(radians)) >= Math.Abs(Math.Cos(radians));
-                double extent = vertical ? shape.Bounds.Height : shape.Bounds.Width;
-                int bands = (int)Math.Clamp(Math.Round(extent), 2, 512);
-
-                for (int i = 0; i < bands; i++)
-                {
-                    double t = bands == 1 ? 0 : (double)i / (bands - 1);
-                    BColor color = Mix(fill.Start, fill.End, t);
-                    double start = extent * i / bands;
-                    double size = (extent / bands) + 0.5; // overlap, so no seam shows
-                    list.FillRect(
-                        vertical
-                            ? new BRect(shape.Bounds.Left, shape.Bounds.Top + start, shape.Bounds.Width, size)
-                            : new BRect(shape.Bounds.Left + start, shape.Bounds.Top, size, shape.Bounds.Height),
-                        color);
-                }
-            }
-        }
+            DrawFill(list, shape.Bounds, fill);
 
         // Over the fill and under the outline: a framed picture keeps its frame.
         if (shape.Image is InlineImage image)
@@ -212,12 +181,98 @@ public sealed class DocumentPagePainter
         list.DrawImage(decoded, new BRect(0, 0, decoded.PixelSize.Width, decoded.PixelSize.Height), destination);
     }
 
-    private static BColor Mix(BColor from, BColor to, double t) =>
-        new(
-            (byte)Math.Round(from.R + ((to.R - from.R) * t)),
-            (byte)Math.Round(from.G + ((to.G - from.G) * t)),
-            (byte)Math.Round(from.B + ((to.B - from.B) * t)),
-            (byte)Math.Round(from.A + ((to.A - from.A) * t)));
+    /// <summary>
+    /// Paints <paramref name="bounds"/> with <paramref name="fill"/>: a page's
+    /// background or a shape's box.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A gradient is drawn as bands of solid colour because the render list has
+    /// no gradient primitive. The band count is the extent in points, capped, so
+    /// a band is about a point wide and the seams fall below what the eye picks
+    /// out at any sensible DPI.
+    /// </para>
+    /// <para>
+    /// The bands run across the angle the fill states, which DrawingML measures
+    /// clockwise from the x axis, and the gradient spans the box's length along
+    /// that direction, so its first and last colours meet the corners - how
+    /// DrawingML and CSS both draw a linear gradient. A gradient along an axis is
+    /// banded in rectangles; a diagonal one in strips clipped to the box. Banding
+    /// a diagonal along the nearer axis, which this did, turned a page whose
+    /// colours meet in its corners into one whose colours meet at its sides.
+    /// </para>
+    /// </remarks>
+    private static void DrawFill(BRenderList list, BRect bounds, ShapeFill fill)
+    {
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+            return;
+
+        if (!fill.IsGradient)
+        {
+            list.FillRect(bounds, fill.Start);
+            return;
+        }
+
+        double radians = fill.AngleDegrees * Math.PI / 180.0;
+        double dx = Math.Cos(radians);
+        double dy = Math.Sin(radians);
+        if (Math.Abs(dx) < 1e-9)
+            dx = 0;
+        if (Math.Abs(dy) < 1e-9)
+            dy = 0;
+
+        double extent = Math.Abs(bounds.Width * dx) + Math.Abs(bounds.Height * dy);
+        int bands = (int)Math.Clamp(Math.Round(extent), 2, 512);
+        double step = extent / bands;
+        double centerX = bounds.Left + (bounds.Width / 2);
+        double centerY = bounds.Top + (bounds.Height / 2);
+        bool diagonal = dx != 0 && dy != 0;
+
+        // Half the length a strip has to run across the gradient to cover the
+        // box at any angle; the clip trims it.
+        double reach = bounds.Width + bounds.Height;
+        if (diagonal)
+            list.Append(new BRenderCommand.PushClip(bounds));
+
+        for (int i = 0; i < bands; i++)
+        {
+            BColor color = fill.ColorAt((double)i / (bands - 1));
+            double from = (-extent / 2) + (step * i);
+            double to = from + step + 0.5; // overlap, so no seam shows
+
+            if (!diagonal)
+            {
+                // Along an axis, the strip is a rectangle: measured from the
+                // side the gradient starts at, which is the far one when the
+                // angle points back along the axis.
+                double near = dx != 0 ? bounds.Width / 2 : bounds.Height / 2;
+                double sign = dx + dy;
+                double a = sign > 0 ? near + from : near - to;
+                double b = sign > 0 ? near + to : near - from;
+                a = Math.Max(0, a);
+                b = Math.Min(2 * near, b);
+                if (b <= a)
+                    continue;
+
+                list.FillRect(
+                    dx != 0
+                        ? new BRect(bounds.Left + a, bounds.Top, b - a, bounds.Height)
+                        : new BRect(bounds.Left, bounds.Top + a, bounds.Width, b - a),
+                    color);
+                continue;
+            }
+
+            BPoint p1 = new(centerX + (dx * from) + (dy * reach), centerY + (dy * from) - (dx * reach));
+            BPoint p2 = new(centerX + (dx * to) + (dy * reach), centerY + (dy * to) - (dx * reach));
+            BPoint p3 = new(centerX + (dx * to) - (dy * reach), centerY + (dy * to) + (dx * reach));
+            BPoint p4 = new(centerX + (dx * from) - (dy * reach), centerY + (dy * from) + (dx * reach));
+            list.FillTriangle(p1, p2, p3, color);
+            list.FillTriangle(p1, p3, p4, color);
+        }
+
+        if (diagonal)
+            list.Append(new BRenderCommand.PopClip());
+    }
 
     private void DrawLine(BRenderList list, LayoutLine line, Func<InlineImage, BImageHandle?> resolveImage)
     {

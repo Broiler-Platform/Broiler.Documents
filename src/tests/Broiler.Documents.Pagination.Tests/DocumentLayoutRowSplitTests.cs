@@ -138,16 +138,71 @@ public sealed class DocumentLayoutRowSplitTests
         Assert.Equal(perPage + 10, LinesStarting(result.Pages[0], "Left", document).Count());
     }
 
+    /// <summary>
+    /// LibreOffice's <c>fdo48718-1.docx</c> is a one-row table whose one cell
+    /// holds the whole report, a table of 76 rows among it. Kept whole, the row
+    /// left page one blank and ran off the foot of page two.
+    /// </summary>
     [Fact]
-    public void A_Row_Holding_A_Nested_Table_Stays_Whole()
+    public void A_Row_Holding_A_Nested_Table_Breaks_Between_Its_Rows()
     {
         int perPage = PerPage();
-        RichTextDocument document = TableAfter(perPage - 4, 10, 2, nestedRows: 2);
+        RichTextDocument document = TableAfter(perPage - 4, 10, 2, nestedRows: 10);
 
         LayoutResult result = Layout(document);
 
-        Assert.Empty(LinesStarting(result.Pages[0], "Left", document));
+        Assert.Equal(4, LinesStarting(result.Pages[0], "Left", document).Count());
+        Assert.Equal(6, LinesStarting(result.Pages[1], "Left", document).Count());
+
+        // Each nested row's box goes with its line: the outer two cells and four
+        // nested ones above the cut, the outer two and six below it.
+        Assert.Equal(2 + 4, result.Pages[0].Cells.Count);
+        Assert.Equal(2 + 6, result.Pages[1].Cells.Count);
+        Assert.All(result.Pages[0].Cells, cell => Assert.True(cell.Bounds.Bottom <= 72 + 648 + 0.001));
+        Assert.Equal(72, result.Pages[1].Cells.Min(cell => cell.Bounds.Top), 3);
+    }
+
+    [Fact]
+    public void A_Row_Holding_A_Nested_Table_Taller_Than_The_Page_Starts_On_The_First()
+    {
+        int perPage = PerPage();
+        RichTextDocument document = TableAfter(0, perPage + 10, 1, nestedRows: perPage + 10);
+
+        LayoutResult result = Layout(document);
+
+        Assert.Equal(2, result.Pages.Count);
+        Assert.Equal(perPage, LinesStarting(result.Pages[0], "Left", document).Count());
         Assert.Equal(10, LinesStarting(result.Pages[1], "Left", document).Count());
+        Assert.All(result.Pages[0].Lines, line => Assert.True(line.Top + line.Height <= 72 + 648 + 0.001));
+    }
+
+    [Fact]
+    public void A_Nested_Row_Is_Not_Cut_Through()
+    {
+        // Two nested rows of three lines each under a body that leaves room for
+        // four: the first row fits, and the second goes to the next page whole.
+        int perPage = PerPage();
+        var paragraphs = new List<RichTextParagraph>();
+        for (int i = 0; i < perPage - 4; i++)
+            paragraphs.Add(RichTextParagraph.Plain("Body " + i));
+
+        int start = paragraphs.Count;
+        for (int i = 0; i < 6; i++)
+            paragraphs.Add(RichTextParagraph.Plain((i < 3 ? "First " : "Second ") + i));
+
+        paragraphs.Add(RichTextParagraph.Plain("After the table"));
+
+        var nested = new DocumentTable(start, 6,
+            [new TableRow([new TableCell(start, 3, 0)]), new TableRow([new TableCell(start + 3, 3, 0)])]);
+        var outer = new DocumentTable(start, 6,
+            [new TableRow([new TableCell(start, 6, 0, tables: [nested])])], [400.0]);
+        RichTextDocument document = RichTextDocument.FromParagraphs(paragraphs).WithTables([outer]);
+
+        LayoutResult result = Layout(document);
+
+        Assert.Equal(3, LinesStarting(result.Pages[0], "First", document).Count());
+        Assert.Empty(LinesStarting(result.Pages[0], "Second", document));
+        Assert.Equal(3, LinesStarting(result.Pages[1], "Second", document).Count());
     }
 
     [Fact]

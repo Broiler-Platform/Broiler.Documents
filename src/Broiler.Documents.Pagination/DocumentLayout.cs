@@ -26,8 +26,9 @@ namespace Broiler.Documents.Pagination;
 /// not try to be one. There are no floats, footnotes, hyphenation, kerning
 /// pairs, or bidirectional reordering here - mostly because the document model
 /// has no way to express them, so there is nothing to lay out. A table row
-/// breaks across a page cell by cell unless it says it may not, or holds a nested
-/// table or a cell that spans rows. Text columns are filled one after the
+/// breaks across a page cell by cell unless it says it may not, or holds a cell
+/// that spans rows; a table nested in a cell breaks between its own rows. Text
+/// columns are filled one after the
 /// other. A section's columns are balanced where the next section follows on
 /// the same page, as Word and LibreOffice balance them, a table row moving as
 /// one piece, unless the section holds a column break there; the page's own
@@ -57,6 +58,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private double? _footerDistance;
     private PageFrame? _frame;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
+    private ShapeFill? _background;
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
 
@@ -83,6 +85,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _footerDistance = document.PageGeometry?.FooterDistance;
         _frame = null;
         _documentShapes = document.Shapes;
+        _background = document.PageBackground;
         _paragraphTops.Clear();
         _wrap = new TextWrapExclusions();
         AddPageExclusions(1);
@@ -278,7 +281,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             if (shape.Wraps && !shape.IsPageAnchored &&
                                 _paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchor))
                             {
-                                _wrap.Add(shape, anchor + shape.OffsetY);
+                                _wrap.Add(shape, shape.TopOnPage(anchor));
                             }
                         }
                     }
@@ -428,7 +431,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             foreach (DocumentShape shape in _documentShapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
-                    _wrap.Add(shape, y + shape.OffsetY);
+                    _wrap.Add(shape, shape.TopOnPage(y));
             }
 
             // Space before never opens a page, or a column: a paragraph that
@@ -545,7 +548,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     finalSetup.HeightPoints,
                     [.. pages[0].Lines],
                     [.. pages[0].Shapes],
-                    [.. pages[0].Cells]),
+                    [.. pages[0].Cells],
+                    _background),
             ];
         }
 
@@ -596,7 +600,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
         shapes = [.. shapes.OrderBy(shape => shape.ZOrder)];
 
-        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells);
+        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells, _background);
     }
 
     /// <summary>
@@ -760,7 +764,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 continue;
             }
 
-            var bounds = new BRect(setup.ContentLeftPoints + shape.OffsetX, anchorTop + shape.OffsetY,
+            var bounds = new BRect(setup.ContentLeftPoints + shape.OffsetX, shape.TopOnPage(anchorTop),
                 Math.Max(0, shape.Width), Math.Max(0, shape.Height));
 
             if (bounds.Width <= 0 || bounds.Height <= 0)
@@ -789,25 +793,26 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         foreach (TableRow row in table.Rows)
         {
-            // A row may break across a page only where every cell can be cut on
-            // its own line boundary. A nested table's boxes and a box that spans
-            // rows would each need cutting too, so a row holding either stays whole.
+            // A row may break across a page where every cell can be cut on its
+            // own line boundary, or between the rows of a table nested in it. A
+            // box that spans rows would need cutting with the rows it spans, so a
+            // row holding one stays whole.
             var box = new RowBox
             {
                 CanSplit = row.CanSplit &&
-                    row.Cells.All(cell => cell.RowSpan == 1 && !cell.IsRowSpanContinuation && cell.Tables.Count == 0),
+                    row.Cells.All(cell => cell.RowSpan == 1 && !cell.IsRowSpanContinuation),
             };
             foreach (TableCell cell in row.Cells)
             {
                 (double cellLeft, double cellWidth) = ColumnSpanBox(edges, cell);
                 double textWidth = Math.Max(1.0, cellWidth - (table.CellPadding * 2));
 
-                (List<LayoutLine> lines, List<LayoutCell> nested, double height) =
+                (List<LayoutLine> lines, List<LayoutCell> nested, List<CutPiece> pieces, double height) =
                     ComposeBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, setup, cellLeft + table.CellPadding, textWidth);
 
                 box.Lines.AddRange(lines);
                 box.Cells.AddRange(nested);
-                box.Contents.Add(new CellLines(lines, height));
+                box.Contents.Add(new CellLines(lines, nested, pieces, height));
                 box.Height = Math.Max(box.Height, height);
 
                 // A cell the merge above it covers is drawn by no one: the cell
@@ -900,11 +905,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// <see cref="ComposeTable"/>, which comes back here for its cells - so
     /// nesting costs nothing beyond the recursion.
     /// </summary>
-    private (List<LayoutLine> Lines, List<LayoutCell> Cells, double Height) ComposeBlocks(RichTextDocument document,
-        IReadOnlyList<DocumentTable> tables, int from, int to, DocumentPageBox setup, double left, double width)
+    /// <returns>
+    /// The lines and nested cell boxes, the pieces a page may cut the range
+    /// between, and the height it takes.
+    /// </returns>
+    private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeBlocks(
+        RichTextDocument document, IReadOnlyList<DocumentTable> tables, int from, int to, DocumentPageBox setup,
+        double left, double width)
     {
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
+        var pieces = new List<CutPiece>();
         var numbering = new ListNumbering();
         double y = 0;
 
@@ -913,9 +924,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             if (DocumentTable.StartingAt(tables, index) is DocumentTable nested)
             {
+                // A nested row is one piece: a page breaks between two of them,
+                // never through one. Its paragraphs' tops here are measured from
+                // the box, so they are not the page's; the row that holds the box
+                // records them where it is placed.
                 foreach (RowBox row in ComposeTable(nested, document, setup, left, width))
                 {
-                    row.PlaceAt(y, 0, lines, cells, _paragraphTops);
+                    row.PlaceAt(y, 0, lines, cells, new Dictionary<int, double>());
+                    pieces.Add(new CutPiece(y, y + row.Height));
                     y += row.Height;
                 }
 
@@ -933,6 +949,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 line.Top = y;
                 lines.Add(line);
+                pieces.Add(new CutPiece(y, y + line.Height));
                 y += line.Height;
             }
 
@@ -940,8 +957,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             index++;
         }
 
-        return (lines, cells, y);
+        return (lines, cells, pieces, y);
     }
+
+    /// <summary>
+    /// A stretch of a cell a page may break before or after but not inside: one
+    /// of its lines, or a whole row of a table nested in it. Measured from the
+    /// top of the cell.
+    /// </summary>
+    private readonly record struct CutPiece(double Top, double Bottom);
 
     /// <summary>A cell's box within its row, before the row is placed on a page.</summary>
     private sealed class CellBox(double left, double width, TableCell cell)
@@ -956,8 +980,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         public double ExtraHeight { get; set; }
     }
 
-    /// <summary>One cell's composed lines, in order, and the height they take.</summary>
-    private sealed record CellLines(List<LayoutLine> Lines, double Height);
+    /// <summary>
+    /// One cell's composed lines, in order, the boxes of any table nested in it,
+    /// the pieces it may be cut between, and the height they take.
+    /// </summary>
+    private sealed record CellLines(List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height)
+    {
+        public static CellLines Empty => new([], [], [], 0);
+    }
 
     /// <summary>
     /// One composed table row: its lines and any nested cell boxes, positioned
@@ -981,20 +1011,22 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         /// <summary>
         /// Cuts the row where <paramref name="room"/> runs out: each cell keeps the
-        /// lines that end within it, and the rest of that cell continues at the top
-        /// of the second part, its first line where the cut is.
+        /// lines, and the rows of a table nested in it, that end within it, and
+        /// the rest of that cell continues at the top of the second part, its
+        /// first piece where the cut is.
         /// </summary>
         /// <returns>
-        /// Null when no line of any cell fits, so there is nothing to leave behind;
-        /// the whole row, and no second part, when every line fits and only the
-        /// space after the last paragraph does not.
+        /// Null when no piece of any cell fits, so there is nothing to leave
+        /// behind; the whole row, and no second part, when every piece fits and
+        /// only the space after the last paragraph does not.
         /// </returns>
         /// <remarks>
-        /// Each cell is cut on its own line boundary, as Word and LibreOffice cut
-        /// one, rather than at one height for the whole row: a line across the
-        /// cut would be drawn in half on two pages. The first part's boxes run
-        /// down to the cut, so a cell whose text ended higher still reaches the
-        /// foot of the page, and both parts draw their borders.
+        /// Each cell is cut on its own boundary, as Word and LibreOffice cut one,
+        /// rather than at one height for the whole row: a line across the cut
+        /// would be drawn in half on two pages. A nested table is cut between
+        /// its rows, each of which goes to one page whole. The first part's boxes
+        /// run down to the cut, so a cell whose text ended higher still reaches
+        /// the foot of the page, and both parts draw their borders.
         /// </remarks>
         public (RowBox Fitted, RowBox? Remainder)? SplitAt(double room)
         {
@@ -1003,15 +1035,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             bool carried = false;
             for (int i = 0; i < Contents.Count; i++)
             {
-                foreach (LayoutLine line in Contents[i].Lines)
+                foreach (CutPiece piece in Contents[i].Pieces)
                 {
-                    if (line.Top + line.Height <= room)
+                    if (piece.Bottom <= room)
                     {
                         kept = true;
                         continue;
                     }
 
-                    cuts[i] = line.Top;
+                    cuts[i] = piece.Top;
                     carried = true;
                     break;
                 }
@@ -1032,8 +1064,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 if (cuts[i] is not double cut)
                 {
                     fitted.Lines.AddRange(content.Lines);
+                    fitted.Cells.AddRange(content.Cells);
                     fitted.Contents.Add(content);
-                    rest.Contents.Add(new CellLines([], 0));
+                    rest.Contents.Add(CellLines.Empty);
                     continue;
                 }
 
@@ -1051,11 +1084,45 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     after.Add(line);
                 }
 
+                // A nested box above the cut stays and one below it moves up
+                // with its lines. Only a box that spans nested rows can reach
+                // across the cut; it is drawn to the foot of the page and
+                // continues from the top of the next, as the row around it does.
+                var boxesBefore = new List<LayoutCell>();
+                var boxesAfter = new List<LayoutCell>();
+                foreach (LayoutCell box in content.Cells)
+                {
+                    BRect bounds = box.Bounds;
+                    if (bounds.Top < cut)
+                    {
+                        boxesBefore.Add(new LayoutCell(
+                            new BRect(bounds.Left, bounds.Top, bounds.Width, Math.Min(bounds.Height, cut - bounds.Top)),
+                            box.Shading, box.Borders));
+                    }
+
+                    if (bounds.Bottom > cut)
+                    {
+                        double top = Math.Max(bounds.Top, cut);
+                        boxesAfter.Add(new LayoutCell(
+                            new BRect(bounds.Left, top - cut, bounds.Width, bounds.Bottom - top),
+                            box.Shading, box.Borders));
+                    }
+                }
+
+                var piecesAfter = new List<CutPiece>();
+                foreach (CutPiece piece in content.Pieces)
+                {
+                    if (piece.Top >= cut)
+                        piecesAfter.Add(new CutPiece(piece.Top - cut, piece.Bottom - cut));
+                }
+
                 double remaining = Math.Max(0, content.Height - cut);
                 fitted.Lines.AddRange(before);
-                fitted.Contents.Add(new CellLines(before, cut));
+                fitted.Cells.AddRange(boxesBefore);
+                fitted.Contents.Add(new CellLines(before, boxesBefore, [.. content.Pieces.Where(piece => piece.Top < cut)], cut));
                 rest.Lines.AddRange(after);
-                rest.Contents.Add(new CellLines(after, remaining));
+                rest.Cells.AddRange(boxesAfter);
+                rest.Contents.Add(new CellLines(after, boxesAfter, piecesAfter, remaining));
                 rest.Height = Math.Max(rest.Height, remaining);
             }
 

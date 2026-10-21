@@ -54,7 +54,7 @@ public static class DocxWriter
             if (context.HasNumbering)
                 AddXmlEntry(archive, "word/numbering.xml", BuildNumbering());
             if (context.SettingsRelationshipId is not null)
-                AddXmlEntry(archive, "word/settings.xml", BuildSettings());
+                AddXmlEntry(archive, "word/settings.xml", BuildSettings(context));
             foreach (DocxRunningPart part in context.RunningParts)
                 AddXmlEntry(archive, part.PartPath, part.Xml);
             foreach (DocxImagePart image in context.Images)
@@ -96,7 +96,7 @@ public static class DocxWriter
         // An even part is drawn only where the settings turn even pages on, so
         // writing one without w:evenAndOddHeaders writes a part Word ignores.
         if (context.RunningParts.Any(static part => part.Selection == PageSelection.Even))
-            context.AddSettings();
+            context.AddSettings(evenAndOddHeaders: true);
     }
 
     /// <remarks>
@@ -249,8 +249,53 @@ public static class DocxWriter
                 new XAttribute(XNamespace.Xmlns + "pic", DocxNamespaces.Picture.NamespaceName));
         }
 
+        // Before the body, as CT_Document orders it, and shown only where the
+        // settings say so (ECMA-376 §17.15.1.25): a background Word is not told
+        // to display is one it keeps and does not draw.
+        if (document.PageBackground is ShapeFill background)
+        {
+            root.Add(BuildBackground(background, root));
+            context.AddSettings(displayBackgroundShape: true);
+        }
+
         root.Add(body);
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root);
+    }
+
+    /// <summary>
+    /// The page background as <c>w:background</c> (ECMA-376 §17.2.1): a colour
+    /// alone, or for a gradient the VML shape Word draws it with, holding the
+    /// colour Word falls back to beside it.
+    /// </summary>
+    /// <remarks>
+    /// The VML is the reverse of <c>DocxVml.ReadFill</c>, which reads it the way
+    /// LibreOffice does: a linear gradient starts from <c>color2</c>, a focus of
+    /// 50% mirrors it with <c>fillcolor</c> at the edges, and the angle runs
+    /// counter-clockwise from the bottom, a quarter turn from the model's.
+    /// </remarks>
+    private static XElement BuildBackground(ShapeFill fill, XElement root)
+    {
+        var background = new XElement(
+            DocxNamespaces.Wordprocessing + "background",
+            new XAttribute(DocxNamespaces.Wordprocessing + "color", HexColor(fill.ColorAt(0.5))));
+        if (!fill.IsGradient)
+            return background;
+
+        root.Add(new XAttribute(XNamespace.Xmlns + "v", DocxNamespaces.Vml.NamespaceName));
+        double vmlAngle = ((90 - fill.AngleDegrees) % 360 + 360) % 360;
+        var vmlFill = new XElement(
+            DocxNamespaces.Vml + "fill",
+            new XAttribute("color2", "#" + HexColor(fill.Axial ? fill.End : fill.Start)),
+            new XAttribute("angle", Math.Round(vmlAngle, 3).ToString(CultureInfo.InvariantCulture)),
+            new XAttribute("type", "gradient"));
+        if (fill.Axial)
+            vmlFill.Add(new XAttribute("focus", "50%"));
+
+        background.Add(new XElement(
+            DocxNamespaces.Vml + "background",
+            new XAttribute("fillcolor", "#" + HexColor(fill.Axial ? fill.Start : fill.End)),
+            vmlFill));
+        return background;
     }
 
     /// <summary>
@@ -372,7 +417,7 @@ public static class DocxWriter
                     "measured from the page; WordprocessingML cannot name the page.");
             }
 
-            element.Add(BuildShapeRun(shape, context, shape.IsPageAnchored));
+            element.Add(BuildShapeRun(shape, context, shape.IsPageAnchored || shape.OffsetFromPage));
         }
 
         return element;
@@ -1294,28 +1339,29 @@ public static class DocxWriter
                     new XAttribute("val", HexColor(fill.Start))));
         }
 
+        // DrawingML has no mirrored gradient; it states one as three stops, the
+        // first and last the same, which is how Word writes it.
+        var stops = new XElement(DocxNamespaces.Drawing + "gsLst", GradientStop(0, fill.Start));
+        if (fill.Axial)
+            stops.Add(GradientStop(50000, fill.End), GradientStop(100000, fill.Start));
+        else
+            stops.Add(GradientStop(100000, fill.End));
+
         return new XElement(
             DocxNamespaces.Drawing + "gradFill",
-            new XElement(
-                DocxNamespaces.Drawing + "gsLst",
-                new XElement(
-                    DocxNamespaces.Drawing + "gs",
-                    new XAttribute("pos", "0"),
-                    new XElement(
-                        DocxNamespaces.Drawing + "srgbClr",
-                        new XAttribute("val", HexColor(fill.Start)))),
-                new XElement(
-                    DocxNamespaces.Drawing + "gs",
-                    new XAttribute("pos", "100000"),
-                    new XElement(
-                        DocxNamespaces.Drawing + "srgbClr",
-                        new XAttribute("val", HexColor(fill.End))))),
+            stops,
             new XElement(
                 DocxNamespaces.Drawing + "lin",
                 new XAttribute(
                     "ang",
                     ((long)Math.Round(fill.AngleDegrees * 60000)).ToString(CultureInfo.InvariantCulture))));
     }
+
+    private static XElement GradientStop(int position, BColor color) =>
+        new(
+            DocxNamespaces.Drawing + "gs",
+            new XAttribute("pos", position.ToString(CultureInfo.InvariantCulture)),
+            new XElement(DocxNamespaces.Drawing + "srgbClr", new XAttribute("val", HexColor(color))));
 
     /// <summary>Points to twips: 20 to the point, which is what a section states.</summary>
     private static string Twips(double points) =>
@@ -1494,16 +1540,22 @@ public static class DocxWriter
     }
 
     /// <summary>
-    /// The settings part, written only to turn on distinct even-page headers and
-    /// footers, which is the one setting the model holds.
+    /// The settings part, written only to turn on what the model holds: the
+    /// page background's display and distinct even-page headers and footers,
+    /// in the order CT_Settings gives them.
     /// </summary>
-    private static XDocument BuildSettings() =>
-        new(
-            new XDeclaration("1.0", "utf-8", "yes"),
-            new XElement(
-                DocxNamespaces.Wordprocessing + "settings",
-                new XAttribute(XNamespace.Xmlns + "w", DocxNamespaces.Wordprocessing.NamespaceName),
-                new XElement(DocxNamespaces.Wordprocessing + "evenAndOddHeaders")));
+    private static XDocument BuildSettings(DocxWriteContext context)
+    {
+        var settings = new XElement(
+            DocxNamespaces.Wordprocessing + "settings",
+            new XAttribute(XNamespace.Xmlns + "w", DocxNamespaces.Wordprocessing.NamespaceName));
+        if (context.DisplayBackgroundShape)
+            settings.Add(new XElement(DocxNamespaces.Wordprocessing + "displayBackgroundShape"));
+        if (context.EvenAndOddHeaders)
+            settings.Add(new XElement(DocxNamespaces.Wordprocessing + "evenAndOddHeaders"));
+
+        return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), settings);
+    }
 
     private static XDocument BuildNumbering()
     {
@@ -1614,9 +1666,17 @@ public static class DocxWriter
         /// <summary>The settings part's relationship, or null when none is written.</summary>
         public string? SettingsRelationshipId { get; private set; }
 
-        /// <summary>Registers the settings part, once.</summary>
-        public void AddSettings()
+        /// <summary>Whether the settings part turns on the page background's display.</summary>
+        public bool DisplayBackgroundShape { get; private set; }
+
+        /// <summary>Whether the settings part turns on distinct even-page headers and footers.</summary>
+        public bool EvenAndOddHeaders { get; private set; }
+
+        /// <summary>Registers the settings part, once, with the switches named turned on.</summary>
+        public void AddSettings(bool displayBackgroundShape = false, bool evenAndOddHeaders = false)
         {
+            DisplayBackgroundShape |= displayBackgroundShape;
+            EvenAndOddHeaders |= evenAndOddHeaders;
             if (SettingsRelationshipId is not null)
                 return;
 

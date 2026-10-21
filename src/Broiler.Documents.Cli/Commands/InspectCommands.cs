@@ -214,6 +214,9 @@ public static class InspectCommands
                 page.MarginBottom.ToString("0.#", CultureInfo.InvariantCulture));
         }
 
+        if (loaded.Document.PageBackground is ShapeFill background)
+            context.Report("  background        " + FormatFill(background));
+
         if (statistics.FontFamilies.Count > 0)
             context.Report("  fonts             " + string.Join(", ", statistics.FontFamilies));
 
@@ -225,6 +228,9 @@ public static class InspectCommands
         context.Result["confidence"] = loaded.Probe.Confidence.ToString().ToLowerInvariant();
         context.Result["status"] = loaded.Status.ToString().ToLowerInvariant();
         context.Result["statistics"] = statistics.ToJson();
+        context.Result["pageBackground"] = loaded.Document.PageBackground is ShapeFill fill
+            ? FormatFill(fill)
+            : null;
         context.Result["diagnostics"] = DocumentReport.ToJson(loaded.Diagnostics);
 
         return DocumentReport.ApplyFailOn(
@@ -232,6 +238,16 @@ public static class InspectCommands
             DocumentOptions.FailOnFrom(context.Line),
             ExitCode.Ok);
     }
+
+    /// <summary>
+    /// A fill as one line: its colour, or its two colours, whether it is
+    /// mirrored, and its angle.
+    /// </summary>
+    private static string FormatFill(ShapeFill fill) =>
+        !fill.IsGradient
+            ? ColorText.Format(fill.Start)
+            : ColorText.Format(fill.Start) + (fill.Axial ? " <> " : " > ") + ColorText.Format(fill.End) +
+              " at " + fill.AngleDegrees.ToString("0.#", CultureInfo.InvariantCulture) + " deg";
 
     private static int RunVersion(CommandContext context)
     {

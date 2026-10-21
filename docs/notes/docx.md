@@ -30,7 +30,11 @@ Open XML WordprocessingML package parts.
   paragraphs, so a caret, a selection, a style, and every codec's text handling
   go on working through one flat list. Written back as `w:tbl`.
 - Direct inline formatting: bold, italic, underline, strikethrough, font
-  family, font size, foreground color, and background shading.
+  family, font size, foreground color, and background shading. A
+  `w:color w:val="auto"` is the automatic colour (ECMA-376 §17.3.2.6), which
+  Word and LibreOffice draw black, so on a run it clears the colour its style
+  gave rather than being passed over; a report whose Normal style is blue and
+  whose every run says `auto` drew blue without it.
 - Capitalization: `w:caps` and `w:smallCaps`, read and written as a style
   attribute. The text keeps the casing the author typed and the capitals are
   applied when drawing, so an open-and-save does not rewrite it. An explicit
@@ -122,6 +126,36 @@ Open XML WordprocessingML package parts.
   is still a part. They were anchored to a body paragraph before, which put a
   letterhead on page one only and dropped it entirely when the body was shorter
   than its header.
+- The page background, `w:background` (ECMA-376 §17.2.1), is
+  `RichTextDocument.PageBackground`, read only where `w:settings` holds
+  `w:displayBackgroundShape` (§17.15.1.25): Word keeps a page colour it is not
+  told to show, and LibreOffice reads neither the colour nor the shape without
+  the switch. The VML shape inside, `v:background`, is the background Word draws,
+  and `w:color` the colour it falls back to. A VML fill is converted the way
+  LibreOffice converts it (`oox/source/vml/vmlformatting.cxx`): its angle runs
+  counter-clockwise from the bottom, a quarter turn from the model's, a linear
+  gradient starts from `color2`, a focus of 100% or a negative angle reverses
+  it, and a focus near 50% is the mirrored gradient the model calls axial, with
+  `fillcolor` at the edges. A rectangular gradient (`gradientRadial`) is read as
+  its outer colour, which is most of the page; a pattern of one colour is that
+  colour; a pattern of two or a picture is `w:color`. Those three are reported
+  as `docx.background.fill`. A write puts `w:color` - a gradient's middle colour -
+  on `w:background`, a `v:background` for a gradient, and turns the switch on.
+  A DrawingML gradient of three stops whose first and last agree is the same
+  axial fill, and an axial shape fill is written that way.
+- VML shapes in a `w:pict` - `v:rect`, `v:roundrect`, `v:oval` and a `v:shape`
+  that holds no picture - are floating shapes, which is how Word wrote a text box
+  before 2010. The box is the shape's CSS `style`: `width`, `height`, and
+  `margin-left`/`margin-top` from the column and the paragraph by default.
+  `mso-position-horizontal-relative` and `mso-position-vertical-relative` name
+  the other frames in VML's own words (`page`, `margin`, `left-margin-area`,
+  `top-margin-area` and so on), and they convert as a DrawingML anchor's do:
+  across into the column, down into `OffsetFromPage`. A negative `z-index` puts
+  it behind the text. Its fill is read as the page background's
+  is, reported as `docx.shape.fill` where it had to be approximated; its outline
+  is `strokecolor`, VML's default black, or none where `stroked` turns it off;
+  its text is the `w:txbxContent` in its `v:textbox`. They were read as nothing
+  before, and the text in them was lost.
 - Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
   shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
   `wp:positionV`, converted from whichever frame the anchor names into the text
@@ -165,13 +199,19 @@ Open XML WordprocessingML package parts.
   source, so it survives a resize; crops that meet or cross leave no rectangle to
   draw and are ignored rather than losing the picture. The crop is applied before
   the mask, so the ellipse is inscribed in the part actually drawn.
-- A vertical `relativeFrom` other than `paragraph` or `line` is not converted.
-  Those frames measure from the page, and where a paragraph sits on a page is a
-  layout result the reader does not have — a shape on the fortieth paragraph
-  could land on any page. The offset is kept as stated and measured from the
-  anchoring paragraph instead, with `docx.anchor.relativefrom`. `insideMargin`
-  and `outsideMargin` name a side that depends on the page's parity, so
-  horizontally they are read as an odd page's, reported with the same code.
+- A vertical `relativeFrom` of `page`, `topMargin`, `margin` or `bottomMargin`
+  measures from the page, and where a paragraph sits on a page is a layout
+  result the reader does not have — a shape on the fortieth paragraph could land
+  on any page. So the model holds the frame rather than a converted offset:
+  `DocumentShape.OffsetFromPage`, with the offset turned into one from the page's
+  top edge through the geometry, and the layout places the shape that far down
+  whichever page its paragraph is on. The offset used to be kept as stated and
+  measured from the paragraph, which hung a full-page backdrop anchored at
+  nought from the page's top below its paragraph. A write states
+  `relativeFrom="page"`. `insideMargin` and `outsideMargin` name a side that
+  depends on the page's parity: vertically they are kept as stated and measured
+  from the paragraph, horizontally they are read as an odd page's, and both are
+  reported as `docx.anchor.relativefrom`.
 - EMF/WMF metafiles — what Word embeds for charts, SmartArt, and shape fallbacks
   — are not carried, because they cannot be decoded to pixels here. They are
   reported as `docx.image.format` rather than kept as a picture that would draw
@@ -234,7 +274,9 @@ Open XML WordprocessingML package parts.
   break on a paragraph *within* a cell is read and written back as stated, but
   the layout breaks a row only where the page runs out, so nothing acts on it.
 - A row's `w:cantSplit` is `TableRow.CanSplit`, read as the on/off property it
-  is and written back. A row without it may break across a page, as in Word.
+  is and written back. A row without it may break across a page, as in Word,
+  including one whose cell holds a nested table: that breaks between the
+  nested table's rows, each of which goes to one page whole.
 - A page break that opens its paragraph - nothing of the paragraph before it -
   starts that paragraph on the new page. Nothing is split, so nothing is
   demoted: the paragraph is what the page begins with. If the paragraph already
@@ -343,7 +385,9 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.limit` | Warning | An image part exceeded `MaxBinBytes` and was skipped. |
 | `docx.image.shape` | Warning | A drawing held no embedded picture. |
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
-| `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's, or a page-relative vertical offset kept as stated. |
+| `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's horizontally, or kept as stated and measured from the paragraph vertically. |
+| `docx.background.fill` | Warning | The page background's VML fill was one the model cannot hold, and was read as one colour: a rectangular (`gradientRadial`) gradient as its outer colour, a pattern of two colours or a picture fill as `w:background`'s own colour. |
+| `docx.shape.fill` | Warning | A VML shape's fill was read as one colour, for the same reasons. |
 
 Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, `docx.shape.page`, and `docx.text.control`.
 `docx.shape.page` says a shape anchored to a page by number was written beside

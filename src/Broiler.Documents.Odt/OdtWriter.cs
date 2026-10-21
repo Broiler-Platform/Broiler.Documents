@@ -60,7 +60,7 @@ public static class OdtWriter
                 OdtNamespaces.MimeTypePart,
                 Encoding.ASCII.GetBytes(OdtNamespaces.PackageMediaType));
             AddXmlEntry(archive, OdtNamespaces.ContentPart, content);
-            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(document.RunningContent, PageOf(document), context));
+            AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(document.RunningContent, PageOf(document), document.PageBackground, context));
             AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta(metadata));
             foreach (OdtPicturePart picture in context.Pictures)
                 AddDeflatedEntry(archive, picture.PartPath, picture.Data.Span);
@@ -1204,7 +1204,7 @@ public static class OdtWriter
     /// the previous default for documents that carry no geometry keeps that guess
     /// exactly where it already was.
     /// </summary>
-    private static XElement BuildPageLayoutProperties(PageGeometry? geometry)
+    private static XElement BuildPageLayoutProperties(PageGeometry? geometry, ShapeFill? background)
     {
         PageGeometry page = geometry is not null && geometry.IsUsable
             ? geometry
@@ -1234,12 +1234,62 @@ public static class OdtWriter
                 new XAttribute(OdtNamespaces.Fo + "column-gap", OdtUnits.FormatPoints(page.ColumnGap))));
         }
 
+        // Stated twice, as LibreOffice states it: draw:fill for a reader of ODF
+        // 1.2 and later, and fo:background-color - a gradient's middle colour -
+        // for one that only knows the page colour.
+        if (background is not null)
+        {
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "background-color", OdtUnits.FormatColor(background.ColorAt(0.5))));
+            if (background.IsGradient)
+            {
+                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "gradient"));
+                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill-gradient-name", PageGradientName));
+            }
+            else
+            {
+                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "solid"));
+                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill-color", OdtUnits.FormatColor(background.Start)));
+            }
+        }
+
         return properties;
     }
+
+    private const string PageGradientName = "pageGradient";
+
+    /// <summary>
+    /// The named gradient a page background's <c>draw:fill-gradient-name</c>
+    /// refers to, or null for a background that is not a gradient. Named styles
+    /// are where ODF 1.3 §16.40 puts a <c>draw:gradient</c>.
+    /// </summary>
+    private static XElement? BuildPageGradient(ShapeFill? background) =>
+        background is { IsGradient: true } ? BuildGradient(PageGradientName, background) : null;
+
+    /// <summary>
+    /// A <c>draw:gradient</c> for a model fill. An axial one is written with its
+    /// middle colour as the start, which is the colour LibreOffice draws along
+    /// the middle of an ODF axial gradient; the reader exchanges them back.
+    /// </summary>
+    private static XElement BuildGradient(string name, ShapeFill fill) =>
+        new(
+            OdtNamespaces.Draw + "gradient",
+            new XAttribute(OdtNamespaces.Draw + "name", name),
+            new XAttribute(OdtNamespaces.Draw + "style", fill.Axial ? "axial" : "linear"),
+            new XAttribute(OdtNamespaces.Draw + "start-color", OdtUnits.FormatColor(fill.Axial ? fill.End : fill.Start)),
+            new XAttribute(OdtNamespaces.Draw + "end-color", OdtUnits.FormatColor(fill.Axial ? fill.Start : fill.End)),
+            // Converted rather than written straight, and with the unit
+            // ODF 1.3 asks for. The model measures a gradient along the
+            // page and ODF measures it down the page, so the two are a
+            // quarter turn apart; writing the model's number under ODF's
+            // name would turn every gradient this codec round-trips.
+            new XAttribute(
+                OdtNamespaces.Draw + "angle",
+                OdtUnits.FormatAngle(OdtGradientAngle.ToOdf(fill.AngleDegrees))));
 
     private static XDocument BuildStyles(
         RunningContent running,
         PageGeometry? geometry,
+        ShapeFill? background,
         OdtWriteContext context)
     {
         // Built before the tree, not inside it. BuildRunningParts registers the
@@ -1270,19 +1320,21 @@ public static class OdtWriter
             new XAttribute(XNamespace.Xmlns + "text", OdtNamespaces.Text.NamespaceName),
             new XAttribute(XNamespace.Xmlns + "fo", OdtNamespaces.Fo.NamespaceName),
             new XAttribute(OdtNamespaces.Office + "version", OdtNamespaces.WrittenVersion),
+            background is null ? null : new XAttribute(XNamespace.Xmlns + "draw", OdtNamespaces.Draw.NamespaceName),
             new XElement(
                 OdtNamespaces.Office + "styles",
                 new XElement(
                     OdtNamespaces.Style + "style",
                     new XAttribute(OdtNamespaces.Style + "name", "Standard"),
                     new XAttribute(OdtNamespaces.Style + "family", "paragraph"),
-                    new XAttribute(OdtNamespaces.Style + "class", "text"))),
+                    new XAttribute(OdtNamespaces.Style + "class", "text")),
+                BuildPageGradient(background)),
             new XElement(
                 OdtNamespaces.Office + "automatic-styles",
                 new XElement(
                     OdtNamespaces.Style + "page-layout",
                     new XAttribute(OdtNamespaces.Style + "name", "pm1"),
-                    BuildPageLayoutProperties(geometry)),
+                    BuildPageLayoutProperties(geometry, background)),
                 // A header lives in this part, and a style reference only resolves
                 // within the part that carries it. Without these the footer's
                 // paragraphs name styles that exist in content.xml alone, and a
@@ -1461,25 +1513,21 @@ public static class OdtWriter
                 properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-pos", "from-top"));
                 properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-rel", "page"));
             }
+            else if (shape.OffsetFromPage)
+            {
+                // Still the paragraph's frame, and still across from its column,
+                // but down from the top of the page the paragraph is on.
+                properties.Add(new XAttribute(OdtNamespaces.Style + "horizontal-pos", "from-left"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "horizontal-rel", "paragraph"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-pos", "from-top"));
+                properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-rel", "page"));
+            }
 
             if (shape.Fill is ShapeFill fill && fill.IsGradient)
             {
                 string gradientName = "gradient" +
                     (_gradients.Count + 1).ToString(CultureInfo.InvariantCulture);
-                _gradients.Add(new XElement(
-                    OdtNamespaces.Draw + "gradient",
-                    new XAttribute(OdtNamespaces.Draw + "name", gradientName),
-                    new XAttribute(OdtNamespaces.Draw + "style", "linear"),
-                    new XAttribute(OdtNamespaces.Draw + "start-color", OdtUnits.FormatColor(fill.Start)),
-                    new XAttribute(OdtNamespaces.Draw + "end-color", OdtUnits.FormatColor(fill.End)),
-                    // Converted rather than written straight, and with the unit
-                    // ODF 1.3 asks for. The model measures a gradient along the
-                    // page and ODF measures it down the page, so the two are a
-                    // quarter turn apart; writing the model's number under ODF's
-                    // name would turn every gradient this codec round-trips.
-                    new XAttribute(
-                        OdtNamespaces.Draw + "angle",
-                        OdtUnits.FormatAngle(OdtGradientAngle.ToOdf(fill.AngleDegrees)))));
+                _gradients.Add(BuildGradient(gradientName, fill));
 
                 properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "gradient"));
                 properties.Add(new XAttribute(OdtNamespaces.Draw + "fill-gradient-name", gradientName));

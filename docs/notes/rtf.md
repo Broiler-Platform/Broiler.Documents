@@ -11,8 +11,8 @@ below are exercised by `RtfConformanceTests`, `RtfLimitTests`,
 `RtfFontNameTests`, plus `RtfResourceTableTests` for resource collection across
 body, running content and shape text, `RtfDefaultSizeTests` for inherited
 font sizes on export, `RtfSkippedDestinationTests` for what a skipped
-destination keeps to itself, and `RtfDocumentEndTests` for where the document
-stops.
+destination keeps to itself, `RtfDocumentEndTests` for where the document
+stops, and `RtfTableTests` for tables.
 
 `RtfUnicodeFallbackTests` covers escaped fallback characters after `\uN`:
 literal text, hexadecimal bytes and character-producing control symbols count
@@ -34,15 +34,17 @@ than its `\ucN` count.
 | Inline character | `\b` `\b0` `\i` `\i0` `\ul` `\ul0` `\ulnone` `\strike` `\strike0` `\caps` `\caps0` `\scaps` `\scaps0` `\plain` `\fsN` `\fN` `\cfN` `\cbN` `\highlightN` |
 | Paragraph | `\pard` `\ql` `\qc` `\qr` `\qj` `\liN` `\sbN` `\saN` `\slN` with `\slmult1` `\pagebb` `\pagebb0` |
 | Paragraph mark | The character formatting in effect at `\par` (→ `RichTextParagraph.MarkStyle`, what an empty paragraph is as tall as; not written back) |
-| Breaks & entities | `\par` `\line` `\page` (→ `PageBreakBefore` on the paragraph that follows) `\tab` `\cell` (→ tab) `\row` (→ paragraph) `\lquote` `\rquote` `\ldblquote` `\rdblquote` `\bullet` `\endash` `\emdash` `\enspace` `\emspace` |
+| Breaks & entities | `\par` `\line` `\page` (→ `PageBreakBefore` on the paragraph that follows) `\tab` `\nestcell` (→ tab) `\lquote` `\rquote` `\ldblquote` `\rdblquote` `\bullet` `\endash` `\emdash` `\enspace` `\emspace` |
 | Control symbols | `\\` `\{` `\}` `\~` (nbsp) `\_` (nb-hyphen) `\-` (optional hyphen, dropped) `\`+CR/LF (→ paragraph) `\*` (destination marker) |
 | Encoding | `\'hh` `\uN` `\ucN` `\ansicpgN` `\fcharsetN` (per font) |
-| Tables | `\fonttbl` `\colortbl` |
+| Resource tables | `\fonttbl` `\colortbl` |
+| Tables | `\trowd` `\cellxN` `\intbl` `\cell` `\row` `\trleftN` `\trgaphN` `\trrhN` `\trhdr` `\trkeep` `\clbrdrt` `\clbrdrb` `\clbrdrl` `\clbrdrr` with `\brdrwN` `\brdrcfN` and the border kinds, `\clcbpatN` (→ `DocumentTable`; see below). In a header, footer or shape's text `\cell` is a tab and `\row` a paragraph, as before |
 | Document default font | `\deffN` resolves the declared font-table entry into `DocumentStyleDefaults.FontFamily`; `\plain` returns runs to that inherited family |
 | Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only, including the `\l` switch that spells a same-document reference: it is read as `#name` and written back the same way. The name may not contain a quote — the field argument is quoted and RTF has no escape for one inside it, so a quote would truncate the target silently; the shared rule refuses it for every format. Targets otherwise follow that rule, or `rtf.link`) |
 | Running content | `\header` `\headerf` `\headerl` `\headerr` `\footer` `\footerf` `\footerl` `\footerr` (→ `RunningContent`, not the body flow) |
-| Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN` (→ `PageGeometry`) |
-| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fLine` `lineColor` (→ `DocumentShape`) |
+| Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN`, and the first section's `\pgwsxnN` `\pghsxnN` `\marglsxnN` `\margrsxnN` `\margtsxnN` `\margbsxnN` over them (→ `PageGeometry`) |
+| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shpbypara` `\shpbypage` `\shpbymargin` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fillFocus` `fLine` `lineColor` `posrelv` (→ `DocumentShape`) |
+| Page background | The shape in `{\*ackground}`, read where `iewbksp1` shows it, as LibreOffice takes `iewbksp` for Word's `w:displayBackgroundShape`; its fill is a shape's (→ `RichTextDocument.PageBackground`). A write states both. A `fillFocus` near 50 is an axial gradient, on a page or a shape. |
 
 ## Default font
 
@@ -115,7 +117,8 @@ Two things a reader should know about the limits of that mapping:
   break kinds (`\sbkpage`, `\sbkeven`, `\sbkodd`, `\sbkcol`) are ignored control
   words: the model has no sections, so a document that starts its new page by
   starting a new section reads as one continuous flow. The page a section states
-  is read - see below - but the section is not. The
+  is read - see below, where `\sect` and `\sectd` say which section's page is
+  the document's - but the section is not. The
   exporter this mapping was checked against does not do that for a
   paragraph-level break - LibreOffice writes `\sectd\sbknone` for the one section
   and `\pagebb` on the paragraph - but a document from elsewhere may.
@@ -166,6 +169,19 @@ distances - are read into `PageGeometry`. They are twips, twenty to the point,
 and RTF states them one control word at a time, so they are held aside and made
 into a page when the document ends.
 
+A section states a page of its own with `\pgwsxn`, `\pghsxn`, `\marglsxn`,
+`\margrsxn`, `\margtsxn` and `\margbsxn`, and RTF 1.9.1 makes each of them
+default to the document's word of the same meaning - so what a section states
+is the page, and what it leaves out is the document's. The document's page is
+the one it opens on, which is the first section's: the section words before the
+first `\sect` are read over the document's, `\sectd` clears them back to the
+document's, and those after the first `\sect` are not read, because they belong
+to a section this reader does not hold and would otherwise turn the whole
+document landscape for one landscape section at its end. `\lndscpsxn` and
+`\landscape` are flags beside the size, not an instruction to swap it: the
+width and height a landscape section states are already the landscape page's,
+and LibreOffice draws `\lndscpsxn\pgwsxn11907\pghsxn16840` portrait.
+
 A document that states no paper size gets no page rather than a guessed one: a
 default invented here would be indistinguishable from a size the author chose. A
 document whose margins leave no column to write in gets none either, and is told
@@ -187,6 +203,48 @@ ignored, including the section break kinds above, and a document whose sections
 have columns or margins of their own is written with the page and its columns
 alone, which `rtf.sections` says.
 
+## Tables
+
+A body table is read into a `DocumentTable` over the paragraphs its cells hold.
+`\trowd` starts a row definition, and each `\cellx` closes one cell of it at
+the right edge it names, with the borders and shading stated before it.
+`\intbl` puts a paragraph in the table; it is a paragraph property, so `\pard`
+clears it and a closing group gives it back. `\cell` ends a cell's last
+paragraph - with or without `\intbl`, since it can mean nothing else - and
+`\row` closes the row under the definition in effect. The first paragraph out
+of the table ends the table.
+
+The row definition and the table being read are not part of the state RTF
+pushes and pops with its braces. Writers wrap cells and row ends in groups of
+their own - `{\b A1 \cell}`, `{\row}`, a whole table inside `{\trowd ... \pard}`
+- and a definition that vanished when such a group closed would leave the cells
+after it with no table. A row with no `\trowd` of its own takes the definition
+of the row before, as Word does.
+
+Rows of one table need not agree on their edges. The grid is every edge any row
+states, and a cell spans the grid columns between its own two edges, so every
+cell is as wide as its row says - which is what LibreOffice's own test of
+`fdo66565.rtf` checks, with a row of seven cells over a row of eighteen. A table
+some row of which holds more cells than it defines, or defines an edge that goes
+backwards, gets no widths and is divided evenly, as a table stating no grid is.
+
+`\trgaph` is the cell padding; a table that states none has none, which is how
+LibreOffice sets it. `\trrh` is the row's minimum height, an exact (negative)
+one included, as every format's is here. `\trhdr` marks a header row and
+`\trkeep` keeps a row on one page. `\clbrdrt`, `\clbrdrb`, `\clbrdrl` and
+`\clbrdrr` point the border words that follow at a side of the next cell:
+`\brdrw` is its width, `\brdrcf` its colour (black when absent or auto), and any
+kind but `\brdrnone` draws it - as a single line, because the model has one
+kind, so a double border is drawn single. `\clcbpat` is the cell's background.
+
+Not read: merged cells (`\clmgf`, `\clmrg`, `\clvmgf`, `\clvmrg`), whose cells
+are drawn as the separate cells the file writes; the row's own borders
+(`\trbrdr*`); `\trleft`'s offset of the table from the margin, beyond placing
+rows against one another; padding stated as `\trpadd*`; and nested tables, whose
+text joins the outer cell's with `\nestcell` read as a tab. A cell mark in a
+header, footer or shape's text is a tab and a row mark a paragraph, as before:
+those hold paragraphs and nothing beside them.
+
 ## Drawings
 
 A `\shp` group is read into a `DocumentShape` anchored to the paragraph it sits
@@ -200,7 +258,11 @@ so it is the only thing left saying which the reader sees. A shape
 colour is one integer holding blue, green and red in that order, which is the
 reverse of how the rest of the format writes one and the easiest thing here to
 get backwards. `\shptxt` carries the shape's own text, which stays out of the
-body for the same reason a header's does.
+body for the same reason a header's does. `\shpbypage` and `\shpbymargin`, or a `posrelv` of 1
+or 0, measure `\shptop` from the page or its top margin rather than from the
+paragraph: `DocumentShape.OffsetFromPage`, with the margin added, and the shape
+stands that far down whichever page its paragraph is on. They were not read,
+and such a shape hung that far below its paragraph.
 
 Every other shape property is ignored, `pib` - a picture inside a shape - among
 them. A shape that ends with neither fill nor text is dropped, and so is one
@@ -224,9 +286,10 @@ understand, which this is not.
 
 Unrecognized formatting control words are silently ignored (predictable
 degradation), for example `\lang`,
-`\viewkind`, `\widowctrl`, `\kerning`, `\sect`/`\sectd` and the section break
-kinds (`\sbkpage` and the rest), and the document and section options other than
-the page geometry above. The character-set words `\ansi`, `\mac`, `\pc` and
+`\viewkind`, `\widowctrl`, `\kerning`, and the section break kinds
+(`\sbkpage` and the rest), and the document and section options other than the
+page geometry above; `\sect` and `\sectd` matter only to which section's page is
+read. The character-set words `\ansi`, `\mac`, `\pc` and
 `\pca` are ignored too: the active code page comes from `\ansicpgN`, from a
 font's `\fcharsetN`, or from the caller's default, and nothing else sets it.
 Shape properties other than the seven named above are ignored as well.
@@ -364,8 +427,9 @@ with `rtf.image.omitted`, whose message names the denial. Because `\pict` is a
 skipped destination on the read side, an image does **not** survive a model → RTF
 → model round-trip; DOCX is the format that round-trips pictures. A table is
 written as its cell paragraphs in row order, with `rtf.table.flattened`: RTF
-states a table as `\trowd` and `\cellx` runs, and this codec's reader knows
-neither, so a table written that way would come back as nothing at all. A shape
+states a table as `\trowd` and `\cellx` runs, which the reader now takes but
+the writer does not yet write, so a table read from RTF comes back from a round
+trip as its paragraphs without the grid. A shape
 is written as a `\shp` group at the head of the paragraph it is anchored to,
 carrying its box, its fill, its outline and its text, which is the whole of what
 the reader takes back out of one. A floating picture is the exception: it is
@@ -376,11 +440,11 @@ no paint, which is a shape it drops. In the table and the floating picture alike
 what is on the page is worth more than the structure around it.
 
 Round-trip is otherwise lossless for any document the reader can
-produce, with two further documented exceptions: list kind
-is not written (it is not read either, so it stays at its default); and a
+produce, with three further documented exceptions: a table's grid, above;
+list kind is not written (it is not read either, so it stays at its default); and a
 **page break inside running content or
 a shape** is read (`\pagebb` is honoured in those destinations too) but not
-written back, per `rtf.pagebreak.dropped` above. Both are rare and safe
+written back, per `rtf.pagebreak.dropped` above. All three are safe
 (never lossy for text, formatting, colors, sizes, alignment, or hyperlinks).
 
 ## Diagnostics
@@ -413,7 +477,7 @@ anything a caller asked for that this codec does not do.
 | `rtf.image.format` | Warning | Write | RTF carries PNG and JPEG pictures; one in another format was dropped. |
 | `rtf.image.omitted` | Warning | Write | The caller's resource policy did not permit a picture into the output; the message names the denial. |
 | `rtf.image.anchored` | Warning | Write | A floating picture was written into its paragraph; its position beside the text was not kept. |
-| `rtf.shape.page` | Warning | Write | A shape anchored to a page by number was written beside its paragraph with `\shpbypage`; RTF can measure from the page but not name it. |
+| `rtf.shape.page` | Warning | Write | A shape anchored to a page by number was written beside its paragraph with `\shpbypage`; RTF can measure from the page but not name it. A shape measured from the page its paragraph is on (`DocumentShape.OffsetFromPage`) is written with `\shpbypage` too, and is not reported: that is exactly what RTF says. |
 | `document.capability.not-composed` | Warning | Read, write | Something the caller asked for that this codec does not compose: `DecodeEmbeddedObjects` on a document that carries a picture or object, or `AsciiOnly=false` on a write. |
 
 ## Standards and rights

@@ -65,6 +65,7 @@ internal static class DocxReader
             // its offsets are measured from, and converting one to the column the
             // model anchors against needs the margins first. The sections come
             // first of all, because a section's properties follow its content.
+            DocxSettings settings = ReadSettings(archive, documentRelationships, baseDirectory, options.Limits, diagnostics);
             DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"));
             PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
             RichTextDocument document = ReadDocumentXml(
@@ -89,10 +90,18 @@ internal static class DocxReader
                 diagnostics,
                 reported,
                 page,
-                ReadEvenAndOddHeaders(archive, documentRelationships, baseDirectory, options.Limits, diagnostics)));
+                settings.EvenAndOddHeaders));
             document = document.WithPageGeometry(page);
             document = document.WithSections(sections.ToModel(document.ParagraphCount, page));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
+            document = document.WithPageBackground(DocxVml.ReadBackground(
+                documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "background"),
+                settings.DisplayBackgroundShape,
+                (code, message) =>
+                {
+                    if (reported.Add(code))
+                        diagnostics.Add(DocumentDiagnostic.Warning(code, message));
+                }));
             return new DocumentReadResult(
                 document,
                 diagnostics,
@@ -406,12 +415,22 @@ internal static class DocxReader
         }
     }
 
+    /// <summary>The settings (ECMA-376 §17.15) that change what this reader reads.</summary>
+    /// <param name="EvenAndOddHeaders">
+    /// Whether distinct even-page headers and footers are on
+    /// (<c>w:evenAndOddHeaders</c>, §17.15.1.35).
+    /// </param>
+    /// <param name="DisplayBackgroundShape">
+    /// Whether the page background is shown (<c>w:displayBackgroundShape</c>,
+    /// §17.15.1.25).
+    /// </param>
+    private readonly record struct DocxSettings(bool EvenAndOddHeaders, bool DisplayBackgroundShape);
+
     /// <summary>
-    /// Whether the document's settings part turns on distinct even-page headers
-    /// and footers (<c>w:evenAndOddHeaders</c>, ECMA-376 §17.15.1.35). A package
-    /// with no settings part does not.
+    /// The settings part's switches this reader acts on. A package with no
+    /// settings part turns none of them on.
     /// </summary>
-    private static bool ReadEvenAndOddHeaders(
+    private static DocxSettings ReadSettings(
         ZipArchive archive,
         DocxRelationships documentRelationships,
         string baseDirectory,
@@ -422,11 +441,14 @@ internal static class DocxReader
             baseDirectory, "settings.xml");
         ZipArchiveEntry? entry = DocxPackage.FindEntry(archive, settingsPath);
         if (entry is null)
-            return false;
+            return default;
 
-        XElement? evenAndOdd = DocxPackage.LoadEntryXml(entry, limits, diagnostics, "docx.settings")
-            ?.Root?.Element(DocxNamespaces.Wordprocessing + "evenAndOddHeaders");
-        return evenAndOdd is not null && ReadOnOff(evenAndOdd);
+        XElement? root = DocxPackage.LoadEntryXml(entry, limits, diagnostics, "docx.settings")?.Root;
+        XElement? evenAndOdd = root?.Element(DocxNamespaces.Wordprocessing + "evenAndOddHeaders");
+        XElement? displayBackground = root?.Element(DocxNamespaces.Wordprocessing + "displayBackgroundShape");
+        return new DocxSettings(
+            evenAndOdd is not null && ReadOnOff(evenAndOdd),
+            displayBackground is not null && ReadOnOff(displayBackground));
     }
 
     /// <summary>
@@ -805,7 +827,7 @@ internal static class DocxReader
         // A w:drawing is either a picture or a shape. A shape reports nothing when
         // it does not match, so a drawing that is neither still reaches the picture
         // path and raises its diagnostic.
-        if (ReadShape(picture, context))
+        if (ReadShape(picture, context) || ReadVmlShape(picture, context))
             return;
 
         InlineImage? image = context.Images.Read(picture, context.Relationships, context.Builder);
@@ -848,10 +870,11 @@ internal static class DocxReader
             return false;
 
         (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
+        (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
             HorizontalOffset(anchor, context),
-            VerticalOffset(anchor, context),
+            offsetY,
             boxWidth,
             boxHeight,
             fill: null,
@@ -862,7 +885,8 @@ internal static class DocxReader
             wrap: Wrap,
             wrapSide: Side,
             wrapDistance: Distance,
-            zOrder: RelativeHeight(anchor)));
+            zOrder: RelativeHeight(anchor),
+            offsetFromPage: fromPage));
         return true;
     }
 
@@ -901,10 +925,11 @@ internal static class DocxReader
             return false;
 
         (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
+        (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
             HorizontalOffset(anchor, context),
-            VerticalOffset(anchor, context),
+            offsetY,
             width,
             height,
             fill,
@@ -915,8 +940,151 @@ internal static class DocxReader
             wrap: Wrap,
             wrapSide: Side,
             wrapDistance: Distance,
-            zOrder: RelativeHeight(anchor)));
+            zOrder: RelativeHeight(anchor),
+            offsetFromPage: fromPage));
         return true;
+    }
+
+    /// <summary>
+    /// Reads a VML shape in a <c>w:pict</c> - a rectangle, a rounded one, an
+    /// oval or a freeform - as a floating shape with its fill, outline and text
+    /// box. Returns false for anything else, a picture included, which the
+    /// picture path reads.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is how Word wrote a text box before 2010, and how other producers
+    /// still write one; read as nothing, the text inside was lost with the box.
+    /// The box is the shape's CSS <c>style</c>: its width and height, and its
+    /// <c>margin-left</c> and <c>margin-top</c> from the frames
+    /// <c>mso-position-horizontal-relative</c> and
+    /// <c>mso-position-vertical-relative</c> name. They default to the column
+    /// and the paragraph, the frames the model measures from; a vertical frame
+    /// on the page or a margin is measured from the page's top, as a DrawingML
+    /// anchor's is.
+    /// </para>
+    /// <para>
+    /// A negative <c>z-index</c> stacks the shape behind the text and any other
+    /// in front of it, which is VML's spelling of <c>behindDoc</c>. The outline
+    /// is drawn unless <c>stroked</c> or <c>v:stroke</c> turns it off, in
+    /// <c>strokecolor</c> or VML's default black.
+    /// </para>
+    /// </remarks>
+    private static bool ReadVmlShape(XElement picture, DocxReadContext context)
+    {
+        if (picture.Name != DocxNamespaces.Wordprocessing + "pict")
+            return false;
+
+        XElement? shape = picture.Elements().FirstOrDefault(static element =>
+            element.Name == DocxNamespaces.Vml + "rect" ||
+            element.Name == DocxNamespaces.Vml + "roundrect" ||
+            element.Name == DocxNamespaces.Vml + "oval" ||
+            element.Name == DocxNamespaces.Vml + "shape");
+        if (shape is null || shape.Descendants(DocxNamespaces.Vml + "imagedata").Any())
+            return false;
+
+        Dictionary<string, string> style = DocxVml.ReadStyle((string?)shape.Attribute("style"));
+        if (!DocxVml.TryLength(style.GetValueOrDefault("width"), out double width) ||
+            !DocxVml.TryLength(style.GetValueOrDefault("height"), out double height) ||
+            width <= 0 || height <= 0)
+        {
+            return false;
+        }
+
+        ShapeFill? fill = DocxVml.ReadFill(
+            shape,
+            BColor.Empty,
+            (code, message) => context.Builder.AddDiagnosticOnce(code, message),
+            "docx.shape.fill",
+            "shape");
+        IReadOnlyList<RichTextParagraph> paragraphs = ReadShapeText(shape, context);
+        if (fill is null && paragraphs.Count == 0)
+            return false;
+
+        DocxVml.TryLength(style.GetValueOrDefault("left"), out double left);
+        DocxVml.TryLength(style.GetValueOrDefault("margin-left"), out double marginLeft);
+        DocxVml.TryLength(style.GetValueOrDefault("top"), out double top);
+        DocxVml.TryLength(style.GetValueOrDefault("margin-top"), out double marginTop);
+        // Across, every frame converts to the column, as a DrawingML anchor's does.
+        double offsetX = left + marginLeft;
+        if (context.Page is PageGeometry page)
+        {
+            offsetX += style.GetValueOrDefault("mso-position-horizontal-relative") switch
+            {
+                "page" or "left-margin-area" => -page.MarginLeft,
+                "right-margin-area" => page.Width - page.MarginRight - page.MarginLeft,
+                _ => 0,
+            };
+        }
+
+        // VML names DrawingML's vertical frames in its own words; the paragraph
+        // and the line stay where they are, the rest measure from the page.
+        double offsetY = top + marginTop;
+        string? verticalFrom = style.GetValueOrDefault("mso-position-vertical-relative") switch
+        {
+            "page" => "page",
+            "margin" => "margin",
+            "top-margin-area" => "topMargin",
+            "bottom-margin-area" => "bottomMargin",
+            "inner-margin-area" => "insideMargin",
+            "outer-margin-area" => "outsideMargin",
+            _ => null,
+        };
+        bool fromPage = false;
+        if (verticalFrom is not null)
+        {
+            if (FromPageTop(verticalFrom, offsetY, context.Page) is double fromTop)
+            {
+                (offsetY, fromPage) = (fromTop, true);
+            }
+            else
+            {
+                context.Builder.AddDiagnosticOnce(
+                    "docx.anchor.relativefrom:v",
+                    "docx.anchor.relativefrom",
+                    "A floating DOCX object stated its vertical position against a margin this reader could not place " +
+                    "on the page; the offset was kept as stated and is measured from its paragraph instead.");
+            }
+        }
+
+        int zIndex = int.TryParse(style.GetValueOrDefault("z-index"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int z)
+            ? z
+            : 0;
+        ShapeWrap wrap = (string?)shape.Element(DocxNamespaces.VmlWord + "wrap")?.Attribute("type") switch
+        {
+            "square" or "tight" or "through" => ShapeWrap.Square,
+            "topAndBottom" => ShapeWrap.TopAndBottom,
+            _ => ShapeWrap.None,
+        };
+
+        context.Builder.AddShape(new DocumentShape(
+            context.Builder.CurrentParagraphIndex,
+            offsetX,
+            offsetY,
+            width,
+            height,
+            fill,
+            ReadVmlOutline(shape),
+            paragraphs,
+            image: null,
+            behindText: zIndex < 0,
+            wrap: wrap,
+            zOrder: zIndex == int.MinValue ? int.MaxValue : Math.Abs(zIndex),
+            offsetFromPage: fromPage));
+        return true;
+    }
+
+    /// <summary>A VML shape's outline colour, or empty for none.</summary>
+    private static BColor ReadVmlOutline(XElement shape)
+    {
+        XElement? stroke = shape.Element(DocxNamespaces.Vml + "stroke");
+        string? stroked = (string?)shape.Attribute("stroked") ?? (string?)stroke?.Attribute("on");
+        if (stroked?.Trim() is "f" or "false" or "0")
+            return BColor.Empty;
+
+        return DocxVml.TryColor((string?)shape.Attribute("strokecolor") ?? (string?)stroke?.Attribute("color"), out BColor color)
+            ? color
+            : BColor.FromArgb(0, 0, 0);
     }
 
     /// <summary>
@@ -1078,18 +1246,21 @@ internal static class DocxReader
     }
 
     /// <summary>
-    /// The vertical offset in points from the top of the anchoring paragraph,
-    /// which is what <see cref="DocumentShape.OffsetY"/> measures.
+    /// The vertical offset in points, and whether it is measured from the top of
+    /// the page the anchoring paragraph lands on rather than from the paragraph:
+    /// the two things <see cref="DocumentShape.OffsetY"/> and
+    /// <see cref="DocumentShape.OffsetFromPage"/> hold.
     /// </summary>
     /// <remarks>
-    /// Only the frames that are already paragraph-relative convert, because the
-    /// rest are measured from the page and where a paragraph sits on the page is
-    /// a layout result this reader does not have - a shape on the fortieth
-    /// paragraph could be on any page of the document. Those keep the offset they
-    /// stated, which is what every anchor used to get, and say so rather than
-    /// being converted by a guess that is right only at the top of the column.
+    /// A frame on the paragraph or its line is kept as stated. One on the page or
+    /// a margin is turned into an offset from the page's top edge, through the
+    /// geometry for the margins. Where the paragraph sits on that page is a layout
+    /// result this reader does not have, which is why the model holds the frame
+    /// rather than an offset converted by a guess. Only the mirrored margins,
+    /// whose side depends on the page's parity, and a margin with no page to
+    /// measure it on are kept as stated and reported.
     /// </remarks>
-    private static double VerticalOffset(XElement anchor, DocxReadContext context)
+    private static (double Offset, bool FromPage) VerticalOffset(XElement anchor, DocxReadContext context)
     {
         double offset = EmuToPoints(PositionOffset(anchor, "positionV"));
         string? from = RelativeFrom(anchor, "positionV");
@@ -1102,9 +1273,9 @@ internal static class DocxReader
         if (context.Band != RunningBand.Body)
         {
             if (context.Page is not PageGeometry running)
-                return offset;
+                return (offset, false);
 
-            return from switch
+            return (from switch
             {
                 "margin" => offset + running.MarginTop,
                 "bottomMargin" => offset + running.Height - running.MarginBottom,
@@ -1113,26 +1284,36 @@ internal static class DocxReader
                 // "page" and "topMargin" both measure from the page's top edge,
                 // and a header's own band starts there too.
                 _ => offset,
-            };
+            }, false);
         }
 
-        switch (from)
-        {
-            case null:
-            case "paragraph":
-            case "line":
-                return offset;
+        if (from is null or "paragraph" or "line")
+            return (offset, false);
 
-            default:
-                context.Builder.AddDiagnosticOnce(
-                    "docx.anchor.relativefrom:v",
-                    "docx.anchor.relativefrom",
-                    "A floating DOCX object stated its vertical position against the page or a margin. " +
-                    "The model measures one from the paragraph a shape is anchored to, so the offset " +
-                    "was kept as stated and is measured from there instead.");
-                return offset;
-        }
+        if (FromPageTop(from, offset, context.Page) is double fromPage)
+            return (fromPage, true);
+
+        context.Builder.AddDiagnosticOnce(
+            "docx.anchor.relativefrom:v",
+            "docx.anchor.relativefrom",
+            "A floating DOCX object stated its vertical position against a margin this reader could not place " +
+            "on the page; the offset was kept as stated and is measured from its paragraph instead.");
+        return (offset, false);
     }
+
+    /// <summary>
+    /// An offset stated against the page or one of its margins, as points from
+    /// the page's top edge, or null for a frame that cannot be placed so: a
+    /// mirrored margin, whose side depends on the page's parity, or a margin of a
+    /// page the document does not state.
+    /// </summary>
+    private static double? FromPageTop(string from, double offset, PageGeometry? page) => from switch
+    {
+        "page" or "topMargin" => offset,
+        "margin" when page is not null => offset + page.MarginTop,
+        "bottomMargin" when page is not null => offset + page.Height - page.MarginBottom,
+        _ => null,
+    };
 
     /// <summary>English Metric Units to points: 12700 EMU to the point.</summary>
     private static double EmuToPoints(string? value) =>
@@ -1151,6 +1332,25 @@ internal static class DocxReader
             List<XElement> stops = [.. gradient
                 .Elements(DocxNamespaces.Drawing + "gsLst")
                 .Elements(DocxNamespaces.Drawing + "gs")];
+            double angle = long.TryParse(
+                (string?)gradient.Element(DocxNamespaces.Drawing + "lin")?.Attribute("ang"),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out long ang)
+                ? ang / 60000d
+                : 0;
+
+            // Three stops whose first and last agree are how DrawingML spells a
+            // mirrored gradient; Word writes VML's 50% focus that way.
+            if (stops.Count == 3 &&
+                TryReadShapeColor(stops[0], out BColor outer) &&
+                TryReadShapeColor(stops[1], out BColor inner) &&
+                TryReadShapeColor(stops[2], out BColor last) &&
+                outer == last)
+            {
+                return new ShapeFill(outer, inner, angle, Axial: true);
+            }
+
             if (stops.Count > 2)
             {
                 builder.AddDiagnosticOnce(
@@ -1162,13 +1362,6 @@ internal static class DocxReader
                 TryReadShapeColor(stops[0], out BColor start) &&
                 TryReadShapeColor(stops[^1], out BColor end))
             {
-                double angle = long.TryParse(
-                    (string?)gradient.Element(DocxNamespaces.Drawing + "lin")?.Attribute("ang"),
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out long ang)
-                    ? ang / 60000d
-                    : 0;
                 return new ShapeFill(start, end, angle);
             }
         }
@@ -1389,7 +1582,17 @@ internal static class DocxReader
         XElement? color = rPr.Element(DocxNamespaces.Wordprocessing + "color");
         string? colorValue = DocxValueReader.WordValue(color);
         if (DocxValueReader.TryParseHexColor(colorValue, out BColor foreground))
+        {
             style = style with { Foreground = foreground };
+        }
+        else if (string.Equals(colorValue, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            // "auto" is a colour, not the absence of one (ECMA-376 §17.3.2.6):
+            // the automatic colour Word and LibreOffice draw black. Stated on a
+            // run it overrides the colour its style gave; a document whose Normal
+            // style is blue and whose every run says auto is black text.
+            style = style with { Foreground = BColor.Empty };
+        }
 
         XElement? shade = rPr.Element(DocxNamespaces.Wordprocessing + "shd");
         string? fill = (string?)shade?.Attribute(DocxNamespaces.Wordprocessing + "fill");

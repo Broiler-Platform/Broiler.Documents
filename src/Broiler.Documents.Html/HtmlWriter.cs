@@ -113,6 +113,21 @@ public static class HtmlWriter
             head.AppendChild(style);
         }
 
+        // The page colour is the body's background, which CSS paints over the
+        // whole canvas (CSS 2.1 §14.2). CSS could state a gradient, but the
+        // readers this writes for - LibreOffice's among them - take a colour, so
+        // a gradient leaves as its middle colour, as LibreOffice writes one.
+        if (rich.PageBackground is ShapeFill background)
+        {
+            body.SetAttribute("style", "background-color: " + HtmlCss.FormatColor(background.ColorAt(0.5)));
+            if (background.IsGradient)
+            {
+                diagnostics.Add(DocumentDiagnostic.Warning(
+                    "html.background.gradient",
+                    "The page background is a gradient; it was written as its middle colour."));
+            }
+        }
+
         foreach (RichTextParagraph paragraph in rich.Paragraphs)
         {
             DomElement p = document.CreateElement("p");

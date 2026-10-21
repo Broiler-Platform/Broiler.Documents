@@ -132,6 +132,13 @@ internal sealed class OdtStyles
         new Dictionary<string, XElement>(StringComparer.Ordinal);
 
     /// <summary>
+    /// The <c>style:drawing-page-properties</c> by style name: where a master
+    /// page's <c>draw:style-name</c> states the page's fill (ODF 1.3 §16.10).
+    /// </summary>
+    public IReadOnlyDictionary<string, XElement> DrawingPageProperties { get; init; } =
+        new Dictionary<string, XElement>(StringComparer.Ordinal);
+
+    /// <summary>
     /// Builds the table from the package. <paramref name="content"/> is harvested
     /// after <c>styles.xml</c> so a content automatic style wins a name
     /// collision: it is the one the body actually refers to.
@@ -152,6 +159,7 @@ internal sealed class OdtStyles
         var rowProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var sectionProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         var gradients = new Dictionary<string, XElement>(StringComparer.Ordinal);
+        var drawingPageProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         XElement? masterStyles = null;
         List<XElement> pageLayouts = [];
 
@@ -172,7 +180,8 @@ internal sealed class OdtStyles
                     columnProperties,
                     rowProperties,
                     sectionProperties,
-                    gradients);
+                    gradients,
+                    drawingPageProperties);
                 masterStyles = stylesXml.Root.Element(OdtNamespaces.Office + "master-styles");
                 pageLayouts = [.. stylesXml.Root.Descendants(OdtNamespaces.Style + "page-layout")];
             }
@@ -191,7 +200,8 @@ internal sealed class OdtStyles
                 columnProperties,
                 rowProperties,
                 sectionProperties,
-                gradients);
+                gradients,
+                drawingPageProperties);
         }
 
         return new OdtStyles(styles, defaults, fontFaces, listStyles, limits.MaxGroupDepth, diagnostics)
@@ -204,6 +214,7 @@ internal sealed class OdtStyles
             TableRowProperties = rowProperties,
             SectionProperties = sectionProperties,
             Gradients = gradients,
+            DrawingPageProperties = drawingPageProperties,
         };
     }
 
@@ -279,7 +290,8 @@ internal sealed class OdtStyles
         Dictionary<string, XElement> columnProperties,
         Dictionary<string, XElement> rowProperties,
         Dictionary<string, XElement> sectionProperties,
-        Dictionary<string, XElement> gradients)
+        Dictionary<string, XElement> gradients,
+        Dictionary<string, XElement> drawingPageProperties)
     {
         foreach (XElement fontFace in root.Descendants(OdtNamespaces.Style + "font-face"))
         {
@@ -322,6 +334,10 @@ internal sealed class OdtStyles
             XElement? section = style.Element(OdtNamespaces.Style + "section-properties");
             if (section is not null)
                 sectionProperties[name] = section;
+
+            XElement? drawingPage = style.Element(OdtNamespaces.Style + "drawing-page-properties");
+            if (drawingPage is not null)
+                drawingPageProperties[name] = drawingPage;
         }
 
         foreach (XElement gradient in root.Descendants(OdtNamespaces.Draw + "gradient"))
@@ -559,7 +575,8 @@ internal sealed class OdtStyles
         return chain;
     }
 
-    private void Report(string key, string code, string message)
+    /// <summary>Reports a diagnostic once per <paramref name="key"/>.</summary>
+    internal void Report(string key, string code, string message)
     {
         if (_reported.Add(key))
             _diagnostics.Add(DocumentDiagnostic.Warning(code, message));

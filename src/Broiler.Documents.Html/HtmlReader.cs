@@ -110,8 +110,51 @@ internal static class HtmlReader
         RichTextDocument document = builder.Build();
         if (HtmlPage.TryRead(styleSheetText, PageGeometry.A4, out PageGeometry page))
             document = document.WithPageGeometry(page);
+        BColor? canvas = PageBackground(parse.Document.DocumentElement, styleSheet)
+            ?? PageBackground(parse.Document.Body, styleSheet);
+        if (canvas is BColor fill)
+            document = document.WithPageBackground(ShapeFill.Solid(fill));
 
         return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
+    }
+
+    /// <summary>
+    /// The colour an element paints behind the page: its <c>background-color</c>,
+    /// or the colour in its <c>background</c> shorthand, or failing both its
+    /// <c>bgcolor</c> attribute, which HTML maps to the same property beneath any
+    /// author style (HTML §15.3.1). Null for transparent or none.
+    /// </summary>
+    /// <remarks>
+    /// CSS 2.1 §14.2 paints the canvas with the root element's background, and
+    /// with the body's when the root has none, which is how a browser and
+    /// LibreOffice fill the whole page from <c>&lt;body bgcolor&gt;</c>. That
+    /// fill is the page's, not the text's: reading it onto the runs would
+    /// highlight every line and leave the margins white.
+    /// </remarks>
+    private static BColor? PageBackground(DomElement? element, HtmlStyleSheet styleSheet)
+    {
+        if (element is null)
+            return null;
+
+        IReadOnlyDictionary<string, string> declarations = styleSheet.DeclarationsFor(element);
+        if (declarations.TryGetValue("background-color", out string? stated) &&
+            HtmlCss.TryParseColor(stated, out BColor color))
+        {
+            return color.IsEmpty || color.A == 0 ? null : color;
+        }
+
+        if (declarations.TryGetValue("background", out string? shorthand))
+        {
+            foreach (string part in shorthand.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (HtmlCss.TryParseColor(part, out color))
+                    return color.IsEmpty || color.A == 0 ? null : color;
+            }
+        }
+
+        return HtmlCss.TryParseColor(element.GetAttribute("bgcolor"), out color) && !color.IsEmpty && color.A > 0
+            ? color
+            : null;
     }
 
     private static void ReadChildren(

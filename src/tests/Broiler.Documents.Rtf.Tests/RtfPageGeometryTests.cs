@@ -60,6 +60,81 @@ public sealed class RtfPageGeometryTests
     }
 
     [Fact]
+    public void A_Section_States_Its_Own_Page_Over_The_Documents()
+    {
+        // fdo66565.rtf's section words, over a portrait document page. RTF 1.9.1
+        // gives \pgwsxn and the rest the document's values as defaults, so what
+        // the section states is the page; LibreOffice draws it landscape.
+        PageGeometry geometry = Assert.IsType<PageGeometry>(RtfReader.Read(Encoding.ASCII.GetBytes(
+            "{\\rtf1\\paperw11906\\paperh16838\\margl1800\\margr1800\\margt1440\\margb1440" +
+            "\\sectd\\lndscpsxn\\pgwsxn16840\\pghsxn11907\\marglsxn1133\\margrsxn850\\margtsxn850\\margbsxn850" +
+            " body\\par}")).Document.PageGeometry);
+
+        Assert.Equal(842, geometry.Width, 1);
+        Assert.Equal(595.35, geometry.Height, 1);
+        Assert.Equal(56.65, geometry.MarginLeft, 1);
+        Assert.Equal(42.5, geometry.MarginRight, 1);
+        Assert.Equal(42.5, geometry.MarginTop, 1);
+        Assert.Equal(42.5, geometry.MarginBottom, 1);
+    }
+
+    [Fact]
+    public void A_Section_Page_Needs_No_Document_Paper()
+    {
+        PageGeometry geometry = Assert.IsType<PageGeometry>(RtfReader.Read(
+            "{\\rtf1\\sectd\\pgwsxn16840\\pghsxn11907\\marglsxn1133\\margrsxn850 body\\par}"u8.ToArray())
+            .Document.PageGeometry);
+
+        Assert.Equal(842, geometry.Width, 1);
+        Assert.Equal(56.65, geometry.MarginLeft, 1);
+    }
+
+    [Fact]
+    public void What_A_Section_Does_Not_State_Is_The_Documents()
+    {
+        PageGeometry geometry = Assert.IsType<PageGeometry>(RtfReader.Read(
+            "{\\rtf1\\paperw11906\\paperh16838\\margl2551\\margr1134\\margt1134\\margb1134\\sectd\\margrsxn850 body\\par}"u8.ToArray())
+            .Document.PageGeometry);
+
+        Assert.Equal(595.3, geometry.Width, 1);
+        Assert.Equal(127.55, geometry.MarginLeft, 1);
+        Assert.Equal(42.5, geometry.MarginRight, 1);
+    }
+
+    [Fact]
+    public void Landscape_Does_Not_Swap_The_Stated_Size()
+    {
+        // LibreOffice draws this portrait: the size is the page, and the flag
+        // only says which way up it is.
+        PageGeometry geometry = Assert.IsType<PageGeometry>(RtfReader.Read(
+            "{\\rtf1\\sectd\\lndscpsxn\\pgwsxn11907\\pghsxn16840 body\\par}"u8.ToArray()).Document.PageGeometry);
+
+        Assert.Equal(595.35, geometry.Width, 1);
+        Assert.Equal(842, geometry.Height, 1);
+    }
+
+    [Fact]
+    public void A_Later_Sections_Page_Does_Not_Replace_The_First()
+    {
+        PageGeometry geometry = Assert.IsType<PageGeometry>(RtfReader.Read(
+            "{\\rtf1\\paperw11906\\paperh16838 one\\par\\sect\\sectd\\pgwsxn16840\\pghsxn11907 two\\par}"u8.ToArray())
+            .Document.PageGeometry);
+
+        Assert.Equal(595.3, geometry.Width, 1);
+        Assert.Equal(841.9, geometry.Height, 1);
+    }
+
+    [Fact]
+    public void Section_Defaults_Clear_What_The_Section_Stated()
+    {
+        PageGeometry geometry = Assert.IsType<PageGeometry>(RtfReader.Read(
+            "{\\rtf1\\paperw11906\\paperh16838\\pgwsxn16840\\pghsxn11907\\sectd body\\par}"u8.ToArray())
+            .Document.PageGeometry);
+
+        Assert.Equal(595.3, geometry.Width, 1);
+    }
+
+    [Fact]
     public void The_Page_Survives_A_Round_Trip()
     {
         RichTextDocument source = RichTextDocument.FromPlainText("body").WithPageGeometry(A4Letterhead);

@@ -19,6 +19,9 @@ public sealed class DocxAnchorFrameTests
     private const double MarginLeft = 127.55;
     private const double PageWidth = 595.3;
     private const double MarginRight = 56.7;
+    private const double PageHeight = 841.9;
+    private const double MarginTop = 56.7;
+    private const double MarginBottom = 56.7;
 
     /// <summary>12700 EMU to the point.</summary>
     private static long Emu(double points) => (long)(points * 12700);
@@ -107,17 +110,47 @@ public sealed class DocxAnchorFrameTests
     }
 
     [Theory]
-    [InlineData("page")]
-    [InlineData("margin")]
-    [InlineData("topMargin")]
-    [InlineData("bottomMargin")]
-    public void Says_That_A_Page_Relative_Vertical_Offset_Was_Not_Converted(string from)
+    [InlineData("page", 20)]
+    [InlineData("topMargin", 20)]
+    [InlineData("margin", MarginTop + 20)]
+    [InlineData("bottomMargin", PageHeight - MarginBottom + 20)]
+    public void Measures_A_Page_Relative_Vertical_Offset_From_The_Page_Top(string from, double expected)
     {
         // Where a paragraph sits on the page is a layout result this reader does
-        // not have, so the offset is kept and reported rather than guessed at.
+        // not have, so the model holds the frame rather than a guess: the offset
+        // from the page's top edge, on whichever page the paragraph is. Kept as
+        // stated, which this did, it was measured from the paragraph instead.
         DocumentReadResult result = Read(ShapeRun("column", from, offsetYPoints: 20));
 
-        Assert.Equal(20, Assert.Single(result.Document.Shapes).OffsetY, 1);
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.True(shape.OffsetFromPage);
+        Assert.Equal(expected, shape.OffsetY, 1);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.anchor.relativefrom");
+    }
+
+    [Fact]
+    public void A_Page_Relative_Vertical_Offset_Survives_A_Round_Trip()
+    {
+        RichTextDocument source = Read(ShapeRun("column", "margin", offsetYPoints: 20)).Document;
+
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false);
+        DocumentShape actual = Assert.Single(new DocxDocumentCodec().Read(stream).Document.Shapes);
+
+        Assert.True(actual.OffsetFromPage);
+        Assert.Equal(MarginTop + 20, actual.OffsetY, 1);
+    }
+
+    [Theory]
+    [InlineData("insideMargin")]
+    [InlineData("outsideMargin")]
+    public void Says_That_A_Mirrored_Vertical_Offset_Was_Not_Converted(string from)
+    {
+        // Which margin these name depends on the page's parity.
+        DocumentReadResult result = Read(ShapeRun("column", from, offsetYPoints: 20));
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.False(shape.OffsetFromPage);
+        Assert.Equal(20, shape.OffsetY, 1);
         DocumentDiagnostic note = Assert.Single(
             result.Diagnostics.Where(d => d.Code == "docx.anchor.relativefrom"));
         Assert.Contains("vertical", note.Message, StringComparison.Ordinal);
@@ -142,7 +175,7 @@ public sealed class DocxAnchorFrameTests
     public void Reports_The_Frame_Once_However_Many_Objects_State_One()
     {
         DocumentReadResult result = Read(
-            ShapeRun("column", "page") + ShapeRun("column", "page"));
+            ShapeRun("column", "insideMargin") + ShapeRun("column", "insideMargin"));
 
         Assert.Equal(2, result.Document.Shapes.Count);
         Assert.Single(result.Diagnostics.Where(d => d.Code == "docx.anchor.relativefrom"));

@@ -48,6 +48,7 @@ internal sealed class PdfWriter
 
     /// <summary>The page the layout used, which the MediaBox has to agree with.</summary>
     private PdfPageSetup _pageSetup = PdfPageSetup.Letter;
+    private ShapeFill? _pageBackground;
 
     private PdfWriter(
         PdfWriteOptions options,
@@ -133,6 +134,7 @@ internal sealed class PdfWriter
         // The MediaBox has to be the page the layout actually used, which is the
         // document's when it states one.
         _pageSetup = layout.SetupFor(document);
+        _pageBackground = document.PageBackground;
 
         if (pages.Count > _options.PdfLimits.MaxPageCount)
             throw PdfWorkBudget.Exceeded(nameof(PdfLimits.MaxPageCount), _options.PdfLimits.MaxPageCount);
@@ -303,6 +305,10 @@ internal sealed class PdfWriter
     private byte[] BuildContentStream(PdfLayoutPage page, FontTable fonts)
     {
         var content = new MemoryStream();
+
+        // The page's own colour is the bottom layer of all.
+        if (_pageBackground is ShapeFill background)
+            AppendFill(content, 0, 0, _pageSetup.Width, _pageSetup.Height, background);
 
         // Shapes before run backgrounds, and both before text: a letterhead's
         // stripe is the bottom layer of the page.
@@ -573,47 +579,13 @@ internal sealed class PdfWriter
     /// <summary>
     /// Paints one shape's box.
     /// </summary>
-    /// <remarks>
-    /// A gradient is emitted as bands of solid colour rather than as a shading
-    /// pattern. A pattern would be the smaller file, but it needs a pattern
-    /// dictionary in the page resources and a second object per shape; bands need
-    /// nothing the writer does not already emit, and at about a point each the
-    /// seams fall below what a reader resolves. The angle is snapped to the axis
-    /// it runs closer to, because a band is a rectangle.
-    /// </remarks>
     private static void AppendShape(MemoryStream content, PdfPlacedShape shape)
     {
         if (shape.Width <= 0 || shape.Height <= 0)
             return;
 
         if (shape.Fill is ShapeFill fill)
-        {
-            if (!fill.IsGradient)
-            {
-                AppendAscii(content, FillColor(fill.Start));
-                AppendAscii(content, Rectangle(shape.X, shape.Y, shape.Width, shape.Height));
-            }
-            else
-            {
-                double radians = fill.AngleDegrees * Math.PI / 180.0;
-                bool vertical = Math.Abs(Math.Sin(radians)) >= Math.Abs(Math.Cos(radians));
-                double extent = vertical ? shape.Height : shape.Width;
-                int bands = (int)Math.Clamp(Math.Round(extent), 2, 512);
-
-                for (int i = 0; i < bands; i++)
-                {
-                    double t = bands == 1 ? 0 : (double)i / (bands - 1);
-                    AppendAscii(content, FillColor(Mix(fill.Start, fill.End, t)));
-
-                    double offset = extent * i / bands;
-                    double size = (extent / bands) + 0.5;
-                    AppendAscii(content, vertical
-                        // PDF y grows upward, so the first stop is the top band.
-                        ? Rectangle(shape.X, shape.Y + extent - offset - size, shape.Width, size)
-                        : Rectangle(shape.X + offset, shape.Y, size, shape.Height));
-                }
-            }
-        }
+            AppendFill(content, shape.X, shape.Y, shape.Width, shape.Height, fill);
 
         if (shape.Outline.IsEmpty || shape.Outline.A == 0)
             return;
@@ -623,12 +595,80 @@ internal sealed class PdfWriter
             $"{Number(shape.X)} {Number(shape.Y)} {Number(shape.Width)} {Number(shape.Height)} re S\n"));
     }
 
-    private static BColor Mix(BColor from, BColor to, double t) =>
-        new(
-            (byte)Math.Round(from.R + ((to.R - from.R) * t)),
-            (byte)Math.Round(from.G + ((to.G - from.G) * t)),
-            (byte)Math.Round(from.B + ((to.B - from.B) * t)),
-            (byte)Math.Round(from.A + ((to.A - from.A) * t)));
+    /// <summary>
+    /// Paints a box, given by its lower-left corner in PDF user space, with
+    /// <paramref name="fill"/>: a page's background or a shape's box.
+    /// </summary>
+    /// <remarks>
+    /// A gradient is emitted as bands of solid colour rather than as a shading
+    /// pattern. A pattern would be the smaller file, but it needs a pattern
+    /// dictionary in the page resources and a second object per shape; bands need
+    /// nothing the writer does not already emit, and at about a point each the
+    /// seams fall below what a reader resolves. The bands run across the fill's
+    /// angle, clipped to the box, exactly as <c>DocumentPagePainter</c> draws
+    /// them, so a page printed and the same page written here agree.
+    /// </remarks>
+    private static void AppendFill(MemoryStream content, double x, double y, double width, double height, ShapeFill fill)
+    {
+        if (width <= 0 || height <= 0)
+            return;
+
+        if (!fill.IsGradient)
+        {
+            AppendAscii(content, FillColor(fill.Start));
+            AppendAscii(content, Rectangle(x, y, width, height));
+            return;
+        }
+
+        // The model measures the angle clockwise from the x axis with y growing
+        // down the page; PDF's y grows up, so the direction's y is turned over.
+        double radians = fill.AngleDegrees * Math.PI / 180.0;
+        double dx = Math.Cos(radians);
+        double dy = -Math.Sin(radians);
+        double extent = Math.Abs(width * dx) + Math.Abs(height * dy);
+        int bands = (int)Math.Clamp(Math.Round(extent), 2, 512);
+        double step = extent / bands;
+        double centerX = x + (width / 2);
+        double centerY = y + (height / 2);
+        double reach = width + height;
+
+        // Along an axis a band is a rectangle, which needs no clip.
+        if (Math.Abs(dx) < 1e-9 || Math.Abs(dy) < 1e-9)
+        {
+            bool horizontal = Math.Abs(dx) >= 1e-9;
+            double sign = horizontal ? Math.Sign(dx) : Math.Sign(dy);
+            double length = horizontal ? width : height;
+            for (int i = 0; i < bands; i++)
+            {
+                AppendAscii(content, FillColor(fill.ColorAt((double)i / (bands - 1))));
+                double from = step * i;
+                double size = Math.Min(step + 0.5, length - from); // overlap, so no seam shows
+                double start = sign > 0 ? from : length - from - size;
+                AppendAscii(content, horizontal
+                    ? Rectangle(x + start, y, size, height)
+                    : Rectangle(x, y + start, width, size));
+            }
+
+            return;
+        }
+
+        AppendAscii(content, "q\n");
+        AppendAscii(content, FormattableString.Invariant(
+            $"{Number(x)} {Number(y)} {Number(width)} {Number(height)} re W n\n"));
+        for (int i = 0; i < bands; i++)
+        {
+            AppendAscii(content, FillColor(fill.ColorAt((double)i / (bands - 1))));
+            double from = (-extent / 2) + (step * i);
+            double to = from + step + 0.5; // overlap, so no seam shows
+            AppendAscii(content,
+                $"{Number(centerX + (dx * from) + (dy * reach))} {Number(centerY + (dy * from) - (dx * reach))} m " +
+                $"{Number(centerX + (dx * to) + (dy * reach))} {Number(centerY + (dy * to) - (dx * reach))} l " +
+                $"{Number(centerX + (dx * to) - (dy * reach))} {Number(centerY + (dy * to) + (dx * reach))} l " +
+                $"{Number(centerX + (dx * from) - (dy * reach))} {Number(centerY + (dy * from) + (dx * reach))} l h f\n");
+        }
+
+        AppendAscii(content, "Q\n");
+    }
 
     private static string StrokeColor(BColor color) =>
         FormattableString.Invariant(

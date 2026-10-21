@@ -70,6 +70,8 @@ internal static class OdtReader
                 ReadRunningContent(master, styles, images, options.Limits, diagnostics));
             document = document.WithPageGeometry(page);
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
+            document = document.WithPageBackground(
+                ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
             return new DocumentReadResult(
                 document,
                 diagnostics,
@@ -383,6 +385,31 @@ internal static class OdtReader
     }
 
     /// <summary>
+    /// The <c>style:page-layout-properties</c> of the layout
+    /// <paramref name="master"/> names, or null when it names none the document
+    /// defines.
+    /// </summary>
+    private static XElement? PageLayoutProperties(XElement? master, OdtStyles styles)
+    {
+        string? layoutName = (string?)master?.Attribute(OdtNamespaces.Style + "page-layout-name");
+        if (string.IsNullOrWhiteSpace(layoutName))
+            return null;
+
+        foreach (XElement candidate in styles.PageLayouts)
+        {
+            if (string.Equals(
+                    (string?)candidate.Attribute(OdtNamespaces.Style + "name"),
+                    layoutName,
+                    StringComparison.Ordinal))
+            {
+                return candidate.Element(OdtNamespaces.Style + "page-layout-properties");
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Reads the paper the given master page is laid out on.
     /// </summary>
     /// <remarks>
@@ -397,24 +424,7 @@ internal static class OdtReader
     private static PageGeometry? ReadPageGeometry(
         XElement? master, OdtStyles styles, List<DocumentDiagnostic> diagnostics)
     {
-        string? layoutName = (string?)master?.Attribute(OdtNamespaces.Style + "page-layout-name");
-        if (string.IsNullOrWhiteSpace(layoutName))
-            return null;
-
-        XElement? layout = null;
-        foreach (XElement candidate in styles.PageLayouts)
-        {
-            if (string.Equals(
-                    (string?)candidate.Attribute(OdtNamespaces.Style + "name"),
-                    layoutName,
-                    StringComparison.Ordinal))
-            {
-                layout = candidate;
-                break;
-            }
-        }
-
-        XElement? properties = layout?.Element(OdtNamespaces.Style + "page-layout-properties");
+        XElement? properties = PageLayoutProperties(master, styles);
         if (properties is null)
             return null;
 
@@ -563,7 +573,7 @@ internal static class OdtReader
         double y = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "y"), out double top)
             ? top
             : 0;
-        (int anchorPage, x, y) = PlaceOnPage(drawing, styleName, x, y, width, height, context);
+        (int anchorPage, x, y, bool fromPage) = PlaceOnPage(drawing, styleName, x, y, width, height, context);
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -579,7 +589,8 @@ internal static class OdtReader
             wrap: wrap,
             wrapSide: wrapSide,
             zOrder: ZIndex(drawing),
-            anchorPage: anchorPage));
+            anchorPage: anchorPage,
+            offsetFromPage: fromPage));
         return true;
     }
 
@@ -604,8 +615,10 @@ internal static class OdtReader
     /// <summary>
     /// The page a drawing is anchored to by number, and its position in the
     /// model's terms: x from the text column's left edge, y from the page's top
-    /// edge. A drawing anchored any other way comes back as it went in, with no
-    /// page.
+    /// edge. A paragraph's drawing whose style measures it down the page
+    /// (<c>style:vertical-rel</c> of <c>page</c> or <c>page-content</c>) gets its y
+    /// from the page's top edge too, and no number: it is on whichever page its
+    /// paragraph is. A drawing anchored any other way comes back as it went in.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -624,10 +637,15 @@ internal static class OdtReader
     /// the margins are taken as zero.
     /// </para>
     /// </remarks>
-    private static (int Page, double X, double Y) PlaceOnPage(
+    private static (int Page, double X, double Y, bool FromPage) PlaceOnPage(
         XElement drawing, string? styleName, double x, double y, double width, double height, OdtReadContext context)
     {
-        if (!string.Equals((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type"), "page", StringComparison.Ordinal) ||
+        XElement? properties = null;
+        if (!string.IsNullOrWhiteSpace(styleName))
+            context.Styles.GraphicProperties.TryGetValue(styleName, out properties);
+
+        string? anchorType = (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type");
+        if (!string.Equals(anchorType, "page", StringComparison.Ordinal) ||
             !int.TryParse(
                 (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-page-number"),
                 NumberStyles.Integer,
@@ -635,12 +653,25 @@ internal static class OdtReader
                 out int page) ||
             page < 1)
         {
-            return (0, x, y);
-        }
+            string? verticalRel = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-rel");
+            if (anchorType is "paragraph" or "char" && verticalRel is "page" or "page-content")
+            {
+                double frameTop = verticalRel == "page-content" ? context.Page?.MarginTop ?? 0 : 0;
+                double frameHeight = verticalRel == "page-content"
+                    ? context.Page?.ContentHeight ?? 0
+                    : context.Page?.Height ?? 0;
+                double fromTop = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-pos") switch
+                {
+                    "top" => frameTop,
+                    "middle" => frameTop + ((frameHeight - height) / 2),
+                    "bottom" => frameTop + frameHeight - height,
+                    _ => frameTop + y,
+                };
+                return (0, x, fromTop, true);
+            }
 
-        XElement? properties = null;
-        if (!string.IsNullOrWhiteSpace(styleName))
-            context.Styles.GraphicProperties.TryGetValue(styleName, out properties);
+            return (0, x, y, false);
+        }
 
         PageGeometry? geometry = context.Page;
         double pageWidth = geometry?.Width ?? 0;
@@ -674,7 +705,7 @@ internal static class OdtReader
             _ => areaTop + y,
         };
 
-        return (page, left - marginLeft, top);
+        return (page, left - marginLeft, top, false);
     }
 
     /// <summary>
@@ -716,27 +747,7 @@ internal static class OdtReader
             return (null, BColor.Empty, true, ShapeWrap.None, WrapSide.Largest);
         }
 
-        ShapeFill? fill = null;
-        string? kind = (string?)properties.Attribute(OdtNamespaces.Draw + "fill");
-        if (string.Equals(kind, "gradient", StringComparison.Ordinal))
-        {
-            string? gradientName = (string?)properties.Attribute(OdtNamespaces.Draw + "fill-gradient-name");
-            if (!string.IsNullOrWhiteSpace(gradientName) &&
-                styles.Gradients.TryGetValue(gradientName, out XElement? gradient) &&
-                TryColor((string?)gradient.Attribute(OdtNamespaces.Draw + "start-color"), out BColor start) &&
-                TryColor((string?)gradient.Attribute(OdtNamespaces.Draw + "end-color"), out BColor end))
-            {
-                _ = OdtUnits.TryParseAngle(
-                    (string?)gradient.Attribute(OdtNamespaces.Draw + "angle"),
-                    out double odfDegrees);
-                fill = new ShapeFill(start, end, OdtGradientAngle.ToModel(odfDegrees));
-            }
-        }
-        else if (string.Equals(kind, "solid", StringComparison.Ordinal) &&
-                 TryColor((string?)properties.Attribute(OdtNamespaces.Draw + "fill-color"), out BColor solid))
-        {
-            fill = ShapeFill.Solid(solid);
-        }
+        ShapeFill? fill = ReadDrawFill(properties, styles);
 
         BColor outline = BColor.Empty;
         string? stroke = (string?)properties.Attribute(OdtNamespaces.Draw + "stroke");
@@ -790,6 +801,115 @@ internal static class OdtReader
 
     private static bool TryColor(string? value, out BColor color) =>
         OdtUnits.TryParseColor(value, out color);
+
+    /// <summary>
+    /// The fill a set of properties states with <c>draw:fill</c> (ODF 1.3
+    /// §20.106): a colour, a named gradient, or null for none or a fill this
+    /// does not read.
+    /// </summary>
+    private static ShapeFill? ReadDrawFill(XElement properties, OdtStyles styles)
+    {
+        string? kind = (string?)properties.Attribute(OdtNamespaces.Draw + "fill");
+        if (string.Equals(kind, "gradient", StringComparison.Ordinal))
+        {
+            string? gradientName = (string?)properties.Attribute(OdtNamespaces.Draw + "fill-gradient-name");
+            return !string.IsNullOrWhiteSpace(gradientName) &&
+                styles.Gradients.TryGetValue(gradientName, out XElement? gradient)
+                    ? ReadGradient(gradient, styles)
+                    : null;
+        }
+
+        if (kind is "bitmap" or "hatch")
+        {
+            styles.Report(
+                "odt.fill:" + kind,
+                "odt.fill",
+                "A " + kind + " fill was not drawn; this reader paints colours and gradients only.");
+            return null;
+        }
+
+        return string.Equals(kind, "solid", StringComparison.Ordinal) &&
+            TryColor((string?)properties.Attribute(OdtNamespaces.Draw + "fill-color"), out BColor solid)
+                ? ShapeFill.Solid(solid)
+                : null;
+    }
+
+    /// <summary>A <c>draw:gradient</c> as the model's two-colour fill.</summary>
+    /// <remarks>
+    /// <para>
+    /// An <c>axial</c> gradient puts its start colour along the middle and its
+    /// end colour at both edges, which is what LibreOffice draws: a page it
+    /// exported with a start of lime and an end of fuchsia renders lime across
+    /// its centre and fuchsia in its corners. The model's axial fill names the
+    /// edges first, so the two are exchanged.
+    /// </para>
+    /// <para>
+    /// The other styles (<c>radial</c>, <c>ellipsoid</c>, <c>square</c>,
+    /// <c>rectangular</c>) spread from a centre the model cannot place, out to
+    /// the start colour at the border. They are held as that start colour, which
+    /// is most of what the box shows, and reported - the same answer the DOCX
+    /// reader gives VML's rectangular gradient. Read as a line between the two
+    /// colours, which this did, the centre's colour filled half the box.
+    /// </para>
+    /// </remarks>
+    private static ShapeFill? ReadGradient(XElement gradient, OdtStyles styles)
+    {
+        if (!TryColor((string?)gradient.Attribute(OdtNamespaces.Draw + "start-color"), out BColor start) ||
+            !TryColor((string?)gradient.Attribute(OdtNamespaces.Draw + "end-color"), out BColor end))
+        {
+            return null;
+        }
+
+        _ = OdtUnits.TryParseAngle((string?)gradient.Attribute(OdtNamespaces.Draw + "angle"), out double odfDegrees);
+        double angle = OdtGradientAngle.ToModel(odfDegrees);
+        string style = (string?)gradient.Attribute(OdtNamespaces.Draw + "style") ?? "linear";
+        if (style is "radial" or "ellipsoid" or "square" or "rectangular")
+        {
+            styles.Report(
+                "odt.gradient:" + style,
+                "odt.gradient",
+                "A " + style + " gradient was drawn in its border colour.");
+            return ShapeFill.Solid(start);
+        }
+
+        return style == "axial"
+            ? new ShapeFill(end, start, angle, Axial: true)
+            : new ShapeFill(start, end, angle);
+    }
+
+    /// <summary>
+    /// What the master page paints its page with, or null for nothing.
+    /// </summary>
+    /// <remarks>
+    /// ODF states it in two places. The newer is a <c>drawing-page</c> style the
+    /// master page names with <c>draw:style-name</c> (ODF 1.3 §16.10); the older
+    /// is the page layout's own properties, with <c>draw:fill</c> or with
+    /// <c>fo:background-color</c> (§20.183). LibreOffice writes all three, with
+    /// the background colour flattened to the average of a gradient, so they are
+    /// read in that order and the first that says anything is the answer. A
+    /// <c>draw:fill</c> of <c>none</c> says there is no fill, and stops the search.
+    /// </remarks>
+    private static ShapeFill? ReadPageBackground(XElement? master, XElement? layoutProperties, OdtStyles styles)
+    {
+        string? drawingStyle = (string?)master?.Attribute(OdtNamespaces.Draw + "style-name");
+        if (!string.IsNullOrWhiteSpace(drawingStyle) &&
+            styles.DrawingPageProperties.TryGetValue(drawingStyle, out XElement? drawingPage) &&
+            drawingPage.Attribute(OdtNamespaces.Draw + "fill") is not null)
+        {
+            return ReadDrawFill(drawingPage, styles);
+        }
+
+        if (layoutProperties is null)
+            return null;
+
+        if (layoutProperties.Attribute(OdtNamespaces.Draw + "fill") is not null)
+            return ReadDrawFill(layoutProperties, styles);
+
+        return TryColor((string?)layoutProperties.Attribute(OdtNamespaces.Fo + "background-color"), out BColor color) &&
+            !color.IsEmpty && color.A > 0
+                ? ShapeFill.Solid(color)
+                : null;
+    }
 
     /// <summary>A shape's own paragraphs, read with the same walker the body uses.</summary>
     private static IReadOnlyList<RichTextParagraph> ReadShapeParagraphs(
@@ -1395,7 +1515,7 @@ internal static class OdtReader
         double y = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "y"), out double top)
             ? top
             : 0;
-        (int anchorPage, x, y) = PlaceOnPage(frame, styleName, x, y, width, height, context);
+        (int anchorPage, x, y, bool fromPage) = PlaceOnPage(frame, styleName, x, y, width, height, context);
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -1411,7 +1531,8 @@ internal static class OdtReader
             wrap: wrap,
             wrapSide: wrapSide,
             zOrder: ZIndex(frame),
-            anchorPage: anchorPage));
+            anchorPage: anchorPage,
+            offsetFromPage: fromPage));
         return true;
     }
 
