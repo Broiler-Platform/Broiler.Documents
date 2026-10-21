@@ -54,6 +54,7 @@ public static class RtfWriter
         WriteFontTable(sb, fonts);
         WriteColorTable(sb, colors);
         WritePageGeometry(sb, document.PageGeometry);
+        WritePageBackground(sb, document.PageBackground);
         WriteRunningContent(sb, document.RunningContent, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
 
         if (document.Sections.Count > 0)
@@ -201,21 +202,7 @@ public static class RtfWriter
 
         if (shape.Fill is ShapeFill fill)
         {
-            AppendShapeProperty(sb, "fFilled", "1");
-            AppendShapeProperty(sb, "fillColor", ShapeColor(fill.Start));
-            if (fill.IsGradient)
-            {
-                AppendShapeProperty(sb, "fillBackColor", ShapeColor(fill.End));
-                AppendShapeProperty(sb, "fillType", "1");
-                AppendShapeProperty(
-                    sb,
-                    "fillAngle",
-                    ((long)Math.Round(fill.AngleDegrees * 65536)).ToString(CultureInfo.InvariantCulture));
-            }
-            else
-            {
-                AppendShapeProperty(sb, "fillType", "0");
-            }
+            AppendFill(sb, fill);
         }
         else
         {
@@ -253,6 +240,44 @@ public static class RtfWriter
 
     private static void AppendShapeProperty(StringBuilder sb, string name, string value) =>
         sb.Append("{\\sp{\\sn ").Append(name).Append("}{\\sv ").Append(value).Append("}}");
+
+    /// <summary>The shape properties that paint a box with <paramref name="fill"/>.</summary>
+    private static void AppendFill(StringBuilder sb, ShapeFill fill)
+    {
+        AppendShapeProperty(sb, "fFilled", "1");
+        AppendShapeProperty(sb, "fillColor", ShapeColor(fill.Start));
+        if (fill.IsGradient)
+        {
+            AppendShapeProperty(sb, "fillBackColor", ShapeColor(fill.End));
+            AppendShapeProperty(sb, "fillType", "1");
+            AppendShapeProperty(
+                sb,
+                "fillAngle",
+                ((long)Math.Round(fill.AngleDegrees * 65536)).ToString(CultureInfo.InvariantCulture));
+            if (fill.Axial)
+                AppendShapeProperty(sb, "fillFocus", "50");
+        }
+        else
+        {
+            AppendShapeProperty(sb, "fillType", "0");
+        }
+    }
+
+    /// <summary>
+    /// The page background, as the shape in <c>{\*\background}</c> Word writes
+    /// it with, shown by <c>\viewbksp1</c>; without that LibreOffice reads the
+    /// shape and does not draw it.
+    /// </summary>
+    private static void WritePageBackground(StringBuilder sb, ShapeFill? background)
+    {
+        if (background is null)
+            return;
+
+        sb.Append("\\viewbksp1{\\*\\background{\\shp{\\*\\shpinst");
+        AppendShapeProperty(sb, "shapeType", "1");
+        AppendFill(sb, background);
+        sb.Append("}}}");
+    }
 
     /// <summary>A shape colour: blue, green and red packed in that order.</summary>
     private static string ShapeColor(BColor color) =>

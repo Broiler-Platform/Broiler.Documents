@@ -48,6 +48,12 @@ public static class RtfReader
         /// <c>\pard</c> clears it and a group gives it back when it closes.
         /// </summary>
         public bool InTable;
+
+        /// <summary>
+        /// Inside <c>{\*\background ...}</c>: the shape there is the page's
+        /// background, not a shape on it.
+        /// </summary>
+        public bool InBackground;
     }
 
     private sealed class Worker
@@ -104,6 +110,10 @@ public static class RtfReader
         private bool _shapeHasFill;
         private bool _shapeGradient;
         private bool _shapeHasLine = true;
+        private bool _shapeInBackground;
+        private double _shapeFillFocus;
+        private ShapeFill? _pageBackground;
+        private bool _viewBackground;
         private readonly int _maxParagraphs;
 
         // Buffered same-style body text (flushed when the style changes or the paragraph ends).
@@ -216,7 +226,8 @@ public static class RtfReader
                     FontFamily = _defaultFont is int font ? _fonts.GetName(font) : null,
                 })
                 .WithRunningContent(BuildRunningContent())
-                .WithPageGeometry(BuildPageGeometry());
+                .WithPageGeometry(BuildPageGeometry())
+                .WithPageBackground(_viewBackground ? _pageBackground : null);
             if (_shapes.Count > 0)
                 document = document.WithShapes(_shapes);
             if (_tables.Count > 0)
@@ -418,7 +429,7 @@ public static class RtfReader
             // destination it does understand has to be let through - a shape
             // arrives as {\*\shpinst ...} and would otherwise be dropped here,
             // several hundred lines before the case that handles it.
-            if (star && kw is not "shpinst")
+            if (star && kw is not ("shpinst" or "background"))
             {
                 _state.Dest = RtfDestination.Skip;
                 return;
@@ -533,6 +544,10 @@ public static class RtfReader
                 // does, and only one group may close as the shape or it would be
                 // finished twice - once for the inner group and once for the outer.
                 case "shp": BeginShape(); return;
+                case "background": _state.InBackground = true; return;
+                // Whether the background is shown at all, which LibreOffice
+                // takes as Word's w:displayBackgroundShape.
+                case "viewbksp": _viewBackground = !has || p != 0; return;
                 case "shpinst": _state.Dest = RtfDestination.Shape; return;
                 case "shpleft": if (has) _shapeLeft = p; return;
                 case "shptop": if (has) _shapeTop = p; return;
@@ -1027,6 +1042,8 @@ public static class RtfReader
             _shapeHasFill = false;
             _shapeGradient = false;
             _shapeHasLine = true;
+            _shapeInBackground = _state.InBackground;
+            _shapeFillFocus = 0;
             _shapeText = null;
         }
 
@@ -1065,6 +1082,9 @@ public static class RtfReader
                     break;
                 case "fillType":
                     _shapeGradient = number != 0;
+                    break;
+                case "fillFocus":
+                    _shapeFillFocus = number;
                     break;
                 case "fillAngle":
                     // Word states it in 65536ths of a degree.
@@ -1105,9 +1125,22 @@ public static class RtfReader
             ShapeFill? fill = null;
             if (_shapeHasFill && !_shapeFillStart.IsEmpty)
             {
+                // A focus near 50 mirrors the gradient, as VML's does.
                 fill = _shapeGradient && !_shapeFillEnd.IsEmpty
-                    ? new ShapeFill(_shapeFillStart, _shapeFillEnd, _shapeFillAngle)
+                    ? new ShapeFill(
+                        _shapeFillStart,
+                        _shapeFillEnd,
+                        _shapeFillAngle,
+                        Axial: Math.Abs(_shapeFillFocus) is >= 25 and <= 75)
                     : ShapeFill.Solid(_shapeFillStart);
+            }
+
+            // The page's background states no box; it is the page.
+            if (_shapeInBackground)
+            {
+                _shapeText = null;
+                _pageBackground = fill;
+                return;
             }
 
             _shapeText = null;

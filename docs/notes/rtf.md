@@ -43,7 +43,8 @@ than its `\ucN` count.
 | Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only, including the `\l` switch that spells a same-document reference: it is read as `#name` and written back the same way. The name may not contain a quote — the field argument is quoted and RTF has no escape for one inside it, so a quote would truncate the target silently; the shared rule refuses it for every format. Targets otherwise follow that rule, or `rtf.link`) |
 | Running content | `\header` `\headerf` `\headerl` `\headerr` `\footer` `\footerf` `\footerl` `\footerr` (→ `RunningContent`, not the body flow) |
 | Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN`, and the first section's `\pgwsxnN` `\pghsxnN` `\marglsxnN` `\margrsxnN` `\margtsxnN` `\margbsxnN` over them (→ `PageGeometry`) |
-| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shpbypara` `\shpbypage` `\shpbymargin` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fLine` `lineColor` `posrelv` (→ `DocumentShape`) |
+| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shpbypara` `\shpbypage` `\shpbymargin` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fillFocus` `fLine` `lineColor` `posrelv` (→ `DocumentShape`) |
+| Page background | The shape in `{\*ackground}`, read where `iewbksp1` shows it, as LibreOffice takes `iewbksp` for Word's `w:displayBackgroundShape`; its fill is a shape's (→ `RichTextDocument.PageBackground`). A write states both. A `fillFocus` near 50 is an axial gradient, on a page or a shape. |
 
 ## Default font
 
