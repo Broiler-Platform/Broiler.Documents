@@ -283,9 +283,14 @@ toolkit behind it.
   the paragraph anchor it amounts to. A write puts a page-anchored drawing in the
   body ahead of the text, as LibreOffice does, with its number and a style
   stating both areas. A text box whose frame states no `svg:width` takes its
-  text box's `fo:min-width`; one sized only by `fo:min-height` still stays in the
-  text, because the height its text needs is not known here and a box of the
-  minimum would clip it. A frame that states no box stays in the text. Crops,
+  text box's `fo:min-width`. A text box's `fo:min-height` makes the frame grow to
+  its text from there (`DocumentShape.GrowsToText`), and one whose frame states
+  no height either grows from nothing; the layout measures its lines. Such a
+  box used to stay in the text, and `tdf146955.odt`, a book whose three hundred
+  boxes stand on the pages they name, had them poured into its first sixteen
+  pages of body. A write puts such a box in a frame with no `svg:height` around
+  a text box stating the least it is, as LibreOffice does. A frame that states
+  no box stays in the text. Crops,
   rotation, and frame effects are dropped.
 - The page background is `RichTextDocument.PageBackground`, read from the master
   page: from the `drawing-page` style its `draw:style-name` names (ODF 1.3

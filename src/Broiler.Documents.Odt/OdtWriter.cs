@@ -100,6 +100,9 @@ public static class OdtWriter
         if (shape.Image is InlineImage image)
             return BuildShapeFrame(shape, image, context);
 
+        if (shape.GrowsToText && shape.HasText)
+            return BuildTextFrame(shape, context);
+
         var element = new XElement(
             OdtNamespaces.Draw + "custom-shape",
             AnchorAttributes(shape),
@@ -133,6 +136,32 @@ public static class OdtWriter
                 "M 0 0 L 21600 0 21600 21600 0 21600 Z N")));
 
         return element;
+    }
+
+    /// <summary>
+    /// A box that grows to its text, as LibreOffice writes one: a frame that
+    /// states its width and no height, around a text box whose
+    /// <c>fo:min-height</c> is the least it is.
+    /// </summary>
+    private static XElement BuildTextFrame(DocumentShape shape, OdtWriteContext context)
+    {
+        var textBox = new XElement(
+            OdtNamespaces.Draw + "text-box",
+            new XAttribute(OdtNamespaces.Fo + "min-height", OdtUnits.FormatPoints(Math.Max(0, shape.Height))));
+        foreach (RichTextParagraph paragraph in shape.Paragraphs)
+            textBox.Add(BuildParagraph(paragraph, context, inList: false));
+
+        return new XElement(
+            OdtNamespaces.Draw + "frame",
+            new XAttribute(OdtNamespaces.Draw + "style-name", context.GetShapeStyleName(shape)),
+            new XAttribute(
+                OdtNamespaces.Draw + "z-index",
+                shape.ZOrder.ToString(CultureInfo.InvariantCulture)),
+            AnchorAttributes(shape),
+            new XAttribute(OdtNamespaces.Svg + "x", OdtUnits.FormatPoints(shape.OffsetX)),
+            new XAttribute(OdtNamespaces.Svg + "y", OdtUnits.FormatPoints(shape.OffsetY)),
+            new XAttribute(OdtNamespaces.Svg + "width", OdtUnits.FormatPoints(shape.Width)),
+            textBox);
     }
 
     /// <summary>
