@@ -118,7 +118,8 @@ internal static class OdtReader
             diagnostics,
             "odt.xml",
             "The flat ODT document",
-            LoadOptions.PreserveWhitespace);
+            LoadOptions.PreserveWhitespace,
+            OdtNamespaces.ImpliedPrefixes);
         XElement? root = document?.Root;
         if (document is null || root is null)
             return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);

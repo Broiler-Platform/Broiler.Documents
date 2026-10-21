@@ -20,6 +20,13 @@ toolkit behind it.
   template media type when it is present (`odt.flat.media-type`). Writing always
   produces a package, so the descriptor claims `.odt` only, and `-o out.fodt` is
   not accepted.
+- A prefix a part or flat file uses without declaring it. That is not
+  well-formed XML, but LibreOffice reads it, and some of its own test documents
+  rely on that (`tdf142130.fodt` declares neither `fo:` nor `style:`). When the
+  first parse fails, the reader parses again with the prefixes LibreOffice
+  declares on every document it writes already bound, and reports
+  `odt.xml.prefix`. A declaration the file does make still wins, and a prefix
+  outside that set still fails the read with `odt.xml`.
 - Paragraphs (`text:p`) and headings (`text:h`). A heading is read as an ordinary
   paragraph carrying whatever its named style resolves to; the model has no
   heading rank. ODF has no paragraph mark of its own, so a paragraph's
@@ -403,6 +410,7 @@ blank:
 | `odt.flat.media-type` | Error | A flat file's `office:mimetype` names another OpenDocument type, such as a spreadsheet. |
 | `odt.document.body` | Error | `content.xml` has no `office:text` body. |
 | `odt.xml` | Error | A part's XML, or a flat document, could not be parsed; the message names the exception type. |
+| `odt.xml.prefix` | Warning | A part or flat document used namespace prefixes it does not declare, and was read with LibreOffice's prefixes bound. |
 | `odt.limit.bytes` | Error | Input exceeded `MaxDocumentBytes` and was not parsed. |
 | `odt.content.xml` / `odt.styles` / `odt.manifest` / `odt.meta.xml` | Error | A part could not be parsed, or exceeded `MaxBinBytes` (`.limit` suffix). |
 | `odt.meta.date` | Warning | A `meta:creation-date` or `dc:date` stated a timestamp this build could not read, so it was dropped rather than guessed at. |
