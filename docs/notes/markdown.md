@@ -62,6 +62,12 @@ in the text. Unsupported inline style fields (underline, size,
 foreground/background color, and non-monospace font family) produce
 `markdown.inline-style`.
 
+A list is written as Markdown list items, bulleted or numbered, which is all
+Markdown states. A list whose labels are not what such items read back as - one
+that starts at four, counts in letters or roman numerals, or carries its count on
+past a paragraph between its items - is reported once as
+`markdown.list.numbering`; a list numbered 1, 2, 3 loses nothing and is not.
+
 A paragraph that starts a new page is written as an ordinary paragraph and
 reported as `markdown.page-break`. Markdown has no page, so it has no page break:
 there is no syntax to write one in and no fallback that would be honest, since a

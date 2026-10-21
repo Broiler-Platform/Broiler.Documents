@@ -58,6 +58,34 @@ Open XML WordprocessingML package parts.
   `w:cs="Arial"`, were drawn in Arial over a Times New Roman document.
 - Paragraph formatting: left/center/right alignment, line spacing, spacing
   before/after, indentation, bullet lists, and numbered lists.
+- List numbering from `word/numbering.xml` (ECMA-376 §17.9). Each paragraph
+  names the list it is numbered in (`ParagraphStyle.List`), with all nine levels
+  of its abstract numbering: `w:start`, `w:numFmt` (decimal, `decimalZero`,
+  letters, roman numerals, `bullet`, `none`; any other is decimal and reported as
+  `docx.numbering.format`), `w:lvlText`, `w:isLgl`, `w:lvlRestart` and the
+  level's `w:ind`. Every `w:num` naming the same abstract numbering is one list
+  and counts on from the others; one with a `w:lvlOverride` (`w:startOverride`,
+  or a replacement `w:lvl`) is a list of its own. An abstract numbering with a
+  `w:numStyleLink` takes the levels of the one whose `w:styleLink` names that
+  style. The list and the level are each taken from the nearest `w:numPr` that
+  states them, the paragraph's own or its style chain's; with no `w:ilvl`, the
+  level is the one whose `w:pStyle` is the paragraph's style, which is how
+  heading styles are numbered. `w:numId` 0 takes a paragraph out of its style's
+  list. An absent `w:start` starts at one, as LibreOffice reads it, where
+  §17.9.25 says nought. A Symbol or Wingdings bullet in the private-use area is
+  read as the character it draws. The label starts where the level's `w:ind`
+  hangs it (its `w:left` less its `w:hanging`), the paragraph's own `w:ind`
+  overriding attribute by attribute, at indent level one at least. An empty
+  paragraph that only carries a section's `w:sectPr` takes no number, as
+  LibreOffice, which keeps no such paragraph, gives it none
+  (`tdf170602_exportContext.docx`).
+- Lists are written back as an abstract numbering and a `w:num` per list, with
+  the paragraph's `w:ind` stated as the text start and a 360-twip hang. A list
+  that names no definition is written in plain lists that draw it as the layout
+  does (bullets solid, hollow, square; numbers decimal, letters, roman), a new
+  `w:num` restarting each run of the numbered one. A list item that restarts its
+  list's count (ODF's `text:start-value`) is written without the restart
+  (`docx.list.restart`).
 - Page breaks, read from both spellings WordprocessingML has for the one thing
   and written back as one:
 
@@ -261,8 +289,8 @@ Open XML WordprocessingML package parts.
 - An image linked with `r:link` rather than embedded is not fetched; reading it
   would mean a network or file request driven by document content (ADR 0004).
 - Style resolution covers the attributes `RichTextDocument` models. Style
-  features outside it — character spacing/scaling, numbering-level overrides,
-  conditional table formatting — are ignored, as are theme colors
+  features outside it — character spacing/scaling, conditional table
+  formatting — are ignored, as are theme colors
   (`w:themeColor`); Word writes the computed RGB into `w:val` alongside them,
   which is what the reader uses.
 - A table style's own `w:pPr` and `w:rPr` are applied to the paragraphs and
@@ -457,6 +485,8 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.header.even` | Info | An `even` header or footer was not read, because the document does not set `w:evenAndOddHeaders`; even pages carry the default one. |
 | `docx.section.parity` | Warning | A section starting on an odd or even page was read as starting on the next page; the blank page it can put before itself is not made. |
 | `docx.columns.unequal` | Info | A section listed columns of unequal width; they were read as equal columns. |
+| `docx.numbering.format` | Info | A list level was numbered in a format other than decimal, letters or roman numerals (ordinals, number words, a script's own digits); it was numbered in decimal. Once per read. |
+| `docx.list.restart` | Warning | Write: a list item that restarts its list's count was written without the restart. Once per write. |
 | `docx.columns.geometry` | Warning | A section's columns left no room to write in a column; the page was kept and read as one column. |
 | `docx.limit.depth` | Warning | Block nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `docx.styles.missing` | Warning | Content named styles but the package has no styles part. Reported once. |

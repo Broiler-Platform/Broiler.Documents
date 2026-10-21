@@ -73,6 +73,26 @@ public sealed class MarkdownWriterTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.inline-style");
     }
 
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(4, true)]
+    public void Writing_A_List_Reports_Only_Labels_Markdown_Would_Renumber(int start, bool reported)
+    {
+        var definition = new ListDefinition([new ListLevel { Template = "%1.", Start = start }]);
+        var reference = new ListReference(definition, 0);
+        ParagraphStyle item = ParagraphStyle.Default with { List = reference, ListKind = ListKind.Numbered, IndentLevel = 1 };
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            MakeParagraph(item, ("first", InlineStyle.Default)),
+            MakeParagraph(item, ("second", InlineStyle.Default)),
+        ]);
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult result = new MarkdownDocumentCodec().Write(document, stream);
+
+        Assert.Equal(reported, result.Diagnostics.Any(diagnostic => diagnostic.Code == "markdown.list.numbering"));
+    }
+
     [Fact]
     public void Writing_A_Page_Break_Says_Markdown_Cannot_Express_One()
     {

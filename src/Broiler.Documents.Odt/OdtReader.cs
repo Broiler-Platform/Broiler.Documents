@@ -996,7 +996,28 @@ internal static class OdtReader
     /// The list a paragraph is inside: which kind its level draws as, and how
     /// deep that level is. Null outside a list.
     /// </summary>
-    private sealed record OdtListContext(ListKind Kind, int Level, string? StyleName);
+    private sealed record OdtListContext(
+        ListKind Kind,
+        int Level,
+        string? StyleName,
+        ListDefinition? Definition = null,
+        OdtItemStart? Start = null);
+
+    /// <summary>
+    /// A list item's <c>text:start-value</c>, which its first paragraph takes and
+    /// no other paragraph of the item does.
+    /// </summary>
+    private sealed class OdtItemStart(int value)
+    {
+        private int? _value = value;
+
+        public int? Take()
+        {
+            int? value = _value;
+            _value = null;
+            return value;
+        }
+    }
 
     /// <summary>
     /// Walks ODF text block content. Paragraphs are the only shape
@@ -1159,13 +1180,31 @@ internal static class OdtReader
 
         int level = (outer?.Level ?? 0) + 1;
         ListKind kind = context.Styles.KindForList(styleName, level);
-        var inner = new OdtListContext(kind, level, styleName);
+
+        // A sub-list is a level of the list it is nested in and counts in it;
+        // only a sub-list in a style of its own is a list of its own.
+        ListDefinition? definition = outer?.Definition is not null && styleName == outer.StyleName
+            ? outer.Definition
+            : context.StartList(
+                context.Styles.DefinitionForList(styleName),
+                styleName,
+                (string?)list.Attribute(OdtNamespaces.Xml + "id"),
+                string.Equals((string?)list.Attribute(OdtNamespaces.Text + "continue-numbering"), "true", StringComparison.Ordinal),
+                (string?)list.Attribute(OdtNamespaces.Text + "continue-list"));
+        var inner = new OdtListContext(kind, level, styleName, definition);
 
         foreach (XElement child in list.Elements())
         {
             if (child.Name == OdtNamespaces.Text + "list-item")
             {
-                ReadBlockContent(child.Elements(), context, inner, depth + 1);
+                OdtListContext item = inner;
+                if (int.TryParse((string?)child.Attribute(OdtNamespaces.Text + "start-value"),
+                        NumberStyles.Integer, CultureInfo.InvariantCulture, out int start))
+                {
+                    item = inner with { Start = new OdtItemStart(start) };
+                }
+
+                ReadBlockContent(child.Elements(), context, item, depth + 1);
                 continue;
             }
 
@@ -1176,7 +1215,7 @@ internal static class OdtReader
                 ReadBlockContent(
                     child.Elements(),
                     context,
-                    inner with { Kind = ListKind.None },
+                    inner with { Kind = ListKind.None, Definition = null },
                     depth + 1);
             }
         }
@@ -1283,6 +1322,16 @@ internal static class OdtReader
                 ListKind = list.Kind,
                 IndentLevel = Math.Max(list.Level, list.Kind == ListKind.None ? 0 : 1),
             };
+
+            if (list.Definition is ListDefinition definition)
+            {
+                var reference = new ListReference(definition, list.Level - 1, list.Start?.Take());
+                paragraphStyle = paragraphStyle with { List = reference, ListKind = reference.Kind };
+            }
+        }
+        else if (paragraph.Name == OdtNamespaces.Text + "h" && OutlineReference(paragraph, context) is ListReference outline)
+        {
+            paragraphStyle = paragraphStyle with { List = outline, ListKind = outline.Kind };
         }
 
         InlineStyle inherited = InlineStyle.Default;
@@ -1295,6 +1344,44 @@ internal static class OdtReader
         context.Builder.StartParagraph(paragraphStyle, inherited);
         ReadInlineContent(paragraph, context, inherited, depth + 1);
         context.Builder.FinishParagraph();
+    }
+
+    /// <summary>
+    /// The place a heading outside any list has in the document's outline
+    /// numbering, or null when the document numbers no outline.
+    /// </summary>
+    /// <remarks>
+    /// <c>text:outline-level</c> is the level, from one (ODF 1.3 §5.1.2); a
+    /// heading that is a list header (<c>text:is-list-header</c>) carries no
+    /// number, and <c>text:restart-numbering</c> starts the count again, at
+    /// <c>text:start-value</c> if it gives one. A heading inside a
+    /// <c>text:list</c> is numbered by that list instead.
+    /// </remarks>
+    private static ListReference? OutlineReference(XElement heading, OdtReadContext context)
+    {
+        if (context.Styles.OutlineDefinition is not ListDefinition outline ||
+            string.Equals((string?)heading.Attribute(OdtNamespaces.Text + "is-list-header"), "true", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        int level = int.TryParse((string?)heading.Attribute(OdtNamespaces.Text + "outline-level"),
+            NumberStyles.Integer, CultureInfo.InvariantCulture, out int stated) && stated > 0
+            ? stated
+            : 1;
+        if (level > ListDefinition.MaxLevels)
+            return null;
+
+        int? restart = null;
+        if (string.Equals((string?)heading.Attribute(OdtNamespaces.Text + "restart-numbering"), "true", StringComparison.Ordinal))
+        {
+            restart = int.TryParse((string?)heading.Attribute(OdtNamespaces.Text + "start-value"),
+                NumberStyles.Integer, CultureInfo.InvariantCulture, out int start)
+                ? start
+                : outline.LevelAt(level - 1).Start;
+        }
+
+        return new ListReference(outline, level - 1, restart);
     }
 
     /// <summary>

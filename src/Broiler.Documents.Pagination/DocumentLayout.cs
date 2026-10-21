@@ -68,6 +68,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
     private readonly Dictionary<DocumentShape, double> _grownHeights = [];
+    private ListNumberer _lists = new();
 
     /// <summary>
     /// U+2028 LINE SEPARATOR, which is how the model spells a break inside a
@@ -244,7 +245,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         bool ColumnHasContent() =>
             currentLines.Count > columnStart || (column == 0 && (regionTop > pageTop || floatBoxes.Count > 0));
 
-        var numbering = new ListNumbering();
+        // One count for the body, which the cells of its tables share: a list
+        // that runs through a table counts on through it.
+        var numbering = new ListNumberer();
+        _lists = numbering;
 
         void BreakPage()
         {
@@ -1206,7 +1210,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
         var pieces = new List<CutPiece>();
-        var numbering = new ListNumbering();
+        ListNumberer numbering = _lists.ForNestedFlow();
         double y = 0;
 
         int index = Math.Max(0, from);
@@ -2268,103 +2272,5 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private sealed class ParagraphLines(List<LayoutLine> lines)
     {
         public List<LayoutLine> Lines { get; } = lines;
-    }
-
-    /// <summary>
-    /// Tracks list counters across paragraphs and produces the marker text.
-    /// </summary>
-    /// <remarks>
-    /// The model records that a paragraph is in a numbered list at a given
-    /// indent level and nothing else - there is no list identity, no start
-    /// number, and no restart flag. So the rule here is the simple one those
-    /// facts support: a counter per level, deeper levels reset when a shallower
-    /// item appears, and every counter resets at the first paragraph that is not
-    /// a list item. Documents whose original numbering said otherwise lost that
-    /// on the way into the model, not here.
-    /// <para>
-    /// A list item's indent level counts from one: every reader puts a top-level
-    /// item at level 1, the level it is indented to. The marker's style is
-    /// chosen by how deep the item is nested below that, so a top-level list is
-    /// numbered 1, 2, 3 and bulleted with a solid bullet. Choosing it from the
-    /// indent level itself lettered every top-level list the model held.
-    /// </para>
-    /// </remarks>
-    private sealed class ListNumbering
-    {
-        private const string Bullets = "•◦▪";
-
-        private readonly List<int> _counters = [];
-
-        public string? Advance(ParagraphStyle style)
-        {
-            int level = Math.Max(0, style.IndentLevel);
-            int depth = Math.Max(0, level - 1);
-
-            if (style.ListKind == ListKind.None)
-            {
-                _counters.Clear();
-                return null;
-            }
-
-            if (style.ListKind == ListKind.Bullet)
-            {
-                Truncate(level);
-                return Bullets[depth % Bullets.Length].ToString();
-            }
-
-            Truncate(level);
-            while (_counters.Count <= level)
-                _counters.Add(0);
-
-            _counters[level]++;
-            return Format(_counters[level], depth) + ".";
-        }
-
-        private void Truncate(int level)
-        {
-            if (_counters.Count > level + 1)
-                _counters.RemoveRange(level + 1, _counters.Count - level - 1);
-        }
-
-        private static string Format(int value, int level) => (level % 3) switch
-        {
-            0 => value.ToString(CultureInfo.InvariantCulture),
-            1 => Alphabetic(value),
-            _ => Roman(value),
-        };
-
-        private static string Alphabetic(int value)
-        {
-            var builder = new StringBuilder();
-            while (value > 0)
-            {
-                value--;
-                builder.Insert(0, (char)('a' + (value % 26)));
-                value /= 26;
-            }
-
-            return builder.Length == 0 ? "a" : builder.ToString();
-        }
-
-        private static string Roman(int value)
-        {
-            if (value <= 0 || value >= 4000)
-                return value.ToString(CultureInfo.InvariantCulture);
-
-            int[] values = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
-            string[] symbols = ["m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i"];
-
-            var builder = new StringBuilder();
-            for (int i = 0; i < values.Length; i++)
-            {
-                while (value >= values[i])
-                {
-                    builder.Append(symbols[i]);
-                    value -= values[i];
-                }
-            }
-
-            return builder.ToString();
-        }
     }
 }

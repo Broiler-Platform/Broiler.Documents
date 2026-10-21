@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Broiler.Documents.Model;
 
 namespace Broiler.Documents.Odt;
@@ -23,6 +25,39 @@ internal sealed record OdtReadContext(
     PageGeometry? Page = null)
 {
     private OdtBreak _pendingBreak;
+    private readonly Dictionary<string, ListDefinition> _lastListByStyle = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ListDefinition> _listsById = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The list a top-level <c>text:list</c> counts in: a fresh copy of its
+    /// style's levels, or the list it says it continues.
+    /// </summary>
+    /// <remarks>
+    /// Each <c>text:list</c> starts its numbering again unless it says otherwise
+    /// (ODF 1.3 §5.3.1): <c>text:continue-list</c> names the <c>xml:id</c> of the
+    /// list it carries on, and <c>text:continue-numbering="true"</c> carries on
+    /// the last list in the same style, which is how LibreOffice reads it. A
+    /// list split by a table or a heading is written that way.
+    /// </remarks>
+    public ListDefinition? StartList(ListDefinition? style, string? styleName, string? id, bool continueNumbering, string? continueList)
+    {
+        if (style is null)
+            return null;
+
+        ListDefinition? list = null;
+        if (!string.IsNullOrEmpty(continueList))
+            _listsById.TryGetValue(continueList, out list);
+        if (list is null && continueNumbering && !string.IsNullOrEmpty(styleName))
+            _lastListByStyle.TryGetValue(styleName, out list);
+        list ??= style.Copy();
+
+        if (!string.IsNullOrEmpty(id))
+            _listsById[id] = list;
+        if (!string.IsNullOrEmpty(styleName))
+            _lastListByStyle[styleName] = list;
+
+        return list;
+    }
 
     /// <summary>
     /// Records that the paragraph just read asked for a page or column break

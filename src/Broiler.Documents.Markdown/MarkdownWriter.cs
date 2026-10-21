@@ -31,6 +31,13 @@ public static class MarkdownWriter
                 "Markdown output carries no grid."));
         }
 
+        if (LosesListLabels(document))
+        {
+            diagnostics.Add(DocumentDiagnostic.Info(
+                "markdown.list.numbering",
+                "A list's own numbering - where it starts, how it counts, what its labels read - was written as Markdown list items, which are numbered again from one when read."));
+        }
+
         var builder = new StringBuilder();
         for (int i = 0; i < document.ParagraphCount; i++)
         {
@@ -51,6 +58,28 @@ public static class MarkdownWriter
         using var stream = new MemoryStream();
         Write(document, stream, options);
         return stream.ToArray();
+    }
+
+    /// <summary>
+    /// True when a paragraph's list label is not the one a Markdown list item
+    /// reads back as. Markdown states only that an item is bulleted or numbered,
+    /// and a list numbered 1, 2, 3 loses nothing by that; one that starts at
+    /// four, counts in letters or carries on past a paragraph between its items
+    /// does.
+    /// </summary>
+    private static bool LosesListLabels(RichTextDocument document)
+    {
+        var stated = new ListNumberer();
+        var plain = new ListNumberer();
+        foreach (RichTextParagraph paragraph in document.Paragraphs)
+        {
+            string? label = stated.Advance(paragraph.Style);
+            string? written = plain.Advance(paragraph.Style with { List = null });
+            if (paragraph.Style.List is not null && !string.Equals(label, written, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
     }
 
     private static void WriteParagraph(
