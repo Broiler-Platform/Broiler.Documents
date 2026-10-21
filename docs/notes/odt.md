@@ -287,6 +287,17 @@ toolkit behind it.
   text, because the height its text needs is not known here and a box of the
   minimum would clip it. A frame that states no box stays in the text. Crops,
   rotation, and frame effects are dropped.
+- The page background is `RichTextDocument.PageBackground`, read from the master
+  page: from the `drawing-page` style its `draw:style-name` names (ODF 1.3
+  §16.10) where that states a `draw:fill`, else from the page layout's own
+  `draw:fill`, else from its `fo:background-color`. LibreOffice writes all three.
+  A write states `draw:fill` and `fo:background-color` on the page layout, with
+  a gradient named in `office:styles`. An `axial` gradient puts its start colour
+  along the middle and its end colour at the edges, which is what LibreOffice
+  draws; `radial`, `ellipsoid`, `square` and `rectangular` are read as the start
+  colour, at their border, and reported as `odt.gradient`. A `bitmap` or `hatch`
+  fill is not read and is reported as `odt.fill`. All of this holds for a
+  shape's fill as well.
 - SVG, EMF, and WMF — what a producer stores for charts, formulas, and object
   replacement images — are not carried, because they cannot be decoded to pixels
   here. They are reported as `odt.image.format` rather than kept as a picture
@@ -371,6 +382,8 @@ blank:
 | `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `odt.image.denied` | Warning | A picture was not read into the document because the caller's resource policy did not permit it; the message names the denial. |
 | `odt.page.geometry` | Warning | A page layout described a page with no room to write on, so the page was not read. |
+| `odt.gradient` | Warning | A `radial`, `ellipsoid`, `square` or `rectangular` gradient, which spreads from a centre the model cannot place, was read as its start colour, the colour at its border. |
+| `odt.fill` | Warning | A `bitmap` or `hatch` fill, on a shape or a page, was not read. |
 | `odt.columns.geometry` | Warning | A page layout's `style:columns` left no room to write in a column; the page was kept and read as one column. |
 | `odt.columns.unequal` | Info | A page layout listed columns of different relative widths; they were read as equal columns. |
 | `odt.limit.depth` | Warning | Block or inline nesting hit `MaxGroupDepth`; the deepest content was skipped. |

@@ -122,6 +122,23 @@ Open XML WordprocessingML package parts.
   is still a part. They were anchored to a body paragraph before, which put a
   letterhead on page one only and dropped it entirely when the body was shorter
   than its header.
+- The page background, `w:background` (ECMA-376 §17.2.1), is
+  `RichTextDocument.PageBackground`, read only where `w:settings` holds
+  `w:displayBackgroundShape` (§17.15.1.25): Word keeps a page colour it is not
+  told to show, and LibreOffice reads neither the colour nor the shape without
+  the switch. The VML shape inside, `v:background`, is the background Word draws,
+  and `w:color` the colour it falls back to. A VML fill is converted the way
+  LibreOffice converts it (`oox/source/vml/vmlformatting.cxx`): its angle runs
+  counter-clockwise from the bottom, a quarter turn from the model's, a linear
+  gradient starts from `color2`, a focus of 100% or a negative angle reverses
+  it, and a focus near 50% is the mirrored gradient the model calls axial, with
+  `fillcolor` at the edges. A rectangular gradient (`gradientRadial`) is read as
+  its outer colour, which is most of the page; a pattern of one colour is that
+  colour; a pattern of two or a picture is `w:color`. Those three are reported
+  as `docx.background.fill`. A write puts `w:color` - a gradient's middle colour -
+  on `w:background`, a `v:background` for a gradient, and turns the switch on.
+  A DrawingML gradient of three stops whose first and last agree is the same
+  axial fill, and an axial shape fill is written that way.
 - Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
   shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
   `wp:positionV`, converted from whichever frame the anchor names into the text
@@ -344,6 +361,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.shape` | Warning | A drawing held no embedded picture. |
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's, or a page-relative vertical offset kept as stated. |
+| `docx.background.fill` | Warning | The page background's VML fill was one the model cannot hold, and was read as one colour: a rectangular (`gradientRadial`) gradient as its outer colour, a pattern of two colours or a picture fill as `w:background`'s own colour. |
 
 Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, `docx.shape.page`, and `docx.text.control`.
 `docx.shape.page` says a shape anchored to a page by number was written beside

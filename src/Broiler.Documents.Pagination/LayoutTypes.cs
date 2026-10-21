@@ -190,9 +190,11 @@ public sealed class LayoutPage
     private readonly List<LayoutCell> _cells;
 
     internal LayoutPage(int number, double widthPoints, double heightPoints,
-        List<LayoutLine> lines, List<LayoutShape>? shapes = null, List<LayoutCell>? cells = null)
+        List<LayoutLine> lines, List<LayoutShape>? shapes = null, List<LayoutCell>? cells = null,
+        ShapeFill? background = null)
     {
         Number = number;
+        Background = background;
         WidthPoints = widthPoints;
         HeightPoints = heightPoints;
         _lines = lines;
@@ -205,6 +207,12 @@ public sealed class LayoutPage
 
     /// <summary>The table cells on this page, drawn under its text.</summary>
     public IReadOnlyList<LayoutCell> Cells => _cells;
+
+    /// <summary>
+    /// What the whole page is painted with before anything on it, or null for
+    /// a page left as the surface it is drawn on.
+    /// </summary>
+    public ShapeFill? Background { get; }
 
     /// <summary>One-based page number.</summary>
     public int Number { get; }

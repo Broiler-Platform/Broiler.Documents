@@ -110,7 +110,8 @@ internal static class PictureEncoding
             .WithPageGeometry(document.PageGeometry)
             .WithTables(document.Tables)
             .WithSections(document.Sections)
-            .WithStyleDefaults(document.StyleDefaults);
+            .WithStyleDefaults(document.StyleDefaults)
+            .WithPageBackground(document.PageBackground);
 
         return (rebuilt, builder!.Build(), encoded.Count);
     }

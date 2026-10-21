@@ -57,6 +57,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private double? _footerDistance;
     private PageFrame? _frame;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
+    private ShapeFill? _background;
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
 
@@ -83,6 +84,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _footerDistance = document.PageGeometry?.FooterDistance;
         _frame = null;
         _documentShapes = document.Shapes;
+        _background = document.PageBackground;
         _paragraphTops.Clear();
         _wrap = new TextWrapExclusions();
         AddPageExclusions(1);
@@ -545,7 +547,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     finalSetup.HeightPoints,
                     [.. pages[0].Lines],
                     [.. pages[0].Shapes],
-                    [.. pages[0].Cells]),
+                    [.. pages[0].Cells],
+                    _background),
             ];
         }
 
@@ -596,7 +599,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
         shapes = [.. shapes.OrderBy(shape => shape.ZOrder)];
 
-        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells);
+        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells, _background);
     }
 
     /// <summary>

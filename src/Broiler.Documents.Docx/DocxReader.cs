@@ -65,6 +65,7 @@ internal static class DocxReader
             // its offsets are measured from, and converting one to the column the
             // model anchors against needs the margins first. The sections come
             // first of all, because a section's properties follow its content.
+            DocxSettings settings = ReadSettings(archive, documentRelationships, baseDirectory, options.Limits, diagnostics);
             DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"));
             PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
             RichTextDocument document = ReadDocumentXml(
@@ -89,10 +90,18 @@ internal static class DocxReader
                 diagnostics,
                 reported,
                 page,
-                ReadEvenAndOddHeaders(archive, documentRelationships, baseDirectory, options.Limits, diagnostics)));
+                settings.EvenAndOddHeaders));
             document = document.WithPageGeometry(page);
             document = document.WithSections(sections.ToModel(document.ParagraphCount, page));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
+            document = document.WithPageBackground(DocxVml.ReadBackground(
+                documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "background"),
+                settings.DisplayBackgroundShape,
+                (code, message) =>
+                {
+                    if (reported.Add(code))
+                        diagnostics.Add(DocumentDiagnostic.Warning(code, message));
+                }));
             return new DocumentReadResult(
                 document,
                 diagnostics,
@@ -406,12 +415,22 @@ internal static class DocxReader
         }
     }
 
+    /// <summary>The settings (ECMA-376 §17.15) that change what this reader reads.</summary>
+    /// <param name="EvenAndOddHeaders">
+    /// Whether distinct even-page headers and footers are on
+    /// (<c>w:evenAndOddHeaders</c>, §17.15.1.35).
+    /// </param>
+    /// <param name="DisplayBackgroundShape">
+    /// Whether the page background is shown (<c>w:displayBackgroundShape</c>,
+    /// §17.15.1.25).
+    /// </param>
+    private readonly record struct DocxSettings(bool EvenAndOddHeaders, bool DisplayBackgroundShape);
+
     /// <summary>
-    /// Whether the document's settings part turns on distinct even-page headers
-    /// and footers (<c>w:evenAndOddHeaders</c>, ECMA-376 §17.15.1.35). A package
-    /// with no settings part does not.
+    /// The settings part's switches this reader acts on. A package with no
+    /// settings part turns none of them on.
     /// </summary>
-    private static bool ReadEvenAndOddHeaders(
+    private static DocxSettings ReadSettings(
         ZipArchive archive,
         DocxRelationships documentRelationships,
         string baseDirectory,
@@ -422,11 +441,14 @@ internal static class DocxReader
             baseDirectory, "settings.xml");
         ZipArchiveEntry? entry = DocxPackage.FindEntry(archive, settingsPath);
         if (entry is null)
-            return false;
+            return default;
 
-        XElement? evenAndOdd = DocxPackage.LoadEntryXml(entry, limits, diagnostics, "docx.settings")
-            ?.Root?.Element(DocxNamespaces.Wordprocessing + "evenAndOddHeaders");
-        return evenAndOdd is not null && ReadOnOff(evenAndOdd);
+        XElement? root = DocxPackage.LoadEntryXml(entry, limits, diagnostics, "docx.settings")?.Root;
+        XElement? evenAndOdd = root?.Element(DocxNamespaces.Wordprocessing + "evenAndOddHeaders");
+        XElement? displayBackground = root?.Element(DocxNamespaces.Wordprocessing + "displayBackgroundShape");
+        return new DocxSettings(
+            evenAndOdd is not null && ReadOnOff(evenAndOdd),
+            displayBackground is not null && ReadOnOff(displayBackground));
     }
 
     /// <summary>
@@ -1151,6 +1173,25 @@ internal static class DocxReader
             List<XElement> stops = [.. gradient
                 .Elements(DocxNamespaces.Drawing + "gsLst")
                 .Elements(DocxNamespaces.Drawing + "gs")];
+            double angle = long.TryParse(
+                (string?)gradient.Element(DocxNamespaces.Drawing + "lin")?.Attribute("ang"),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out long ang)
+                ? ang / 60000d
+                : 0;
+
+            // Three stops whose first and last agree are how DrawingML spells a
+            // mirrored gradient; Word writes VML's 50% focus that way.
+            if (stops.Count == 3 &&
+                TryReadShapeColor(stops[0], out BColor outer) &&
+                TryReadShapeColor(stops[1], out BColor inner) &&
+                TryReadShapeColor(stops[2], out BColor last) &&
+                outer == last)
+            {
+                return new ShapeFill(outer, inner, angle, Axial: true);
+            }
+
             if (stops.Count > 2)
             {
                 builder.AddDiagnosticOnce(
@@ -1162,13 +1203,6 @@ internal static class DocxReader
                 TryReadShapeColor(stops[0], out BColor start) &&
                 TryReadShapeColor(stops[^1], out BColor end))
             {
-                double angle = long.TryParse(
-                    (string?)gradient.Element(DocxNamespaces.Drawing + "lin")?.Attribute("ang"),
-                    NumberStyles.Integer,
-                    CultureInfo.InvariantCulture,
-                    out long ang)
-                    ? ang / 60000d
-                    : 0;
                 return new ShapeFill(start, end, angle);
             }
         }

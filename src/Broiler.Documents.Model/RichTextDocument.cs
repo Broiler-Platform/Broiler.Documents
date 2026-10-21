@@ -21,10 +21,12 @@ public sealed class RichTextDocument
         PageGeometry? pageGeometry = null,
         IReadOnlyList<DocumentTable>? tables = null,
         DocumentStyleDefaults? styleDefaults = null,
-        IReadOnlyList<DocumentSection>? sections = null)
+        IReadOnlyList<DocumentSection>? sections = null,
+        ShapeFill? pageBackground = null)
     {
         RunningContent = runningContent ?? RunningContent.Empty;
         PageGeometry = pageGeometry;
+        PageBackground = pageBackground;
         StyleDefaults = styleDefaults ?? DocumentStyleDefaults.Default;
         Shapes = shapes is null || shapes.Count == 0 ? [] : [.. shapes];
         Tables = tables is null || tables.Count == 0 ? [] : [.. tables];
@@ -90,29 +92,40 @@ public sealed class RichTextDocument
     /// </summary>
     public IReadOnlyList<DocumentSection> Sections { get; }
 
+    /// <summary>
+    /// What every page is painted with under its content, or null for a page
+    /// left as the paper is. One for the whole document, because that is what
+    /// DOCX and RTF state and what the page a viewer draws behind HTML is.
+    /// </summary>
+    public ShapeFill? PageBackground { get; }
+
     /// <summary>This document's body with different running content.</summary>
     public RichTextDocument WithRunningContent(RunningContent? runningContent) =>
-        new(_paragraphs, runningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections);
+        new(_paragraphs, runningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground);
 
     /// <summary>This document's body with different floating shapes.</summary>
     public RichTextDocument WithShapes(IReadOnlyList<DocumentShape>? shapes) =>
-        new(_paragraphs, RunningContent, shapes, PageGeometry, Tables, StyleDefaults, Sections);
+        new(_paragraphs, RunningContent, shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground);
 
     /// <summary>This document's body on a different page.</summary>
     public RichTextDocument WithPageGeometry(PageGeometry? pageGeometry) =>
-        new(_paragraphs, RunningContent, Shapes, pageGeometry, Tables, StyleDefaults, Sections);
+        new(_paragraphs, RunningContent, Shapes, pageGeometry, Tables, StyleDefaults, Sections, PageBackground);
 
     /// <summary>This document's body arranged in different tables.</summary>
     public RichTextDocument WithTables(IReadOnlyList<DocumentTable>? tables) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, tables, StyleDefaults, Sections);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, tables, StyleDefaults, Sections, PageBackground);
 
     /// <summary>This document's body divided into different sections.</summary>
     public RichTextDocument WithSections(IReadOnlyList<DocumentSection>? sections) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, sections);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, sections, PageBackground);
+
+    /// <summary>This document's body painted on a different page background.</summary>
+    public RichTextDocument WithPageBackground(ShapeFill? pageBackground) =>
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, pageBackground);
 
     /// <summary>This document's body with different formatting fallbacks.</summary>
     public RichTextDocument WithStyleDefaults(DocumentStyleDefaults? styleDefaults) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, styleDefaults, Sections);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, styleDefaults, Sections, PageBackground);
 
     /// <summary>
     /// The body table starting at <paramref name="paragraphIndex"/>, or null when
@@ -323,7 +336,7 @@ public sealed class RichTextDocument
             paragraphs.Add(_paragraphs[i].ApplyInlineStyle(startOffset, endOffset - startOffset, delta));
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground);
     }
 
     public RichTextDocument ApplyParagraphStyle(RichTextRange range, ParagraphStyleDelta delta)
@@ -340,7 +353,7 @@ public sealed class RichTextDocument
                 paragraphs.Add(_paragraphs[i]);
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground);
     }
 
     /// <summary>
@@ -413,7 +426,7 @@ public sealed class RichTextDocument
         var paragraphs = new RichTextParagraph[_paragraphs.Length];
         Array.Copy(_paragraphs, paragraphs, _paragraphs.Length);
         paragraphs[index] = paragraph;
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground);
     }
 
     /// <summary>
@@ -440,7 +453,8 @@ public sealed class RichTextDocument
             PageGeometry,
             ShiftTables(index, removeCount, insert.Count),
             StyleDefaults,
-            ShiftSections(index, removeCount, insert.Count));
+            ShiftSections(index, removeCount, insert.Count),
+            PageBackground);
     }
 
     /// <summary>This document's tables, moved for an edit at <paramref name="at"/>.</summary>
