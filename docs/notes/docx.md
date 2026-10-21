@@ -349,11 +349,22 @@ Open XML WordprocessingML package parts.
   as `DocumentSection.Page`, and its text is laid out between its own left and
   right margins, under its own top margin on a page it starts. That is what
   makes a magazine whose sections are set two inches in, or six, lay out in
-  columns of the width it was set in rather than the last section's. The
-  running content is the last section's (`docx.section.multiple`), and each
-  header and footer type it does not name continues from the nearest section
-  before it that does, as ECMA-376 §17.10.5 says. A contract that names its
-  header and footer in the first of nine sections carries them on every page.
+  columns of the width it was set in rather than the last section's.
+- A section's own headers and footers. Each section's references are read,
+  each header and footer type a section does not name continuing from the
+  nearest section before it that does, as ECMA-376 §17.10.5 says, and each
+  section's `w:titlePg` (§17.10.6) is its own and not continued. The last
+  section's set is the document's `RunningContent`; a section whose set differs
+  keeps it as `DocumentSection.RunningContent`. A page carries the set of the
+  section that started it, the first-page part on that section's first page,
+  and a section that follows on the same page leaves the pages it runs onto as
+  they were, as LibreOffice keeps the page style there. A contract that names
+  its header and footer in the first of nine sections carries them on every
+  page; `tdf167527_title_letters_cut_from_below.docx`, whose title page is its
+  first section's first-page header, reaches it. A part several sections name
+  is read once. A write names every section's parts in its `w:sectPr`, and
+  where sections carry different sets, names an empty part for a type one set
+  lacks and another has, so that it does not continue from the section before.
 - A write states `w:cols` with the count and the gap. A document with sections
   writes each boundary as a `w:sectPr` in the `w:pPr` of the section's last
   paragraph, with that section's page, or the document's, its columns and
@@ -392,8 +403,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks. |
 | `docx.break.column` | Warning | A column break with text before and after it in the same paragraph was read as a line break; columns break between paragraphs here, not inside one. |
 | `docx.section.columns` | Info | The sections differ in their columns; each section keeps its own, and the page records those of the section holding the most paragraphs. |
-| `docx.section.multiple` | Info | The body has more than one section; the header and footer read are the last section's, each it does not name continuing from the section before it. |
-| `docx.header.first` | Info | A `first` header or footer was not read, because its section does not set `w:titlePg`; the first page carries the default one. |
+| `docx.header.first` | Info | A section has a `first` header or footer, its own or continued, but does not set `w:titlePg`, so it was not read for that section; its first page carries the default one. |
 | `docx.header.even` | Info | An `even` header or footer was not read, because the document does not set `w:evenAndOddHeaders`; even pages carry the default one. |
 | `docx.section.parity` | Warning | A section starting on an odd or even page was read as starting on the next page; the blank page it can put before itself is not made. |
 | `docx.columns.unequal` | Info | A section listed columns of unequal width; they were read as equal columns. |

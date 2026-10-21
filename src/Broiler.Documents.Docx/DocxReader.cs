@@ -79,7 +79,7 @@ internal static class DocxReader
                 reported,
                 page,
                 sections);
-            document = document.WithRunningContent(ReadRunningContent(
+            IReadOnlyList<RunningContent> running = ReadRunningContent(
                 archive,
                 documentXml,
                 documentRelationships,
@@ -90,9 +90,10 @@ internal static class DocxReader
                 diagnostics,
                 reported,
                 page,
-                settings.EvenAndOddHeaders));
+                settings.EvenAndOddHeaders);
+            document = document.WithRunningContent(running[^1]);
             document = document.WithPageGeometry(page);
-            document = document.WithSections(sections.ToModel(document.ParagraphCount, page));
+            document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             document = document.WithPageBackground(DocxVml.ReadBackground(
                 documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "background"),
@@ -263,38 +264,33 @@ internal static class DocxReader
         element.Name != DocxNamespaces.Wordprocessing + "sectPr";
 
     /// <summary>
-    /// Reads the header and footer parts the body's section properties name.
+    /// Reads the header and footer parts each section's properties name.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The model has one set, and it is the document's final section's: the
-    /// body-level <c>w:sectPr</c>. A document split into sections by a
-    /// <c>w:sectPr</c> inside a paragraph can give each section its own header,
-    /// so the last section's wins and the rest raise a diagnostic rather than
-    /// being silently preferred or silently lost.
+    /// ECMA-376 §17.10.5 gives every section its own references, and a section
+    /// that names no header of a type continues the one the section before it
+    /// had, so each type a section leaves out is taken from the nearest section
+    /// before it that names one. A contract whose first section names a header
+    /// and footer and whose eight after it name none carries them on every page
+    /// in Word and LibreOffice. The result holds one set per section, in the
+    /// order of <see cref="DocxSections.Properties"/>; the last is the document's.
     /// </para>
     /// <para>
-    /// The last section's set is not only the references it holds. ECMA-376
-    /// §17.10.5 says a section that names no header of a type continues the one
-    /// the section before it had, so each type the last section leaves out is
-    /// taken from the nearest section before it that names one. A contract
-    /// whose first section names a header and footer and whose eight after it
-    /// name none carries them on every page in Word and LibreOffice; read from
-    /// the last section alone it carried neither.
-    /// </para>
-    /// <para>
-    /// A part the document does not turn on is not read. A <c>first</c> part is
-    /// drawn only in a section with <c>w:titlePg</c>, and an <c>even</c> part
-    /// only where <c>w:settings</c> holds <c>w:evenAndOddHeaders</c>; without
-    /// them Word puts the default on those pages, and the model, which uses a
-    /// first or even part wherever there is one, would put the other there.
+    /// A part a section does not turn on is not read for it. A <c>first</c> part
+    /// is drawn only in a section with <c>w:titlePg</c> (§17.10.6), which is the
+    /// section's own and not continued, and an <c>even</c> part only where
+    /// <c>w:settings</c> holds <c>w:evenAndOddHeaders</c>; without them Word puts
+    /// the default on those pages, and the model, which uses a first or even
+    /// part wherever there is one, would put the other there.
     /// </para>
     /// <para>
     /// Each part carries its own relationships, so a picture in a header resolves
     /// against <c>word/_rels/header1.xml.rels</c> and not against the document's.
+    /// A part several sections name is read once.
     /// </para>
     /// </remarks>
-    private static RunningContent ReadRunningContent(
+    private static IReadOnlyList<RunningContent> ReadRunningContent(
         ZipArchive archive,
         XDocument documentXml,
         DocxRelationships documentRelationships,
@@ -308,98 +304,100 @@ internal static class DocxReader
         bool evenAndOddHeaders)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
-        XElement? sectPr = body?.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault();
-        if (sectPr is null)
-            return RunningContent.Empty;
+        if (body?.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault() is null)
+            return [RunningContent.Empty];
 
         IReadOnlyList<XElement> sections = DocxSections.Properties(body);
-        if (sections.Count > 1)
+        var parts = new Dictionary<(string Id, bool IsHeader), (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes)?>();
+        var contents = new List<RunningContent>(sections.Count);
+        for (int index = 0; index < sections.Count; index++)
         {
-            diagnostics.Add(DocumentDiagnostic.Info(
-                "docx.section.multiple",
-                "DOCX document has more than one section; the last section's header and footer were read, " +
-                "each it does not name continuing from the section before it."));
-        }
+            // w:titlePg is what makes a `first` reference mean anything, and it is
+            // also what makes a band the first page does not name empty there rather
+            // than the default one. Read before the references, because a first-page
+            // header with no first-page footer beside it is exactly the arrangement it
+            // decides: LibreOffice draws no footer on page one of such a section, and
+            // this reader drew the default one carrying a stale cached page number.
+            XElement? titlePage = sections[index].Element(DocxNamespaces.Wordprocessing + "titlePg");
+            bool differentFirstPage = titlePage is not null && ReadOnOff(titlePage);
+            RunningContent content = RunningContent.Empty.WithDifferentFirstPage(differentFirstPage);
 
-        // w:titlePg is what makes a `first` reference mean anything, and it is
-        // also what makes a band the first page does not name empty there rather
-        // than the default one. Read before the references, because a first-page
-        // header with no first-page footer beside it is exactly the arrangement it
-        // decides: LibreOffice draws no footer on page one of such a section, and
-        // this reader drew the default one carrying a stale cached page number.
-        // It is the last section's own: unlike a reference, it is not continued.
-        XElement? titlePage = sectPr.Element(DocxNamespaces.Wordprocessing + "titlePg");
-        bool differentFirstPage = titlePage is not null && ReadOnOff(titlePage);
-        RunningContent content = RunningContent.Empty.WithDifferentFirstPage(differentFirstPage);
-
-        foreach (XElement reference in ContinuedReferences(sections))
-        {
-            bool isHeader = reference.Name == DocxNamespaces.Wordprocessing + "headerReference";
-            PageSelection selection = SelectionFor((string?)reference.Attribute(DocxNamespaces.Wordprocessing + "type"));
-            if (selection == PageSelection.First && !differentFirstPage)
+            foreach (XElement reference in ContinuedReferences(sections, index))
             {
-                if (reported.Add("docx.header.first"))
+                bool isHeader = reference.Name == DocxNamespaces.Wordprocessing + "headerReference";
+                PageSelection selection = SelectionFor((string?)reference.Attribute(DocxNamespaces.Wordprocessing + "type"));
+                if (selection == PageSelection.First && !differentFirstPage)
                 {
-                    diagnostics.Add(DocumentDiagnostic.Info(
-                        "docx.header.first",
-                        "A DOCX first-page header or footer was not read: its section does not set w:titlePg, " +
-                        "so the first page carries the default one."));
+                    if (reported.Add("docx.header.first"))
+                    {
+                        diagnostics.Add(DocumentDiagnostic.Info(
+                            "docx.header.first",
+                            "A DOCX section has a first-page header or footer but does not set w:titlePg, " +
+                            "so the part was not read for it and its first page carries the default one."));
+                    }
+
+                    continue;
                 }
 
-                continue;
-            }
-
-            if (selection == PageSelection.Even && !evenAndOddHeaders)
-            {
-                if (reported.Add("docx.header.even"))
+                if (selection == PageSelection.Even && !evenAndOddHeaders)
                 {
-                    diagnostics.Add(DocumentDiagnostic.Info(
-                        "docx.header.even",
-                        "A DOCX even-page header or footer was not read: the document does not set " +
-                        "w:evenAndOddHeaders, so even pages carry the default one."));
+                    if (reported.Add("docx.header.even"))
+                    {
+                        diagnostics.Add(DocumentDiagnostic.Info(
+                            "docx.header.even",
+                            "A DOCX even-page header or footer was not read: the document does not set " +
+                            "w:evenAndOddHeaders, so even pages carry the default one."));
+                    }
+
+                    continue;
                 }
 
-                continue;
+                string? relationshipId = (string?)reference.Attribute(DocxNamespaces.Relationships + "id");
+                if (string.IsNullOrWhiteSpace(relationshipId) ||
+                    !documentRelationships.TryGet(relationshipId, out DocxRelationship? relationship) ||
+                    relationship is null)
+                {
+                    diagnostics.Add(DocumentDiagnostic.Warning(
+                        "docx.part.reference",
+                        "A DOCX header or footer named a relationship the package does not define."));
+                    continue;
+                }
+
+                if (!parts.TryGetValue((relationshipId, isHeader), out var part))
+                {
+                    part = ReadPart(
+                        archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported,
+                        isHeader ? RunningBand.Header : RunningBand.Footer,
+                        page);
+                    parts.Add((relationshipId, isHeader), part);
+                }
+
+                if (part is not var (paragraphs, shapes) || (paragraphs.Count == 0 && shapes.Count == 0))
+                    continue;
+
+                content = isHeader
+                    ? content.WithHeader(selection, paragraphs, shapes)
+                    : content.WithFooter(selection, paragraphs, shapes);
             }
 
-            string? relationshipId = (string?)reference.Attribute(DocxNamespaces.Relationships + "id");
-            if (string.IsNullOrWhiteSpace(relationshipId) ||
-                !documentRelationships.TryGet(relationshipId, out DocxRelationship? relationship) ||
-                relationship is null)
-            {
-                diagnostics.Add(DocumentDiagnostic.Warning(
-                    "docx.part.reference",
-                    "A DOCX header or footer named a relationship the package does not define."));
-                continue;
-            }
-
-            var part = ReadPart(
-                archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported,
-                isHeader ? RunningBand.Header : RunningBand.Footer,
-                page);
-            if (part is not var (paragraphs, shapes) || (paragraphs.Count == 0 && shapes.Count == 0))
-                continue;
-
-            content = isHeader
-                ? content.WithHeader(selection, paragraphs, shapes)
-                : content.WithFooter(selection, paragraphs, shapes);
+            contents.Add(content);
         }
 
-        return content;
+        return contents;
     }
 
     /// <summary>
-    /// The header and footer references that apply to the last of
-    /// <paramref name="sections"/>: for each band and type, the last section's
-    /// own, or else the nearest earlier section's.
+    /// The header and footer references that apply to section
+    /// <paramref name="index"/> of <paramref name="sections"/>: for each band and
+    /// type, the section's own, or else the nearest earlier section's.
     /// </summary>
-    private static IEnumerable<XElement> ContinuedReferences(IReadOnlyList<XElement> sections)
+    private static IEnumerable<XElement> ContinuedReferences(IReadOnlyList<XElement> sections, int index)
     {
         foreach (string band in new[] { "headerReference", "footerReference" })
         {
             foreach (PageSelection selection in new[] { PageSelection.Default, PageSelection.First, PageSelection.Even })
             {
-                for (int i = sections.Count - 1; i >= 0; i--)
+                for (int i = index; i >= 0; i--)
                 {
                     XElement? reference = sections[i]
                         .Elements(DocxNamespaces.Wordprocessing + band)

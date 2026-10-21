@@ -53,7 +53,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private readonly ImageStore _images = images ?? throw new ArgumentNullException(nameof(images));
     private readonly LineWrapper _lineWrapper = new(settings.TabStopPoints);
     private readonly List<string> _notes = [];
+    private RunningContent _documentRunning = RunningContent.Empty;
+
+    // The headers and footers of the page being filled - those of the section
+    // that started it, or the document's - and the number of the first page
+    // that section started, which is the page its first-page part is for.
     private RunningContent _running = RunningContent.Empty;
+    private int _firstPage = 1;
     private double? _headerDistance;
     private double? _footerDistance;
     private PageFrame? _frame;
@@ -81,7 +87,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // Continuous mode collapses the document to one tall page, so there are no
         // pages for a header to repeat on and no bottom margin for a footer to sit
         // in. Drawing them there would put a page number in the middle of nothing.
-        _running = setup.Continuous ? RunningContent.Empty : document.RunningContent;
+        _documentRunning = setup.Continuous ? RunningContent.Empty : document.RunningContent;
+        _running = _documentRunning;
+        _firstPage = 1;
         _headerDistance = document.PageGeometry?.HeaderDistance;
         _footerDistance = document.PageGeometry?.FooterDistance;
         _frame = null;
@@ -145,6 +153,24 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             return (_frame.TextTop, _frame.TextBottom);
+        }
+
+        // The section that started the page being filled, whose headers and
+        // footers the page carries, and one that has asked to start the next.
+        // A section starts a page where its first paragraph opens one; one that
+        // follows on the same page starts nothing, and the pages its text runs
+        // onto keep the section that did, as LibreOffice keeps the page style.
+        bool hasOwner = false;
+        DocumentSection? pendingOwner = null;
+        bool hasPendingOwner = false;
+
+        void TakeOwner(DocumentSection? section)
+        {
+            hasOwner = true;
+            hasPendingOwner = false;
+            pendingOwner = null;
+            _running = setup.Continuous ? RunningContent.Empty : section?.RunningContent ?? _documentRunning;
+            _firstPage = pages.Count + 1;
         }
 
         (pageTop, contentBottom) = BandOf(null);
@@ -233,6 +259,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             _paragraphTops.Clear();
             _wrap = new TextWrapExclusions();
             AddPageExclusions(pages.Count + 1);
+
+            if (hasPendingOwner)
+                TakeOwner(pendingOwner);
 
             (pageTop, contentBottom) = BandOf(region);
             y = pageTop;
@@ -408,7 +437,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // LibreOffice ends a text:section - and the next starts there, in its
         // first column. Where the next starts a page, the page break that follows
         // starts it at the top.
-        void EnterRegion(DocumentSection? next, bool startsPage)
+        void EnterRegion(DocumentSection? next, bool startsPage, bool opensPage)
         {
             if (!startsPage)
             {
@@ -450,8 +479,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // foot; one that follows on a page keeps those of the page it is on.
             if (currentLines.Count == 0 && currentCells.Count == 0)
             {
+                if (!hasOwner || opensPage)
+                    TakeOwner(next);
+
                 (pageTop, contentBottom) = BandOf(next);
                 y = pageTop;
+            }
+            else if (opensPage)
+            {
+                // The page break that follows - or, for a section that opens
+                // with a table, which breaks no page here, the next one there is
+                // - starts the page this section owns.
+                pendingOwner = next;
+                hasPendingOwner = true;
             }
 
             column = 0;
@@ -485,9 +525,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             DocumentSection? section = DocumentSection.Containing(document.Sections, paragraphIndex);
             if (!ReferenceEquals(section, region))
             {
-                bool startsPage = table is null && !setup.Continuous && currentLines.Count > 0 &&
-                    document.Paragraphs[paragraphIndex].Style.PageBreakBefore;
-                EnterRegion(section, startsPage);
+                bool opensPage = document.Paragraphs[paragraphIndex].Style.PageBreakBefore;
+                bool startsPage = table is null && !setup.Continuous && currentLines.Count > 0 && opensPage;
+                EnterRegion(section, startsPage, opensPage);
             }
 
             if (table?.Position is TablePosition floating)
@@ -812,11 +852,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
-    /// Page one takes the first-page selection and even-numbered pages the even
-    /// one, each falling back to the default.
+    /// The first page of the section that started it takes the first-page
+    /// selection - page one, where no section starts another - and
+    /// even-numbered pages the even one, each falling back to the default.
     /// </summary>
-    private static PageSelection SelectionFor(int number) =>
-        number == 1
+    private PageSelection SelectionFor(int number) =>
+        number == _firstPage
             ? PageSelection.First
             : number % 2 == 0 ? PageSelection.Even : PageSelection.Default;
 

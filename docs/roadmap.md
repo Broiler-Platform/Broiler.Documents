@@ -82,9 +82,12 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **Sections, the rest.** A `DocumentSection` carries its columns and its own
   margins, a DOCX section break starts the page it says it does, and the
   layout balances a section's columns where the next follows on the same page.
-  Still not read: a section's own running content where it differs from the
-  last section's - the model holds one set, the last section's, with each
-  type it leaves out continued from before it (`docx.section.multiple`) -
+  A section keeps its own headers and footers, and a page carries those of the
+  section that started it; ODT and RTF read one set for the document, and
+  only the DOCX writer writes a section's own (the PDF writer draws the
+  document's on every page, `pdf.write.feature-unsupported`). LibreOffice
+  applies a continuous section's own headers from a hard page break inside
+  it; this layout does not. Still not read:
   the blank page an odd- or even-page start can make (`docx.section.parity`),
   a section's own paper size (the page is drawn at the document's, which
   puts `tdf123163-1.docx`'s `geometry` band at `off` by two or three pixels), RTF's

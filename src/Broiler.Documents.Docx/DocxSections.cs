@@ -213,14 +213,23 @@ internal sealed class DocxSections
     /// same page, and the document's page says it all.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The ranges are where the read was when each section ended, not the
     /// scan's counts, because the read is what numbered the paragraphs. A
     /// section that holds none is left out.
+    /// </para>
+    /// <para>
+    /// <paramref name="running"/> is each section's headers and footers, in
+    /// section order, the last being the document's; a section whose set is the
+    /// last one's keeps none of its own.
+    /// </para>
     /// </remarks>
-    public IReadOnlyList<DocumentSection> ToModel(int paragraphCount, PageGeometry? page)
+    public IReadOnlyList<DocumentSection> ToModel(
+        int paragraphCount, PageGeometry? page, IReadOnlyList<RunningContent>? running = null)
     {
         var sections = new List<DocumentSection>(_sections.Count);
         bool differ = ColumnsDiffer;
+        bool hasRunning = running is not null && running.Count == _sections.Count;
         int start = 0;
         for (int i = 0; i < _sections.Count; i++)
         {
@@ -228,9 +237,10 @@ internal sealed class DocxSections
             if (end > start)
             {
                 PageGeometry? own = SamePage(_sections[i].Page, page) ? null : _sections[i].Page;
-                differ |= own is not null;
+                RunningContent? ownRunning = hasRunning && !SameRunning(running![i], running[^1]) ? running[i] : null;
+                differ |= own is not null || ownRunning is not null;
                 sections.Add(new DocumentSection(
-                    start, end - start, _sections[i].Columns.Count, _sections[i].Columns.Gap, own));
+                    start, end - start, _sections[i].Columns.Count, _sections[i].Columns.Gap, own, ownRunning));
             }
 
             start = Math.Max(start, end);
@@ -251,6 +261,33 @@ internal sealed class DocxSections
          Near(section.MarginTop, page.MarginTop) && Near(section.MarginBottom, page.MarginBottom));
 
     private static bool Near(double a, double b) => Math.Abs(a - b) < 0.01;
+
+    /// <summary>
+    /// True when two sections' headers and footers are the same parts under the
+    /// same first-page switch. A part several sections name is read once, so the
+    /// same part is the same paragraphs and shapes.
+    /// </summary>
+    private static bool SameRunning(RunningContent a, RunningContent b)
+    {
+        if (ReferenceEquals(a, b))
+            return true;
+
+        if (a.DifferentFirstPage != b.DifferentFirstPage)
+            return false;
+
+        foreach (PageSelection selection in new[] { PageSelection.Default, PageSelection.First, PageSelection.Even })
+        {
+            if (!a.Header(selection).SequenceEqual(b.Header(selection), ReferenceEqualityComparer.Instance) ||
+                !a.Footer(selection).SequenceEqual(b.Footer(selection), ReferenceEqualityComparer.Instance) ||
+                !a.HeaderShapes(selection).SequenceEqual(b.HeaderShapes(selection), ReferenceEqualityComparer.Instance) ||
+                !a.FooterShapes(selection).SequenceEqual(b.FooterShapes(selection), ReferenceEqualityComparer.Instance))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// ECMA-376's <c>w:cols</c>: the columns a <c>w:sectPr</c> states. An absent

@@ -185,6 +185,13 @@ internal sealed class PdfPageLayout(
                 "A floating table was laid out in the text flow at the text's width rather than at its position.");
         }
 
+        if (document.Sections.Any(static section => section.RunningContent is not null))
+        {
+            _diagnostics.Warning(
+                PdfDiagnosticCodes.WriteFeatureUnsupported,
+                "Some sections have headers and footers of their own; every page carries the document's.");
+        }
+
         var anchors = new Dictionary<int, (PdfLayoutPage Page, double Top)>();
         for (int paragraphIndex = 0; paragraphIndex < document.ParagraphCount; paragraphIndex++)
         {
