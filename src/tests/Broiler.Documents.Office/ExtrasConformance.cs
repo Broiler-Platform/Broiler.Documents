@@ -525,8 +525,8 @@ internal static class ExtrasConformance
         string safeKey = SanitizePath(sample.Id);
         string? inputSourcePath = sample.LocalPath;
 
-        // If the input is a flat ODF (.fodt), broilerdoc's ODT reader expects a ZIP container (.odt).
-        // Ask LibreOffice to materialise the .odt container when needed or let broilerdoc attempt direct read first.
+        // A flat ODF (.fodt) goes through "--from odt" like a package: the ODT
+        // reader recognises the single XML file and reads it directly.
         string[] fromArgs = ["--from", sample.Format];
 
         bool broilerReadFailed = false;

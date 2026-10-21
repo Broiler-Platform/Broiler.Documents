@@ -39,16 +39,43 @@ internal static class DocumentPackage
         string partDescription,
         LoadOptions loadOptions = LoadOptions.None)
     {
+        byte[]? bytes;
         try
         {
-            byte[]? bytes = ReadEntryBytes(entry, maxBytes);
-            if (bytes is null)
-            {
-                diagnostics.Add(DocumentDiagnostic.Error(diagnosticCode + ".limit",
-                    partDescription + " exceeded MaxBinBytes and was skipped."));
-                return null;
-            }
+            bytes = ReadEntryBytes(entry, maxBytes);
+        }
+        catch (InvalidDataException ex)
+        {
+            diagnostics.Add(DocumentDiagnostic.Error(diagnosticCode,
+                partDescription + " could not be parsed: " + ex.GetType().Name + "."));
+            return null;
+        }
 
+        if (bytes is null)
+        {
+            diagnostics.Add(DocumentDiagnostic.Error(diagnosticCode + ".limit",
+                partDescription + " exceeded MaxBinBytes and was skipped."));
+            return null;
+        }
+
+        return LoadXml(bytes, diagnostics, diagnosticCode, partDescription, loadOptions);
+    }
+
+    /// <summary>
+    /// Parses a whole XML document held in memory with the same settings a
+    /// package part gets: no DTD, no resolver, comments and processing
+    /// instructions dropped. A flat single-file document comes through here
+    /// rather than through a ZIP entry.
+    /// </summary>
+    public static XDocument? LoadXml(
+        byte[] bytes,
+        ICollection<DocumentDiagnostic> diagnostics,
+        string diagnosticCode,
+        string partDescription,
+        LoadOptions loadOptions = LoadOptions.None)
+    {
+        try
+        {
             using var stream = new MemoryStream(bytes, writable: false);
             using XmlReader reader = XmlReader.Create(stream, new XmlReaderSettings
             {

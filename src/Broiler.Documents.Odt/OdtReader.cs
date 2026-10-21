@@ -7,6 +7,7 @@ using System.Linq;
 using System.Xml;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
+using Broiler.Documents.Packaging;
 using Broiler.Documents.Resources;
 using Broiler.Graphics.Color;
 
@@ -22,62 +23,9 @@ internal static class OdtReader
         var diagnostics = new List<DocumentDiagnostic>();
         try
         {
-            using var stream = new MemoryStream(bytes, writable: false);
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
-
-            OdtManifest manifest = OdtPackage.ReadManifest(archive, options.Limits, diagnostics);
-            if (manifest.IsEncrypted)
-            {
-                // ODF password protection really encrypts the parts. There is
-                // nothing to read and no key this codec may ask for.
-                diagnostics.Add(DocumentDiagnostic.Error(
-                    "odt.package.encrypted",
-                    "The ODT package is encrypted; this codec does not decrypt packages."));
-                return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
-            }
-
-            ZipArchiveEntry? contentEntry = OdtPackage.FindEntry(archive, OdtNamespaces.ContentPart);
-            if (contentEntry is null)
-            {
-                diagnostics.Add(DocumentDiagnostic.Error(
-                    "odt.package.content",
-                    "The ODT package did not contain a content.xml part."));
-                return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
-            }
-
-            XDocument? content = OdtPackage.LoadEntryXml(
-                contentEntry,
-                options.Limits,
-                diagnostics,
-                "odt.content.xml",
-                LoadOptions.PreserveWhitespace);
-            if (content is null)
-                return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
-
-            OdtStyles styles = OdtStyles.Load(archive, content, options.Limits, diagnostics);
-            var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
-            var images = new OdtImageLoader(archive, manifest, options.Limits, resources);
-
-            // One resolution, used by both. The page and the header that sits on
-            // it belong to the same master page, and reading them from two
-            // different ones would put a Letter header on an A4 page without
-            // anything saying so. The page is read before the content, because a
-            // frame anchored to a page states its position from the page's edges.
-            XElement? master = ResolveMasterPage(content, styles);
-            PageGeometry? page = ReadPageGeometry(master, styles, diagnostics);
-            RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics);
-            document = document.WithRunningContent(
-                ReadRunningContent(master, styles, images, options.Limits, diagnostics));
-            document = document.WithPageGeometry(page);
-            document = document.WithStyleDefaults(ReadStyleDefaults(styles));
-            document = document.WithPageBackground(
-                ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
-            return new DocumentReadResult(
-                document,
-                diagnostics,
-                DocumentReadResult.StatusFrom(diagnostics),
-                resources.Build(),
-                OdtMetadata.Read(archive, options.Limits, diagnostics));
+            return OdtFlatDocument.LooksLikeXml(bytes)
+                ? ReadFlat(bytes, options, diagnostics)
+                : ReadPackage(bytes, options, diagnostics);
         }
         catch (InvalidDataException ex)
         {
@@ -93,6 +41,151 @@ internal static class OdtReader
                 "The ODT XML could not be parsed: " + ex.GetType().Name + "."));
             return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
         }
+    }
+
+    private static DocumentReadResult ReadPackage(
+        byte[] bytes,
+        DocumentReadOptions options,
+        List<DocumentDiagnostic> diagnostics)
+    {
+        using var stream = new MemoryStream(bytes, writable: false);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+
+        OdtManifest manifest = OdtPackage.ReadManifest(archive, options.Limits, diagnostics);
+        if (manifest.IsEncrypted)
+        {
+            // ODF password protection really encrypts the parts. There is
+            // nothing to read and no key this codec may ask for.
+            diagnostics.Add(DocumentDiagnostic.Error(
+                "odt.package.encrypted",
+                "The ODT package is encrypted; this codec does not decrypt packages."));
+            return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
+        }
+
+        ZipArchiveEntry? contentEntry = OdtPackage.FindEntry(archive, OdtNamespaces.ContentPart);
+        if (contentEntry is null)
+        {
+            diagnostics.Add(DocumentDiagnostic.Error(
+                "odt.package.content",
+                "The ODT package did not contain a content.xml part."));
+            return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
+        }
+
+        XDocument? content = OdtPackage.LoadEntryXml(
+            contentEntry,
+            options.Limits,
+            diagnostics,
+            "odt.content.xml",
+            LoadOptions.PreserveWhitespace);
+        if (content is null)
+            return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
+
+        OdtStyles styles = OdtStyles.Load(archive, content, options.Limits, diagnostics);
+        var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
+        var images = new OdtImageLoader(archive, manifest, options.Limits, resources);
+        return ReadDocument(
+            content,
+            styles,
+            images,
+            resources,
+            () => OdtMetadata.Read(archive, options.Limits, diagnostics),
+            options,
+            diagnostics);
+    }
+
+    /// <summary>
+    /// Reads a flat document: the same ODF content in one XML file rather than
+    /// a package of parts, under an <c>office:document</c> root.
+    /// </summary>
+    /// <remarks>
+    /// The root holds everything <c>content.xml</c>, <c>styles.xml</c> and
+    /// <c>meta.xml</c> hold between them, as siblings, so the read is the
+    /// package read pointed at one element instead of three parts. It is loaded
+    /// with white space preserved, as <c>content.xml</c> is, because the body
+    /// is in it. There is no manifest to declare encryption - a flat document
+    /// cannot be encrypted - and no package to hold pictures, so a picture is
+    /// either inline <c>office:binary-data</c> or a link this codec does not
+    /// follow. The whole file is bounded by MaxDocumentBytes before it gets
+    /// here, and each inline picture by MaxBinBytes as it is decoded.
+    /// </remarks>
+    private static DocumentReadResult ReadFlat(
+        byte[] bytes,
+        DocumentReadOptions options,
+        List<DocumentDiagnostic> diagnostics)
+    {
+        XDocument? document = DocumentPackage.LoadXml(
+            bytes,
+            diagnostics,
+            "odt.xml",
+            "The flat ODT document",
+            LoadOptions.PreserveWhitespace);
+        XElement? root = document?.Root;
+        if (document is null || root is null)
+            return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
+
+        if (root.Name != OdtNamespaces.Office + "document")
+        {
+            diagnostics.Add(DocumentDiagnostic.Error(
+                "odt.flat.root",
+                "The XML document was not a flat ODT document: its root element was not office:document."));
+            return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
+        }
+
+        string? mediaType = ((string?)root.Attribute(OdtNamespaces.Office + "mimetype"))?.Trim();
+        if (mediaType is not null && !OdtFlatDocument.IsTextMediaType(mediaType))
+        {
+            // A flat spreadsheet or presentation has the same root and says what
+            // it is here, as a package says it in its mimetype entry.
+            diagnostics.Add(DocumentDiagnostic.Error(
+                "odt.flat.media-type",
+                "The flat OpenDocument file declared a non-text media type."));
+            return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
+        }
+
+        OdtStyles styles = OdtStyles.Load(root, contentRoot: null, options.Limits, diagnostics);
+        var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
+        var images = new OdtImageLoader(archive: null, OdtManifest.Empty, options.Limits, resources);
+        return ReadDocument(
+            document,
+            styles,
+            images,
+            resources,
+            () => OdtMetadata.Read(root.Element(OdtNamespaces.Office + "meta"), diagnostics),
+            options,
+            diagnostics);
+    }
+
+    /// <summary>The part of a read that is the same for a package and a flat document.</summary>
+    private static DocumentReadResult ReadDocument(
+        XDocument content,
+        OdtStyles styles,
+        OdtImageLoader images,
+        DocumentConversionContextBuilder resources,
+        Func<DocumentMetadata> readMetadata,
+        DocumentReadOptions options,
+        List<DocumentDiagnostic> diagnostics)
+    {
+        // One resolution, used by both. The page and the header that sits on
+        // it belong to the same master page, and reading them from two
+        // different ones would put a Letter header on an A4 page without
+        // anything saying so. The page is read before the content, because a
+        // frame anchored to a page states its position from the page's edges.
+        XElement? master = ResolveMasterPage(content, styles);
+        PageGeometry? page = ReadPageGeometry(master, styles, diagnostics);
+        RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics);
+        document = document.WithRunningContent(
+            ReadRunningContent(master, styles, images, options.Limits, diagnostics));
+        document = document.WithPageGeometry(page);
+        document = document.WithStyleDefaults(ReadStyleDefaults(styles));
+        document = document.WithPageBackground(
+            ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
+        DocumentMetadata metadata = readMetadata();
+        return new DocumentReadResult(
+            document,
+            diagnostics,
+            DocumentReadResult.StatusFrom(diagnostics),
+            resources.Build(),
+            metadata);
     }
 
     private static RichTextDocument ReadContent(
