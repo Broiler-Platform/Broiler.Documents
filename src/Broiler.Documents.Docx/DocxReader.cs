@@ -1423,7 +1423,17 @@ internal static class DocxReader
         XElement? color = rPr.Element(DocxNamespaces.Wordprocessing + "color");
         string? colorValue = DocxValueReader.WordValue(color);
         if (DocxValueReader.TryParseHexColor(colorValue, out BColor foreground))
+        {
             style = style with { Foreground = foreground };
+        }
+        else if (string.Equals(colorValue, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            // "auto" is a colour, not the absence of one (ECMA-376 §17.3.2.6):
+            // the automatic colour Word and LibreOffice draw black. Stated on a
+            // run it overrides the colour its style gave; a document whose Normal
+            // style is blue and whose every run says auto is black text.
+            style = style with { Foreground = BColor.Empty };
+        }
 
         XElement? shade = rPr.Element(DocxNamespaces.Wordprocessing + "shd");
         string? fill = (string?)shade?.Attribute(DocxNamespaces.Wordprocessing + "fill");

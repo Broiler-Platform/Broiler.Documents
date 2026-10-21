@@ -30,7 +30,11 @@ Open XML WordprocessingML package parts.
   paragraphs, so a caret, a selection, a style, and every codec's text handling
   go on working through one flat list. Written back as `w:tbl`.
 - Direct inline formatting: bold, italic, underline, strikethrough, font
-  family, font size, foreground color, and background shading.
+  family, font size, foreground color, and background shading. A
+  `w:color w:val="auto"` is the automatic colour (ECMA-376 §17.3.2.6), which
+  Word and LibreOffice draw black, so on a run it clears the colour its style
+  gave rather than being passed over; a report whose Normal style is blue and
+  whose every run says `auto` drew blue without it.
 - Capitalization: `w:caps` and `w:smallCaps`, read and written as a style
   attribute. The text keeps the casing the author typed and the capitals are
   applied when drawing, so an open-and-save does not rewrite it. An explicit

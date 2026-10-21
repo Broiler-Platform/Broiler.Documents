@@ -1,3 +1,5 @@
+using Broiler.Graphics.Color;
+
 namespace Broiler.Documents.Docx.Tests;
 
 /// <summary>
@@ -105,6 +107,27 @@ public sealed class DocxReaderStyleTests
         InlineStyle style = Assert.Single(result.Document.Paragraphs).StyleAt(0);
         Assert.Equal(10f, style.FontSize);
         Assert.True(style.Bold);
+    }
+
+    /// <summary>
+    /// ECMA-376 §17.3.2.6: <c>w:color w:val="auto"</c> asks for the automatic
+    /// colour, which Word and LibreOffice draw black. Stated on a run it
+    /// overrides the colour the style gave rather than being ignored.
+    /// </summary>
+    [Fact]
+    public void An_Auto_Run_Color_Overrides_The_Paragraph_Styles_Color()
+    {
+        string paragraph =
+            "<w:p><w:r><w:rPr><w:color w:val=\"auto\"/></w:rPr><w:t>auto</w:t></w:r>" +
+            "<w:r><w:t>styled</w:t></w:r></w:p>";
+
+        DocumentReadResult result = DocxTestPackage.ReadStyled(
+            paragraph,
+            DocxTestPackage.Style("Normal", "<w:rPr><w:color w:val=\"0000FF\"/></w:rPr>", isDefault: true));
+
+        RichTextParagraph read = Assert.Single(result.Document.Paragraphs);
+        Assert.True(read.StyleAt(0).Foreground.IsEmpty);
+        Assert.Equal(BColor.FromArgb(0, 0, 255), read.StyleAt(read.Text.IndexOf("styled", StringComparison.Ordinal)).Foreground);
     }
 
     [Fact]
