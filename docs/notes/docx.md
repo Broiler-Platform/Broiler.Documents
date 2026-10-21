@@ -173,7 +173,11 @@ Open XML WordprocessingML package parts.
   gamma of 2.3, `a:lumMod`, `a:lumOff` and `a:satMod` on the HSL colour, `a:alpha`
   as the colour's opacity, which the writer writes back. A template's themed box
   was read as having no fill before, and was dropped. `phClr` - a colour a
-  style supplies - is not resolved.
+  style supplies - is not resolved. A pattern fill, `a:pattFill`, is two colours
+  the model cannot hold together - LibreOffice draws hatch lines in `a:fgClr`
+  over `a:bgClr` - and is read as its background colour, which is nearly all of
+  what shows, or as its foreground where it states no background; it is reported
+  as `docx.shape.fill`.
 - Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
   shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
   `wp:positionV`, converted from whichever frame the anchor names into the text
@@ -451,7 +455,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's horizontally, or kept as stated and measured from the paragraph vertically. |
 | `docx.background.fill` | Warning | The page background's VML fill was one the model cannot hold, and was read as one colour: a rectangular (`gradientRadial`) gradient as its outer colour, a pattern of two colours or a picture fill as `w:background`'s own colour. |
-| `docx.shape.fill` | Warning | A VML shape's fill was read as one colour, for the same reasons. |
+| `docx.shape.fill` | Warning | A VML shape's fill was read as one colour, for the same reasons, or a DrawingML shape's pattern fill (`a:pattFill`) as its background colour. |
 
 Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, `docx.shape.page`, and `docx.text.control`.
 `docx.shape.page` says a shape anchored to a page by number was written beside

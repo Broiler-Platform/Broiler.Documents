@@ -113,11 +113,14 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   as one colour and reported (`docx.background.fill`, `docx.shape.fill`,
   `odt.gradient`, `odt.fill`). `fill.docx` is a corner gradient LibreOffice
   draws from dark blue to orange and this draws orange.
+  `tdf167527_title_letters_cut_from_below.docx` is a DrawingML hatch drawn as
+  its background colour, under a three-stop fade from transparent whose middle
+  stop is lost.
 - **Floating tables, the rest.** DOCX's `w:tblpPr` is read, written and laid
   out. ODT has no reader for one: LibreOffice writes a floating table as a
   `draw:frame` holding a `table:table`, which is dropped with `odt.frame.block`.
-  RTF's positioned-table words (`	pvpg`, `	posy`, `	posxc`,
-  `	dfrmtxt*`) are not read. The PDF writer lays a floating table out in the
+  RTF's positioned-table words (`\tpvpg`, `\tposy`, `\tposxc`,
+  `\tdfrmtxt*`) are not read. The PDF writer lays a floating table out in the
   flow. Two floating tables are not moved apart (`w:tblOverlap` is kept, not
   acted on), and one nested in a cell stays in the cell.
 - **RTF tables, the rest.** The reader reads a row's cells, borders, shading,

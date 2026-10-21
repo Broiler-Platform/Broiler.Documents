@@ -133,6 +133,32 @@ public sealed class DocxShapeTests
     }
 
     [Fact]
+    public void A_Pattern_Fill_Is_Read_As_Its_Background_Colour_And_Reported()
+    {
+        // tdf167527's backdrop: LibreOffice draws thin 5EAD35 hatch lines over
+        // 007929, which is nearly all of what shows.
+        DocumentReadResult result = DocxTestPackage.ReadBody("<w:p>" + DocxThemeColorTests.ShapeRun(
+            "<a:pattFill prst=\"wdUpDiag\">" +
+            "<a:fgClr><a:srgbClr val=\"5EAD35\"/></a:fgClr>" +
+            "<a:bgClr><a:srgbClr val=\"007929\"/></a:bgClr>" +
+            "</a:pattFill>") + "</w:p>");
+
+        ShapeFill fill = Assert.Single(result.Document.Shapes).Fill!;
+        Assert.False(fill.IsGradient);
+        Assert.Equal(BColor.FromArgb(0x00, 0x79, 0x29), fill.Start);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.shape.fill");
+    }
+
+    [Fact]
+    public void A_Pattern_With_No_Background_Is_Its_Foreground()
+    {
+        DocumentReadResult result = DocxTestPackage.ReadBody("<w:p>" + DocxThemeColorTests.ShapeRun(
+            "<a:pattFill prst=\"pct50\"><a:fgClr><a:srgbClr val=\"5EAD35\"/></a:fgClr></a:pattFill>") + "</w:p>");
+
+        Assert.Equal(BColor.FromArgb(0x5E, 0xAD, 0x35), Assert.Single(result.Document.Shapes).Fill!.Start);
+    }
+
+    [Fact]
     public void Shapes_Survive_A_Round_Trip()
     {
         RichTextDocument source = Read(GradientShape + TextBoxShape);

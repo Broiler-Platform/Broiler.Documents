@@ -1422,6 +1422,23 @@ internal static class DocxReader
             }
         }
 
+        // A pattern is two colours the model cannot hold together: hatch lines in
+        // the foreground colour over the background one, as LibreOffice draws it.
+        // The lines are a pixel or two wide, so the background is nearly all of
+        // what shows - LibreOffice draws a wdUpDiag of 5EAD35 over 007929 as
+        // 007929 over nine-tenths of the box - and it is the colour held.
+        XElement? pattern = spPr.Element(DocxNamespaces.Drawing + "pattFill");
+        if (pattern is not null)
+        {
+            builder.AddDiagnosticOnce(
+                "docx.shape.fill",
+                "A DOCX shape's pattern fill was read as its background colour; the pattern's lines are not drawn.");
+            return TryReadShapeColor(pattern.Element(DocxNamespaces.Drawing + "bgClr"), theme, out BColor background) ||
+                TryReadShapeColor(pattern.Element(DocxNamespaces.Drawing + "fgClr"), theme, out background)
+                ? ShapeFill.Solid(background)
+                : null;
+        }
+
         XElement? solid = spPr.Element(DocxNamespaces.Drawing + "solidFill");
         return solid is not null && TryReadShapeColor(solid, theme, out BColor color)
             ? ShapeFill.Solid(color)
