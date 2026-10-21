@@ -140,6 +140,24 @@ public sealed class HtmlWriterTests
         Assert.DoesNotContain("\uFFFC", html, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_Note_Is_Its_Raised_Label_In_The_Text_And_Its_Paragraphs_After_The_Body()
+    {
+        var note = new DocumentNote(NoteKind.Footnote, [RichTextParagraph.Plain("The note.")]);
+        RichTextDocument document = SingleParagraph(
+            ("Body", InlineStyle.Default),
+            (DocumentNote.PlaceholderText, InlineStyle.Default with { Note = note }));
+
+        DocumentWriteResult result;
+        using var stream = new MemoryStream();
+        result = new HtmlDocumentCodec().Write(document, stream);
+        string html = Encoding.UTF8.GetString(stream.ToArray());
+
+        Assert.Contains("<p>Body<sup>1</sup></p>", html, StringComparison.Ordinal);
+        Assert.Contains("<hr><p>1 The note.</p>", html, StringComparison.Ordinal);
+        Assert.Contains(result.Diagnostics, d => d.Code == "html.note");
+    }
+
     private static string Write(RichTextDocument document, DocumentWriteOptions? options = null) =>
         Encoding.UTF8.GetString(HtmlDocumentCodec.WriteToArray(document, options));
 

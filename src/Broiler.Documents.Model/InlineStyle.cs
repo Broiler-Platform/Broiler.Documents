@@ -56,6 +56,14 @@ public readonly record struct InlineStyle
     /// </summary>
     public InlineImage? Image { get; init; }
 
+    /// <summary>
+    /// The footnote or endnote this run cites, or <see langword="null"/> for an
+    /// ordinary run. A citation run holds exactly one
+    /// <see cref="DocumentNote.Placeholder"/> character per note; its label is
+    /// worked out where it is drawn (<see cref="NoteNumberer"/>).
+    /// </summary>
+    public DocumentNote? Note { get; init; }
+
     /// <summary>The unformatted default style (<c>default(InlineStyle)</c>).</summary>
     public static InlineStyle Default => default;
 
@@ -64,4 +72,7 @@ public readonly record struct InlineStyle
 
     /// <summary>True when the run draws an image rather than text.</summary>
     public bool IsImage => Image is not null;
+
+    /// <summary>True when the run cites a note rather than holding text.</summary>
+    public bool IsNote => Note is not null;
 }

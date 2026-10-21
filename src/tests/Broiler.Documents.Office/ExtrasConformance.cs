@@ -44,6 +44,12 @@ internal sealed record ExtrasSample(
 /// a document. A sample in a family was never compared with LibreOffice; the
 /// only thing recorded about it is whether <c>broilerdoc</c> handled it.
 /// </param>
+/// <param name="RefusedByBoth">
+/// True when LibreOffice produced nothing for the document - no text and no
+/// pages - and <c>broilerdoc</c> refused it with a documented exit code. An
+/// encrypted package opened without its password and a part that is not XML
+/// are refused by both; that is agreement, not a difference.
+/// </param>
 internal sealed record ExtrasDifference(
     ExtrasSample Sample,
     bool BroilerReadFailed,
@@ -55,7 +61,8 @@ internal sealed record ExtrasDifference(
     string? DiffImagePath,
     double SeverityScore,
     string Summary,
-    string? CrashRegressionFamily = null)
+    string? CrashRegressionFamily = null,
+    bool RefusedByBoth = false)
 {
     /// <summary>True for a crash-regression input, which is never ranked.</summary>
     public bool SetAside => CrashRegressionFamily is not null;
@@ -65,12 +72,13 @@ internal sealed record ExtrasDifference(
     /// between LibreOffice and <c>broilerdoc</c>, or when <c>broilerdoc</c>
     /// failed to read or render a document that LibreOffice handled. For a
     /// crash-regression input it is only the second: there was nothing to
-    /// diverge from.
+    /// diverge from. A document both refused has none.
     /// </summary>
     public bool HasDifference =>
-        BroilerReadFailed ||
+        !RefusedByBoth &&
+        (BroilerReadFailed ||
         (Semantic is not null && (Semantic.Differences.Count > 0 || Semantic.Diagnostics.Count > 0)) ||
-        (Render is not null && (!Bands.IsBest(Render.Bands) || Render.BroilerdocPages != Render.LibreOfficePages));
+        (Render is not null && (!Bands.IsBest(Render.Bands) || Render.BroilerdocPages != Render.LibreOfficePages)));
 }
 
 /// <summary>
@@ -525,14 +533,13 @@ internal static class ExtrasConformance
         string safeKey = SanitizePath(sample.Id);
         string? inputSourcePath = sample.LocalPath;
 
-        // A flat ODF (.fodt) goes through "--from odt" like a package: the ODT
-        // reader recognises the single XML file and reads it directly.
-        string[] fromArgs = ["--from", sample.Format];
+        string[] fromArgs = FormatArguments(sample);
 
         bool broilerReadFailed = false;
         int broilerExitCode = 0;
         string? broilerError = null;
         bool libreOfficeFailed = false;
+        bool libreOfficeAnswered = false;
         SemanticReading? reading = null;
         RenderRow? renderRow = null;
         string? diffImagePath = null;
@@ -582,6 +589,7 @@ internal static class ExtrasConformance
             }
             else
             {
+                libreOfficeAnswered = true;
                 ToolRun dumped = await tool
                     .RunAsync(["dump", inputSourcePath, .. fromArgs, "--as", "text", "--quiet"])
                     .ConfigureAwait(false);
@@ -707,6 +715,7 @@ internal static class ExtrasConformance
                     }
                     else
                     {
+                        libreOfficeAnswered = true;
                         string bdPxDir = Path.Combine(workspace, "bd-px", safeKey);
                         Directory.CreateDirectory(bdPxDir);
 
@@ -847,7 +856,10 @@ internal static class ExtrasConformance
             }
         }
 
-        double score = ComputeSeverityScore(broilerReadFailed, broilerExitCode, libreOfficeFailed, reading, renderRow);
+        bool refusedByBoth = broilerReadFailed && !libreOfficeAnswered && IsHandledExit(broilerExitCode);
+        double score = refusedByBoth
+            ? 0.0
+            : ComputeSeverityScore(broilerReadFailed, broilerExitCode, libreOfficeFailed, reading, renderRow);
         string summary = BuildSummary(sample, broilerReadFailed, broilerExitCode, broilerError, reading, renderRow);
         var difference = new ExtrasDifference(
             sample,
@@ -859,7 +871,8 @@ internal static class ExtrasConformance
             renderRow,
             diffImagePath,
             score,
-            summary);
+            summary,
+            RefusedByBoth: refusedByBoth);
 
         return (results, reading, renderRow, difference);
     }
@@ -890,8 +903,8 @@ internal static class ExtrasConformance
         var commands = new List<IReadOnlyList<string>>();
         if (axis is "semantic" or "all")
         {
-            commands.Add(["info", sample.LocalPath, "--from", sample.Format, "--json", "--quiet"]);
-            commands.Add(["dump", sample.LocalPath, "--from", sample.Format, "--as", "text", "--quiet"]);
+            commands.Add(["info", sample.LocalPath, .. FormatArguments(sample), "--json", "--quiet"]);
+            commands.Add(["dump", sample.LocalPath, .. FormatArguments(sample), "--as", "text", "--quiet"]);
         }
 
         if (axis is "pixel" or "all")
@@ -971,6 +984,22 @@ internal static class ExtrasConformance
         : "exited " + exitCode.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>
+    /// The <c>--from</c> a sample is read with: its format when LibreOffice is
+    /// told its filter too, and nothing otherwise.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice picks the filter for a DOCX, ODT, RTF or PDF from the bytes,
+    /// not the name, and the corpus relies on that: <c>tdf132596.docx</c> and
+    /// three more are ODT packages saved under <c>.docx</c>. Stating
+    /// <c>--from docx</c> for them made <c>broilerdoc</c> refuse a document
+    /// LibreOffice reads. Where the runner does name LibreOffice's filter -
+    /// HTML, and flat ODF - it names <c>broilerdoc</c>'s format as well, so the
+    /// two are always asked the same question.
+    /// </remarks>
+    private static string[] FormatArguments(ExtrasSample sample) =>
+        LibreOfficeTool.InputFilterFor(sample.Extension) is null ? [] : ["--from", sample.Format];
+
+    /// <summary>
     /// The <c>render</c> invocation both paths use, so a crash-regression input
     /// is rendered exactly as a document would have been.
     /// </summary>
@@ -982,17 +1011,17 @@ internal static class ExtrasConformance
         IReadOnlyList<string> fontDirectories,
         IReadOnlyList<string> fontArguments)
     {
-        var arguments = new List<string>
-        {
-            "render", sample.LocalPath,
-            "--from", sample.Format,
+        var arguments = new List<string> { "render", sample.LocalPath };
+        arguments.AddRange(FormatArguments(sample));
+        arguments.AddRange(
+        [
             "--out", Path.Combine(outputDirectory, "page-{page}.bmp"),
             "--image-format", "bmp",
             "--dpi", dpi.ToString(CultureInfo.InvariantCulture),
             "--max-pages", maxPages.ToString(CultureInfo.InvariantCulture),
             "--background", "#FFFFFF",
             "--json", "--quiet",
-        };
+        ]);
 
         foreach (string directory in fontDirectories)
         {
@@ -1099,6 +1128,9 @@ internal static class ExtrasConformance
         ExtrasDifference[] setAside = [.. allDifferences.Where(diff => diff.SetAside)];
         IReadOnlyList<ExtrasDifference> unhandled = CrashRegressionFailures(setAside);
         int totalWithDifferences = documents.Count(diff => diff.HasDifference);
+        ExtrasDifference[] refusedByBoth = [.. documents
+            .Where(diff => diff.RefusedByBoth)
+            .OrderBy(diff => diff.Sample.Id, StringComparer.Ordinal)];
 
         var sb = new StringBuilder();
         sb.AppendLine("## Office Conformance Major Differences (`sw/qa/extras`)");
@@ -1117,6 +1149,7 @@ internal static class ExtrasConformance
                           ? " (**" + unhandled.Count.ToString(CultureInfo.InvariantCulture) + " not handled**)"
                           : string.Empty) + " |");
         sb.AppendLine("| **Documents With Differences** | " + totalWithDifferences.ToString(CultureInfo.InvariantCulture) + " |");
+        sb.AppendLine("| **Refused By Both** | " + refusedByBoth.Length.ToString(CultureInfo.InvariantCulture) + " |");
         sb.AppendLine("| **Top Major Differences Reported** | " + top.Count.ToString(CultureInfo.InvariantCulture) + " (requested top " + topCount.ToString(CultureInfo.InvariantCulture) + ") |");
         sb.AppendLine("| **LibreOffice** | `" + (header.LibreOffice ?? "none") + "` |");
         sb.AppendLine("| **Rasteriser** | `" + (header.Rasterizer ?? "none") + "` |");
@@ -1146,6 +1179,9 @@ internal static class ExtrasConformance
 
         if (setAside.Length > 0)
             AppendCrashRegressions(sb, setAside, unhandled);
+
+        if (refusedByBoth.Length > 0)
+            AppendRefusedByBoth(sb, refusedByBoth);
 
         if (top.Count == 0)
         {
@@ -1232,6 +1268,26 @@ internal static class ExtrasConformance
     /// did not handle. Placed above the ranking because a crash is a defect on
     /// any input, and the ranking is about something else.
     /// </summary>
+    private static void AppendRefusedByBoth(StringBuilder sb, IReadOnlyList<ExtrasDifference> refused)
+    {
+        sb.AppendLine("### Refused By Both");
+        sb.AppendLine();
+        sb.AppendLine(
+            refused.Count.ToString(CultureInfo.InvariantCulture) + " document(s) produced neither text nor pages in " +
+            "LibreOffice and were refused by `broilerdoc` with a documented exit code - an encrypted package with " +
+            "no password given, or a part that is not well-formed. They are not ranked.");
+        sb.AppendLine();
+        foreach (ExtrasDifference diff in refused)
+        {
+            string sampleLink = diff.Sample.SourceUrl is not null
+                ? "[`" + diff.Sample.Id + "`](" + diff.Sample.SourceUrl + ")"
+                : "`" + diff.Sample.Id + "`";
+            sb.AppendLine("- " + sampleLink + ": " + (diff.BroilerError ?? diff.Summary));
+        }
+
+        sb.AppendLine();
+    }
+
     private static void AppendCrashRegressions(
         StringBuilder sb,
         IReadOnlyList<ExtrasDifference> setAside,

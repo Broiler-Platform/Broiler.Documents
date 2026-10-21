@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.Xml.Linq;
+using Broiler.Documents.Packaging;
 
 namespace Broiler.Documents.Odt;
 
@@ -28,6 +30,60 @@ internal static class OdtNamespaces
     public static readonly XNamespace DublinCore = "http://purl.org/dc/elements/1.1/";
 
     public static readonly XNamespace Xml = "http://www.w3.org/XML/1998/namespace";
+
+    /// <summary>
+    /// The prefixes LibreOffice declares on the root of every document it
+    /// writes, taken as bound when a document uses one without declaring it.
+    /// </summary>
+    /// <remarks>
+    /// Hand-written test documents leave declarations out: LibreOffice's own
+    /// <c>tdf142130.fodt</c> uses <c>fo:</c> and <c>style:</c> and declares
+    /// neither, and <c>tdf136453.fodt</c> forgets <c>loext:</c>. LibreOffice
+    /// reads them as if the declarations were there, and an XML reader refuses
+    /// the whole file, so the reader parses once more with these bound.
+    /// </remarks>
+    public static readonly XmlImpliedPrefixes ImpliedPrefixes = new(
+        new Dictionary<string, string>
+        {
+            ["office"] = Office.NamespaceName,
+            ["style"] = Style.NamespaceName,
+            ["text"] = Text.NamespaceName,
+            ["table"] = Table.NamespaceName,
+            ["draw"] = Draw.NamespaceName,
+            ["fo"] = Fo.NamespaceName,
+            ["xlink"] = XLink.NamespaceName,
+            ["dc"] = DublinCore.NamespaceName,
+            ["meta"] = Meta.NamespaceName,
+            ["number"] = "urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0",
+            ["svg"] = Svg.NamespaceName,
+            ["chart"] = "urn:oasis:names:tc:opendocument:xmlns:chart:1.0",
+            ["dr3d"] = "urn:oasis:names:tc:opendocument:xmlns:dr3d:1.0",
+            ["math"] = "http://www.w3.org/1998/Math/MathML",
+            ["form"] = "urn:oasis:names:tc:opendocument:xmlns:form:1.0",
+            ["script"] = "urn:oasis:names:tc:opendocument:xmlns:script:1.0",
+            ["config"] = "urn:oasis:names:tc:opendocument:xmlns:config:1.0",
+            ["of"] = "urn:oasis:names:tc:opendocument:xmlns:of:1.2",
+            ["ooo"] = "http://openoffice.org/2004/office",
+            ["ooow"] = "http://openoffice.org/2004/writer",
+            ["oooc"] = "http://openoffice.org/2004/calc",
+            ["officeooo"] = "http://openoffice.org/2009/office",
+            ["tableooo"] = "http://openoffice.org/2009/table",
+            ["drawooo"] = "http://openoffice.org/2010/draw",
+            ["rpt"] = "http://openoffice.org/2005/report",
+            ["loext"] = "urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0",
+            ["calcext"] = "urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0",
+            ["field"] = "urn:openoffice:names:experimental:ooo-ms-interop:xmlns:field:1.0",
+            ["formx"] = "urn:openoffice:names:experimental:ooxml-odf-interop:xmlns:form:1.0",
+            ["css3t"] = "http://www.w3.org/TR/css3-text/",
+            ["dom"] = "http://www.w3.org/2001/xml-events",
+            ["xforms"] = "http://www.w3.org/2002/xforms",
+            ["xsd"] = "http://www.w3.org/2001/XMLSchema",
+            ["xsi"] = "http://www.w3.org/2001/XMLSchema-instance",
+            ["xhtml"] = "http://www.w3.org/1999/xhtml",
+            ["grddl"] = "http://www.w3.org/2003/g/data-view#",
+        },
+        "odt.xml.prefix",
+        "uses namespace prefixes it does not declare; they were read as the ones LibreOffice declares.");
 
     /// <summary>The package media type, and the payload of the <c>mimetype</c> entry.</summary>
     public const string PackageMediaType = "application/vnd.oasis.opendocument.text";

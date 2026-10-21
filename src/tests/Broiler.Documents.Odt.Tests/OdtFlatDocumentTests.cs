@@ -204,6 +204,62 @@ public sealed class OdtFlatDocumentTests
     }
 
     [Fact]
+    public void A_Prefix_The_File_Never_Declares_Is_Read_As_LibreOffice_Declares_It()
+    {
+        // LibreOffice's tdf142130.fodt uses fo: and style: without declaring
+        // either, and LibreOffice reads it. An XML reader refuses the file.
+        string xml = Flat("<text:p text:style-name=\"P1\">kept</text:p>", styles:
+            "<office:styles>" +
+            "<style:style style:name=\"P1\" style:family=\"paragraph\">" +
+            "<style:text-properties fo:font-size=\"20pt\" loext:opacity=\"100%\"/>" +
+            "</style:style>" +
+            "</office:styles>");
+
+        DocumentReadResult result = Read(xml);
+
+        Assert.NotEqual(DocumentResultStatus.Rejected, result.Status);
+        Assert.Equal("kept", Assert.Single(result.Document.Paragraphs).Text);
+        Assert.Equal(20, result.Document.Paragraphs[0].StyleAt(0).FontSize);
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.xml.prefix");
+    }
+
+    [Fact]
+    public void A_Declared_Prefix_Wins_Over_The_Implied_One()
+    {
+        // The file binds fo: to something else, so its font size is not an
+        // XSL-FO property and the size stays the default.
+        string xml = Flat("<text:p text:style-name=\"P1\">x</text:p>", styles:
+            "<office:styles>" +
+            "<style:style style:name=\"P1\" style:family=\"paragraph\">" +
+            "<style:text-properties xmlns:fo=\"urn:example:other\" fo:font-size=\"20pt\" loext:opacity=\"100%\"/>" +
+            "</style:style>" +
+            "</office:styles>");
+
+        DocumentReadResult result = Read(xml);
+
+        Assert.NotEqual(DocumentResultStatus.Rejected, result.Status);
+        Assert.NotEqual(20, result.Document.Paragraphs[0].StyleAt(0).FontSize);
+    }
+
+    [Fact]
+    public void A_Prefix_LibreOffice_Does_Not_Declare_Still_Fails_The_Read()
+    {
+        DocumentReadResult result = Read(Flat("<text:p><nonsense:span>x</nonsense:span></text:p>"));
+
+        Assert.Equal(DocumentResultStatus.Rejected, result.Status);
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.xml");
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.xml.prefix");
+    }
+
+    [Fact]
+    public void A_Well_Formed_File_Reports_No_Implied_Prefix()
+    {
+        DocumentReadResult result = Read(Flat("<text:p>x</text:p>"));
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.xml.prefix");
+    }
+
+    [Fact]
     public void An_Inline_Dtd_Is_Prohibited()
     {
         string xml = Flat("<text:p>&e;</text:p>").Replace(

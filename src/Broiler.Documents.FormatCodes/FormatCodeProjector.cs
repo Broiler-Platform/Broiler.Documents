@@ -47,7 +47,7 @@ public sealed class FormatCodeProjector
                     runStart,
                     previousRange,
                     currentRange);
-                EmitContent(builder, paragraph.Text, paragraphIndex, offset, run.Length);
+                EmitContent(builder, paragraph.Text, paragraphIndex, offset, run.Length, run.Style.IsNote);
 
                 previousStyle = run.Style;
                 previousRange = currentRange;
@@ -289,7 +289,8 @@ public sealed class FormatCodeProjector
         string text,
         int paragraphIndex,
         int start,
-        int length)
+        int length,
+        bool note = false)
     {
         int end = start + length;
         int offset = start;
@@ -331,6 +332,13 @@ public sealed class FormatCodeProjector
                     builder.AddToken(FormatCodeTokenKind.StructureCode, "[Line Break]", sourceBefore, sourceAfter,
                         affected, FormatCodeMappingMode.Expanded,
                         StructureDescriptor(FormatCodeProperty.LineBreak, affected));
+                    break;
+                case InlineImage.Placeholder when note:
+                    // The character a footnote or endnote citation occupies,
+                    // which holds the note. Removing it removes the note.
+                    builder.AddToken(FormatCodeTokenKind.StructureCode, "[Note]", sourceBefore, sourceAfter,
+                        affected, FormatCodeMappingMode.Expanded,
+                        StructureDescriptor(FormatCodeProperty.Note, affected));
                     break;
                 case InlineImage.Placeholder:
                     // The character an image occupies. Removing the token

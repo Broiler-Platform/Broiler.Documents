@@ -1,6 +1,7 @@
 using System.Globalization;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
@@ -106,6 +107,13 @@ public static class RtfReader
         private readonly StringBuilder _shapePropertyValue = new();
         private readonly List<DocumentShape> _shapes = [];
         private Accumulator? _shapeText;
+
+        // The note being read: its text, whether \ftnalt made it an endnote,
+        // and the character formatting where it was cited, which its citation
+        // takes.
+        private Accumulator? _noteText;
+        private bool _noteIsEndnote;
+        private InlineStyle _noteCitationStyle;
 
         // The paragraphs of the frame being read, and the frame they share.
         // Finished into a shape when a paragraph outside it arrives.
@@ -302,7 +310,47 @@ public static class RtfReader
                 return false;
 
             _state = _stack.Pop();
+            if (closing.Dest == RtfDestination.Note && _state.Dest != RtfDestination.Note)
+                FinishNote(closing.Para);
+
             return _stack.Count == 0;
+        }
+
+        private bool _noteLabelSeen;
+
+        /// <summary>
+        /// Closes the <c>\footnote</c> group just ended: its paragraphs become a
+        /// note, and the note's citation one character where the group stood.
+        /// </summary>
+        /// <remarks>
+        /// The citation goes where the group is, not where <c>\chftn</c> is:
+        /// Word writes the label as <c>{\super\chftn}</c> just before the group,
+        /// and a reader that has the note draws the label itself. A note's text
+        /// opens with its label again and the space after it, and both are left
+        /// out, as the DOCX reader leaves out <c>w:footnoteRef</c>.
+        /// </remarks>
+        private void FinishNote(ParagraphStyle finalStyle)
+        {
+            Accumulator? text = _noteText;
+            _noteText = null;
+            if (text is null)
+                return;
+
+            IReadOnlyList<RichTextParagraph> paragraphs = text.Build(finalStyle).Paragraphs;
+            if (_noteLabelSeen && paragraphs.Count > 0)
+            {
+                RichTextParagraph first = paragraphs[0];
+                int count = 0;
+                while (count < first.Length && first.Text[count] is ' ' or '\t')
+                    count++;
+                if (count > 0)
+                    paragraphs = [first.RemoveRange(0, count), .. paragraphs.Skip(1)];
+            }
+
+            _noteLabelSeen = false;
+            var note = new DocumentNote(_noteIsEndnote ? NoteKind.Endnote : NoteKind.Footnote, paragraphs);
+            FlushPending();
+            Active.Append(DocumentNote.PlaceholderText, _noteCitationStyle with { Note = note, Image = null, LinkHref = null });
         }
 
         /// <summary>
@@ -375,6 +423,19 @@ public static class RtfReader
                 return;
             }
 
+            // A note's text is the note's: a header, a font or colour table or a
+            // shape stated inside it would escape into the document, so each is
+            // skipped there with everything inside it, as a skipped destination
+            // skips them.
+            if (_state.Dest == RtfDestination.Note &&
+                kw is "header" or "headerf" or "headerl" or "headerr" or
+                    "footer" or "footerf" or "footerl" or "footerr" or
+                    "fonttbl" or "colortbl" or "shp" or "listtable" or "listoverridetable")
+            {
+                _state.Dest = RtfDestination.Skip;
+                return;
+            }
+
             // Destination-setting keywords take effect in every destination the
             // reader walks rather than skips.
             switch (kw)
@@ -444,9 +505,32 @@ public static class RtfReader
                     _state.Dest = RtfDestination.Generator;
                     _sawGenerator = true;
                     return;
+                case "footnote":
+                    // A note is read where the body, a table cell or a frame
+                    // cites it. One in a header, a shape or another note has
+                    // nowhere to be cited from, and is skipped as before.
+                    if (_state.Dest == RtfDestination.Normal && _noteText is null)
+                    {
+                        _state.Dest = RtfDestination.Note;
+                        _noteText = new Accumulator(_maxParagraphs);
+                        _noteIsEndnote = false;
+                        _noteCitationStyle = _stack.Count > 0 ? _stack.Peek().Char : _state.Char;
+                        return;
+                    }
+
+                    _state.Dest = RtfDestination.Skip;
+                    return;
+                case "ftnalt" when _state.Dest == RtfDestination.Note:
+                    _noteIsEndnote = true;
+                    return;
+                case "chftn" when _state.Dest == RtfDestination.Note:
+                    // The note's text repeats its label here. It is drawn from
+                    // the citation, so the text starts after it.
+                    FlushPending();
+                    _noteLabelSeen = true;
+                    return;
                 case "info":
                 case "stylesheet":
-                case "footnote":
                 case "annotation":
                 case "colorschememapping":
                 case "latentstyles":
@@ -888,6 +972,7 @@ public static class RtfReader
                 case RtfDestination.Footer:
                 case RtfDestination.FooterFirst:
                 case RtfDestination.FooterEven:
+                case RtfDestination.Note:
                 case RtfDestination.ShapeText: HandleBodyText(text); break;
                 case RtfDestination.ShapePropertyName: _shapePropertyName.Append(text); break;
                 case RtfDestination.ShapePropertyValue: _shapePropertyValue.Append(text); break;
@@ -1049,6 +1134,9 @@ public static class RtfReader
                 if (destination == RtfDestination.ShapeText)
                     return _shapeText ??= new Accumulator(_maxParagraphs);
 
+                if (destination == RtfDestination.Note)
+                    return _noteText ??= new Accumulator(_maxParagraphs);
+
                 if (!IsRunning(destination))
                     return BodyOrFrame(destination);
 
@@ -1085,7 +1173,7 @@ public static class RtfReader
         /// than carry one.
         /// </remarks>
         private static bool KeepsText(RtfDestination destination) =>
-            destination is RtfDestination.Normal or RtfDestination.FieldResult or RtfDestination.ShapeText ||
+            destination is RtfDestination.Normal or RtfDestination.FieldResult or RtfDestination.ShapeText or RtfDestination.Note ||
             IsRunning(destination);
 
         private static bool IsRunning(RtfDestination destination) => destination is

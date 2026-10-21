@@ -233,7 +233,12 @@ internal sealed class CsvWriter
         foreach (StyleRun run in paragraph.Runs)
         {
             int length = Math.Min(run.Length, paragraph.Length - offset);
-            if (run.Style.IsImage)
+            if (run.Style.IsNote)
+            {
+                ReportOnce(CsvDiagnosticCodes.NoteOmitted, "A footnote or endnote was left out with its citation; CSV holds a cell's text only.");
+                AppendWithout(builder, paragraph.Text, offset, length, ObjectReplacement);
+            }
+            else if (run.Style.IsImage)
             {
                 ReportOnce(CsvDiagnosticCodes.ImageOmitted, "A picture was left out; CSV holds text only.");
                 AppendWithout(builder, paragraph.Text, offset, length, ObjectReplacement);

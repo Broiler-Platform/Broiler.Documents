@@ -407,8 +407,9 @@ margins with a section's columns balanced where the next follows on the page,
 running headers and footers - each at its own section's distance, with the text
 moved clear of one that runs past its margin - anchored shapes in their stated
 stacking order,
-and pagination. It has no floats,
-footnotes, hyphenation, kerning pairs, or bidirectional reordering — mostly
+footnotes at the foot of the page that cites them and endnotes after the body,
+and pagination. It has no floats, hyphenation, kerning pairs, or
+bidirectional reordering — mostly
 because the document model cannot express them, so there is nothing to lay
 out. The shared paginator planned as
 `Broiler.Documents.Pagination` ([roadmap](../roadmap.md#shared-export-foundation-phase-6))

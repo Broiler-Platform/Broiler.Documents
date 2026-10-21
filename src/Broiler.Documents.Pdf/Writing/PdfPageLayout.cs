@@ -189,6 +189,16 @@ internal sealed class PdfPageLayout(
                 "A floating table was laid out in the text flow at the text's width rather than at its position.");
         }
 
+        // A note is a page-foot feature of the PNG layout only. Here a citation
+        // keeps its place in the text as its label, and the note is not drawn.
+        _noteLabels = new NoteNumberer(document.NoteNumbering);
+        if (document.Notes.Count > 0)
+        {
+            _diagnostics.Warning(
+                PdfDiagnosticCodes.WriteFeatureUnsupported,
+                "Footnotes and endnotes were not laid out; each citation was drawn as its label.");
+        }
+
         if (document.Sections.Any(static section => section.RunningContent is not null))
         {
             _diagnostics.Warning(
@@ -1305,6 +1315,8 @@ internal sealed class PdfPageLayout(
     /// trailing space belongs to the word before it, so a line break falls between
     /// words rather than in front of a space.
     /// </summary>
+    private NoteNumberer _noteLabels = new();
+
     private IEnumerable<Word> EnumerateWords(RichTextParagraph paragraph, string marker)
     {
         string text = paragraph.Text;
@@ -1325,6 +1337,12 @@ internal sealed class PdfPageLayout(
             int length = Math.Min(run.Length, text.Length - offset);
             string runText = text.Substring(offset, length);
             offset += length;
+
+            if (run.Style.Note is DocumentNote note)
+            {
+                yield return MakeWord(_noteLabels.Label(note), Resolve(run.Style with { Note = null }), isSpace: false);
+                continue;
+            }
 
             if (run.Style.IsImage)
             {

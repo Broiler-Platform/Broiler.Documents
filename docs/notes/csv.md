@@ -129,6 +129,7 @@ The writer walks the body in order and writes UTF-8 with CRLF after every record
 | Character formatting and link targets | Dropped with the text kept, reported as `csv.inline-style` |
 | Paragraph formatting | Dropped, reported as `csv.paragraph-style` |
 | A picture | Left out, reported as `csv.image.omitted` |
+| A footnote or endnote | Left out with its citation, reported as `csv.note.omitted` |
 | Floating shapes | Left out, reported as `csv.shape.omitted` |
 | Headers and footers | Left out, reported as `csv.running-content` |
 | Metadata the caller supplies | Dropped, reported as `document.metadata.dropped` naming the fields |
@@ -173,6 +174,7 @@ back what went in.
 | `csv.inline-style` | Warning | Write | Character formatting or link targets were dropped |
 | `csv.paragraph-style` | Warning | Write | Paragraph formatting was dropped |
 | `csv.image.omitted` | Warning | Write | A picture was left out |
+| `csv.note.omitted` | Warning | Write | A footnote or endnote was left out with its citation |
 | `csv.shape.omitted` | Warning | Write | Floating shapes were left out |
 | `csv.running-content` | Warning | Write | Headers and footers were left out |
 | `csv.formula.escaped` | Info | Write | Fields were escaped as `EscapeFormulas` asked; the message gives the count |

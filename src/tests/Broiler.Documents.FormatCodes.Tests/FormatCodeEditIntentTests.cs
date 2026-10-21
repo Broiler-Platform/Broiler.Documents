@@ -19,6 +19,20 @@ public sealed class FormatCodeEditIntentTests
         Assert.True(token.EditCapabilities.HasFlag(FormatCodeEditCapabilities.Remove));
     }
 
+    [Fact]
+    public void A_Note_Citation_Projects_As_A_Note_Token()
+    {
+        var note = new DocumentNote(NoteKind.Footnote, [RichTextParagraph.Plain("n")]);
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [RichTextParagraph.Plain("x").InsertText(1, DocumentNote.PlaceholderText, InlineStyle.Default with { Note = note })]);
+
+        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+
+        Assert.Contains("[Note]", projection.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("[Image]", projection.Text, StringComparison.Ordinal);
+        Assert.Contains(projection.Tokens, token => token.EditDescriptor?.Property == FormatCodeProperty.Note);
+    }
+
     [Theory]
     [InlineData("https://example.test", true)]
     [InlineData("mailto:test@example.test", true)]

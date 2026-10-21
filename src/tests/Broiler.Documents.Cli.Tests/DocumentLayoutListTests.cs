@@ -126,4 +126,20 @@ public sealed class DocumentLayoutListTests
         // kind has no label anybody stated.
         Assert.Equal("4. Changes\nPlain\nLegacy\n5. Taxes", Broiler.Documents.Cli.Commands.DocumentCommands.LabelledText(document));
     }
+
+    [Fact]
+    public void The_Text_Dump_Writes_A_Citation_As_Its_Label_As_LibreOffice_Does()
+    {
+        var footnote = new DocumentNote(NoteKind.Footnote, [RichTextParagraph.Plain("n")]);
+        var endnote = new DocumentNote(NoteKind.Endnote, [RichTextParagraph.Plain("e")]);
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("Text.")
+                .InsertText(5, DocumentNote.PlaceholderText, InlineStyle.Default with { Note = footnote })
+                .InsertText(6, " More", InlineStyle.Default)
+                .InsertText(11, DocumentNote.PlaceholderText, InlineStyle.Default with { Note = endnote }),
+        ]);
+
+        Assert.Equal("Text.1 Morei", Broiler.Documents.Cli.Commands.DocumentCommands.LabelledText(document));
+    }
 }

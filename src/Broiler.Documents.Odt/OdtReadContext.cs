@@ -24,6 +24,9 @@ internal sealed record OdtReadContext(
     OdtDocumentBuilder Builder,
     PageGeometry? Page = null)
 {
+    /// <summary>True for the flow of a note's own text, which cannot hold another note.</summary>
+    public bool InNote { get; init; }
+
     private OdtBreak _pendingBreak;
     private readonly Dictionary<string, ListDefinition> _lastListByStyle = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ListDefinition> _listsById = new(StringComparer.Ordinal);

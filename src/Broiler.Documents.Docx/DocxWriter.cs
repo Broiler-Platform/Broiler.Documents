@@ -31,6 +31,10 @@ public static class DocxWriter
             (options ?? DocumentWriteOptions.Default).Resources);
         BuildRunningParts(document, context);
         XDocument documentXml = BuildDocumentXml(document, context);
+        XDocument? footnotesXml = BuildNotes(NoteKind.Footnote, document.NoteNumbering.RaisedLabels, context);
+        XDocument? endnotesXml = BuildNotes(NoteKind.Endnote, document.NoteNumbering.RaisedLabels, context);
+        if (document.NoteNumbering with { RaisedLabels = false } != NoteNumbering.Default)
+            context.AddSettings(noteNumbering: document.NoteNumbering);
 
         // The caller's metadata, never the source document's: this writer is
         // given an envelope or it emits no properties at all.
@@ -55,6 +59,17 @@ public static class DocxWriter
                 AddXmlEntry(archive, "word/numbering.xml", BuildNumbering(context));
             if (context.SettingsRelationshipId is not null)
                 AddXmlEntry(archive, "word/settings.xml", BuildSettings(context));
+            if (footnotesXml is not null)
+            {
+                AddXmlEntry(archive, "word/footnotes.xml", footnotesXml);
+                AddXmlEntry(archive, "word/_rels/footnotes.xml.rels", BuildNoteRelationships(context));
+            }
+
+            if (endnotesXml is not null)
+            {
+                AddXmlEntry(archive, "word/endnotes.xml", endnotesXml);
+                AddXmlEntry(archive, "word/_rels/endnotes.xml.rels", BuildNoteRelationships(context));
+            }
             foreach (DocxRunningPart part in context.RunningParts)
                 AddXmlEntry(archive, part.PartPath, part.Xml);
             foreach (DocxImagePart image in context.Images)
@@ -1020,6 +1035,11 @@ public static class DocxWriter
                 WordAttribute("fill", FormatColor(style.Background, context))));
         }
 
+        // A citation is raised, as Word's own FootnoteReference style raises
+        // it; w:vertAlign is 32nd, after w:shd.
+        if (style.IsNote)
+            properties.Add(SuperscriptElement());
+
         return properties.HasElements ? properties : null;
     }
 
@@ -1049,7 +1069,10 @@ public static class DocxWriter
                     run.Add(new XElement(DocxNamespaces.Wordprocessing + "br"));
                     break;
                 default:
-                    AddPicture(run, style.Image, context);
+                    if (style.Note is DocumentNote note)
+                        AddNoteReference(run, note, context);
+                    else
+                        AddPicture(run, style.Image, context);
                     break;
             }
 
@@ -1058,6 +1081,120 @@ public static class DocxWriter
 
         if (start < text.Length)
             run.Add(TextElement(text[start..], context));
+    }
+
+    /// <summary>
+    /// Writes a citation as the reference that names its note, and registers
+    /// the note for its part. A note's own label follows the reference as text,
+    /// which is what <c>w:customMarkFollows</c> says.
+    /// </summary>
+    private static void AddNoteReference(XElement run, DocumentNote note, DocxWriteContext context)
+    {
+        if (context.InNote)
+        {
+            context.AddDiagnosticOnce("docx.note.nested", "A note inside a note was dropped: WordprocessingML cannot nest them.");
+            return;
+        }
+
+        int id = context.AddNote(note);
+        var reference = new XElement(
+            DocxNamespaces.Wordprocessing + (note.Kind == NoteKind.Endnote ? "endnoteReference" : "footnoteReference"));
+        if (note.CustomMark is not null)
+            reference.Add(WordAttribute("customMarkFollows", "1"));
+        reference.Add(WordAttribute("id", id.ToString(CultureInfo.InvariantCulture)));
+        run.Add(reference);
+        if (note.CustomMark is not null)
+            run.Add(TextElement(note.CustomMark, context));
+    }
+
+    private static XElement SuperscriptElement() =>
+        new(DocxNamespaces.Wordprocessing + "vertAlign", WordAttribute("val", "superscript"));
+
+    /// <summary>
+    /// The footnotes or endnotes part, or null when the body cites none of that
+    /// kind: Word's two separators, then each note with its label repeated at
+    /// the head of its first paragraph, as Word writes one.
+    /// </summary>
+    private static XDocument? BuildNotes(NoteKind kind, bool raisedLabels, DocxWriteContext context)
+    {
+        IReadOnlyList<DocumentNote> notes = context.NotesOf(kind);
+        if (notes.Count == 0)
+            return null;
+
+        string element = kind == NoteKind.Endnote ? "endnote" : "footnote";
+        var root = new XElement(
+            DocxNamespaces.Wordprocessing + element + "s",
+            new XAttribute(XNamespace.Xmlns + "w", DocxNamespaces.Wordprocessing.NamespaceName),
+            new XAttribute(XNamespace.Xmlns + "r", DocxNamespaces.Relationships.NamespaceName),
+            Separator(element, "separator", -1),
+            Separator(element, "continuationSeparator", 0));
+
+        context.InNote = true;
+        for (int i = 0; i < notes.Count; i++)
+        {
+            var written = new XElement(
+                DocxNamespaces.Wordprocessing + element,
+                WordAttribute("id", (i + 1).ToString(CultureInfo.InvariantCulture)));
+            foreach (RichTextParagraph paragraph in notes[i].Paragraphs)
+                written.Add(BuildParagraph(paragraph, context));
+
+            XElement first = written.Elements().First();
+            var label = new XElement(
+                DocxNamespaces.Wordprocessing + "r",
+                raisedLabels ? new XElement(DocxNamespaces.Wordprocessing + "rPr", SuperscriptElement()) : null,
+                new XElement(DocxNamespaces.Wordprocessing + element + "Ref"));
+            var gap = new XElement(DocxNamespaces.Wordprocessing + "r", TextElement(" ", context));
+            if (first.Element(DocxNamespaces.Wordprocessing + "pPr") is XElement pPr)
+                pPr.AddAfterSelf(label, gap);
+            else
+                first.AddFirst(label, gap);
+
+            root.Add(written);
+        }
+
+        context.InNote = false;
+        return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root);
+    }
+
+    private static XElement Separator(string element, string type, int id) =>
+        new(
+            DocxNamespaces.Wordprocessing + element,
+            WordAttribute("type", type),
+            WordAttribute("id", id.ToString(CultureInfo.InvariantCulture)),
+            new XElement(
+                DocxNamespaces.Wordprocessing + "p",
+                new XElement(
+                    DocxNamespaces.Wordprocessing + "r",
+                    new XElement(DocxNamespaces.Wordprocessing + type))));
+
+    /// <summary>
+    /// A notes part's relationships: the hyperlinks and pictures, under the
+    /// ids the body's part gives them, because a note's paragraphs were written
+    /// by the same context and name those ids.
+    /// </summary>
+    private static XDocument BuildNoteRelationships(DocxWriteContext context)
+    {
+        var root = new XElement(DocxNamespaces.PackageRelationships + "Relationships");
+        foreach (KeyValuePair<string, string> relationship in context.HyperlinkRelationships.OrderBy(pair => pair.Value, StringComparer.Ordinal))
+        {
+            root.Add(new XElement(
+                DocxNamespaces.PackageRelationships + "Relationship",
+                new XAttribute("Id", relationship.Value),
+                new XAttribute("Type", DocxNamespaces.HyperlinkRelationship),
+                new XAttribute("Target", relationship.Key),
+                new XAttribute("TargetMode", "External")));
+        }
+
+        foreach (DocxImagePart image in context.Images)
+        {
+            root.Add(new XElement(
+                DocxNamespaces.PackageRelationships + "Relationship",
+                new XAttribute("Id", image.RelationshipId),
+                new XAttribute("Type", DocxNamespaces.ImageRelationship),
+                new XAttribute("Target", image.RelativeTarget)));
+        }
+
+        return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root);
     }
 
     /// <summary>
@@ -1577,6 +1714,22 @@ public static class DocxWriter
                 new XAttribute("ContentType", DocxNamespaces.SettingsContentType)));
         }
 
+        if (context.NotesOf(NoteKind.Footnote).Count > 0)
+        {
+            types.Add(new XElement(
+                DocxNamespaces.ContentTypes + "Override",
+                new XAttribute("PartName", "/word/footnotes.xml"),
+                new XAttribute("ContentType", DocxNamespaces.FootnotesContentType)));
+        }
+
+        if (context.NotesOf(NoteKind.Endnote).Count > 0)
+        {
+            types.Add(new XElement(
+                DocxNamespaces.ContentTypes + "Override",
+                new XAttribute("PartName", "/word/endnotes.xml"),
+                new XAttribute("ContentType", DocxNamespaces.EndnotesContentType)));
+        }
+
         foreach (DocxRunningPart part in context.RunningParts)
         {
             types.Add(new XElement(
@@ -1704,6 +1857,24 @@ public static class DocxWriter
                 new XAttribute("Target", image.RelativeTarget)));
         }
 
+        if (context.FootnotesRelationshipId is string footnotesId)
+        {
+            root.Add(new XElement(
+                DocxNamespaces.PackageRelationships + "Relationship",
+                new XAttribute("Id", footnotesId),
+                new XAttribute("Type", DocxNamespaces.FootnotesRelationship),
+                new XAttribute("Target", "footnotes.xml")));
+        }
+
+        if (context.EndnotesRelationshipId is string endnotesId)
+        {
+            root.Add(new XElement(
+                DocxNamespaces.PackageRelationships + "Relationship",
+                new XAttribute("Id", endnotesId),
+                new XAttribute("Type", DocxNamespaces.EndnotesRelationship),
+                new XAttribute("Target", "endnotes.xml")));
+        }
+
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root);
     }
 
@@ -1722,8 +1893,23 @@ public static class DocxWriter
         if (context.EvenAndOddHeaders)
             settings.Add(new XElement(DocxNamespaces.Wordprocessing + "evenAndOddHeaders"));
 
+        // After w:evenAndOddHeaders in CT_Settings, footnotes before endnotes.
+        if (context.NoteNumbering is NoteNumbering numbering)
+        {
+            settings.Add(NoteProperties("footnotePr", numbering.FootnoteFormat, numbering.FootnoteStart));
+            settings.Add(NoteProperties("endnotePr", numbering.EndnoteFormat, numbering.EndnoteStart));
+        }
+
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), settings);
     }
+
+    private static XElement NoteProperties(string name, ListNumberFormat format, int start) =>
+        new(
+            DocxNamespaces.Wordprocessing + name,
+            new XElement(DocxNamespaces.Wordprocessing + "numFmt", WordAttribute("val", NumberFormat(format))),
+            new XElement(
+                DocxNamespaces.Wordprocessing + "numStart",
+                WordAttribute("val", start.ToString(CultureInfo.InvariantCulture))));
 
     /// <summary>
     /// The numbering part: an abstract numbering and a <c>w:num</c> for each
@@ -1881,7 +2067,7 @@ public static class DocxWriter
 
         public bool HasDocumentRelationships =>
             HasNumbering || _hyperlinks.Count > 0 || _imageOrder.Count > 0 || _runningParts.Count > 0 ||
-            SettingsRelationshipId is not null;
+            SettingsRelationshipId is not null || FootnotesRelationshipId is not null || EndnotesRelationshipId is not null;
 
         /// <summary>The settings part's relationship, or null when none is written.</summary>
         public string? SettingsRelationshipId { get; private set; }
@@ -1892,11 +2078,57 @@ public static class DocxWriter
         /// <summary>Whether the settings part turns on distinct even-page headers and footers.</summary>
         public bool EvenAndOddHeaders { get; private set; }
 
+        /// <summary>How the settings part numbers notes, or null to leave a reader's default.</summary>
+        public NoteNumbering? NoteNumbering { get; private set; }
+
+        private readonly List<DocumentNote> _footnotes = [];
+        private readonly List<DocumentNote> _endnotes = [];
+
+        /// <summary>True while a note's own paragraphs are being written.</summary>
+        public bool InNote { get; set; }
+
+        /// <summary>The footnotes part's relationship, or null when no footnote is cited.</summary>
+        public string? FootnotesRelationshipId { get; private set; }
+
+        /// <summary>The endnotes part's relationship, or null when no endnote is cited.</summary>
+        public string? EndnotesRelationshipId { get; private set; }
+
+        /// <summary>The notes of one kind, in the order cited.</summary>
+        public IReadOnlyList<DocumentNote> NotesOf(NoteKind kind) => kind == NoteKind.Endnote ? _endnotes : _footnotes;
+
+        /// <summary>
+        /// Registers a cited note and returns its id in its part: 1 for the first
+        /// of its kind, after the two separators at -1 and 0.
+        /// </summary>
+        public int AddNote(DocumentNote note)
+        {
+            List<DocumentNote> notes = note.Kind == NoteKind.Endnote ? _endnotes : _footnotes;
+            int index = notes.FindIndex(existing => ReferenceEquals(existing, note));
+            if (index >= 0)
+                return index + 1;
+
+            notes.Add(note);
+            if (note.Kind == NoteKind.Endnote)
+                EndnotesRelationshipId ??= NextRelationshipId();
+            else
+                FootnotesRelationshipId ??= NextRelationshipId();
+
+            return notes.Count;
+        }
+
+        private string NextRelationshipId()
+        {
+            string id = "rId" + _nextRelationshipId.ToString(CultureInfo.InvariantCulture);
+            _nextRelationshipId++;
+            return id;
+        }
+
         /// <summary>Registers the settings part, once, with the switches named turned on.</summary>
-        public void AddSettings(bool displayBackgroundShape = false, bool evenAndOddHeaders = false)
+        public void AddSettings(bool displayBackgroundShape = false, bool evenAndOddHeaders = false, NoteNumbering? noteNumbering = null)
         {
             DisplayBackgroundShape |= displayBackgroundShape;
             EvenAndOddHeaders |= evenAndOddHeaders;
+            NoteNumbering ??= noteNumbering;
             if (SettingsRelationshipId is not null)
                 return;
 

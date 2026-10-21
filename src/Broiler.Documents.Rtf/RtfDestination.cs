@@ -62,4 +62,7 @@ internal enum RtfDestination
 
     /// <summary>The <c>\*\generator</c> destination: the name of what wrote the document.</summary>
     Generator,
+
+    /// <summary>A <c>\footnote</c> group cited from the body: the note's own text.</summary>
+    Note,
 }

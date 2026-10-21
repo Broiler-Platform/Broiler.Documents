@@ -45,7 +45,7 @@ internal static class OdtPackage
         string diagnosticCode,
         LoadOptions loadOptions = LoadOptions.None) =>
         DocumentPackage.LoadEntryXml(entry, limits.MaxBinBytes, diagnostics,
-            diagnosticCode, "An ODT XML part", loadOptions);
+            diagnosticCode, "An ODT XML part", loadOptions, OdtNamespaces.ImpliedPrefixes);
 
     public static byte[]? ReadEntryBytes(ZipArchiveEntry entry, long maxBytes) =>
         DocumentPackage.ReadEntryBytes(entry, maxBytes);

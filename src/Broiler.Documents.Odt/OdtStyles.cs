@@ -93,6 +93,27 @@ internal sealed class OdtStyles
     public IReadOnlyList<XElement> PageLayouts { get; init; } = [];
 
     /// <summary>
+    /// The <c>text:notes-configuration</c> elements from <c>office:styles</c>:
+    /// how the document numbers its footnotes and its endnotes.
+    /// </summary>
+    public IReadOnlyList<XElement> NotesConfigurations { get; init; } = [];
+
+    /// <summary>
+    /// A <c>style:num-format</c>: <c>1</c>, <c>a</c>, <c>A</c>, <c>i</c> or
+    /// <c>I</c>, empty for no number, and decimal for anything else.
+    /// </summary>
+    public static ListNumberFormat NumberFormat(string? value) => value switch
+    {
+        null or "" => ListNumberFormat.None,
+        "1" => ListNumberFormat.Decimal,
+        "a" => ListNumberFormat.LowerLetter,
+        "A" => ListNumberFormat.UpperLetter,
+        "i" => ListNumberFormat.LowerRoman,
+        "I" => ListNumberFormat.UpperRoman,
+        _ => ListNumberFormat.Decimal,
+    };
+
+    /// <summary>
     /// The <c>style:graphic-properties</c> of every graphic style, by name. A
     /// shape names one, and that is where ODF states how the box is painted.
     /// </summary>
@@ -189,6 +210,7 @@ internal sealed class OdtStyles
         var drawingPageProperties = new Dictionary<string, XElement>(StringComparer.Ordinal);
         XElement? masterStyles = null;
         List<XElement> pageLayouts = [];
+        List<XElement> notesConfigurations = [];
 
         if (stylesRoot is not null)
         {
@@ -207,6 +229,8 @@ internal sealed class OdtStyles
                 drawingPageProperties);
             masterStyles = stylesRoot.Element(OdtNamespaces.Office + "master-styles");
             pageLayouts = [.. stylesRoot.Descendants(OdtNamespaces.Style + "page-layout")];
+            notesConfigurations = [.. stylesRoot.Elements(OdtNamespaces.Office + "styles")
+                .Elements(OdtNamespaces.Text + "notes-configuration")];
         }
 
         if (contentRoot is not null)
@@ -230,6 +254,7 @@ internal sealed class OdtStyles
         {
             MasterStyles = masterStyles,
             PageLayouts = pageLayouts,
+            NotesConfigurations = notesConfigurations,
             GraphicProperties = ResolveGraphicChains(styles, graphicProperties, limits.MaxGroupDepth),
             TableCellProperties = cellProperties,
             TableColumnProperties = columnProperties,
@@ -751,16 +776,7 @@ internal sealed class OdtStyles
         /// </summary>
         private static ListLevel ReadNumberLevel(XElement level, int number)
         {
-            ListNumberFormat format = (string?)level.Attribute(OdtNamespaces.Style + "num-format") switch
-            {
-                null or "" => ListNumberFormat.None,
-                "1" => ListNumberFormat.Decimal,
-                "a" => ListNumberFormat.LowerLetter,
-                "A" => ListNumberFormat.UpperLetter,
-                "i" => ListNumberFormat.LowerRoman,
-                "I" => ListNumberFormat.UpperRoman,
-                _ => ListNumberFormat.Decimal,
-            };
+            ListNumberFormat format = NumberFormat((string?)level.Attribute(OdtNamespaces.Style + "num-format"));
 
             int last = Math.Min(number, ListDefinition.MaxLevels);
             int display = 1;

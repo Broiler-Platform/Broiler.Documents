@@ -22,9 +22,11 @@ public sealed class RichTextDocument
         IReadOnlyList<DocumentTable>? tables = null,
         DocumentStyleDefaults? styleDefaults = null,
         IReadOnlyList<DocumentSection>? sections = null,
-        ShapeFill? pageBackground = null)
+        ShapeFill? pageBackground = null,
+        NoteNumbering? noteNumbering = null)
     {
         RunningContent = runningContent ?? RunningContent.Empty;
+        NoteNumbering = noteNumbering ?? NoteNumbering.Default;
         PageGeometry = pageGeometry;
         PageBackground = pageBackground;
         StyleDefaults = styleDefaults ?? DocumentStyleDefaults.Default;
@@ -99,33 +101,46 @@ public sealed class RichTextDocument
     /// </summary>
     public ShapeFill? PageBackground { get; }
 
+    /// <summary>
+    /// How the notes this body cites are numbered. Never null: a document that
+    /// states nothing numbers footnotes 1, 2, 3 and endnotes i, ii, iii.
+    /// </summary>
+    public NoteNumbering NoteNumbering { get; }
+
     /// <summary>This document's body with different running content.</summary>
     public RichTextDocument WithRunningContent(RunningContent? runningContent) =>
-        new(_paragraphs, runningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground);
+        new(_paragraphs, runningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
 
     /// <summary>This document's body with different floating shapes.</summary>
     public RichTextDocument WithShapes(IReadOnlyList<DocumentShape>? shapes) =>
-        new(_paragraphs, RunningContent, shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground);
+        new(_paragraphs, RunningContent, shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
 
     /// <summary>This document's body on a different page.</summary>
     public RichTextDocument WithPageGeometry(PageGeometry? pageGeometry) =>
-        new(_paragraphs, RunningContent, Shapes, pageGeometry, Tables, StyleDefaults, Sections, PageBackground);
+        new(_paragraphs, RunningContent, Shapes, pageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
 
     /// <summary>This document's body arranged in different tables.</summary>
     public RichTextDocument WithTables(IReadOnlyList<DocumentTable>? tables) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, tables, StyleDefaults, Sections, PageBackground);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
 
     /// <summary>This document's body divided into different sections.</summary>
     public RichTextDocument WithSections(IReadOnlyList<DocumentSection>? sections) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, sections, PageBackground);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, sections, PageBackground, NoteNumbering);
 
     /// <summary>This document's body painted on a different page background.</summary>
     public RichTextDocument WithPageBackground(ShapeFill? pageBackground) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, pageBackground);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, pageBackground, NoteNumbering);
+
+    /// <summary>This document's body with its notes numbered differently.</summary>
+    public RichTextDocument WithNoteNumbering(NoteNumbering? noteNumbering) =>
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, noteNumbering);
+
+    /// <summary>The notes the body cites, in the order it cites them.</summary>
+    public IReadOnlyList<DocumentNote> Notes => DocumentNote.CitedIn(_paragraphs);
 
     /// <summary>This document's body with different formatting fallbacks.</summary>
     public RichTextDocument WithStyleDefaults(DocumentStyleDefaults? styleDefaults) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, styleDefaults, Sections, PageBackground);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, styleDefaults, Sections, PageBackground, NoteNumbering);
 
     /// <summary>
     /// The body table starting at <paramref name="paragraphIndex"/>, or null when
@@ -246,7 +261,9 @@ public sealed class RichTextDocument
 
         text = NormalizeNewlines(text);
         RichTextParagraph target = _paragraphs[at.ParagraphIndex];
-        InlineStyle inherited = style ?? target.StyleBefore(at.Offset);
+        // Text typed after a citation is text, not a second citation of the
+        // same note: the style it inherits is the citation's without the note.
+        InlineStyle inherited = style ?? target.StyleBefore(at.Offset) with { Note = null };
 
         if (text.IndexOf('\n') < 0)
         {
@@ -336,7 +353,7 @@ public sealed class RichTextDocument
             paragraphs.Add(_paragraphs[i].ApplyInlineStyle(startOffset, endOffset - startOffset, delta));
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
     }
 
     public RichTextDocument ApplyParagraphStyle(RichTextRange range, ParagraphStyleDelta delta)
@@ -353,7 +370,7 @@ public sealed class RichTextDocument
                 paragraphs.Add(_paragraphs[i]);
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
     }
 
     /// <summary>
@@ -426,7 +443,7 @@ public sealed class RichTextDocument
         var paragraphs = new RichTextParagraph[_paragraphs.Length];
         Array.Copy(_paragraphs, paragraphs, _paragraphs.Length);
         paragraphs[index] = paragraph;
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
     }
 
     /// <summary>
@@ -454,7 +471,8 @@ public sealed class RichTextDocument
             ShiftTables(index, removeCount, insert.Count),
             StyleDefaults,
             ShiftSections(index, removeCount, insert.Count),
-            PageBackground);
+            PageBackground,
+            NoteNumbering);
     }
 
     /// <summary>This document's tables, moved for an edit at <paramref name="at"/>.</summary>

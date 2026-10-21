@@ -377,6 +377,24 @@ ranked. The file lists such names under `stillRanked`, and
 loses its evidence, or if a listed example stops matching its own family. A new
 family needs the upstream test and what in the file shows it was generated.
 
+**A document both refuse is not ranked either.** Ten samples produce
+neither text nor pages in LibreOffice: the encrypted packages
+(`Encrypted_*_abc.docx`, `sha1_correct.odt`), a PDF with a user password, and
+two DOCX files with a part that is not well-formed XML. Opened without a
+password, LibreOffice converts nothing, and `broilerdoc` exits 3. That is
+agreement, but a read failure scores 1200, which put ten of them in the
+seventh ranking's top thirty. The issue lists them under "Refused By Both" with
+the reason `broilerdoc` gave; a crash or exit 70 on one is still ranked.
+
+**Each tool is told a sample's format only when the other is.** LibreOffice
+chooses the filter for a DOCX, ODT, RTF or PDF from the bytes, not the name,
+and four samples rely on it: `tdf132596.docx` and three more are ODT packages
+saved as `.docx`. The runner used to pass `--from docx` for them, and
+`broilerdoc` refused what LibreOffice read. Now it passes `--from` only for
+HTML and flat ODF, where it names LibreOffice's input filter as well; for the
+rest `broilerdoc` probes the bytes as LibreOffice does. On the corpus of
+2026-10-21 the probe picks the extension's format for every other sample.
+
 ## What it has found
 
 | Finding | Outcome |

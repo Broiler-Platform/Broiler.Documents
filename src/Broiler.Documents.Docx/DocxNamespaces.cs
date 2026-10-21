@@ -52,6 +52,14 @@ internal static class DocxNamespaces
 
     public const string SettingsRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings";
 
+    public const string FootnotesRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes";
+
+    public const string EndnotesRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes";
+
+    public const string FootnotesContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml";
+
+    public const string EndnotesContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml";
+
     public const string DocumentContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml";
 
     public const string NumberingContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml";
