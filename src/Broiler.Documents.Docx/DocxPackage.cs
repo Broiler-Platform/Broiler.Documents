@@ -20,8 +20,27 @@ internal static class DocxPackage
         return archive.Entries.FirstOrDefault(entry => entry.FullName.Replace('\\', '/').Equals(normalized, StringComparison.OrdinalIgnoreCase));
     }
 
-    public static XDocument? LoadEntryXml(ZipArchiveEntry entry, DocumentLimits limits, List<DocumentDiagnostic> diagnostics, string diagnosticCode) =>
-        DocumentPackage.LoadEntryXml(entry, limits.MaxBinBytes, diagnostics, diagnosticCode, "A DOCX XML part");
+    /// <summary>
+    /// Loads a package entry as XML within the read limits, with any ISO/IEC
+    /// 29500 Strict namespace renamed to its Transitional equivalent, so every
+    /// part reaches the reader under the names it asks for.
+    /// </summary>
+    public static XDocument? LoadEntryXml(ZipArchiveEntry entry, DocumentLimits limits, List<DocumentDiagnostic> diagnostics, string diagnosticCode)
+    {
+        XDocument? xml = DocumentPackage.LoadEntryXml(entry, limits.MaxBinBytes, diagnostics, diagnosticCode, "A DOCX XML part");
+        if (xml is not null &&
+            DocxStrict.Normalize(xml) &&
+            !diagnostics.Exists(diagnostic => diagnostic.Code == StrictDiagnosticCode))
+        {
+            diagnostics.Add(DocumentDiagnostic.Info(
+                StrictDiagnosticCode,
+                "The package uses the ISO/IEC 29500 Strict namespaces; they were read as their Transitional equivalents."));
+        }
+
+        return xml;
+    }
+
+    private const string StrictDiagnosticCode = "docx.strict";
 
     public static DocxRelationships ReadRelationships(ZipArchive archive, string path, string baseDirectory,
         DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
@@ -49,7 +68,10 @@ internal static class DocxPackage
 
             bool external = string.Equals((string?)element.Attribute("TargetMode"), "External", StringComparison.OrdinalIgnoreCase);
             string resolved = external ? target : NormalizePackagePath(baseDirectory, target);
-            relationships.Add(new DocxRelationship(id, type, resolved, external));
+
+            // A Strict package states its relationship types under the Strict
+            // names, in a part whose own namespace is the unchanged OPC one.
+            relationships.Add(new DocxRelationship(id, DocxStrict.ToTransitional(type), resolved, external));
         }
 
         return new DocxRelationships(relationships);

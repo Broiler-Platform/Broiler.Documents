@@ -1704,9 +1704,11 @@ internal static class DocxReader
             if (TryReadTwips(spacing.Attribute(DocxNamespaces.Wordprocessing + "after"), out float after))
                 style = style with { SpacingAfter = after };
 
+            // An auto line is in 240ths of a line, and Strict writes that number
+            // as if it were twips: single spacing is w:line="12pt", which is 240.
             string? lineRule = (string?)spacing.Attribute(DocxNamespaces.Wordprocessing + "lineRule");
             if ((lineRule is null || lineRule == "auto") &&
-                DocxValueReader.TryReadInt(spacing.Attribute(DocxNamespaces.Wordprocessing + "line"), out int line) &&
+                DocxValueReader.TryReadTwips(spacing.Attribute(DocxNamespaces.Wordprocessing + "line"), out int line) &&
                 line > 0)
             {
                 style = style with { LineSpacing = line / 240f };
@@ -1824,7 +1826,7 @@ internal static class DocxReader
             style = style with { FontFamily = fontFamily };
 
         XElement? size = rPr.Element(DocxNamespaces.Wordprocessing + "sz");
-        if (DocxValueReader.TryReadInt(size?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int halfPoints) && halfPoints > 0)
+        if (DocxValueReader.TryReadHalfPoints(size?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int halfPoints) && halfPoints > 0)
             style = style with { FontSize = halfPoints / 2f };
 
         XElement? color = rPr.Element(DocxNamespaces.Wordprocessing + "color");
@@ -1987,13 +1989,13 @@ internal static class DocxReader
     /// both, the newer name wins.
     /// </summary>
     private static bool TryReadStartIndent(XElement ind, out int twips) =>
-        DocxValueReader.TryReadInt(ind.Attribute(DocxNamespaces.Wordprocessing + "start"), out twips) ||
-        DocxValueReader.TryReadInt(ind.Attribute(DocxNamespaces.Wordprocessing + "left"), out twips);
+        DocxValueReader.TryReadTwips(ind.Attribute(DocxNamespaces.Wordprocessing + "start"), out twips) ||
+        DocxValueReader.TryReadTwips(ind.Attribute(DocxNamespaces.Wordprocessing + "left"), out twips);
 
     private static bool TryReadTwips(XAttribute? attribute, out float points)
     {
         points = 0f;
-        if (!DocxValueReader.TryReadInt(attribute, out int twips))
+        if (!DocxValueReader.TryReadTwips(attribute, out int twips))
             return false;
 
         points = twips / 20f;

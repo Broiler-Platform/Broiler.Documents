@@ -364,7 +364,7 @@ internal static class DocxTableReader
         var widths = new List<double>();
         foreach (XElement column in grid.Elements(DocxNamespaces.Wordprocessing + "gridCol"))
         {
-            widths.Add(DocxValueReader.TryReadInt(column.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) && twips > 0
+            widths.Add(DocxValueReader.TryReadTwips(column.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) && twips > 0
                 ? twips / 20.0
                 : 0);
         }
@@ -383,7 +383,7 @@ internal static class DocxTableReader
         XElement? left = margins?.Element(DocxNamespaces.Wordprocessing + "left") ??
             margins?.Element(DocxNamespaces.Wordprocessing + "start");
         if (left is null ||
-            !DocxValueReader.TryReadInt(left.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) ||
+            !DocxValueReader.TryReadTwips(left.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) ||
             twips < 0)
         {
             return DocumentTable.DefaultCellPadding;
