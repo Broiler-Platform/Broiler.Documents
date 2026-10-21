@@ -404,12 +404,21 @@ family needs the upstream test and what in the file shows it was generated.
 | An empty paragraph was as tall as the document's default rather than its paragraph mark | Fixed. `RichTextParagraph.MarkStyle`, read from DOCX's `w:pPr/w:rPr`, ODF's paragraph text properties and RTF's formatting at `\par`, and written back by DOCX |
 | A DOCX section that named no header continued nothing, and `first` and `even` parts were read whether or not `w:titlePg` and `w:evenAndOddHeaders` turned them on | Fixed. Each type the last section leaves out continues from the nearest section before it (ECMA-376 §17.10.5); a part the document does not turn on is not read, and the writer turns on the even parts it writes |
 | A header or footer that ran past its margin was left out | Fixed. It is set at its declared distance and the text moves clear of it (ECMA-376 §17.6.11), each page at its own section's distances and margins |
+| The model had no page background, so a page LibreOffice paints came out white (`fill.docx`, both `tdf126533_axialAngle` documents, `tdf159626_blackPatternFill.docx`, `fdo86857.html`) | Fixed. `RichTextDocument.PageBackground`, read and written by DOCX (`w:background`, shown by `w:displayBackgroundShape`), ODT (the master page's fill), RTF (`\background`, shown by `\viewbksp`) and HTML (the canvas colour), and painted first on every page. A VML fill is converted as LibreOffice converts it |
+| A diagonal gradient was banded along the nearer axis, and no format's mirrored gradient was read | Fixed. Both painters band at the stated angle, clipped to the box; `ShapeFill.Axial` holds VML's 50% focus, ODF's `axial` and DrawingML's three symmetric stops |
+| A VML shape in a `w:pict` was read only as a picture, so a text box written the pre-2010 way was lost with its text (`tdf126533_axialAngle.docx`) | Fixed. `v:rect`, `v:roundrect`, `v:oval` and a `v:shape` holding no picture are floating shapes |
+| A shape positioned from the top of the page was hung that far below its paragraph | Fixed. `DocumentShape.OffsetFromPage`, read and written by DOCX, ODT and RTF; both layouts place the shape on its paragraph's page |
+| A table row holding a nested table was kept whole, so a one-row report taller than a page left page one blank (`fdo48718-1.docx`, `fdo77887.docx`, 3 pages against 2) | Fixed. Such a row breaks between the nested table's rows (ECMA-376 §17.4.6) |
+| A run's `w:color w:val="auto"` was ignored, leaving its style's colour | Fixed. `auto` is a colour (ECMA-376 §17.3.2.6), the default one |
+| RTF had no tables, and ignored the page a section states (`fdo66565.rtf`) | Fixed. `\trowd` to `\row` is read into a `DocumentTable`, cells closed inside groups included, and the first section's `\pgwsxn` and margins over the document's. The writer still writes a table as its paragraphs |
 
 The [note on the second ranked run](../notes/office-extras-columns-verification-2026-10-20.md)
 has the numbers for the eight rows before the last four, and the documents in
 that run that were not this component's reading; the
 [note on the third](../notes/office-extras-marks-and-bands-verification-2026-10-20.md)
-has the last four, and why its other two documents still stand where they do.
+has the last four, and why its other two documents still stand where they do;
+the [note on the fourth](../notes/office-extras-backgrounds-verification-2026-10-21.md)
+has the last eight.
 
 Still open, and tracked in the [roadmap](../roadmap.md#test-suites-and-tooling):
 the per-line leading drift on `long-flow-multipage`, the nested-list marker

@@ -65,7 +65,8 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **HTML tables and descendant selectors.** Tables are flattened to their cell
   paragraphs, and LibreOffice's `td p { … }` rules are not matched because only
   bare type selectors are. The office suite's `table-simple` seed measures the
-  gap (ink box 107 px against DOCX's 11). Weigh this first if the CSS boundary in
+  gap (ink box 107 px against DOCX's 11), and `fdo86857.html` loses the one
+  shaded cell on its red page. Weigh this first if the CSS boundary in
   [notes/html.md](notes/html.md) ever moves.
 - **HTML page header convention.** LibreOffice writes a page header as
   `<div title="header">`, and the reader treats it as body content. Decide
@@ -90,14 +91,29 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   `\sect` and its break kinds, and ODF's `text:dont-balance-text-columns`.
   ODT, RTF, HTML and the PDF writer do not write a section's margins, and the
   PDF writer lays every page out as one column (`pdf.write.feature-unsupported`).
-  `tdf123163-1.docx`, thirty-one sections of one to four columns, still draws
-  twelve pages against sixteen. None of its fourteen pictures is in the
+  `tdf123163-1.docx`, thirty-one sections of one to four columns, draws
+  thirteen pages against sixteen, its text a page ahead of LibreOffice's from
+  the second. None of its fourteen pictures is in the
   package (`docx.image.missing`); LibreOffice keeps a box of the size each
   states, one of them a whole page, and this reader keeps nothing of them.
 - **A picture whose payload is missing.** Keeping that box needs an image the
   model holds without its bytes: every writer, the resource policy and both
   layouts assume an `InlineImage` has a resource. Decide what such an image is
   and what each writer does with it before a reader makes one.
+- **Fills the model cannot hold.** `ShapeFill` is one colour or two along a
+  line, mirrored or not. A rectangular or radial gradient, a pattern of two
+  colours, a picture fill and a gradient of more than two stops are each held
+  as one colour and reported (`docx.background.fill`, `docx.shape.fill`,
+  `odt.gradient`, `odt.fill`). `fill.docx` is a corner gradient LibreOffice
+  draws from dark blue to orange and this draws orange.
+- **Floating tables.** A DOCX table positioned with `w:tblpPr`, and one wider
+  than the text area, are laid out in the flow at the text's width.
+  `fdo48718-1.docx` and `fdo77887.docx` state a 504-point table placed 113
+  points down the page and centred; drawn at 442 points from about 85, the page
+  breaks three names early.
+- **RTF tables, the rest.** The reader reads a row's cells, borders, shading,
+  padding and height; merged cells, row borders, `\trpadd` and nested tables
+  are not read, and the writer writes a table as its paragraphs.
 - **List numbering.** The model records that a paragraph is numbered and how
   deep, and nothing else, so the layout counts from one at every list and picks
   the marker from the indent. `tdf168017.docx` numbers its clauses from a
