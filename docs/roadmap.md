@@ -85,9 +85,13 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   A section keeps its own headers and footers, and a page carries those of the
   section that started it; ODT and RTF read one set for the document, and
   only the DOCX writer writes a section's own (the PDF writer draws the
-  document's on every page, `pdf.write.feature-unsupported`). LibreOffice
-  applies a continuous section's own headers from a hard page break inside
-  it; this layout does not. Still not read:
+  document's on every page, `pdf.write.feature-unsupported`). A document of
+  continuous sections only, each naming its own header, changes header in
+  LibreOffice through follow styles this layout does not make
+  (`tdf90697_complexBreaksHeaders.docx` draws its first section's header on
+  every page). LibreOffice reads `nextColumn` as `nextPage` in Word 2013
+  documents and wherever the column count changes, and a change of
+  orientation as `nextPage`; here it is continuous. Still not read:
   the blank page an odd- or even-page start can make (`docx.section.parity`),
   a section's own paper size (the page is drawn at the document's, which
   puts `tdf123163-1.docx`'s `geometry` band at `off` by two or three pixels), RTF's

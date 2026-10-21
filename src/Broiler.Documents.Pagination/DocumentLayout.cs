@@ -165,15 +165,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         DocumentSection? owner = null;
         DocumentSection? pendingOwner = null;
         bool hasPendingOwner = false;
+        bool pendingSharesFirst = false;
 
-        void TakeOwner(DocumentSection? section)
+        void TakeOwner(DocumentSection? section, bool sharesFirst = false)
         {
             hasOwner = true;
             owner = section;
             hasPendingOwner = false;
             pendingOwner = null;
+            pendingSharesFirst = false;
             _running = setup.Continuous ? RunningContent.Empty : section?.RunningContent ?? _documentRunning;
-            _firstPage = pages.Count + 1;
+            _firstPage = sharesFirst ? 0 : pages.Count + 1;
         }
 
         (pageTop, contentBottom) = BandOf(null);
@@ -272,7 +274,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             if (hasPendingOwner)
             {
-                TakeOwner(pendingOwner);
+                TakeOwner(pendingOwner, pendingSharesFirst);
                 if (ReferenceEquals(region, owner))
                     columns = ColumnsOf(region, owner);
             }
@@ -442,6 +444,28 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             NextColumn();
+        }
+
+        // A section that follows on a page with headers of its own takes the
+        // page a hard page break inside it starts, its first page sharing the
+        // others' parts. That is LibreOffice's reading of such a document, the
+        // "nightmare scenario" its writerfilter names: the section's page style
+        // goes on the paragraph that breaks the page, with the first page
+        // shared, because there is no page break of the section's own to put
+        // it on. tdf90697_complexBreaksHeaders.docx is fifteen continuous
+        // sections, each naming its own header, that change at page breaks.
+        void OwnBreak()
+        {
+            if (hasPendingOwner || region is null || ReferenceEquals(region, owner))
+                return;
+
+            RunningContent own = region.RunningContent ?? _documentRunning;
+            if (setup.Continuous || ReferenceEquals(own, _running))
+                return;
+
+            pendingOwner = region;
+            hasPendingOwner = true;
+            pendingSharesFirst = true;
         }
 
         // Where one stretch gives way to the next on the same page, the one above
@@ -652,6 +676,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // note below says the breaks were ignored and why.
             if (style.PageBreakBefore && !setup.Continuous && (currentLines.Count > 0 || floatLines.Count > 0))
             {
+                OwnBreak();
                 BreakPage();
                 if (truncated)
                     break;

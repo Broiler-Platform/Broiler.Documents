@@ -364,7 +364,10 @@ Open XML WordprocessingML package parts.
   keeps it as `DocumentSection.RunningContent`. A page carries the set of the
   section that started it, the first-page part on that section's first page,
   and a section that follows on the same page leaves the pages it runs onto as
-  they were, as LibreOffice keeps the page style there. A contract that names
+  they were, as LibreOffice keeps the page style there - unless it has a set of
+  its own and a hard page break inside it starts a page, which then carries
+  its set with no first page of its own, as LibreOffice puts the section's page
+  style on that break. A contract that names
   its header and footer in the first of nine sections carries them on every
   page; `tdf167527_title_letters_cut_from_below.docx`, whose title page is its
   first section's first-page header, reaches it. A part several sections name

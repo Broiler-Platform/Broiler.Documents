@@ -103,6 +103,32 @@ public sealed class DocumentLayoutSectionRunningTests
     }
 
     [Fact]
+    public void A_Hard_Page_Break_In_A_Following_Section_With_Its_Own_Headers_Starts_Its_Pages()
+    {
+        // LibreOffice puts such a section's page style on the paragraph that
+        // breaks the page inside it, with the first page sharing the others'
+        // parts, since the section starts no page of its own.
+        RunningContent annex = Header("the annex header")
+            .WithDifferentFirstPage(true)
+            .WithHeader(PageSelection.First, [RichTextParagraph.Plain("an annex first page")]);
+        RichTextDocument document = RichTextDocument
+            .FromParagraphs([Body("report"), Body("annex"), Body("annex, page two", pageBreakBefore: true)])
+            .WithRunningContent(Header("the report header"))
+            .WithSections(
+            [
+                new DocumentSection(0, 1, 1, 0),
+                new DocumentSection(1, 2, 1, 0, runningContent: annex),
+            ]);
+
+        LayoutResult result = Layout(document);
+
+        Assert.Equal(2, result.Pages.Count);
+        Assert.True(Holds(result.Pages[0], "the report header"));
+        Assert.True(Holds(result.Pages[1], "the annex header"));
+        Assert.False(Holds(result.Pages[1], "an annex first page"));
+    }
+
+    [Fact]
     public void A_Narrow_Section_That_Follows_On_A_Page_Keeps_The_Pages_Margins()
     {
         // tdf90697_complexBreaksHeaders.docx: narrow two-column sections follow
