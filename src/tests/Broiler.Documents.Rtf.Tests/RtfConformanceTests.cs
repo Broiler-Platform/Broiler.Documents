@@ -44,12 +44,13 @@ public sealed class RtfConformanceTests
     }
 
     [Fact]
-    public void Ignored_Line_Spacing_Leaves_The_Default()
+    public void An_At_Least_Height_Leaves_The_Multiplier_At_One()
     {
-        // Fixed/at-least spacing has no multiplier projection and stays at 1.
+        // An at-least height is a height, not a multiple.
         RichTextDocument document = Read("{\\rtf1\\sl480\\slmult0 text\\par}");
 
         Assert.Equal(ParagraphStyle.Default.LineSpacing, document.Paragraphs[0].Style.LineSpacing);
+        Assert.Equal(LineHeightRule.AtLeast, document.Paragraphs[0].Style.LineHeightRule);
     }
 
     [Theory]

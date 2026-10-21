@@ -317,9 +317,13 @@ toolkit behind it.
   diagnostic: the model has three alignments and justification is not one of
   them. `style:writing-mode` is not consulted, so `start`/`end` are resolved as
   left-to-right.
-- A fixed line height (`fo:line-height` as a length, `style:line-height-at-least`,
-  `style:line-spacing`) is reported rather than guessed at: the model stores a
-  multiplier of the font size, not a measurement.
+- Line height is read in all three of ODF's forms: `fo:line-height` as a
+  percentage is a multiple (`ParagraphStyle.LineSpacing`), as a length an exact
+  height, and `style:line-height-at-least` the least a line is
+  (`ParagraphStyle.LineHeightRule` and `LineHeight`). Each replaces whatever
+  form a parent style stated. A write states the same form back. Leading added
+  between lines (`style:line-spacing`) is a fourth kind, which the model does
+  not hold, and is reported.
 - `fo:text-transform` values of `lowercase` and `capitalize` are reported and
   dropped; the model draws upper case only.
 - Style resolution covers the attributes `RichTextDocument` models. Everything
@@ -374,7 +378,7 @@ blank:
 | `odt.revision.tracked` | Warning | Tracked changes were not applied. |
 | `odt.link` | Warning | A hyperlink with a disallowed or relative target was dropped. |
 | `odt.align.justify` | Warning | A justified paragraph was read as left-aligned. |
-| `odt.linespacing.fixed` | Warning | A fixed line height was not represented. |
+| `odt.linespacing.leading` | Warning | Line spacing stated as leading between lines (`style:line-spacing`) was not represented. |
 | `odt.linespacing.range` | Warning | A positive line-height percentage overflowed or underflowed the model's float multiplier; the inherited spacing was retained. |
 | `odt.break.after` | Warning | A `fo:break-after="page"` had no following paragraph in the same flow to carry it to — the flow ended, or the next block was a table, or the cell did — and was dropped. |
 | `odt.text.transform` | Warning | A `lowercase`/`capitalize` transform was dropped. |

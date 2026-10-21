@@ -403,7 +403,19 @@ public static class HtmlWriter
         else if (style.Alignment == TextAlignment.Justify)
             declarations.Add("text-align: justify");
 
-        if (Math.Abs(style.LineSpacing - 1f) > 0.001f)
+        // CSS states one line height, which LibreOffice reads as the least a
+        // line is; an exact height is written that way too, and said.
+        if (style.LineHeightRule != LineHeightRule.Proportional && style.LineHeight > 0)
+        {
+            declarations.Add("line-height: " + HtmlCss.FormatPoints(style.LineHeight));
+            if (style.LineHeightRule == LineHeightRule.Exact && !diagnostics.Exists(d => d.Code == "html.lineheight.exact"))
+            {
+                diagnostics.Add(DocumentDiagnostic.Warning(
+                    "html.lineheight.exact",
+                    "An exact line height was written as a CSS line-height, which reads back as the least a line is."));
+            }
+        }
+        else if (Math.Abs(style.LineSpacing - 1f) > 0.001f)
             declarations.Add("line-height: " + style.LineSpacing.ToString("0.###", CultureInfo.InvariantCulture));
         if (style.IndentLevel > 0)
             declarations.Add("margin-left: " + HtmlCss.FormatPoints(style.IndentLevel * 18f));

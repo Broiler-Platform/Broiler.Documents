@@ -561,8 +561,20 @@ internal static class HtmlReader
                     style = ApplyAlignment(style, declaration.Value);
                     break;
                 case "line-height":
-                    if (HtmlCss.TryParseLineSpacing(declaration.Value, out float lineSpacing))
-                        style = style with { LineSpacing = lineSpacing };
+                    if (HtmlCss.TryParseLineHeightLength(declaration.Value, out float lineHeight))
+                    {
+                        style = style with
+                        {
+                            LineSpacing = 1f, LineHeightRule = LineHeightRule.AtLeast, LineHeight = lineHeight,
+                        };
+                    }
+                    else if (HtmlCss.TryParseLineSpacing(declaration.Value, out float lineSpacing))
+                    {
+                        style = style with
+                        {
+                            LineSpacing = lineSpacing, LineHeightRule = LineHeightRule.Proportional, LineHeight = 0f,
+                        };
+                    }
                     break;
                 case "margin-top":
                     if (HtmlCss.TryParsePoints(declaration.Value, out float before))

@@ -82,10 +82,15 @@ The two controls can arrive in either order. Their state follows group scope,
 and `\pard` resets it. A final body paragraph retains its properties even when
 the root group closes without a final `\par`.
 
-Fixed/at-least spacing (`\slmult0`, or `\slN` without multiplier mode) has
-no projection in the model and uses the default multiplier of 1. Nonpositive
-multiplier amounts also use that default. The writer emits finite positive
-nondefault multipliers rounded to the nearest 1/240; default spacing is omitted.
+Without `\slmult1` the amount is a height in twips, which is how LibreOffice
+reads `\sl` (`RTFKeyword::SL`): positive is the least a line is and negative
+exactly its height (`ParagraphStyle.LineHeightRule` and `LineHeight`, kept
+within Word's 1584 points). `\sl0` is single spacing, and a negative multiple
+is taken by its size, as LibreOffice takes it. `tdf133437.rtf` sets every line
+of a bank statement at exactly ten points with `\sl-200`, and it used to draw
+at its font's own height. The writer emits finite positive nondefault
+multipliers rounded to the nearest 1/240 with `\slmult1`, a stated height as
+`\slN\slmult0` with the sign saying which rule, and omits default spacing.
 
 ## Page breaks
 

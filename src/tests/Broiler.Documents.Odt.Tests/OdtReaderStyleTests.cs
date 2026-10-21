@@ -193,14 +193,72 @@ public sealed class OdtReaderStyleTests
     }
 
     [Fact]
-    public void Reports_A_Fixed_Line_Height_Rather_Than_Guessing_A_Multiplier()
+    public void Reads_A_Line_Height_Given_As_A_Length_As_Exact()
     {
         DocumentReadResult result = OdtTestPackage.ReadBody(
             OdtTestPackage.StyledParagraph("P1", "x"),
             OdtTestPackage.Style("P1", "<style:paragraph-properties fo:line-height=\"18pt\"/>"));
 
-        Assert.Equal(1f, result.Document.Paragraphs[0].Style.LineSpacing);
-        Assert.Contains(result.Diagnostics, d => d.Code == "odt.linespacing.fixed");
+        ParagraphStyle style = result.Document.Paragraphs[0].Style;
+        Assert.Equal(LineHeightRule.Exact, style.LineHeightRule);
+        Assert.Equal(18f, style.LineHeight, 3);
+        Assert.Equal(1f, style.LineSpacing);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code.StartsWith("odt.linespacing", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Reads_An_At_Least_Line_Height()
+    {
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            OdtTestPackage.StyledParagraph("P1", "x"),
+            OdtTestPackage.Style("P1", "<style:paragraph-properties style:line-height-at-least=\"0.5in\"/>"));
+
+        ParagraphStyle style = result.Document.Paragraphs[0].Style;
+        Assert.Equal(LineHeightRule.AtLeast, style.LineHeightRule);
+        Assert.Equal(36f, style.LineHeight, 3);
+    }
+
+    [Fact]
+    public void A_Percentage_Over_An_Inherited_Height_Makes_The_Lines_Proportional_Again()
+    {
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            OdtTestPackage.StyledParagraph("Child", "x"),
+            OdtTestPackage.Style("Base", "<style:paragraph-properties fo:line-height=\"18pt\"/>") +
+            "<style:style style:name=\"Child\" style:family=\"paragraph\" style:parent-style-name=\"Base\">" +
+            "<style:paragraph-properties fo:line-height=\"150%\"/></style:style>");
+
+        ParagraphStyle style = result.Document.Paragraphs[0].Style;
+        Assert.Equal(LineHeightRule.Proportional, style.LineHeightRule);
+        Assert.Equal(1.5f, style.LineSpacing, 3);
+    }
+
+    [Fact]
+    public void Reports_Leading_Between_Lines_Rather_Than_Guessing_A_Height()
+    {
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            OdtTestPackage.StyledParagraph("P1", "x"),
+            OdtTestPackage.Style("P1", "<style:paragraph-properties style:line-spacing=\"4pt\"/>"));
+
+        Assert.Equal(LineHeightRule.Proportional, result.Document.Paragraphs[0].Style.LineHeightRule);
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.linespacing.leading");
+    }
+
+    [Theory]
+    [InlineData(LineHeightRule.Exact)]
+    [InlineData(LineHeightRule.AtLeast)]
+    public void A_Line_Height_Round_Trips_With_Its_Rule(LineHeightRule rule)
+    {
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("x").WithParagraphStyle(
+                ParagraphStyle.Default with { LineHeightRule = rule, LineHeight = 10f }),
+        ]);
+
+        using var stream = new MemoryStream(OdtWriter.WriteToArray(source), writable: false);
+        ParagraphStyle back = new OdtDocumentCodec().Read(stream).Document.Paragraphs[0].Style;
+
+        Assert.Equal(rule, back.LineHeightRule);
+        Assert.Equal(10f, back.LineHeight, 2);
     }
 
     [Theory]

@@ -53,7 +53,7 @@ The writer escapes the characters that would otherwise be read back as markup:
 matters because doubled it is this reader's own strikethrough.
 
 The writer emits UTF-8 Markdown with a trailing newline. Unsupported paragraph
-style fields (alignment, line spacing, spacing before/after) produce
+style fields (alignment, line spacing or a stated line height, spacing before/after) produce
 `markdown.paragraph-style`. An embedded image is written as CommonMark image
 syntax with a base64 data URI (`markdown.image.datauri`); the reader does not
 turn it back into a model image, so an image does not survive a Markdown

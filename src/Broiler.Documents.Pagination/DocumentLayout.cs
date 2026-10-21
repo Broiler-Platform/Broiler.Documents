@@ -1804,12 +1804,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
 
         double natural = ascent + descent + lineGap;
-        double spacing = style.LineSpacing > 0 ? style.LineSpacing : 1f;
+
+        // An exact height puts the baseline four fifths of the way down the
+        // line, whatever the text's own ascent, which is LibreOffice's rule
+        // (SwTextFormatter::CalcRealHeight); text taller than the line runs
+        // past it rather than moving it.
+        if (style.LineHeightRule == LineHeightRule.Exact && style.LineHeight > 0)
+            return new LayoutLine(pieces, 0, style.LineHeight, style.LineHeight * 0.8, paragraphIndex);
 
         // Extra leading goes below the baseline. Putting it above would push the
         // first line of every double-spaced paragraph down by half a line, which
-        // is not what a document that says "line spacing 2" is asking for.
-        return new LayoutLine(pieces, 0, natural * spacing, ascent, paragraphIndex);
+        // is not what a document that says "line spacing 2" is asking for. A
+        // line made taller by an at-least height keeps its text at the top too,
+        // as LibreOffice draws it.
+        return new LayoutLine(pieces, 0, style.LineBoxHeight(natural), ascent, paragraphIndex);
     }
 
     /// <summary>
