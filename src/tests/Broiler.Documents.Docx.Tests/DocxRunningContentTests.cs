@@ -154,9 +154,11 @@ public sealed class DocxRunningContentTests
             HeaderRef,
             headerInnerXml: "<w:p>" + ShapeRun("AECF00") + "</w:p>");
 
+        // The paragraph the stripe is anchored in is the header's one line, and
+        // it is kept: Word and LibreOffice draw it, and it is as tall as a line.
         RunningContent running = result.Document.RunningContent;
         Assert.False(running.IsEmpty);
-        Assert.Empty(running.Header(PageSelection.Default));
+        Assert.Equal(0, Assert.Single(running.Header(PageSelection.Default)).Length);
         Assert.Single(running.HeaderShapes(PageSelection.Default));
     }
 
@@ -433,9 +435,10 @@ public sealed class DocxRunningContentTests
 
         // The annex has no header or footer. ECMA-376 §17.10.5 continues a type a
         // section does not name from the one before it, so the writer names
-        // empty ones for it; read back, it has gained none.
-        Assert.Empty(back.RunningContent.EffectiveHeader(PageSelection.Default));
-        Assert.Empty(back.RunningContent.EffectiveFooter(PageSelection.Default));
+        // empty ones for it. A part holds at least one paragraph, so read back
+        // each is the one empty line Word draws for it, and none of the report's.
+        Assert.Equal(string.Empty, TextOf(back.RunningContent.EffectiveHeader(PageSelection.Default)));
+        Assert.Equal(string.Empty, TextOf(back.RunningContent.EffectiveFooter(PageSelection.Default)));
         Assert.False(back.RunningContent.DifferentFirstPage);
     }
 

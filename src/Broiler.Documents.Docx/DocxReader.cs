@@ -582,15 +582,7 @@ internal static class DocxReader
         ReadBlockContent(partXml.Root.Elements(), context, depth: 0);
 
         RichTextDocument part = builder.Build();
-        IReadOnlyList<RichTextParagraph> partParagraphs = part.Paragraphs;
-
-        // A single empty paragraph is what an empty part builds, and it is not
-        // content: a header that holds only a stripe should not report a blank
-        // line beside it.
-        if (partParagraphs.Count == 1 && partParagraphs[0].Length == 0)
-            partParagraphs = [];
-
-        return (partParagraphs, part.Shapes);
+        return (part.Paragraphs, part.Shapes);
     }
 
     private static void ReadParagraph(XElement paragraph, DocxReadContext context)
