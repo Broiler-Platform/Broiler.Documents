@@ -1562,16 +1562,30 @@ internal static class DocxReader
             style = style with { Underline = !string.Equals(value, "none", StringComparison.OrdinalIgnoreCase) };
         }
 
+        // The model holds one family, and it is the one the run's Latin text is
+        // drawn in: w:ascii and w:hAnsi, or the theme fonts they name. w:cs is
+        // for complex-script text and w:eastAsia for East Asian text (ECMA-376
+        // §17.3.2.26), and a style that names only those leaves the Latin font
+        // it inherited, as Word and LibreOffice draw it. Heading styles that say
+        // only w:cs="Arial" were drawn in Arial over a Times New Roman document.
+        // They still give a family to a run that has inherited none, which is
+        // the East Asian document whose fonts are all w:eastAsia.
         XElement? fonts = rPr.Element(DocxNamespaces.Wordprocessing + "rFonts");
         string? fontFamily =
             (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "ascii") ??
             (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "hAnsi") ??
-            (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "cs") ??
-            (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "eastAsia") ??
             // Styles usually name fonts through the theme rather than directly.
             theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "asciiTheme")) ??
-            theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "hAnsiTheme")) ??
-            theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "cstheme"));
+            theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "hAnsiTheme"));
+        if (string.IsNullOrWhiteSpace(fontFamily) && string.IsNullOrWhiteSpace(style.FontFamily))
+        {
+            fontFamily =
+                (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "eastAsia") ??
+                (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "cs") ??
+                theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "eastAsiaTheme")) ??
+                theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "cstheme"));
+        }
+
         if (!string.IsNullOrWhiteSpace(fontFamily))
             style = style with { FontFamily = fontFamily };
 

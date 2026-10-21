@@ -49,6 +49,13 @@ Open XML WordprocessingML package parts.
 - Theme fonts from `word/theme/theme1.xml`: `w:rFonts` theme references such as
   `w:asciiTheme="majorHAnsi"` resolve to the theme's major/minor latin typeface.
   An explicit font name on the same element wins.
+- A run's family is the font its Latin text is drawn in: `w:ascii`, `w:hAnsi`
+  or the theme fonts they name. `w:cs` and `w:eastAsia` name the fonts for
+  complex-script and East Asian text (ECMA-376 §17.3.2.26), so a style that
+  names only those keeps the Latin font it inherited; they give a family only to
+  a run that has inherited none. They used to be taken for the Latin font, and
+  `tdf170602_exportContext.docx`'s headings, whose styles say only
+  `w:cs="Arial"`, were drawn in Arial over a Times New Roman document.
 - Paragraph formatting: left/center/right alignment, line spacing, spacing
   before/after, indentation, bullet lists, and numbered lists.
 - Page breaks, read from both spellings WordprocessingML has for the one thing
