@@ -284,6 +284,20 @@ Open XML WordprocessingML package parts.
   is and written back. A row without it may break across a page, as in Word,
   including one whose cell holds a nested table: that breaks between the
   nested table's rows, each of which goes to one page whole.
+- A floating table, `w:tblpPr` (ECMA-376 §17.4.57), is `DocumentTable.Position`:
+  its anchors across and down, its offsets or the `tblpXSpec`/`tblpYSpec`
+  alignment that replaces them, its distances from the text, and
+  `w:tblOverlap`. An anchor left out is read as LibreOffice's importer reads it
+  (`TablePositionHandler`): from the margin down, from the text across. The
+  layout stands the table there at its own width, out of the flow; text runs
+  down the side of the column with room for it, or below the table where
+  neither side has an inch, and an inline table that would run into it moves
+  below it, as LibreOffice master does (`testInlineTableShiftDown`; 24.2 drew
+  the two over each other). A floating table taller than the room left
+  continues at the top of the next page. Written back with both anchors
+  stated. A floating table nested in a cell stays in its cell, with
+  `docx.table.floating`, and the PDF writer lays a floating table out in the
+  flow (`pdf.write.feature-unsupported`).
 - A page break that opens its paragraph - nothing of the paragraph before it -
   starts that paragraph on the new page. Nothing is split, so nothing is
   demoted: the paragraph is what the page begins with. If the paragraph already
@@ -364,6 +378,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
 | `docx.table.style` | Warning | A table named a table style; its paragraph and run properties were applied, banding, conditional formatting and the borders it states were not. |
 | `docx.table.rowheight` | Warning | A row stated an exact height; it was applied as a minimum so its text is not clipped. |
+| `docx.table.floating` | Warning | A table nested in a cell stated a floating position; it was laid out in its cell. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
 | `docx.pagebreak.split` | Warning | A `w:br w:type="page"` had text after it in the same paragraph; it was read as a line break, because pages break between paragraphs here and not inside one. |
 | `docx.pagebreak.repeated` | Warning | A paragraph stated more than one page break; the first was kept and the blank pages the others make were dropped. |

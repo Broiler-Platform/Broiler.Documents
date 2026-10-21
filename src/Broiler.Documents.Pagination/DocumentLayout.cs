@@ -193,16 +193,31 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // every break below made before there were columns.
         int column = 0;
         int columnStart = 0;
+
+        // Floating tables stand on the page apart from the flow: their lines and
+        // boxes join the page when it is finished, the boxes they keep text out
+        // of are the page's, and a table taller than the room left carries its
+        // remaining rows to the next page.
+        var floatLines = new List<LayoutLine>();
+        var floatCells = new List<LayoutCell>();
+        var floatBoxes = new List<FloatBox>();
+        FloatCarry? floatCarry = null;
+
         bool ColumnHasContent() =>
-            currentLines.Count > columnStart || (column == 0 && regionTop > pageTop);
+            currentLines.Count > columnStart || (column == 0 && (regionTop > pageTop || floatBoxes.Count > 0));
 
         var numbering = new ListNumbering();
 
         void BreakPage()
         {
+            currentLines.AddRange(floatLines);
+            currentCells.AddRange(floatCells);
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
             currentLines = [];
             currentCells = [];
+            floatLines = [];
+            floatCells = [];
+            floatBoxes.Clear();
             column = 0;
             columnStart = 0;
 
@@ -227,6 +242,140 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             regionUnbalanced = false;
             if (pages.Count >= _settings.MaxPages)
                 truncated = true;
+
+            if (floatCarry is FloatCarry carry && !truncated)
+            {
+                floatCarry = null;
+                PlaceFloating(carry.Rows, carry.Left, pageTop, carry.Width, carry.Position);
+            }
+        }
+
+        // The page's floating boxes as exclusions, for when the exclusions are
+        // made again part way down a page.
+        void AddFloatExclusions()
+        {
+            foreach (FloatBox box in floatBoxes)
+            {
+                _wrap.AddBox(box.Top, box.Bottom,
+                    box.Left - setup.ContentLeftPoints, box.Right - setup.ContentLeftPoints, box.Wrap);
+            }
+        }
+
+        // Places a floating table's rows from top down, out of the flow: y does
+        // not move. Rows that run past the foot of the page are cut where a row
+        // may be cut, and what is left goes to the top of the next page, as
+        // LibreOffice splits the frame it imports such a table into.
+        void PlaceFloating(List<RowBox> rows, double left, double top, double width, TablePosition position)
+        {
+            double rowTop = top;
+            bool placed = false;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                RowBox row = rows[i];
+                if (rowTop + row.Height > contentBottom)
+                {
+                    if (row.CanSplit && row.SplitAt(contentBottom - rowTop) is (RowBox fitted, var rest))
+                    {
+                        fitted.PlaceAt(rowTop, 0, floatLines, floatCells, _paragraphTops);
+                        rowTop += fitted.Height;
+                        placed = true;
+                        if (rest is null)
+                            continue;
+
+                        var carried = new List<RowBox> { rest };
+                        carried.AddRange(rows.Skip(i + 1));
+                        floatCarry = new FloatCarry(carried, left, width, position);
+                        break;
+                    }
+
+                    if (placed)
+                    {
+                        floatCarry = new FloatCarry(rows.GetRange(i, rows.Count - i), left, width, position);
+                        break;
+                    }
+                }
+
+                row.PlaceAt(rowTop, 0, floatLines, floatCells, _paragraphTops);
+                rowTop += row.Height;
+                placed = true;
+            }
+
+            // Text runs beside the table where a side of the column has room for
+            // it, and below it where neither does.
+            double boxLeft = left - position.LeftFromText;
+            double boxRight = left + width + position.RightFromText;
+            double columnLeft = setup.ContentLeftPoints + columns.Offset(column);
+            double room = Math.Max(boxLeft - columnLeft, columnLeft + columns.Width - boxRight);
+            var box = new FloatBox(
+                top - position.TopFromText,
+                rowTop + position.BottomFromText,
+                boxLeft,
+                boxRight,
+                room >= MinimumWrapRoom ? ShapeWrap.Square : ShapeWrap.TopAndBottom);
+            floatBoxes.Add(box);
+            _wrap.AddBox(box.Top, box.Bottom,
+                box.Left - setup.ContentLeftPoints, box.Right - setup.ContentLeftPoints, box.Wrap);
+        }
+
+        // Where a table in the flow can start: below every floating table on the
+        // page that it would run into, as LibreOffice moves an inline table down
+        // past one (testInlineTableShiftDown) rather than drawing the two over
+        // each other. The whole table moves, not the rows that meet it, so a
+        // table is not cut in two around the one beside it.
+        double BelowFloats(double top, List<RowBox> rows, double shift)
+        {
+            if (floatBoxes.Count == 0 || !rows.Any(row => row.Boxes.Count > 0))
+                return top;
+
+            double left = rows.SelectMany(row => row.Boxes).Min(box => box.Left) + shift;
+            double right = rows.SelectMany(row => row.Boxes).Max(box => box.Left + box.Width) + shift;
+            double height = rows.Sum(row => row.Height);
+            for (int attempt = 0; attempt < 8; attempt++)
+            {
+                double moved = top;
+                double bottom = Math.Min(top + height, contentBottom);
+                foreach (FloatBox box in floatBoxes)
+                {
+                    if (box.Left < right && box.Right > left && box.Top < bottom && box.Bottom > top)
+                        moved = Math.Max(moved, box.Bottom);
+                }
+
+                if (moved <= top)
+                    break;
+
+                top = moved;
+            }
+
+            return top;
+        }
+
+        // Where a floating table stands, and the rows it is drawn as.
+        void LayFloatingTable(DocumentTable table, TablePosition position)
+        {
+            double width = table.TotalWidth > 0 ? Math.Min(table.TotalWidth, setup.WidthPoints) : columns.Width;
+            (double boxLeft, double boxWidth) = position.HorizontalAnchor switch
+            {
+                TableAnchor.Page => (0, setup.WidthPoints),
+                TableAnchor.Margin => (_frame?.Left ?? setup.ContentLeftPoints, _frame?.Width ?? setup.ContentWidthPoints),
+                _ => (setup.ContentLeftPoints + columns.Offset(column), columns.Width),
+            };
+            int pageNumber = pages.Count + 1;
+            double left = position.LeftIn(boxLeft, boxWidth, width, pageNumber);
+            List<RowBox> rows = ComposeTable(table, document, setup, left, width);
+            double height = rows.Sum(row => row.Height);
+
+            double marginTop = _frame?.MarginTop ?? setup.MarginTopPoints;
+            double marginBottom = setup.HeightPoints - (_frame?.MarginBottom ?? setup.MarginBottomPoints);
+            (double boxTop, double boxHeight) = position.VerticalAnchor switch
+            {
+                TableAnchor.Page => (0, setup.HeightPoints),
+                TableAnchor.Margin => (marginTop, Math.Max(0, marginBottom - marginTop)),
+                _ => (y, Math.Max(0, contentBottom - y)),
+            };
+            double top = setup.Continuous && position.VerticalAnchor != TableAnchor.Text
+                ? y
+                : position.TopIn(boxTop, boxHeight, height, pageNumber);
+            PlaceFloating(rows, left, top, width, position);
         }
 
         void NextColumn()
@@ -288,6 +437,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                                 _wrap.Add(shape, shape.TopOnPage(anchor), height: BoxHeight(shape));
                             }
                         }
+
+                        AddFloatExclusions();
                     }
                 }
             }
@@ -339,6 +490,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 EnterRegion(section, startsPage);
             }
 
+            if (table?.Position is TablePosition floating)
+            {
+                LayFloatingTable(table, floating);
+                paragraphIndex = table.ParagraphEnd;
+                continue;
+            }
+
             if (table is not null)
             {
                 // A row that does not fit where it is breaks across the page when
@@ -347,7 +505,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // cannot fit even a fresh column is placed there anyway and runs
                 // off its foot, because a row that waited for room it will never
                 // have would stop the layout.
-                foreach (RowBox composedRow in ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width))
+                List<RowBox> composedRows = ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width);
+                y = BelowFloats(y, composedRows, columns.Offset(column));
+                foreach (RowBox composedRow in composedRows)
                 {
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
@@ -398,7 +558,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // Not in continuous mode, where there are no pages to break between.
             // Silently doing nothing would be the wrong kind of quiet, so the
             // note below says the breaks were ignored and why.
-            if (style.PageBreakBefore && !setup.Continuous && currentLines.Count > 0)
+            if (style.PageBreakBefore && !setup.Continuous && (currentLines.Count > 0 || floatLines.Count > 0))
             {
                 BreakPage();
                 if (truncated)
@@ -486,6 +646,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             paragraphIndex++;
         }
 
+        // A floating table that ran past the last page of text still has rows
+        // to stand on the pages after it.
+        while (floatCarry is not null && !truncated)
+            BreakPage();
+
+        currentLines.AddRange(floatLines);
+        currentCells.AddRange(floatCells);
         if (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0)
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
 
@@ -964,6 +1131,22 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         return (lines, cells, pieces, y);
     }
+
+    /// <summary>
+    /// The least room, in points, a side of the column must have beside a
+    /// floating table for text to run down it; with less on both sides the text
+    /// goes below the table.
+    /// </summary>
+    private const double MinimumWrapRoom = 72;
+
+    /// <summary>
+    /// The box a floating table keeps text out of on its page, its clearance
+    /// included, in page coordinates.
+    /// </summary>
+    private readonly record struct FloatBox(double Top, double Bottom, double Left, double Right, ShapeWrap Wrap);
+
+    /// <summary>The rows of a floating table still to stand on the next page, and where across.</summary>
+    private sealed record FloatCarry(List<RowBox> Rows, double Left, double Width, TablePosition Position);
 
     /// <summary>
     /// A stretch of a cell a page may break before or after but not inside: one

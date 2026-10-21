@@ -100,7 +100,15 @@ internal static class DocxTableReader
             context.Builder.CurrentParagraphIndex - start,
             [.. rows.Select(BuildRow)],
             ReadTableGrid(table),
-            ReadCellPadding(properties)));
+            ReadCellPadding(properties),
+            depth <= 1 ? ReadPosition(properties) : null));
+
+        if (depth > 1 && properties?.Element(DocxNamespaces.Wordprocessing + "tblpPr") is not null)
+        {
+            context.Builder.AddDiagnosticOnce(
+                "docx.table.floating",
+                "A DOCX table nested in a cell stated a floating position; it was laid out in its cell.");
+        }
 
         context.Builder.NoteTable();
         if (properties?.Element(DocxNamespaces.Wordprocessing + "tblStyle") is not null)
@@ -110,6 +118,67 @@ internal static class DocxTableReader
                 "A DOCX table named a table style; its paragraph and run properties were applied, " +
                 "but banding, conditional formatting, and the borders a style states are not.");
         }
+    }
+
+    /// <summary>
+    /// ECMA-376 §17.4.57's <c>w:tblpPr</c>: where a floating table stands, or
+    /// null for a table in the flow.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An attribute left out takes LibreOffice's reading of it
+    /// (<c>writerfilter/dmapper/TablePositionHandler</c>): measured from the
+    /// margin down and from the text across, at nought. Word writes both anchors
+    /// in practice. A <c>tblpXSpec</c> or <c>tblpYSpec</c> places the table in
+    /// place of the offset in its direction; <c>inline</c>, which LibreOffice
+    /// does not map either, is read as no alignment.
+    /// </para>
+    /// <para>
+    /// <c>w:tblOverlap</c> (§17.4.56) is read with it. <c>overlap</c> is its
+    /// default, and the model keeps <c>never</c> without acting on it: it is
+    /// about other floating tables, which this layout does not move apart.
+    /// </para>
+    /// </remarks>
+    private static TablePosition? ReadPosition(XElement? properties)
+    {
+        XElement? position = properties?.Element(DocxNamespaces.Wordprocessing + "tblpPr");
+        if (position is null)
+            return null;
+
+        string? overlap = DocxValueReader.WordValue(properties!.Element(DocxNamespaces.Wordprocessing + "tblOverlap"));
+        return new TablePosition(
+            Anchor(Attribute(position, "horzAnchor"), TableAnchor.Text),
+            DocxValueReader.Twips(position, "tblpX"),
+            Anchor(Attribute(position, "vertAnchor"), TableAnchor.Margin),
+            DocxValueReader.Twips(position, "tblpY"),
+            Alignment(Attribute(position, "tblpXSpec")),
+            Alignment(Attribute(position, "tblpYSpec")),
+            Math.Max(0, DocxValueReader.Twips(position, "leftFromText")),
+            Math.Max(0, DocxValueReader.Twips(position, "rightFromText")),
+            Math.Max(0, DocxValueReader.Twips(position, "topFromText")),
+            Math.Max(0, DocxValueReader.Twips(position, "bottomFromText")),
+            AllowOverlap: !string.Equals(overlap, "never", StringComparison.Ordinal));
+
+        static string? Attribute(XElement element, string name) =>
+            (string?)element.Attribute(DocxNamespaces.Wordprocessing + name);
+
+        static TableAnchor Anchor(string? value, TableAnchor fallback) => value switch
+        {
+            "text" => TableAnchor.Text,
+            "margin" => TableAnchor.Margin,
+            "page" => TableAnchor.Page,
+            _ => fallback,
+        };
+
+        static TableAlignment Alignment(string? value) => value switch
+        {
+            "left" or "top" => TableAlignment.Start,
+            "center" => TableAlignment.Center,
+            "right" or "bottom" => TableAlignment.End,
+            "inside" => TableAlignment.Inside,
+            "outside" => TableAlignment.Outside,
+            _ => TableAlignment.None,
+        };
     }
 
     /// <summary>What a cell's <c>w:vMerge</c> says about the merge it is part of.</summary>

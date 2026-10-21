@@ -472,12 +472,20 @@ public static class DocxWriter
     private static XElement BuildTableProperties(DocumentTable table)
     {
         double total = table.TotalWidth;
-        var properties = new XElement(
-            DocxNamespaces.Wordprocessing + "tblPr",
-            new XElement(
-                DocxNamespaces.Wordprocessing + "tblW",
-                WordAttribute("w", total > 0 ? Twips(total) : "0"),
-                WordAttribute("type", total > 0 ? "dxa" : "auto")));
+        var properties = new XElement(DocxNamespaces.Wordprocessing + "tblPr");
+
+        // CT_TblPr is a sequence, and the position comes before the width.
+        if (table.Position is TablePosition position)
+        {
+            properties.Add(BuildTablePosition(position));
+            if (!position.AllowOverlap)
+                properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tblOverlap", WordAttribute("val", "never")));
+        }
+
+        properties.Add(new XElement(
+            DocxNamespaces.Wordprocessing + "tblW",
+            WordAttribute("w", total > 0 ? Twips(total) : "0"),
+            WordAttribute("type", total > 0 ? "dxa" : "auto")));
 
         string padding = Twips(table.CellPadding);
         properties.Add(new XElement(
@@ -488,6 +496,51 @@ public static class DocxWriter
             CellMargin("right", padding)));
 
         return properties;
+    }
+
+    /// <summary>
+    /// ECMA-376 §17.4.57's <c>w:tblpPr</c>, with both anchors written out: the
+    /// defaults for one left out are where readers disagree.
+    /// </summary>
+    private static XElement BuildTablePosition(TablePosition position)
+    {
+        var element = new XElement(
+            DocxNamespaces.Wordprocessing + "tblpPr",
+            WordAttribute("leftFromText", Twips(position.LeftFromText)),
+            WordAttribute("rightFromText", Twips(position.RightFromText)),
+            WordAttribute("topFromText", Twips(position.TopFromText)),
+            WordAttribute("bottomFromText", Twips(position.BottomFromText)),
+            WordAttribute("vertAnchor", AnchorName(position.VerticalAnchor)),
+            WordAttribute("horzAnchor", AnchorName(position.HorizontalAnchor)));
+
+        if (AlignmentName(position.HorizontalAlignment, horizontal: true) is string x)
+            element.Add(WordAttribute("tblpXSpec", x));
+        else
+            element.Add(WordAttribute("tblpX", Twips(position.X)));
+
+        if (AlignmentName(position.VerticalAlignment, horizontal: false) is string y)
+            element.Add(WordAttribute("tblpYSpec", y));
+        else
+            element.Add(WordAttribute("tblpY", Twips(position.Y)));
+
+        return element;
+
+        static string AnchorName(TableAnchor anchor) => anchor switch
+        {
+            TableAnchor.Margin => "margin",
+            TableAnchor.Page => "page",
+            _ => "text",
+        };
+
+        static string? AlignmentName(TableAlignment alignment, bool horizontal) => alignment switch
+        {
+            TableAlignment.Start => horizontal ? "left" : "top",
+            TableAlignment.Center => "center",
+            TableAlignment.End => horizontal ? "right" : "bottom",
+            TableAlignment.Inside => "inside",
+            TableAlignment.Outside => "outside",
+            _ => null,
+        };
     }
 
     private static XElement CellMargin(string edge, string twips) =>

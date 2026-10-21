@@ -176,6 +176,15 @@ internal sealed class PdfPageLayout(
                 "a column break starts a new page.");
         }
 
+        // A floating table is laid out where it stands in the flow, at the text's
+        // width; the PNG layout positions it, this one does not yet.
+        if (document.Tables.Any(table => table.IsFloating))
+        {
+            _diagnostics.Warning(
+                PdfDiagnosticCodes.WriteFeatureUnsupported,
+                "A floating table was laid out in the text flow at the text's width rather than at its position.");
+        }
+
         var anchors = new Dictionary<int, (PdfLayoutPage Page, double Top)>();
         for (int paragraphIndex = 0; paragraphIndex < document.ParagraphCount; paragraphIndex++)
         {

@@ -46,7 +46,8 @@ public sealed class DocumentTable(
     int paragraphCount,
     IReadOnlyList<TableRow> rows,
     IReadOnlyList<double>? columnWidths = null,
-    double cellPadding = DocumentTable.DefaultCellPadding)
+    double cellPadding = DocumentTable.DefaultCellPadding,
+    TablePosition? position = null)
 {
 
     /// <summary>Word's own default cell margin: 0.08 inch on the left and right.</summary>
@@ -72,6 +73,18 @@ public sealed class DocumentTable(
 
     /// <summary>The space between a cell's edge and its text, in points.</summary>
     public double CellPadding { get; } = Math.Max(0, cellPadding);
+
+    /// <summary>
+    /// Where the table floats, or null for a table in the text flow.
+    /// </summary>
+    /// <remarks>
+    /// A floating table keeps the paragraphs it covers, as every table does; the
+    /// position says only where they are drawn. See <see cref="TablePosition"/>.
+    /// </remarks>
+    public TablePosition? Position { get; } = position;
+
+    /// <summary>True when the table stands outside the text flow.</summary>
+    public bool IsFloating => Position is not null;
 
     /// <summary>The sum of the stated column widths; zero when there are none.</summary>
     public double TotalWidth
@@ -141,7 +154,7 @@ public sealed class DocumentTable(
         // them. What the edit put back is body text: leaving the grid over it
         // would draw an empty table and lay the paragraph out inside no cell,
         // which is to say nowhere.
-        return held == 0 ? null : new DocumentTable(index, count, rows, ColumnWidths, CellPadding);
+        return held == 0 ? null : new DocumentTable(index, count, rows, ColumnWidths, CellPadding, Position);
     }
 
     /// <summary>

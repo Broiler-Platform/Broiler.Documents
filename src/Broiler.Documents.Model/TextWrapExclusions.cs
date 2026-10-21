@@ -69,6 +69,18 @@ public sealed class TextWrapExclusions
     }
 
     /// <summary>
+    /// Records a box that is not a shape - a floating table - already resolved to
+    /// column coordinates, the clearance it keeps included.
+    /// </summary>
+    public void AddBox(double top, double bottom, double left, double right, ShapeWrap wrap, WrapSide side = WrapSide.Largest)
+    {
+        if (wrap == ShapeWrap.None || bottom <= top || right <= left)
+            return;
+
+        _items.Add(new Exclusion(top, bottom, left, right, wrap, side));
+    }
+
+    /// <summary>
     /// The span a line starting at <paramref name="top"/> has, after moving it
     /// down past anything that leaves it no room to be written in.
     /// </summary>
