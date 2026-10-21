@@ -190,6 +190,61 @@ internal static class DocxVml
         return false;
     }
 
+    /// <summary>
+    /// A VML shape's CSS <c>style</c> attribute as property and value.
+    /// </summary>
+    public static Dictionary<string, string> ReadStyle(string? style)
+    {
+        var declarations = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(style))
+            return declarations;
+
+        foreach (string declaration in style.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            int colon = declaration.IndexOf(':');
+            if (colon > 0)
+                declarations[declaration[..colon].Trim()] = declaration[(colon + 1)..].Trim();
+        }
+
+        return declarations;
+    }
+
+    /// <summary>
+    /// A CSS length in a VML style, in points, sign kept: a shape's margins move
+    /// it up and left as often as down and right. A bare number is in points,
+    /// VML's own unit.
+    /// </summary>
+    public static bool TryLength(string? value, out double points)
+    {
+        points = 0;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        string text = value.Trim();
+        int end = 0;
+        while (end < text.Length && (char.IsAsciiDigit(text[end]) || text[end] is '.' or '-' or '+'))
+            end++;
+
+        if (end == 0 || !TryNumber(text[..end], out double number))
+            return false;
+
+        double? converted = text[end..].Trim().ToLowerInvariant() switch
+        {
+            "pt" or "" => number,
+            "in" => number * 72,
+            "cm" => number * 72 / 2.54,
+            "mm" => number * 72 / 25.4,
+            "pc" => number * 12,
+            "px" => number * 72 / 96,
+            _ => null,
+        };
+        if (converted is not double result)
+            return false;
+
+        points = result;
+        return true;
+    }
+
     private static readonly Dictionary<string, int> NamedColors = new(StringComparer.OrdinalIgnoreCase)
     {
         ["black"] = 0x000000,

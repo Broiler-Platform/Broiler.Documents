@@ -143,6 +143,19 @@ Open XML WordprocessingML package parts.
   on `w:background`, a `v:background` for a gradient, and turns the switch on.
   A DrawingML gradient of three stops whose first and last agree is the same
   axial fill, and an axial shape fill is written that way.
+- VML shapes in a `w:pict` - `v:rect`, `v:roundrect`, `v:oval` and a `v:shape`
+  that holds no picture - are floating shapes, which is how Word wrote a text box
+  before 2010. The box is the shape's CSS `style`: `width`, `height`, and
+  `margin-left`/`margin-top` from the column and the paragraph by default.
+  `mso-position-horizontal-relative` and `mso-position-vertical-relative` name
+  the other frames in VML's own words (`page`, `margin`, `left-margin-area`,
+  `top-margin-area` and so on), and they convert as a DrawingML anchor's do:
+  across into the column, down into `OffsetFromPage`. A negative `z-index` puts
+  it behind the text. Its fill is read as the page background's
+  is, reported as `docx.shape.fill` where it had to be approximated; its outline
+  is `strokecolor`, VML's default black, or none where `stroked` turns it off;
+  its text is the `w:txbxContent` in its `v:textbox`. They were read as nothing
+  before, and the text in them was lost.
 - Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
   shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
   `wp:positionV`, converted from whichever frame the anchor names into the text
@@ -374,6 +387,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's horizontally, or kept as stated and measured from the paragraph vertically. |
 | `docx.background.fill` | Warning | The page background's VML fill was one the model cannot hold, and was read as one colour: a rectangular (`gradientRadial`) gradient as its outer colour, a pattern of two colours or a picture fill as `w:background`'s own colour. |
+| `docx.shape.fill` | Warning | A VML shape's fill was read as one colour, for the same reasons. |
 
 Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, `docx.shape.page`, and `docx.text.control`.
 `docx.shape.page` says a shape anchored to a page by number was written beside

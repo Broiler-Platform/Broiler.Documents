@@ -827,7 +827,7 @@ internal static class DocxReader
         // A w:drawing is either a picture or a shape. A shape reports nothing when
         // it does not match, so a drawing that is neither still reaches the picture
         // path and raises its diagnostic.
-        if (ReadShape(picture, context))
+        if (ReadShape(picture, context) || ReadVmlShape(picture, context))
             return;
 
         InlineImage? image = context.Images.Read(picture, context.Relationships, context.Builder);
@@ -943,6 +943,148 @@ internal static class DocxReader
             zOrder: RelativeHeight(anchor),
             offsetFromPage: fromPage));
         return true;
+    }
+
+    /// <summary>
+    /// Reads a VML shape in a <c>w:pict</c> - a rectangle, a rounded one, an
+    /// oval or a freeform - as a floating shape with its fill, outline and text
+    /// box. Returns false for anything else, a picture included, which the
+    /// picture path reads.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is how Word wrote a text box before 2010, and how other producers
+    /// still write one; read as nothing, the text inside was lost with the box.
+    /// The box is the shape's CSS <c>style</c>: its width and height, and its
+    /// <c>margin-left</c> and <c>margin-top</c> from the frames
+    /// <c>mso-position-horizontal-relative</c> and
+    /// <c>mso-position-vertical-relative</c> name. They default to the column
+    /// and the paragraph, the frames the model measures from; a vertical frame
+    /// on the page or a margin is measured from the page's top, as a DrawingML
+    /// anchor's is.
+    /// </para>
+    /// <para>
+    /// A negative <c>z-index</c> stacks the shape behind the text and any other
+    /// in front of it, which is VML's spelling of <c>behindDoc</c>. The outline
+    /// is drawn unless <c>stroked</c> or <c>v:stroke</c> turns it off, in
+    /// <c>strokecolor</c> or VML's default black.
+    /// </para>
+    /// </remarks>
+    private static bool ReadVmlShape(XElement picture, DocxReadContext context)
+    {
+        if (picture.Name != DocxNamespaces.Wordprocessing + "pict")
+            return false;
+
+        XElement? shape = picture.Elements().FirstOrDefault(static element =>
+            element.Name == DocxNamespaces.Vml + "rect" ||
+            element.Name == DocxNamespaces.Vml + "roundrect" ||
+            element.Name == DocxNamespaces.Vml + "oval" ||
+            element.Name == DocxNamespaces.Vml + "shape");
+        if (shape is null || shape.Descendants(DocxNamespaces.Vml + "imagedata").Any())
+            return false;
+
+        Dictionary<string, string> style = DocxVml.ReadStyle((string?)shape.Attribute("style"));
+        if (!DocxVml.TryLength(style.GetValueOrDefault("width"), out double width) ||
+            !DocxVml.TryLength(style.GetValueOrDefault("height"), out double height) ||
+            width <= 0 || height <= 0)
+        {
+            return false;
+        }
+
+        ShapeFill? fill = DocxVml.ReadFill(
+            shape,
+            BColor.Empty,
+            (code, message) => context.Builder.AddDiagnosticOnce(code, message),
+            "docx.shape.fill",
+            "shape");
+        IReadOnlyList<RichTextParagraph> paragraphs = ReadShapeText(shape, context);
+        if (fill is null && paragraphs.Count == 0)
+            return false;
+
+        DocxVml.TryLength(style.GetValueOrDefault("left"), out double left);
+        DocxVml.TryLength(style.GetValueOrDefault("margin-left"), out double marginLeft);
+        DocxVml.TryLength(style.GetValueOrDefault("top"), out double top);
+        DocxVml.TryLength(style.GetValueOrDefault("margin-top"), out double marginTop);
+        // Across, every frame converts to the column, as a DrawingML anchor's does.
+        double offsetX = left + marginLeft;
+        if (context.Page is PageGeometry page)
+        {
+            offsetX += style.GetValueOrDefault("mso-position-horizontal-relative") switch
+            {
+                "page" or "left-margin-area" => -page.MarginLeft,
+                "right-margin-area" => page.Width - page.MarginRight - page.MarginLeft,
+                _ => 0,
+            };
+        }
+
+        // VML names DrawingML's vertical frames in its own words; the paragraph
+        // and the line stay where they are, the rest measure from the page.
+        double offsetY = top + marginTop;
+        string? verticalFrom = style.GetValueOrDefault("mso-position-vertical-relative") switch
+        {
+            "page" => "page",
+            "margin" => "margin",
+            "top-margin-area" => "topMargin",
+            "bottom-margin-area" => "bottomMargin",
+            "inner-margin-area" => "insideMargin",
+            "outer-margin-area" => "outsideMargin",
+            _ => null,
+        };
+        bool fromPage = false;
+        if (verticalFrom is not null)
+        {
+            if (FromPageTop(verticalFrom, offsetY, context.Page) is double fromTop)
+            {
+                (offsetY, fromPage) = (fromTop, true);
+            }
+            else
+            {
+                context.Builder.AddDiagnosticOnce(
+                    "docx.anchor.relativefrom:v",
+                    "docx.anchor.relativefrom",
+                    "A floating DOCX object stated its vertical position against a margin this reader could not place " +
+                    "on the page; the offset was kept as stated and is measured from its paragraph instead.");
+            }
+        }
+
+        int zIndex = int.TryParse(style.GetValueOrDefault("z-index"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int z)
+            ? z
+            : 0;
+        ShapeWrap wrap = (string?)shape.Element(DocxNamespaces.VmlWord + "wrap")?.Attribute("type") switch
+        {
+            "square" or "tight" or "through" => ShapeWrap.Square,
+            "topAndBottom" => ShapeWrap.TopAndBottom,
+            _ => ShapeWrap.None,
+        };
+
+        context.Builder.AddShape(new DocumentShape(
+            context.Builder.CurrentParagraphIndex,
+            offsetX,
+            offsetY,
+            width,
+            height,
+            fill,
+            ReadVmlOutline(shape),
+            paragraphs,
+            image: null,
+            behindText: zIndex < 0,
+            wrap: wrap,
+            zOrder: zIndex == int.MinValue ? int.MaxValue : Math.Abs(zIndex),
+            offsetFromPage: fromPage));
+        return true;
+    }
+
+    /// <summary>A VML shape's outline colour, or empty for none.</summary>
+    private static BColor ReadVmlOutline(XElement shape)
+    {
+        XElement? stroke = shape.Element(DocxNamespaces.Vml + "stroke");
+        string? stroked = (string?)shape.Attribute("stroked") ?? (string?)stroke?.Attribute("on");
+        if (stroked?.Trim() is "f" or "false" or "0")
+            return BColor.Empty;
+
+        return DocxVml.TryColor((string?)shape.Attribute("strokecolor") ?? (string?)stroke?.Attribute("color"), out BColor color)
+            ? color
+            : BColor.FromArgb(0, 0, 0);
     }
 
     /// <summary>
