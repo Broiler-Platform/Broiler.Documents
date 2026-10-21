@@ -581,10 +581,13 @@ internal sealed class PdfWriter
     /// </summary>
     private static void AppendShape(MemoryStream content, PdfPlacedShape shape)
     {
-        if (shape.Width <= 0 || shape.Height <= 0)
+        // A box with no breadth is a rule: its outline stroked along one edge,
+        // which is what a degenerate rectangle strokes to.
+        bool rule = (shape.Width <= 0) != (shape.Height <= 0);
+        if ((shape.Width <= 0 || shape.Height <= 0) && !rule)
             return;
 
-        if (shape.Fill is ShapeFill fill)
+        if (!rule && shape.Fill is ShapeFill fill)
             AppendFill(content, shape.X, shape.Y, shape.Width, shape.Height, fill);
 
         if (shape.Outline.IsEmpty || shape.Outline.A == 0)

@@ -121,7 +121,10 @@ public sealed class DocumentPagePainter
     private void DrawShape(BRenderList list, LayoutShape shape, Func<InlineImage, BImageHandle?> resolveImage)
     {
         if (shape.Bounds.Width <= 0 || shape.Bounds.Height <= 0)
+        {
+            DrawRule(list, shape);
             return;
+        }
 
         if (shape.Fill is ShapeFill fill)
             DrawFill(list, shape.Bounds, fill);
@@ -135,6 +138,23 @@ public sealed class DocumentPagePainter
 
         foreach (LayoutLine line in shape.Lines)
             DrawLine(list, line, resolveImage);
+    }
+
+    /// <summary>
+    /// Paints a box with no breadth as the rule its outline makes: a filled band
+    /// of Word's default line width, centred on the box's one edge.
+    /// </summary>
+    private static void DrawRule(BRenderList list, LayoutShape shape)
+    {
+        const double width = 0.75;
+        if (shape.Outline.IsEmpty || shape.Outline.A == 0)
+            return;
+
+        BRect bounds = shape.Bounds;
+        if (bounds.Width <= 0 && bounds.Height > 0)
+            list.FillRect(new BRect(bounds.Left - (width / 2), bounds.Top, width, bounds.Height), shape.Outline);
+        else if (bounds.Height <= 0 && bounds.Width > 0)
+            list.FillRect(new BRect(bounds.Left, bounds.Top - (width / 2), bounds.Width, width), shape.Outline);
     }
 
     /// <summary>

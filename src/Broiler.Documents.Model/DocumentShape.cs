@@ -64,7 +64,8 @@ public sealed class DocumentShape(
     double wrapDistance = 0,
     int zOrder = 0,
     int anchorPage = 0,
-    bool offsetFromPage = false)
+    bool offsetFromPage = false,
+    bool growsToText = false)
 {
 
     /// <summary>The paragraph the shape is anchored to.</summary>
@@ -197,6 +198,20 @@ public sealed class DocumentShape(
     public bool OffsetFromPage { get; } = offsetFromPage && anchorPage <= 0;
 
     /// <summary>
+    /// True when <see cref="Height"/> is the least the box is, and it grows to
+    /// hold its text.
+    /// </summary>
+    /// <remarks>
+    /// A frame whose height its document leaves to the text is how RTF and Word
+    /// position a paragraph: <c>\absh0</c>, or <c>w:framePr</c> with no
+    /// <c>w:h</c>, gives a width and a place and lets the lines decide the rest.
+    /// ODF says the same with <c>fo:min-height</c>, and DrawingML with
+    /// <c>a:spAutoFit</c>. The reader cannot measure lines, so it states the
+    /// least height and the layout makes the box as tall as its text.
+    /// </remarks>
+    public bool GrowsToText { get; } = growsToText;
+
+    /// <summary>
     /// The top of the shape's box on its page, given the top of the paragraph it
     /// hangs from there, in the same coordinates.
     /// </summary>
@@ -213,4 +228,18 @@ public sealed class DocumentShape(
 
     /// <summary>True when the shape is a floating picture.</summary>
     public bool HasImage => Image is not null;
+
+    /// <summary>
+    /// True when the box has no breadth in one direction and an outline to
+    /// draw, so it draws as a straight rule along its other side.
+    /// </summary>
+    /// <remarks>
+    /// A ruled form - a statement's grid, a letterhead's underline - is drawn
+    /// with lines, each of them a box of nought by its length in every format
+    /// that writes one. A box with no breadth and no outline draws nothing and is
+    /// not one.
+    /// </remarks>
+    public bool IsRule =>
+        !Outline.IsEmpty && Outline.A > 0 &&
+        ((Width <= 0 && Height > 0) || (Height <= 0 && Width > 0));
 }

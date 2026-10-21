@@ -48,16 +48,20 @@ public sealed class TextWrapExclusions
     /// points and a zoomed surface lays out in its own units, so the box is
     /// scaled here rather than in each caller - <paramref name="top"/> is already
     /// in those units, being where the paragraph landed.
+    /// <paramref name="height"/>, in points, is the box's height where the
+    /// layout made it taller than it states, as it does for a shape that
+    /// <see cref="DocumentShape.GrowsToText"/>.
     /// </remarks>
-    public void Add(DocumentShape shape, double top, double scale = 1)
+    public void Add(DocumentShape shape, double top, double scale = 1, double? height = null)
     {
-        if (shape.Wrap == ShapeWrap.None || shape.Width <= 0 || shape.Height <= 0)
+        double boxHeight = height ?? shape.Height;
+        if (shape.Wrap == ShapeWrap.None || shape.Width <= 0 || boxHeight <= 0)
             return;
 
         double margin = Math.Max(0, shape.WrapDistance) * scale;
         _items.Add(new Exclusion(
             top - margin,
-            top + (shape.Height * scale) + margin,
+            top + (boxHeight * scale) + margin,
             (shape.OffsetX * scale) - margin,
             ((shape.OffsetX + shape.Width) * scale) + margin,
             shape.Wrap,

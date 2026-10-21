@@ -61,6 +61,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private ShapeFill? _background;
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
+    private readonly Dictionary<DocumentShape, double> _grownHeights = [];
 
     /// <summary>
     /// U+2028 LINE SEPARATOR, which is how the model spells a break inside a
@@ -87,6 +88,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _documentShapes = document.Shapes;
         _background = document.PageBackground;
         _paragraphTops.Clear();
+        _grownHeights.Clear();
+        foreach (DocumentShape shape in _documentShapes)
+            NoteGrownHeight(shape, setup);
         _wrap = new TextWrapExclusions();
         AddPageExclusions(1);
 
@@ -281,7 +285,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             if (shape.Wraps && !shape.IsPageAnchored &&
                                 _paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchor))
                             {
-                                _wrap.Add(shape, shape.TopOnPage(anchor));
+                                _wrap.Add(shape, shape.TopOnPage(anchor), height: BoxHeight(shape));
                             }
                         }
                     }
@@ -431,7 +435,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             foreach (DocumentShape shape in _documentShapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
-                    _wrap.Add(shape, shape.TopOnPage(y));
+                    _wrap.Add(shape, shape.TopOnPage(y), height: BoxHeight(shape));
             }
 
             // Space before never opens a page, or a column: a paragraph that
@@ -689,7 +693,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         foreach (DocumentShape shape in _documentShapes)
         {
             if (shape.Wraps && shape.AnchorPage == number)
-                _wrap.Add(shape, shape.OffsetY);
+                _wrap.Add(shape, shape.OffsetY, height: BoxHeight(shape));
         }
     }
 
@@ -712,12 +716,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         var placed = new List<LayoutShape>();
         foreach (DocumentShape shape in shapes)
         {
+            NoteGrownHeight(shape, setup);
             var bounds = new BRect(
                 setup.ContentLeftPoints + shape.OffsetX,
                 shape.OffsetY,
                 Math.Max(0, shape.Width),
-                Math.Max(0, shape.Height));
-            if (bounds.Width <= 0 || bounds.Height <= 0)
+                BoxHeight(shape));
+            if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
                 continue;
 
             placed.Add(new LayoutShape(
@@ -765,9 +770,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             var bounds = new BRect(setup.ContentLeftPoints + shape.OffsetX, shape.TopOnPage(anchorTop),
-                Math.Max(0, shape.Width), Math.Max(0, shape.Height));
+                Math.Max(0, shape.Width), BoxHeight(shape));
 
-            if (bounds.Width <= 0 || bounds.Height <= 0)
+            if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
                 continue;
 
             placed.Add(new LayoutShape(bounds, shape.Fill, shape.Outline, PlaceShapeText(shape, bounds, setup),
@@ -1152,6 +1157,30 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>A shape's own text, laid out inside its box.</summary>
+    /// <summary>
+    /// Measures a shape that grows to hold its text, once, at its own width:
+    /// its lines laid one under another, as <see cref="PlaceShapeText"/> lays
+    /// them, or its stated height where that is more.
+    /// </summary>
+    private void NoteGrownHeight(DocumentShape shape, DocumentPageBox setup)
+    {
+        if (!shape.GrowsToText || !shape.HasText || shape.Width <= 0 || _grownHeights.ContainsKey(shape))
+            return;
+
+        double height = 0;
+        foreach (RichTextParagraph paragraph in shape.Paragraphs)
+        {
+            foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1, 0, shape.Width).Lines)
+                height += line.Height;
+        }
+
+        _grownHeights[shape] = Math.Max(Math.Max(0, shape.Height), height);
+    }
+
+    /// <summary>The height a shape's box is drawn at, grown to its text where it grows.</summary>
+    private double BoxHeight(DocumentShape shape) =>
+        _grownHeights.TryGetValue(shape, out double grown) ? grown : Math.Max(0, shape.Height);
+
     private List<LayoutLine> PlaceShapeText(DocumentShape shape, BRect bounds, DocumentPageBox setup)
     {
         var lines = new List<LayoutLine>();
@@ -1168,7 +1197,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 // Text that overflows its box is clipped rather than spilling
                 // across the letter it sits beside.
-                if (y + line.Height > bounds.Bottom)
+                if (y + line.Height > bounds.Bottom + 0.01)
                     break;
 
                 line.Top = y;
