@@ -385,6 +385,24 @@ public static class OdtWriter
                 continue;
             }
 
+            if (paragraphs[index].Style.List is ListReference defined)
+            {
+                // One text:list per run of paragraphs in the same list; a later
+                // run of it carries its count on.
+                int definedEnd = index;
+                while (definedEnd < end &&
+                    paragraphs[definedEnd].Style.List is ListReference next &&
+                    ReferenceEquals(next.Definition, defined.Definition) &&
+                    DocumentTable.StartingAt(tables, definedEnd) is null)
+                {
+                    definedEnd++;
+                }
+
+                yield return BuildDefinedList(paragraphs, index, definedEnd, defined.Definition, context);
+                index = definedEnd;
+                continue;
+            }
+
             ListKind kind = paragraphs[index].Style.ListKind;
             if (kind == ListKind.None)
             {
@@ -402,7 +420,7 @@ public static class OdtWriter
             // One text:list per maximal run of same-kind list paragraphs. Starting
             // a fresh list for every item would restart the numbering at each one.
             int listEnd = index;
-            while (listEnd < end && paragraphs[listEnd].Style.ListKind == kind)
+            while (listEnd < end && paragraphs[listEnd].Style.ListKind == kind && paragraphs[listEnd].Style.List is null)
                 listEnd++;
 
             yield return BuildList(paragraphs, index, listEnd, kind, context);
@@ -546,17 +564,50 @@ public static class OdtWriter
         int start,
         int end,
         ListKind kind,
+        OdtWriteContext context) =>
+        BuildList(paragraphs, start, end, context.UseListStyle(kind), context);
+
+    /// <summary>
+    /// Builds one <c>text:list</c> from a run of paragraphs numbered in
+    /// <paramref name="definition"/>, nested by their list level. A run of a list
+    /// that an earlier run already started says it continues it
+    /// (<c>text:continue-numbering</c>), and an item that restarts the count says
+    /// where (<c>text:start-value</c>).
+    /// </summary>
+    private static XElement BuildDefinedList(
+        IReadOnlyList<RichTextParagraph> paragraphs,
+        int start,
+        int end,
+        ListDefinition definition,
+        OdtWriteContext context)
+    {
+        bool continues = context.HasListStyle(definition);
+        XElement list = BuildList(paragraphs, start, end, context.UseListStyle(definition), context);
+        if (continues)
+            list.Add(new XAttribute(OdtNamespaces.Text + "continue-numbering", "true"));
+
+        return list;
+    }
+
+    private static XElement BuildList(
+        IReadOnlyList<RichTextParagraph> paragraphs,
+        int start,
+        int end,
+        string styleName,
         OdtWriteContext context)
     {
         var root = new XElement(
             OdtNamespaces.Text + "list",
-            new XAttribute(OdtNamespaces.Text + "style-name", context.UseListStyle(kind)));
+            new XAttribute(OdtNamespaces.Text + "style-name", styleName));
 
         var open = new List<XElement> { root };
         for (int i = start; i < end; i++)
         {
             RichTextParagraph paragraph = paragraphs[i];
-            int level = Math.Clamp(Math.Max(1, paragraph.Style.IndentLevel), 1, MaxListLevels);
+            int level = Math.Clamp(
+                paragraph.Style.List is ListReference reference ? reference.Level + 1 : Math.Max(1, paragraph.Style.IndentLevel),
+                1,
+                MaxListLevels);
 
             while (open.Count > level)
                 open.RemoveAt(open.Count - 1);
@@ -578,9 +629,13 @@ public static class OdtWriter
                 open.Add(nested);
             }
 
-            open[^1].Add(new XElement(
+            var item = new XElement(
                 OdtNamespaces.Text + "list-item",
-                BuildParagraph(paragraph, context, inList: true)));
+                BuildParagraph(paragraph, context, inList: true));
+            if (paragraph.Style.List is { RestartAt: int restart })
+                item.Add(new XAttribute(OdtNamespaces.Text + "start-value", restart.ToString(CultureInfo.InvariantCulture)));
+
+            open[^1].Add(item);
         }
 
         return root;
@@ -1099,44 +1154,173 @@ public static class OdtWriter
     }
 
     /// <summary>
-    /// The list styles the content refers to, one per kind that was used. Every
-    /// level is declared, because a list style that stops short of the level a
-    /// document reaches leaves that level undecorated.
+    /// The list styles the content refers to: one per kind of list that names
+    /// no definition, and one per list definition the paragraphs are numbered
+    /// in. Every level is declared, because a list style that stops short of the
+    /// level a document reaches leaves that level undecorated.
     /// </summary>
     private static IEnumerable<XElement> BuildListStyles(OdtWriteContext context)
     {
         foreach (ListKind kind in context.ListKinds)
         {
-            var listStyle = new XElement(
-                OdtNamespaces.Text + "list-style",
-                new XAttribute(OdtNamespaces.Style + "name", OdtWriteContext.ListStyleName(kind)));
+            yield return BuildListStyle(
+                OdtWriteContext.ListStyleName(kind),
+                kind == ListKind.Numbered ? ListDefinition.PlainNumbers : ListDefinition.PlainBullets,
+                context);
+        }
 
-            for (int level = 1; level <= MaxListLevels; level++)
+        foreach ((ListDefinition definition, string name) in context.DefinedListStyles)
+            yield return BuildListStyle(name, definition, context);
+    }
+
+    /// <summary>
+    /// One <c>text:list-style</c> (ODF 1.3 §16.30). A numbered level's label is
+    /// written as ODF states one: a prefix, the numbers of the
+    /// <c>text:display-levels</c> levels ending at this one joined by full stops,
+    /// and a suffix. A label that is not of that form keeps its numbers and loses
+    /// the text between them, and says so.
+    /// </summary>
+    private static XElement BuildListStyle(string name, ListDefinition definition, OdtWriteContext context)
+    {
+        var listStyle = new XElement(
+            OdtNamespaces.Text + "list-style",
+            new XAttribute(OdtNamespaces.Style + "name", name));
+
+        for (int level = 1; level <= MaxListLevels; level++)
+        {
+            ListLevel style = definition.LevelAt(level - 1);
+            XElement levelStyle;
+            if (style.Format == ListNumberFormat.Bullet)
             {
-                XElement levelStyle = kind == ListKind.Numbered
-                    ? new XElement(
-                        OdtNamespaces.Text + "list-level-style-number",
-                        new XAttribute(OdtNamespaces.Style + "num-suffix", "."),
-                        new XAttribute(OdtNamespaces.Style + "num-format", "1"))
-                    : new XElement(
-                        OdtNamespaces.Text + "list-level-style-bullet",
-                        new XAttribute(OdtNamespaces.Text + "bullet-char", "•"));
-
-                levelStyle.Add(new XAttribute(
-                    OdtNamespaces.Text + "level",
-                    level.ToString(CultureInfo.InvariantCulture)));
-                levelStyle.Add(new XElement(
-                    OdtNamespaces.Style + "list-level-properties",
-                    new XAttribute(
-                        OdtNamespaces.Text + "space-before",
-                        OdtUnits.FormatInches((level - 1) * OdtUnits.PointsPerIndentLevel)),
-                    new XAttribute(
-                        OdtNamespaces.Text + "min-label-width",
-                        OdtUnits.FormatInches(OdtUnits.PointsPerIndentLevel))));
-                listStyle.Add(levelStyle);
+                levelStyle = new XElement(
+                    OdtNamespaces.Text + "list-level-style-bullet",
+                    new XAttribute(OdtNamespaces.Text + "bullet-char", BulletChar(style.Template, context)));
+            }
+            else
+            {
+                levelStyle = new XElement(OdtNamespaces.Text + "list-level-style-number");
+                // ODF has a tenth level the model does not; it is written as
+                // the ninth, showing its own number only.
+                (string prefix, int display, string suffix) = level <= ListDefinition.MaxLevels
+                    ? SplitLabel(style.Template, level, context)
+                    : SplitLabel(style.Template, ListDefinition.MaxLevels, context) with { Display = 1 };
+                if (prefix.Length > 0)
+                    levelStyle.Add(new XAttribute(OdtNamespaces.Style + "num-prefix", prefix));
+                if (suffix.Length > 0)
+                    levelStyle.Add(new XAttribute(OdtNamespaces.Style + "num-suffix", suffix));
+                levelStyle.Add(new XAttribute(OdtNamespaces.Style + "num-format", NumberFormat(style.Format, context)));
+                if (display > 1)
+                    levelStyle.Add(new XAttribute(OdtNamespaces.Text + "display-levels", display.ToString(CultureInfo.InvariantCulture)));
+                if (style.Start != 1)
+                    levelStyle.Add(new XAttribute(OdtNamespaces.Text + "start-value", style.Start.ToString(CultureInfo.InvariantCulture)));
+                if (style.Legal)
+                {
+                    context.AddDiagnosticOnce(
+                        "odt.list.legal",
+                        "A list level that writes every number in decimal was written with each level's own format; ODF has no such switch.");
+                }
             }
 
-            yield return listStyle;
+            levelStyle.Add(new XAttribute(
+                OdtNamespaces.Text + "level",
+                level.ToString(CultureInfo.InvariantCulture)));
+            levelStyle.Add(new XElement(
+                OdtNamespaces.Style + "list-level-properties",
+                new XAttribute(
+                    OdtNamespaces.Text + "space-before",
+                    OdtUnits.FormatInches((level - 1) * OdtUnits.PointsPerIndentLevel)),
+                new XAttribute(
+                    OdtNamespaces.Text + "min-label-width",
+                    OdtUnits.FormatInches(OdtUnits.PointsPerIndentLevel))));
+            listStyle.Add(levelStyle);
+        }
+
+        return listStyle;
+    }
+
+    /// <summary>ODF's <c>text:bullet-char</c> is one character.</summary>
+    private static string BulletChar(string template, OdtWriteContext context)
+    {
+        if (string.IsNullOrEmpty(template))
+            return ((char)0x2022).ToString();
+
+        int length = char.IsSurrogatePair(template, 0) ? 2 : 1;
+        if (template.Length > length)
+        {
+            context.AddDiagnosticOnce(
+                "odt.list.label",
+                "A list label ODF cannot state was written in the nearest form it can; the text around its numbers or bullet was dropped.");
+        }
+
+        return template[..length];
+    }
+
+    /// <summary>
+    /// Splits a label template into ODF's prefix, number of displayed levels and
+    /// suffix: "(%1)" is "(", 1, ")"; "%1.%2." at the second level is "", 2, ".".
+    /// </summary>
+    private static (string Prefix, int Display, string Suffix) SplitLabel(string template, int level, OdtWriteContext context)
+    {
+        int first = -1;
+        int last = -1;
+        var levels = new List<int>();
+        for (int i = 0; i + 1 < template.Length; i++)
+        {
+            if (template[i] == '%' && template[i + 1] is >= '1' and <= '9')
+            {
+                if (first < 0)
+                    first = i;
+                last = i + 2;
+                levels.Add(template[i + 1] - '0');
+                i++;
+            }
+        }
+
+        if (first < 0)
+            return (template, 1, string.Empty);
+
+        // ODF can state the numbers of the levels just above this one, ending at
+        // this one, joined by full stops - and nothing else between them.
+        string middle = template[first..last];
+        var expected = new System.Text.StringBuilder();
+        for (int i = 0; i < levels.Count; i++)
+        {
+            if (i > 0)
+                expected.Append('.');
+            expected.Append('%').Append((level - levels.Count + 1 + i).ToString(CultureInfo.InvariantCulture));
+        }
+
+        if (!string.Equals(middle, expected.ToString(), StringComparison.Ordinal))
+        {
+            context.AddDiagnosticOnce(
+                "odt.list.label",
+                "A list label ODF cannot state was written in the nearest form it can; the text around its numbers or bullet was dropped.");
+        }
+
+        return (template[..first], Math.Clamp(levels.Count, 1, level), template[last..]);
+    }
+
+    private static string NumberFormat(ListNumberFormat format, OdtWriteContext context)
+    {
+        switch (format)
+        {
+            case ListNumberFormat.None:
+                return string.Empty;
+            case ListNumberFormat.LowerLetter:
+                return "a";
+            case ListNumberFormat.UpperLetter:
+                return "A";
+            case ListNumberFormat.LowerRoman:
+                return "i";
+            case ListNumberFormat.UpperRoman:
+                return "I";
+            case ListNumberFormat.DecimalZero:
+                context.AddDiagnosticOnce(
+                    "odt.list.format",
+                    "A list numbered with leading zeros was written as plain decimal.");
+                return "1";
+            default:
+                return "1";
         }
     }
 
@@ -1818,6 +2002,30 @@ public static class OdtWriter
 
         /// <summary>The name of a list style, without asking for it to be declared.</summary>
         public static string ListStyleName(ListKind kind) => kind == ListKind.Numbered ? "L2" : "L1";
+
+        private readonly Dictionary<ListDefinition, string> _definedListStyles = new(ReferenceEqualityComparer.Instance);
+        private readonly List<(ListDefinition Definition, string Name)> _definedListOrder = [];
+
+        /// <summary>The list styles written for list definitions, in the order first used.</summary>
+        public IReadOnlyList<(ListDefinition Definition, string Name)> DefinedListStyles => _definedListOrder;
+
+        /// <summary>True once a list style has been named for <paramref name="definition"/>.</summary>
+        public bool HasListStyle(ListDefinition definition) => _definedListStyles.ContainsKey(definition);
+
+        /// <summary>
+        /// Names the list style for a list definition, one per definition, and
+        /// records that the document needs it declared.
+        /// </summary>
+        public string UseListStyle(ListDefinition definition)
+        {
+            if (_definedListStyles.TryGetValue(definition, out string? name))
+                return name;
+
+            name = "LD" + (_definedListOrder.Count + 1).ToString(CultureInfo.InvariantCulture);
+            _definedListStyles[definition] = name;
+            _definedListOrder.Add((definition, name));
+            return name;
+        }
 
         /// <summary>
         /// The package entry for <paramref name="image"/>, created on first use.

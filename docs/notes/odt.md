@@ -147,9 +147,33 @@ toolkit behind it.
 - Lists: the kind comes from the `text:list-style` the list names —
   `text:list-level-style-number` with a `style:num-format` is numbered,
   `text:list-level-style-bullet` and `text:list-level-style-image` are bulleted —
-  and the level is the nesting depth. A written document groups each run of
-  same-kind list paragraphs into one `text:list`, nesting deeper levels inside the
-  `text:list-item` they belong to, so numbering does not restart at every item.
+  and the level is the nesting depth. Each paragraph also names the list it is
+  numbered in (`ParagraphStyle.List`): the list style's levels, read with
+  `style:num-format` (`1`, `a`, `A`, `i`, `I`; an empty one draws no number),
+  `style:num-prefix`, `style:num-suffix`, `text:display-levels`,
+  `text:start-value` and `text:bullet-char` (ODF 1.3 §16.30-16.32). Each
+  top-level `text:list` counts afresh unless `text:continue-numbering="true"`
+  carries on the last list in its style or `text:continue-list` names the
+  `xml:id` of the one it carries on; a sub-list counts in the list it is nested
+  in; a `text:list-item`'s `text:start-value` restarts the count there. A
+  `text:list-header` paragraph is in no list.
+- Outline numbering: a `text:h` outside any list is numbered by the document's
+  `text:outline-style` at its `text:outline-level`, unless it is a list header;
+  `text:restart-numbering` restarts the count. A level above a heading's that has
+  had no heading yet counts as its start value, as LibreOffice numbers it:
+  `tdf142694-1.odt` opens at level two with "1.1", and its next level-one
+  heading is "2".
+- A written document groups each run of paragraphs in the same list into one
+  `text:list`, nesting deeper levels inside the `text:list-item` they belong to,
+  with a list style (`LD1`, `LD2` ...) per list and `text:continue-numbering` on
+  a later run of the same list; a run of list paragraphs that name no list is
+  written in a plain list style (`L1` bullets, `L2` numbers) that draws them as
+  the layout does. A label whose numbers are not the levels ending at its own
+  joined by full stops loses the text between them (`odt.list.label`), a
+  multi-character bullet keeps its first (`odt.list.label`), leading zeros are
+  written as plain decimal (`odt.list.format`), and DOCX's legal numbering has no
+  ODF form (`odt.list.legal`). Headings are written as paragraphs, so the
+  outline style is not written; their numbers go out as a list.
 - External hyperlinks for `http`, `https`, and `mailto`, plus internal anchor
   links. Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried.
 - Embedded pictures, read and written as a single object replacement character
@@ -417,7 +441,8 @@ blank:
 | `odt.limit.paragraphs` | Warning | Input exceeded `MaxParagraphCount`; remaining paragraphs were dropped. |
 
 Write diagnostics are `odt.link`, `odt.image.placeholder`, `odt.image.size`,
-`odt.color.alpha`, `odt.text.control`, `odt.section.page`, and
+`odt.color.alpha`, `odt.text.control`, `odt.section.page`, `odt.list.label`,
+`odt.list.format`, `odt.list.legal` (the list forms above ODF cannot state), and
 `odt.image.omitted` — the last one reporting a picture the caller's resource
 policy did not permit the write to pass on, which is the writer's counterpart to
 `odt.image.denied`. `odt.section.page` reports a section that states its own

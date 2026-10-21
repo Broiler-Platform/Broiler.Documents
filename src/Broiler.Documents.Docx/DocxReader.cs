@@ -604,6 +604,15 @@ internal static class DocxReader
         string? paragraphStyleId = DocxValueReader.WordValue(pPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
 
         ParagraphStyle paragraphStyle = ReadParagraphStyle(pPr, paragraphStyleId, context);
+
+        // An empty paragraph that is there only to end a section is not an item
+        // of the list its style numbers. Word writes the section break on a
+        // paragraph of the style it was typed in, a heading's often, and
+        // LibreOffice, which keeps no such paragraph, gives it no number; counted,
+        // it would take "1" from the heading after it.
+        if (paragraphStyle.List is not null && IsBareSectionBreak(paragraph, pPr))
+            paragraphStyle = paragraphStyle with { List = null, ListKind = ListKind.None };
+
         InlineStyle inherited = ReadInheritedRunStyle(paragraphStyleId, context);
         context.Builder.StartParagraph(paragraphStyle, ReadMarkStyle(pPr, inherited, context));
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
@@ -677,6 +686,34 @@ internal static class DocxReader
 
         return context.Sections!.CurrentHasParagraphs(context.Builder.CurrentParagraphIndex) &&
             context.Sections.NextHasParagraphs;
+    }
+
+    /// <summary>
+    /// True when a paragraph holds a section's <c>w:sectPr</c> and nothing a run
+    /// draws.
+    /// </summary>
+    private static bool IsBareSectionBreak(XElement paragraph, XElement? pPr)
+    {
+        XNamespace w = DocxNamespaces.Wordprocessing;
+        if (pPr?.Element(w + "sectPr") is null)
+            return false;
+
+        foreach (XElement child in paragraph.Elements())
+        {
+            if (child == pPr || child.Name == w + "bookmarkStart" || child.Name == w + "bookmarkEnd" ||
+                child.Name == w + "proofErr")
+            {
+                continue;
+            }
+
+            if (child.Name != w + "r" ||
+                child.Elements().Any(e => e.Name != w + "rPr" && e.Name != w + "lastRenderedPageBreak"))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -1631,10 +1668,92 @@ internal static class DocxReader
         DocxReadContext context)
     {
         ParagraphStyle style = ParagraphStyle.Default;
-        foreach (XElement styleParagraphProperties in context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle))
+        IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle);
+        foreach (XElement styleParagraphProperties in chain)
             style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style);
 
-        return ApplyParagraphProperties(pPr, context.Numbering, style);
+        style = ApplyParagraphProperties(pPr, context.Numbering, style);
+        return ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
+    }
+
+    /// <summary>
+    /// Puts the paragraph in the list its <c>w:numPr</c> names (ECMA-376
+    /// §17.9.18), its own or its style chain's, with the level's indent where
+    /// the paragraph states none of its own.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The list and the level are found separately, each from the nearest
+    /// place that states it: a heading style names the list, and the abstract
+    /// numbering's <c>w:pStyle</c> says which level that style is when no
+    /// <c>w:ilvl</c> does. A <c>w:numId</c> of nought takes the paragraph out of
+    /// the list its style put it in.
+    /// </para>
+    /// <para>
+    /// The model's indent is where the label starts, in 18-point steps. A
+    /// level states where its text starts and how far the label hangs back from
+    /// there, so the label starts at the difference: Word's first level, text at
+    /// 720 twips hanging 360, starts its label one step in. The paragraph's own
+    /// <c>w:ind</c> overrides the level's, attribute by attribute, as it does in
+    /// Word and LibreOffice.
+    /// </para>
+    /// </remarks>
+    private static ParagraphStyle ApplyList(
+        ParagraphStyle style,
+        IReadOnlyList<XElement> chain,
+        XElement? pPr,
+        string? paragraphStyleId,
+        DocxNumbering numbering)
+    {
+        XNamespace w = DocxNamespaces.Wordprocessing;
+        int? numId = null;
+        int? ilvl = null;
+        foreach (XElement properties in pPr is null ? chain : chain.Append(pPr))
+        {
+            XElement? numPr = properties.Element(w + "numPr");
+            if (numPr is null)
+                continue;
+
+            if (DocxValueReader.TryReadInt(numPr.Element(w + "numId")?.Attribute(w + "val"), out int id))
+                numId = id;
+            if (DocxValueReader.TryReadInt(numPr.Element(w + "ilvl")?.Attribute(w + "val"), out int level))
+                ilvl = level;
+        }
+
+        if (numId is not int listId || listId == 0 ||
+            numbering.Reference(listId, ilvl, paragraphStyleId) is not ListReference list)
+        {
+            return style;
+        }
+
+        style = style with { List = list, ListKind = list.Kind };
+
+        XElement? ownIndent = pPr?.Element(w + "ind");
+        DocxNumbering.LevelIndent? levelIndent = numbering.IndentFor(listId, list.Level);
+        if (levelIndent is null)
+            return style;
+
+        int left = ReadIndentTwips(ownIndent, "start", "left") ?? levelIndent?.Left ?? 0;
+        int hanging = ReadIndentTwips(ownIndent, "hanging") ??
+            (ReadIndentTwips(ownIndent, "firstLine") is int firstLine ? -firstLine : levelIndent?.Hanging ?? 0);
+        // Every reader puts a list item at indent level one at least, which is
+        // where every writer and the layout expect a top-level item.
+        return style with { IndentLevel = Math.Max(1, (int)Math.Round((left - hanging) / 360f)) };
+    }
+
+    /// <summary>The first of <paramref name="names"/> a <c>w:ind</c> states, in twips.</summary>
+    private static int? ReadIndentTwips(XElement? ind, params string[] names)
+    {
+        if (ind is null)
+            return null;
+
+        foreach (string name in names)
+        {
+            if (DocxValueReader.TryReadInt(ind.Attribute(DocxNamespaces.Wordprocessing + name), out int twips))
+                return twips;
+        }
+
+        return null;
     }
 
     /// <summary>The colour a paragraph's <c>w:shd</c> shows, or empty for none.</summary>

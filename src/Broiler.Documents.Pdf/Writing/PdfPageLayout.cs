@@ -138,6 +138,7 @@ internal sealed class PdfPageLayout(
         double y = top;
         int listNumber = 1;
         ListKind previousList = ListKind.None;
+        var numberer = new ListNumberer();
 
         // Starting a page was three lines written out at four sites, and the
         // fourth line - emptying the exclusions - was at none of them. An
@@ -224,6 +225,7 @@ internal sealed class PdfPageLayout(
             else if (style.ListKind == ListKind.Numbered)
                 listNumber = 1;
             previousList = style.ListKind;
+            string? label = numberer.Advance(style);
 
             // A break the document asked for, taken before the paragraph is
             // measured. Until this was here the only thing that started a page
@@ -264,7 +266,7 @@ internal sealed class PdfPageLayout(
                     _wrap.Add(shape, shape.OffsetFromPage ? shape.OffsetY - setup.Height : -(y - shape.OffsetY), height: BoxHeight(shape));
             }
 
-            string marker = PdfModelProjector.FormatListMarker(style.ListKind, listNumber);
+            string marker = Marker(style, label, listNumber);
             var bands = new List<TextBand>();
             List<LayoutLine> lines;
 
@@ -557,6 +559,7 @@ internal sealed class PdfPageLayout(
         var content = new CellContent();
         int listNumber = 1;
         ListKind previousList = ListKind.None;
+        var numberer = new ListNumberer();
         int index = Math.Max(0, from);
         int end = Math.Min(to, document.ParagraphCount);
 
@@ -583,6 +586,7 @@ internal sealed class PdfPageLayout(
             else if (style.ListKind == ListKind.Numbered)
                 listNumber = 1;
             previousList = style.ListKind;
+            string? label = numberer.Advance(style);
 
             if (content.Height > 0)
                 content.Height += style.SpacingBefore;
@@ -590,7 +594,7 @@ internal sealed class PdfPageLayout(
             List<LayoutLine> lines = BreakParagraph(
                 paragraph,
                 width,
-                PdfModelProjector.FormatListMarker(style.ListKind, listNumber));
+                Marker(style, label, listNumber));
 
             if (lines.Count == 0)
             {
@@ -1108,6 +1112,16 @@ internal sealed class PdfPageLayout(
     }
 
     // ---- line breaking --------------------------------------------------------
+
+    /// <summary>
+    /// The marker a paragraph's first line starts with: its list's label where
+    /// the document numbered it in one, else the bullet or running number a
+    /// list with no definition has always been written with.
+    /// </summary>
+    private static string Marker(ParagraphStyle style, string? label, int listNumber) =>
+        style.List is not null
+            ? label is null ? string.Empty : label + " "
+            : PdfModelProjector.FormatListMarker(style.ListKind, listNumber);
 
     private List<LayoutLine> BreakParagraph(RichTextParagraph paragraph, double available, string marker) =>
         BreakParagraph(paragraph, _ => new TextBand(0, available), marker, bands: null);

@@ -210,7 +210,7 @@ public static class DocumentCommands
         switch (form)
         {
             case "text":
-                payload = loaded.Document.PlainText;
+                payload = LabelledText(loaded.Document);
                 break;
 
             case "json":
@@ -254,6 +254,35 @@ public static class DocumentCommands
             loaded.Diagnostics,
             DocumentOptions.FailOnFrom(context.Line),
             ExitCode.Ok);
+    }
+
+    /// <summary>
+    /// The document's text with each numbered paragraph's label before it, as
+    /// LibreOffice's text export writes it: the label, one space, the text.
+    /// </summary>
+    /// <remarks>
+    /// Only a paragraph in a list its document defined gets one. A list known
+    /// only by its kind has no label anybody stated, and the dump has never
+    /// invented one for it.
+    /// </remarks>
+    internal static string LabelledText(RichTextDocument document)
+    {
+        var numberer = new ListNumberer();
+        var builder = new StringBuilder();
+        for (int i = 0; i < document.ParagraphCount; i++)
+        {
+            RichTextParagraph paragraph = document.Paragraphs[i];
+            if (i > 0)
+                builder.Append('\n');
+
+            string? label = numberer.Advance(paragraph.Style);
+            if (paragraph.Style.List is not null && label is not null)
+                builder.Append(label).Append(' ');
+
+            builder.Append(paragraph.Text);
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>The shared tail of every command that produces a document.</summary>

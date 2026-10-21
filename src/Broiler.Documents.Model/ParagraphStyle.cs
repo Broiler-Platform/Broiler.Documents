@@ -63,6 +63,18 @@ public readonly record struct ParagraphStyle
 
     public ListKind ListKind { get; init; }
 
+    /// <summary>
+    /// The list the paragraph is numbered in, or null when it is in none or its
+    /// source said no more than <see cref="ListKind"/>.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ListKind"/> stays, and a reader that sets this sets it to the
+    /// level's <see cref="ListReference.Kind"/>, so code that only asks "bullet
+    /// or number" keeps its answer. A paragraph with no reference is numbered
+    /// the way it was before there was one: by indent, from one, at every list.
+    /// </remarks>
+    public ListReference? List { get; init; }
+
     /// <summary>Indent depth in list/indent levels; never negative.</summary>
     public int IndentLevel { get; init; }
 

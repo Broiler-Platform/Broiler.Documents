@@ -27,7 +27,7 @@ public static class DocxWriter
         ArgumentNullException.ThrowIfNull(destination);
         
         var context = new DocxWriteContext(
-            document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None),
+            document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None || p.Style.List is not null),
             (options ?? DocumentWriteOptions.Default).Resources);
         BuildRunningParts(document, context);
         XDocument documentXml = BuildDocumentXml(document, context);
@@ -52,7 +52,7 @@ public static class DocxWriter
             if (context.HasDocumentRelationships)
                 AddXmlEntry(archive, "word/_rels/document.xml.rels", BuildDocumentRelationships(context));
             if (context.HasNumbering)
-                AddXmlEntry(archive, "word/numbering.xml", BuildNumbering());
+                AddXmlEntry(archive, "word/numbering.xml", BuildNumbering(context));
             if (context.SettingsRelationshipId is not null)
                 AddXmlEntry(archive, "word/settings.xml", BuildSettings(context));
             foreach (DocxRunningPart part in context.RunningParts)
@@ -731,7 +731,7 @@ public static class DocxWriter
     private static XElement BuildParagraph(RichTextParagraph paragraph, DocxWriteContext context)
     {
         var element = new XElement(DocxNamespaces.Wordprocessing + "p");
-        XElement? properties = BuildParagraphProperties(paragraph.Style);
+        XElement? properties = BuildParagraphProperties(paragraph.Style, context);
 
         // The mark's w:rPr closes CT_PPr's base properties and comes before a
         // w:sectPr, which is added after this. A mark carries no link and no
@@ -788,7 +788,7 @@ public static class DocxWriter
     /// warning about it.
     /// </para>
     /// </summary>
-    private static XElement? BuildParagraphProperties(ParagraphStyle style)
+    private static XElement? BuildParagraphProperties(ParagraphStyle style, DocxWriteContext context)
     {
         var properties = new XElement(DocxNamespaces.Wordprocessing + "pPr");
 
@@ -801,14 +801,32 @@ public static class DocxWriter
         if (style.PageBreakBefore)
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "pageBreakBefore"));
 
-        if (style.ListKind != ListKind.None)
+        if (style.List is ListReference list)
+        {
+            if (list.RestartAt is not null)
+            {
+                context.AddDiagnosticOnce(
+                    "docx.list.restart",
+                    "A list item that restarts its list's count was written without the restart; DOCX restarts a list only through a list of its own.");
+            }
+
+            properties.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "numPr",
+                new XElement(DocxNamespaces.Wordprocessing + "ilvl", WordAttribute("val", list.Level.ToString(CultureInfo.InvariantCulture))),
+                new XElement(DocxNamespaces.Wordprocessing + "numId", WordAttribute("val", context.NumIdFor(list.Definition).ToString(CultureInfo.InvariantCulture)))));
+        }
+        else if (style.ListKind != ListKind.None)
         {
             int level = Math.Clamp(style.IndentLevel <= 0 ? 0 : style.IndentLevel - 1, 0, 8);
-            int numId = style.ListKind == ListKind.Numbered ? 2 : 1;
+            int numId = style.ListKind == ListKind.Numbered ? context.LegacyNumberedId() : 1;
             properties.Add(new XElement(
                 DocxNamespaces.Wordprocessing + "numPr",
                 new XElement(DocxNamespaces.Wordprocessing + "ilvl", WordAttribute("val", level.ToString(CultureInfo.InvariantCulture))),
                 new XElement(DocxNamespaces.Wordprocessing + "numId", WordAttribute("val", numId.ToString(CultureInfo.InvariantCulture)))));
+        }
+        else
+        {
+            context.EndLegacyList();
         }
 
         // w:shd is 10th, after w:numPr and before w:spacing.
@@ -847,7 +865,17 @@ public static class DocxWriter
             properties.Add(spacing);
         }
 
-        if (style.IndentLevel > 0)
+        // A numbered paragraph's indent is where its label starts, and DOCX
+        // states where the text starts and how far the label hangs back from
+        // it, so it is written as both.
+        if (style.List is not null || style.ListKind != ListKind.None)
+        {
+            properties.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "ind",
+                WordAttribute("left", ((Math.Max(0, style.IndentLevel) + 1) * 360).ToString(CultureInfo.InvariantCulture)),
+                WordAttribute("hanging", "360")));
+        }
+        else if (style.IndentLevel > 0)
         {
             properties.Add(new XElement(
                 DocxNamespaces.Wordprocessing + "ind",
@@ -1697,50 +1725,100 @@ public static class DocxWriter
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), settings);
     }
 
-    private static XDocument BuildNumbering()
+    /// <summary>
+    /// The numbering part: an abstract numbering and a <c>w:num</c> for each
+    /// list the document's paragraphs are numbered in (ECMA-376 §17.9), after the
+    /// two plain lists every paragraph that names no list is written in.
+    /// </summary>
+    private static XDocument BuildNumbering(DocxWriteContext context)
     {
         var root = new XElement(
             DocxNamespaces.Wordprocessing + "numbering",
             new XAttribute(XNamespace.Xmlns + "w", DocxNamespaces.Wordprocessing.NamespaceName));
 
-        root.Add(BuildAbstractNumber(1, "bullet", "\u2022"));
-        root.Add(BuildAbstractNumber(2, "decimal", "%1."));
-        root.Add(new XElement(
-            DocxNamespaces.Wordprocessing + "num",
-            WordAttribute("numId", "1"),
-            new XElement(DocxNamespaces.Wordprocessing + "abstractNumId", WordAttribute("val", "1"))));
-        root.Add(new XElement(
-            DocxNamespaces.Wordprocessing + "num",
-            WordAttribute("numId", "2"),
-            new XElement(DocxNamespaces.Wordprocessing + "abstractNumId", WordAttribute("val", "2"))));
+        var lists = context.Lists.ToList();
+        root.Add(BuildAbstractNumber(1, ListDefinition.PlainBullets, context));
+        root.Add(BuildAbstractNumber(2, ListDefinition.PlainNumbers, context));
+        foreach ((ListDefinition definition, int numId) in lists)
+            root.Add(BuildAbstractNumber(numId, definition, context));
+
+        root.Add(BuildNum(1, 1));
+        root.Add(BuildNum(2, 2));
+        foreach (int restart in context.LegacyRestarts)
+        {
+            root.Add(BuildNum(restart, 2, new XElement(
+                DocxNamespaces.Wordprocessing + "lvlOverride",
+                WordAttribute("ilvl", "0"),
+                new XElement(DocxNamespaces.Wordprocessing + "startOverride", WordAttribute("val", "1")))));
+        }
+
+        foreach ((ListDefinition _, int numId) in lists)
+            root.Add(BuildNum(numId, numId));
 
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root);
     }
 
-    private static XElement BuildAbstractNumber(int id, string format, string levelText)
+    private static XElement BuildNum(int numId, int abstractId, XElement? lvlOverride = null) =>
+        new(
+            DocxNamespaces.Wordprocessing + "num",
+            WordAttribute("numId", numId.ToString(CultureInfo.InvariantCulture)),
+            new XElement(DocxNamespaces.Wordprocessing + "abstractNumId", WordAttribute("val", abstractId.ToString(CultureInfo.InvariantCulture))),
+            lvlOverride);
+
+    private static XElement BuildAbstractNumber(int id, ListDefinition definition, DocxWriteContext context)
     {
         var abstractNum = new XElement(
             DocxNamespaces.Wordprocessing + "abstractNum",
             WordAttribute("abstractNumId", id.ToString(CultureInfo.InvariantCulture)));
 
-        for (int level = 0; level < 9; level++)
+        for (int level = 0; level < ListDefinition.MaxLevels; level++)
         {
-            abstractNum.Add(new XElement(
+            ListLevel style = definition.LevelAt(level);
+            var lvl = new XElement(
                 DocxNamespaces.Wordprocessing + "lvl",
                 WordAttribute("ilvl", level.ToString(CultureInfo.InvariantCulture)),
-                new XElement(DocxNamespaces.Wordprocessing + "start", WordAttribute("val", "1")),
-                new XElement(DocxNamespaces.Wordprocessing + "numFmt", WordAttribute("val", format)),
-                new XElement(DocxNamespaces.Wordprocessing + "lvlText", WordAttribute("val", levelText)),
+                new XElement(DocxNamespaces.Wordprocessing + "start", WordAttribute("val", style.Start.ToString(CultureInfo.InvariantCulture))),
+                new XElement(DocxNamespaces.Wordprocessing + "numFmt", WordAttribute("val", NumberFormat(style.Format))));
+
+            // CT_Lvl is a sequence: w:lvlRestart, w:pStyle and w:isLgl come
+            // between w:numFmt and w:lvlText.
+            if (style.RestartAfter is int restartAfter)
+            {
+                lvl.Add(new XElement(
+                    DocxNamespaces.Wordprocessing + "lvlRestart",
+                    WordAttribute("val", (restartAfter < 0 ? 0 : restartAfter + 1).ToString(CultureInfo.InvariantCulture))));
+            }
+
+            if (style.Legal)
+                lvl.Add(new XElement(DocxNamespaces.Wordprocessing + "isLgl"));
+
+            lvl.Add(new XElement(DocxNamespaces.Wordprocessing + "lvlText", WordAttribute("val", style.Template)));
+            lvl.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "pPr",
                 new XElement(
-                    DocxNamespaces.Wordprocessing + "pPr",
-                    new XElement(
-                        DocxNamespaces.Wordprocessing + "ind",
-                        WordAttribute("left", ((level + 1) * 360).ToString(CultureInfo.InvariantCulture)),
-                        WordAttribute("hanging", "360")))));
+                    DocxNamespaces.Wordprocessing + "ind",
+                    WordAttribute("left", ((level + 1) * 360).ToString(CultureInfo.InvariantCulture)),
+                    WordAttribute("hanging", "360"))));
+            abstractNum.Add(lvl);
         }
+
+        if (definition.Name is string name)
+            abstractNum.AddFirst(new XElement(DocxNamespaces.Wordprocessing + "name", WordAttribute("val", name)));
 
         return abstractNum;
     }
+
+    private static string NumberFormat(ListNumberFormat format) => format switch
+    {
+        ListNumberFormat.None => "none",
+        ListNumberFormat.DecimalZero => "decimalZero",
+        ListNumberFormat.LowerLetter => "lowerLetter",
+        ListNumberFormat.UpperLetter => "upperLetter",
+        ListNumberFormat.LowerRoman => "lowerRoman",
+        ListNumberFormat.UpperRoman => "upperRoman",
+        ListNumberFormat.Bullet => "bullet",
+        _ => "decimal",
+    };
 
     private static void AddXmlEntry(ZipArchive archive, string path, XDocument document)
     {
@@ -1827,6 +1905,58 @@ public static class DocxWriter
         }
 
         public static string NumberingRelationshipId => "rId1";
+
+        private readonly Dictionary<ListDefinition, int> _listNumIds = new(ReferenceEqualityComparer.Instance);
+        private readonly List<ListDefinition> _listOrder = [];
+        private readonly List<int> _legacyRestarts = [];
+        private int _nextNumId = 3;
+        private bool _legacyRunOpen;
+        private bool _legacyRunSeen;
+
+        /// <summary>The lists the document numbers paragraphs in, each with its <c>w:numId</c>, in the order first used.</summary>
+        public IEnumerable<(ListDefinition Definition, int NumId)> Lists =>
+            _listOrder.Select(definition => (definition, _listNumIds[definition]));
+
+        /// <summary>The <c>w:num</c>s that restart the plain numbered list, one per run of it after the first.</summary>
+        public IReadOnlyList<int> LegacyRestarts => _legacyRestarts;
+
+        /// <summary>The <c>w:numId</c> a list is written under, given on first use.</summary>
+        public int NumIdFor(ListDefinition definition)
+        {
+            if (_listNumIds.TryGetValue(definition, out int numId))
+                return numId;
+
+            numId = _nextNumId++;
+            _listNumIds[definition] = numId;
+            _listOrder.Add(definition);
+            return numId;
+        }
+
+        /// <summary>
+        /// The <c>w:numId</c> for a numbered paragraph that names no list. Such a
+        /// list counts from one again after every paragraph that is not in it,
+        /// and in DOCX a list counts on unless it is a list of its own, so each
+        /// run after the first gets a <c>w:num</c> that starts over.
+        /// </summary>
+        public int LegacyNumberedId()
+        {
+            if (_legacyRunOpen)
+                return _legacyRestarts.Count == 0 ? 2 : _legacyRestarts[^1];
+
+            _legacyRunOpen = true;
+            if (!_legacyRunSeen)
+            {
+                _legacyRunSeen = true;
+                return 2;
+            }
+
+            int numId = _nextNumId++;
+            _legacyRestarts.Add(numId);
+            return numId;
+        }
+
+        /// <summary>Notes a paragraph in no list, which ends a run of the plain numbered list.</summary>
+        public void EndLegacyList() => _legacyRunOpen = false;
 
         public IReadOnlyDictionary<string, string> HyperlinkRelationships => _hyperlinks;
 

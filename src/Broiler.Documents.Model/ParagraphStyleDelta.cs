@@ -43,6 +43,11 @@ public readonly record struct ParagraphStyleDelta
     public BColor? Background { get; init; }
 
     /// <summary>Applies this delta over <paramref name="style"/>.</summary>
+    /// <remarks>
+    /// Setting no list, or a list kind other than the one the paragraph has,
+    /// takes it out of its numbered list: the list was the document's, and an
+    /// edit that asks for bullets is not asking for the old list's numbers.
+    /// </remarks>
     public ParagraphStyle Apply(ParagraphStyle style) => style with
     {
         Background = Background ?? style.Background,
@@ -51,6 +56,7 @@ public readonly record struct ParagraphStyleDelta
         LineHeightRule = LineHeightRule ?? (LineSpacing.HasValue ? Model.LineHeightRule.Proportional : style.LineHeightRule),
         LineHeight = LineHeight ?? (LineSpacing.HasValue && !LineHeightRule.HasValue ? 0f : style.LineHeight),
         ListKind = ListKind ?? style.ListKind,
+        List = ListKind is { } kind && (kind == Model.ListKind.None || kind != style.ListKind) ? null : style.List,
         IndentLevel = IndentLevel ?? style.IndentLevel,
         SpacingBefore = SpacingBefore ?? style.SpacingBefore,
         SpacingAfter = SpacingAfter ?? style.SpacingAfter,

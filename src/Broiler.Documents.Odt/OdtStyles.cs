@@ -72,7 +72,11 @@ internal sealed class OdtStyles
     public int Count => _styles.Count;
 
     /// <summary>The number of list styles that were loaded.</summary>
-    public int ListStyleCount => _listStyles.Count;
+    public int ListStyleCount => _listStyles.ContainsKey(OutlineKey) ? _listStyles.Count - 1 : _listStyles.Count;
+
+    // The outline style is kept with the list styles, which it is one of in all
+    // but name, under a key no style:name can be.
+    private static readonly string OutlineKey = (char)1 + "outline";
 
     /// <summary>
     /// The <c>office:master-styles</c> element from <c>styles.xml</c>, where ODF
@@ -384,6 +388,9 @@ internal sealed class OdtStyles
 
             listStyles[name] = ListStyle.Read(listStyle);
         }
+
+        foreach (XElement outlineStyle in root.Descendants(OdtNamespaces.Text + "outline-style"))
+            listStyles[OutlineKey] = ListStyle.Read(outlineStyle);
     }
 
     /// <summary>
@@ -530,6 +537,24 @@ internal sealed class OdtStyles
         return style.KindAt(level);
     }
 
+    /// <summary>
+    /// The list definition <paramref name="listStyleName"/> stands for, or null
+    /// for a list that names no style or one the package never defined. A list
+    /// that starts counting afresh copies it.
+    /// </summary>
+    public ListDefinition? DefinitionForList(string? listStyleName) =>
+        !string.IsNullOrEmpty(listStyleName) && _listStyles.TryGetValue(listStyleName, out ListStyle? style)
+            ? style.Definition
+            : null;
+
+    /// <summary>
+    /// The document's outline numbering (<c>text:outline-style</c>), which
+    /// numbers its headings by <c>text:outline-level</c>; null when it has none
+    /// or numbers no level.
+    /// </summary>
+    public ListDefinition? OutlineDefinition =>
+        _listStyles.TryGetValue(OutlineKey, out ListStyle? style) && style.Numbers ? style.Definition : null;
+
     private XElement[] Resolve(string key, Func<List<XElement>> build)
     {
         if (_chainCache.TryGetValue(key, out XElement[]? cached))
@@ -613,50 +638,159 @@ internal sealed class OdtStyles
     private sealed record DefaultStyle(XElement? ParagraphProperties, XElement? TextProperties);
 
     /// <summary>
-    /// One <c>text:list-style</c>, reduced to the only question the model can
-    /// answer: whether each level is bulleted or numbered.
+    /// One <c>text:list-style</c>, or the document's <c>text:outline-style</c>:
+    /// how each level counts and what its label reads (ODF 1.3 §16.30-16.33).
     /// </summary>
     private sealed class ListStyle
     {
         private readonly Dictionary<int, ListKind> _levels;
 
-        private ListStyle(Dictionary<int, ListKind> levels) => _levels = levels;
+        private ListStyle(Dictionary<int, ListKind> levels, ListDefinition definition, bool numbers)
+        {
+            _levels = levels;
+            Definition = definition;
+            Numbers = numbers;
+        }
+
+        /// <summary>
+        /// The levels as a list definition. This one instance stands for the
+        /// style; each <c>text:list</c> that starts counting afresh is a copy.
+        /// </summary>
+        public ListDefinition Definition { get; }
+
+        /// <summary>True when some level draws a number, which an outline style needs to number anything.</summary>
+        public bool Numbers { get; }
 
         public static ListStyle Read(XElement listStyle)
         {
             var levels = new Dictionary<int, ListKind>();
+            var stated = new Dictionary<int, ListLevel>();
+            bool numbers = false;
             foreach (XElement level in listStyle.Elements())
             {
                 if (level.Name.Namespace != OdtNamespaces.Text)
                     continue;
 
-                ListKind? kind = level.Name.LocalName switch
-                {
-                    // style:num-format is empty for an unnumbered level, which is
-                    // how ODF writes a plain indent step.
-                    "list-level-style-number" =>
-                        string.IsNullOrEmpty((string?)level.Attribute(OdtNamespaces.Style + "num-format"))
-                            ? ListKind.Bullet
-                            : ListKind.Numbered,
-                    "list-level-style-bullet" or "list-level-style-image" => ListKind.Bullet,
-                    _ => null,
-                };
-
-                if (kind is null)
-                    continue;
-
-                if (int.TryParse(
+                if (!int.TryParse(
                         (string?)level.Attribute(OdtNamespaces.Text + "level"),
                         NumberStyles.Integer,
                         CultureInfo.InvariantCulture,
-                        out int number) &&
-                    number > 0)
+                        out int number) ||
+                    number <= 0)
                 {
-                    levels[number] = kind.Value;
+                    continue;
+                }
+
+                ListKind kind;
+                ListLevel definition;
+                switch (level.Name.LocalName)
+                {
+                    case "list-level-style-number":
+                    case "outline-level-style":
+                        definition = ReadNumberLevel(level, number);
+
+                        // style:num-format is empty for an unnumbered level,
+                        // which is how ODF writes a plain indent step.
+                        kind = definition.Format == ListNumberFormat.None ? ListKind.Bullet : ListKind.Numbered;
+                        numbers |= definition.Format != ListNumberFormat.None;
+                        break;
+                    case "list-level-style-bullet":
+                        string? bullet = (string?)level.Attribute(OdtNamespaces.Text + "bullet-char");
+                        definition = new ListLevel
+                        {
+                            Format = ListNumberFormat.Bullet,
+                            Template = string.IsNullOrEmpty(bullet) ? ((char)0x2022).ToString() : bullet,
+                        };
+                        kind = ListKind.Bullet;
+                        break;
+                    case "list-level-style-image":
+                        definition = new ListLevel { Format = ListNumberFormat.Bullet, Template = ((char)0x2022).ToString() };
+                        kind = ListKind.Bullet;
+                        break;
+                    default:
+                        continue;
+                }
+
+                levels[number] = kind;
+                if (number <= ListDefinition.MaxLevels)
+                    stated[number - 1] = definition;
+            }
+
+            // ODF only requires the levels a document uses to be present; a
+            // level left out is drawn as the deepest one above it that is.
+            var resolved = new ListLevel[ListDefinition.MaxLevels];
+            ListLevel? above = null;
+            for (int i = 0; i < resolved.Length; i++)
+            {
+                if (stated.TryGetValue(i, out ListLevel? level))
+                {
+                    above = level;
+                    resolved[i] = level;
+                    continue;
+                }
+
+                resolved[i] = above is null
+                    ? ListLevel.DecimalAt(i)
+                    : above with
+                    {
+                        Template = above.Format is ListNumberFormat.Bullet or ListNumberFormat.None
+                            ? above.Template
+                            : "%" + (i + 1).ToString(CultureInfo.InvariantCulture) + ".",
+                    };
+            }
+
+            string? name = (string?)listStyle.Attribute(OdtNamespaces.Style + "name");
+            return new ListStyle(levels, new ListDefinition(resolved, name), numbers);
+        }
+
+        /// <summary>
+        /// A numbered level. Its label is the prefix, the numbers of the
+        /// <c>text:display-levels</c> levels that end at this one joined by full
+        /// stops, and the suffix: display-levels 2 at the third level with the
+        /// suffix "." reads "%2.%3.".
+        /// </summary>
+        private static ListLevel ReadNumberLevel(XElement level, int number)
+        {
+            ListNumberFormat format = (string?)level.Attribute(OdtNamespaces.Style + "num-format") switch
+            {
+                null or "" => ListNumberFormat.None,
+                "1" => ListNumberFormat.Decimal,
+                "a" => ListNumberFormat.LowerLetter,
+                "A" => ListNumberFormat.UpperLetter,
+                "i" => ListNumberFormat.LowerRoman,
+                "I" => ListNumberFormat.UpperRoman,
+                _ => ListNumberFormat.Decimal,
+            };
+
+            int last = Math.Min(number, ListDefinition.MaxLevels);
+            int display = 1;
+            if (int.TryParse((string?)level.Attribute(OdtNamespaces.Text + "display-levels"),
+                    NumberStyles.Integer, CultureInfo.InvariantCulture, out int displayLevels))
+            {
+                display = Math.Clamp(displayLevels, 1, last);
+            }
+
+            int start = 1;
+            if (int.TryParse((string?)level.Attribute(OdtNamespaces.Text + "start-value"),
+                    NumberStyles.Integer, CultureInfo.InvariantCulture, out int startValue))
+            {
+                start = startValue;
+            }
+
+            var template = new System.Text.StringBuilder();
+            template.Append((string?)level.Attribute(OdtNamespaces.Style + "num-prefix"));
+            if (format != ListNumberFormat.None)
+            {
+                for (int i = last - display + 1; i <= last; i++)
+                {
+                    if (i > last - display + 1)
+                        template.Append('.');
+                    template.Append('%').Append(i.ToString(CultureInfo.InvariantCulture));
                 }
             }
 
-            return new ListStyle(levels);
+            template.Append((string?)level.Attribute(OdtNamespaces.Style + "num-suffix"));
+            return new ListLevel { Format = format, Template = template.ToString(), Start = start };
         }
 
         /// <summary>
