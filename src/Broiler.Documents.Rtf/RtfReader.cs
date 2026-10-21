@@ -61,6 +61,18 @@ public static class RtfReader
         private int _marginBottom;
         private int _headerDistance;
         private int _footerDistance;
+
+        // The page the first section states. A section's \pgwsxn and the rest
+        // are its own page and override the document's \paperw and the rest,
+        // which RTF 1.9.1 gives as their defaults; null is a value the section
+        // did not state.
+        private int? _sectionWidth;
+        private int? _sectionHeight;
+        private int? _sectionLeft;
+        private int? _sectionRight;
+        private int? _sectionTop;
+        private int? _sectionBottom;
+        private bool _pastFirstSection;
         private int _columns = 1;
         private int _columnGap = 720;
         private readonly StringBuilder _shapePropertyName = new();
@@ -460,6 +472,33 @@ public static class RtfReader
                 case "margb": if (has) _marginBottom = p; return;
                 case "headery": if (has) _headerDistance = p; return;
                 case "footery": if (has) _footerDistance = p; return;
+
+                // The section's own page, which is the one its text is laid out
+                // on whatever the document says. The document's page is the one
+                // it opens on, so it is the first section's; a later section's
+                // page belongs to that section, which this reader does not read,
+                // and letting it overwrite the first would turn the whole
+                // document landscape for one landscape section at its end.
+                case "pgwsxn": if (has && !_pastFirstSection) _sectionWidth = p; return;
+                case "pghsxn": if (has && !_pastFirstSection) _sectionHeight = p; return;
+                case "marglsxn": if (has && !_pastFirstSection) _sectionLeft = p; return;
+                case "margrsxn": if (has && !_pastFirstSection) _sectionRight = p; return;
+                case "margtsxn": if (has && !_pastFirstSection) _sectionTop = p; return;
+                case "margbsxn": if (has && !_pastFirstSection) _sectionBottom = p; return;
+                // \sectd puts the section back to its defaults, which for the
+                // page are the document's.
+                case "sectd":
+                    if (!_pastFirstSection)
+                        _sectionWidth = _sectionHeight = _sectionLeft = _sectionRight = _sectionTop = _sectionBottom = null;
+                    return;
+                case "sect": _pastFirstSection = true; return;
+                // Orientation is a flag beside the size, not an instruction to
+                // swap it: the width and height a landscape section states are
+                // already the landscape page's. LibreOffice draws
+                // \lndscpsxn\pgwsxn11907\pghsxn16840 as a portrait page.
+                case "lndscpsxn":
+                case "landscape":
+                    return;
 
                 // \cols is a count, not a length; \colsx is the gap, which the
                 // specification puts at 720 twips when the control word is absent.
@@ -886,16 +925,18 @@ public static class RtfReader
         /// </summary>
         private PageGeometry? BuildPageGeometry()
         {
-            if (_paperWidth <= 0 || _paperHeight <= 0)
+            int width = _sectionWidth ?? _paperWidth;
+            int height = _sectionHeight ?? _paperHeight;
+            if (width <= 0 || height <= 0)
                 return null;
 
             var geometry = new PageGeometry(
-                _paperWidth / 20d,
-                _paperHeight / 20d,
-                _marginLeft / 20d,
-                _marginRight / 20d,
-                _marginTop / 20d,
-                _marginBottom / 20d,
+                width / 20d,
+                height / 20d,
+                (_sectionLeft ?? _marginLeft) / 20d,
+                (_sectionRight ?? _marginRight) / 20d,
+                (_sectionTop ?? _marginTop) / 20d,
+                (_sectionBottom ?? _marginBottom) / 20d,
                 _headerDistance / 20d,
                 _footerDistance / 20d);
 

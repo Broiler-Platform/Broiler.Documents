@@ -41,7 +41,7 @@ than its `\ucN` count.
 | Document default font | `\deffN` resolves the declared font-table entry into `DocumentStyleDefaults.FontFamily`; `\plain` returns runs to that inherited family |
 | Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only, including the `\l` switch that spells a same-document reference: it is read as `#name` and written back the same way. The name may not contain a quote — the field argument is quoted and RTF has no escape for one inside it, so a quote would truncate the target silently; the shared rule refuses it for every format. Targets otherwise follow that rule, or `rtf.link`) |
 | Running content | `\header` `\headerf` `\headerl` `\headerr` `\footer` `\footerf` `\footerl` `\footerr` (→ `RunningContent`, not the body flow) |
-| Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN` (→ `PageGeometry`) |
+| Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN`, and the first section's `\pgwsxnN` `\pghsxnN` `\marglsxnN` `\margrsxnN` `\margtsxnN` `\margbsxnN` over them (→ `PageGeometry`) |
 | Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fLine` `lineColor` (→ `DocumentShape`) |
 
 ## Default font
@@ -115,7 +115,8 @@ Two things a reader should know about the limits of that mapping:
   break kinds (`\sbkpage`, `\sbkeven`, `\sbkodd`, `\sbkcol`) are ignored control
   words: the model has no sections, so a document that starts its new page by
   starting a new section reads as one continuous flow. The page a section states
-  is read - see below - but the section is not. The
+  is read - see below, where `\sect` and `\sectd` say which section's page is
+  the document's - but the section is not. The
   exporter this mapping was checked against does not do that for a
   paragraph-level break - LibreOffice writes `\sectd\sbknone` for the one section
   and `\pagebb` on the paragraph - but a document from elsewhere may.
@@ -165,6 +166,19 @@ The section control words that state the paper and its margins - `\paperw`,
 distances - are read into `PageGeometry`. They are twips, twenty to the point,
 and RTF states them one control word at a time, so they are held aside and made
 into a page when the document ends.
+
+A section states a page of its own with `\pgwsxn`, `\pghsxn`, `\marglsxn`,
+`\margrsxn`, `\margtsxn` and `\margbsxn`, and RTF 1.9.1 makes each of them
+default to the document's word of the same meaning - so what a section states
+is the page, and what it leaves out is the document's. The document's page is
+the one it opens on, which is the first section's: the section words before the
+first `\sect` are read over the document's, `\sectd` clears them back to the
+document's, and those after the first `\sect` are not read, because they belong
+to a section this reader does not hold and would otherwise turn the whole
+document landscape for one landscape section at its end. `\lndscpsxn` and
+`\landscape` are flags beside the size, not an instruction to swap it: the
+width and height a landscape section states are already the landscape page's,
+and LibreOffice draws `\lndscpsxn\pgwsxn11907\pghsxn16840` portrait.
 
 A document that states no paper size gets no page rather than a guessed one: a
 default invented here would be indistinguishable from a size the author chose. A
@@ -224,9 +238,10 @@ understand, which this is not.
 
 Unrecognized formatting control words are silently ignored (predictable
 degradation), for example `\lang`,
-`\viewkind`, `\widowctrl`, `\kerning`, `\sect`/`\sectd` and the section break
-kinds (`\sbkpage` and the rest), and the document and section options other than
-the page geometry above. The character-set words `\ansi`, `\mac`, `\pc` and
+`\viewkind`, `\widowctrl`, `\kerning`, and the section break kinds
+(`\sbkpage` and the rest), and the document and section options other than the
+page geometry above; `\sect` and `\sectd` matter only to which section's page is
+read. The character-set words `\ansi`, `\mac`, `\pc` and
 `\pca` are ignored too: the active code page comes from `\ansicpgN`, from a
 font's `\fcharsetN`, or from the caller's default, and nothing else sets it.
 Shape properties other than the seven named above are ignored as well.
