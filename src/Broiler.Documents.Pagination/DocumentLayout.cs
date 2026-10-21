@@ -507,8 +507,43 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // have would stop the layout.
                 List<RowBox> composedRows = ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width);
                 y = BelowFloats(y, composedRows, columns.Offset(column));
+
+                // The header rows repeat at the top of every column the table
+                // continues into. headerOnly says the column holds nothing else
+                // yet, so a row that does not fit beneath them is placed there
+                // rather than sent on to a column that would repeat them again.
+                int headerCount = HeaderRowCount(table);
+                bool headerOnly = false;
+
+                void ContinueTable(bool inHeader)
+                {
+                    BreakColumn();
+                    if (inHeader || truncated || setup.Continuous)
+                        return;
+
+                    List<RowBox> repeated = ComposeTable(
+                        new DocumentTable(table.ParagraphIndex, table.ParagraphCount, [.. table.Rows.Take(headerCount)],
+                            table.ColumnWidths, table.CellPadding),
+                        document, setup, setup.ContentLeftPoints, columns.Width);
+
+                    // Header rows as tall as the page leave nothing for the rows
+                    // they head, so they are not repeated.
+                    if (y + repeated.Sum(header => header.Height) >= contentBottom)
+                        return;
+
+                    foreach (RowBox header in repeated)
+                    {
+                        PlaceRow(header);
+                        y += header.Height;
+                    }
+
+                    headerOnly = true;
+                }
+
+                int rowNumber = 0;
                 foreach (RowBox composedRow in composedRows)
                 {
+                    bool inHeader = rowNumber++ < headerCount;
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
                     {
@@ -518,21 +553,23 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             {
                                 PlaceRow(fitted);
                                 y += fitted.Height;
+                                headerOnly = false;
                                 row = rest;
                                 if (row is not null)
-                                    BreakColumn();
+                                    ContinueTable(inHeader);
                                 continue;
                             }
 
-                            if (ColumnHasContent())
+                            if (ColumnHasContent() && !headerOnly)
                             {
-                                BreakColumn();
+                                ContinueTable(inHeader);
                                 continue;
                             }
                         }
 
                         PlaceRow(row);
                         y += row.Height;
+                        headerOnly = false;
                         row = null;
                     }
 
@@ -1130,6 +1167,25 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
 
         return (lines, cells, pieces, y);
+    }
+
+    /// <summary>
+    /// How many rows at the top of <paramref name="table"/> repeat on every page
+    /// it continues onto: the header rows it opens with, and none when every row
+    /// is one, since a table of nothing but its heading has nothing to head.
+    /// </summary>
+    /// <remarks>
+    /// Only the rows it opens with: Word repeats a <c>w:tblHeader</c> row only
+    /// in the unbroken run from the first row, and ODF's
+    /// <c>table:table-header-rows</c> can stand only there.
+    /// </remarks>
+    private static int HeaderRowCount(DocumentTable table)
+    {
+        int count = 0;
+        while (count < table.Rows.Count && table.Rows[count].IsHeader)
+            count++;
+
+        return count == table.Rows.Count ? 0 : count;
     }
 
     /// <summary>

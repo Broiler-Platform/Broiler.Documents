@@ -284,6 +284,12 @@ Open XML WordprocessingML package parts.
   is and written back. A row without it may break across a page, as in Word,
   including one whose cell holds a nested table: that breaks between the
   nested table's rows, each of which goes to one page whole.
+- A row's `w:tblHeader` is `TableRow.IsHeader`, read as an on/off property and
+  written back; it used to be written and never read. The header rows a table
+  opens with are drawn again at the top of every page or column the table
+  continues onto, unless they are as tall as the page; a table of nothing but
+  header rows repeats none. A table nested in a cell, and the PDF writer, do
+  not repeat them.
 - A floating table, `w:tblpPr` (ECMA-376 §17.4.57), is `DocumentTable.Position`:
   its anchors across and down, its offsets or the `tblpXSpec`/`tblpYSpec`
   alignment that replaces them, its distances from the text, and

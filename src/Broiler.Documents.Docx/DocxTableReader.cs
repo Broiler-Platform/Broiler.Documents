@@ -81,7 +81,11 @@ internal static class DocxTableReader
                 column += span;
             }
 
-            rows.Add(new RowDraft(cells, ReadRowMinHeight(row, ref exactHeightSeen), !ReadCantSplit(row)));
+            rows.Add(new RowDraft(
+                cells,
+                ReadRowMinHeight(row, ref exactHeightSeen),
+                !ReadRowSwitch(row, "cantSplit"),
+                ReadRowSwitch(row, "tblHeader")));
             if (rows.Count >= context.Builder.Limits.MaxParagraphCount)
                 break;
         }
@@ -208,23 +212,27 @@ internal static class DocxTableReader
         public List<DocumentTable> Tables = [];
     }
 
-    /// <summary>A row being read: its cells, the height it asked for, and whether it may break across a page.</summary>
-    private readonly record struct RowDraft(List<CellDraft> Cells, double MinHeight, bool CanSplit);
+    /// <summary>
+    /// A row being read: its cells, the height it asked for, whether it may break
+    /// across a page, and whether it repeats at the top of each page.
+    /// </summary>
+    private readonly record struct RowDraft(List<CellDraft> Cells, double MinHeight, bool CanSplit, bool IsHeader);
 
     /// <summary>
-    /// ECMA-376's <c>w:cantSplit</c>, which keeps a row on one page. It is
-    /// an on/off property, so a bare element is on and the file has to spell
-    /// <c>false</c> to turn it off.
+    /// One of ECMA-376's on/off row properties: <c>w:cantSplit</c>, which keeps
+    /// a row on one page, or <c>w:tblHeader</c>, which repeats it at the top of
+    /// every page the table continues onto. A bare element is on and the file
+    /// has to spell <c>false</c> to turn it off.
     /// </summary>
-    private static bool ReadCantSplit(XElement row)
+    private static bool ReadRowSwitch(XElement row, string name)
     {
-        XElement? cantSplit = row
+        XElement? element = row
             .Element(DocxNamespaces.Wordprocessing + "trPr")?
-            .Element(DocxNamespaces.Wordprocessing + "cantSplit");
-        if (cantSplit is null)
+            .Element(DocxNamespaces.Wordprocessing + name);
+        if (element is null)
             return false;
 
-        string? value = DocxValueReader.WordValue(cantSplit);
+        string? value = DocxValueReader.WordValue(element);
         return value is null ||
             !(value.Equals("false", StringComparison.OrdinalIgnoreCase) ||
               value.Equals("0", StringComparison.Ordinal) ||
@@ -280,6 +288,7 @@ internal static class DocxTableReader
             cell.Borders,
             cell.Merge == VerticalMerge.Continue,
             cell.Tables))],
+            isHeader: row.IsHeader,
             minHeight: row.MinHeight,
             canSplit: row.CanSplit);
 

@@ -25,7 +25,9 @@ toolkit behind it.
 - Tables, as a `DocumentTable` over the paragraphs of their cells: column widths
   from each `table:table-column`'s style, `table:number-columns-spanned` and
   `table:number-rows-spanned`, the background and borders a cell's
-  `style:table-cell-properties` state, header rows, the height a row's
+  `style:table-cell-properties` state, header rows (`table:table-header-rows`,
+  drawn again at the top of every page the table continues onto, as
+  LibreOffice draws them), the height a row's
   `style:table-row-properties` asks for, and tables nested in a cell.
   A `table:covered-table-cell` is what a merge covers, so it holds nothing and is
   read as the grid position it occupies and nothing more. The cells hold no text
