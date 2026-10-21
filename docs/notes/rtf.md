@@ -7,7 +7,7 @@ document model (ADR 0005), and what it emits when writing. The reader is total
 below are exercised by `RtfConformanceTests`, `RtfLimitTests`,
 `RtfPageBreakTests`, `RtfSecurityTests`, `RtfCapitalizationTests`,
 `RtfRunningContentTests`, `RtfPageGeometryTests`, `RtfShapeTests`, and
-`RtfRoundTripTests`, `RtfLineSpacingTests`, `RtfDefaultFontTests`, and
+`RtfRoundTripTests`, `RtfLineSpacingTests`, `RtfSpaceRunTests`, `RtfDefaultFontTests`, and
 `RtfFontNameTests`, plus `RtfResourceTableTests` for resource collection across
 body, running content and shape text, `RtfDefaultSizeTests` for inherited
 font sizes on export, `RtfSkippedDestinationTests` for what a skipped
@@ -40,6 +40,7 @@ than its `\ucN` count.
 | Resource tables | `\fonttbl` `\colortbl` |
 | Tables | `\trowd` `\cellxN` `\intbl` `\cell` `\row` `\trleftN` `\trgaphN` `\trrhN` `\trhdr` `\trkeep` `\clbrdrt` `\clbrdrb` `\clbrdrl` `\clbrdrr` with `\brdrwN` `\brdrcfN` and the border kinds, `\clcbpatN` (→ `DocumentTable`; see below). In a header, footer or shape's text `\cell` is a tab and `\row` a paragraph, as before |
 | Document default font | `\deffN` resolves the declared font-table entry into `DocumentStyleDefaults.FontFamily`; `\plain` returns runs to that inherited family |
+| Runs of spaces | `{\*\generator}` `\stshfdbchN` `\dntblnsbdb`, which say whether the document's runs of spaces are laid out wider (→ `DocumentStyleDefaults.WidensSpaceRuns`; see below). A write states it |
 | Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only, including the `\l` switch that spells a same-document reference: it is read as `#name` and written back the same way. The name may not contain a quote — the field argument is quoted and RTF has no escape for one inside it, so a quote would truncate the target silently; the shared rule refuses it for every format. Targets otherwise follow that rule, or `rtf.link`) |
 | Running content | `\header` `\headerf` `\headerl` `\headerr` `\footer` `\footerf` `\footerl` `\footerr` (→ `RunningContent`, not the body flow) |
 | Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN`, and the first section's `\pgwsxnN` `\pghsxnN` `\marglsxnN` `\margrsxnN` `\margtsxnN` `\margbsxnN` over them (→ `PageGeometry`) |
@@ -91,6 +92,28 @@ of a bank statement at exactly ten points with `\sl-200`, and it used to draw
 at its font's own height. The writer emits finite positive nondefault
 multipliers rounded to the nearest 1/240 with `\slmult1`, a stated height as
 `\slN\slmult0` with the sign saying which rule, and omits default spacing.
+
+## Runs of spaces
+
+LibreOffice lays out each space in a run of two or more in an RTF document a
+sixth of an em wider than its font makes it, which its importer gives as how
+Word lays out RTF, unless the document says it came from somewhere else
+(tdf#123703). It puts a U+2006 in front of each such space; the reader keeps
+the text as typed and sets
+`DocumentStyleDefaults.WidensSpaceRuns`, and both layouts widen the run. A lone
+space keeps its width, and so does a run in a Courier family, as LibreOffice
+leaves it. `tdf123703.rtf` pads each line with 118 spaces: LibreOffice puts the
+second word on a line of its own and draws two pages, and the run used to fit,
+which drew one.
+
+The document says otherwise in the three ways LibreOffice looks for: a
+`{\*\generator}` whose name does not start with "Microsoft", a `\stshfdbchN`
+other than 31505, or `\dntblnsbdb` (tdf#128428). The writer writes
+`{\*\generator Broiler.Documents;}` for a document that does not widen its runs
+and no generator for one that does, so a write read back, here or by
+LibreOffice, lays out as the document did. DOCX, ODF and HTML have no such
+setting, so a document converted to them keeps its spaces at their font's
+width.
 
 ## Page breaks
 

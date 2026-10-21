@@ -89,4 +89,33 @@ public sealed class DocumentStyleDefaultsTests
     {
         Assert.Same(DocumentStyleDefaults.Default, RichTextDocument.FromPlainText("body").StyleDefaults);
     }
+
+    [Theory]
+    [InlineData("a b", 0)]
+    [InlineData("a  b", 2)]
+    [InlineData("a   b c  ", 5)]
+    [InlineData("    ", 4)]
+    [InlineData(" \u00A0 ", 0)]
+    public void Only_Spaces_With_Another_Beside_Them_Are_Widened(string text, int widened)
+    {
+        var defaults = new DocumentStyleDefaults { WidensSpaceRuns = true };
+
+        Assert.Equal(widened * 2.0, defaults.SpaceRunExtraWidth(text, family: null, fontSizePoints: 12), 9);
+        Assert.False(defaults.IsDefault);
+    }
+
+    [Fact]
+    public void Runs_Keep_Their_Width_Unless_The_Document_Widens_Them()
+    {
+        Assert.Equal(0, DocumentStyleDefaults.Default.SpaceRunExtraWidth("a    b", null, 12));
+    }
+
+    [Fact]
+    public void Courier_Runs_Keep_Their_Width()
+    {
+        var defaults = new DocumentStyleDefaults { WidensSpaceRuns = true };
+
+        Assert.Equal(0, defaults.SpaceRunExtraWidth("a    b", "Courier New", 12));
+        Assert.Equal(8, defaults.SpaceRunExtraWidth("a    b", "Times New Roman", 12), 9);
+    }
 }

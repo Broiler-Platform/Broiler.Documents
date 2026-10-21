@@ -53,6 +53,13 @@ public static class RtfWriter
             .Append("\\uc1");
         WriteFontTable(sb, fonts);
         WriteColorTable(sb, colors);
+
+        // An RTF document that names no generator is read as Word's, with its
+        // runs of spaces laid out wider. One whose spaces are their font's own
+        // width says who wrote it instead, which is what LibreOffice looks for.
+        if (!document.StyleDefaults.WidensSpaceRuns)
+            sb.Append("{\\*\\generator Broiler.Documents;}");
+
         WritePageGeometry(sb, document.PageGeometry);
         WritePageBackground(sb, document.PageBackground);
         WriteRunningContent(sb, document.RunningContent, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);

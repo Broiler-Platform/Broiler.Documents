@@ -59,4 +59,7 @@ internal enum RtfDestination
 
     /// <summary>A shape's own text, from <c>\shptxt</c>.</summary>
     ShapeText,
+
+    /// <summary>The <c>\*\generator</c> destination: the name of what wrote the document.</summary>
+    Generator,
 }

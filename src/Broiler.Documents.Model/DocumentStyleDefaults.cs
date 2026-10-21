@@ -1,3 +1,5 @@
+using System;
+
 namespace Broiler.Documents.Model;
 
 /// <summary>
@@ -52,9 +54,67 @@ public sealed record DocumentStyleDefaults
     /// </summary>
     public string? FontFamily { get; init; }
 
+    /// <summary>
+    /// The extra width, in ems, each space in a run of two or more takes where
+    /// <see cref="WidensSpaceRuns"/> holds: a six-per-em space.
+    /// </summary>
+    public const double SpaceRunExtraEm = 1.0 / 6;
+
+    /// <summary>
+    /// Whether each space in a run of two or more is laid out a sixth of an em
+    /// wider than its font makes it. A lone space keeps its own width.
+    /// </summary>
+    /// <remarks>
+    /// Only RTF says it. LibreOffice reads it from an RTF document that does not
+    /// say it came from somewhere else, as Word's layout of RTF, by putting a
+    /// U+2006 in front of each such space (tdf#123703). Without it, a line padded
+    /// out with spaces fits where LibreOffice pushes the next word onto a line of
+    /// its own.
+    /// </remarks>
+    public bool WidensSpaceRuns { get; init; }
+
     /// <summary>True when this states nothing a consumer would not have assumed.</summary>
     public bool IsDefault =>
-        FontSizePoints == FallbackFontSizePoints && FontFamily is null;
+        FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns;
+
+    /// <summary>
+    /// What <see cref="WidensSpaceRuns"/> adds to the width of
+    /// <paramref name="text"/> drawn in <paramref name="family"/> at
+    /// <paramref name="fontSizePoints"/>: a sixth of an em for each space that
+    /// has another space beside it, and zero where spaces keep their own width.
+    /// </summary>
+    /// <remarks>
+    /// Courier is left alone, as LibreOffice leaves it: a monospaced font's
+    /// columns are what its spaces are for. Only U+0020 counts; a non-breaking
+    /// space or a tab beside a space does not make a run of it.
+    /// </remarks>
+    public double SpaceRunExtraWidth(string text, string? family, double fontSizePoints)
+    {
+        if (!WidensSpaceRuns || string.IsNullOrEmpty(text) ||
+            !double.IsFinite(fontSizePoints) || fontSizePoints <= 0 ||
+            (family is not null && family.Contains("Courier", StringComparison.OrdinalIgnoreCase)))
+            return 0;
+
+        int spaces = 0;
+        int run = 0;
+        foreach (char character in text)
+        {
+            if (character == ' ')
+            {
+                run++;
+                continue;
+            }
+
+            if (run > 1)
+                spaces += run;
+            run = 0;
+        }
+
+        if (run > 1)
+            spaces += run;
+
+        return spaces * fontSizePoints * SpaceRunExtraEm;
+    }
 
     /// <summary>
     /// The point size to draw or write a run at: its own, or the document's.

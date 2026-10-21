@@ -65,6 +65,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private PageFrame? _frame;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
     private ShapeFill? _background;
+    private DocumentStyleDefaults _styleDefaults = DocumentStyleDefaults.Default;
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
     private readonly Dictionary<DocumentShape, double> _grownHeights = [];
@@ -96,6 +97,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _frame = null;
         _documentShapes = document.Shapes;
         _background = document.PageBackground;
+        _styleDefaults = document.StyleDefaults;
         _paragraphTops.Clear();
         _grownHeights.Clear();
         foreach (DocumentShape shape in _documentShapes)
@@ -1893,7 +1895,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                     LayoutToken space = LayoutToken.Empty(isWhitespace: true);
                     foreach (LayoutPiece piece in MakePieces(fragment, run.Style))
+                    {
+                        piece.Width += SpaceRunExtraWidth(piece.Text, run.Style, piece.Font.Size);
                         space.Add(piece);
+                    }
+
                     tokens.Add(space);
                     continue;
                 }
@@ -1909,6 +1915,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         return tokens;
     }
+
+    /// <summary>
+    /// What the spaces in <paramref name="text"/> that stand in runs of two or
+    /// more add to its width, in a document that lays such runs out wider
+    /// (<see cref="DocumentStyleDefaults.WidensSpaceRuns"/>). The space is still
+    /// drawn as the font's; the gap after it is what grows.
+    /// </summary>
+    private double SpaceRunExtraWidth(string text, InlineStyle style, double fontSize) =>
+        _styleDefaults.SpaceRunExtraWidth(text, _styleDefaults.FontFamilyOf(style), fontSize);
 
     /// <summary>Splits run text into whitespace runs, tabs, image placeholders, and words.</summary>
     private static IEnumerable<Fragment> Fragments(string text, InlineStyle style)
