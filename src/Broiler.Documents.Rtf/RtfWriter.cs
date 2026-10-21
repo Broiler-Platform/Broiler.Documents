@@ -219,6 +219,11 @@ public static class RtfWriter
             AppendShapeProperty(sb, "lineColor", ShapeColor(shape.Outline));
         }
 
+        // A box sized by its text, as a frame is that leaves its height to its
+        // lines; the height written is the least it is.
+        if (shape.GrowsToText)
+            AppendShapeProperty(sb, "fFitShapeToText", "1");
+
         if (shape.HasText)
         {
             sb.Append("{\\shptxt ");
