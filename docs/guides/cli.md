@@ -335,6 +335,8 @@ anybody would write it. The `\:` escape still works and is never needed here.
   be what another writes — the diagnostics say which.
 - **para**: `align` (`left`/`center`/`right`); `list`
   (`none`/`bullet`/`numbered`); `indent` (level); `linespacing` (multiplier);
+  `lineheight` (points, exact) and `minlineheight` (points, the least a line
+  is), each replacing the multiplier, which in turn replaces them;
   `before`, `after` (points); `pagebreak` (`on`/`off`), which starts the
   paragraph on a new page. It is stated *before* the paragraph, because a break
   after paragraph five and a break before paragraph six are the same break and

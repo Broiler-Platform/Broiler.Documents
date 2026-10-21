@@ -422,7 +422,14 @@ public static class RtfWriter
         if (!style.Background.IsEmpty && style.Background.A > 0)
             sb.Append("\\cbpat").Append(colors.IndexOf(style.Background));
 
-        if (float.IsFinite(style.LineSpacing) && style.LineSpacing > 0 && style.LineSpacing != 1f)
+        // A height in twips, negative where it is exact, with \slmult0 saying
+        // it is not a multiple.
+        if (style.LineHeightRule != LineHeightRule.Proportional && float.IsFinite(style.LineHeight) && style.LineHeight > 0)
+        {
+            int twips = (int)Math.Clamp(Math.Round(style.LineHeight * 20.0), 1, 31680);
+            sb.Append("\\sl").Append(style.LineHeightRule == LineHeightRule.Exact ? -twips : twips).Append("\\slmult0");
+        }
+        else if (float.IsFinite(style.LineSpacing) && style.LineSpacing > 0 && style.LineSpacing != 1f)
             sb.Append("\\sl").Append((int)Math.Clamp(Math.Round(style.LineSpacing * 240.0), 1, int.MaxValue))
                 .Append("\\slmult1");
 

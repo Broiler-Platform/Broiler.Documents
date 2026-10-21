@@ -90,6 +90,20 @@ public sealed class EditOperationTests
     }
 
     [Fact]
+    public void A_Line_Height_Is_Exact_Or_At_Least_And_A_Multiplier_Replaces_It()
+    {
+        RichTextDocument document = Apply(
+            "a\nb\nc", "para:0:lineheight=10", "para:1:minlineheight=14", "para:2:lineheight=10", "para:2:linespacing=2");
+
+        Assert.Equal(LineHeightRule.Exact, document.Paragraphs[0].Style.LineHeightRule);
+        Assert.Equal(10f, document.Paragraphs[0].Style.LineHeight);
+        Assert.Equal(LineHeightRule.AtLeast, document.Paragraphs[1].Style.LineHeightRule);
+        Assert.Equal(14f, document.Paragraphs[1].Style.LineHeight);
+        Assert.Equal(LineHeightRule.Proportional, document.Paragraphs[2].Style.LineHeightRule);
+        Assert.Equal(2f, document.Paragraphs[2].Style.LineSpacing);
+    }
+
+    [Fact]
     public void Colors_Accept_Hex_And_Css_Names()
     {
         RichTextDocument document = Apply(

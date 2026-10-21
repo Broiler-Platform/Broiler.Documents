@@ -821,7 +821,9 @@ public static class DocxWriter
                 WordAttribute("fill", HexColor(style.Background))));
         }
 
+        bool fixedHeight = style.LineHeightRule != LineHeightRule.Proportional && style.LineHeight > 0;
         if (Math.Abs(style.LineSpacing - 1f) > 0.001f ||
+            fixedHeight ||
             Math.Abs(style.SpacingBefore) > 0.001f ||
             Math.Abs(style.SpacingAfter) > 0.001f)
         {
@@ -830,7 +832,13 @@ public static class DocxWriter
                 spacing.Add(WordAttribute("before", Twips(style.SpacingBefore).ToString(CultureInfo.InvariantCulture)));
             if (Math.Abs(style.SpacingAfter) > 0.001f)
                 spacing.Add(WordAttribute("after", Twips(style.SpacingAfter).ToString(CultureInfo.InvariantCulture)));
-            if (Math.Abs(style.LineSpacing - 1f) > 0.001f)
+            if (fixedHeight)
+            {
+                // A height in twips, under the rule that says what it is.
+                spacing.Add(WordAttribute("line", Math.Max(1, Twips(style.LineHeight)).ToString(CultureInfo.InvariantCulture)));
+                spacing.Add(WordAttribute("lineRule", style.LineHeightRule == LineHeightRule.Exact ? "exact" : "atLeast"));
+            }
+            else if (Math.Abs(style.LineSpacing - 1f) > 0.001f)
             {
                 spacing.Add(WordAttribute("line", Math.Max(1, (int)Math.Round(style.LineSpacing * 240f)).ToString(CultureInfo.InvariantCulture)));
                 spacing.Add(WordAttribute("lineRule", "auto"));

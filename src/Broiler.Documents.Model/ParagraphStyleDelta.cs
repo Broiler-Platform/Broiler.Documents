@@ -10,7 +10,18 @@ public readonly record struct ParagraphStyleDelta
 {
     public TextAlignment? Alignment { get; init; }
 
+    /// <summary>
+    /// The line spacing multiplier. Setting it alone makes the lines
+    /// proportional again: a paragraph set to double spacing is asking for its
+    /// lines to follow its text, not for a fixed height it held before.
+    /// </summary>
     public float? LineSpacing { get; init; }
+
+    /// <summary>How the lines are made tall; see <see cref="ParagraphStyle.LineHeightRule"/>.</summary>
+    public LineHeightRule? LineHeightRule { get; init; }
+
+    /// <summary>The height a line is at least, or exactly, in points.</summary>
+    public float? LineHeight { get; init; }
 
     public ListKind? ListKind { get; init; }
 
@@ -37,6 +48,8 @@ public readonly record struct ParagraphStyleDelta
         Background = Background ?? style.Background,
         Alignment = Alignment ?? style.Alignment,
         LineSpacing = LineSpacing ?? style.LineSpacing,
+        LineHeightRule = LineHeightRule ?? (LineSpacing.HasValue ? Model.LineHeightRule.Proportional : style.LineHeightRule),
+        LineHeight = LineHeight ?? (LineSpacing.HasValue && !LineHeightRule.HasValue ? 0f : style.LineHeight),
         ListKind = ListKind ?? style.ListKind,
         IndentLevel = IndentLevel ?? style.IndentLevel,
         SpacingBefore = SpacingBefore ?? style.SpacingBefore,

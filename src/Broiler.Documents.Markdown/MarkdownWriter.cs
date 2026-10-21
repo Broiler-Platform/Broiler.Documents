@@ -93,12 +93,13 @@ public static class MarkdownWriter
 
         if (style.Alignment != TextAlignment.Left ||
             Math.Abs(style.LineSpacing - 1f) > 0.001f ||
+            style.LineHeightRule != LineHeightRule.Proportional ||
             Math.Abs(style.SpacingBefore) > 0.001f ||
             Math.Abs(style.SpacingAfter) > 0.001f)
         {
             diagnostics.Add(DocumentDiagnostic.Warning(
                 "markdown.paragraph-style",
-                "Markdown writer dropped paragraph alignment, line spacing, or spacing values."));
+                "Markdown writer dropped paragraph alignment, line spacing or height, or spacing values."));
         }
 
         int offset = 0;

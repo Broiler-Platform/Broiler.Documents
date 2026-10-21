@@ -1704,14 +1704,31 @@ internal static class DocxReader
             if (TryReadTwips(spacing.Attribute(DocxNamespaces.Wordprocessing + "after"), out float after))
                 style = style with { SpacingAfter = after };
 
-            // An auto line is in 240ths of a line, and Strict writes that number
-            // as if it were twips: single spacing is w:line="12pt", which is 240.
+            // w:line is 240ths of a line under the auto rule, which is the one
+            // an omitted w:lineRule means, and twips under the other two
+            // (ECMA-376 §17.3.1.33). Each replaces what a style below stated.
+            // Strict writes an auto line as if it were twips too: single
+            // spacing is w:line="12pt", which is 240.
             string? lineRule = (string?)spacing.Attribute(DocxNamespaces.Wordprocessing + "lineRule");
-            if ((lineRule is null || lineRule == "auto") &&
-                DocxValueReader.TryReadTwips(spacing.Attribute(DocxNamespaces.Wordprocessing + "line"), out int line) &&
-                line > 0)
+            if (DocxValueReader.TryReadTwips(spacing.Attribute(DocxNamespaces.Wordprocessing + "line"), out int line) &&
+                line != 0)
             {
-                style = style with { LineSpacing = line / 240f };
+                style = lineRule switch
+                {
+                    "exact" => style with
+                    {
+                        LineSpacing = 1f, LineHeightRule = LineHeightRule.Exact, LineHeight = FixedLineHeight(line),
+                    },
+                    "atLeast" => style with
+                    {
+                        LineSpacing = 1f, LineHeightRule = LineHeightRule.AtLeast, LineHeight = FixedLineHeight(line),
+                    },
+                    _ when line > 0 => style with
+                    {
+                        LineSpacing = line / 240f, LineHeightRule = LineHeightRule.Proportional, LineHeight = 0f,
+                    },
+                    _ => style,
+                };
             }
         }
 
@@ -1991,6 +2008,10 @@ internal static class DocxReader
     private static bool TryReadStartIndent(XElement ind, out int twips) =>
         DocxValueReader.TryReadTwips(ind.Attribute(DocxNamespaces.Wordprocessing + "start"), out twips) ||
         DocxValueReader.TryReadTwips(ind.Attribute(DocxNamespaces.Wordprocessing + "left"), out twips);
+
+    /// <summary>An exact or at-least w:line in twips, as points, within Word's limit.</summary>
+    private static float FixedLineHeight(int twips) =>
+        (float)Math.Min(Math.Abs((long)twips) / 20d, ParagraphStyle.MaxLineHeight);
 
     private static bool TryReadTwips(XAttribute? attribute, out float points)
     {
