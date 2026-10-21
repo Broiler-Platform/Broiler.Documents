@@ -22,12 +22,12 @@ namespace Broiler.Documents.Odt;
 /// document carries).
 /// </remarks>
 internal sealed class OdtImageLoader(
-    ZipArchive archive,
+    ZipArchive? archive,
     OdtManifest manifest,
     DocumentLimits limits,
     DocumentConversionContextBuilder resources)
 {
-    private readonly ZipArchive _archive = archive;
+    private readonly ZipArchive? _archive = archive;
     private readonly OdtManifest _manifest = manifest;
     private readonly DocumentLimits _limits = limits;
     private readonly DocumentConversionContextBuilder _resources = resources;
@@ -138,10 +138,13 @@ internal sealed class OdtImageLoader(
     /// </summary>
     private PicturePart? LoadFromPackage(string href, IOdtImageDiagnostics diagnostics)
     {
-        if (Uri.TryCreate(href, UriKind.Absolute, out Uri? absolute) && !absolute.IsFile)
+        if (_archive is null ||
+            (Uri.TryCreate(href, UriKind.Absolute, out Uri? absolute) && !absolute.IsFile))
         {
             // A picture stored outside the package. Reading it would be a network
-            // or file fetch driven by document content (ADR 0004).
+            // or file fetch driven by document content (ADR 0004). A flat
+            // document has no package, so every path it names is outside one: it
+            // carries the pictures it holds as office:binary-data instead.
             diagnostics.AddDiagnosticOnce(
                 "odt.image.external",
                 "An ODT picture linked to an image outside the package, which is not fetched.");
@@ -160,14 +163,14 @@ internal sealed class OdtImageLoader(
         if (_parts.TryGetValue(path, out PicturePart? cached))
             return cached;
 
-        PicturePart? part = ReadPackageEntry(path, diagnostics);
+        PicturePart? part = ReadPackageEntry(_archive, path, diagnostics);
         _parts[path] = part;
         return part;
     }
 
-    private PicturePart? ReadPackageEntry(string path, IOdtImageDiagnostics diagnostics)
+    private PicturePart? ReadPackageEntry(ZipArchive archive, string path, IOdtImageDiagnostics diagnostics)
     {
-        ZipArchiveEntry? entry = OdtPackage.FindEntry(_archive, path);
+        ZipArchiveEntry? entry = OdtPackage.FindEntry(archive, path);
         if (entry is null)
         {
             diagnostics.AddDiagnosticOnce(

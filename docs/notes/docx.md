@@ -7,6 +7,22 @@ Open XML WordprocessingML package parts.
 
 - Main document package discovery through `_rels/.rels` with fallback to
   `word/document.xml`.
+- ISO/IEC 29500 Strict packages, read only. Strict is the same
+  WordprocessingML under `http://purl.oclc.org/ooxml/` namespace names, and
+  each XML part is renamed to the Transitional names as it is loaded:
+  `purl.oclc.org/ooxml/X/Y` becomes `schemas.openxmlformats.org/X/2006/Y`, with
+  `extendedProperties` and `customProperties` spelled with hyphens. Relationship
+  types are renamed the same way. Content types and the OPC namespaces are the
+  same in both. A Strict read reports `docx.strict`. Writing always produces
+  Transitional.
+- Lengths written as universal measures (a decimal and one of `mm`, `cm`, `in`,
+  `pt`, `pc`, `pi`, such as `w:before="18pt"` or `w:start="-14.15pt"`) wherever
+  the reader reads twips or half-points: paragraph spacing and auto line
+  spacing, the leading indent, font size, page size and margins, columns, grid
+  column widths, cell margins, row heights and floating table positions. Strict
+  writes lengths this way throughout, and Transitional allows it too. An auto
+  `w:line` is in 240ths of a line, and Strict writes that number as if it were
+  twips, so single spacing is `12pt`.
 - Paragraphs, empty paragraphs, tabs, and soft line breaks.
 - The paragraph mark's formatting, `w:pPr/w:rPr`, as
   `RichTextParagraph.MarkStyle`: the run formatting the paragraph style gives,
@@ -446,6 +462,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | `docx.read.summary` | Info | Paragraph, table, style, image, and skipped-block counts for the read. |
+| `docx.strict` | Info | The package uses the ISO/IEC 29500 Strict namespaces, and they were read as their Transitional equivalents. |
 | `document.metadata.emitted` | Info | Document properties the caller supplied reached `docProps`; the message names the fields. |
 | `document.metadata.dropped` | Warning | A property OOXML states no equivalent for was not written. `CreatorApplication` is the one: OOXML names a producing application only. |
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |

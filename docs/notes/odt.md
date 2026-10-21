@@ -10,6 +10,16 @@ toolkit behind it.
 - Package layout: the `mimetype` entry, `META-INF/manifest.xml`, `content.xml`,
   and `styles.xml`. Part paths are the normative ones, so nothing has to be
   resolved through relationships the way an OPC package does.
+- The flat single-file form (`.fodt`), read only: one XML file whose
+  `office:document` root holds `office:meta`, `office:styles`,
+  `office:automatic-styles`, `office:master-styles` and `office:body` side by
+  side. The reader takes each from there instead of from separate parts and the
+  rest of the read is the same. A flat file has no package, so a picture in it is
+  inline `office:binary-data` or a link that is not followed
+  (`odt.image.external`). Its root's `office:mimetype` must be the text or text
+  template media type when it is present (`odt.flat.media-type`). Writing always
+  produces a package, so the descriptor claims `.odt` only, and `-o out.fodt` is
+  not accepted.
 - Paragraphs (`text:p`) and headings (`text:h`). A heading is read as an ordinary
   paragraph carrying whatever its named style resolves to; the model has no
   heading rank. ODF has no paragraph mark of its own, so a paragraph's
@@ -343,10 +353,10 @@ toolkit behind it.
   attack surface.
 - Color alpha is not represented by ODF; RGB channels are written with a
   diagnostic. Control characters XML cannot hold are dropped with a diagnostic.
-- The flat single-file variants (`.fodt`) and the other OpenDocument document
-  types (`.ods`, `.odp`, `.odg`) are out of scope. A text *template* (`.ott`)
-  probes as ODT and reads correctly, because its body is the same, but the
-  descriptor claims only `.odt`.
+- The other OpenDocument document types (`.ods`, `.odp`, `.odg`), packaged or
+  flat, are out of scope. A text *template* (`.ott`) probes as ODT and reads
+  correctly, because its body is the same, but the descriptor claims only
+  `.odt`. Flat text documents are read but never written.
 
 ## Read Diagnostics
 
@@ -365,8 +375,10 @@ blank:
 | `odt.package.encrypted` | Error | The package is encrypted; nothing was read. |
 | `odt.package.content` | Error | The package has no `content.xml`. |
 | `odt.package.zip` | Error | The bytes are not a readable ZIP package. |
+| `odt.flat.root` | Error | The bytes are XML, but the root element is not `office:document`, so they are not a flat ODT document. |
+| `odt.flat.media-type` | Error | A flat file's `office:mimetype` names another OpenDocument type, such as a spreadsheet. |
 | `odt.document.body` | Error | `content.xml` has no `office:text` body. |
-| `odt.xml` | Error | A part's XML could not be parsed; the message names the exception type. |
+| `odt.xml` | Error | A part's XML, or a flat document, could not be parsed; the message names the exception type. |
 | `odt.limit.bytes` | Error | Input exceeded `MaxDocumentBytes` and was not parsed. |
 | `odt.content.xml` / `odt.styles` / `odt.manifest` / `odt.meta.xml` | Error | A part could not be parsed, or exceeded `MaxBinBytes` (`.limit` suffix). |
 | `odt.meta.date` | Warning | A `meta:creation-date` or `dc:date` stated a timestamp this build could not read, so it was dropped rather than guessed at. |
@@ -434,7 +446,15 @@ identifiable from its first bytes:
   entry is high confidence.
 - A ZIP with an `.odt` filename or MIME hint and nothing else is high confidence;
   a generic ZIP with no hint is not claimed.
-- Non-ZIP bytes with an `.odt` hint are low confidence.
+- Non-ZIP bytes with an `.odt` or `.fodt` hint are low confidence.
+- XML whose root is `office:document` in the OpenDocument office namespace is a
+  flat document. With the text media type in `office:mimetype` it is **certain**;
+  with the text template type it is high. Another media type is not claimed, even
+  with a `.fodt` hint. A root whose media type does not appear in the probe
+  prefix, because the prefix ended first or the attribute is absent, is medium
+  confidence, or high with an `.odt` or `.fodt` hint. LibreOffice writes the
+  attribute after its namespace declarations, at about byte 2,150, so the default
+  4,096-byte prefix sees it.
 
 ## Standards and rights
 

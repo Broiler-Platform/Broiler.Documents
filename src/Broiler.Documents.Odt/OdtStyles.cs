@@ -149,6 +149,29 @@ internal sealed class OdtStyles
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics)
     {
+        ZipArchiveEntry? stylesEntry = OdtPackage.FindEntry(archive, OdtNamespaces.StylesPart);
+        XElement? stylesRoot = stylesEntry is null
+            ? null
+            : OdtPackage.LoadEntryXml(stylesEntry, limits, diagnostics, "odt.styles")?.Root;
+        return Load(stylesRoot, content.Root, limits, diagnostics);
+    }
+
+    /// <summary>
+    /// Builds the table from the root of each part that holds styles.
+    /// </summary>
+    /// <remarks>
+    /// A flat document passes its one <c>office:document</c> root as
+    /// <paramref name="stylesRoot"/> and nothing as <paramref name="contentRoot"/>:
+    /// it holds <c>office:styles</c>, <c>office:automatic-styles</c> and
+    /// <c>office:master-styles</c> side by side, which is everything the two
+    /// package parts hold between them.
+    /// </remarks>
+    public static OdtStyles Load(
+        XElement? stylesRoot,
+        XElement? contentRoot,
+        DocumentLimits limits,
+        List<DocumentDiagnostic> diagnostics)
+    {
         var styles = new Dictionary<StyleKey, StyleDefinition>();
         var defaults = new Dictionary<string, DefaultStyle>(StringComparer.Ordinal);
         var fontFaces = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -163,34 +186,29 @@ internal sealed class OdtStyles
         XElement? masterStyles = null;
         List<XElement> pageLayouts = [];
 
-        ZipArchiveEntry? stylesEntry = OdtPackage.FindEntry(archive, OdtNamespaces.StylesPart);
-        if (stylesEntry is not null)
-        {
-            XDocument? stylesXml = OdtPackage.LoadEntryXml(stylesEntry, limits, diagnostics, "odt.styles");
-            if (stylesXml?.Root is not null)
-            {
-                Collect(
-                    stylesXml.Root,
-                    styles,
-                    defaults,
-                    fontFaces,
-                    listStyles,
-                    graphicProperties,
-                    cellProperties,
-                    columnProperties,
-                    rowProperties,
-                    sectionProperties,
-                    gradients,
-                    drawingPageProperties);
-                masterStyles = stylesXml.Root.Element(OdtNamespaces.Office + "master-styles");
-                pageLayouts = [.. stylesXml.Root.Descendants(OdtNamespaces.Style + "page-layout")];
-            }
-        }
-
-        if (content.Root is not null)
+        if (stylesRoot is not null)
         {
             Collect(
-                content.Root,
+                stylesRoot,
+                styles,
+                defaults,
+                fontFaces,
+                listStyles,
+                graphicProperties,
+                cellProperties,
+                columnProperties,
+                rowProperties,
+                sectionProperties,
+                gradients,
+                drawingPageProperties);
+            masterStyles = stylesRoot.Element(OdtNamespaces.Office + "master-styles");
+            pageLayouts = [.. stylesRoot.Descendants(OdtNamespaces.Style + "page-layout")];
+        }
+
+        if (contentRoot is not null)
+        {
+            Collect(
+                contentRoot,
                 styles,
                 defaults,
                 fontFaces,

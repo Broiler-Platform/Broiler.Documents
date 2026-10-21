@@ -9,6 +9,8 @@ namespace Broiler.Documents.Odt;
 /// ODT codec for OASIS OpenDocument text packages (ODF 1.0 through 1.3,
 /// ISO/IEC 26300). It handles the text, paragraph, list, table, hyperlink,
 /// style, and picture subset represented by <see cref="RichTextDocument"/>.
+/// It also reads the flat single-file form (<c>.fodt</c>), which holds the same
+/// content in one XML file; it writes packages only.
 /// </summary>
 public sealed class OdtDocumentCodec : DocumentCodec
 {
@@ -33,11 +35,17 @@ public sealed class OdtDocumentCodec : DocumentCodec
 
         ReadOnlySpan<byte> span = request.Prefix.Span;
         DocumentSourceHints hints = request.Hints;
-        bool hasOdtHint = Descriptor.MatchesExtension(GetExtension(hints.FileName)) ||
+        string? extension = GetExtension(hints.FileName);
+        bool hasOdtHint = Descriptor.MatchesExtension(extension) ||
+            OdtFlatDocument.Extension.Equals(extension, StringComparison.OrdinalIgnoreCase) ||
             Descriptor.MatchesMimeType(hints.MimeType);
 
         if (!StartsWith(span, ZipLocalHeader))
         {
+            DocumentProbeResult? flat = ProbeFlat(span, hasOdtHint);
+            if (flat is not null)
+                return flat;
+
             if (hasOdtHint)
             {
                 return DocumentProbeResult.Match(
@@ -102,6 +110,53 @@ public sealed class OdtDocumentCodec : DocumentCodec
 
         return DocumentProbeResult.NoMatch(
             "ZIP package signature was present, but no ODT hint or OpenDocument package evidence was found.");
+    }
+
+    /// <summary>
+    /// Judges a prefix that is not a ZIP package as a flat document. Returns
+    /// null when the prefix shows no <c>office:document</c> root, so the hints
+    /// decide as they always have.
+    /// </summary>
+    private DocumentProbeResult? ProbeFlat(ReadOnlySpan<byte> span, bool hasOdtHint)
+    {
+        FlatPrefixInfo info = OdtFlatDocument.InspectPrefix(span);
+        if (!info.IsDocumentRoot)
+            return null;
+
+        if (info.MediaType is null)
+        {
+            // The root is right and the prefix ended before it said what kind
+            // of document it is, or the producer left the attribute out.
+            return DocumentProbeResult.Match(
+                hasOdtHint ? DocumentProbeConfidence.High : DocumentProbeConfidence.Medium,
+                Descriptor.Name,
+                OdtNamespaces.PackageMediaType,
+                info.BytesConsumed,
+                "Matched a flat OpenDocument root that did not state its media type within the prefix.");
+        }
+
+        if (info.MediaType.Equals(OdtNamespaces.PackageMediaType, StringComparison.Ordinal))
+        {
+            return DocumentProbeResult.Match(
+                DocumentProbeConfidence.Certain,
+                Descriptor.Name,
+                OdtNamespaces.PackageMediaType,
+                info.BytesConsumed,
+                "Matched a flat OpenDocument text document.");
+        }
+
+        if (info.MediaType.Equals(OdtNamespaces.TemplateMediaType, StringComparison.Ordinal))
+        {
+            return DocumentProbeResult.Match(
+                DocumentProbeConfidence.High,
+                Descriptor.Name,
+                OdtNamespaces.TemplateMediaType,
+                info.BytesConsumed,
+                "Matched a flat OpenDocument text template, which holds the same body a document does.");
+        }
+
+        return DocumentProbeResult.NoMatch(
+            "The flat OpenDocument file declared a non-text media type.");
     }
 
     public override DocumentReadResult Read(Stream source, DocumentReadOptions? options = null)

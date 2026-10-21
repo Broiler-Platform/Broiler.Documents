@@ -52,6 +52,15 @@ internal static class OdtMetadata
             .Root?
             .Element(OdtNamespaces.Office + "meta");
 
+        return Read(meta, diagnostics);
+    }
+
+    /// <summary>
+    /// Reads an <c>office:meta</c> element: the root's child in <c>meta.xml</c>,
+    /// or in a flat document the child of <c>office:document</c> itself.
+    /// </summary>
+    public static DocumentMetadata Read(XElement? meta, List<DocumentDiagnostic> diagnostics)
+    {
         if (meta is null)
             return DocumentMetadata.Empty;
 
