@@ -1,3 +1,5 @@
+using Broiler.Graphics.Color;
+
 namespace Broiler.Documents.Model;
 
 /// <summary>
@@ -24,9 +26,15 @@ public readonly record struct ParagraphStyleDelta
     /// <summary>Whether the paragraph starts the next text column.</summary>
     public bool? ColumnBreakBefore { get; init; }
 
+    /// <summary>
+    /// The paragraph's shading; <see cref="BColor.Empty"/> takes it away.
+    /// </summary>
+    public BColor? Background { get; init; }
+
     /// <summary>Applies this delta over <paramref name="style"/>.</summary>
     public ParagraphStyle Apply(ParagraphStyle style) => style with
     {
+        Background = Background ?? style.Background,
         Alignment = Alignment ?? style.Alignment,
         LineSpacing = LineSpacing ?? style.LineSpacing,
         ListKind = ListKind ?? style.ListKind,

@@ -80,7 +80,9 @@ toolkit behind it.
   an open-and-save does not rewrite it. A style declaring both draws all capitals.
 - Paragraph formatting: `fo:text-align` (`start`/`left`/`center`/`end`/`right`),
   `fo:line-height` as a percentage, `fo:margin-top`, `fo:margin-bottom`,
-  `fo:margin-left`, and the single-value `fo:margin` shorthand. Lengths are read
+  `fo:margin-left`, the single-value `fo:margin` shorthand, and `fo:background-color`
+  as `ParagraphStyle.Background`, read and written, with `transparent` taking away
+  an inherited one. Lengths are read
   in `pt`, `in`, `cm`, `mm`, `pc`, and `px`.
 - Page breaks. `fo:break-before` on `style:paragraph-properties` is
   `ParagraphStyle.PageBreakBefore`, resolved through the same inheritance chain

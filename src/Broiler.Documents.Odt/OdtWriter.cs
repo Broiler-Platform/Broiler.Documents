@@ -1012,6 +1012,9 @@ public static class OdtWriter
         else if (style.ColumnBreakBefore)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "break-before", "column"));
 
+        if (!style.Background.IsEmpty && style.Background.A > 0)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "background-color", OdtUnits.FormatColor(style.Background)));
+
         return properties;
     }
 

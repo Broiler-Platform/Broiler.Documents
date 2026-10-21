@@ -1637,6 +1637,21 @@ internal static class DocxReader
         return ApplyParagraphProperties(pPr, context.Numbering, style);
     }
 
+    /// <summary>The colour a paragraph's <c>w:shd</c> shows, or empty for none.</summary>
+    private static BColor ReadParagraphShading(XElement shading)
+    {
+        string? pattern = DocxValueReader.WordValue(shading);
+        if (pattern is "nil")
+            return BColor.Empty;
+
+        string? attribute = pattern is "solid" ? "color" : "fill";
+        return DocxValueReader.TryParseHexColor(
+            (string?)shading.Attribute(DocxNamespaces.Wordprocessing + attribute),
+            out BColor color)
+            ? color
+            : BColor.Empty;
+    }
+
     private static ParagraphStyle ApplyParagraphProperties(
         XElement? pPr,
         DocxNumbering numbering,
@@ -1671,6 +1686,15 @@ internal static class DocxReader
         XElement? pageBreakBefore = pPr.Element(DocxNamespaces.Wordprocessing + "pageBreakBefore");
         if (pageBreakBefore is not null)
             style = style with { PageBreakBefore = ReadOnOff(pageBreakBefore) };
+
+        // Paragraph shading (ECMA-376 §17.3.1.31). The fill is the colour behind
+        // the pattern, and a "clear" pattern - nearly every one Word writes -
+        // shows nothing else. "solid" shows the pattern's own colour. A fill of
+        // "auto" with no pattern is no shading, which is how a paragraph takes
+        // away the shading its style gave.
+        XElement? shading = pPr.Element(DocxNamespaces.Wordprocessing + "shd");
+        if (shading is not null)
+            style = style with { Background = ReadParagraphShading(shading) };
 
         XElement? spacing = pPr.Element(DocxNamespaces.Wordprocessing + "spacing");
         if (spacing is not null)

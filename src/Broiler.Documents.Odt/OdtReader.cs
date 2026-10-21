@@ -1656,6 +1656,16 @@ internal static class OdtReader
         if (OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + "margin-bottom"), out double bottom))
             style = style with { SpacingAfter = (float)Math.Max(0, bottom) };
 
+        // The paragraph's shading (§20.183); "transparent" takes away what the
+        // chain gave, as an explicit value has to be able to.
+        string? background = (string?)properties.Attribute(OdtNamespaces.Fo + "background-color");
+        if (background is not null)
+        {
+            style = OdtUnits.TryParseColor(background, out BColor fill)
+                ? style with { Background = fill }
+                : style with { Background = BColor.Empty };
+        }
+
         return ApplyLineHeight(properties, style, builder);
     }
 

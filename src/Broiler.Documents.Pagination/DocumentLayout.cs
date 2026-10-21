@@ -1691,6 +1691,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 paragraphIndex,
                 i == rows.Count - 1);
             line.LeadingSkip = i < skips.Count ? skips[i] : 0;
+
+            // The shading runs from the indent to the column's edge, whatever
+            // the line holds and whatever a wrapping shape cut from it.
+            if (!style.Background.IsEmpty && style.Background.A > 0)
+            {
+                line.Background = style.Background;
+                line.BackgroundLeft = columnLeft;
+                line.BackgroundWidth = columnWidth;
+            }
+
             lines.Add(line);
         }
 

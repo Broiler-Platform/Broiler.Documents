@@ -91,7 +91,7 @@ Open XML WordprocessingML package parts.
 
   | Container | Order written | Positions in the sequence |
   | --- | --- | --- |
-  | `w:pPr` | `w:pageBreakBefore`, `w:numPr`, `w:spacing`, `w:ind`, `w:jc` | 4, 7, 22, 23, 27 |
+  | `w:pPr` | `w:pageBreakBefore`, `w:numPr`, `w:shd`, `w:spacing`, `w:ind`, `w:jc` | 4, 7, 10, 22, 23, 27 |
   | `w:rPr` | `w:rFonts`, `w:b`, `w:i`, `w:caps`/`w:smallCaps`, `w:strike`, `w:color`, `w:sz`, `w:u`, `w:shd` | 2, 3, 5, 7/8, 9, 19, 24, 27, 30 |
 
   `DocxPropertyOrderTests` asserts both sequences. It walks whatever
@@ -178,6 +178,15 @@ Open XML WordprocessingML package parts.
   over `a:bgClr` - and is read as its background colour, which is nearly all of
   what shows, or as its foreground where it states no background; it is reported
   as `docx.shape.fill`.
+- Paragraph shading, `w:pPr/w:shd` (ECMA-376 §17.3.1.31), directly and through
+  the style chain, is `ParagraphStyle.Background`: the fill behind a `clear`
+  pattern, the pattern's colour for `solid`, and nothing for `nil` or an `auto`
+  fill, which is how a paragraph takes away its style's shading. Other patterns
+  are read as their fill. It is written back as a `clear` `w:shd`. The layout
+  paints it as LibreOffice does, measured: over the paragraph's lines from its
+  indent to the column's edge, its space before and after left white unless the
+  next paragraph is shaded the same, when the space between is shaded too. The
+  PDF writer does not paint it yet. It was read for runs and cells only before.
 - A drawing group, `wpg:wgp`, is read as a floating shape for each `wps:wsp`
   box in it, nested `wpg:grpSp` groups included. Each child's `a:xfrm` is mapped
   through the `a:chOff`/`a:chExt` child space of every group above it into the

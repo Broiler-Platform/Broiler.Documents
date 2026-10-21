@@ -84,7 +84,7 @@ public static class RtfWriter
         {
             RichTextParagraph paragraph = document.Paragraphs[i];
             sb.Append("\\pard\\plain");
-            WriteParagraphProperties(sb, paragraph.Style);
+            WriteParagraphProperties(sb, paragraph.Style, colors);
             WritePageBreak(sb, paragraph.Style, first: i == 0);
             sb.Append(' ');
             foreach (DocumentShape shape in document.Shapes)
@@ -136,6 +136,9 @@ public static class RtfWriter
     {
         foreach (RichTextParagraph paragraph in paragraphs)
         {
+            if (!paragraph.Style.Background.IsEmpty && paragraph.Style.Background.A > 0)
+                colors.Intern(paragraph.Style.Background);
+
             foreach (StyleRun run in paragraph.Runs)
             {
                 InlineStyle style = run.Style;
@@ -230,7 +233,7 @@ public static class RtfWriter
             foreach (RichTextParagraph paragraph in shape.Paragraphs)
             {
                 sb.Append("\\pard\\plain");
-                WriteParagraphProperties(sb, paragraph.Style);
+                WriteParagraphProperties(sb, paragraph.Style, colors);
                 ReportBreakOutsideTheBody(paragraph.Style, diagnostics, reported);
                 sb.Append(' ');
                 WriteRuns(sb, paragraph, defaults, fonts, colors, resources, diagnostics, reported);
@@ -363,7 +366,7 @@ public static class RtfWriter
             foreach (RichTextParagraph paragraph in paragraphs)
             {
                 sb.Append("\\pard\\plain");
-                WriteParagraphProperties(sb, paragraph.Style);
+                WriteParagraphProperties(sb, paragraph.Style, colors);
                 ReportBreakOutsideTheBody(paragraph.Style, diagnostics, reported);
                 sb.Append(' ');
                 WriteRuns(sb, paragraph, defaults, fonts, colors, resources, diagnostics, reported);
@@ -412,8 +415,13 @@ public static class RtfWriter
         sb.Append('}');
     }
 
-    private static void WriteParagraphProperties(StringBuilder sb, ParagraphStyle style)
+    private static void WriteParagraphProperties(StringBuilder sb, ParagraphStyle style, ResourceTable<BColor> colors)
     {
+        // The paragraph's shading: \cbpat names the colour behind a pattern, and
+        // with no \shading the pattern is clear and the colour is all there is.
+        if (!style.Background.IsEmpty && style.Background.A > 0)
+            sb.Append("\\cbpat").Append(colors.IndexOf(style.Background));
+
         if (float.IsFinite(style.LineSpacing) && style.LineSpacing > 0 && style.LineSpacing != 1f)
             sb.Append("\\sl").Append((int)Math.Clamp(Math.Round(style.LineSpacing * 240.0), 1, int.MaxValue))
                 .Append("\\slmult1");

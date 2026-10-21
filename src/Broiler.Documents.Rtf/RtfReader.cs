@@ -508,6 +508,11 @@ public static class RtfReader
                 case "cf": _state.Char = _state.Char with { Foreground = _colors.Get(p) }; break;
                 case "cb":
                 case "highlight": _state.Char = _state.Char with { Background = _colors.Get(p) }; break;
+
+                // The paragraph's shading: the colour behind its pattern, which
+                // with no \shading is all that shows. A paragraph property, so
+                // \pard clears it.
+                case "cbpat": _state.Para = _state.Para with { Background = has ? _colors.Get(p) : BColor.Empty }; break;
                 case "ansicpg":
                     if (has)
                         _state.DocumentCodePage = _state.CodePage = p;

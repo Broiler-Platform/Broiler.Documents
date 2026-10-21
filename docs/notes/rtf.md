@@ -32,7 +32,7 @@ than its `\ucN` count.
 | Group | Control words |
 |---|---|
 | Inline character | `\b` `\b0` `\i` `\i0` `\ul` `\ul0` `\ulnone` `\strike` `\strike0` `\caps` `\caps0` `\scaps` `\scaps0` `\plain` `\fsN` `\fN` `\cfN` `\cbN` `\highlightN` |
-| Paragraph | `\pard` `\ql` `\qc` `\qr` `\qj` `\liN` `\sbN` `\saN` `\slN` with `\slmult1` `\pagebb` `\pagebb0` |
+| Paragraph | `\pard` `\ql` `\qc` `\qr` `\qj` `\liN` `\sbN` `\saN` `\slN` with `\slmult1` `\pagebb` `\pagebb0` `\cbpatN` (the paragraph's shading, → `ParagraphStyle.Background`; written back) |
 | Paragraph mark | The character formatting in effect at `\par` (→ `RichTextParagraph.MarkStyle`, what an empty paragraph is as tall as; not written back) |
 | Breaks & entities | `\par` `\line` `\page` (→ `PageBreakBefore` on the paragraph that follows) `\tab` `\nestcell` (→ tab) `\lquote` `\rquote` `\ldblquote` `\rdblquote` `\bullet` `\endash` `\emdash` `\enspace` `\emspace` |
 | Control symbols | `\\` `\{` `\}` `\~` (nbsp) `\_` (nb-hyphen) `\-` (optional hyphen, dropped) `\`+CR/LF (→ paragraph) `\*` (destination marker) |

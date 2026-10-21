@@ -772,7 +772,7 @@ public static class DocxWriter
     /// the order the model happens to list them in. CT_PPr is an xsd:sequence,
     /// so each of these has exactly one legal position, and the positions here
     /// are the ones ECMA-376 Part 1 section 17.3.1.26 gives:
-    /// <c>w:pageBreakBefore</c> 4th, <c>w:numPr</c> 7th, <c>w:spacing</c> 22nd,
+    /// <c>w:pageBreakBefore</c> 4th, <c>w:numPr</c> 7th, <c>w:shd</c> 10th, <c>w:spacing</c> 22nd,
     /// <c>w:ind</c> 23rd, <c>w:jc</c> 27th. Word does not shrug at an
     /// out-of-order pPr the way it does at an element it has never heard of; it
     /// can refuse the file outright, and a refusal is the whole document rather
@@ -809,6 +809,16 @@ public static class DocxWriter
                 DocxNamespaces.Wordprocessing + "numPr",
                 new XElement(DocxNamespaces.Wordprocessing + "ilvl", WordAttribute("val", level.ToString(CultureInfo.InvariantCulture))),
                 new XElement(DocxNamespaces.Wordprocessing + "numId", WordAttribute("val", numId.ToString(CultureInfo.InvariantCulture)))));
+        }
+
+        // w:shd is 10th, after w:numPr and before w:spacing.
+        if (!style.Background.IsEmpty && style.Background.A > 0)
+        {
+            properties.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "shd",
+                WordAttribute("val", "clear"),
+                WordAttribute("color", "auto"),
+                WordAttribute("fill", HexColor(style.Background))));
         }
 
         if (Math.Abs(style.LineSpacing - 1f) > 0.001f ||
