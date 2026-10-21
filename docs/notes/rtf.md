@@ -32,7 +32,7 @@ than its `\ucN` count.
 | Group | Control words |
 |---|---|
 | Inline character | `\b` `\b0` `\i` `\i0` `\ul` `\ul0` `\ulnone` `\strike` `\strike0` `\caps` `\caps0` `\scaps` `\scaps0` `\plain` `\fsN` `\fN` `\cfN` `\cbN` `\highlightN` |
-| Paragraph | `\pard` `\ql` `\qc` `\qr` `\qj` `\liN` `\sbN` `\saN` `\slN` with `\slmult1` `\pagebb` `\pagebb0` |
+| Paragraph | `\pard` `\ql` `\qc` `\qr` `\qj` `\liN` `\sbN` `\saN` `\slN` with `\slmult1` `\pagebb` `\pagebb0` `\cbpatN` (the paragraph's shading, → `ParagraphStyle.Background`; written back) |
 | Paragraph mark | The character formatting in effect at `\par` (→ `RichTextParagraph.MarkStyle`, what an empty paragraph is as tall as; not written back) |
 | Breaks & entities | `\par` `\line` `\page` (→ `PageBreakBefore` on the paragraph that follows) `\tab` `\nestcell` (→ tab) `\lquote` `\rquote` `\ldblquote` `\rdblquote` `\bullet` `\endash` `\emdash` `\enspace` `\emspace` |
 | Control symbols | `\\` `\{` `\}` `\~` (nbsp) `\_` (nb-hyphen) `\-` (optional hyphen, dropped) `\`+CR/LF (→ paragraph) `\*` (destination marker) |
@@ -43,7 +43,8 @@ than its `\ucN` count.
 | Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only, including the `\l` switch that spells a same-document reference: it is read as `#name` and written back the same way. The name may not contain a quote — the field argument is quoted and RTF has no escape for one inside it, so a quote would truncate the target silently; the shared rule refuses it for every format. Targets otherwise follow that rule, or `rtf.link`) |
 | Running content | `\header` `\headerf` `\headerl` `\headerr` `\footer` `\footerf` `\footerl` `\footerr` (→ `RunningContent`, not the body flow) |
 | Page geometry | `\paperwN` `\paperhN` `\marglN` `\margrN` `\margtN` `\margbN` `\headeryN` `\footeryN`, and the first section's `\pgwsxnN` `\pghsxnN` `\marglsxnN` `\margrsxnN` `\margtsxnN` `\margbsxnN` over them (→ `PageGeometry`) |
-| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shpbypara` `\shpbypage` `\shpbymargin` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fillFocus` `fLine` `lineColor` `posrelv` (→ `DocumentShape`) |
+| Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shpbypara` `\shpbypage` `\shpbymargin` `\shpbxpage` `\shpbxmargin` `\shpbxcolumn` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `shapeType` `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fillFocus` `fLine` `lineColor` `posrelv` `fFitShapeToText` (→ `DocumentShape`) |
+| Frames | `\abswN` `\abshN` `\posxN` `\posyN` `\posxl` `\posxc` `\posxr` `\posxi` `\posxo` `\posyil` `\posyt` `\posyc` `\posyb` `\posyin` `\posyout` `\phcol` `\phmrg` `\phpg` `\pvmrg` `\pvpg` `\pvpara` `\wraparound` `\nowrap` `\overlay` `\wrapthrough` `\dxfrtextN` `\dfrmtxtxN` `\dfrmtxtyN` (→ a `DocumentShape` holding the framed paragraphs; see Drawings) |
 | Page background | The shape in `{\*ackground}`, read where `iewbksp1` shows it, as LibreOffice takes `iewbksp` for Word's `w:displayBackgroundShape`; its fill is a shape's (→ `RichTextDocument.PageBackground`). A write states both. A `fillFocus` near 50 is an axial gradient, on a page or a shape. |
 
 ## Default font
@@ -251,7 +252,10 @@ A `\shp` group is read into a `DocumentShape` anchored to the paragraph it sits
 in. Its box comes from `\shpleft`/`\shptop`/`\shpright`/`\shpbottom` in twips
 and its paint from `{\sp{\sn name}{\sv value}}` pairs, of which seven are
 understood: `fFilled`, `fillColor`, `fillBackColor`, `fillType` and `fillAngle`
-for a solid or gradient fill, `fLine` and `lineColor` for the outline. `\shpz`
+for a solid or gradient fill, `fLine` and `lineColor` for the outline, and
+`shapeType` for whether it is a line. A shape whose line colour is not stated
+is outlined black, which is Word's default and the one LibreOffice's import
+takes in place of Writer's blue (`rtfsdrimport.cxx`). `\shpz`
 is read and written beside them: it orders one shape against another, and RTF is
 the target where a letterhead's stripe and the box over it both land in the body,
 so it is the only thing left saying which the reader sees. A shape
@@ -262,12 +266,59 @@ body for the same reason a header's does. `\shpbypage` and `\shpbymargin`, or a 
 or 0, measure `\shptop` from the page or its top margin rather than from the
 paragraph: `DocumentShape.OffsetFromPage`, with the margin added, and the shape
 stands that far down whichever page its paragraph is on. They were not read,
-and such a shape hung that far below its paragraph.
+and such a shape hung that far below its paragraph. `\shpbxpage` measures
+`\shpleft` from the page's left edge, so the margin is taken off it; the margin
+and the column are where the model measures from already.
+`fFitShapeToText` makes the box grow to its text (`DocumentShape.GrowsToText`),
+and the writer writes it for such a box.
+
+A line (`shapeType` 20) is a box of nought by its length, and a box with no
+breadth and an outline is drawn as the rule its outline makes
+(`DocumentShape.IsRule`). A ruled form is drawn this way: `tdf133437.rtf`'s
+statement is 285 lines and an unfilled rectangle around paragraphs set in
+frames, and every one of them was dropped. A slanted line would need a geometry
+the model does not hold, and drawn as its box it would be a rectangle that is
+not there, so it is not read and is reported once (`rtf.shape.line`).
 
 Every other shape property is ignored, `pib` - a picture inside a shape - among
-them. A shape that ends with neither fill nor text is dropped, and so is one
-whose box has no width or height: what would be left is a box with nothing in
-it, or nothing in a box.
+them. A shape that ends with no fill, no text and no outline is dropped, and so
+is one whose box has no width or height and is not a rule: what would be left is
+a box with nothing in it, or nothing in a box. A picture frame (`shapeType` 75)
+needs fill or text of its own to be kept, since the picture it draws is not
+read and its line alone would be an empty box.
+
+### Frames
+
+A paragraph whose position words make a frame (RTF 1.9.1, "Positioned Objects
+and Frames") is read into a `DocumentShape` that holds it, rather than into the
+body. Which words make one is LibreOffice's rule (`RTFFrame::hasProperties`): a
+position, a size, or a reference or alignment other than the default; the
+distances from the text alone do not. Consecutive paragraphs stating the same
+frame share it, and the first paragraph stating another or none finishes it.
+The frame is anchored to that paragraph, the "next unframed paragraph" RTF
+measures `\pvpara` from. `\pard` ends a frame, and a frame in a table is read as
+the table's text, as LibreOffice reads it.
+
+- **Across:** `\posx` from the column (`\phcol`, the default), the margin
+  (`\phmrg`) or the page's edge (`\phpg`); `\posxl`, `\posxc`, `\posxr` place it
+  by its width in that reference, with inside and outside taken as left and
+  right. A position replaces an alignment and an alignment a position,
+  whichever comes last. `\posnegx` is not read; neither does LibreOffice.
+- **Down:** `\posy` from the top margin (`\pvmrg`, the default), the page
+  (`\pvpg`) - both `DocumentShape.OffsetFromPage` - or the paragraph
+  (`\pvpara`). `\posyt` is the reference's top. `\posyc` and `\posyb` need the
+  frame's height, which a frame sized by its text does not have until it is
+  laid out, so they are set at the top and reported (`rtf.frame.position`).
+  `\posyil` is the paragraph's own place.
+- **Size:** `\absw`, or the column's width when it is not stated. `\absh` above
+  nought is the least the frame is and nought leaves it to the text, both
+  `DocumentShape.GrowsToText`; below nought is exact.
+- **Wrap:** text goes around the frame (`\wraparound`, the default) at
+  `\dfrmtxtx`, above and below it (`\nowrap`) at `\dfrmtxty`, or through it
+  (`\overlay`, `\wrapthrough`). `\dxfrtext` states both distances.
+
+The writer writes such a shape as a `\shp` with its text, which reads back as
+the same box; it does not write frame words.
 
 `\shpinst` is the single exception to the `\*` rule below. A shape arrives as
 `{\*\shpinst …}`, and the star says to ignore what the reader does not
@@ -280,7 +331,7 @@ understand, which this is not.
 | `\headerr` / `\footerr` | Read as the every-page destination: the model names the first page, the even pages, and the rest, and the right-hand page is the rest |
 | `\liN` (twips) | Mapped to a discrete indent level (`round(N / 360)`, capped) |
 | `\fs` on write | Rounded to the nearest half-point (`\fs` is integer half-points) |
-| `\'hh` under a non-Windows-1252 code page | Decoded via a Latin-1 fallback for `0x80`-`0xFF`, reported once as `rtf.codepage`. Windows-1252 (incl. smart quotes) is exact. `\uN` text is always exact. |
+| `\'hh` under a double-byte code page | Decoded byte by byte through a Latin-1 fallback for `0x80`-`0xFF`, reported once as `rtf.codepage`. Windows-1252 and every other single-byte code page - Cyrillic 1251, Central European 1250, Greek 1253 and the rest a font's `\fcharset` names - are exact, decoded from the runtime's code-page data without registering a provider. `\uN` text is always exact. |
 
 ## Ignored — parsed, no effect on the model
 
@@ -292,7 +343,7 @@ page geometry above; `\sect` and `\sectd` matter only to which section's page is
 read. The character-set words `\ansi`, `\mac`, `\pc` and
 `\pca` are ignored too: the active code page comes from `\ansicpgN`, from a
 font's `\fcharsetN`, or from the caller's default, and nothing else sets it.
-Shape properties other than the seven named above are ignored as well.
+Shape properties other than those named above are ignored as well.
 List markup does not set `ListKind` in this release (it stays `None`); list
 tables are detected and skipped as described below. Numbering, restarts and
 nested marker reconstruction are not implemented.
@@ -464,7 +515,9 @@ anything a caller asked for that this codec does not do.
 | `rtf.bin` | Warning | Read | A `\binN` length exceeded `MaxBinBytes`; the binary data was skipped. |
 | `rtf.hex` | Warning | Read | A malformed `\'hh` hex escape was skipped. |
 | `rtf.paragraphs` | Warning | Read | The document exceeded `MaxParagraphCount`; the text past the cap was dropped. |
-| `rtf.codepage` | Info | Read | A code page this build does not carry decoded its high bytes through a Latin-1 fallback; `\uN` text is unaffected. Once per read. |
+| `rtf.codepage` | Info | Read | A double-byte code page, or one the runtime does not carry, decoded its high bytes through a Latin-1 fallback; `\uN` text is unaffected. Once per read. |
+| `rtf.shape.line` | Info | Read | A slanted line was not read; the model holds a line only as a horizontal or vertical rule. Once per read. |
+| `rtf.frame.position` | Info | Read | A frame aligned to the centre or foot of its reference was set at its top, its height not being known until layout. Once per read. |
 | `rtf.embedded` | Info | Read | Pictures and objects were skipped. Once per read, and replaced by `document.capability.not-composed` when decoding was asked for. |
 | `rtf.page.geometry` | Warning | Read | The section properties described a page with no room to write on, so the page was not read. |
 | `rtf.columns.geometry` | Warning | Read | `\cols` and `\colsx` left no room to write in a column; the page was kept and read as one column. |

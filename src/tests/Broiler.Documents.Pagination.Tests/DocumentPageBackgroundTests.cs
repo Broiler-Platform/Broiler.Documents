@@ -74,6 +74,20 @@ public sealed class DocumentPageBackgroundTests
     }
 
     [Fact]
+    public void A_Translucent_Gradient_Lays_Its_Bands_Edge_To_Edge()
+    {
+        // Overlapping bands lay a translucent colour down twice where they meet,
+        // and a fade from transparent draws as stripes.
+        var fill = new ShapeFill(new BColor(255, 0, 0, 0), Red, 90);
+        LayoutPage page = Layout(Lines(1).WithPageBackground(fill)).Pages[0];
+
+        List<BRenderCommand.FillRect> bands = [.. Paint(page).OfType<BRenderCommand.FillRect>().OrderBy(band => band.Rect.Top)];
+        Assert.True(bands.Count > 100);
+        for (int i = 1; i < bands.Count; i++)
+            Assert.True(bands[i].Rect.Top >= bands[i - 1].Rect.Bottom - 1e-6, $"band {i} overlaps the one above");
+    }
+
+    [Fact]
     public void A_Diagonal_Gradient_Is_Clipped_To_The_Page_Rather_Than_Snapped_To_An_Axis()
     {
         var fill = new ShapeFill(Red, Blue, 45);

@@ -79,7 +79,7 @@ internal static class DocxReader
                 reported,
                 page,
                 sections);
-            document = document.WithRunningContent(ReadRunningContent(
+            IReadOnlyList<RunningContent> running = ReadRunningContent(
                 archive,
                 documentXml,
                 documentRelationships,
@@ -90,9 +90,10 @@ internal static class DocxReader
                 diagnostics,
                 reported,
                 page,
-                settings.EvenAndOddHeaders));
+                settings.EvenAndOddHeaders);
+            document = document.WithRunningContent(running[^1]);
             document = document.WithPageGeometry(page);
-            document = document.WithSections(sections.ToModel(document.ParagraphCount, page));
+            document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             document = document.WithPageBackground(DocxVml.ReadBackground(
                 documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "background"),
@@ -263,38 +264,33 @@ internal static class DocxReader
         element.Name != DocxNamespaces.Wordprocessing + "sectPr";
 
     /// <summary>
-    /// Reads the header and footer parts the body's section properties name.
+    /// Reads the header and footer parts each section's properties name.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The model has one set, and it is the document's final section's: the
-    /// body-level <c>w:sectPr</c>. A document split into sections by a
-    /// <c>w:sectPr</c> inside a paragraph can give each section its own header,
-    /// so the last section's wins and the rest raise a diagnostic rather than
-    /// being silently preferred or silently lost.
+    /// ECMA-376 §17.10.5 gives every section its own references, and a section
+    /// that names no header of a type continues the one the section before it
+    /// had, so each type a section leaves out is taken from the nearest section
+    /// before it that names one. A contract whose first section names a header
+    /// and footer and whose eight after it name none carries them on every page
+    /// in Word and LibreOffice. The result holds one set per section, in the
+    /// order of <see cref="DocxSections.Properties"/>; the last is the document's.
     /// </para>
     /// <para>
-    /// The last section's set is not only the references it holds. ECMA-376
-    /// §17.10.5 says a section that names no header of a type continues the one
-    /// the section before it had, so each type the last section leaves out is
-    /// taken from the nearest section before it that names one. A contract
-    /// whose first section names a header and footer and whose eight after it
-    /// name none carries them on every page in Word and LibreOffice; read from
-    /// the last section alone it carried neither.
-    /// </para>
-    /// <para>
-    /// A part the document does not turn on is not read. A <c>first</c> part is
-    /// drawn only in a section with <c>w:titlePg</c>, and an <c>even</c> part
-    /// only where <c>w:settings</c> holds <c>w:evenAndOddHeaders</c>; without
-    /// them Word puts the default on those pages, and the model, which uses a
-    /// first or even part wherever there is one, would put the other there.
+    /// A part a section does not turn on is not read for it. A <c>first</c> part
+    /// is drawn only in a section with <c>w:titlePg</c> (§17.10.6), which is the
+    /// section's own and not continued, and an <c>even</c> part only where
+    /// <c>w:settings</c> holds <c>w:evenAndOddHeaders</c>; without them Word puts
+    /// the default on those pages, and the model, which uses a first or even
+    /// part wherever there is one, would put the other there.
     /// </para>
     /// <para>
     /// Each part carries its own relationships, so a picture in a header resolves
     /// against <c>word/_rels/header1.xml.rels</c> and not against the document's.
+    /// A part several sections name is read once.
     /// </para>
     /// </remarks>
-    private static RunningContent ReadRunningContent(
+    private static IReadOnlyList<RunningContent> ReadRunningContent(
         ZipArchive archive,
         XDocument documentXml,
         DocxRelationships documentRelationships,
@@ -308,98 +304,100 @@ internal static class DocxReader
         bool evenAndOddHeaders)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
-        XElement? sectPr = body?.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault();
-        if (sectPr is null)
-            return RunningContent.Empty;
+        if (body?.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault() is null)
+            return [RunningContent.Empty];
 
         IReadOnlyList<XElement> sections = DocxSections.Properties(body);
-        if (sections.Count > 1)
+        var parts = new Dictionary<(string Id, bool IsHeader), (IReadOnlyList<RichTextParagraph> Paragraphs, IReadOnlyList<DocumentShape> Shapes)?>();
+        var contents = new List<RunningContent>(sections.Count);
+        for (int index = 0; index < sections.Count; index++)
         {
-            diagnostics.Add(DocumentDiagnostic.Info(
-                "docx.section.multiple",
-                "DOCX document has more than one section; the last section's header and footer were read, " +
-                "each it does not name continuing from the section before it."));
-        }
+            // w:titlePg is what makes a `first` reference mean anything, and it is
+            // also what makes a band the first page does not name empty there rather
+            // than the default one. Read before the references, because a first-page
+            // header with no first-page footer beside it is exactly the arrangement it
+            // decides: LibreOffice draws no footer on page one of such a section, and
+            // this reader drew the default one carrying a stale cached page number.
+            XElement? titlePage = sections[index].Element(DocxNamespaces.Wordprocessing + "titlePg");
+            bool differentFirstPage = titlePage is not null && ReadOnOff(titlePage);
+            RunningContent content = RunningContent.Empty.WithDifferentFirstPage(differentFirstPage);
 
-        // w:titlePg is what makes a `first` reference mean anything, and it is
-        // also what makes a band the first page does not name empty there rather
-        // than the default one. Read before the references, because a first-page
-        // header with no first-page footer beside it is exactly the arrangement it
-        // decides: LibreOffice draws no footer on page one of such a section, and
-        // this reader drew the default one carrying a stale cached page number.
-        // It is the last section's own: unlike a reference, it is not continued.
-        XElement? titlePage = sectPr.Element(DocxNamespaces.Wordprocessing + "titlePg");
-        bool differentFirstPage = titlePage is not null && ReadOnOff(titlePage);
-        RunningContent content = RunningContent.Empty.WithDifferentFirstPage(differentFirstPage);
-
-        foreach (XElement reference in ContinuedReferences(sections))
-        {
-            bool isHeader = reference.Name == DocxNamespaces.Wordprocessing + "headerReference";
-            PageSelection selection = SelectionFor((string?)reference.Attribute(DocxNamespaces.Wordprocessing + "type"));
-            if (selection == PageSelection.First && !differentFirstPage)
+            foreach (XElement reference in ContinuedReferences(sections, index))
             {
-                if (reported.Add("docx.header.first"))
+                bool isHeader = reference.Name == DocxNamespaces.Wordprocessing + "headerReference";
+                PageSelection selection = SelectionFor((string?)reference.Attribute(DocxNamespaces.Wordprocessing + "type"));
+                if (selection == PageSelection.First && !differentFirstPage)
                 {
-                    diagnostics.Add(DocumentDiagnostic.Info(
-                        "docx.header.first",
-                        "A DOCX first-page header or footer was not read: its section does not set w:titlePg, " +
-                        "so the first page carries the default one."));
+                    if (reported.Add("docx.header.first"))
+                    {
+                        diagnostics.Add(DocumentDiagnostic.Info(
+                            "docx.header.first",
+                            "A DOCX section has a first-page header or footer but does not set w:titlePg, " +
+                            "so the part was not read for it and its first page carries the default one."));
+                    }
+
+                    continue;
                 }
 
-                continue;
-            }
-
-            if (selection == PageSelection.Even && !evenAndOddHeaders)
-            {
-                if (reported.Add("docx.header.even"))
+                if (selection == PageSelection.Even && !evenAndOddHeaders)
                 {
-                    diagnostics.Add(DocumentDiagnostic.Info(
-                        "docx.header.even",
-                        "A DOCX even-page header or footer was not read: the document does not set " +
-                        "w:evenAndOddHeaders, so even pages carry the default one."));
+                    if (reported.Add("docx.header.even"))
+                    {
+                        diagnostics.Add(DocumentDiagnostic.Info(
+                            "docx.header.even",
+                            "A DOCX even-page header or footer was not read: the document does not set " +
+                            "w:evenAndOddHeaders, so even pages carry the default one."));
+                    }
+
+                    continue;
                 }
 
-                continue;
+                string? relationshipId = (string?)reference.Attribute(DocxNamespaces.Relationships + "id");
+                if (string.IsNullOrWhiteSpace(relationshipId) ||
+                    !documentRelationships.TryGet(relationshipId, out DocxRelationship? relationship) ||
+                    relationship is null)
+                {
+                    diagnostics.Add(DocumentDiagnostic.Warning(
+                        "docx.part.reference",
+                        "A DOCX header or footer named a relationship the package does not define."));
+                    continue;
+                }
+
+                if (!parts.TryGetValue((relationshipId, isHeader), out var part))
+                {
+                    part = ReadPart(
+                        archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported,
+                        isHeader ? RunningBand.Header : RunningBand.Footer,
+                        page);
+                    parts.Add((relationshipId, isHeader), part);
+                }
+
+                if (part is not var (paragraphs, shapes) || (paragraphs.Count == 0 && shapes.Count == 0))
+                    continue;
+
+                content = isHeader
+                    ? content.WithHeader(selection, paragraphs, shapes)
+                    : content.WithFooter(selection, paragraphs, shapes);
             }
 
-            string? relationshipId = (string?)reference.Attribute(DocxNamespaces.Relationships + "id");
-            if (string.IsNullOrWhiteSpace(relationshipId) ||
-                !documentRelationships.TryGet(relationshipId, out DocxRelationship? relationship) ||
-                relationship is null)
-            {
-                diagnostics.Add(DocumentDiagnostic.Warning(
-                    "docx.part.reference",
-                    "A DOCX header or footer named a relationship the package does not define."));
-                continue;
-            }
-
-            var part = ReadPart(
-                archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported,
-                isHeader ? RunningBand.Header : RunningBand.Footer,
-                page);
-            if (part is not var (paragraphs, shapes) || (paragraphs.Count == 0 && shapes.Count == 0))
-                continue;
-
-            content = isHeader
-                ? content.WithHeader(selection, paragraphs, shapes)
-                : content.WithFooter(selection, paragraphs, shapes);
+            contents.Add(content);
         }
 
-        return content;
+        return contents;
     }
 
     /// <summary>
-    /// The header and footer references that apply to the last of
-    /// <paramref name="sections"/>: for each band and type, the last section's
-    /// own, or else the nearest earlier section's.
+    /// The header and footer references that apply to section
+    /// <paramref name="index"/> of <paramref name="sections"/>: for each band and
+    /// type, the section's own, or else the nearest earlier section's.
     /// </summary>
-    private static IEnumerable<XElement> ContinuedReferences(IReadOnlyList<XElement> sections)
+    private static IEnumerable<XElement> ContinuedReferences(IReadOnlyList<XElement> sections, int index)
     {
         foreach (string band in new[] { "headerReference", "footerReference" })
         {
             foreach (PageSelection selection in new[] { PageSelection.Default, PageSelection.First, PageSelection.Even })
             {
-                for (int i = sections.Count - 1; i >= 0; i--)
+                for (int i = index; i >= 0; i--)
                 {
                     XElement? reference = sections[i]
                         .Elements(DocxNamespaces.Wordprocessing + band)
@@ -584,19 +582,24 @@ internal static class DocxReader
         ReadBlockContent(partXml.Root.Elements(), context, depth: 0);
 
         RichTextDocument part = builder.Build();
-        IReadOnlyList<RichTextParagraph> partParagraphs = part.Paragraphs;
-
-        // A single empty paragraph is what an empty part builds, and it is not
-        // content: a header that holds only a stripe should not report a blank
-        // line beside it.
-        if (partParagraphs.Count == 1 && partParagraphs[0].Length == 0)
-            partParagraphs = [];
-
-        return (partParagraphs, part.Shapes);
+        return (part.Paragraphs, part.Shapes);
     }
 
     private static void ReadParagraph(XElement paragraph, DocxReadContext context)
     {
+        // An empty paragraph that holds nothing but its section's properties is
+        // the section mark, not a line: the section ends at the paragraph
+        // before it. LibreOffice's import drops it the same way (writerfilter's
+        // DomainMapper, keeping the section's properties). tdf170602_exportContext.docx
+        // ends a paragraph on a page break and puts the next-page section mark
+        // in an empty Heading 1 after it, which drew as a page holding only a
+        // heading number where LibreOffice starts the next chapter.
+        if (context.Sections is not null && IsDroppableSectionMark(paragraph, context))
+        {
+            EndSection(context);
+            return;
+        }
+
         XElement? pPr = paragraph.Element(DocxNamespaces.Wordprocessing + "pPr");
         string? paragraphStyleId = DocxValueReader.WordValue(pPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
 
@@ -607,23 +610,73 @@ internal static class DocxReader
         context.Builder.FinishParagraph();
 
         // A paragraph belongs to the section it ends, so the cursor moves only
-        // once the paragraph's own breaks have been read against it. The next
-        // section then says whether it starts a page; its first paragraph is
-        // where that break lands, as if the paragraph before had ended on one.
+        // once the paragraph's own breaks have been read against it.
         if (context.Sections is not null && DocxSections.EndsSection(paragraph))
-        {
-            context.Sections.Advance(context.Builder.CurrentParagraphIndex);
-            if (context.Sections.CurrentStartsPage)
-                context.Builder.HoldPageBreak();
+            EndSection(context);
+    }
 
-            if (context.Sections.CurrentWantsParity)
+    /// <summary>
+    /// Moves the read into the next section. It says whether it starts a page;
+    /// its first paragraph is where that break lands, as if the paragraph before
+    /// had ended on one, and a page break that paragraph did end on is the same
+    /// boundary rather than a second.
+    /// </summary>
+    private static void EndSection(DocxReadContext context)
+    {
+        context.Sections!.Advance(context.Builder.CurrentParagraphIndex);
+        if (context.Sections.CurrentStartsPage)
+            context.Builder.HoldPageBreak();
+
+        if (context.Sections.CurrentWantsParity)
+        {
+            context.Builder.AddDiagnosticOnce(
+                "docx.section.parity",
+                "A DOCX section starting on an odd or even page was read as starting on the next page; " +
+                "the blank page it can put before itself is not made.");
+        }
+    }
+
+    /// <summary>
+    /// True when <paramref name="paragraph"/> is a body paragraph with nothing in
+    /// it but a <c>w:sectPr</c>, which LibreOffice does not make a paragraph of.
+    /// </summary>
+    /// <remarks>
+    /// As there, it is kept where it is all its section holds, which would
+    /// otherwise vanish, and where no paragraph follows it for the section after
+    /// it to start on. A column break, a field, a picture or any text keeps it:
+    /// those are content, and the conditions LibreOffice keeps one under. So
+    /// does a table just before it, below which it closes the section.
+    /// </remarks>
+    private static bool IsDroppableSectionMark(XElement paragraph, DocxReadContext context)
+    {
+        if (!DocxSections.EndsSection(paragraph) || paragraph.Parent?.Name != DocxNamespaces.Wordprocessing + "body")
+            return false;
+
+        // After a table it is what closes the section below the table, which is
+        // Word's own shape for a section ending in one; it stays.
+        if (paragraph.ElementsBeforeSelf().LastOrDefault()?.Name == DocxNamespaces.Wordprocessing + "tbl")
+            return false;
+
+        foreach (XElement child in paragraph.Elements())
+        {
+            if (child.Name.Namespace != DocxNamespaces.Wordprocessing)
+                return false;
+
+            switch (child.Name.LocalName)
             {
-                context.Builder.AddDiagnosticOnce(
-                    "docx.section.parity",
-                    "A DOCX section starting on an odd or even page was read as starting on the next page; " +
-                    "the blank page it can put before itself is not made.");
+                case "pPr" or "bookmarkStart" or "bookmarkEnd" or "proofErr" or "permStart" or "permEnd":
+                    continue;
+                case "r" when child.Elements().All(static part =>
+                    part.Name == DocxNamespaces.Wordprocessing + "rPr" ||
+                    part.Name == DocxNamespaces.Wordprocessing + "lastRenderedPageBreak"):
+                    continue;
+                default:
+                    return false;
             }
         }
+
+        return context.Sections!.CurrentHasParagraphs(context.Builder.CurrentParagraphIndex) &&
+            context.Sections.NextHasParagraphs;
     }
 
     /// <summary>
@@ -902,8 +955,9 @@ internal static class DocxReader
     /// </remarks>
     private static bool ReadShape(XElement drawing, DocxReadContext context)
     {
-        XElement? wsp = drawing.Descendants(DocxNamespaces.WordShape + "wsp").FirstOrDefault();
-        if (wsp is null)
+        XElement? group = drawing.Descendants(DocxNamespaces.WordGroup + "wgp").FirstOrDefault();
+        XElement? wsp = group is null ? drawing.Descendants(DocxNamespaces.WordShape + "wsp").FirstOrDefault() : null;
+        if (group is null && wsp is null)
             return false;
 
         XElement? anchor =
@@ -918,8 +972,145 @@ internal static class DocxReader
         if (width <= 0 || height <= 0)
             return false;
 
+        if (group is not null)
+            return ReadShapeGroup(group, anchor, width, height, context);
+
+        return ReadDrawnShape(wsp!, anchor, 0, 0, width, height, context);
+    }
+
+    /// <summary>
+    /// Reads a <c>wpg:wgp</c> - several drawn boxes under one anchor - as a
+    /// floating shape for each box in it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A group states its children in a coordinate space of its own: its
+    /// <c>a:xfrm</c> says which rectangle of that space, <c>a:chOff</c> and
+    /// <c>a:chExt</c>, is drawn into the box it occupies, <c>a:off</c> and
+    /// <c>a:ext</c> (ECMA-376 §20.1.7.6, §20.5.2.17). The outermost group's box is
+    /// the anchor's extent; a group inside it states its box in its parent's
+    /// child space, and so on down. Each child's own <c>a:xfrm</c> is mapped
+    /// through every group above it into points from the anchor's corner, and the
+    /// child becomes a shape at the anchor's offset plus that.
+    /// </para>
+    /// <para>
+    /// The group was read as its first box before, at the size of the whole
+    /// group, which made a backdrop of a hatched rectangle and a fade over it
+    /// into the hatch alone, and lost a title bar's text box under it. The
+    /// children keep the group's anchor, stacking and wrapping, and draw in the
+    /// order the group lists them. Rotation and flips are not applied, and a
+    /// picture in a group is not read (<c>docx.shape.group</c>).
+    /// </para>
+    /// </remarks>
+    private static bool ReadShapeGroup(XElement group, XElement anchor, double width, double height, DocxReadContext context)
+    {
+        XElement? transform = group.Element(DocxNamespaces.WordGroup + "grpSpPr")?.Element(DocxNamespaces.Drawing + "xfrm");
+        (double childX, double childY, double childWidth, double childHeight) = ChildSpace(transform);
+        var frame = new GroupFrame(
+            0,
+            0,
+            childWidth > 0 ? width / childWidth : 1 / 12700d,
+            childHeight > 0 ? height / childHeight : 1 / 12700d,
+            childX,
+            childY);
+
+        int read = 0;
+        ReadGroupChildren(group, frame, anchor, context, ref read, depth: 0);
+        return read > 0;
+    }
+
+    private static void ReadGroupChildren(
+        XElement group, GroupFrame frame, XElement anchor, DocxReadContext context, ref int read, int depth)
+    {
+        foreach (XElement child in group.Elements())
+        {
+            if (child.Name == DocxNamespaces.WordShape + "wsp")
+            {
+                XElement? transform = child.Element(DocxNamespaces.WordShape + "spPr")?.Element(DocxNamespaces.Drawing + "xfrm");
+                (double x, double y, double w, double h) = frame.Map(transform);
+                if (ReadDrawnShape(child, anchor, x, y, w, h, context))
+                    read++;
+            }
+            else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
+            {
+                XElement? transform = child.Element(DocxNamespaces.WordGroup + "grpSpPr")?.Element(DocxNamespaces.Drawing + "xfrm");
+                (double x, double y, double w, double h) = frame.Map(transform);
+                (double childX, double childY, double childWidth, double childHeight) = ChildSpace(transform);
+                var nested = new GroupFrame(
+                    x,
+                    y,
+                    childWidth > 0 ? w / childWidth : frame.ScaleX,
+                    childHeight > 0 ? h / childHeight : frame.ScaleY,
+                    childX,
+                    childY);
+                ReadGroupChildren(child, nested, anchor, context, ref read, depth + 1);
+            }
+            else if (child.Name == DocxNamespaces.Picture + "pic" ||
+                     child.Name == DocxNamespaces.WordGroup + "grpSp")
+            {
+                context.Builder.AddDiagnosticOnce(
+                    "docx.shape.group",
+                    "A picture, or a group nested too deep, inside a DOCX drawing group was not read; the group's drawn boxes were.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The rectangle of a group's own coordinate space its box draws, in EMU:
+    /// <c>a:chOff</c> and <c>a:chExt</c>, or its <c>a:off</c> and <c>a:ext</c>
+    /// where it states no child space, which is a space one to one with its box.
+    /// </summary>
+    private static (double X, double Y, double Width, double Height) ChildSpace(XElement? transform)
+    {
+        XElement? offset = transform?.Element(DocxNamespaces.Drawing + "chOff") ?? transform?.Element(DocxNamespaces.Drawing + "off");
+        XElement? extent = transform?.Element(DocxNamespaces.Drawing + "chExt") ?? transform?.Element(DocxNamespaces.Drawing + "ext");
+        return (
+            Emu((string?)offset?.Attribute("x")),
+            Emu((string?)offset?.Attribute("y")),
+            Emu((string?)extent?.Attribute("cx")),
+            Emu((string?)extent?.Attribute("cy")));
+    }
+
+    private static double Emu(string? value) =>
+        long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long emu) ? emu : 0;
+
+    /// <summary>How deep groups nest before the reader stops following them.</summary>
+    private const int MaxGroupDepth = 16;
+
+    /// <summary>
+    /// One group's coordinate space against the anchor's box: a point of the
+    /// group's child space, in EMU, is this many points from the anchor's corner.
+    /// </summary>
+    private readonly record struct GroupFrame(
+        double OffsetX, double OffsetY, double ScaleX, double ScaleY, double ChildX, double ChildY)
+    {
+        /// <summary>A child's <c>a:xfrm</c> as a box in points from the anchor's corner.</summary>
+        public (double X, double Y, double Width, double Height) Map(XElement? transform)
+        {
+            XElement? offset = transform?.Element(DocxNamespaces.Drawing + "off");
+            XElement? extent = transform?.Element(DocxNamespaces.Drawing + "ext");
+            return (
+                OffsetX + ((Emu((string?)offset?.Attribute("x")) - ChildX) * ScaleX),
+                OffsetY + ((Emu((string?)offset?.Attribute("y")) - ChildY) * ScaleY),
+                Emu((string?)extent?.Attribute("cx")) * ScaleX,
+                Emu((string?)extent?.Attribute("cy")) * ScaleY);
+        }
+    }
+
+    /// <summary>
+    /// Adds one <c>wps:wsp</c> as a floating shape, its box
+    /// <paramref name="left"/> and <paramref name="top"/> points from the corner
+    /// of its anchor's: nought for a shape that is the whole drawing, more for a
+    /// box inside a group.
+    /// </summary>
+    private static bool ReadDrawnShape(
+        XElement wsp, XElement anchor, double left, double top, double width, double height, DocxReadContext context)
+    {
+        if (width <= 0 || height <= 0)
+            return false;
+
         XElement? spPr = wsp.Element(DocxNamespaces.WordShape + "spPr");
-        ShapeFill? fill = ReadFill(spPr, context.Builder);
+        ShapeFill? fill = ReadFill(spPr, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ReadShapeText(wsp, context);
         if (fill is null && paragraphs.Count == 0)
             return false;
@@ -928,12 +1119,12 @@ internal static class DocxReader
         (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
-            HorizontalOffset(anchor, context),
-            offsetY,
+            HorizontalOffset(anchor, context) + left,
+            offsetY + top,
             width,
             height,
             fill,
-            ReadOutline(spPr),
+            ReadOutline(spPr, context.Styles.Theme),
             paragraphs,
             image: null,
             behindText: BehindDoc(anchor),
@@ -1321,10 +1512,13 @@ internal static class DocxReader
             ? emu / 12700d
             : 0;
 
-    private static ShapeFill? ReadFill(XElement? spPr, DocxDocumentBuilder builder)
+    private static ShapeFill? ReadFill(XElement? spPr, DocxReadContext context)
     {
         if (spPr is null)
             return null;
+
+        DocxDocumentBuilder builder = context.Builder;
+        DocxTheme theme = context.Styles.Theme;
 
         XElement? gradient = spPr.Element(DocxNamespaces.Drawing + "gradFill");
         if (gradient is not null)
@@ -1343,9 +1537,9 @@ internal static class DocxReader
             // Three stops whose first and last agree are how DrawingML spells a
             // mirrored gradient; Word writes VML's 50% focus that way.
             if (stops.Count == 3 &&
-                TryReadShapeColor(stops[0], out BColor outer) &&
-                TryReadShapeColor(stops[1], out BColor inner) &&
-                TryReadShapeColor(stops[2], out BColor last) &&
+                TryReadShapeColor(stops[0], theme, out BColor outer) &&
+                TryReadShapeColor(stops[1], theme, out BColor inner) &&
+                TryReadShapeColor(stops[2], theme, out BColor last) &&
                 outer == last)
             {
                 return new ShapeFill(outer, inner, angle, Axial: true);
@@ -1359,33 +1553,49 @@ internal static class DocxReader
             }
 
             if (stops.Count >= 2 &&
-                TryReadShapeColor(stops[0], out BColor start) &&
-                TryReadShapeColor(stops[^1], out BColor end))
+                TryReadShapeColor(stops[0], theme, out BColor start) &&
+                TryReadShapeColor(stops[^1], theme, out BColor end))
             {
                 return new ShapeFill(start, end, angle);
             }
         }
 
+        // A pattern is two colours the model cannot hold together: hatch lines in
+        // the foreground colour over the background one, as LibreOffice draws it.
+        // The lines are a pixel or two wide, so the background is nearly all of
+        // what shows - LibreOffice draws a wdUpDiag of 5EAD35 over 007929 as
+        // 007929 over nine-tenths of the box - and it is the colour held.
+        XElement? pattern = spPr.Element(DocxNamespaces.Drawing + "pattFill");
+        if (pattern is not null)
+        {
+            builder.AddDiagnosticOnce(
+                "docx.shape.fill",
+                "A DOCX shape's pattern fill was read as its background colour; the pattern's lines are not drawn.");
+            return TryReadShapeColor(pattern.Element(DocxNamespaces.Drawing + "bgClr"), theme, out BColor background) ||
+                TryReadShapeColor(pattern.Element(DocxNamespaces.Drawing + "fgClr"), theme, out background)
+                ? ShapeFill.Solid(background)
+                : null;
+        }
+
         XElement? solid = spPr.Element(DocxNamespaces.Drawing + "solidFill");
-        return solid is not null && TryReadShapeColor(solid, out BColor color)
+        return solid is not null && TryReadShapeColor(solid, theme, out BColor color)
             ? ShapeFill.Solid(color)
             : null;
     }
 
-    private static BColor ReadOutline(XElement? spPr)
+    private static BColor ReadOutline(XElement? spPr, DocxTheme theme)
     {
         XElement? line = spPr?.Element(DocxNamespaces.Drawing + "ln");
         if (line is null || line.Element(DocxNamespaces.Drawing + "noFill") is not null)
             return BColor.Empty;
 
         XElement? solid = line.Element(DocxNamespaces.Drawing + "solidFill");
-        return solid is not null && TryReadShapeColor(solid, out BColor color) ? color : BColor.Empty;
+        return solid is not null && TryReadShapeColor(solid, theme, out BColor color) ? color : BColor.Empty;
     }
 
-    private static bool TryReadShapeColor(XElement parent, out BColor color) =>
-        DocxValueReader.TryParseHexColor(
-            (string?)parent.Element(DocxNamespaces.Drawing + "srgbClr")?.Attribute("val"),
-            out color);
+    /// <summary>A DrawingML colour, a theme's included; see <see cref="DocxDrawingColor"/>.</summary>
+    private static bool TryReadShapeColor(XElement? parent, DocxTheme theme, out BColor color) =>
+        DocxDrawingColor.TryRead(parent, theme, out color);
 
     /// <summary>A text box paragraphs, read with the same walker the body uses.</summary>
     private static IReadOnlyList<RichTextParagraph> ReadShapeText(XElement wsp, DocxReadContext context)
@@ -1427,6 +1637,21 @@ internal static class DocxReader
         return ApplyParagraphProperties(pPr, context.Numbering, style);
     }
 
+    /// <summary>The colour a paragraph's <c>w:shd</c> shows, or empty for none.</summary>
+    private static BColor ReadParagraphShading(XElement shading)
+    {
+        string? pattern = DocxValueReader.WordValue(shading);
+        if (pattern is "nil")
+            return BColor.Empty;
+
+        string? attribute = pattern is "solid" ? "color" : "fill";
+        return DocxValueReader.TryParseHexColor(
+            (string?)shading.Attribute(DocxNamespaces.Wordprocessing + attribute),
+            out BColor color)
+            ? color
+            : BColor.Empty;
+    }
+
     private static ParagraphStyle ApplyParagraphProperties(
         XElement? pPr,
         DocxNumbering numbering,
@@ -1461,6 +1686,15 @@ internal static class DocxReader
         XElement? pageBreakBefore = pPr.Element(DocxNamespaces.Wordprocessing + "pageBreakBefore");
         if (pageBreakBefore is not null)
             style = style with { PageBreakBefore = ReadOnOff(pageBreakBefore) };
+
+        // Paragraph shading (ECMA-376 §17.3.1.31). The fill is the colour behind
+        // the pattern, and a "clear" pattern - nearly every one Word writes -
+        // shows nothing else. "solid" shows the pattern's own colour. A fill of
+        // "auto" with no pattern is no shading, which is how a paragraph takes
+        // away the shading its style gave.
+        XElement? shading = pPr.Element(DocxNamespaces.Wordprocessing + "shd");
+        if (shading is not null)
+            style = style with { Background = ReadParagraphShading(shading) };
 
         XElement? spacing = pPr.Element(DocxNamespaces.Wordprocessing + "spacing");
         if (spacing is not null)
@@ -1562,16 +1796,30 @@ internal static class DocxReader
             style = style with { Underline = !string.Equals(value, "none", StringComparison.OrdinalIgnoreCase) };
         }
 
+        // The model holds one family, and it is the one the run's Latin text is
+        // drawn in: w:ascii and w:hAnsi, or the theme fonts they name. w:cs is
+        // for complex-script text and w:eastAsia for East Asian text (ECMA-376
+        // §17.3.2.26), and a style that names only those leaves the Latin font
+        // it inherited, as Word and LibreOffice draw it. Heading styles that say
+        // only w:cs="Arial" were drawn in Arial over a Times New Roman document.
+        // They still give a family to a run that has inherited none, which is
+        // the East Asian document whose fonts are all w:eastAsia.
         XElement? fonts = rPr.Element(DocxNamespaces.Wordprocessing + "rFonts");
         string? fontFamily =
             (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "ascii") ??
             (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "hAnsi") ??
-            (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "cs") ??
-            (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "eastAsia") ??
             // Styles usually name fonts through the theme rather than directly.
             theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "asciiTheme")) ??
-            theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "hAnsiTheme")) ??
-            theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "cstheme"));
+            theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "hAnsiTheme"));
+        if (string.IsNullOrWhiteSpace(fontFamily) && string.IsNullOrWhiteSpace(style.FontFamily))
+        {
+            fontFamily =
+                (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "eastAsia") ??
+                (string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "cs") ??
+                theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "eastAsiaTheme")) ??
+                theme.Resolve((string?)fonts?.Attribute(DocxNamespaces.Wordprocessing + "cstheme"));
+        }
+
         if (!string.IsNullOrWhiteSpace(fontFamily))
             style = style with { FontFamily = fontFamily };
 

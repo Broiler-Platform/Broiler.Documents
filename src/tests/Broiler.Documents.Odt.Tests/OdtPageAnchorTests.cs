@@ -144,17 +144,71 @@ public sealed class OdtPageAnchorTests
     }
 
     [Fact]
-    public void A_Text_Box_Sized_Only_By_Its_Minimum_Height_Stays_In_The_Body()
+    public void A_Text_Box_Sized_Only_By_Its_Minimum_Height_Is_A_Shape_That_Grows()
     {
-        // Its height is what its text needs, which is not known here; a box of
-        // the minimum would clip the text it was made to hold.
+        // tdf146955.odt: three hundred boxes on the pages they name, each
+        // stating a width and a minimum height, used to fill the body's first
+        // sixteen pages.
         DocumentReadResult result = Read(
             Frame(OnPageThree, "svg:x=\"1in\" svg:y=\"1in\" svg:width=\"3in\"", textBoxAttributes: "fo:min-height=\"1in\"") +
             OdtTestPackage.Paragraph("body"),
             GraphicStyle("fr1", string.Empty));
 
-        Assert.Empty(result.Document.Shapes);
-        Assert.Contains(result.Document.Paragraphs, paragraph => paragraph.Text == "boxed");
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.True(shape.GrowsToText);
+        Assert.Equal(72, shape.Height, 3);
+        Assert.Equal(3, shape.AnchorPage);
+        Assert.Equal("boxed", Assert.Single(shape.Paragraphs).Text);
+        Assert.Equal("body", Assert.Single(result.Document.Paragraphs).Text);
+    }
+
+    [Fact]
+    public void A_Minimum_Height_Above_The_Frames_Height_Is_The_Least_The_Box_Is()
+    {
+        DocumentShape shape = Assert.Single(Read(
+            Frame(OnPageThree, Box, textBoxAttributes: "fo:min-height=\"2in\""),
+            GraphicStyle("fr1", string.Empty)).Document.Shapes);
+
+        Assert.True(shape.GrowsToText);
+        Assert.Equal(144, shape.Height, 3);
+    }
+
+    [Fact]
+    public void A_Text_Box_With_No_Height_At_All_Grows_From_Nothing()
+    {
+        DocumentShape shape = Assert.Single(Read(
+            Frame(OnPageThree, "svg:x=\"1in\" svg:y=\"1in\" svg:width=\"3in\""),
+            GraphicStyle("fr1", string.Empty)).Document.Shapes);
+
+        Assert.True(shape.GrowsToText);
+        Assert.Equal(0, shape.Height, 3);
+    }
+
+    [Fact]
+    public void A_Text_Box_With_A_Height_And_No_Minimum_Keeps_Its_Height()
+    {
+        DocumentShape shape = Assert.Single(Read(Frame(OnPageThree, Box), GraphicStyle("fr1", string.Empty)).Document.Shapes);
+
+        Assert.False(shape.GrowsToText);
+        Assert.Equal(72, shape.Height, 3);
+    }
+
+    [Fact]
+    public void A_Box_That_Grows_Round_Trips_As_A_Text_Frame()
+    {
+        var shape = new DocumentShape(
+            0, 36, 100, 200, 30, paragraphs: [RichTextParagraph.Plain("boxed")], anchorPage: 2, growsToText: true);
+        RichTextDocument source = RichTextDocument.FromPlainText("body")
+            .WithPageGeometry(new PageGeometry(612, 792, 72, 72, 72, 72))
+            .WithShapes([shape]);
+
+        DocumentShape read = Assert.Single(RoundTrip(source).Shapes);
+
+        Assert.True(read.GrowsToText);
+        Assert.Equal(30, read.Height, 2);
+        Assert.Equal(200, read.Width, 2);
+        Assert.Equal(2, read.AnchorPage);
+        Assert.Equal("boxed", Assert.Single(read.Paragraphs).Text);
     }
 
     [Fact]

@@ -430,5 +430,34 @@ public sealed class DocxTableTests
         Assert.False(table.Rows[0].CanSplit);
         Assert.True(table.Rows[1].CanSplit);
     }
-}
 
+    [Theory]
+    [InlineData("<w:tblHeader/>", true)]
+    [InlineData("<w:tblHeader w:val=\"true\"/>", true)]
+    [InlineData("<w:tblHeader w:val=\"0\"/>", false)]
+    [InlineData("<w:tblHeader w:val=\"false\"/>", false)]
+    [InlineData("", false)]
+    public void A_Row_Repeats_At_The_Top_Of_Each_Page_When_It_Is_A_Header(string properties, bool isHeader)
+    {
+        // The note said header rows were read; only the writer wrote them, and
+        // every one came back as a body row.
+        RichTextDocument document = Read(Table(
+            string.Empty, Grid, RowWith(properties, Cell("a"), Cell("b"), Cell("c"))));
+
+        Assert.Equal(isHeader, Assert.Single(document.Tables).Rows[0].IsHeader);
+    }
+
+    [Fact]
+    public void A_Header_Row_Round_Trips()
+    {
+        RichTextDocument source = Read(Table(
+            string.Empty,
+            Grid,
+            RowWith("<w:tblHeader/>", Cell("a1"), Cell("b1"), Cell("c1")),
+            Row(Cell("a2"), Cell("b2"), Cell("c2"))));
+
+        DocumentTable table = Assert.Single(RoundTrip(source).Tables);
+        Assert.True(table.Rows[0].IsHeader);
+        Assert.False(table.Rows[1].IsHeader);
+    }
+}

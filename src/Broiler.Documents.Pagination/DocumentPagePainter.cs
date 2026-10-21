@@ -102,6 +102,9 @@ public sealed class DocumentPagePainter
         foreach (LayoutCell cell in page.Cells)
             DrawCell(list, cell);
 
+        // Over a cell's shading, so a shaded paragraph in a shaded cell shows.
+        DrawParagraphShading(list, page.Lines);
+
         foreach (LayoutLine line in page.Lines)
             DrawLine(list, line, resolveImage);
 
@@ -121,7 +124,10 @@ public sealed class DocumentPagePainter
     private void DrawShape(BRenderList list, LayoutShape shape, Func<InlineImage, BImageHandle?> resolveImage)
     {
         if (shape.Bounds.Width <= 0 || shape.Bounds.Height <= 0)
+        {
+            DrawRule(list, shape);
             return;
+        }
 
         if (shape.Fill is ShapeFill fill)
             DrawFill(list, shape.Bounds, fill);
@@ -133,8 +139,83 @@ public sealed class DocumentPagePainter
         if (!shape.Outline.IsEmpty && shape.Outline.A > 0)
             list.StrokeRect(shape.Bounds, shape.Outline, 1);
 
+        DrawParagraphShading(list, shape.Lines);
         foreach (LayoutLine line in shape.Lines)
             DrawLine(list, line, resolveImage);
+    }
+
+    /// <summary>
+    /// Paints a box with no breadth as the rule its outline makes: a filled band
+    /// of Word's default line width, centred on the box's one edge.
+    /// </summary>
+    private static void DrawRule(BRenderList list, LayoutShape shape)
+    {
+        const double width = 0.75;
+        if (shape.Outline.IsEmpty || shape.Outline.A == 0)
+            return;
+
+        BRect bounds = shape.Bounds;
+        if (bounds.Width <= 0 && bounds.Height > 0)
+            list.FillRect(new BRect(bounds.Left - (width / 2), bounds.Top, width, bounds.Height), shape.Outline);
+        else if (bounds.Height <= 0 && bounds.Width > 0)
+            list.FillRect(new BRect(bounds.Left, bounds.Top - (width / 2), bounds.Width, width), shape.Outline);
+    }
+
+    /// <summary>
+    /// Paints the shading of the shaded paragraphs among <paramref name="lines"/>,
+    /// one box for each run of lines it covers.
+    /// </summary>
+    /// <remarks>
+    /// The box is LibreOffice's, measured: from the top of a paragraph's first
+    /// line to the bottom of its last, between its indents, leaving its space
+    /// before and after white. A paragraph that follows straight on with the same
+    /// shading and the same indents joins the box above it, the space between
+    /// included. Lines of one paragraph that go on in another column start a box
+    /// of their own there.
+    /// </remarks>
+    private static void DrawParagraphShading(BRenderList list, IReadOnlyList<LayoutLine> lines)
+    {
+        BRect? open = null;
+        BColor color = BColor.Empty;
+        int paragraph = 0;
+
+        foreach (LayoutLine line in lines)
+        {
+            if (line.Background.IsEmpty || line.Background.A == 0)
+            {
+                Flush();
+                continue;
+            }
+
+            double bottom = line.Top + line.Height;
+            if (open is BRect box &&
+                line.Background == color &&
+                (line.ParagraphIndex == paragraph || line.ParagraphIndex == paragraph + 1) &&
+                Math.Abs(line.BackgroundLeft - box.Left) < 0.01 &&
+                Math.Abs(line.BackgroundWidth - box.Width) < 0.01 &&
+                line.Top >= box.Bottom - 0.01)
+            {
+                open = new BRect(box.Left, box.Top, box.Width, bottom - box.Top);
+            }
+            else
+            {
+                Flush();
+                open = new BRect(line.BackgroundLeft, line.Top, line.BackgroundWidth, line.Height);
+                color = line.Background;
+            }
+
+            paragraph = line.ParagraphIndex;
+        }
+
+        Flush();
+
+        void Flush()
+        {
+            if (open is BRect box && box.Width > 0 && box.Height > 0)
+                list.FillRect(box, color);
+
+            open = null;
+        }
     }
 
     /// <summary>
@@ -234,11 +315,15 @@ public sealed class DocumentPagePainter
         if (diagonal)
             list.Append(new BRenderCommand.PushClip(bounds));
 
+        // Opaque bands overlap by half a point, so no seam shows between them.
+        // Translucent ones must not: where two overlap the colour is laid down
+        // twice, and a fade from transparent draws as stripes.
+        double overlap = fill.Start.A == 255 && fill.End.A == 255 ? 0.5 : 0;
         for (int i = 0; i < bands; i++)
         {
             BColor color = fill.ColorAt((double)i / (bands - 1));
             double from = (-extent / 2) + (step * i);
-            double to = from + step + 0.5; // overlap, so no seam shows
+            double to = from + step + overlap;
 
             if (!diagonal)
             {

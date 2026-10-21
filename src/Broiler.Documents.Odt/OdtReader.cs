@@ -548,12 +548,24 @@ internal static class OdtReader
     /// </remarks>
     private static bool ReadShape(XElement drawing, OdtReadContext context, int depth)
     {
-        if (!TryReadFrameWidth(drawing, out double width) ||
-            !OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "height"), out double height) ||
-            width <= 0 || height <= 0)
-        {
+        if (!TryReadFrameWidth(drawing, out double width) || width <= 0)
             return false;
-        }
+
+        // A text box that states fo:min-height grows to its text from there
+        // (ODF 1.3, `fo:min-height` on a text box), whether or not the frame states a height too; one
+        // that states neither is sized by its text alone.
+        XElement? textBox = drawing.Element(OdtNamespaces.Draw + "text-box");
+        bool statedHeight = OdtUnits.TryParseLength(
+            (string?)drawing.Attribute(OdtNamespaces.Svg + "height"), out double height);
+        bool grows = OdtUnits.TryParseLength(
+            (string?)textBox?.Attribute(OdtNamespaces.Fo + "min-height"), out double minHeight);
+        if (grows)
+            height = statedHeight ? Math.Max(height, minHeight) : minHeight;
+        else if (!statedHeight && textBox is not null)
+            (grows, height) = (true, 0);
+
+        if (height < 0 || (height == 0 && !grows))
+            return false;
 
         string? styleName = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
         (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) =
@@ -565,6 +577,10 @@ internal static class OdtReader
         IReadOnlyList<RichTextParagraph> paragraphs = ReadShapeParagraphs(textSource, context, depth);
 
         if (fill is null && paragraphs.Count == 0)
+            return false;
+
+        // Nothing to grow to, and nothing to draw at no height.
+        if (height == 0 && paragraphs.Count == 0)
             return false;
 
         double x = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "x"), out double left)
@@ -590,7 +606,8 @@ internal static class OdtReader
             wrapSide: wrapSide,
             zOrder: ZIndex(drawing),
             anchorPage: anchorPage,
-            offsetFromPage: fromPage));
+            offsetFromPage: fromPage,
+            growsToText: grows));
         return true;
     }
 
@@ -602,9 +619,12 @@ internal static class OdtReader
     /// LibreOffice writes a text box that grows to its text that way, and the
     /// width is what its lines wrap to. Without it the frame was read as body
     /// text, wherever it was anchored. A box sized only by <c>fo:min-height</c>
-    /// is still read that way: its height is what its text needs, which is not
-    /// known here, and a box of the minimum would clip the text it was made to
-    /// hold.
+    /// was read that way too, because its height is what its text needs and a
+    /// box of the minimum would have clipped it; it is now a shape that grows
+    /// to its text (<see cref="DocumentShape.GrowsToText"/>), and the layout
+    /// measures it. A book LibreOffice saved with three hundred such boxes on
+    /// the pages they name, <c>tdf146955.odt</c>, had them all poured into its
+    /// first sixteen pages of body.
     /// </remarks>
     private static bool TryReadFrameWidth(XElement drawing, out double width) =>
         OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "width"), out width) ||
@@ -1635,6 +1655,16 @@ internal static class OdtReader
 
         if (OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + "margin-bottom"), out double bottom))
             style = style with { SpacingAfter = (float)Math.Max(0, bottom) };
+
+        // The paragraph's shading (§20.183); "transparent" takes away what the
+        // chain gave, as an explicit value has to be able to.
+        string? background = (string?)properties.Attribute(OdtNamespaces.Fo + "background-color");
+        if (background is not null)
+        {
+            style = OdtUnits.TryParseColor(background, out BColor fill)
+                ? style with { Background = fill }
+                : style with { Background = BColor.Empty };
+        }
 
         return ApplyLineHeight(properties, style, builder);
     }

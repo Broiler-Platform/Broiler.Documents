@@ -176,6 +176,22 @@ internal sealed class PdfPageLayout(
                 "a column break starts a new page.");
         }
 
+        // A floating table is laid out where it stands in the flow, at the text's
+        // width; the PNG layout positions it, this one does not yet.
+        if (document.Tables.Any(table => table.IsFloating))
+        {
+            _diagnostics.Warning(
+                PdfDiagnosticCodes.WriteFeatureUnsupported,
+                "A floating table was laid out in the text flow at the text's width rather than at its position.");
+        }
+
+        if (document.Sections.Any(static section => section.RunningContent is not null))
+        {
+            _diagnostics.Warning(
+                PdfDiagnosticCodes.WriteFeatureUnsupported,
+                "Some sections have headers and footers of their own; every page carries the document's.");
+        }
+
         var anchors = new Dictionary<int, (PdfLayoutPage Page, double Top)>();
         for (int paragraphIndex = 0; paragraphIndex < document.ParagraphCount; paragraphIndex++)
         {
@@ -246,7 +262,7 @@ internal sealed class PdfPageLayout(
             foreach (DocumentShape shape in document.Shapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
-                    _wrap.Add(shape, shape.OffsetFromPage ? shape.OffsetY - setup.Height : -(y - shape.OffsetY));
+                    _wrap.Add(shape, shape.OffsetFromPage ? shape.OffsetY - setup.Height : -(y - shape.OffsetY), height: BoxHeight(shape));
             }
 
             string marker = PdfModelProjector.FormatListMarker(style.ListKind, listNumber);
@@ -435,7 +451,8 @@ internal sealed class PdfPageLayout(
     {
         foreach (DocumentShape shape in shapes)
         {
-            if (shape.Width <= 0 || shape.Height <= 0)
+            double height = BoxHeight(shape);
+            if ((shape.Width <= 0 || height <= 0) && !shape.IsRule)
                 continue;
 
             if (shape.HasImage)
@@ -449,15 +466,15 @@ internal sealed class PdfPageLayout(
             double top = setup.Height - shape.OffsetY;
             page.Shapes.Add(new PdfPlacedShape(
                 left,
-                top - shape.Height,
-                shape.Width,
-                shape.Height,
+                top - height,
+                Math.Max(0, shape.Width),
+                height,
                 shape.Fill,
                 shape.Outline,
                 shape.ZOrder));
 
             if (shape.HasText)
-                PlaceRunningBlock(page, shape.Paragraphs, left, shape.Width, top, shape.Height, isHeader: true);
+                PlaceRunningBlock(page, shape.Paragraphs, left, shape.Width, top, height, isHeader: true);
         }
     }
 
@@ -824,7 +841,8 @@ internal sealed class PdfPageLayout(
             else if (!anchors.TryGetValue(shape.ParagraphIndex, out anchor))
                 continue;
 
-            if (shape.Width <= 0 || shape.Height <= 0)
+            double height = BoxHeight(shape);
+            if ((shape.Width <= 0 || height <= 0) && !shape.IsRule)
                 continue;
 
             if (shape.HasImage)
@@ -842,15 +860,15 @@ internal sealed class PdfPageLayout(
             double top = shape.OffsetFromPage ? setup.Height - shape.OffsetY : anchor.Top - shape.OffsetY;
             anchor.Page.Shapes.Add(new PdfPlacedShape(
                 left,
-                top - shape.Height,
-                shape.Width,
-                shape.Height,
+                top - height,
+                Math.Max(0, shape.Width),
+                height,
                 shape.Fill,
                 shape.Outline,
                 shape.ZOrder));
 
             if (shape.HasText)
-                PlaceRunningBlock(anchor.Page, shape.Paragraphs, left, shape.Width, top, shape.Height, isHeader: true);
+                PlaceRunningBlock(anchor.Page, shape.Paragraphs, left, shape.Width, top, height, isHeader: true);
         }
     }
 
@@ -866,7 +884,7 @@ internal sealed class PdfPageLayout(
         foreach (DocumentShape shape in shapes)
         {
             if (shape.Wraps && shape.AnchorPage == number)
-                _wrap.Add(shape, shape.OffsetY - pageHeight);
+                _wrap.Add(shape, shape.OffsetY - pageHeight, height: BoxHeight(shape));
         }
     }
 
@@ -876,6 +894,32 @@ internal sealed class PdfPageLayout(
         0 => PageSelection.First,
         _ => (index + 1) % 2 == 0 ? PageSelection.Even : PageSelection.Default,
     };
+
+    /// <summary>
+    /// The height a shape's box is placed at: its own, or as tall as its lines
+    /// where it <see cref="DocumentShape.GrowsToText"/>, measured as
+    /// <see cref="PlaceRunningBlock"/> measures them.
+    /// </summary>
+    private double BoxHeight(DocumentShape shape)
+    {
+        double stated = Math.Max(0, shape.Height);
+        if (!shape.GrowsToText || !shape.HasText || shape.Width <= 0)
+            return stated;
+
+        double height = 0;
+        foreach (RichTextParagraph paragraph in shape.Paragraphs)
+        {
+            List<LayoutLine> broken = BreakParagraph(paragraph, shape.Width, marker: string.Empty);
+            double spacing = paragraph.Style.LineSpacing > 0 ? paragraph.Style.LineSpacing : 1f;
+            foreach (LayoutLine line in broken)
+                height += line.Height * spacing;
+
+            if (broken.Count == 0)
+                height += EmptyLineHeight() * spacing;
+        }
+
+        return Math.Max(stated, height);
+    }
 
     private void PlaceRunningBlock(
         PdfLayoutPage page,

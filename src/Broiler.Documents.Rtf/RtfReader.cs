@@ -50,6 +50,12 @@ public static class RtfReader
         public bool InTable;
 
         /// <summary>
+        /// The frame the paragraph's position words put it in, if they make one.
+        /// A paragraph property, so <c>\pard</c> clears it.
+        /// </summary>
+        public RtfFrame Frame;
+
+        /// <summary>
         /// Inside <c>{\*\background ...}</c>: the shape there is the page's
         /// background, not a shape on it.
         /// </summary>
@@ -93,6 +99,11 @@ public static class RtfReader
         private readonly StringBuilder _shapePropertyValue = new();
         private readonly List<DocumentShape> _shapes = [];
         private Accumulator? _shapeText;
+
+        // The paragraphs of the frame being read, and the frame they share.
+        // Finished into a shape when a paragraph outside it arrives.
+        private Accumulator? _frameText;
+        private RtfFrame _frameKey;
         private int _shapeLeft;
         private int _shapeTop;
         private int _shapeRight;
@@ -103,6 +114,11 @@ public static class RtfReader
         // 2 the paragraph - posrelv's numbering, which \shpbymargin, \shpbypage
         // and \shpbypara state too.
         private int _shapeVerticalFrame = 2;
+
+        // What a shape's \shpleft is measured from: \shpbxpage, or else the
+        // margin or column, which the model measures from already.
+        private bool _shapeLeftFromPage;
+        private bool _shapeFitsText;
         private BColor _shapeFillStart = BColor.Empty;
         private BColor _shapeFillEnd = BColor.Empty;
         private BColor _shapeLineColor = BColor.Empty;
@@ -110,6 +126,10 @@ public static class RtfReader
         private bool _shapeHasFill;
         private bool _shapeGradient;
         private bool _shapeHasLine = true;
+
+        // The shape's shapeType: 1 a rectangle, which Word takes when none is
+        // given, 20 a line.
+        private long _shapeType = 1;
         private bool _shapeInBackground;
         private double _shapeFillFocus;
         private ShapeFill? _pageBackground;
@@ -133,6 +153,8 @@ public static class RtfReader
         private int _pendingUnicodeSkip;
         private bool _sawStar;
         private bool _reportedCodePage;
+        private bool _reportedFrameAlignment;
+        private bool _reportedSlantedLine;
         private bool _reportedEmbedded;
         private bool _reportedListTable;
         private bool _titlePage;
@@ -219,6 +241,7 @@ public static class RtfReader
             }
 
             FlushPending();
+            FinishFrame();
             FinishTable();
             RichTextDocument document = _builder.Build(_state.Para)
                 .WithStyleDefaults(DocumentStyleDefaults.Default with
@@ -485,6 +508,11 @@ public static class RtfReader
                 case "cf": _state.Char = _state.Char with { Foreground = _colors.Get(p) }; break;
                 case "cb":
                 case "highlight": _state.Char = _state.Char with { Background = _colors.Get(p) }; break;
+
+                // The paragraph's shading: the colour behind its pattern, which
+                // with no \shading is all that shows. A paragraph property, so
+                // \pard clears it.
+                case "cbpat": _state.Para = _state.Para with { Background = has ? _colors.Get(p) : BColor.Empty }; break;
                 case "ansicpg":
                     if (has)
                         _state.DocumentCodePage = _state.CodePage = p;
@@ -561,6 +589,9 @@ public static class RtfReader
                 case "shpbymargin": _shapeVerticalFrame = 0; return;
                 case "shpbypage": _shapeVerticalFrame = 1; return;
                 case "shpbypara": _shapeVerticalFrame = 2; return;
+                case "shpbxpage": _shapeLeftFromPage = true; return;
+                case "shpbxmargin":
+                case "shpbxcolumn": _shapeLeftFromPage = false; return;
                 case "sp": _state.Dest = RtfDestination.ShapeProperty; BeginShapeProperty(); return;
                 case "sn": _state.Dest = RtfDestination.ShapePropertyName; return;
                 case "sv": _state.Dest = RtfDestination.ShapePropertyValue; return;
@@ -571,7 +602,43 @@ public static class RtfReader
                     _state.LineSpacing = 0;
                     _state.MultipleLineSpacing = false;
                     _state.InTable = false;
+                    _state.Frame = default;
                     break;
+
+                // A frame's position words, as LibreOffice maps them onto Word's
+                // w:framePr. A position cancels an alignment and an alignment a
+                // position, whichever comes last.
+                case "absw": if (has) _state.Frame = _state.Frame with { Width = p }; break;
+                case "absh": if (has) _state.Frame = _state.Frame with { Height = p }; break;
+                case "posx": if (has) _state.Frame = _state.Frame with { X = p, AlignX = RtfFrameAlignX.None }; break;
+                case "posy": if (has) _state.Frame = _state.Frame with { Y = p, AlignY = RtfFrameAlignY.None }; break;
+                case "posxl": _state.Frame = _state.Frame with { AlignX = RtfFrameAlignX.Left }; break;
+                case "posxc": _state.Frame = _state.Frame with { AlignX = RtfFrameAlignX.Center }; break;
+                case "posxr": _state.Frame = _state.Frame with { AlignX = RtfFrameAlignX.Right }; break;
+                case "posxi": _state.Frame = _state.Frame with { AlignX = RtfFrameAlignX.Inside }; break;
+                case "posxo": _state.Frame = _state.Frame with { AlignX = RtfFrameAlignX.Outside }; break;
+                case "posyil": _state.Frame = _state.Frame with { AlignY = RtfFrameAlignY.Inline }; break;
+                case "posyt": _state.Frame = _state.Frame with { AlignY = RtfFrameAlignY.Top }; break;
+                case "posyc": _state.Frame = _state.Frame with { AlignY = RtfFrameAlignY.Center }; break;
+                case "posyb": _state.Frame = _state.Frame with { AlignY = RtfFrameAlignY.Bottom }; break;
+                case "posyin": _state.Frame = _state.Frame with { AlignY = RtfFrameAlignY.Inside }; break;
+                case "posyout": _state.Frame = _state.Frame with { AlignY = RtfFrameAlignY.Outside }; break;
+                case "phcol": _state.Frame = _state.Frame with { Horizontal = RtfFrameHorizontal.Column }; break;
+                case "phmrg": _state.Frame = _state.Frame with { Horizontal = RtfFrameHorizontal.Margin }; break;
+                case "phpg": _state.Frame = _state.Frame with { Horizontal = RtfFrameHorizontal.Page }; break;
+                case "pvmrg": _state.Frame = _state.Frame with { Vertical = RtfFrameVertical.Margin }; break;
+                case "pvpg": _state.Frame = _state.Frame with { Vertical = RtfFrameVertical.Page }; break;
+                case "pvpara": _state.Frame = _state.Frame with { Vertical = RtfFrameVertical.Paragraph }; break;
+                case "wraparound": _state.Frame = _state.Frame with { Wrap = RtfFrameWrap.Around }; break;
+                case "nowrap": _state.Frame = _state.Frame with { Wrap = RtfFrameWrap.NotBeside }; break;
+                case "overlay": _state.Frame = _state.Frame with { Wrap = RtfFrameWrap.None }; break;
+                case "wrapthrough": _state.Frame = _state.Frame with { Wrap = RtfFrameWrap.Through }; break;
+                case "dxfrtext":
+                    if (has)
+                        _state.Frame = _state.Frame with { HorizontalSpace = p, VerticalSpace = p };
+                    break;
+                case "dfrmtxtx": if (has) _state.Frame = _state.Frame with { HorizontalSpace = p }; break;
+                case "dfrmtxty": if (has) _state.Frame = _state.Frame with { VerticalSpace = p }; break;
                 case "intbl": _state.InTable = !(has && p == 0); break;
                 case "sl":
                     if (has)
@@ -948,7 +1015,7 @@ public static class RtfReader
                     return _shapeText ??= new Accumulator(_maxParagraphs);
 
                 if (!IsRunning(destination))
-                    return _builder;
+                    return BodyOrFrame(destination);
 
                 if (!_running.TryGetValue(destination, out Accumulator? accumulator))
                 {
@@ -1035,9 +1102,15 @@ public static class RtfReader
             _shapeBottom = 0;
             _shapeZ = 0;
             _shapeVerticalFrame = 2;
+            _shapeLeftFromPage = false;
+            _shapeFitsText = false;
+            _shapeType = 1;
             _shapeFillStart = BColor.Empty;
             _shapeFillEnd = BColor.Empty;
-            _shapeLineColor = BColor.Empty;
+
+            // Word draws a shape's line black unless it says otherwise, and so
+            // does LibreOffice's import, against Writer's own blue default.
+            _shapeLineColor = BColor.Black;
             _shapeFillAngle = 0;
             _shapeHasFill = false;
             _shapeGradient = false;
@@ -1096,6 +1169,12 @@ public static class RtfReader
                 case "lineColor":
                     _shapeLineColor = ShapeColor(number);
                     break;
+                case "shapeType":
+                    _shapeType = number;
+                    break;
+                case "fFitShapeToText":
+                    _shapeFitsText = number != 0;
+                    break;
                 case "fLine":
                     _shapeHasLine = number != 0;
                     break;
@@ -1144,7 +1223,26 @@ public static class RtfReader
             }
 
             _shapeText = null;
-            if (width <= 0 || height <= 0 || (fill is null && paragraphs.Count == 0))
+            BColor outline = _shapeHasLine ? _shapeLineColor : BColor.Empty;
+
+            // A line is a box of nought by its length, drawn as its outline. A
+            // slanted one would need a geometry the model does not hold, and
+            // drawn as its box it would be a rectangle that is not there.
+            if (_shapeType == 20 && width != 0 && height != 0)
+            {
+                ReportSlantedLine();
+                return;
+            }
+
+            bool rule = outline.IsEmpty is false && ((width == 0) != (height == 0));
+            // A box sized by its text may state no height at all.
+            bool sizedByText = _shapeFitsText && paragraphs.Count > 0 && height == 0;
+            if (!rule && (width <= 0 || (height <= 0 && !sizedByText)))
+                return;
+
+            // A picture's frame draws its picture, which is not read, rather than
+            // a box; it is kept only for paint or text of its own.
+            if (fill is null && paragraphs.Count == 0 && (outline.IsEmpty || _shapeType == 75))
                 return;
 
             // A shape measured from the page or its top margin is placed from the
@@ -1153,17 +1251,26 @@ public static class RtfReader
             if (_shapeVerticalFrame == 0)
                 top += (_sectionTop ?? _marginTop) / 20d;
 
+            // A line drawn right to left or bottom to top states its far end
+            // first; the rule is the same either way.
+            double left = Math.Min(_shapeLeft, _shapeRight) / 20d;
+            if (_shapeLeftFromPage)
+                left -= (_sectionLeft ?? _marginLeft) / 20d;
+            if (height < 0)
+                top += height;
+
             _shapes.Add(new DocumentShape(
                 _builder.ParagraphCount,
-                _shapeLeft / 20d,
+                left,
                 top,
-                width,
-                height,
+                Math.Abs(width),
+                Math.Abs(height),
                 fill,
-                _shapeHasLine ? _shapeLineColor : BColor.Empty,
+                outline,
                 paragraphs,
                 zOrder: _shapeZ,
-                offsetFromPage: _shapeVerticalFrame != 2));
+                offsetFromPage: _shapeVerticalFrame != 2,
+                growsToText: _shapeFitsText));
         }
 
         /// <summary>The headers and footers the document's running destinations collected.</summary>
@@ -1188,6 +1295,131 @@ public static class RtfReader
             }
 
             return content;
+        }
+
+        /// <summary>
+        /// The body, or the frame the paragraph's position words put it in.
+        /// </summary>
+        /// <remarks>
+        /// Paragraphs that state the same frame share it, and the first one that
+        /// states another, or none, finishes it: RTF 1.9.1 measures a frame from
+        /// "the next unframed paragraph", which is the one it is anchored to. A
+        /// frame in a table is read as the table's text, as LibreOffice reads it.
+        /// </remarks>
+        private Accumulator BodyOrFrame(RtfDestination destination)
+        {
+            bool framed = destination == RtfDestination.Normal && _state.Frame.IsFrame && !_state.InTable;
+            if (_frameText is not null && (!framed || _state.Frame != _frameKey))
+                FinishFrame();
+
+            if (!framed)
+                return _builder;
+
+            _frameKey = _state.Frame;
+            return _frameText ??= new Accumulator(_maxParagraphs);
+        }
+
+        /// <summary>
+        /// Turns the frame's paragraphs into a floating shape that holds them,
+        /// placed where the frame's words say.
+        /// </summary>
+        private void FinishFrame()
+        {
+            Accumulator? text = _frameText;
+            RtfFrame frame = _frameKey;
+            _frameText = null;
+            if (text is null)
+                return;
+
+            IReadOnlyList<RichTextParagraph> paragraphs = text.Build(ParagraphStyle.Default).Paragraphs;
+            bool empty = true;
+            foreach (RichTextParagraph paragraph in paragraphs)
+                empty &= paragraph.Length == 0;
+            if (empty && frame.Height == 0)
+                return;
+
+            double pageWidth = (_sectionWidth ?? _paperWidth) / 20d;
+            double marginLeft = (_sectionLeft ?? _marginLeft) / 20d;
+            double marginRight = (_sectionRight ?? _marginRight) / 20d;
+            double marginTop = (_sectionTop ?? _marginTop) / 20d;
+            double textWidth = Math.Max(0, pageWidth - marginLeft - marginRight);
+
+            // A frame that gives no width is as wide as its column, which is
+            // what the reference holds without measuring its lines.
+            bool fromPage = frame.Horizontal == RtfFrameHorizontal.Page;
+            double referenceWidth = fromPage ? pageWidth : textWidth;
+            double width = frame.Width > 0 ? frame.Width / 20d : textWidth;
+            double height = Math.Abs(frame.Height) / 20d;
+            double x = frame.AlignX switch
+            {
+                RtfFrameAlignX.Left or RtfFrameAlignX.Inside => 0,
+                RtfFrameAlignX.Center => (referenceWidth - width) / 2,
+                RtfFrameAlignX.Right or RtfFrameAlignX.Outside => referenceWidth - width,
+                _ => frame.X / 20d,
+            };
+            if (fromPage)
+                x -= marginLeft;
+
+            // Inline is the paragraph's own place, which is a frame measured from
+            // its paragraph at nought.
+            bool fromParagraph = frame.Vertical == RtfFrameVertical.Paragraph || frame.AlignY == RtfFrameAlignY.Inline;
+            double y = frame.AlignY switch
+            {
+                RtfFrameAlignY.None => frame.Y / 20d,
+                RtfFrameAlignY.Center or RtfFrameAlignY.Bottom => ReportFrameAlignment(frame.AlignY),
+                _ => 0,
+            };
+            if (!fromParagraph && frame.Vertical == RtfFrameVertical.Margin)
+                y += marginTop;
+
+            (ShapeWrap wrap, double distance) = frame.Wrap switch
+            {
+                RtfFrameWrap.NotBeside => (ShapeWrap.TopAndBottom, frame.VerticalSpace / 20d),
+                RtfFrameWrap.None or RtfFrameWrap.Through => (ShapeWrap.None, 0d),
+                _ => (ShapeWrap.Square, frame.HorizontalSpace / 20d),
+            };
+
+            _shapes.Add(new DocumentShape(
+                _builder.ParagraphCount,
+                x,
+                y,
+                width,
+                height,
+                paragraphs: paragraphs,
+                behindText: false,
+                wrap: wrap,
+                wrapDistance: distance,
+                offsetFromPage: !fromParagraph,
+                growsToText: frame.Height >= 0));
+        }
+
+        /// <summary>
+        /// A frame centred on or set at the foot of its reference needs its
+        /// height, which a frame sized by its text does not have until it is laid
+        /// out; it is set at the top and said once.
+        /// </summary>
+        private double ReportFrameAlignment(RtfFrameAlignY alignment)
+        {
+            if (!_reportedFrameAlignment)
+            {
+                _diagnostics.Add(DocumentDiagnostic.Info(
+                    "rtf.frame.position",
+                    $"A frame aligned to the {(alignment == RtfFrameAlignY.Center ? "centre" : "foot")} of its reference was set at its top."));
+                _reportedFrameAlignment = true;
+            }
+
+            return 0;
+        }
+
+        private void ReportSlantedLine()
+        {
+            if (_reportedSlantedLine)
+                return;
+
+            _diagnostics.Add(DocumentDiagnostic.Info(
+                "rtf.shape.line",
+                "A slanted line was not read; the model holds a line only as a horizontal or vertical rule."));
+            _reportedSlantedLine = true;
         }
 
         private void EndParagraph()

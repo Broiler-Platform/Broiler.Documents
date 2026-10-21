@@ -31,6 +31,9 @@ internal static class DocxNamespaces
     /// <summary>The shape namespace Word writes a text box or a drawn box in.</summary>
     public static readonly XNamespace WordShape = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape";
 
+    /// <summary>The group namespace Word writes several drawn boxes under one anchor in.</summary>
+    public static readonly XNamespace WordGroup = "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup";
+
     public const string OfficeDocumentRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";
 
     public const string HyperlinkRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";

@@ -53,7 +53,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private readonly ImageStore _images = images ?? throw new ArgumentNullException(nameof(images));
     private readonly LineWrapper _lineWrapper = new(settings.TabStopPoints);
     private readonly List<string> _notes = [];
+    private RunningContent _documentRunning = RunningContent.Empty;
+
+    // The headers and footers of the page being filled - those of the section
+    // that started it, or the document's - and the number of the first page
+    // that section started, which is the page its first-page part is for.
     private RunningContent _running = RunningContent.Empty;
+    private int _firstPage = 1;
     private double? _headerDistance;
     private double? _footerDistance;
     private PageFrame? _frame;
@@ -61,6 +67,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private ShapeFill? _background;
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
+    private readonly Dictionary<DocumentShape, double> _grownHeights = [];
 
     /// <summary>
     /// U+2028 LINE SEPARATOR, which is how the model spells a break inside a
@@ -80,13 +87,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // Continuous mode collapses the document to one tall page, so there are no
         // pages for a header to repeat on and no bottom margin for a footer to sit
         // in. Drawing them there would put a page number in the middle of nothing.
-        _running = setup.Continuous ? RunningContent.Empty : document.RunningContent;
+        _documentRunning = setup.Continuous ? RunningContent.Empty : document.RunningContent;
+        _running = _documentRunning;
+        _firstPage = 1;
         _headerDistance = document.PageGeometry?.HeaderDistance;
         _footerDistance = document.PageGeometry?.FooterDistance;
         _frame = null;
         _documentShapes = document.Shapes;
         _background = document.PageBackground;
         _paragraphTops.Clear();
+        _grownHeights.Clear();
+        foreach (DocumentShape shape in _documentShapes)
+            NoteGrownHeight(shape, setup);
         _wrap = new TextWrapExclusions();
         AddPageExclusions(1);
 
@@ -97,7 +109,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // subsequent page and a one-line difference reads as a whole-document one.
         double columnHeight = setup.Continuous ? double.MaxValue : setup.ContentHeightPoints;
         TextColumns pageColumns = TextColumns.For(document.PageGeometry, setup, _notes);
-        var sectionColumns = new Dictionary<DocumentSection, TextColumns>();
+        var sectionColumns = new Dictionary<(DocumentSection Section, DocumentSection? Page), TextColumns>();
 
         // A section's own margins are measured on the document's own paper, so
         // they apply where the box being filled is that paper; a render asked
@@ -118,9 +130,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         bool truncated = false;
         int ignoredBreaks = 0;
 
-        // The top and foot of the text on a page the section starts: its own
-        // margins where it states them, the box's otherwise, each moved clear
-        // of the header and footer the page draws.
+        // The top and foot of the text on a page, and the width its header is
+        // set in: the margins of the section that started the page where it
+        // states them, the box's otherwise, each moved clear of the header and
+        // footer the page draws.
         (double Top, double Bottom) BandOf(DocumentSection? section)
         {
             if (setup.Continuous)
@@ -143,19 +156,48 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             return (_frame.TextTop, _frame.TextBottom);
         }
 
+        // The section that started the page being filled, whose headers and
+        // footers the page carries, and one that has asked to start the next.
+        // A section starts a page where its first paragraph opens one; one that
+        // follows on the same page starts nothing, and the pages its text runs
+        // onto keep the section that did, as LibreOffice keeps the page style.
+        bool hasOwner = false;
+        DocumentSection? owner = null;
+        DocumentSection? pendingOwner = null;
+        bool hasPendingOwner = false;
+        bool pendingSharesFirst = false;
+
+        void TakeOwner(DocumentSection? section, bool sharesFirst = false)
+        {
+            hasOwner = true;
+            owner = section;
+            hasPendingOwner = false;
+            pendingOwner = null;
+            pendingSharesFirst = false;
+            _running = setup.Continuous ? RunningContent.Empty : section?.RunningContent ?? _documentRunning;
+            _firstPage = sharesFirst ? 0 : pages.Count + 1;
+        }
+
         (pageTop, contentBottom) = BandOf(null);
         y = pageTop;
 
-        TextColumns ColumnsOf(DocumentSection? section)
+        // A section's columns are spread across the text width of the page it
+        // is on: the margins of the section that started the page. A section
+        // that follows on the same page - a continuous break - keeps that
+        // page's margins rather than its own, as LibreOffice lays it out, where
+        // such a section is a text section inside the page style of the one
+        // before it. A narrow two-column section that a continuous break opens
+        // used to set the whole page's header in its own narrow width.
+        TextColumns ColumnsOf(DocumentSection? section, DocumentSection? pageSection)
         {
             if (section is null)
                 return pageColumns;
 
-            if (!sectionColumns.TryGetValue(section, out TextColumns found))
+            if (!sectionColumns.TryGetValue((section, pageSection), out TextColumns found))
             {
                 double left = setup.ContentLeftPoints;
                 double width = setup.ContentWidthPoints;
-                if (sectionPages && section.Page is PageGeometry page)
+                if (sectionPages && pageSection?.Page is PageGeometry page)
                 {
                     left = Math.Clamp(page.MarginLeft, 0, setup.WidthPoints - 1);
                     width = Math.Max(1, setup.WidthPoints - page.MarginRight - left);
@@ -164,7 +206,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 found = TextColumns.For(
                     section.ColumnCount, section.ColumnGap, width, left - setup.ContentLeftPoints,
                     setup.Continuous, _notes, "a section's");
-                sectionColumns.Add(section, found);
+                sectionColumns.Add((section, pageSection), found);
             }
 
             return found;
@@ -189,16 +231,31 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // every break below made before there were columns.
         int column = 0;
         int columnStart = 0;
+
+        // Floating tables stand on the page apart from the flow: their lines and
+        // boxes join the page when it is finished, the boxes they keep text out
+        // of are the page's, and a table taller than the room left carries its
+        // remaining rows to the next page.
+        var floatLines = new List<LayoutLine>();
+        var floatCells = new List<LayoutCell>();
+        var floatBoxes = new List<FloatBox>();
+        FloatCarry? floatCarry = null;
+
         bool ColumnHasContent() =>
-            currentLines.Count > columnStart || (column == 0 && regionTop > pageTop);
+            currentLines.Count > columnStart || (column == 0 && (regionTop > pageTop || floatBoxes.Count > 0));
 
         var numbering = new ListNumbering();
 
         void BreakPage()
         {
+            currentLines.AddRange(floatLines);
+            currentCells.AddRange(floatCells);
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
             currentLines = [];
             currentCells = [];
+            floatLines = [];
+            floatCells = [];
+            floatBoxes.Clear();
             column = 0;
             columnStart = 0;
 
@@ -215,7 +272,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             _wrap = new TextWrapExclusions();
             AddPageExclusions(pages.Count + 1);
 
-            (pageTop, contentBottom) = BandOf(region);
+            if (hasPendingOwner)
+            {
+                TakeOwner(pendingOwner, pendingSharesFirst);
+                if (ReferenceEquals(region, owner))
+                    columns = ColumnsOf(region, owner);
+            }
+
+            (pageTop, contentBottom) = BandOf(owner);
             y = pageTop;
             regionTop = y;
             regionDepth = y;
@@ -223,6 +287,140 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             regionUnbalanced = false;
             if (pages.Count >= _settings.MaxPages)
                 truncated = true;
+
+            if (floatCarry is FloatCarry carry && !truncated)
+            {
+                floatCarry = null;
+                PlaceFloating(carry.Rows, carry.Left, pageTop, carry.Width, carry.Position);
+            }
+        }
+
+        // The page's floating boxes as exclusions, for when the exclusions are
+        // made again part way down a page.
+        void AddFloatExclusions()
+        {
+            foreach (FloatBox box in floatBoxes)
+            {
+                _wrap.AddBox(box.Top, box.Bottom,
+                    box.Left - setup.ContentLeftPoints, box.Right - setup.ContentLeftPoints, box.Wrap);
+            }
+        }
+
+        // Places a floating table's rows from top down, out of the flow: y does
+        // not move. Rows that run past the foot of the page are cut where a row
+        // may be cut, and what is left goes to the top of the next page, as
+        // LibreOffice splits the frame it imports such a table into.
+        void PlaceFloating(List<RowBox> rows, double left, double top, double width, TablePosition position)
+        {
+            double rowTop = top;
+            bool placed = false;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                RowBox row = rows[i];
+                if (rowTop + row.Height > contentBottom)
+                {
+                    if (row.CanSplit && row.SplitAt(contentBottom - rowTop) is (RowBox fitted, var rest))
+                    {
+                        fitted.PlaceAt(rowTop, 0, floatLines, floatCells, _paragraphTops);
+                        rowTop += fitted.Height;
+                        placed = true;
+                        if (rest is null)
+                            continue;
+
+                        var carried = new List<RowBox> { rest };
+                        carried.AddRange(rows.Skip(i + 1));
+                        floatCarry = new FloatCarry(carried, left, width, position);
+                        break;
+                    }
+
+                    if (placed)
+                    {
+                        floatCarry = new FloatCarry(rows.GetRange(i, rows.Count - i), left, width, position);
+                        break;
+                    }
+                }
+
+                row.PlaceAt(rowTop, 0, floatLines, floatCells, _paragraphTops);
+                rowTop += row.Height;
+                placed = true;
+            }
+
+            // Text runs beside the table where a side of the column has room for
+            // it, and below it where neither does.
+            double boxLeft = left - position.LeftFromText;
+            double boxRight = left + width + position.RightFromText;
+            double columnLeft = setup.ContentLeftPoints + columns.Offset(column);
+            double room = Math.Max(boxLeft - columnLeft, columnLeft + columns.Width - boxRight);
+            var box = new FloatBox(
+                top - position.TopFromText,
+                rowTop + position.BottomFromText,
+                boxLeft,
+                boxRight,
+                room >= MinimumWrapRoom ? ShapeWrap.Square : ShapeWrap.TopAndBottom);
+            floatBoxes.Add(box);
+            _wrap.AddBox(box.Top, box.Bottom,
+                box.Left - setup.ContentLeftPoints, box.Right - setup.ContentLeftPoints, box.Wrap);
+        }
+
+        // Where a table in the flow can start: below every floating table on the
+        // page that it would run into, as LibreOffice moves an inline table down
+        // past one (testInlineTableShiftDown) rather than drawing the two over
+        // each other. The whole table moves, not the rows that meet it, so a
+        // table is not cut in two around the one beside it.
+        double BelowFloats(double top, List<RowBox> rows, double shift)
+        {
+            if (floatBoxes.Count == 0 || !rows.Any(row => row.Boxes.Count > 0))
+                return top;
+
+            double left = rows.SelectMany(row => row.Boxes).Min(box => box.Left) + shift;
+            double right = rows.SelectMany(row => row.Boxes).Max(box => box.Left + box.Width) + shift;
+            double height = rows.Sum(row => row.Height);
+            for (int attempt = 0; attempt < 8; attempt++)
+            {
+                double moved = top;
+                double bottom = Math.Min(top + height, contentBottom);
+                foreach (FloatBox box in floatBoxes)
+                {
+                    if (box.Left < right && box.Right > left && box.Top < bottom && box.Bottom > top)
+                        moved = Math.Max(moved, box.Bottom);
+                }
+
+                if (moved <= top)
+                    break;
+
+                top = moved;
+            }
+
+            return top;
+        }
+
+        // Where a floating table stands, and the rows it is drawn as.
+        void LayFloatingTable(DocumentTable table, TablePosition position)
+        {
+            double width = table.TotalWidth > 0 ? Math.Min(table.TotalWidth, setup.WidthPoints) : columns.Width;
+            (double boxLeft, double boxWidth) = position.HorizontalAnchor switch
+            {
+                TableAnchor.Page => (0, setup.WidthPoints),
+                TableAnchor.Margin => (_frame?.Left ?? setup.ContentLeftPoints, _frame?.Width ?? setup.ContentWidthPoints),
+                _ => (setup.ContentLeftPoints + columns.Offset(column), columns.Width),
+            };
+            int pageNumber = pages.Count + 1;
+            double left = position.LeftIn(boxLeft, boxWidth, width, pageNumber);
+            List<RowBox> rows = ComposeTable(table, document, setup, left, width);
+            double height = rows.Sum(row => row.Height);
+
+            double marginTop = _frame?.MarginTop ?? setup.MarginTopPoints;
+            double marginBottom = setup.HeightPoints - (_frame?.MarginBottom ?? setup.MarginBottomPoints);
+            (double boxTop, double boxHeight) = position.VerticalAnchor switch
+            {
+                TableAnchor.Page => (0, setup.HeightPoints),
+                TableAnchor.Margin => (marginTop, Math.Max(0, marginBottom - marginTop)),
+                _ => (y, Math.Max(0, contentBottom - y)),
+            };
+            double top = setup.Continuous && position.VerticalAnchor != TableAnchor.Text
+                ? y
+                : position.TopIn(boxTop, boxHeight, height, pageNumber);
+            PlaceFloating(rows, left, top, width, position);
         }
 
         void NextColumn()
@@ -248,6 +446,28 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             NextColumn();
         }
 
+        // A section that follows on a page with headers of its own takes the
+        // page a hard page break inside it starts, its first page sharing the
+        // others' parts. That is LibreOffice's reading of such a document, the
+        // "nightmare scenario" its writerfilter names: the section's page style
+        // goes on the paragraph that breaks the page, with the first page
+        // shared, because there is no page break of the section's own to put
+        // it on. tdf90697_complexBreaksHeaders.docx is fifteen continuous
+        // sections, each naming its own header, that change at page breaks.
+        void OwnBreak()
+        {
+            if (hasPendingOwner || region is null || ReferenceEquals(region, owner))
+                return;
+
+            RunningContent own = region.RunningContent ?? _documentRunning;
+            if (setup.Continuous || ReferenceEquals(own, _running))
+                return;
+
+            pendingOwner = region;
+            hasPendingOwner = true;
+            pendingSharesFirst = true;
+        }
+
         // Where one stretch gives way to the next on the same page, the one above
         // ends below its deepest column - or, for a section the next one follows
         // on from, at the height that shares its lines out evenly between its
@@ -255,7 +475,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // LibreOffice ends a text:section - and the next starts there, in its
         // first column. Where the next starts a page, the page break that follows
         // starts it at the top.
-        void EnterRegion(DocumentSection? next, bool startsPage)
+        void EnterRegion(DocumentSection? next, bool startsPage, bool opensPage)
         {
             if (!startsPage)
             {
@@ -281,23 +501,37 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             if (shape.Wraps && !shape.IsPageAnchored &&
                                 _paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchor))
                             {
-                                _wrap.Add(shape, shape.TopOnPage(anchor));
+                                _wrap.Add(shape, shape.TopOnPage(anchor), height: BoxHeight(shape));
                             }
                         }
+
+                        AddFloatExclusions();
                     }
                 }
             }
 
             region = next;
-            columns = ColumnsOf(next);
 
             // A section that opens a page, the first included, sets its top and
             // foot; one that follows on a page keeps those of the page it is on.
             if (currentLines.Count == 0 && currentCells.Count == 0)
             {
-                (pageTop, contentBottom) = BandOf(next);
+                if (!hasOwner || opensPage)
+                    TakeOwner(next);
+
+                (pageTop, contentBottom) = BandOf(owner);
                 y = pageTop;
             }
+            else if (opensPage)
+            {
+                // The page break that follows - or, for a section that opens
+                // with a table, which breaks no page here, the next one there is
+                // - starts the page this section owns.
+                pendingOwner = next;
+                hasPendingOwner = true;
+            }
+
+            columns = ColumnsOf(next, owner);
 
             column = 0;
             columnStart = currentLines.Count;
@@ -330,9 +564,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             DocumentSection? section = DocumentSection.Containing(document.Sections, paragraphIndex);
             if (!ReferenceEquals(section, region))
             {
-                bool startsPage = table is null && !setup.Continuous && currentLines.Count > 0 &&
-                    document.Paragraphs[paragraphIndex].Style.PageBreakBefore;
-                EnterRegion(section, startsPage);
+                bool opensPage = document.Paragraphs[paragraphIndex].Style.PageBreakBefore;
+                bool startsPage = table is null && !setup.Continuous && currentLines.Count > 0 && opensPage;
+                EnterRegion(section, startsPage, opensPage);
+            }
+
+            if (table?.Position is TablePosition floating)
+            {
+                LayFloatingTable(table, floating);
+                paragraphIndex = table.ParagraphEnd;
+                continue;
             }
 
             if (table is not null)
@@ -343,8 +584,45 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // cannot fit even a fresh column is placed there anyway and runs
                 // off its foot, because a row that waited for room it will never
                 // have would stop the layout.
-                foreach (RowBox composedRow in ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width))
+                List<RowBox> composedRows = ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width);
+                y = BelowFloats(y, composedRows, columns.Offset(column));
+
+                // The header rows repeat at the top of every column the table
+                // continues into. headerOnly says the column holds nothing else
+                // yet, so a row that does not fit beneath them is placed there
+                // rather than sent on to a column that would repeat them again.
+                int headerCount = HeaderRowCount(table);
+                bool headerOnly = false;
+
+                void ContinueTable(bool inHeader)
                 {
+                    BreakColumn();
+                    if (inHeader || truncated || setup.Continuous)
+                        return;
+
+                    List<RowBox> repeated = ComposeTable(
+                        new DocumentTable(table.ParagraphIndex, table.ParagraphCount, [.. table.Rows.Take(headerCount)],
+                            table.ColumnWidths, table.CellPadding),
+                        document, setup, setup.ContentLeftPoints, columns.Width);
+
+                    // Header rows as tall as the page leave nothing for the rows
+                    // they head, so they are not repeated.
+                    if (y + repeated.Sum(header => header.Height) >= contentBottom)
+                        return;
+
+                    foreach (RowBox header in repeated)
+                    {
+                        PlaceRow(header);
+                        y += header.Height;
+                    }
+
+                    headerOnly = true;
+                }
+
+                int rowNumber = 0;
+                foreach (RowBox composedRow in composedRows)
+                {
+                    bool inHeader = rowNumber++ < headerCount;
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
                     {
@@ -354,21 +632,23 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             {
                                 PlaceRow(fitted);
                                 y += fitted.Height;
+                                headerOnly = false;
                                 row = rest;
                                 if (row is not null)
-                                    BreakColumn();
+                                    ContinueTable(inHeader);
                                 continue;
                             }
 
-                            if (ColumnHasContent())
+                            if (ColumnHasContent() && !headerOnly)
                             {
-                                BreakColumn();
+                                ContinueTable(inHeader);
                                 continue;
                             }
                         }
 
                         PlaceRow(row);
                         y += row.Height;
+                        headerOnly = false;
                         row = null;
                     }
 
@@ -394,8 +674,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // Not in continuous mode, where there are no pages to break between.
             // Silently doing nothing would be the wrong kind of quiet, so the
             // note below says the breaks were ignored and why.
-            if (style.PageBreakBefore && !setup.Continuous && currentLines.Count > 0)
+            if (style.PageBreakBefore && !setup.Continuous && (currentLines.Count > 0 || floatLines.Count > 0))
             {
+                OwnBreak();
                 BreakPage();
                 if (truncated)
                     break;
@@ -431,7 +712,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             foreach (DocumentShape shape in _documentShapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
-                    _wrap.Add(shape, shape.TopOnPage(y));
+                    _wrap.Add(shape, shape.TopOnPage(y), height: BoxHeight(shape));
             }
 
             // Space before never opens a page, or a column: a paragraph that
@@ -482,6 +763,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             paragraphIndex++;
         }
 
+        // A floating table that ran past the last page of text still has rows
+        // to stand on the pages after it.
+        while (floatCarry is not null && !truncated)
+            BreakPage();
+
+        currentLines.AddRange(floatLines);
+        currentCells.AddRange(floatCells);
         if (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0)
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
 
@@ -604,11 +892,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
-    /// Page one takes the first-page selection and even-numbered pages the even
-    /// one, each falling back to the default.
+    /// The first page of the section that started it takes the first-page
+    /// selection - page one, where no section starts another - and
+    /// even-numbered pages the even one, each falling back to the default.
     /// </summary>
-    private static PageSelection SelectionFor(int number) =>
-        number == 1
+    private PageSelection SelectionFor(int number) =>
+        number == _firstPage
             ? PageSelection.First
             : number % 2 == 0 ? PageSelection.Even : PageSelection.Default;
 
@@ -689,7 +978,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         foreach (DocumentShape shape in _documentShapes)
         {
             if (shape.Wraps && shape.AnchorPage == number)
-                _wrap.Add(shape, shape.OffsetY);
+                _wrap.Add(shape, shape.OffsetY, height: BoxHeight(shape));
         }
     }
 
@@ -712,12 +1001,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         var placed = new List<LayoutShape>();
         foreach (DocumentShape shape in shapes)
         {
+            NoteGrownHeight(shape, setup);
             var bounds = new BRect(
                 setup.ContentLeftPoints + shape.OffsetX,
                 shape.OffsetY,
                 Math.Max(0, shape.Width),
-                Math.Max(0, shape.Height));
-            if (bounds.Width <= 0 || bounds.Height <= 0)
+                BoxHeight(shape));
+            if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
                 continue;
 
             placed.Add(new LayoutShape(
@@ -765,9 +1055,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             var bounds = new BRect(setup.ContentLeftPoints + shape.OffsetX, shape.TopOnPage(anchorTop),
-                Math.Max(0, shape.Width), Math.Max(0, shape.Height));
+                Math.Max(0, shape.Width), BoxHeight(shape));
 
-            if (bounds.Width <= 0 || bounds.Height <= 0)
+            if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
                 continue;
 
             placed.Add(new LayoutShape(bounds, shape.Fill, shape.Outline, PlaceShapeText(shape, bounds, setup),
@@ -961,6 +1251,41 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
+    /// How many rows at the top of <paramref name="table"/> repeat on every page
+    /// it continues onto: the header rows it opens with, and none when every row
+    /// is one, since a table of nothing but its heading has nothing to head.
+    /// </summary>
+    /// <remarks>
+    /// Only the rows it opens with: Word repeats a <c>w:tblHeader</c> row only
+    /// in the unbroken run from the first row, and ODF's
+    /// <c>table:table-header-rows</c> can stand only there.
+    /// </remarks>
+    private static int HeaderRowCount(DocumentTable table)
+    {
+        int count = 0;
+        while (count < table.Rows.Count && table.Rows[count].IsHeader)
+            count++;
+
+        return count == table.Rows.Count ? 0 : count;
+    }
+
+    /// <summary>
+    /// The least room, in points, a side of the column must have beside a
+    /// floating table for text to run down it; with less on both sides the text
+    /// goes below the table.
+    /// </summary>
+    private const double MinimumWrapRoom = 72;
+
+    /// <summary>
+    /// The box a floating table keeps text out of on its page, its clearance
+    /// included, in page coordinates.
+    /// </summary>
+    private readonly record struct FloatBox(double Top, double Bottom, double Left, double Right, ShapeWrap Wrap);
+
+    /// <summary>The rows of a floating table still to stand on the next page, and where across.</summary>
+    private sealed record FloatCarry(List<RowBox> Rows, double Left, double Width, TablePosition Position);
+
+    /// <summary>
     /// A stretch of a cell a page may break before or after but not inside: one
     /// of its lines, or a whole row of a table nested in it. Measured from the
     /// top of the cell.
@@ -1152,6 +1477,30 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>A shape's own text, laid out inside its box.</summary>
+    /// <summary>
+    /// Measures a shape that grows to hold its text, once, at its own width:
+    /// its lines laid one under another, as <see cref="PlaceShapeText"/> lays
+    /// them, or its stated height where that is more.
+    /// </summary>
+    private void NoteGrownHeight(DocumentShape shape, DocumentPageBox setup)
+    {
+        if (!shape.GrowsToText || !shape.HasText || shape.Width <= 0 || _grownHeights.ContainsKey(shape))
+            return;
+
+        double height = 0;
+        foreach (RichTextParagraph paragraph in shape.Paragraphs)
+        {
+            foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1, 0, shape.Width).Lines)
+                height += line.Height;
+        }
+
+        _grownHeights[shape] = Math.Max(Math.Max(0, shape.Height), height);
+    }
+
+    /// <summary>The height a shape's box is drawn at, grown to its text where it grows.</summary>
+    private double BoxHeight(DocumentShape shape) =>
+        _grownHeights.TryGetValue(shape, out double grown) ? grown : Math.Max(0, shape.Height);
+
     private List<LayoutLine> PlaceShapeText(DocumentShape shape, BRect bounds, DocumentPageBox setup)
     {
         var lines = new List<LayoutLine>();
@@ -1168,7 +1517,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 // Text that overflows its box is clipped rather than spilling
                 // across the letter it sits beside.
-                if (y + line.Height > bounds.Bottom)
+                if (y + line.Height > bounds.Bottom + 0.01)
                     break;
 
                 line.Top = y;
@@ -1342,6 +1691,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 paragraphIndex,
                 i == rows.Count - 1);
             line.LeadingSkip = i < skips.Count ? skips[i] : 0;
+
+            // The shading runs from the indent to the column's edge, whatever
+            // the line holds and whatever a wrapping shape cut from it.
+            if (!style.Background.IsEmpty && style.Background.A > 0)
+            {
+                line.Background = style.Background;
+                line.BackgroundLeft = columnLeft;
+                line.BackgroundWidth = columnWidth;
+            }
+
             lines.Add(line);
         }
 

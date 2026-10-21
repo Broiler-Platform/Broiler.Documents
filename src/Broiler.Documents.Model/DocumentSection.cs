@@ -15,10 +15,9 @@ namespace Broiler.Documents.Model;
 /// columns of the document's <see cref="PageGeometry"/>.
 /// </para>
 /// <para>
-/// What a section holds here is its columns and, where it states one other than
-/// the document's, its own <see cref="Page"/>: the paper and margins its text is
-/// laid out within. Its running content is the document's; a reader that meets a
-/// section stating its own says so. Where a section starts a new page, its first paragraph
+/// What a section holds here is its columns and, where it states them other than
+/// the document's, its own <see cref="Page"/> - the paper and margins its text is
+/// laid out within - and its own <see cref="RunningContent"/>. Where a section starts a new page, its first paragraph
 /// carries <see cref="ParagraphStyle.PageBreakBefore"/>; where it does not, the
 /// section follows on from the text above it on the same page, and a layout
 /// balances the columns of the section above before it starts - which is what
@@ -26,7 +25,12 @@ namespace Broiler.Documents.Model;
 /// </para>
 /// </remarks>
 public sealed class DocumentSection(
-    int paragraphIndex, int paragraphCount, int columnCount, double columnGap, PageGeometry? page = null)
+    int paragraphIndex,
+    int paragraphCount,
+    int columnCount,
+    double columnGap,
+    PageGeometry? page = null,
+    RunningContent? runningContent = null)
 {
     /// <summary>The first paragraph the section holds.</summary>
     public int ParagraphIndex { get; } = Math.Max(0, paragraphIndex);
@@ -48,13 +52,38 @@ public sealed class DocumentSection(
     /// document's <see cref="RichTextDocument.PageGeometry"/>.
     /// </summary>
     /// <remarks>
-    /// A layout takes the left and right margins for the section's text wherever
-    /// it is, and the top and bottom margins on a page the section starts, as
-    /// Word does: a section that follows on the same page shares that page's
-    /// top and foot. The columns here are <see cref="ColumnCount"/> and
-    /// <see cref="ColumnGap"/>, not the page's.
+    /// A layout takes these margins on the pages the section starts and the
+    /// pages its text runs onto from there. A section that follows on the same
+    /// page - a continuous break - keeps the margins of the page it is on, and
+    /// its columns are spread across that page's text width, which is how
+    /// LibreOffice lays it out: such a section is a text section inside the page
+    /// style of the section that started the page, its own margins unused. Word
+    /// sets it between its own left and right margins instead. The columns here
+    /// are <see cref="ColumnCount"/> and <see cref="ColumnGap"/>, not the page's.
     /// </remarks>
     public PageGeometry? Page { get; } = page;
+
+    /// <summary>
+    /// The headers and footers the pages the section starts carry, or null where
+    /// they are the document's <see cref="RichTextDocument.RunningContent"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ECMA-376 §17.10.5 gives each section its own header and footer references
+    /// and §17.10.6 its own <c>w:titlePg</c>, so a report's cover section can carry
+    /// a full-page title in its first-page header while the sections after it carry
+    /// a running head, and its <see cref="RunningContent.DifferentFirstPage"/> is
+    /// about the first page of the section, not of the document. LibreOffice gives
+    /// each such section a page style of its own.
+    /// </para>
+    /// <para>
+    /// A page carries the running content of the section that started it. A
+    /// section that follows on the same page starts no page, and LibreOffice keeps
+    /// the page style of the section that did on the pages its text runs onto,
+    /// which is what a layout does here too.
+    /// </para>
+    /// </remarks>
+    public RunningContent? RunningContent { get; } = runningContent;
 
     /// <summary>True when <paramref name="paragraphIndex"/> is one of the section's paragraphs.</summary>
     public bool Contains(int paragraphIndex) => paragraphIndex >= ParagraphIndex && paragraphIndex < ParagraphEnd;
@@ -87,6 +116,6 @@ public sealed class DocumentSection(
             return this;
 
         (int index, int count) = DocumentTable.ShiftRange(ParagraphIndex, ParagraphCount, at, removed, inserted);
-        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page);
+        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent);
     }
 }

@@ -49,6 +49,13 @@ Open XML WordprocessingML package parts.
 - Theme fonts from `word/theme/theme1.xml`: `w:rFonts` theme references such as
   `w:asciiTheme="majorHAnsi"` resolve to the theme's major/minor latin typeface.
   An explicit font name on the same element wins.
+- A run's family is the font its Latin text is drawn in: `w:ascii`, `w:hAnsi`
+  or the theme fonts they name. `w:cs` and `w:eastAsia` name the fonts for
+  complex-script and East Asian text (ECMA-376 §17.3.2.26), so a style that
+  names only those keeps the Latin font it inherited; they give a family only to
+  a run that has inherited none. They used to be taken for the Latin font, and
+  `tdf170602_exportContext.docx`'s headings, whose styles say only
+  `w:cs="Arial"`, were drawn in Arial over a Times New Roman document.
 - Paragraph formatting: left/center/right alignment, line spacing, spacing
   before/after, indentation, bullet lists, and numbered lists.
 - Page breaks, read from both spellings WordprocessingML has for the one thing
@@ -84,7 +91,7 @@ Open XML WordprocessingML package parts.
 
   | Container | Order written | Positions in the sequence |
   | --- | --- | --- |
-  | `w:pPr` | `w:pageBreakBefore`, `w:numPr`, `w:spacing`, `w:ind`, `w:jc` | 4, 7, 22, 23, 27 |
+  | `w:pPr` | `w:pageBreakBefore`, `w:numPr`, `w:shd`, `w:spacing`, `w:ind`, `w:jc` | 4, 7, 10, 22, 23, 27 |
   | `w:rPr` | `w:rFonts`, `w:b`, `w:i`, `w:caps`/`w:smallCaps`, `w:strike`, `w:color`, `w:sz`, `w:u`, `w:shd` | 2, 3, 5, 7/8, 9, 19, 24, 27, 30 |
 
   `DocxPropertyOrderTests` asserts both sequences. It walks whatever
@@ -156,6 +163,41 @@ Open XML WordprocessingML package parts.
   is `strokecolor`, VML's default black, or none where `stroked` turns it off;
   its text is the `w:txbxContent` in its `v:textbox`. They were read as nothing
   before, and the text in them was lost.
+- A DrawingML shape's colours - its fill, its gradient's stops and its outline -
+  are read from `a:srgbClr`, `a:sysClr` (its `lastClr`), a few `a:prstClr` names,
+  and `a:schemeClr` resolved through the theme's colour scheme (ECMA-376
+  §20.1.6.2), with `bg1`/`tx1`/`bg2`/`tx2` mapped to `lt1`/`dk1`/`lt2`/`dk2` as
+  Word's default `w:clrSchemeMapping` maps them. The transforms under any of them
+  are applied in order (§20.1.2.3) with LibreOffice's arithmetic, measured against
+  its rendering: `a:shade` and `a:tint` toward black and white in linear RGB at a
+  gamma of 2.3, `a:lumMod`, `a:lumOff` and `a:satMod` on the HSL colour, `a:alpha`
+  as the colour's opacity, which the writer writes back. The page painter lays a
+  translucent gradient's bands edge to edge rather than overlapping them, and the
+  PDF writer, which emits no transparency group, blends a translucent fill over
+  white. A template's themed box
+  was read as having no fill before, and was dropped. `phClr` - a colour a
+  style supplies - is not resolved. A pattern fill, `a:pattFill`, is two colours
+  the model cannot hold together - LibreOffice draws hatch lines in `a:fgClr`
+  over `a:bgClr` - and is read as its background colour, which is nearly all of
+  what shows, or as its foreground where it states no background; it is reported
+  as `docx.shape.fill`.
+- Paragraph shading, `w:pPr/w:shd` (ECMA-376 §17.3.1.31), directly and through
+  the style chain, is `ParagraphStyle.Background`: the fill behind a `clear`
+  pattern, the pattern's colour for `solid`, and nothing for `nil` or an `auto`
+  fill, which is how a paragraph takes away its style's shading. Other patterns
+  are read as their fill. It is written back as a `clear` `w:shd`. The layout
+  paints it as LibreOffice does, measured: over the paragraph's lines from its
+  indent to the column's edge, its space before and after left white unless the
+  next paragraph is shaded the same, when the space between is shaded too. The
+  PDF writer does not paint it yet. It was read for runs and cells only before.
+- A drawing group, `wpg:wgp`, is read as a floating shape for each `wps:wsp`
+  box in it, nested `wpg:grpSp` groups included. Each child's `a:xfrm` is mapped
+  through the `a:chOff`/`a:chExt` child space of every group above it into the
+  anchor's extent (ECMA-376 §20.1.7.6), and the children share the group's
+  anchor, `behindDoc`, `relativeHeight` and wrap, drawing in the order the group
+  lists them. The group was read as its first box at the size of the whole group
+  before. Rotation and flips are not applied, and a picture inside a group is not
+  read (`docx.shape.group`). A write puts each box back as a shape of its own.
 - Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
   shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
   `wp:positionV`, converted from whichever frame the anchor names into the text
@@ -277,6 +319,26 @@ Open XML WordprocessingML package parts.
   is and written back. A row without it may break across a page, as in Word,
   including one whose cell holds a nested table: that breaks between the
   nested table's rows, each of which goes to one page whole.
+- A row's `w:tblHeader` is `TableRow.IsHeader`, read as an on/off property and
+  written back; it used to be written and never read. The header rows a table
+  opens with are drawn again at the top of every page or column the table
+  continues onto, unless they are as tall as the page; a table of nothing but
+  header rows repeats none. A table nested in a cell, and the PDF writer, do
+  not repeat them.
+- A floating table, `w:tblpPr` (ECMA-376 §17.4.57), is `DocumentTable.Position`:
+  its anchors across and down, its offsets or the `tblpXSpec`/`tblpYSpec`
+  alignment that replaces them, its distances from the text, and
+  `w:tblOverlap`. An anchor left out is read as LibreOffice's importer reads it
+  (`TablePositionHandler`): from the margin down, from the text across. The
+  layout stands the table there at its own width, out of the flow; text runs
+  down the side of the column with room for it, or below the table where
+  neither side has an inch, and an inline table that would run into it moves
+  below it, as LibreOffice master does (`testInlineTableShiftDown`; 24.2 drew
+  the two over each other). A floating table taller than the room left
+  continues at the top of the next page. Written back with both anchors
+  stated. A floating table nested in a cell stays in its cell, with
+  `docx.table.floating`, and the PDF writer lays a floating table out in the
+  flow (`pdf.write.feature-unsupported`).
 - A page break that opens its paragraph - nothing of the paragraph before it -
   starts that paragraph on the new page. Nothing is split, so nothing is
   demoted: the paragraph is what the page begins with. If the paragraph already
@@ -317,16 +379,42 @@ Open XML WordprocessingML package parts.
   `oddPage` and `evenPage` can put a blank page in front of the section to
   land it on the side they name; that page is not made, and
   `docx.section.parity` says so. `nextColumn` is read as `continuous`.
+  An empty body paragraph holding nothing but the `w:sectPr` is the section
+  mark and not a paragraph, as in LibreOffice's import: the section ends at the
+  paragraph before it. It stays where it is all its section holds, where no
+  paragraph follows it, and right after a table, below which it closes the
+  section. `tdf170602_exportContext.docx` puts its next-page mark in an empty
+  Heading 1 after a page break, which drew as a page of its own.
 - A section's own paper and margins. The last section's `w:pgSz` and
   `w:pgMar` are the document's page; a section that states others keeps them
-  as `DocumentSection.Page`, and its text is laid out between its own left and
-  right margins, under its own top margin on a page it starts. That is what
+  as `DocumentSection.Page`. A section that starts a page is laid out between
+  its own margins there and on the pages its text runs onto. That is what
   makes a magazine whose sections are set two inches in, or six, lay out in
-  columns of the width it was set in rather than the last section's. The
-  running content is the last section's (`docx.section.multiple`), and each
-  header and footer type it does not name continues from the nearest section
-  before it that does, as ECMA-376 §17.10.5 says. A contract that names its
-  header and footer in the first of nine sections carries them on every page.
+  columns of the width it was set in rather than the last section's. A section
+  a `continuous` break opens keeps the margins of the page it is on, and its
+  columns are spread across that page's text width, as LibreOffice lays it out
+  (a text section inside the page style before it, with columns and no
+  margins of its own); Word would set it between its own. In
+  `tdf90697_complexBreaksHeaders.docx` a narrow two-column section that a
+  page began in set that page's header in its own width.
+- A section's own headers and footers. Each section's references are read,
+  each header and footer type a section does not name continuing from the
+  nearest section before it that does, as ECMA-376 §17.10.5 says, and each
+  section's `w:titlePg` (§17.10.6) is its own and not continued. The last
+  section's set is the document's `RunningContent`; a section whose set differs
+  keeps it as `DocumentSection.RunningContent`. A page carries the set of the
+  section that started it, the first-page part on that section's first page,
+  and a section that follows on the same page leaves the pages it runs onto as
+  they were, as LibreOffice keeps the page style there - unless it has a set of
+  its own and a hard page break inside it starts a page, which then carries
+  its set with no first page of its own, as LibreOffice puts the section's page
+  style on that break. A contract that names
+  its header and footer in the first of nine sections carries them on every
+  page; `tdf167527_title_letters_cut_from_below.docx`, whose title page is its
+  first section's first-page header, reaches it. A part several sections name
+  is read once. A write names every section's parts in its `w:sectPr`, and
+  where sections carry different sets, names an empty part for a type one set
+  lacks and another has, so that it does not continue from the section before.
 - A write states `w:cols` with the count and the gap. A document with sections
   writes each boundary as a `w:sectPr` in the `w:pPr` of the section's last
   paragraph, with that section's page, or the document's, its columns and
@@ -357,6 +445,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
 | `docx.table.style` | Warning | A table named a table style; its paragraph and run properties were applied, banding, conditional formatting and the borders it states were not. |
 | `docx.table.rowheight` | Warning | A row stated an exact height; it was applied as a minimum so its text is not clipped. |
+| `docx.table.floating` | Warning | A table nested in a cell stated a floating position; it was laid out in its cell. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
 | `docx.pagebreak.split` | Warning | A `w:br w:type="page"` had text after it in the same paragraph; it was read as a line break, because pages break between paragraphs here and not inside one. |
 | `docx.pagebreak.repeated` | Warning | A paragraph stated more than one page break; the first was kept and the blank pages the others make were dropped. |
@@ -364,8 +453,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks. |
 | `docx.break.column` | Warning | A column break with text before and after it in the same paragraph was read as a line break; columns break between paragraphs here, not inside one. |
 | `docx.section.columns` | Info | The sections differ in their columns; each section keeps its own, and the page records those of the section holding the most paragraphs. |
-| `docx.section.multiple` | Info | The body has more than one section; the header and footer read are the last section's, each it does not name continuing from the section before it. |
-| `docx.header.first` | Info | A `first` header or footer was not read, because its section does not set `w:titlePg`; the first page carries the default one. |
+| `docx.header.first` | Info | A section has a `first` header or footer, its own or continued, but does not set `w:titlePg`, so it was not read for that section; its first page carries the default one. |
 | `docx.header.even` | Info | An `even` header or footer was not read, because the document does not set `w:evenAndOddHeaders`; even pages carry the default one. |
 | `docx.section.parity` | Warning | A section starting on an odd or even page was read as starting on the next page; the blank page it can put before itself is not made. |
 | `docx.columns.unequal` | Info | A section listed columns of unequal width; they were read as equal columns. |
@@ -387,7 +475,8 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `docx.anchor.relativefrom` | Warning | A frame an anchor stated its offset against was approximated: a mirrored margin read as an odd page's horizontally, or kept as stated and measured from the paragraph vertically. |
 | `docx.background.fill` | Warning | The page background's VML fill was one the model cannot hold, and was read as one colour: a rectangular (`gradientRadial`) gradient as its outer colour, a pattern of two colours or a picture fill as `w:background`'s own colour. |
-| `docx.shape.fill` | Warning | A VML shape's fill was read as one colour, for the same reasons. |
+| `docx.shape.group` | Warning | A drawing group held a picture, or groups nested past sixteen deep, which were not read; its drawn boxes were. |
+| `docx.shape.fill` | Warning | A VML shape's fill was read as one colour, for the same reasons, or a DrawingML shape's pattern fill (`a:pattFill`) as its background colour. |
 
 Write diagnostics are `docx.color.alpha`, `docx.image.omitted`, `docx.image.placeholder`, `docx.image.size`, `docx.link`, `docx.shape.page`, and `docx.text.control`.
 `docx.shape.page` says a shape anchored to a page by number was written beside

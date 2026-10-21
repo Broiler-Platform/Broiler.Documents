@@ -62,6 +62,9 @@ public sealed class DocxRunningContentTests
         return new DocxDocumentCodec().Read(stream);
     }
 
+    /// <summary>A package whose one default header holds <paramref name="headerInnerXml"/>.</summary>
+    internal static DocumentReadResult ReadWithHeader(string headerInnerXml) => Read(HeaderRef, headerInnerXml);
+
     private const string HeaderRef =
         "<w:sectPr><w:headerReference r:id=\"rH\" w:type=\"default\"/></w:sectPr>";
 
@@ -154,9 +157,11 @@ public sealed class DocxRunningContentTests
             HeaderRef,
             headerInnerXml: "<w:p>" + ShapeRun("AECF00") + "</w:p>");
 
+        // The paragraph the stripe is anchored in is the header's one line, and
+        // it is kept: Word and LibreOffice draw it, and it is as tall as a line.
         RunningContent running = result.Document.RunningContent;
         Assert.False(running.IsEmpty);
-        Assert.Empty(running.Header(PageSelection.Default));
+        Assert.Equal(0, Assert.Single(running.Header(PageSelection.Default)).Length);
         Assert.Single(running.HeaderShapes(PageSelection.Default));
     }
 
@@ -350,7 +355,94 @@ public sealed class DocxRunningContentTests
         RunningContent running = result.Document.RunningContent;
         Assert.Equal("the letterhead", TextOf(running.Header(PageSelection.Default)));
         Assert.Equal("page one", TextOf(running.Footer(PageSelection.Default)));
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.section.multiple");
+
+        // Every section carries the same parts, so none keeps a set of its own.
+        Assert.All(result.Document.Sections, section => Assert.Null(section.RunningContent));
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.section.multiple");
+    }
+
+    [Fact]
+    public void A_Section_Keeps_Headers_Of_Its_Own_Where_They_Differ_From_The_Last()
+    {
+        // tdf167527_title_letters_cut_from_below.docx: the first section sets
+        // w:titlePg and names its title page as its first-page header; the last
+        // names an empty first-page header and no w:titlePg. Read as the last
+        // section's alone, the title page could never be reached.
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["word/_rels/document.xml.rels"] =
+                "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                Rels +
+                "<Relationship Id=\"rH2\" " +
+                "Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/header\" " +
+                "Target=\"header2.xml\"/>" +
+                "</Relationships>",
+            ["word/header1.xml"] = Part("hdr", "the title page"),
+            ["word/header2.xml"] = Part("hdr", "the running head"),
+            ["word/footer1.xml"] = Part("ftr", "page one"),
+        };
+
+        using var stream = new MemoryStream(
+            DocxTestPackage.FromBody(
+                SectionEnd("cover", "<w:headerReference r:id=\"rH\" w:type=\"first\"/><w:titlePg/>") +
+                DocxTestPackage.Paragraph("chapter") +
+                "<w:sectPr><w:headerReference r:id=\"rH2\" w:type=\"default\"/>" +
+                "<w:headerReference r:id=\"rH\" w:type=\"first\"/></w:sectPr>",
+                parts),
+            writable: false);
+        DocumentReadResult result = new DocxDocumentCodec().Read(stream);
+        RichTextDocument document = result.Document;
+
+        Assert.False(document.RunningContent.DifferentFirstPage);
+        Assert.Equal("the running head", TextOf(document.RunningContent.Header(PageSelection.Default)));
+        Assert.Empty(document.RunningContent.Header(PageSelection.First));
+
+        Assert.Equal(2, document.Sections.Count);
+        RunningContent cover = Assert.IsType<RunningContent>(document.Sections[0].RunningContent);
+        Assert.True(cover.DifferentFirstPage);
+        Assert.Equal("the title page", TextOf(cover.Header(PageSelection.First)));
+        Assert.Empty(cover.Header(PageSelection.Default));
+        Assert.Null(document.Sections[1].RunningContent);
+
+        // The last section's own first-page reference is the one not read.
+        DocumentDiagnostic first = Assert.Single(result.Diagnostics, diagnostic => diagnostic.Code == "docx.header.first");
+        Assert.Contains("does not set w:titlePg", first.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Section_Headers_Round_Trip_Through_The_Writer()
+    {
+        RunningContent report = RunningContent.Empty
+            .WithDifferentFirstPage(true)
+            .WithHeader(PageSelection.First, [RichTextParagraph.Plain("the title page")])
+            .WithHeader(PageSelection.Default, [RichTextParagraph.Plain("the running head")])
+            .WithFooter(PageSelection.Default, [RichTextParagraph.Plain("the page footer")]);
+        RichTextDocument source = RichTextDocument
+            .FromParagraphs(
+            [
+                RichTextParagraph.Plain("report"),
+                RichTextParagraph.Create("annex", InlineStyle.Default, ParagraphStyle.Default with { PageBreakBefore = true }),
+            ])
+            .WithRunningContent(RunningContent.Empty)
+            .WithSections([new DocumentSection(0, 1, 1, 0, runningContent: report), new DocumentSection(1, 1, 1, 0)]);
+
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source), writable: false);
+        RichTextDocument back = new DocxDocumentCodec().Read(stream).Document;
+
+        Assert.Equal(2, back.Sections.Count);
+        RunningContent reportBack = Assert.IsType<RunningContent>(back.Sections[0].RunningContent);
+        Assert.True(reportBack.DifferentFirstPage);
+        Assert.Equal("the title page", TextOf(reportBack.Header(PageSelection.First)));
+        Assert.Equal("the running head", TextOf(reportBack.Header(PageSelection.Default)));
+        Assert.Equal("the page footer", TextOf(reportBack.Footer(PageSelection.Default)));
+
+        // The annex has no header or footer. ECMA-376 §17.10.5 continues a type a
+        // section does not name from the one before it, so the writer names
+        // empty ones for it. A part holds at least one paragraph, so read back
+        // each is the one empty line Word draws for it, and none of the report's.
+        Assert.Equal(string.Empty, TextOf(back.RunningContent.EffectiveHeader(PageSelection.Default)));
+        Assert.Equal(string.Empty, TextOf(back.RunningContent.EffectiveFooter(PageSelection.Default)));
+        Assert.False(back.RunningContent.DifferentFirstPage);
     }
 
     [Fact]

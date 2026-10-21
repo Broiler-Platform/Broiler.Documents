@@ -29,7 +29,7 @@ public static class DocxWriter
         var context = new DocxWriteContext(
             document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None),
             (options ?? DocumentWriteOptions.Default).Resources);
-        BuildRunningParts(document.RunningContent, context);
+        BuildRunningParts(document, context);
         XDocument documentXml = BuildDocumentXml(document, context);
 
         // The caller's metadata, never the source document's: this writer is
@@ -74,23 +74,72 @@ public static class DocxWriter
     }
 
     /// <summary>
-    /// Turns the document's running content into header and footer parts. Each
-    /// part is a <c>w:hdr</c> or <c>w:ftr</c> holding the same paragraphs the body
-    /// writer produces, so a header keeps its alignment, spacing and runs.
+    /// Turns the document's running content, and each section's own, into header
+    /// and footer parts. Each part is a <c>w:hdr</c> or <c>w:ftr</c> holding the
+    /// same paragraphs the body writer produces, so a header keeps its alignment,
+    /// spacing and runs.
     /// </summary>
-    private static void BuildRunningParts(RunningContent running, DocxWriteContext context)
+    /// <remarks>
+    /// Every section's <c>w:sectPr</c> names its own parts. Where sections carry
+    /// different sets, a type one set has and another lacks is written for the
+    /// other as an empty part: ECMA-376 §17.10.5 continues a type a section does
+    /// not name from the section before it, so leaving it out would hand the
+    /// section a header it did not have.
+    /// </remarks>
+    private static void BuildRunningParts(RichTextDocument document, DocxWriteContext context)
     {
-        if (running is null || running.IsEmpty)
-            return;
-
-        foreach (PageSelection selection in new[] { PageSelection.Default, PageSelection.First, PageSelection.Even })
+        var sets = new List<RunningContent>();
+        foreach (RunningContent running in document.Sections
+            .Select(static section => section.RunningContent)
+            .OfType<RunningContent>()
+            .Append(document.RunningContent))
         {
-            AddRunningPart(
-                running.Header(selection), running.HeaderShapes(selection),
-                isHeader: true, selection, context);
-            AddRunningPart(
-                running.Footer(selection), running.FooterShapes(selection),
-                isHeader: false, selection, context);
+            if (!sets.Contains(running, ReferenceEqualityComparer.Instance))
+                sets.Add(running);
+        }
+
+        var named = new HashSet<(bool IsHeader, PageSelection Selection)>();
+        if (sets.Count > 1)
+        {
+            foreach (RunningContent running in sets)
+            {
+                foreach (PageSelection selection in new[] { PageSelection.Default, PageSelection.First, PageSelection.Even })
+                {
+                    if (running.Header(selection).Count > 0 || running.HeaderShapes(selection).Count > 0)
+                        named.Add((true, selection));
+                    if (running.Footer(selection).Count > 0 || running.FooterShapes(selection).Count > 0)
+                        named.Add((false, selection));
+                }
+            }
+        }
+
+        foreach (RunningContent running in sets)
+        {
+            var parts = new List<DocxRunningPart>();
+            foreach (PageSelection selection in new[] { PageSelection.Default, PageSelection.First, PageSelection.Even })
+            {
+                foreach (bool isHeader in new[] { true, false })
+                {
+                    // What the model draws where a set lacks a type: nothing for
+                    // the default, nothing on a first page it makes different,
+                    // and its default on an even page.
+                    PageSelection source = selection;
+                    bool missing = named.Contains((isHeader, selection)) &&
+                        (isHeader ? running.Header(selection).Count + running.HeaderShapes(selection).Count
+                                  : running.Footer(selection).Count + running.FooterShapes(selection).Count) == 0;
+                    if (missing && selection == PageSelection.First && !running.DifferentFirstPage)
+                        missing = false;
+                    if (missing && selection == PageSelection.Even)
+                        source = PageSelection.Default;
+
+                    AddRunningPart(
+                        isHeader ? running.Header(source) : running.Footer(source),
+                        isHeader ? running.HeaderShapes(source) : running.FooterShapes(source),
+                        isHeader, selection, context, parts, evenIfEmpty: missing);
+                }
+            }
+
+            context.AddRunningSet(running, parts);
         }
 
         // An even part is drawn only where the settings turn even pages on, so
@@ -103,16 +152,19 @@ public static class DocxWriter
     /// A shape rides in a run at the head of the part's first paragraph, which is
     /// where an anchor has to live - a w:hdr holds paragraphs, not drawings. A
     /// part that carries only a stripe therefore gets an empty paragraph to hang
-    /// it from; without one there is nowhere in the part to put it.
+    /// it from; without one there is nowhere in the part to put it. So does a
+    /// part written empty to stop another section's continuing.
     /// </remarks>
     private static void AddRunningPart(
         IReadOnlyList<RichTextParagraph> paragraphs,
         IReadOnlyList<DocumentShape> shapes,
         bool isHeader,
         PageSelection selection,
-        DocxWriteContext context)
+        DocxWriteContext context,
+        List<DocxRunningPart> parts,
+        bool evenIfEmpty)
     {
-        if (paragraphs.Count == 0 && shapes.Count == 0)
+        if (paragraphs.Count == 0 && shapes.Count == 0 && !evenIfEmpty)
             return;
 
         var root = new XElement(
@@ -132,11 +184,12 @@ public static class DocxWriter
         foreach (DocumentShape shape in shapes)
             first.AddFirst(BuildShapeRun(shape, context, pageAnchored: true));
 
-        context.AddRunningPart(isHeader, selection, new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root));
+        parts.Add(context.AddRunningPart(isHeader, selection, new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root)));
     }
 
     /// <summary>
-    /// The body's section properties: a reference per header and footer part.
+    /// A section's properties: a reference per header and footer part of
+    /// <paramref name="running"/>, the section's own set or the document's.
     /// </summary>
     /// <remarks>
     /// A first-page header only takes effect when the section also says it wants a
@@ -157,7 +210,7 @@ public static class DocxWriter
         var sectPr = new XElement(DocxNamespaces.Wordprocessing + "sectPr");
         bool hasFirst = false;
 
-        foreach (DocxRunningPart part in context.RunningParts)
+        foreach (DocxRunningPart part in context.RunningSet(running))
         {
             hasFirst |= part.Selection == PageSelection.First;
             var reference = new XElement(
@@ -229,7 +282,7 @@ public static class DocxWriter
             : ColumnsAt(document, document.ParagraphCount - 1);
         body.Add(BuildSectionProperties(
             context,
-            document.RunningContent,
+            RunningAt(document, document.ParagraphCount - 1),
             PageAt(document, document.ParagraphCount - 1),
             lastColumns,
             continuous: document.Sections.Count > 0));
@@ -350,6 +403,13 @@ public static class DocxWriter
             : (document.PageGeometry?.ColumnCount ?? 1, document.PageGeometry?.ColumnGap ?? 0);
 
     /// <summary>
+    /// The headers and footers of the section paragraph <paramref name="index"/>
+    /// is in: its own, or the document's.
+    /// </summary>
+    private static RunningContent RunningAt(RichTextDocument document, int index) =>
+        DocumentSection.Containing(document.Sections, index)?.RunningContent ?? document.RunningContent;
+
+    /// <summary>
     /// The paper and margins paragraph <paramref name="index"/> is laid out
     /// within: its section's own, or the document's.
     /// </summary>
@@ -371,7 +431,7 @@ public static class DocxWriter
     /// <summary>
     /// The <c>w:sectPr</c> that closes the section paragraph
     /// <paramref name="index"/> ends: that section's page, or the document's,
-    /// the document's running content, that section's columns, and a
+    /// its running content, or the document's, that section's columns, and a
     /// continuous start for the next one. Whether
     /// the next section starts a page is its first paragraph's own
     /// <c>w:pageBreakBefore</c>, which is where the model keeps it, so stating
@@ -379,7 +439,7 @@ public static class DocxWriter
     /// </summary>
     private static XElement SectionBreak(RichTextDocument document, int index, DocxWriteContext context) =>
         BuildSectionProperties(
-            context, document.RunningContent, PageAt(document, index), ColumnsAt(document, index), continuous: true);
+            context, RunningAt(document, index), PageAt(document, index), ColumnsAt(document, index), continuous: true);
 
     /// <summary>A paragraph's <c>w:pPr</c>, made when it has none, and kept first among its children.</summary>
     private static XElement PropertiesOf(XElement paragraph)
@@ -472,12 +532,20 @@ public static class DocxWriter
     private static XElement BuildTableProperties(DocumentTable table)
     {
         double total = table.TotalWidth;
-        var properties = new XElement(
-            DocxNamespaces.Wordprocessing + "tblPr",
-            new XElement(
-                DocxNamespaces.Wordprocessing + "tblW",
-                WordAttribute("w", total > 0 ? Twips(total) : "0"),
-                WordAttribute("type", total > 0 ? "dxa" : "auto")));
+        var properties = new XElement(DocxNamespaces.Wordprocessing + "tblPr");
+
+        // CT_TblPr is a sequence, and the position comes before the width.
+        if (table.Position is TablePosition position)
+        {
+            properties.Add(BuildTablePosition(position));
+            if (!position.AllowOverlap)
+                properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tblOverlap", WordAttribute("val", "never")));
+        }
+
+        properties.Add(new XElement(
+            DocxNamespaces.Wordprocessing + "tblW",
+            WordAttribute("w", total > 0 ? Twips(total) : "0"),
+            WordAttribute("type", total > 0 ? "dxa" : "auto")));
 
         string padding = Twips(table.CellPadding);
         properties.Add(new XElement(
@@ -488,6 +556,51 @@ public static class DocxWriter
             CellMargin("right", padding)));
 
         return properties;
+    }
+
+    /// <summary>
+    /// ECMA-376 §17.4.57's <c>w:tblpPr</c>, with both anchors written out: the
+    /// defaults for one left out are where readers disagree.
+    /// </summary>
+    private static XElement BuildTablePosition(TablePosition position)
+    {
+        var element = new XElement(
+            DocxNamespaces.Wordprocessing + "tblpPr",
+            WordAttribute("leftFromText", Twips(position.LeftFromText)),
+            WordAttribute("rightFromText", Twips(position.RightFromText)),
+            WordAttribute("topFromText", Twips(position.TopFromText)),
+            WordAttribute("bottomFromText", Twips(position.BottomFromText)),
+            WordAttribute("vertAnchor", AnchorName(position.VerticalAnchor)),
+            WordAttribute("horzAnchor", AnchorName(position.HorizontalAnchor)));
+
+        if (AlignmentName(position.HorizontalAlignment, horizontal: true) is string x)
+            element.Add(WordAttribute("tblpXSpec", x));
+        else
+            element.Add(WordAttribute("tblpX", Twips(position.X)));
+
+        if (AlignmentName(position.VerticalAlignment, horizontal: false) is string y)
+            element.Add(WordAttribute("tblpYSpec", y));
+        else
+            element.Add(WordAttribute("tblpY", Twips(position.Y)));
+
+        return element;
+
+        static string AnchorName(TableAnchor anchor) => anchor switch
+        {
+            TableAnchor.Margin => "margin",
+            TableAnchor.Page => "page",
+            _ => "text",
+        };
+
+        static string? AlignmentName(TableAlignment alignment, bool horizontal) => alignment switch
+        {
+            TableAlignment.Start => horizontal ? "left" : "top",
+            TableAlignment.Center => "center",
+            TableAlignment.End => horizontal ? "right" : "bottom",
+            TableAlignment.Inside => "inside",
+            TableAlignment.Outside => "outside",
+            _ => null,
+        };
     }
 
     private static XElement CellMargin(string edge, string twips) =>
@@ -659,7 +772,7 @@ public static class DocxWriter
     /// the order the model happens to list them in. CT_PPr is an xsd:sequence,
     /// so each of these has exactly one legal position, and the positions here
     /// are the ones ECMA-376 Part 1 section 17.3.1.26 gives:
-    /// <c>w:pageBreakBefore</c> 4th, <c>w:numPr</c> 7th, <c>w:spacing</c> 22nd,
+    /// <c>w:pageBreakBefore</c> 4th, <c>w:numPr</c> 7th, <c>w:shd</c> 10th, <c>w:spacing</c> 22nd,
     /// <c>w:ind</c> 23rd, <c>w:jc</c> 27th. Word does not shrug at an
     /// out-of-order pPr the way it does at an element it has never heard of; it
     /// can refuse the file outright, and a refusal is the whole document rather
@@ -696,6 +809,16 @@ public static class DocxWriter
                 DocxNamespaces.Wordprocessing + "numPr",
                 new XElement(DocxNamespaces.Wordprocessing + "ilvl", WordAttribute("val", level.ToString(CultureInfo.InvariantCulture))),
                 new XElement(DocxNamespaces.Wordprocessing + "numId", WordAttribute("val", numId.ToString(CultureInfo.InvariantCulture)))));
+        }
+
+        // w:shd is 10th, after w:numPr and before w:spacing.
+        if (!style.Background.IsEmpty && style.Background.A > 0)
+        {
+            properties.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "shd",
+                WordAttribute("val", "clear"),
+                WordAttribute("color", "auto"),
+                WordAttribute("fill", HexColor(style.Background))));
         }
 
         if (Math.Abs(style.LineSpacing - 1f) > 0.001f ||
@@ -1206,11 +1329,7 @@ public static class DocxWriter
             ? new XElement(DocxNamespaces.Drawing + "ln", new XElement(DocxNamespaces.Drawing + "noFill"))
             : new XElement(
                 DocxNamespaces.Drawing + "ln",
-                new XElement(
-                    DocxNamespaces.Drawing + "solidFill",
-                    new XElement(
-                        DocxNamespaces.Drawing + "srgbClr",
-                        new XAttribute("val", HexColor(shape.Outline))))));
+                new XElement(DocxNamespaces.Drawing + "solidFill", DrawingColor(shape.Outline))));
 
         var wsp = new XElement(DocxNamespaces.WordShape + "wsp", properties);
         if (shape.HasText)
@@ -1332,11 +1451,7 @@ public static class DocxWriter
     {
         if (!fill.IsGradient)
         {
-            return new XElement(
-                DocxNamespaces.Drawing + "solidFill",
-                new XElement(
-                    DocxNamespaces.Drawing + "srgbClr",
-                    new XAttribute("val", HexColor(fill.Start))));
+            return new XElement(DocxNamespaces.Drawing + "solidFill", DrawingColor(fill.Start));
         }
 
         // DrawingML has no mirrored gradient; it states one as three stops, the
@@ -1361,7 +1476,24 @@ public static class DocxWriter
         new(
             DocxNamespaces.Drawing + "gs",
             new XAttribute("pos", position.ToString(CultureInfo.InvariantCulture)),
-            new XElement(DocxNamespaces.Drawing + "srgbClr", new XAttribute("val", HexColor(color))));
+            DrawingColor(color));
+
+    /// <summary>
+    /// A DrawingML colour: <c>a:srgbClr</c>, with an <c>a:alpha</c> when the
+    /// colour is not opaque, as a theme colour read under one may not be.
+    /// </summary>
+    private static XElement DrawingColor(BColor color)
+    {
+        var element = new XElement(DocxNamespaces.Drawing + "srgbClr", new XAttribute("val", HexColor(color)));
+        if (color.A < 255)
+        {
+            element.Add(new XElement(
+                DocxNamespaces.Drawing + "alpha",
+                new XAttribute("val", ((int)Math.Round(color.A / 255d * 100000)).ToString(CultureInfo.InvariantCulture))));
+        }
+
+        return element;
+    }
 
     /// <summary>Points to twips: 20 to the point, which is what a section states.</summary>
     private static string Twips(double points) =>
@@ -1649,6 +1781,8 @@ public static class DocxWriter
         private readonly List<DocumentDiagnostic> _diagnostics = [];
         private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
         private readonly List<DocxRunningPart> _runningParts = [];
+        private readonly Dictionary<RunningContent, IReadOnlyList<DocxRunningPart>> _runningSets =
+            new(ReferenceEqualityComparer.Instance);
         private int _nextRelationshipId = hasNumbering ? 2 : 1;
 
         public bool HasNumbering { get; } = hasNumbering;
@@ -1706,6 +1840,14 @@ public static class DocxWriter
             _runningParts.Add(part);
             return part;
         }
+
+        /// <summary>Records the parts written for one set of headers and footers.</summary>
+        public void AddRunningSet(RunningContent running, IReadOnlyList<DocxRunningPart> parts) =>
+            _runningSets[running] = parts;
+
+        /// <summary>The parts written for <paramref name="running"/>, which a section's properties name.</summary>
+        public IReadOnlyList<DocxRunningPart> RunningSet(RunningContent running) =>
+            _runningSets.TryGetValue(running, out IReadOnlyList<DocxRunningPart>? parts) ? parts : [];
 
         /// <summary>The media parts to write, in the order they were first used.</summary>
         public IReadOnlyList<DocxImagePart> Images => _imageOrder;

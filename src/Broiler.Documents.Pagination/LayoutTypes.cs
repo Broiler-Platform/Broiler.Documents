@@ -109,11 +109,24 @@ public sealed class LayoutLine
     public int ParagraphIndex { get; }
 
     /// <summary>Moves every piece of the line <paramref name="dx"/> points across, into another text column.</summary>
+    /// <summary>
+    /// The colour the line's paragraph is shaded with, or <see cref="BColor.Empty"/>
+    /// for none; see <see cref="ParagraphStyle.Background"/>.
+    /// </summary>
+    public BColor Background { get; internal set; }
+
+    /// <summary>Where the paragraph's shading starts across: its left indent.</summary>
+    public double BackgroundLeft { get; internal set; }
+
+    /// <summary>How wide the paragraph's shading is: from its indent to its column's edge.</summary>
+    public double BackgroundWidth { get; internal set; }
+
     internal void Shift(double dx)
     {
         if (dx == 0)
             return;
 
+        BackgroundLeft += dx;
         foreach (LayoutPiece piece in _pieces)
             piece.X += dx;
     }

@@ -82,9 +82,16 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **Sections, the rest.** A `DocumentSection` carries its columns and its own
   margins, a DOCX section break starts the page it says it does, and the
   layout balances a section's columns where the next follows on the same page.
-  Still not read: a section's own running content where it differs from the
-  last section's - the model holds one set, the last section's, with each
-  type it leaves out continued from before it (`docx.section.multiple`) -
+  A section keeps its own headers and footers, and a page carries those of the
+  section that started it; ODT and RTF read one set for the document, and
+  only the DOCX writer writes a section's own (the PDF writer draws the
+  document's on every page, `pdf.write.feature-unsupported`). A document of
+  continuous sections only, each naming its own header, changes header in
+  LibreOffice through follow styles this layout does not make
+  (`tdf90697_complexBreaksHeaders.docx` draws its first section's header on
+  every page). LibreOffice reads `nextColumn` as `nextPage` in Word 2013
+  documents and wherever the column count changes, and a change of
+  orientation as `nextPage`; here it is continuous. Still not read:
   the blank page an odd- or even-page start can make (`docx.section.parity`),
   a section's own paper size (the page is drawn at the document's, which
   puts `tdf123163-1.docx`'s `geometry` band at `off` by two or three pixels), RTF's
@@ -106,11 +113,16 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   as one colour and reported (`docx.background.fill`, `docx.shape.fill`,
   `odt.gradient`, `odt.fill`). `fill.docx` is a corner gradient LibreOffice
   draws from dark blue to orange and this draws orange.
-- **Floating tables.** A DOCX table positioned with `w:tblpPr`, and one wider
-  than the text area, are laid out in the flow at the text's width.
-  `fdo48718-1.docx` and `fdo77887.docx` state a 504-point table placed 113
-  points down the page and centred; drawn at 442 points from about 85, the page
-  breaks three names early.
+  `tdf167527_title_letters_cut_from_below.docx` is a DrawingML hatch drawn as
+  its background colour, under a three-stop fade from transparent whose middle
+  stop is lost.
+- **Floating tables, the rest.** DOCX's `w:tblpPr` is read, written and laid
+  out. ODT has no reader for one: LibreOffice writes a floating table as a
+  `draw:frame` holding a `table:table`, which is dropped with `odt.frame.block`.
+  RTF's positioned-table words (`\tpvpg`, `\tposy`, `\tposxc`,
+  `\tdfrmtxt*`) are not read. The PDF writer lays a floating table out in the
+  flow. Two floating tables are not moved apart (`w:tblOverlap` is kept, not
+  acted on), and one nested in a cell stays in the cell.
 - **RTF tables, the rest.** The reader reads a row's cells, borders, shading,
   padding and height; merged cells, row borders, `\trpadd` and nested tables
   are not read, and the writer writes a table as its paragraphs.

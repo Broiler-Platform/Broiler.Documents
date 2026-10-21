@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO.Compression;
+using System.Linq;
 using System.Xml.Linq;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Docx;
 
@@ -349,19 +351,24 @@ internal sealed class DocxStyles
 }
 
 /// <summary>
-/// The major/minor latin typefaces from <c>word/theme/theme1.xml</c>. Styles
-/// reference fonts through <c>w:rFonts w:asciiTheme="majorHAnsi"</c> rather than
-/// by name, so without the theme every themed run loses its family.
+/// The major/minor latin typefaces and the colour scheme from
+/// <c>word/theme/theme1.xml</c>. Styles reference fonts through
+/// <c>w:rFonts w:asciiTheme="majorHAnsi"</c> rather than by name, and shapes
+/// colours through <c>a:schemeClr</c>, so without the theme every themed run
+/// loses its family and every themed shape its paint.
 /// </summary>
 internal sealed class DocxTheme
 {
-    private DocxTheme(string? majorLatin, string? minorLatin)
+    private readonly Dictionary<string, BColor> _colors;
+
+    private DocxTheme(string? majorLatin, string? minorLatin, Dictionary<string, BColor> colors)
     {
         MajorLatin = majorLatin;
         MinorLatin = minorLatin;
+        _colors = colors;
     }
 
-    public static DocxTheme Empty { get; } = new(null, null);
+    public static DocxTheme Empty { get; } = new(null, null, new Dictionary<string, BColor>(StringComparer.Ordinal));
 
     public string? MajorLatin { get; }
 
@@ -385,15 +392,65 @@ internal sealed class DocxTheme
             return Empty;
 
         XDocument? xml = DocxPackage.LoadEntryXml(entry, limits, diagnostics, "docx.theme");
-        XElement? fontScheme = xml?.Root
-            ?.Element(DocxNamespaces.Drawing + "themeElements")
-            ?.Element(DocxNamespaces.Drawing + "fontScheme");
-        if (fontScheme is null)
+        XElement? elements = xml?.Root?.Element(DocxNamespaces.Drawing + "themeElements");
+        if (elements is null)
             return Empty;
 
+        XElement? fontScheme = elements.Element(DocxNamespaces.Drawing + "fontScheme");
         return new DocxTheme(
-            LatinTypeface(fontScheme.Element(DocxNamespaces.Drawing + "majorFont")),
-            LatinTypeface(fontScheme.Element(DocxNamespaces.Drawing + "minorFont")));
+            LatinTypeface(fontScheme?.Element(DocxNamespaces.Drawing + "majorFont")),
+            LatinTypeface(fontScheme?.Element(DocxNamespaces.Drawing + "minorFont")),
+            ReadColorScheme(elements.Element(DocxNamespaces.Drawing + "clrScheme")));
+    }
+
+    /// <summary>
+    /// The colour a <c>a:schemeClr</c> names, before its transforms.
+    /// </summary>
+    /// <remarks>
+    /// The scheme holds twelve slots (ECMA-376 §20.1.6.2); a shape may also name
+    /// the four a document maps onto them, background and text one and two.
+    /// <c>w:clrSchemeMapping</c> in the settings can remap those, but Word writes
+    /// the default mapping, and that is the one taken here: <c>bg1</c> is
+    /// <c>lt1</c>, <c>tx1</c> is <c>dk1</c>, and so on. <c>phClr</c> stands for a
+    /// colour a style supplies, which this reader does not resolve.
+    /// </remarks>
+    public bool TryResolveColor(string? name, out BColor color)
+    {
+        string? slot = name switch
+        {
+            "bg1" => "lt1",
+            "tx1" => "dk1",
+            "bg2" => "lt2",
+            "tx2" => "dk2",
+            _ => name,
+        };
+        if (slot is not null && _colors.TryGetValue(slot, out color))
+            return true;
+
+        color = BColor.Empty;
+        return false;
+    }
+
+    private static Dictionary<string, BColor> ReadColorScheme(XElement? scheme)
+    {
+        var colors = new Dictionary<string, BColor>(StringComparer.Ordinal);
+        if (scheme is null)
+            return colors;
+
+        foreach (XElement slot in scheme.Elements())
+        {
+            XElement? value = slot.Elements().FirstOrDefault();
+            string? hex = value?.Name.LocalName switch
+            {
+                "srgbClr" => (string?)value.Attribute("val"),
+                "sysClr" => (string?)value.Attribute("lastClr"),
+                _ => null,
+            };
+            if (DocxValueReader.TryParseHexColor(hex, out BColor color))
+                colors[slot.Name.LocalName] = color;
+        }
+
+        return colors;
     }
 
     /// <summary>Maps a <c>w:rFonts</c> theme reference such as <c>majorHAnsi</c> to a family name.</summary>

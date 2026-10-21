@@ -1,3 +1,5 @@
+using Broiler.Graphics.Color;
+
 namespace Broiler.Documents.Model;
 
 /// <summary>
@@ -75,6 +77,27 @@ public readonly record struct ParagraphStyle
     /// </para>
     /// </remarks>
     public bool ColumnBreakBefore { get; init; }
+
+    /// <summary>
+    /// The colour the paragraph's area is shaded with, or
+    /// <see cref="BColor.Empty"/> for none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A title bar, a boxed note, a coloured band behind a heading: DOCX's
+    /// <c>w:pPr/w:shd</c>, ODF's <c>fo:background-color</c> on a paragraph, RTF's
+    /// <c>\cbpat</c>. It belongs to the paragraph rather than to its runs, which
+    /// shade only the words: the paragraph's colour runs from its indent to the
+    /// column's edge whatever the line holds.
+    /// </para>
+    /// <para>
+    /// How it is drawn is LibreOffice's, measured: the box covers the lines,
+    /// between the indents, and not the space before or after - except where the
+    /// next paragraph is shaded the same, when the space between them is shaded
+    /// too and the two read as one block.
+    /// </para>
+    /// </remarks>
+    public BColor Background { get; init; }
 
     /// <summary>Left-aligned, single-spaced, no list, no indent.</summary>
     public static ParagraphStyle Default => new() { LineSpacing = 1f };
