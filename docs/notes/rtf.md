@@ -11,8 +11,8 @@ below are exercised by `RtfConformanceTests`, `RtfLimitTests`,
 `RtfFontNameTests`, plus `RtfResourceTableTests` for resource collection across
 body, running content and shape text, `RtfDefaultSizeTests` for inherited
 font sizes on export, `RtfSkippedDestinationTests` for what a skipped
-destination keeps to itself, and `RtfDocumentEndTests` for where the document
-stops.
+destination keeps to itself, `RtfDocumentEndTests` for where the document
+stops, and `RtfTableTests` for tables.
 
 `RtfUnicodeFallbackTests` covers escaped fallback characters after `\uN`:
 literal text, hexadecimal bytes and character-producing control symbols count
@@ -34,10 +34,11 @@ than its `\ucN` count.
 | Inline character | `\b` `\b0` `\i` `\i0` `\ul` `\ul0` `\ulnone` `\strike` `\strike0` `\caps` `\caps0` `\scaps` `\scaps0` `\plain` `\fsN` `\fN` `\cfN` `\cbN` `\highlightN` |
 | Paragraph | `\pard` `\ql` `\qc` `\qr` `\qj` `\liN` `\sbN` `\saN` `\slN` with `\slmult1` `\pagebb` `\pagebb0` |
 | Paragraph mark | The character formatting in effect at `\par` (→ `RichTextParagraph.MarkStyle`, what an empty paragraph is as tall as; not written back) |
-| Breaks & entities | `\par` `\line` `\page` (→ `PageBreakBefore` on the paragraph that follows) `\tab` `\cell` (→ tab) `\row` (→ paragraph) `\lquote` `\rquote` `\ldblquote` `\rdblquote` `\bullet` `\endash` `\emdash` `\enspace` `\emspace` |
+| Breaks & entities | `\par` `\line` `\page` (→ `PageBreakBefore` on the paragraph that follows) `\tab` `\nestcell` (→ tab) `\lquote` `\rquote` `\ldblquote` `\rdblquote` `\bullet` `\endash` `\emdash` `\enspace` `\emspace` |
 | Control symbols | `\\` `\{` `\}` `\~` (nbsp) `\_` (nb-hyphen) `\-` (optional hyphen, dropped) `\`+CR/LF (→ paragraph) `\*` (destination marker) |
 | Encoding | `\'hh` `\uN` `\ucN` `\ansicpgN` `\fcharsetN` (per font) |
-| Tables | `\fonttbl` `\colortbl` |
+| Resource tables | `\fonttbl` `\colortbl` |
+| Tables | `\trowd` `\cellxN` `\intbl` `\cell` `\row` `\trleftN` `\trgaphN` `\trrhN` `\trhdr` `\trkeep` `\clbrdrt` `\clbrdrb` `\clbrdrl` `\clbrdrr` with `\brdrwN` `\brdrcfN` and the border kinds, `\clcbpatN` (→ `DocumentTable`; see below). In a header, footer or shape's text `\cell` is a tab and `\row` a paragraph, as before |
 | Document default font | `\deffN` resolves the declared font-table entry into `DocumentStyleDefaults.FontFamily`; `\plain` returns runs to that inherited family |
 | Fields | `\field` `\fldinst` `\fldrslt` (HYPERLINK only, including the `\l` switch that spells a same-document reference: it is read as `#name` and written back the same way. The name may not contain a quote — the field argument is quoted and RTF has no escape for one inside it, so a quote would truncate the target silently; the shared rule refuses it for every format. Targets otherwise follow that rule, or `rtf.link`) |
 | Running content | `\header` `\headerf` `\headerl` `\headerr` `\footer` `\footerf` `\footerl` `\footerr` (→ `RunningContent`, not the body flow) |
@@ -200,6 +201,48 @@ This is the page, not sections. Everything else a section states is still
 ignored, including the section break kinds above, and a document whose sections
 have columns or margins of their own is written with the page and its columns
 alone, which `rtf.sections` says.
+
+## Tables
+
+A body table is read into a `DocumentTable` over the paragraphs its cells hold.
+`\trowd` starts a row definition, and each `\cellx` closes one cell of it at
+the right edge it names, with the borders and shading stated before it.
+`\intbl` puts a paragraph in the table; it is a paragraph property, so `\pard`
+clears it and a closing group gives it back. `\cell` ends a cell's last
+paragraph - with or without `\intbl`, since it can mean nothing else - and
+`\row` closes the row under the definition in effect. The first paragraph out
+of the table ends the table.
+
+The row definition and the table being read are not part of the state RTF
+pushes and pops with its braces. Writers wrap cells and row ends in groups of
+their own - `{\b A1 \cell}`, `{\row}`, a whole table inside `{\trowd ... \pard}`
+- and a definition that vanished when such a group closed would leave the cells
+after it with no table. A row with no `\trowd` of its own takes the definition
+of the row before, as Word does.
+
+Rows of one table need not agree on their edges. The grid is every edge any row
+states, and a cell spans the grid columns between its own two edges, so every
+cell is as wide as its row says - which is what LibreOffice's own test of
+`fdo66565.rtf` checks, with a row of seven cells over a row of eighteen. A table
+some row of which holds more cells than it defines, or defines an edge that goes
+backwards, gets no widths and is divided evenly, as a table stating no grid is.
+
+`\trgaph` is the cell padding; a table that states none has none, which is how
+LibreOffice sets it. `\trrh` is the row's minimum height, an exact (negative)
+one included, as every format's is here. `\trhdr` marks a header row and
+`\trkeep` keeps a row on one page. `\clbrdrt`, `\clbrdrb`, `\clbrdrl` and
+`\clbrdrr` point the border words that follow at a side of the next cell:
+`\brdrw` is its width, `\brdrcf` its colour (black when absent or auto), and any
+kind but `\brdrnone` draws it - as a single line, because the model has one
+kind, so a double border is drawn single. `\clcbpat` is the cell's background.
+
+Not read: merged cells (`\clmgf`, `\clmrg`, `\clvmgf`, `\clvmrg`), whose cells
+are drawn as the separate cells the file writes; the row's own borders
+(`\trbrdr*`); `\trleft`'s offset of the table from the margin, beyond placing
+rows against one another; padding stated as `\trpadd*`; and nested tables, whose
+text joins the outer cell's with `\nestcell` read as a tab. A cell mark in a
+header, footer or shape's text is a tab and a row mark a paragraph, as before:
+those hold paragraphs and nothing beside them.
 
 ## Drawings
 
@@ -379,8 +422,9 @@ with `rtf.image.omitted`, whose message names the denial. Because `\pict` is a
 skipped destination on the read side, an image does **not** survive a model → RTF
 → model round-trip; DOCX is the format that round-trips pictures. A table is
 written as its cell paragraphs in row order, with `rtf.table.flattened`: RTF
-states a table as `\trowd` and `\cellx` runs, and this codec's reader knows
-neither, so a table written that way would come back as nothing at all. A shape
+states a table as `\trowd` and `\cellx` runs, which the reader now takes but
+the writer does not yet write, so a table read from RTF comes back from a round
+trip as its paragraphs without the grid. A shape
 is written as a `\shp` group at the head of the paragraph it is anchored to,
 carrying its box, its fill, its outline and its text, which is the whole of what
 the reader takes back out of one. A floating picture is the exception: it is
@@ -391,11 +435,11 @@ no paint, which is a shape it drops. In the table and the floating picture alike
 what is on the page is worth more than the structure around it.
 
 Round-trip is otherwise lossless for any document the reader can
-produce, with two further documented exceptions: list kind
-is not written (it is not read either, so it stays at its default); and a
+produce, with three further documented exceptions: a table's grid, above;
+list kind is not written (it is not read either, so it stays at its default); and a
 **page break inside running content or
 a shape** is read (`\pagebb` is honoured in those destinations too) but not
-written back, per `rtf.pagebreak.dropped` above. Both are rare and safe
+written back, per `rtf.pagebreak.dropped` above. All three are safe
 (never lossy for text, formatting, colors, sizes, alignment, or hyperlinks).
 
 ## Diagnostics

@@ -42,6 +42,12 @@ public static class RtfReader
         public int DocumentCodePage;
         public int LineSpacing;
         public bool MultipleLineSpacing;
+
+        /// <summary>
+        /// <c>\intbl</c>: the paragraph is in a table. A paragraph property, so
+        /// <c>\pard</c> clears it and a group gives it back when it closes.
+        /// </summary>
+        public bool InTable;
     }
 
     private sealed class Worker
@@ -73,6 +79,8 @@ public static class RtfReader
         private int? _sectionTop;
         private int? _sectionBottom;
         private bool _pastFirstSection;
+        private readonly RtfTableBuilder _table;
+        private readonly List<DocumentTable> _tables = [];
         private int _columns = 1;
         private int _columnGap = 720;
         private readonly StringBuilder _shapePropertyName = new();
@@ -131,6 +139,7 @@ public static class RtfReader
             _embeddedDecodingRequested = options.DecodeEmbeddedObjects;
 #pragma warning restore CS0618
             _builder = new Accumulator(options.Limits.MaxParagraphCount);
+            _table = new RtfTableBuilder(_colors);
             _maxParagraphs = options.Limits.MaxParagraphCount;
             _state = new State
             {
@@ -195,6 +204,7 @@ public static class RtfReader
             }
 
             FlushPending();
+            FinishTable();
             RichTextDocument document = _builder.Build(_state.Para)
                 .WithStyleDefaults(DocumentStyleDefaults.Default with
                 {
@@ -204,6 +214,8 @@ public static class RtfReader
                 .WithPageGeometry(BuildPageGeometry());
             if (_shapes.Count > 0)
                 document = document.WithShapes(_shapes);
+            if (_tables.Count > 0)
+                document = document.WithTables(_tables);
             if (_builder.LimitHit)
                 _diagnostics.Add(DocumentDiagnostic.Warning("rtf.paragraphs", "Document exceeded MaxParagraphCount; extra paragraphs were dropped."));
             if (_builder.PageBreakPending)
@@ -427,6 +439,9 @@ public static class RtfReader
 
         private void HandleBodyControlWord(string kw, int p, bool has)
         {
+            if (_table.HandleDefinitionWord(kw, p, has))
+                return;
+
             switch (kw)
             {
                 case "deff": if (has && p >= 0) _defaultFont = p; break;
@@ -532,7 +547,9 @@ public static class RtfReader
                     _state.Para = ParagraphStyle.Default;
                     _state.LineSpacing = 0;
                     _state.MultipleLineSpacing = false;
+                    _state.InTable = false;
                     break;
+                case "intbl": _state.InTable = !(has && p == 0); break;
                 case "sl":
                     if (has)
                     {
@@ -562,15 +579,36 @@ public static class RtfReader
                 // does.
                 case "pagebb": _state.Para = _state.Para with { PageBreakBefore = !(has && p == 0) }; break;
 
-                case "par":
+                case "par": EndParagraph(); break;
+                // A row end in the body closes a row of the table. Anywhere else
+                // - a header, a shape's text - there is no table to close, and it
+                // ends the paragraph as it always did.
                 case "row":
-                    EndParagraph();
+                    if (InBody && _table.IsOpen)
+                    {
+                        FlushPending();
+                        _table.EndRow();
+                    }
+                    else
+                    {
+                        EndParagraph();
+                    }
+
                     break;
                 case "page": PageBreak(); break;
                 case "column": ColumnBreak(); break;
                 case "line": AppendChar(0x2028); break; // soft line break
-                case "tab":
-                case "cell": AppendBody("\t"); break;
+                case "tab": AppendBody("\t"); break;
+                case "cell":
+                    if (InBody)
+                        EndCell();
+                    else
+                        AppendBody("\t");
+                    break;
+                // A cell of a table nested in a cell. Nested tables are not
+                // read, so their text joins the outer cell's, and a tab keeps
+                // one inner cell's text off the next.
+                case "nestcell": AppendBody("\t"); break;
                 case "lquote": AppendChar(0x2018); break;
                 case "rquote": AppendChar(0x2019); break;
                 case "ldblquote": AppendChar(0x201C); break;
@@ -1103,10 +1141,55 @@ public static class RtfReader
         {
             FlushPending();
 
-            // The character formatting in effect at \par is the paragraph mark's,
-            // which is what an empty paragraph is as tall as.
-            Active.EndParagraph(_state.Para, _state.Char with { LinkHref = null, Image = null });
+            // A body paragraph either belongs to the table being read or ends it:
+            // the first paragraph out of a table is where the table stops.
+            if (InBody)
+            {
+                if (_state.InTable)
+                    _table.NoteParagraph(_builder.ParagraphCount);
+                else
+                    FinishTable();
+            }
+
+            CloseParagraph();
         }
+
+        /// <summary>
+        /// Closes the paragraph with the character formatting in effect, which is
+        /// the paragraph mark's and what an empty paragraph is as tall as.
+        /// </summary>
+        private void CloseParagraph() =>
+            Active.EndParagraph(_state.Para, _state.Char with { LinkHref = null, Image = null });
+
+        /// <summary>
+        /// <c>\cell</c>: ends the cell's last paragraph, and the cell with it.
+        /// </summary>
+        /// <remarks>
+        /// It is a cell whether or not <c>\intbl</c> said so, because a cell end
+        /// can mean nothing else. It used to be read as a tab and <c>\row</c> as
+        /// a paragraph, so a table arrived as lines of tab-separated text: two
+        /// rows of seven and eighteen cells drew as three lines with no grid.
+        /// </remarks>
+        private void EndCell()
+        {
+            FlushPending();
+            _table.NoteParagraph(_builder.ParagraphCount);
+            CloseParagraph();
+            _table.EndCell(_builder.ParagraphCount);
+        }
+
+        private void FinishTable()
+        {
+            if (_table.Finish() is DocumentTable table)
+                _tables.Add(table);
+        }
+
+        /// <summary>
+        /// Whether text written now lands in the body flow, where a table can be:
+        /// not a header, a footer or a shape's text, whose paragraphs the model
+        /// holds as lists of their own.
+        /// </summary>
+        private bool InBody => ReferenceEquals(Active, _builder);
 
         /// <summary>
         /// Takes a <c>\page</c>, which RTF states in the character stream rather

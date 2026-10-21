@@ -68,9 +68,9 @@ public static class RtfWriter
 
         if (document.Tables.Count > 0)
         {
-            // RTF states a table as \trowd and \cellx runs. This codec's reader
-            // knows neither, so a table written that way would not survive its
-            // own round trip - and the text is worth more than the grid.
+            // RTF states a table as \trowd and \cellx runs. The reader takes
+            // them now; writing them is not done yet, and until it is the text
+            // is worth more than the grid.
             AddOnce(
                 diagnostics,
                 reported,
