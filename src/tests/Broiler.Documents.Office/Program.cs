@@ -352,14 +352,6 @@ internal static class Program
         var readings = new List<SemanticReading>();
         var renders = new List<RenderRow>();
         var differences = new List<ExtrasDifference>();
-        int profileSlot = -1;
-
-        string NextProfile()
-        {
-            int slot = Interlocked.Increment(ref profileSlot);
-            return Path.Combine(workspace, "profile", slot.ToString(CultureInfo.InvariantCulture));
-        }
-
         string sourceLabel = options.ExtrasDirectory ?? options.ExtrasUrl ?? ExtrasConformance.DefaultExtrasUrl;
 
         try
@@ -407,6 +399,9 @@ internal static class Program
 
             await Parallelism.ForEachAsync(samples, options.Jobs, async sample =>
             {
+                using var sampleArea = new OfficeSampleWorkspace(workspace, options.Keep);
+                string sampleWorkspace = sampleArea.Root;
+                string NextProfile() => sampleArea.NextProfile();
                 SemanticReading? reading = null;
                 RenderRow? render = null;
                 IReadOnlyList<CheckResult> sampleResults;
@@ -417,7 +412,7 @@ internal static class Program
                         tool,
                         sample,
                         family,
-                        workspace,
+                        sampleWorkspace,
                         options.Axis,
                         options.Dpi,
                         options.MaxPages,
@@ -431,7 +426,7 @@ internal static class Program
                         libreOffice,
                         rasterizer,
                         sample,
-                        workspace,
+                        sampleWorkspace,
                         options.Axis,
                         options.Dpi,
                         options.MaxPages,
@@ -445,11 +440,14 @@ internal static class Program
                 lock (differences)
                 {
                     differences.Add(diff);
+                    if (!options.Keep)
+                        RetainExtrasEvidence(workspace, differences, options.TopDifferences);
                     if (reading is not null)
                         readings.Add(reading);
                     if (render is not null)
                         renders.Add(render);
                 }
+
 
                 int current = Interlocked.Increment(ref completedSamples);
                 if (current % statusStep == 0 || current == totalSamples)
@@ -695,6 +693,39 @@ internal static class Program
             .OrderBy(result => result.Group, StringComparer.Ordinal)
             .ThenBy(result => result.Name, StringComparer.Ordinal)
             .ToArray();
+
+    // Called under the differences lock: keep images only for the current top
+    // differences, outside each document's disposable workspace.
+    private static void RetainExtrasEvidence(
+        string workspace, List<ExtrasDifference> differences, int limit)
+    {
+        var retained = ExtrasConformance.TopDifferences(differences, limit)
+            .Select(difference => difference.Sample.Id).ToHashSet(StringComparer.Ordinal);
+        string evidence = Path.Combine(workspace, "evidence");
+        for (int i = 0; i < differences.Count; i++)
+        {
+            ExtrasDifference difference = differences[i];
+            if (difference.DiffImagePath is not string image)
+                continue;
+            string directory = Path.GetDirectoryName(image)!;
+            if (!retained.Contains(difference.Sample.Id))
+            {
+                Delete(directory);
+                differences[i] = difference with { DiffImagePath = null };
+            }
+            else if (!Path.GetFullPath(directory).StartsWith(
+                         evidence + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            {
+                Directory.CreateDirectory(evidence);
+                string destination = Path.Combine(evidence, Guid.NewGuid().ToString("N"));
+                Directory.Move(directory, destination);
+                differences[i] = difference with
+                {
+                    DiffImagePath = Path.Combine(destination, Path.GetFileName(image)),
+                };
+            }
+        }
+    }
 
     private static void Delete(string directory)
     {

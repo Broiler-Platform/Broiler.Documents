@@ -558,3 +558,9 @@ The workflow sets `TMPDIR` to GitHub's disk-backed `runner.temp` directory for
 quota and prevent LibreOffice from producing comparison output. Each run logs
 filesystem capacity and mount information for both locations. The runner removes
 its workspace at the end unless `--keep` was requested.
+
+Upstream samples use separate workspaces, removed immediately after each sample
+finishes (including on exceptions). Only failure images for the current top
+`--top-differences` samples are retained until the report is written. This bounds
+intermediate storage by the concurrent documents rather than the entire corpus.
+`--keep` explicitly disables this cleanup for local investigation.

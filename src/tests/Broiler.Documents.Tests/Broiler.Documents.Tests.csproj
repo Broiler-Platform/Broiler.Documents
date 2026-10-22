@@ -32,6 +32,7 @@
 
   <ItemGroup>
     <Compile Include="..\Broiler.Documents.Office\OfficeExitCodes.cs" Link="OfficeExitCodes.cs" />
+    <Compile Include="..\Broiler.Documents.Office\OfficeSampleWorkspace.cs" Link="OfficeSampleWorkspace.cs" />
     <Using Include="Xunit" />
 
     <Using Include="Broiler.Documents" />
