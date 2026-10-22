@@ -110,16 +110,16 @@ jobs:
     # CI leg while the interesting half cannot follow it.
     timeout-minutes: 360
 
-    # Ubuntu 26.04 mounts /tmp as a quota-limited RAM disk. The corpus and
-    # rasterized pages need disk-backed storage; .NET and child tools use TMPDIR.
-    env:
-      TMPDIR: ${{ runner.temp }}
-
     defaults:
       run:
         shell: bash
 
     steps:
+      # Ubuntu 26.04 mounts /tmp as a quota-limited RAM disk. Set TMPDIR for
+      # subsequent steps so .NET and child tools use disk-backed storage.
+      - name: Configure temporary storage
+        run: printf 'TMPDIR=%s\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Check out
         uses: actions/checkout@v7
 
