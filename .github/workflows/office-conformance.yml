@@ -110,6 +110,11 @@ jobs:
     # CI leg while the interesting half cannot follow it.
     timeout-minutes: 360
 
+    # Ubuntu 26.04 mounts /tmp as a quota-limited RAM disk. The corpus and
+    # rasterized pages need disk-backed storage; .NET and child tools use TMPDIR.
+    env:
+      TMPDIR: ${{ runner.temp }}
+
     defaults:
       run:
         shell: bash
@@ -141,6 +146,13 @@ jobs:
             fonts-dejavu-core
           soffice --version
           pdftoppm -v || true
+
+      - name: Report temporary storage
+        run: |
+          echo "Temporary files: $TMPDIR"
+          df -hT "$TMPDIR" /tmp
+          findmnt --target "$TMPDIR"
+          findmnt --target /tmp
 
       - name: Build
         run: |

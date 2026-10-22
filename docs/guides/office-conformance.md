@@ -9,7 +9,7 @@ dotnet run --project src/tests/Broiler.Documents.Office
 ```
 
 It prints `N/M passed, K failed.` as its last line and exits with the number of
-failures, the same contract the corpus suite has. `eng/run-office-conformance.sh`
+failures capped at 98; exit 99 is reserved for usage errors or harness failures. `eng/run-office-conformance.sh`
 provisions the tools first and then runs it; `.github/workflows/office-conformance.yml`
 runs that nightly.
 
@@ -549,3 +549,12 @@ rules. Reports keep the measured bands and severity ranking for investigation;
 failed pixel checks include the measured similarity and required threshold.
 The upstream workflow continues to publish a ranking; its existing policy does
 not fail the job for individual upstream sample differences.
+
+## Temporary storage in CI
+
+The workflow sets `TMPDIR` to GitHub's disk-backed `runner.temp` directory for
+.NET and its child tools. Ubuntu 26.04 uses a quota-limited RAM filesystem for
+`/tmp`; retaining corpus downloads and rasterized pages there can exhaust that
+quota and prevent LibreOffice from producing comparison output. Each run logs
+filesystem capacity and mount information for both locations. The runner removes
+its workspace at the end unless `--keep` was requested.

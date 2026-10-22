@@ -28,7 +28,7 @@ namespace Broiler.Documents.Office;
 /// knows nothing about this one.
 /// </para>
 /// <para>
-/// It exits with the number of failed checks, capped at 99, and prints
+/// It exits with the number of failed checks, capped at 98, and prints
 /// <c>N/M passed, K failed.</c> as its last line, which is the shape CI already
 /// greps for.
 /// </para>
@@ -325,7 +325,7 @@ internal static class Program
             OfficeReporting.WriteConsole(Console.Out, results, options.Verbose);
 
             int failed = results.Count(result => result.Outcome == CheckOutcome.Failed);
-            return Math.Min(failed, 99);
+            return OfficeExitCodes.ForFailures(failed);
         }
         finally
         {
@@ -529,7 +529,7 @@ internal static class Program
             OfficeReporting.WriteConsole(Console.Out, results, options.Verbose);
 
             int failed = results.Count(result => result.Outcome == CheckOutcome.Failed);
-            return Math.Min(failed, 99);
+            return OfficeExitCodes.ForFailures(failed);
         }
         finally
         {
@@ -907,7 +907,7 @@ internal static class Program
             output.WriteLine("  --allow-pending-tools    Drive tools whose register row is not approved.");
             output.WriteLine("  -h, --help               Show this and exit 0.");
             output.WriteLine();
-            output.WriteLine("Exit code is the number of failed checks, capped at 99. 99 alone is a usage");
+            output.WriteLine("Exit code is the number of failed checks, capped at 98. 99 alone is a usage");
             output.WriteLine("error or a failure of this harness rather than a verdict about the component.");
         }
     }
