@@ -63,6 +63,22 @@ public readonly record struct ParagraphStyle
 
     public ListKind ListKind { get; init; }
 
+    /// <summary>Exact left indent in points; null uses the legacy indent level.</summary>
+    public float? LeftIndent { get; init; }
+
+    /// <summary>Exact right indent in points; null means zero.</summary>
+    public float? RightIndent { get; init; }
+
+    /// <summary>First line offset from the left indent, in points; negative values hang to the left.</summary>
+    public float? FirstLineIndent { get; init; }
+
+    public double LeftIndentIn(double step = 18) => LeftIndent is float left && float.IsFinite(left)
+        ? Math.Clamp(left, -20000, 20000) : Math.Max(0, IndentLevel) * step;
+
+    public double RightIndentIn => RightIndent is float right && float.IsFinite(right) ? Math.Clamp(right, -20000, 20000) : 0;
+
+    public double FirstLineIndentIn => FirstLineIndent is float first && float.IsFinite(first) ? Math.Clamp(first, -20000, 20000) : 0;
+
     /// <summary>
     /// The list the paragraph is numbered in, or null when it is in none or its
     /// source said no more than <see cref="ListKind"/>.

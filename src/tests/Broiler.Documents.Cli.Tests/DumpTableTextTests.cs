@@ -5,6 +5,20 @@ namespace Broiler.Documents.Cli.Tests;
 public sealed class DumpTableTextTests
 {
     [Fact]
+    public void Anchored_Text_Box_Tables_Are_Exported_In_Their_Own_Flow()
+    {
+        var definition = new ListDefinition([new ListLevel { Template = "%1." }]);
+        var itemStyle = ParagraphStyle.Default with { List = new ListReference(definition, 0), ListKind = ListKind.Numbered };
+        var document = RichTextDocument.FromParagraphs([
+            RichTextParagraph.Create("before", InlineStyle.Default, itemStyle),
+            RichTextParagraph.Create("after", InlineStyle.Default, itemStyle)])
+            .WithShapes([new DocumentShape(1, 0, 0, 100, 80,
+                paragraphs: [RichTextParagraph.Create("A", InlineStyle.Default, itemStyle), RichTextParagraph.Plain("B")],
+                tables: [new DocumentTable(0, 2, [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)])])])]);
+        Assert.Equal("1. before\n1. A\tB\n2. after", DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
     public void Image_object_markers_are_omitted_but_literal_replacement_characters_are_kept()
     {
         var image = new InlineImage(new byte[] { 1, 2, 3 }, "image/png", 12, 12);

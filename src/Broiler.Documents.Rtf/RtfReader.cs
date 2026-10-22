@@ -79,14 +79,17 @@ public static class RtfReader
         private readonly Stack<State> _stack = new();
         private readonly Accumulator _builder;
         private readonly Dictionary<RtfDestination, Accumulator> _running = [];
-        private int _paperWidth;
-        private int _paperHeight;
-        private int _marginLeft;
-        private int _marginRight;
-        private int _marginTop;
-        private int _marginBottom;
-        private int _headerDistance;
-        private int _footerDistance;
+        // An omitted page is still a page: LibreOffice imports it as Letter
+        // with one-inch margins. Leaving these at zero discarded margin-only
+        // documents and made the renderer substitute its own paper size.
+        private int _paperWidth = 12240;
+        private int _paperHeight = 15840;
+        private int _marginLeft = 1440;
+        private int _marginRight = 1440;
+        private int _marginTop = 1440;
+        private int _marginBottom = 1440;
+        private int _headerDistance = 720;
+        private int _footerDistance = 720;
 
         // The page the first section states. A section's \pgwsxn and the rest
         // are its own page and override the document's \paperw and the rest,
@@ -1238,7 +1241,8 @@ public static class RtfReader
 
         /// <summary>
         /// The page the section control words describe, or null when the document
-        /// gave no paper size. Twips throughout, 20 to the point.
+        /// gave an unusable paper size. Omitted values use the import defaults.
+        /// Twips throughout, 20 to the point.
         /// </summary>
         private PageGeometry? BuildPageGeometry()
         {

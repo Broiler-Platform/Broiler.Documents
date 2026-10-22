@@ -122,9 +122,22 @@ public sealed class DocumentLayoutListTests
             Clause("Taxes", 0),
         ]);
 
-        // As LibreOffice's text export writes them; a list known only by its
-        // kind has no label anybody stated.
-        Assert.Equal("4. Changes\nPlain\nLegacy\n5. Taxes", Broiler.Documents.Cli.Commands.DocumentCommands.LabelledText(document));
+        Assert.Equal("4. Changes\nPlain\n1. Legacy\n5. Taxes", Broiler.Documents.Cli.Commands.DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
+    public void The_Text_Dump_Keeps_Labels_For_Lists_Without_Definitions()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            Item("one", ListKind.Bullet, 1),
+            Item("child", ListKind.Bullet, 2),
+            RichTextParagraph.Plain("between"),
+            Item("fresh", ListKind.Numbered, 1),
+            Item("next", ListKind.Numbered, 1),
+        ]);
+        Assert.Equal("• one\n◦ child\nbetween\n1. fresh\n2. next",
+            Broiler.Documents.Cli.Commands.DocumentCommands.LabelledText(document));
     }
 
     [Fact]

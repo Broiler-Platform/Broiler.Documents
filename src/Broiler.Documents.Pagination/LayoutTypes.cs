@@ -164,7 +164,7 @@ public sealed class LayoutLine
 public sealed class LayoutShape
 {
     internal LayoutShape(BRect bounds, ShapeFill? fill, BColor outline, IReadOnlyList<LayoutLine> lines,
-        InlineImage? image = null, bool behindText = true, int zOrder = 0)
+        InlineImage? image = null, bool behindText = true, int zOrder = 0, IReadOnlyList<LayoutCell>? cells = null)
     {
         Bounds = bounds;
         Fill = fill;
@@ -173,9 +173,13 @@ public sealed class LayoutShape
         Image = image;
         BehindText = behindText;
         ZOrder = zOrder;
+        Cells = cells ?? [];
     }
 
     public BRect Bounds { get; }
+
+    /// <summary>Table cell boxes inside this shape.</summary>
+    public IReadOnlyList<LayoutCell> Cells { get; }
 
     public ShapeFill? Fill { get; }
 

@@ -208,4 +208,17 @@ public sealed class RtfShapeTests
         Assert.DoesNotContain("\\shpbypara", rtf, StringComparison.Ordinal);
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "rtf.shape.page");
     }
+
+    [Fact]
+    public void Writing_A_Text_Box_Table_Reports_The_Lost_Cell_Layout()
+    {
+        var shape = new DocumentShape(0, 0, 0, 100, 50,
+            paragraphs: [RichTextParagraph.Plain("A"), RichTextParagraph.Plain("B")],
+            tables: [new DocumentTable(0, 2, [new TableRow([
+                new TableCell(0, 1, 0), new TableCell(1, 1, 1)])], [50, 50])]);
+        var document = WithShapes(shape);
+        DocumentWriteResult result = RtfWriter.Write(document, new MemoryStream());
+        Assert.Single(result.Diagnostics, diagnostic => diagnostic.Code == "rtf.shape.table");
+        Assert.Equal(new[] { "A", "B" }, Assert.Single(RoundTrip(document).Shapes).Paragraphs.Select(p => p.Text));
+    }
 }

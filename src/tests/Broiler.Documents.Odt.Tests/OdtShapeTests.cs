@@ -10,6 +10,24 @@ namespace Broiler.Documents.Odt.Tests;
 /// </summary>
 public sealed class OdtShapeTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Text_Box_Tables_Round_Trip_Without_Entering_The_Body(bool grows)
+    {
+        var table = new DocumentTable(0, 2, [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)])], [40, 60]);
+        var source = WithShapes(new DocumentShape(0, 5, 10, 100, 60,
+            paragraphs: [RichTextParagraph.Plain("A"), RichTextParagraph.Plain("B")], growsToText: grows, tables: [table]));
+        var restored = RoundTrip(source);
+        var shape = Assert.Single(restored.Shapes);
+        Assert.Equal(grows, shape.GrowsToText);
+        Assert.Equal(60, shape.Height);
+        Assert.Equal(["A", "B"], shape.Paragraphs.Select(paragraph => paragraph.Text));
+        Assert.Equal(2, Assert.Single(shape.Tables).Rows[0].Cells.Count);
+        Assert.Empty(restored.Tables);
+        Assert.Equal("body", restored.PlainText);
+    }
+
     private static readonly ShapeFill Green =
         new(BColor.FromArgb(0xFF, 0xAE, 0xCF, 0x00), BColor.White, 60);
 

@@ -287,17 +287,14 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
     public void AddShape(DocumentShape shape) => _shapes.Add(shape);
 
     /// <summary>
-    /// Records a section with columns of its own. A section is closed after the
-    /// sections inside it, so one that holds an earlier one replaces it: the
-    /// outer section's columns are the ones its paragraphs are laid out in.
+    /// Records a section. Nested colours are resolved when the body closes,
+    /// while column layout retains the outer section's frame.
     /// </summary>
     public void AddSection(DocumentSection section)
     {
         if (section.ParagraphCount <= 0)
             return;
 
-        _sections.RemoveAll(inner =>
-            inner.ParagraphIndex >= section.ParagraphIndex && inner.ParagraphEnd <= section.ParagraphEnd);
         _sections.Add(section);
     }
 
@@ -311,9 +308,36 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
             document = document.WithShapes(_shapes);
 
         if (_sections.Count > 0)
-            document = document.WithSections([.. _sections.OrderBy(section => section.ParagraphIndex)]);
+            document = document.WithSections(ResolvedSections());
 
         return _tables.Count == 0 ? document : document.WithTables(_tables);
+    }
+
+    private List<DocumentSection> ResolvedSections()
+    {
+        // Flatten nested ranges without discarding their paint. Column layout
+        // retains the outer section's frame; the innermost opaque colour wins.
+        int[] edges = [.. _sections.SelectMany(section => new[] { section.ParagraphIndex, section.ParagraphEnd }).Distinct().Order()];
+        var resolved = new List<DocumentSection>();
+        for (int i = 0; i + 1 < edges.Length; i++)
+        {
+            DocumentSection[] covering = [.. _sections.Where(section => section.Contains(edges[i])).OrderByDescending(section => section.ParagraphCount)];
+            if (covering.Length == 0)
+                continue;
+            DocumentSection outer = covering[0];
+            var background = covering.LastOrDefault(section => !section.Background.IsEmpty && section.Background.A > 0)?.Background ?? default;
+            int start = edges[i];
+            if (resolved.LastOrDefault() is DocumentSection previous && previous.ParagraphEnd == start &&
+                previous.ColumnCount == outer.ColumnCount && previous.ColumnGap == outer.ColumnGap &&
+                previous.Page == outer.Page && previous.RunningContent == outer.RunningContent && previous.Background == background)
+            {
+                resolved.RemoveAt(resolved.Count - 1);
+                start = previous.ParagraphIndex;
+            }
+            resolved.Add(new DocumentSection(start, edges[i + 1] - start, outer.ColumnCount, outer.ColumnGap,
+                outer.Page, outer.RunningContent, background));
+        }
+        return resolved;
     }
 
     public void AddDiagnosticOnce(string code, string message) =>

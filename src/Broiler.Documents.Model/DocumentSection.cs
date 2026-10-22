@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Model;
 
@@ -30,7 +31,8 @@ public sealed class DocumentSection(
     int columnCount,
     double columnGap,
     PageGeometry? page = null,
-    RunningContent? runningContent = null)
+    RunningContent? runningContent = null,
+    BColor background = default)
 {
     /// <summary>The first paragraph the section holds.</summary>
     public int ParagraphIndex { get; } = Math.Max(0, paragraphIndex);
@@ -85,6 +87,9 @@ public sealed class DocumentSection(
     /// </remarks>
     public RunningContent? RunningContent { get; } = runningContent;
 
+    /// <summary>The colour behind this section's text area; empty means transparent.</summary>
+    public BColor Background { get; } = background;
+
     /// <summary>True when <paramref name="paragraphIndex"/> is one of the section's paragraphs.</summary>
     public bool Contains(int paragraphIndex) => paragraphIndex >= ParagraphIndex && paragraphIndex < ParagraphEnd;
 
@@ -116,6 +121,6 @@ public sealed class DocumentSection(
             return this;
 
         (int index, int count) = DocumentTable.ShiftRange(ParagraphIndex, ParagraphCount, at, removed, inserted);
-        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent);
+        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background);
     }
 }

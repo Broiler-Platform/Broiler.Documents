@@ -30,6 +30,8 @@ public static class DocxWriter
             document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None || p.Style.List is not null),
             (options ?? DocumentWriteOptions.Default).Resources);
         BuildRunningParts(document, context);
+        if (document.Sections.Any(section => !section.Background.IsEmpty && section.Background.A > 0))
+            context.AddDiagnosticOnce("docx.section.background", "Section background colours have no direct DOCX section equivalent and were not written.");
         XDocument documentXml = BuildDocumentXml(document, context);
         XDocument? footnotesXml = BuildNotes(NoteKind.Footnote, document.NoteNumbering.RaisedLabels, context);
         XDocument? endnotesXml = BuildNotes(NoteKind.Endnote, document.NoteNumbering.RaisedLabels, context);
@@ -986,7 +988,18 @@ public static class DocxWriter
         // A numbered paragraph's indent is where its label starts, and DOCX
         // states where the text starts and how far the label hangs back from
         // it, so it is written as both.
-        if (style.List is not null || style.ListKind != ListKind.None)
+        if (style.LeftIndent.HasValue || style.RightIndent.HasValue || style.FirstLineIndent.HasValue)
+        {
+            var indentation = new XElement(DocxNamespaces.Wordprocessing + "ind",
+                WordAttribute("left", ((int)Math.Round(style.LeftIndentIn() * 20)).ToString(CultureInfo.InvariantCulture)));
+            if (style.RightIndent.HasValue)
+                indentation.Add(WordAttribute("right", ((int)Math.Round(style.RightIndentIn * 20)).ToString(CultureInfo.InvariantCulture)));
+            if (style.FirstLineIndent.HasValue)
+                indentation.Add(WordAttribute(style.FirstLineIndentIn < 0 ? "hanging" : "firstLine",
+                    ((int)Math.Round(Math.Abs(style.FirstLineIndentIn) * 20)).ToString(CultureInfo.InvariantCulture)));
+            properties.Add(indentation);
+        }
+        else if (style.List is not null || style.ListKind != ListKind.None)
         {
             properties.Add(new XElement(
                 DocxNamespaces.Wordprocessing + "ind",
@@ -1622,8 +1635,9 @@ public static class DocxWriter
         if (shape.HasText)
         {
             var content = new XElement(DocxNamespaces.Wordprocessing + "txbxContent");
-            foreach (RichTextParagraph paragraph in shape.Paragraphs)
-                content.Add(BuildParagraph(paragraph, context));
+            RichTextDocument shapeDocument = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
+            foreach (XElement block in BuildBlocks(shapeDocument, shape.Tables, 0, shapeDocument.ParagraphCount, context))
+                content.Add(block);
 
             wsp.Add(new XElement(DocxNamespaces.WordShape + "txbx", content));
             wsp.Add(new XElement(DocxNamespaces.WordShape + "bodyPr"));

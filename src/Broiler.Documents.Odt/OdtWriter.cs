@@ -111,7 +111,7 @@ public static class OdtWriter
         if (shape.Image is InlineImage image)
             return BuildShapeFrame(shape, image, context);
 
-        if (shape.GrowsToText && shape.HasText)
+        if ((shape.GrowsToText || shape.Tables.Count > 0) && shape.HasText)
             return BuildTextFrame(shape, context);
 
         var element = new XElement(
@@ -131,8 +131,9 @@ public static class OdtWriter
         // LibreOffice refuses the whole document rather than just the shape.
         if (shape.HasText)
         {
-            foreach (RichTextParagraph paragraph in shape.Paragraphs)
-                element.Add(BuildParagraph(paragraph, context, inList: false));
+            RichTextDocument shapeDocument = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
+            foreach (XElement block in BuildBlocks(shapeDocument, shape.Tables, 0, shapeDocument.ParagraphCount, context))
+                element.Add(block);
         }
 
         // ODF says what a custom shape is with an enhanced geometry, and a reader
@@ -158,9 +159,10 @@ public static class OdtWriter
     {
         var textBox = new XElement(
             OdtNamespaces.Draw + "text-box",
-            new XAttribute(OdtNamespaces.Fo + "min-height", OdtUnits.FormatPoints(Math.Max(0, shape.Height))));
-        foreach (RichTextParagraph paragraph in shape.Paragraphs)
-            textBox.Add(BuildParagraph(paragraph, context, inList: false));
+            shape.GrowsToText ? new XAttribute(OdtNamespaces.Fo + "min-height", OdtUnits.FormatPoints(Math.Max(0, shape.Height))) : null);
+        RichTextDocument shapeDocument = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
+        foreach (XElement block in BuildBlocks(shapeDocument, shape.Tables, 0, shapeDocument.ParagraphCount, context))
+            textBox.Add(block);
 
         return new XElement(
             OdtNamespaces.Draw + "frame",
@@ -172,6 +174,7 @@ public static class OdtWriter
             new XAttribute(OdtNamespaces.Svg + "x", OdtUnits.FormatPoints(shape.OffsetX)),
             new XAttribute(OdtNamespaces.Svg + "y", OdtUnits.FormatPoints(shape.OffsetY)),
             new XAttribute(OdtNamespaces.Svg + "width", OdtUnits.FormatPoints(shape.Width)),
+            !shape.GrowsToText ? new XAttribute(OdtNamespaces.Svg + "height", OdtUnits.FormatPoints(shape.Height)) : null,
             textBox);
     }
 
@@ -308,7 +311,7 @@ public static class OdtWriter
                 OdtNamespaces.Text + "section",
                 new XAttribute(
                     OdtNamespaces.Text + "style-name",
-                    context.GetSectionStyleName(section.ColumnCount, section.ColumnGap)),
+                    context.GetSectionStyleName(section.ColumnCount, section.ColumnGap, section.Background)),
                 new XAttribute(
                     OdtNamespaces.Text + "name",
                     "Section" + (++written).ToString(CultureInfo.InvariantCulture)));
@@ -396,7 +399,7 @@ public static class OdtWriter
         if (page is not null && index < document.ParagraphCount)
             written.Add(new DocumentSection(index, document.ParagraphCount - index, page.ColumnCount, page.ColumnGap));
 
-        written.RemoveAll(section => section.ColumnCount <= 1);
+        written.RemoveAll(section => section.ColumnCount <= 1 && (section.Background.IsEmpty || section.Background.A == 0));
         return written;
     }
 
@@ -698,6 +701,8 @@ public static class OdtWriter
         bool inList)
     {
         var element = new XElement(OdtNamespaces.Text + "p");
+        if (inList && (paragraph.Style.LeftIndent.HasValue || paragraph.Style.FirstLineIndent.HasValue))
+            context.AddDiagnosticOnce("odt.list.indent", "Exact list offsets were written using the list level's default positioning; non-list paragraph indents are preserved.");
         string? styleName = context.GetParagraphStyleName(BuildParagraphProperties(paragraph.Style, inList));
         if (styleName is not null)
             element.Add(new XAttribute(OdtNamespaces.Text + "style-name", styleName));
@@ -1301,12 +1306,16 @@ public static class OdtWriter
 
         // Inside a list the nesting is the indent; adding a margin as well would
         // indent every item twice.
-        if (style.IndentLevel > 0 && !inList)
+        if ((style.LeftIndent.HasValue || style.IndentLevel > 0) && !inList)
         {
             properties.Add(new XAttribute(
                 OdtNamespaces.Fo + "margin-left",
-                OdtUnits.FormatInches(style.IndentLevel * OdtUnits.PointsPerIndentLevel)));
+                OdtUnits.FormatPoints(style.LeftIndentIn(OdtUnits.PointsPerIndentLevel))));
         }
+        if (style.RightIndent.HasValue)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "margin-right", OdtUnits.FormatPoints(style.RightIndentIn)));
+        if (style.FirstLineIndent.HasValue && !inList)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "text-indent", OdtUnits.FormatPoints(style.FirstLineIndentIn)));
 
         if (style.LineHeightRule == LineHeightRule.Exact && style.LineHeight > 0)
         {
@@ -2115,9 +2124,9 @@ public static class OdtWriter
         /// The section style for one set of columns, created on first use and
         /// kept with the table styles in the automatic styles.
         /// </summary>
-        public string GetSectionStyleName(int count, double gap)
+        public string GetSectionStyleName(int count, double gap, BColor background)
         {
-            string key = count.ToString(CultureInfo.InvariantCulture) + "|" + OdtUnits.FormatPoints(gap);
+            string key = count.ToString(CultureInfo.InvariantCulture) + "|" + OdtUnits.FormatPoints(gap) + "|" + background;
             if (_sectionStyleNames.TryGetValue(key, out string? existing))
                 return existing;
 
@@ -2128,6 +2137,8 @@ public static class OdtWriter
                 new XAttribute(OdtNamespaces.Style + "family", "section"),
                 new XElement(
                     OdtNamespaces.Style + "section-properties",
+                    !background.IsEmpty && background.A > 0
+                        ? new XAttribute(OdtNamespaces.Fo + "background-color", OdtUnits.FormatColor(background)) : null,
                     new XElement(
                         OdtNamespaces.Style + "columns",
                         new XAttribute(OdtNamespaces.Fo + "column-count", count.ToString(CultureInfo.InvariantCulture)),

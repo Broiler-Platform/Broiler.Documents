@@ -58,6 +58,8 @@ public readonly record struct ParagraphStyleDelta
         ListKind = ListKind ?? style.ListKind,
         List = ListKind is { } kind && (kind == Model.ListKind.None || kind != style.ListKind) ? null : style.List,
         IndentLevel = IndentLevel ?? style.IndentLevel,
+        LeftIndent = IndentLevel.HasValue ? null : style.LeftIndent,
+        FirstLineIndent = IndentLevel.HasValue ? null : style.FirstLineIndent,
         SpacingBefore = SpacingBefore ?? style.SpacingBefore,
         SpacingAfter = SpacingAfter ?? style.SpacingAfter,
         PageBreakBefore = PageBreakBefore ?? style.PageBreakBefore,

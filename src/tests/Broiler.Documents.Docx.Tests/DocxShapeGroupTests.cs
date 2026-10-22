@@ -10,6 +10,27 @@ namespace Broiler.Documents.Docx.Tests;
 /// </summary>
 public sealed class DocxShapeGroupTests
 {
+    [Fact]
+    public void Grouped_Text_Box_Tables_Keep_Their_Own_Paragraph_Indices_And_Round_Trip()
+    {
+        string table = DocxTestPackage.Table([DocxTestPackage.Paragraph("A"), DocxTestPackage.Paragraph("B")]);
+        string box = Box("2", 0, 0, 2540000, 1270000, "ffffff").Replace("<wps:bodyPr/>",
+            "<wps:txbx><w:txbxContent>" + table + "</w:txbxContent></wps:txbx><wps:bodyPr/>");
+        RichTextDocument document = Read(Group(Transform(0, 0, 2540000, 1270000, 0, 0, 2540000, 1270000), box)).Document;
+        DocumentShape shape = Assert.Single(document.Shapes);
+        DocumentTable grid = Assert.Single(shape.Tables);
+        Assert.Equal(0, grid.ParagraphIndex);
+        Assert.Equal(2, grid.ParagraphCount);
+        Assert.Equal(["A", "B"], shape.Paragraphs.Select(paragraph => paragraph.Text));
+        Assert.Empty(document.Tables);
+        Assert.Equal("body", document.PlainText);
+
+        using var written = new MemoryStream(DocxDocumentCodec.WriteToArray(document));
+        DocumentShape restored = Assert.Single(new DocxDocumentCodec().Read(written).Document.Shapes);
+        Assert.Equal(2, Assert.Single(restored.Tables).Rows[0].Cells.Count);
+        Assert.Equal(["A", "B"], restored.Paragraphs.Select(paragraph => paragraph.Text));
+    }
+
     private static string Box(string id, long x, long y, long cx, long cy, string color) =>
         "<wps:wsp><wps:cNvPr id=\"" + id + "\" name=\"r" + id + "\"/><wps:cNvSpPr/>" +
         "<wps:spPr><a:xfrm><a:off x=\"" + x + "\" y=\"" + y + "\"/><a:ext cx=\"" + cx + "\" cy=\"" + cy + "\"/></a:xfrm>" +

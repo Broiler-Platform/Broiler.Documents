@@ -697,7 +697,9 @@ internal static class OdtReader
         // A frame keeps its text in a draw:text-box; a custom shape carries the
         // paragraphs itself.
         XElement textSource = drawing.Element(OdtNamespaces.Draw + "text-box") ?? drawing;
-        IReadOnlyList<RichTextParagraph> paragraphs = ReadShapeParagraphs(textSource, context, depth);
+        RichTextDocument shapeContent = ReadShapeParagraphs(textSource, context, depth);
+        IReadOnlyList<RichTextParagraph> paragraphs = shapeContent.ParagraphCount == 1 &&
+            shapeContent.Paragraphs[0].Length == 0 && shapeContent.Tables.Count == 0 ? [] : shapeContent.Paragraphs;
 
         if (fill is null && paragraphs.Count == 0)
             return false;
@@ -730,7 +732,8 @@ internal static class OdtReader
             zOrder: ZIndex(drawing),
             anchorPage: anchorPage,
             offsetFromPage: fromPage,
-            growsToText: grows));
+            growsToText: grows,
+            tables: shapeContent.Tables));
         return true;
     }
 
@@ -783,9 +786,7 @@ internal static class OdtReader
     private static (int Page, double X, double Y, bool FromPage) PlaceOnPage(
         XElement drawing, string? styleName, double x, double y, double width, double height, OdtReadContext context)
     {
-        XElement? properties = null;
-        if (!string.IsNullOrWhiteSpace(styleName))
-            context.Styles.GraphicProperties.TryGetValue(styleName, out properties);
+        XElement? properties = context.Styles.GraphicPropertiesFor(styleName);
 
         string? anchorType = (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type");
         if (!string.Equals(anchorType, "page", StringComparison.Ordinal) ||
@@ -893,10 +894,10 @@ internal static class OdtReader
     private static (ShapeFill? Fill, BColor Outline, bool BehindText, ShapeWrap Wrap, WrapSide Side)
         ReadShapeStyle(string? styleName, OdtStyles styles)
     {
-        if (string.IsNullOrWhiteSpace(styleName) ||
-            !styles.GraphicProperties.TryGetValue(styleName, out XElement? properties))
+        XElement? properties = styles.GraphicPropertiesFor(styleName);
+        if (properties is null)
         {
-            return (null, BColor.Empty, true, ShapeWrap.None, WrapSide.Largest);
+            return (null, BColor.Empty, true, ShapeWrap.TopAndBottom, WrapSide.Largest);
         }
 
         ShapeFill? fill = ReadDrawFill(properties, styles);
@@ -937,7 +938,7 @@ internal static class OdtReader
     private static (ShapeWrap Wrap, WrapSide Side) ReadWrap(XElement graphicProperties) =>
         (string?)graphicProperties.Attribute(OdtNamespaces.Style + "wrap") switch
         {
-            "none" => (ShapeWrap.TopAndBottom, WrapSide.Largest),
+            null or "none" => (ShapeWrap.TopAndBottom, WrapSide.Largest),
             "left" => (ShapeWrap.Square, WrapSide.Left),
             "right" => (ShapeWrap.Square, WrapSide.Right),
             "parallel" or "dynamic" or "biggest" => (ShapeWrap.Square, WrapSide.Largest),
@@ -1064,7 +1065,7 @@ internal static class OdtReader
     }
 
     /// <summary>A shape's own paragraphs, read with the same walker the body uses.</summary>
-    private static IReadOnlyList<RichTextParagraph> ReadShapeParagraphs(
+    private static RichTextDocument ReadShapeParagraphs(
         XElement textBox,
         OdtReadContext context,
         int depth)
@@ -1075,14 +1076,13 @@ internal static class OdtReader
         // the shape's form, not content, and walking it as a block reports an
         // unsupported element for something the reader is deliberately not using.
         ReadBlockContent(
-            textBox.Elements().Where(child => child.Name.Namespace == OdtNamespaces.Text),
+            textBox.Elements().Where(child => child.Name.Namespace == OdtNamespaces.Text || child.Name.Namespace == OdtNamespaces.Table),
             nested,
             list: null,
             depth + 1);
         nested.DropPageBreak();
 
-        IReadOnlyList<RichTextParagraph> paragraphs = builder.Build().Paragraphs;
-        return paragraphs.Count == 1 && paragraphs[0].Length == 0 ? [] : paragraphs;
+        return builder.Build();
     }
 
     /// <summary>ODF §16.10: a master page's header and footer elements, left being the even page.</summary>
@@ -1133,7 +1133,19 @@ internal static class OdtReader
         int Level,
         string? StyleName,
         ListDefinition? Definition = null,
-        OdtItemStart? Start = null);
+        OdtItemStart? Start = null,
+        OdtItemLabel? Label = null);
+
+    private sealed class OdtItemLabel
+    {
+        private bool _first = true;
+        public bool Take()
+        {
+            bool first = _first;
+            _first = false;
+            return first;
+        }
+    }
 
     /// <summary>
     /// A list item's <c>text:start-value</c>, which its first paragraph takes and
@@ -1208,12 +1220,12 @@ internal static class OdtReader
                 ReadBlockContent(element.Elements(), context, list, depth + 1);
                 string? sectionStyle = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
                 if (sectionStyle is not null &&
-                    context.Styles.SectionProperties.TryGetValue(sectionStyle, out XElement? sectionProperties) &&
-                    TryReadColumns(sectionProperties, builder.AddDiagnosticOnce)
-                        is (int count, double gap))
+                    context.Styles.SectionProperties.TryGetValue(sectionStyle, out XElement? sectionProperties))
                 {
+                    (int count, double gap) = TryReadColumns(sectionProperties, builder.AddDiagnosticOnce) ?? (1, 0);
+                    TryColor((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "background-color"), out BColor background);
                     builder.AddSection(new DocumentSection(
-                        sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap));
+                        sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap, background: background));
                 }
 
                 continue;
@@ -1341,11 +1353,11 @@ internal static class OdtReader
         {
             if (child.Name == OdtNamespaces.Text + "list-item")
             {
-                OdtListContext item = inner;
+                OdtListContext item = inner with { Label = new OdtItemLabel() };
                 if (int.TryParse((string?)child.Attribute(OdtNamespaces.Text + "start-value"),
                         NumberStyles.Integer, CultureInfo.InvariantCulture, out int start))
                 {
-                    item = inner with { Start = new OdtItemStart(start) };
+                    item = item with { Start = new OdtItemStart(start) };
                 }
 
                 yield return (child, item);
@@ -1455,11 +1467,13 @@ internal static class OdtReader
         {
             paragraphStyle = paragraphStyle with
             {
-                ListKind = list.Kind,
+                ListKind = list.Label?.Take() == false ? ListKind.None : list.Kind,
                 IndentLevel = Math.Max(list.Level, list.Kind == ListKind.None ? 0 : 1),
+                LeftIndent = null,
+                FirstLineIndent = null,
             };
 
-            if (list.Definition is ListDefinition definition)
+            if (paragraphStyle.ListKind != ListKind.None && list.Definition is ListDefinition definition)
             {
                 var reference = new ListReference(definition, list.Level - 1, list.Start?.Take());
                 paragraphStyle = paragraphStyle with { List = reference, ListKind = reference.Kind };
@@ -1835,15 +1849,21 @@ internal static class OdtReader
         {
             style = style with
             {
-                ListKind = list.Kind,
+                ListKind = list.Label?.Take() == false ? ListKind.None : list.Kind,
                 IndentLevel = Math.Max(list.Level, list.Kind == ListKind.None ? 0 : 1),
+                LeftIndent = null,
+                FirstLineIndent = null,
             };
 
-            if (list.Definition is ListDefinition definition)
+            if (style.ListKind != ListKind.None && list.Definition is ListDefinition definition)
             {
                 var reference = new ListReference(definition, list.Level - 1, list.Start?.Take());
                 style = style with { List = reference, ListKind = reference.Kind };
             }
+        }
+        else if (paragraph.Name == OdtNamespaces.Text + "h" && OutlineReference(paragraph, context) is ListReference outline)
+        {
+            style = style with { List = outline, ListKind = outline.Kind };
         }
 
         InlineStyle inherited = InlineStyle.Default;
@@ -2204,13 +2224,19 @@ internal static class OdtReader
             style = style with
             {
                 IndentLevel = IndentLevelFor(allEdges),
+                LeftIndent = (float)allEdges,
+                RightIndent = (float)allEdges,
                 SpacingBefore = (float)allEdges,
                 SpacingAfter = (float)allEdges,
             };
         }
 
         if (OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + "margin-left"), out double left))
-            style = style with { IndentLevel = IndentLevelFor(left) };
+            style = style with { IndentLevel = IndentLevelFor(left), LeftIndent = (float)left };
+        if (OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + "margin-right"), out double right))
+            style = style with { RightIndent = (float)right };
+        if (OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + "text-indent"), out double first))
+            style = style with { FirstLineIndent = (float)first };
 
         if (OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Fo + "margin-top"), out double top))
             style = style with { SpacingBefore = (float)Math.Max(0, top) };

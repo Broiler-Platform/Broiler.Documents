@@ -44,9 +44,28 @@ public sealed class RtfPageGeometryTests
     }
 
     [Fact]
-    public void A_Document_Stating_No_Paper_Has_No_Page()
+    public void A_Document_Stating_No_Paper_Uses_LibreOffices_Letter_Default()
     {
-        Assert.Null(RtfReader.Read("{\\rtf1 body\\par}"u8.ToArray()).Document.PageGeometry);
+        PageGeometry geometry = Assert.IsType<PageGeometry>(
+            RtfReader.Read("{\\rtf1 body\\par}"u8.ToArray()).Document.PageGeometry);
+        Assert.Equal(612, geometry.Width);
+        Assert.Equal(792, geometry.Height);
+        Assert.Equal(72, geometry.MarginLeft);
+        Assert.Equal(72, geometry.MarginRight);
+        Assert.Equal(72, geometry.MarginTop);
+        Assert.Equal(72, geometry.MarginBottom);
+    }
+
+    [Fact]
+    public void A_Margin_Without_Paper_Dimensions_Is_Kept_On_The_Default_Page()
+    {
+        PageGeometry geometry = Assert.IsType<PageGeometry>(
+            RtfReader.Read("{\\rtf1\\margl1800\\margtsxn1000 body\\par}"u8.ToArray()).Document.PageGeometry);
+        Assert.Equal(612, geometry.Width);
+        Assert.Equal(792, geometry.Height);
+        Assert.Equal(90, geometry.MarginLeft);
+        Assert.Equal(50, geometry.MarginTop);
+        Assert.Equal(72, geometry.MarginRight);
     }
 
     [Fact]

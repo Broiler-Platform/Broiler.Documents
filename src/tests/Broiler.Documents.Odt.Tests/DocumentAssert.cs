@@ -3,6 +3,11 @@ namespace Broiler.Documents.Odt.Tests;
 /// <summary>Shared assertion that two documents are structurally identical.</summary>
 internal static class DocumentAssert
 {
+    private static ParagraphStyle Normalized(ParagraphStyle style) => style with
+    {
+        List = null, LeftIndent = (float)style.LeftIndentIn(),
+        RightIndent = (float)style.RightIndentIn, FirstLineIndent = (float)style.FirstLineIndentIn,
+    };
     /// <remarks>
     /// A list is compared by the labels its paragraphs draw rather than by the
     /// definition instance, which a round trip cannot keep: a list read back is
@@ -19,7 +24,7 @@ internal static class DocumentAssert
             RichTextParagraph pe = expected.Paragraphs[i];
             RichTextParagraph pa = actual.Paragraphs[i];
             Assert.Equal(pe.Text, pa.Text);
-            Assert.Equal(pe.Style with { List = null }, pa.Style with { List = null });
+            Assert.Equal(Normalized(pe.Style), Normalized(pa.Style));
             Assert.Equal(expectedLabels.Advance(pe.Style), actualLabels.Advance(pa.Style));
             Assert.Equal(pe.Runs.Count, pa.Runs.Count);
             for (int j = 0; j < pe.Runs.Count; j++)

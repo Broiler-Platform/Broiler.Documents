@@ -331,10 +331,17 @@ toolkit behind it.
   page, as LibreOffice breaks it. A write states `always` in the row's style and
   nothing otherwise.
 - A floating picture keeps its position, its layer and its wrapping.
+  An omitted wrap defaults to top-and-bottom. Document default graphic
+  properties apply below named and inherited style properties, including an
+  explicit default `run-through`.
   `style:wrap` is read, and its two names that read backwards are read the way
   ODF means them: `run-through` is text through the shape, and `none` is no text
   beside it at all. A wrapped line keeps one span, running down whichever side
   has more room, so `parallel` gets the larger side rather than text down both.
+  Tables inside text boxes retain their grid and local paragraph indices,
+  round trip as frame text-box content, and render through the shared and PDF
+  table layouts. Fixed-height frames clip overflowing content; growing frames
+  measure their table content.
   `style:run-through` is the shape against the text and `draw:z-index` is the
   shape against the other shapes; both are read and both are written, and a
   drawing that states no index reads as zero, which leaves the order the shapes
@@ -521,6 +528,14 @@ identifiable from its first bytes:
   4,096-byte prefix sees it.
 
 ## Standards and rights
+
+Exact left/right margins and first-line or hanging offsets are retained for
+non-list paragraphs. List positioning continues to use the list level's existing
+default layout; writing exact per-paragraph list offsets reports
+`odt.list.indent` rather than silently claiming they survived. Section background
+colours are read, painted by the shared paginator, and written, including nested
+colour overrides. The standalone PDF layout reports that section colours are
+not painted.
 
 ODF is an OASIS standard, republished as ISO/IEC 26300. Its rights position (the
 OASIS royalty-free mode and the covenants on top of it), the approved labels and

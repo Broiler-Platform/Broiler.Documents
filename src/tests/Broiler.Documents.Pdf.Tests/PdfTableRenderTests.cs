@@ -11,6 +11,19 @@ namespace Broiler.Documents.Pdf.Tests;
 public sealed class PdfTableRenderTests
 {
     [Fact]
+    public void A_Table_Inside_A_Text_Box_Uses_Its_Grid_And_Cell_Shading()
+    {
+        var table = new DocumentTable(0, 2, [new TableRow([
+            new TableCell(0, 1, 0, shading: BColor.FromArgb(0xff, 0, 0)), new TableCell(1, 1, 1)])], [40, 60], cellPadding: 0);
+        var document = RichTextDocument.FromPlainText("body").WithShapes([
+            new DocumentShape(0, 5, 10, 100, 80, paragraphs: [RichTextParagraph.Plain("A"), RichTextParagraph.Plain("B")], tables: [table])]);
+        string pdf = Write(document);
+        Assert.Equal(40, OriginOf(pdf, "B").X - OriginOf(pdf, "A").X, 3);
+        Assert.Equal(OriginOf(pdf, "A").Y, OriginOf(pdf, "B").Y, 3);
+        Assert.Single(Fills(pdf));
+    }
+
+    [Fact]
     public void Empty_table_continuation_pages_do_not_lose_the_following_text()
     {
         RichTextParagraph[] paragraphs = [RichTextParagraph.Plain("first"),

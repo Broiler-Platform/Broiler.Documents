@@ -215,6 +215,10 @@ internal sealed class PdfPageLayout(
                 "Some sections have headers and footers of their own; every page carries the document's.");
         }
 
+        if (document.Sections.Any(section => !section.Background.IsEmpty && section.Background.A > 0))
+            _diagnostics.Warning(PdfDiagnosticCodes.WriteFeatureUnsupported,
+                "Section background colours were not painted by this PDF layout.");
+
         var anchors = new Dictionary<int, (PdfLayoutPage Page, double Top)>();
         for (int paragraphIndex = 0; paragraphIndex < document.ParagraphCount; paragraphIndex++)
         {
@@ -235,7 +239,7 @@ internal sealed class PdfPageLayout(
                     if (!following.Style.PageBreakBefore && !following.Style.ColumnBreakBefore)
                     {
                         ListNumberer probe = numberer.Snapshot();
-                        double nextWidth = Math.Max(1, setup.ContentWidth - following.Style.IndentLevel * IndentWidth);
+                        double nextWidth = Math.Max(1, setup.ContentWidth);
                         List<LayoutLine> next = BreakParagraph(following, nextWidth,
                             Marker(following.Style, probe.Advance(following.Style), listNumber + 1));
                         double nextHeight = next.Sum(line => following.Style.LineBoxHeight(line.Height));
@@ -290,9 +294,8 @@ internal sealed class PdfPageLayout(
 
             y -= style.SpacingBefore;
 
-            double indent = style.IndentLevel * IndentWidth;
-            double left = setup.MarginLeft + indent;
-            double available = setup.Width - setup.MarginRight - left;
+            double left = setup.MarginLeft;
+            double available = setup.ContentWidth;
             if (available <= 0)
             {
                 _diagnostics.Warning(
@@ -393,7 +396,7 @@ internal sealed class PdfPageLayout(
                     if (following.Style.PageBreakBefore || following.Style.ColumnBreakBefore ||
                         DocumentTable.StartingAt(document.Tables, next) is not null)
                         break;
-                    double nextWidth = Math.Max(1, setup.ContentWidth - following.Style.IndentLevel * IndentWidth);
+                    double nextWidth = Math.Max(1, setup.ContentWidth);
                     string nextMarker = Marker(following.Style, probe.Advance(following.Style), listNumber + 1);
                     List<LayoutLine> followingLines = BreakParagraph(following, nextWidth, nextMarker);
                     double followingHeight = followingLines.Sum(line => following.Style.LineBoxHeight(line.Height));
@@ -603,7 +606,7 @@ internal sealed class PdfPageLayout(
                 shape.ZOrder));
 
             if (shape.HasText)
-                PlaceRunningBlock(page, shape.Paragraphs, left, shape.Width, top, height, isHeader: true);
+                PlaceShapeContent(page, shape, left, top, height);
         }
     }
 
@@ -1022,7 +1025,7 @@ internal sealed class PdfPageLayout(
                 shape.ZOrder));
 
             if (shape.HasText)
-                PlaceRunningBlock(anchor.Page, shape.Paragraphs, left, shape.Width, top, height, isHeader: true);
+                PlaceShapeContent(anchor.Page, shape, left, top, height);
         }
     }
 
@@ -1061,6 +1064,11 @@ internal sealed class PdfPageLayout(
             return stated;
 
         double height = 0;
+        if (shape.Tables.Count > 0)
+        {
+            RichTextDocument content = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
+            return Math.Max(stated, ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, 0, shape.Width).Height);
+        }
         foreach (RichTextParagraph paragraph in shape.Paragraphs)
         {
             List<LayoutLine> broken = BreakParagraph(paragraph, shape.Width, marker: string.Empty);
@@ -1072,6 +1080,26 @@ internal sealed class PdfPageLayout(
         }
 
         return Math.Max(stated, height);
+    }
+
+    private void PlaceShapeContent(PdfLayoutPage page, DocumentShape shape, double left, double top, double height)
+    {
+        if (shape.Tables.Count == 0)
+        {
+            PlaceRunningBlock(page, shape.Paragraphs, left, shape.Width, top, height, isHeader: true);
+            return;
+        }
+        RichTextDocument document = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
+        CellContent content = ComposeBlocks(document, shape.Tables, 0, document.ParagraphCount, left, shape.Width);
+        content.Lines.RemoveAll(line => line.Offset > height + 0.01);
+        content.Boxes.RemoveAll(box => box.Offset >= height);
+        foreach (CellBoxDraft box in content.Boxes)
+        {
+            double visible = Math.Max(0, height - box.Offset);
+            box.RowHeight = Math.Min(box.RowHeight + box.ExtraHeight, visible);
+            box.ExtraHeight = 0;
+        }
+        content.PlaceOn(page, top, new Dictionary<int, (PdfLayoutPage Page, double Top)>());
     }
 
     private void PlaceRunningBlock(
@@ -1195,6 +1223,8 @@ internal sealed class PdfPageLayout(
         TextAlignment alignment,
         bool isLastLine)
     {
+        left += line.ParagraphOffset;
+        available = Math.Max(1, available - line.ParagraphOffset - line.RightIndent);
         double slack = available - line.Width;
         double wordSpacing = 0;
         if (alignment == TextAlignment.Justify && !isLastLine && slack > 0)
@@ -1296,13 +1326,21 @@ internal sealed class PdfPageLayout(
 
         TextBand band = bandFor(0);
         bands?.Add(band);
-        double available = Math.Max(1, band.Width);
+        void SetIndent()
+        {
+            current.ParagraphOffset = paragraph.Style.LeftIndentIn(IndentWidth) +
+                (lines.Count == 0 ? paragraph.Style.FirstLineIndentIn : 0);
+            current.RightIndent = paragraph.Style.RightIndentIn;
+        }
+        SetIndent();
+        double available = Math.Max(1, band.Width - current.ParagraphOffset - current.RightIndent);
 
         void StartLine()
         {
             band = bandFor(lines.Count);
             bands?.Add(band);
-            available = Math.Max(1, band.Width);
+            SetIndent();
+            available = Math.Max(1, band.Width - current.ParagraphOffset - current.RightIndent);
         }
 
         foreach (Word enumerated in EnumerateWords(paragraph, marker))
@@ -1385,7 +1423,7 @@ internal sealed class PdfPageLayout(
         // its neighbours would fold its width into a run the viewer sets from the
         // font's own advances, and the text after it would close the gap up. A
         // run of spaces laid out wider than its font is the same kind of gap.
-        if (last is not null && !last.IsTab && !word.IsTab && last.SpaceExtra == 0 && last.SameStyleAs(word))
+        if (last is not null && !last.IsMarker && !word.IsMarker && !last.IsTab && !word.IsTab && last.SpaceExtra == 0 && last.SameStyleAs(word))
         {
             line.Pieces[^1] = last.Extend(word.Text, word.Width, word.SpaceExtra);
         }
@@ -1465,7 +1503,9 @@ internal sealed class PdfPageLayout(
         {
             InlineStyle markerStyle = (paragraph.Runs.Count > 0 ? paragraph.Runs[0].Style : InlineStyle.Default) with { Revision = null };
             RunStyle resolved = Resolve(markerStyle);
-            yield return MakeWord(marker, resolved, isSpace: false);
+            Word label = MakeWord(marker, resolved, isSpace: false);
+            yield return paragraph.Style.FirstLineIndent.HasValue
+                ? label.AsMarker(Math.Max(label.Width, -paragraph.Style.FirstLineIndentIn)) : label;
         }
 
         foreach (StyleRun run in paragraph.Runs)
@@ -1771,7 +1811,8 @@ internal sealed class PdfPageLayout(
         bool isTab = false,
         bool isForcedBreak = false,
         double spaceExtra = 0,
-        double hangingWidth = 0)
+        double hangingWidth = 0,
+        bool isMarker = false)
     {
 
         /// <summary>
@@ -1797,6 +1838,10 @@ internal sealed class PdfPageLayout(
         /// <summary>True when the word is only whitespace.</summary>
         public bool IsSpace { get; } = isSpace;
 
+        public bool IsMarker { get; } = isMarker;
+
+        public Word AsMarker(double advance) => new(Text, advance, Style, IsSpace, IsTab, IsForcedBreak, SpaceExtra, HangingWidth, true);
+
         /// <summary>True for a tab: a gap of measured width that draws no glyphs.</summary>
         public bool IsTab { get; } = isTab;
 
@@ -1817,13 +1862,14 @@ internal sealed class PdfPageLayout(
         public double FontSize => Style.FontSize;
 
         public Word WithText(string text, double width) =>
-            new(text, width, Style, IsSpace, IsTab, IsForcedBreak);
+            new(text, width, Style, IsSpace, IsTab, IsForcedBreak, isMarker: IsMarker);
 
-        public LayoutPiece ToPiece() => new(Text, Width, Style, IsTab, SpaceExtra);
+        public LayoutPiece ToPiece() => new(Text, Width, Style, IsTab, SpaceExtra, IsMarker);
     }
 
-    private sealed class LayoutPiece(string text, double width, RunStyle style, bool isTab = false, double spaceExtra = 0)
+    private sealed class LayoutPiece(string text, double width, RunStyle style, bool isTab = false, double spaceExtra = 0, bool isMarker = false)
     {
+        public bool IsMarker { get; } = isMarker;
         public string Text { get; } = text;
 
         /// <summary>True for a tab: a gap of measured width that draws no glyphs.</summary>
@@ -1864,6 +1910,10 @@ internal sealed class PdfPageLayout(
 
     private sealed class LayoutLine
     {
+        public double ParagraphOffset { get; set; }
+
+        public double RightIndent { get; set; }
+
         public List<LayoutPiece> Pieces { get; } = [];
 
         public double Width { get; set; }

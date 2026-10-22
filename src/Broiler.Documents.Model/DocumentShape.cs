@@ -65,7 +65,8 @@ public sealed class DocumentShape(
     int zOrder = 0,
     int anchorPage = 0,
     bool offsetFromPage = false,
-    bool growsToText = false)
+    bool growsToText = false,
+    IReadOnlyList<DocumentTable>? tables = null)
 {
 
     /// <summary>The paragraph the shape is anchored to.</summary>
@@ -225,6 +226,9 @@ public sealed class DocumentShape(
 
     /// <summary>True when the shape holds text rather than only paint.</summary>
     public bool HasText => Paragraphs.Count > 0;
+
+    /// <summary>Tables in this shape's own paragraph coordinate space.</summary>
+    public IReadOnlyList<DocumentTable> Tables { get; } = tables is null ? [] : [.. tables];
 
     /// <summary>True when the shape is a floating picture.</summary>
     public bool HasImage => Image is not null;

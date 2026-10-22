@@ -145,6 +145,8 @@ public sealed class DocumentPagePainter
         if (!shape.Outline.IsEmpty && shape.Outline.A > 0)
             list.StrokeRect(shape.Bounds, shape.Outline, 1);
 
+        foreach (LayoutCell cell in shape.Cells)
+            DrawCell(list, cell);
         DrawParagraphShading(list, shape.Lines);
         foreach (LayoutLine line in shape.Lines)
             DrawLine(list, line, resolveImage);

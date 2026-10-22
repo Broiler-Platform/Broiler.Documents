@@ -9,6 +9,28 @@ namespace Broiler.Documents.Odt.Tests;
 /// </summary>
 public sealed class OdtFloatingPictureTests
 {
+    [Fact]
+    public void Missing_And_Empty_Graphic_Styles_Default_To_Top_And_Bottom_Wrapping()
+    {
+        Assert.Equal(ShapeWrap.TopAndBottom, Assert.Single(ReadInParagraph(Frame()).Document.Shapes).Wrap);
+        Assert.Equal(ShapeWrap.TopAndBottom, Assert.Single(ReadInParagraph(Frame(styleName: "empty"),
+            OdtTestPackage.Style("empty", "<style:graphic-properties/>", family: "graphic")).Document.Shapes).Wrap);
+    }
+
+    [Theory]
+    [InlineData(false, ShapeWrap.None)]
+    [InlineData(true, ShapeWrap.TopAndBottom)]
+    public void Graphic_Defaults_Apply_Below_Named_Style_Overrides(bool overrides, ShapeWrap expected)
+    {
+        string styles = "<office:styles><style:default-style style:family=\"graphic\">" +
+            "<style:graphic-properties style:wrap=\"run-through\"/></style:default-style></office:styles>";
+        string named = OdtTestPackage.Style("named", "<style:graphic-properties" +
+            (overrides ? " style:wrap=\"none\"" : "") + "/>", family: "graphic");
+        using var stream = new MemoryStream(OdtTestPackage.FromBody("<text:p>" + Frame(styleName: "named") +
+            "body</text:p>", named, stylesPartInnerXml: styles, binaryParts: Pictures()));
+        Assert.Equal(expected, Assert.Single(new OdtDocumentCodec().Read(stream, RoundTripReadOptions).Document.Shapes).Wrap);
+    }
+
     [Theory]
     [InlineData("500pt", "450pt", "432pt", "648pt", -75, 0)]
     [InlineData("500pt", "700pt", "100pt", "100pt", 257, 548)]

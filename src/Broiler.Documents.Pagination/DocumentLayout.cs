@@ -275,6 +275,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         var regionLines = new List<FlowItem>();
         bool regionUnbalanced = false;
         double spacingAfterPrevious = 0;
+        var sectionPaint = new List<LayoutShape>();
+        DocumentSection? paintedSection = null;
+        double paintTop = y;
+
+        void PaintSectionUntil(double bottom)
+        {
+            if (paintedSection is { } painted && !painted.Background.IsEmpty && painted.Background.A > 0 && bottom > paintTop)
+                sectionPaint.Add(new LayoutShape(
+                    new BRect(setup.ContentLeftPoints, paintTop, setup.ContentWidthPoints, bottom - paintTop),
+                    ShapeFill.Solid(painted.Background), BColor.Empty, [], behindText: true, zOrder: int.MinValue));
+            paintTop = bottom;
+        }
 
         // The column being filled, and how many of the page's lines were there
         // before it started: a column holds something once the page has more.
@@ -293,7 +305,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         FloatCarry? floatCarry = null;
 
         bool ColumnHasContent() =>
-            currentLines.Count > columnStart || (column == 0 && (regionTop > pageTop || floatBoxes.Count > 0));
+            currentLines.Count > columnStart || (column == 0 && (regionTop > pageTop || floatBoxes.Count > 0 ||
+                _documentShapes.Any(shape => shape.Wraps && (shape.AnchorPage == pages.Count + 1 ||
+                    (!shape.IsPageAnchored && _paragraphTops.ContainsKey(shape.ParagraphIndex))))));
 
         // One count for the body, which the cells of its tables share: a list
         // that runs through a table counts on through it.
@@ -390,9 +404,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         void BreakPage()
         {
             SetNotes();
+            PaintSectionUntil(contentBottom);
             currentLines.AddRange(floatLines);
             currentCells.AddRange(floatCells);
-            pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
+            pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells, sectionPaint));
+            sectionPaint = [];
             currentLines = [];
             currentCells = [];
             floatLines = [];
@@ -423,6 +439,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             (pageTop, contentBottom) = BandOf(owner);
             y = pageTop;
+            paintedSection = region;
+            paintTop = y;
             regionTop = y;
             regionDepth = y;
             regionLines.Clear();
@@ -631,6 +649,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     if (BalanceColumns(regionLines, columns, regionTop, contentBottom - regionTop, _paragraphTops) is double height)
                     {
                         y = regionTop + height + trailing;
+                        regionDepth = y;
 
                         // A wrapping shape hangs from its paragraph, and the
                         // paragraphs moved: the page's exclusions are made again
@@ -652,7 +671,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 }
             }
 
+            PaintSectionUntil(startsPage ? contentBottom : Math.Max(regionDepth, y));
             region = next;
+            paintedSection = opensPage && (currentLines.Count > 0 || currentCells.Count > 0) ? null : next;
+            paintTop = y;
 
             // A section that opens a page, the first included, sets its top and
             // foot; one that follows on a page keeps those of the page it is on.
@@ -678,6 +700,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             column = 0;
             columnStart = currentLines.Count;
             regionTop = y;
+            paintTop = y;
             regionDepth = y;
             regionLines.Clear();
             regionUnbalanced = false;
@@ -903,6 +926,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 ignoredBreaks++;
             }
 
+            // Move a wrapping frame and its anchor together when it cannot fit
+            // below preceding content. An oversized frame is allowed once on a
+            // fresh page rather than repeatedly making empty pages.
+            if (!setup.Continuous && ColumnHasContent() && _documentShapes.Any(shape =>
+                shape.Wraps && !shape.IsPageAnchored && !shape.OffsetFromPage && shape.ParagraphIndex == paragraphIndex &&
+                shape.TopOnPage(y) + BoxHeight(shape) > contentBottom))
+            {
+                BreakColumn();
+                if (truncated)
+                    break;
+            }
             _paragraphTops.TryAdd(paragraphIndex, y);
 
             // A shape's box is known once the paragraph it hangs from has a top,
@@ -1042,6 +1076,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             paragraphIndex++;
         }
 
+        PaintSectionUntil(Math.Max(regionDepth, y));
+        paintedSection = null;
+
         // Endnotes follow the body, under a line of their own, in the order
         // they are cited; in a continuous render the footnotes go with them.
         List<DocumentNote> trailing = [.. DocumentNote.CitedIn(document.Paragraphs)
@@ -1099,7 +1136,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         currentLines.AddRange(floatLines);
         currentCells.AddRange(floatCells);
         if (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0)
-            pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells));
+            pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells, sectionPaint));
 
         // A shape anchored to a page the text never reached still has to stand
         // on it, so the pages up to it are made, empty but for their running
@@ -1172,7 +1209,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         return new LayoutResult(pages, finalSetup, _settings, _notes, truncated);
     }
 
-    private LayoutPage NewPage(int number, DocumentPageBox setup, List<LayoutLine> lines, List<LayoutCell> cells)
+    private LayoutPage NewPage(int number, DocumentPageBox setup, List<LayoutLine> lines, List<LayoutCell> cells,
+        List<LayoutShape>? sectionPaint = null)
     {
         PageSelection selection = SelectionFor(number);
 
@@ -1212,6 +1250,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // order all sit at zero and keep the order they were read in, which is the
         // answer this gave before z-order was modelled.
         List<LayoutShape> shapes = PlaceShapes(setup, number);
+        if (sectionPaint is not null)
+            shapes.AddRange(sectionPaint);
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup));
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
         shapes = [.. shapes.OrderBy(shape => shape.ZOrder)];
@@ -1338,14 +1378,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
                 continue;
 
+            (List<LayoutLine> text, List<LayoutCell> cells) = PlaceShapeContent(shape, bounds, setup);
             placed.Add(new LayoutShape(
                 bounds,
                 shape.Fill,
                 shape.Outline,
-                PlaceShapeText(shape, bounds, setup),
+                text,
                 shape.Image,
                 shape.BehindText,
-                shape.ZOrder));
+                shape.ZOrder,
+                cells));
         }
 
         return placed;
@@ -1388,8 +1430,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
                 continue;
 
-            placed.Add(new LayoutShape(bounds, shape.Fill, shape.Outline, PlaceShapeText(shape, bounds, setup),
-                shape.Image, shape.BehindText, shape.ZOrder));
+            (List<LayoutLine> text, List<LayoutCell> cells) = PlaceShapeContent(shape, bounds, setup);
+            placed.Add(new LayoutShape(bounds, shape.Fill, shape.Outline, text,
+                shape.Image, shape.BehindText, shape.ZOrder, cells));
         }
 
         return placed;
@@ -1888,6 +1931,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             return;
 
         double height = 0;
+        if (shape.Tables.Count > 0)
+        {
+            height = ComposeShapeBlocks(shape, setup, 0).Height;
+            _grownHeights[shape] = Math.Max(Math.Max(0, shape.Height), height);
+            return;
+        }
         foreach (RichTextParagraph paragraph in shape.Paragraphs)
         {
             foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1, 0, shape.Width).Lines)
@@ -1900,6 +1949,47 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// <summary>The height a shape's box is drawn at, grown to its text where it grows.</summary>
     private double BoxHeight(DocumentShape shape) =>
         _grownHeights.TryGetValue(shape, out double grown) ? grown : Math.Max(0, shape.Height);
+
+    private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeShapeBlocks(
+        DocumentShape shape, DocumentPageBox setup, double left)
+    {
+        ListNumberer bodyLists = _lists;
+        _lists = new ListNumberer();
+        try
+        {
+            RichTextDocument content = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
+            return ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, setup, left, shape.Width);
+        }
+        finally
+        {
+            _lists = bodyLists;
+        }
+    }
+
+    private (List<LayoutLine> Lines, List<LayoutCell> Cells) PlaceShapeContent(DocumentShape shape, BRect bounds, DocumentPageBox setup)
+    {
+        if (shape.Tables.Count == 0)
+            return (PlaceShapeText(shape, bounds, setup), []);
+        var content = ComposeShapeBlocks(shape, setup, bounds.Left);
+        var lines = new List<LayoutLine>();
+        var cells = new List<LayoutCell>();
+        foreach (LayoutLine line in content.Lines)
+        {
+            line.Top += bounds.Top;
+            if (line.Top >= bounds.Top && line.Top + line.Height <= bounds.Bottom + 0.01)
+                lines.Add(line);
+        }
+        foreach (LayoutCell cell in content.Cells)
+        {
+            double top = Math.Max(bounds.Top, bounds.Top + cell.Bounds.Top);
+            double bottom = Math.Min(bounds.Bottom, bounds.Top + cell.Bounds.Bottom);
+            if (bottom <= top)
+                continue;
+            cell.Bounds = new BRect(cell.Bounds.Left, top, cell.Bounds.Width, bottom - top);
+            cells.Add(cell);
+        }
+        return (lines, cells);
+    }
 
     private List<LayoutLine> PlaceShapeText(DocumentShape shape, BRect bounds, DocumentPageBox setup)
     {
@@ -2087,13 +2177,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double? columnLeftOverride = null, double? columnWidthOverride = null, double? wrapTop = null)
     {
         ParagraphStyle style = paragraph.Style;
-        double indent = Math.Max(0, style.IndentLevel) * _settings.IndentStepPoints;
+        double indent = style.LeftIndentIn(_settings.IndentStepPoints);
         // A shape's text is laid out inside the shape, not inside the page's text
         // column: a centred line in a logo box belongs on the box's midpoint.
         double columnLeft = (columnLeftOverride ?? setup.ContentLeftPoints) + indent;
         double columnWidth = Math.Max(
             1.0,
-            (columnWidthOverride ?? setup.ContentWidthPoints) - indent);
+            (columnWidthOverride ?? setup.ContentWidthPoints) - indent - style.RightIndentIn);
 
         // An empty line has no run to measure, so it is as tall as the paragraph
         // mark says - the document's default only where the mark says nothing.
@@ -2110,6 +2200,21 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         double textLeft = columnLeft + hang;
         double textWidth = Math.Max(1.0, columnWidth - hang);
+        bool exactList = markerPiece is not null && (style.LeftIndent.HasValue || style.FirstLineIndent.HasValue);
+        if (exactList)
+        {
+            textLeft = columnLeft;
+            textWidth = columnWidth;
+        }
+        double firstIndent = exactList
+            ? Math.Max(0, style.FirstLineIndentIn + markerPiece!.Width + _settings.ListMarkerGapPoints)
+            : style.FirstLineIndentIn;
+
+        TextBand IndentedBand(TextBand band, int index)
+        {
+            double offset = index == 0 ? firstIndent : 0;
+            return new TextBand(band.Left + offset, Math.Max(1, band.Width - offset));
+        }
 
         List<LayoutToken> tokens = Tokenize(paragraph);
         var bands = new List<TextBand>();
@@ -2127,19 +2232,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             double estimate = estimatedMetrics.Ascent + estimatedMetrics.Descent;
             rows = _lineWrapper.Wrap(
                 tokens,
-                _ =>
+                index =>
                 {
                     double skip = 0;
                     TextBand row = BandFor(ref lineY, estimate, textWidth, ref skip);
                     skips.Add(skip);
                     lineY += estimate;
-                    return row;
+                    return IndentedBand(row, index);
                 },
                 bands);
         }
         else
         {
-            rows = _lineWrapper.Wrap(tokens, textWidth);
+            rows = _lineWrapper.Wrap(tokens, index => IndentedBand(new TextBand(0, textWidth), index), bands);
         }
 
         var lines = new List<LayoutLine>(rows.Count);
@@ -2153,7 +2258,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // the text and not under the bullet.
             if (i == 0 && markerPiece is not null)
             {
-                markerPiece.X = columnLeft + band.Left;
+                markerPiece.X = columnLeft + band.Left + (exactList ? style.FirstLineIndentIn - firstIndent : 0);
                 pieces.Insert(0, markerPiece);
             }
 

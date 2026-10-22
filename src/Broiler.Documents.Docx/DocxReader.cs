@@ -938,6 +938,26 @@ internal static class DocxReader
                 continue;
             }
 
+            if (child.Name == DocxNamespaces.Wordprocessing + "sym")
+            {
+                // Symbol fonts use the private-use code point stated by w:char;
+                // keep that code point together with its font, rather than
+                // interpreting its low byte as ordinary Unicode text.
+                string? hex = (string?)child.Attribute(DocxNamespaces.Wordprocessing + "char");
+                if (ushort.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort symbol) &&
+                    !char.IsSurrogate((char)symbol) && !char.IsControl((char)symbol))
+                {
+                    string? font = (string?)child.Attribute(DocxNamespaces.Wordprocessing + "font");
+                    builder.AppendText(((char)symbol).ToString(),
+                        string.IsNullOrWhiteSpace(font) ? style : style with { FontFamily = font });
+                }
+                else
+                {
+                    builder.AddDiagnosticOnce("docx.symbol", "A DOCX symbol had an invalid character code and was skipped.");
+                }
+                continue;
+            }
+
             if (child.Name == DocxNamespaces.Wordprocessing + "noBreakHyphen")
             {
                 builder.AppendText("\u2011", style);
@@ -1333,7 +1353,8 @@ internal static class DocxReader
 
         XElement? spPr = wsp.Element(DocxNamespaces.WordShape + "spPr");
         ShapeFill? fill = ReadFill(spPr, context);
-        IReadOnlyList<RichTextParagraph> paragraphs = ReadShapeText(wsp, context);
+        RichTextDocument shapeContent = ReadShapeText(wsp, context);
+        IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
         if (fill is null && paragraphs.Count == 0)
             return false;
 
@@ -1354,7 +1375,8 @@ internal static class DocxReader
             wrapSide: Side,
             wrapDistance: Distance,
             zOrder: RelativeHeight(anchor),
-            offsetFromPage: fromPage));
+            offsetFromPage: fromPage,
+            tables: shapeContent.Tables));
         return true;
     }
 
@@ -1410,7 +1432,8 @@ internal static class DocxReader
             (code, message) => context.Builder.AddDiagnosticOnce(code, message),
             "docx.shape.fill",
             "shape");
-        IReadOnlyList<RichTextParagraph> paragraphs = ReadShapeText(shape, context);
+        RichTextDocument shapeContent = ReadShapeText(shape, context);
+        IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
         if (fill is null && paragraphs.Count == 0)
             return false;
 
@@ -1483,7 +1506,8 @@ internal static class DocxReader
             behindText: zIndex < 0,
             wrap: wrap,
             zOrder: zIndex == int.MinValue ? int.MaxValue : Math.Abs(zIndex),
-            offsetFromPage: fromPage));
+            offsetFromPage: fromPage,
+            tables: shapeContent.Tables));
         return true;
     }
 
@@ -1820,13 +1844,13 @@ internal static class DocxReader
         DocxDrawingColor.TryRead(parent, theme, out color);
 
     /// <summary>A text box paragraphs, read with the same walker the body uses.</summary>
-    private static IReadOnlyList<RichTextParagraph> ReadShapeText(XElement wsp, DocxReadContext context)
+    private static RichTextDocument ReadShapeText(XElement wsp, DocxReadContext context)
     {
         XElement? content = wsp
             .Descendants(DocxNamespaces.Wordprocessing + "txbxContent")
             .FirstOrDefault();
         if (content is null)
-            return [];
+            return RichTextDocument.Empty;
 
         var builder = new DocxDocumentBuilder(
             context.Builder.Limits,
@@ -1837,9 +1861,12 @@ internal static class DocxReader
             context.Page, context.Band);
         ReadBlockContent(content.Elements(), nested, depth: 0);
 
-        IReadOnlyList<RichTextParagraph> paragraphs = builder.Build().Paragraphs;
-        return paragraphs.Count == 1 && paragraphs[0].Length == 0 ? [] : paragraphs;
+        return builder.Build();
     }
+
+    private static IReadOnlyList<RichTextParagraph> ShapeParagraphs(RichTextDocument content) =>
+        content.ParagraphCount == 1 && content.Paragraphs[0].Length == 0 && content.Tables.Count == 0
+            ? [] : content.Paragraphs;
 
     /// <summary>
     /// Resolves a paragraph's style: document defaults, then the
@@ -1913,17 +1940,30 @@ internal static class DocxReader
 
         style = style with { List = list, ListKind = list.Kind };
 
-        XElement? ownIndent = pPr?.Element(w + "ind");
         DocxNumbering.LevelIndent? levelIndent = numbering.IndentFor(listId, list.Level);
         if (levelIndent is null)
             return style;
 
-        int left = ReadIndentTwips(ownIndent, "start", "left") ?? levelIndent?.Left ?? 0;
-        int hanging = ReadIndentTwips(ownIndent, "hanging") ??
-            (ReadIndentTwips(ownIndent, "firstLine") is int firstLine ? -firstLine : levelIndent?.Hanging ?? 0);
+        // Paragraph/style indents override numbering attributes independently.
+        int? ownLeft = null;
+        int? ownFirst = null;
+        foreach (XElement properties in pPr is null ? chain : chain.Append(pPr))
+        {
+            XElement? indentation = properties.Element(w + "ind");
+            ownLeft = ReadIndentTwips(indentation, "start", "left") ?? ownLeft;
+            ownFirst = ReadIndentTwips(indentation, "hanging") is int hang ? -hang :
+                ReadIndentTwips(indentation, "firstLine") ?? ownFirst;
+        }
+        int left = ownLeft ?? levelIndent?.Left ?? 0;
+        int hanging = -(ownFirst ?? -(levelIndent?.Hanging ?? 0));
         // Every reader puts a list item at indent level one at least, which is
         // where every writer and the layout expect a top-level item.
-        return style with { IndentLevel = Math.Max(1, (int)Math.Round((left - hanging) / 360f)) };
+        return style with
+        {
+            IndentLevel = Math.Max(1, (int)Math.Round((left - hanging) / 360f)),
+            LeftIndent = Math.Clamp(left / 20f, -20000, 20000),
+            FirstLineIndent = Math.Clamp(-hanging / 20f, -20000, 20000),
+        };
     }
 
     /// <summary>The first of <paramref name="names"/> a <c>w:ind</c> states, in twips.</summary>
@@ -2048,7 +2088,13 @@ internal static class DocxReader
 
         XElement? ind = pPr.Element(DocxNamespaces.Wordprocessing + "ind");
         if (ind is not null && TryReadStartIndent(ind, out int startTwips))
-            style = style with { IndentLevel = Math.Max(style.IndentLevel, (int)Math.Round(startTwips / 360f)) };
+            style = style with { IndentLevel = Math.Max(0, (int)Math.Round(startTwips / 360f)), LeftIndent = Math.Clamp(startTwips / 20f, -20000, 20000) };
+        if (ReadIndentTwips(ind, "end", "right") is int rightTwips)
+            style = style with { RightIndent = Math.Clamp(rightTwips / 20f, -20000, 20000) };
+        if (ReadIndentTwips(ind, "hanging") is int hangingTwips)
+            style = style with { FirstLineIndent = Math.Clamp(-hangingTwips / 20f, -20000, 20000) };
+        else if (ReadIndentTwips(ind, "firstLine") is int firstTwips)
+            style = style with { FirstLineIndent = Math.Clamp(firstTwips / 20f, -20000, 20000) };
 
         XElement? numPr = pPr.Element(DocxNamespaces.Wordprocessing + "numPr");
         if (numPr is not null)

@@ -248,6 +248,8 @@ public static class RtfWriter
 
         if (shape.HasText)
         {
+            if (shape.Tables.Count > 0)
+                AddOnce(diagnostics, reported, "rtf.shape.table", "Tables inside a text box were written as paragraphs; their text is kept but their cell layout is not written.");
             sb.Append("{\\shptxt ");
             foreach (RichTextParagraph paragraph in shape.Paragraphs)
             {

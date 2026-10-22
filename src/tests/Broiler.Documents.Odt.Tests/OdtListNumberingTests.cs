@@ -6,6 +6,19 @@ namespace Broiler.Documents.Odt.Tests;
 /// </summary>
 public sealed class OdtListNumberingTests
 {
+    [Fact]
+    public void Only_The_First_Paragraph_Of_An_Item_Has_A_Label_And_Nested_Items_Count_Separately()
+    {
+        string body = "<text:list text:style-name=\"N\"><text:list-item>" + P("one") + P("continued") +
+            "<text:list><text:list-item>" + P("child") + P("child continued") +
+            "</text:list-item></text:list>" + P("after child") +
+            "</text:list-item><text:list-item>" + P("two") + "</text:list-item></text:list>";
+        RichTextDocument document = Read(body, Numbered);
+        Assert.Equal(["1.", null, "(a)", null, null, "2."], Labels(document));
+        Assert.Equal(1, document.Paragraphs[1].Style.IndentLevel);
+        Assert.Equal(2, document.Paragraphs[3].Style.IndentLevel);
+    }
+
     private const string Numbered =
         "<text:list-style style:name=\"N\">" +
         "<text:list-level-style-number text:level=\"1\" style:num-format=\"1\" style:num-suffix=\".\"/>" +
@@ -51,7 +64,7 @@ public sealed class OdtListNumberingTests
             "<text:list-item>" + P("eight") + "</text:list-item>" +
             "</text:list>";
 
-        Assert.Equal(["1.", "7.", "8.", "9."], Labels(Read(body, Numbered)));
+        Assert.Equal(["1.", "7.", null, "8."], Labels(Read(body, Numbered)));
     }
 
     [Fact]

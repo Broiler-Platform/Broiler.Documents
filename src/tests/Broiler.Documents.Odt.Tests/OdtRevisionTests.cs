@@ -12,6 +12,27 @@ namespace Broiler.Documents.Odt.Tests;
 /// </summary>
 public sealed class OdtRevisionTests
 {
+    [Fact]
+    public void Deleted_Headings_Participate_In_Outline_Numbering()
+    {
+        string styles = "<office:styles><text:outline-style style:name=\"Outline\">" +
+            "<text:outline-level-style text:level=\"1\" style:num-format=\"1\"/>" +
+            "<text:outline-level-style text:level=\"2\" style:num-format=\"1\" text:display-levels=\"2\"/>" +
+            "</text:outline-style></office:styles>";
+        string body = Regions(Region("c1", "deletion", "Anna",
+            "<text:h text:outline-level=\"1\">removed chapter</text:h>" +
+            "<text:h text:outline-level=\"2\">removed section</text:h>" +
+            "<text:p>removed text</text:p>")) +
+            "<text:p><text:change text:change-id=\"c1\"/></text:p>" +
+            "<text:h text:outline-level=\"2\">next section</text:h>";
+
+        RichTextDocument document = OdtTestPackage.ReadStyled(body, styles).Document;
+        var numberer = new ListNumberer();
+        Assert.Equal(["1", "1.1", null, "1.2"],
+            document.Paragraphs.Select(paragraph => numberer.Advance(paragraph.Style)));
+        Assert.True(document.Paragraphs[0].MarkStyle.IsDeleted);
+    }
+
     private const string Dc = "xmlns:dc=\"http://purl.org/dc/elements/1.1/\"";
 
     private static string Info(string author, string date = "2024-03-01T10:15:00") =>

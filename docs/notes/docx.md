@@ -236,6 +236,11 @@ Open XML WordprocessingML package parts.
   on `w:background`, a `v:background` for a gradient, and turns the switch on.
   A DrawingML gradient of three stops whose first and last agree is the same
   axial fill, and an axial shape fill is written that way.
+- DrawingML and VML text-box tables retain their grid in the shape's own
+  paragraph coordinate space. The writer emits the table inside `w:txbxContent`;
+  the shared and PDF renderers place its cells beside one another. This also
+  applies to text boxes inside drawing groups; affine font scaling and full
+  group fidelity remain approximate.
 - VML shapes in a `w:pict` - `v:rect`, `v:roundrect`, `v:oval` and a `v:shape`
   that holds no picture - are floating shapes, which is how Word wrote a text box
   before 2010. The box is the shape's CSS `style`: `width`, `height`, and
@@ -625,6 +630,12 @@ DOCX probing is conservative because DOCX is a ZIP-based OPC package:
   package evidence.
 
 ## Standards and rights
+
+Paragraph left/right and first-line/hanging indents retain their exact point
+values, including explicit zero overrides. Numbering-level left/hanging offsets
+are resolved beneath paragraph style and direct formatting. Section background
+colours have no direct section equivalent in this writer and report
+`docx.section.background` when omitted.
 
 DOCX is ECMA-376, republished as ISO/IEC 29500. Its rights position (the Microsoft
 Open Specification Promise and its three self-stated limits), the approved labels

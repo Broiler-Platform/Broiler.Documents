@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO.Compression;
+using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 
@@ -72,6 +73,28 @@ internal sealed class OdtStyles
 
     /// <summary>The number of list styles that were loaded.</summary>
     public int ListStyleCount => _listStyles.ContainsKey(OutlineKey) ? _listStyles.Count - 1 : _listStyles.Count;
+
+    public XElement? DefaultGraphicProperties { get; init; }
+
+    public XElement? GraphicPropertiesFor(string? name)
+    {
+        XElement? own = null;
+        if (!string.IsNullOrEmpty(name))
+            GraphicProperties.TryGetValue(name, out own);
+        if (DefaultGraphicProperties is null)
+            return own;
+        if (own is null)
+            return DefaultGraphicProperties;
+        var merged = new XElement(DefaultGraphicProperties);
+        foreach (XAttribute attribute in own.Attributes())
+            merged.SetAttributeValue(attribute.Name, attribute.Value);
+        if (own.HasElements)
+        {
+            merged.RemoveNodes();
+            merged.Add(own.Elements());
+        }
+        return merged;
+    }
 
     // The outline style is kept with the list styles, which it is one of in all
     // but name, under a key no style:name can be.
@@ -258,11 +281,17 @@ internal sealed class OdtStyles
             PageLayouts = pageLayouts,
             NotesConfigurations = notesConfigurations,
             GraphicProperties = ResolvePropertyChains(styles, graphicProperties, limits.MaxGroupDepth),
+            DefaultGraphicProperties = new[] { stylesRoot, contentRoot }
+                .Where(root => root is not null)
+                .SelectMany(root => root!.Descendants(OdtNamespaces.Style + "default-style"))
+                .Where(style => (string?)style.Attribute(OdtNamespaces.Style + "family") == "graphic")
+                .Select(style => style.Element(OdtNamespaces.Style + "graphic-properties"))
+                .LastOrDefault(properties => properties is not null),
             TableProperties = ResolvePropertyChains(styles, CollectTableProperties(stylesRoot, contentRoot), limits.MaxGroupDepth, TableFamily),
             TableCellProperties = ResolvePropertyChains(styles, cellProperties, limits.MaxGroupDepth, "table-cell"),
             TableColumnProperties = columnProperties,
             TableRowProperties = rowProperties,
-            SectionProperties = sectionProperties,
+            SectionProperties = ResolvePropertyChains(styles, sectionProperties, limits.MaxGroupDepth, "section"),
             Gradients = gradients,
             DrawingPageProperties = drawingPageProperties,
         };

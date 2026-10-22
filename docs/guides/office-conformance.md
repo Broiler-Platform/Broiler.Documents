@@ -587,3 +587,20 @@ The [empty-cell and table-break verification note](../notes/office-issue-135-emp
 records preservation of empty ODT cells, first-paragraph cell spacing and table
 page/column breaks. It also covers the PDF fix for text lost after blank table
 continuation pages, and the remaining mixed results on upstream samples.
+
+The [issue #136 verification note](../notes/office-issue-136-verification-2026-10-22.md)
+records five list, symbol and RTF page corrections. Four sampled text comparisons
+now pass and two RTF page geometries match; the eight sampled pixel comparisons
+still fail. The note includes the selected samples, authored checks and limits.
+
+The [section-colour and indent verification note](../notes/office-issue-136-indents-backgrounds-verification-2026-10-22.md)
+records five further corrections. The nested-section sample now passes the
+visual comparison, one page-count gap narrows, and other sampled results remain
+mixed. Exact non-list indents round trip through DOCX and ODT; the note records
+the remaining list and standalone PDF limitations.
+
+The [floating-frame and text-box verification note](../notes/office-issue-136-floating-frames-textboxes-verification-2026-10-22.md)
+records five further corrections to graphic defaults, frame pagination, text-box
+tables and text export. One sampled visual check now passes and another page
+count matches; the note also records a visual regression and text-export
+differences exposed by retaining previously omitted content.

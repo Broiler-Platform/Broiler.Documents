@@ -264,9 +264,8 @@ public static class DocumentCommands
     /// LibreOffice's text export writes it: the label, one space, the text.
     /// </summary>
     /// <remarks>
-    /// Only a paragraph in a list its document defined gets one. A list known
-    /// only by its kind has no label anybody stated, and the dump has never
-    /// invented one for it. A note's citation is its label too, as LibreOffice
+    /// Lists known only by their kind use the same fallback labels as the
+    /// renderer. A note's citation is its label too, as LibreOffice
     /// writes it, and the note's own text is not part of the body's.
     /// <para>
     /// A bullet is written as LibreOffice's text export writes one: not the
@@ -285,17 +284,29 @@ public static class DocumentCommands
         var builder = new StringBuilder();
         var cellSeparators = new Dictionary<int, char>();
         ReadCellSeparators(document.Tables, cellSeparators);
+        var shapeText = document.Shapes.Where(shape => shape.HasText)
+            .ToLookup(shape => Math.Clamp(shape.ParagraphIndex, 0, document.ParagraphCount - 1));
         for (int i = 0; i < document.ParagraphCount; i++)
         {
             RichTextParagraph paragraph = document.Paragraphs[i];
             if (i > 0)
                 builder.Append(cellSeparators.GetValueOrDefault(i, '\n'));
 
-            string? label = numberer.Advance(paragraph.Style);
-            if (paragraph.Style.List is ListReference list && label is not null)
+            foreach (DocumentShape shape in shapeText[i])
             {
-                if (list.LevelStyle.Format == ListNumberFormat.Bullet)
-                    label = TextExportBullets[Math.Max(0, list.Level) % TextExportBullets.Length].ToString();
+                RichTextDocument content = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables)
+                    .WithNoteNumbering(document.NoteNumbering);
+                builder.Append(LabelledText(content)).Append('\n');
+            }
+
+            string? label = numberer.Advance(paragraph.Style);
+            if (label is not null)
+            {
+                if (paragraph.Style.ListKind == ListKind.Bullet)
+                {
+                    int level = paragraph.Style.List?.Level ?? Math.Max(0, paragraph.Style.IndentLevel - 1);
+                    label = TextExportBullets[Math.Max(0, level) % TextExportBullets.Length].ToString();
+                }
                 builder.Append(label).Append(' ');
             }
 
