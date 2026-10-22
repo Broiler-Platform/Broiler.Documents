@@ -103,6 +103,15 @@ public static class ModelJson
         return entry;
     }
 
+    /// <summary>A tracked change: what it did, who made it, when, and whether it is one side of a move.</summary>
+    public static JsonObject Describe(TextRevision revision) => new()
+    {
+        ["kind"] = revision.Kind.ToString().ToLowerInvariant(),
+        ["author"] = revision.Author,
+        ["date"] = revision.Date?.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+        ["moved"] = revision.Moved,
+    };
+
     public static JsonObject Describe(InlineStyle style)
     {
         var entry = new JsonObject
@@ -120,6 +129,10 @@ public static class ModelJson
         };
 
         entry["image"] = style.Image is null ? null : Describe(style.Image);
+
+        // Only on text a tracked change marks, so every other run is described as it was.
+        if (style.Revision is TextRevision revision)
+            entry["revision"] = Describe(revision);
 
         // Only on a citation, so the description of every other run is as it was.
         if (style.Note is DocumentNote note)

@@ -44,5 +44,11 @@ internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumb
     /// after it can go too and the label's formatting can be read.
     /// </summary>
     public Action<XElement?>? SkipNoteLabel { get; init; }
+
+    /// <summary>
+    /// The tracked change around the paragraphs being read - a <c>w:ins</c> or
+    /// <c>w:del</c> at block level - or null outside one.
+    /// </summary>
+    public TextRevision? Revision { get; init; }
 }
 

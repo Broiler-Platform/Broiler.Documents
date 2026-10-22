@@ -76,6 +76,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     // How the body's notes are labelled, and each footnote's lines, composed
     // once against the page's text width.
     private NoteNumberer _noteLabels = new();
+
+    /// <summary>How the document being laid out draws its tracked changes.</summary>
+    private RevisionDisplay _revisions = RevisionDisplay.None;
+
+    /// <summary>
+    /// How far left of its text frame a changed line's bar is drawn: a quarter
+    /// of a centimetre, LibreOffice's REDLINE_DISTANCE (frmpaint.cxx).
+    /// </summary>
+    private const double ChangeBarDistance = 567.0 / 4 / 20;
     private bool _raisedNoteLabels;
     private readonly Dictionary<DocumentNote, NoteBlock> _noteBlocks = new(ReferenceEqualityComparer.Instance);
 
@@ -110,6 +119,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(setup);
+
+        // A document that hides its changes is laid out as it reads with its
+        // deletions gone; one that shows them draws each in its author's colour.
+        document = RevisionDisplay.HideDeletions(document);
+        _revisions = RevisionDisplay.For(document);
 
         _notes.Clear();
         // Continuous mode collapses the document to one tall page, so there are no
@@ -1880,7 +1894,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         if (marker is not null)
         {
-            InlineStyle markerStyle = paragraph.Runs.Count > 0 ? paragraph.Runs[0].Style : paragraph.MarkStyle;
+            InlineStyle markerStyle = (paragraph.Runs.Count > 0 ? paragraph.Runs[0].Style : paragraph.MarkStyle) with { Revision = null };
             markerPiece = MakeTextPiece(marker, markerStyle, decorateLink: false);
             hang = Math.Min(columnWidth * 0.5, markerPiece.Width + _settings.ListMarkerGapPoints);
         }
@@ -1944,6 +1958,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 paragraphIndex,
                 i == rows.Count - 1);
             line.LeadingSkip = i < skips.Count ? skips[i] : 0;
+
+            // A line that holds a change is marked in the margin, left of the
+            // frame it is set in, as LibreOffice marks it; the last line also
+            // for a paragraph mark a change inserted or deleted.
+            if (_revisions.Shows &&
+                (pieces.Any(piece => piece.Revised) ||
+                 (i == rows.Count - 1 && paragraph.MarkStyle.Revision is { Kind: not RevisionKind.Format })))
+            {
+                line.ChangeBarX = columnLeft - indent - ChangeBarDistance;
+            }
 
             // The shading runs from the indent to the column's edge, whatever
             // the line holds and whatever a wrapping shape cut from it.
@@ -2281,6 +2305,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     private LayoutPiece MakeTextPiece(string text, InlineStyle style, bool decorateLink, double sizeScale = 1.0)
     {
+        bool revised = _revisions.Shows && style.Revision is not null;
+        style = _revisions.Decorate(style, out bool doubled);
         BFontStyle font = FontFor(style, sizeScale);
         BColor color = LayoutColors.Or(style.Foreground, _settings.DefaultForeground);
         bool underline = style.Underline;
@@ -2302,7 +2328,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             !(_settings.ItalicFaceAvailable?.Invoke(font.FamilyName) ?? false);
 
         return new LayoutPiece(text, font, color, style.Background, underline, style.Strikethrough, style.LinkHref, null,
-            width, ascent, descent, oblique: oblique, lineGap: lineGap);
+            width, ascent, descent, oblique: oblique, lineGap: lineGap)
+        {
+            Revised = revised,
+            Doubled = doubled,
+        };
     }
 
     /// <summary>
@@ -2320,6 +2350,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             Rise = rise,
             Note = note,
+            Revised = small.Revised,
+            Doubled = small.Doubled,
         };
     }
 
@@ -2356,7 +2388,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         (double width, double height) = _images.MeasurePoints(image);
 
         return new LayoutPiece(string.Empty, FontFor(style), LayoutColors.Or(style.Foreground, _settings.DefaultForeground), style.Background, false,
-            false, style.LinkHref, image, Math.Max(1, width), Math.Max(1, height), 0);
+            false, style.LinkHref, image, Math.Max(1, width), Math.Max(1, height), 0)
+        {
+            Revised = _revisions.Shows && style.Revision is not null,
+        };
     }
 
     private BFontStyle FontFor(InlineStyle style, double sizeScale = 1.0)

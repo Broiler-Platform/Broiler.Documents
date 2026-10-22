@@ -529,6 +529,9 @@ public static class RtfReader
                     FlushPending();
                     _noteLabelSeen = true;
                     return;
+                case "revtbl":
+                    _state.Dest = RtfDestination.RevisionTable;
+                    return;
                 case "info":
                 case "stylesheet":
                 case "annotation":
@@ -536,7 +539,6 @@ public static class RtfReader
                 case "latentstyles":
                 case "datastore":
                 case "themedata":
-                case "revtbl":
                 case "pntext":
                     _state.Dest = RtfDestination.Skip;
                     return;
@@ -559,6 +561,7 @@ public static class RtfReader
                 case RtfDestination.Field:
                 case RtfDestination.FieldInstruction:
                 case RtfDestination.Generator:
+                case RtfDestination.RevisionTable:
                     return;
                 case RtfDestination.FontTable:
                     HandleFontTableControlWord(kw, token.Parameter);
@@ -591,6 +594,30 @@ public static class RtfReader
                 case "strike": _state.Char = _state.Char with { Strikethrough = !(has && p == 0) }; break;
                 case "ul": _state.Char = _state.Char with { Underline = !(has && p == 0) }; break;
                 case "ulnone": _state.Char = _state.Char with { Underline = false }; break;
+
+                // Tracked changes: \revised marks inserted text and \deleted
+                // deleted text, each naming its author by index into \revtbl and
+                // its time as a packed DTTM. A deletion is kept, as LibreOffice
+                // keeps it, and wins over an insertion the same text is in.
+                case "revised":
+                    if (_state.Char.Revision?.IsDeletion != true)
+                        _state.Char = _state.Char with { Revision = has && p == 0 ? null : new TextRevision(RevisionKind.Insertion) };
+                    break;
+                case "deleted":
+                    _state.Char = _state.Char with { Revision = has && p == 0 ? null : new TextRevision(RevisionKind.Deletion) };
+                    break;
+                case "revauth" when _state.Char.Revision is { Kind: RevisionKind.Insertion } inserted:
+                    _state.Char = _state.Char with { Revision = inserted with { Author = RevisionAuthor(p) } };
+                    break;
+                case "revauthdel" when _state.Char.Revision is { Kind: RevisionKind.Deletion } deleted:
+                    _state.Char = _state.Char with { Revision = deleted with { Author = RevisionAuthor(p) } };
+                    break;
+                case "revdttm" when _state.Char.Revision is { Kind: RevisionKind.Insertion } inserted:
+                    _state.Char = _state.Char with { Revision = inserted with { Date = RtfDateTime.FromDttm(p) } };
+                    break;
+                case "revdttmdel" when _state.Char.Revision is { Kind: RevisionKind.Deletion } deleted:
+                    _state.Char = _state.Char with { Revision = deleted with { Date = RtfDateTime.FromDttm(p) } };
+                    break;
                 case "caps": _state.Char = ApplyCapitalization(_state.Char, TextCapitalization.AllCaps, !(has && p == 0)); break;
                 case "scaps": _state.Char = ApplyCapitalization(_state.Char, TextCapitalization.SmallCaps, !(has && p == 0)); break;
                 case "plain":
@@ -955,6 +982,34 @@ public static class RtfReader
             AppendChar(RtfCodePage.DecodeByte(value, _state.CodePage));
         }
 
+        /// <summary>
+        /// The <c>\revtbl</c> entries, each ended by a semicolon. The first is
+        /// conventionally "Unknown", which a change by nobody in particular names.
+        /// </summary>
+        private readonly List<string> _revisionAuthors = [];
+        private readonly StringBuilder _revisionAuthor = new();
+
+        private void HandleRevisionTableText(string text)
+        {
+            foreach (char character in text)
+            {
+                if (character != ';')
+                {
+                    _revisionAuthor.Append(character);
+                    continue;
+                }
+
+                _revisionAuthors.Add(_revisionAuthor.ToString().Trim());
+                _revisionAuthor.Clear();
+            }
+        }
+
+        /// <summary>The author <c>\revtbl</c> lists at <paramref name="index"/>, or null for none.</summary>
+        private string? RevisionAuthor(int index) =>
+            index >= 0 && index < _revisionAuthors.Count && _revisionAuthors[index].Length > 0
+                ? _revisionAuthors[index]
+                : null;
+
         private void HandleText(string text)
         {
             _sawStar = false;
@@ -964,6 +1019,7 @@ public static class RtfReader
                 case RtfDestination.ColorTable: HandleColorTableText(text); break;
                 case RtfDestination.FieldInstruction: _fieldInstruction.Append(text); break;
                 case RtfDestination.Generator: _generator.Append(text); break;
+                case RtfDestination.RevisionTable: HandleRevisionTableText(text); break;
                 case RtfDestination.Normal:
                 case RtfDestination.FieldResult:
                 case RtfDestination.Header:

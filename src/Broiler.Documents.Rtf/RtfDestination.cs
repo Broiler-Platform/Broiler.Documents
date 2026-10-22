@@ -12,6 +12,9 @@ internal enum RtfDestination
     /// <summary>An unsupported list table; its entire subtree stays opaque.</summary>
     ListTable,
 
+    /// <summary>The <c>\revtbl</c> destination: the authors tracked changes name by index.</summary>
+    RevisionTable,
+
     /// <summary>The <c>\fonttbl</c> destination.</summary>
     FontTable,
 

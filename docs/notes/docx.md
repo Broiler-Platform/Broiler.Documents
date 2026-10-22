@@ -32,10 +32,27 @@ Open XML WordprocessingML package parts.
   `w:rPr` at the end of `w:pPr`, before a section's `w:sectPr`.
 - Block-level containers, walked recursively so their paragraphs are read rather
   than dropped: tables (`w:tbl`/`w:tr`/`w:tc`, including nested tables),
-  structured document tags (`w:sdt`), accepted revisions (`w:ins`, `w:moveTo`),
-  `w:customXml`/`w:smartTag` wrappers, and `mc:AlternateContent` (first
+  structured document tags (`w:sdt`), tracked changes (`w:ins`, `w:del`,
+  `w:moveTo`, `w:moveFrom`), `w:customXml`/`w:smartTag` wrappers, and
+  `mc:AlternateContent` (first
   `mc:Choice`, else `mc:Fallback`). A container's paragraphs are read in
   document order, which for a table is row-major.
+- Tracked changes (ECMA-376 §17.13.5), as a `TextRevision` on the runs and
+  paragraph marks they mark, with `w:author` and `w:date`. `w:ins` and `w:del`
+  around runs - or around whole paragraphs - are an insertion and a deletion,
+  and a deleted run's `w:delText` is kept as its text, as LibreOffice keeps it;
+  `w:moveTo` and `w:moveFrom` are the two sides of a move; `w:rPrChange` marks a
+  run whose formatting changed, unless an insertion or deletion marks it
+  already, and `w:pPrChange` marks the whole paragraph's text the same way, as
+  LibreOffice draws a change of paragraph properties; and `w:ins` or `w:del` in
+  a mark's `w:rPr` marks the paragraph break.
+  `w:revisionView` in the settings hides the changes where it turns
+  `w:insDel` or `w:markup` off and does not turn `w:formatting` on, which is
+  LibreOffice's reading (`RichTextDocument.ShowsRevisions`). All of it is
+  written back: each change around its runs with a `w:id` of its own, a format
+  change as `w:rPrChange` holding an empty `w:rPr` because what the run looked
+  like before is not kept, and `w:revisionView w:insDel="0"` when the changes are
+  hidden.
 - Footnotes and endnotes: a `w:footnoteReference` or `w:endnoteReference` in
   the body, a table cell or a frame becomes one citation character holding a
   `DocumentNote`, read from the `w:footnote` or `w:endnote` with that id in the
@@ -282,9 +299,12 @@ Open XML WordprocessingML package parts.
 
 ## Intentional Limits
 
-- Tracked deletions, embedded objects, fields, comments, headers, footers,
-  and section layout are skipped or approximated with diagnostics where
-  applicable.
+- Embedded objects, fields, comments, headers, footers, and section layout are
+  skipped or approximated with diagnostics where applicable. A tracked change to
+  a table row or cell (`w:trPr`, `w:tcPr`) is not read; the text in such a row
+  is marked by its runs' own `w:ins` and `w:del`, as Word writes it. What a run
+  or paragraph looked like before a change of formatting is not kept, and a
+  change of paragraph properties is written back as a change of each run's.
 - A floating picture keeps its position, its layer, its stacking and its
   wrapping. `behindDoc` is the shape against the text and `relativeHeight` is the
   shape against the other shapes; both are read and both are written. An anchor

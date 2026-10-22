@@ -152,6 +152,21 @@ public sealed class DocumentLayoutListTests
     }
 
     [Fact]
+    public void The_Text_Dump_Writes_Deleted_Text_As_LibreOffice_Does()
+    {
+        // LibreOffice's text export writes a deletion whether or not the
+        // document shows its changes.
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("kept ")
+                .InsertText(5, "gone", InlineStyle.Default with { Revision = new TextRevision(RevisionKind.Deletion, "Ben") })
+                .InsertText(9, "added", InlineStyle.Default with { Revision = new TextRevision(RevisionKind.Insertion, "Anna") }),
+        ]).WithShowsRevisions(false);
+
+        Assert.Equal("kept goneadded", Broiler.Documents.Cli.Commands.DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
     public void The_Text_Dump_Writes_A_Citation_As_Its_Label_As_LibreOffice_Does()
     {
         var footnote = new DocumentNote(NoteKind.Footnote, [RichTextParagraph.Plain("n")]);

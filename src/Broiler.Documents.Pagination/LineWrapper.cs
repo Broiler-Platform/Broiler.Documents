@@ -181,6 +181,8 @@ internal sealed class LineWrapper(double tabStopPoints)
         {
             Rise = source.Rise,
             Note = source.Note,
+            Revised = source.Revised,
+            Doubled = source.Doubled,
         };
 
     /// <summary>

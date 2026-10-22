@@ -206,7 +206,9 @@ document draws, so a list bulleted with `o`, `◆` or a Symbol-font character st
 reads `• alpha`. A list known only by its kind has no label anybody stated and
 gets none; `--as outline` is where the list kind and depth are shown, and
 `--as json` where they are machine readable. **A note's citation is its label**,
-and the note's own text is not part of the body's.
+and the note's own text is not part of the body's. **Text a tracked change
+deleted is written** with the rest, as LibreOffice's export writes it whether or
+not the document shows its changes; `--as json` says which change marks each run.
 
 **A table projects as one line per cell**, in row order, because that is how the
 model holds a table once it is flattened; a projection that joined a row onto one

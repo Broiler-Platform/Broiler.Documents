@@ -89,6 +89,42 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
             " unsupported block(s)."));
     }
 
+    /// <summary>
+    /// The tracked change the text being read is part of, or null: an insertion
+    /// between its <c>text:change-start</c> and <c>text:change-end</c>, or the
+    /// deletion whose text is being put back. It marks every run appended
+    /// that no change marks already, and the mark of every paragraph finished
+    /// while an insertion or a deletion is open.
+    /// </summary>
+    public TextRevision? Revision { get; set; }
+
+    /// <summary>
+    /// Takes the paragraph being read out of the builder, so a deletion's own
+    /// paragraphs can be read in its place, and hands it back to
+    /// <see cref="Resume"/> afterwards.
+    /// </summary>
+    public OpenParagraph Suspend() =>
+        new([.. _segments], _length, _pendingSpace, _pendingSpaceStyle, _paragraphStyle, _markStyle);
+
+    /// <summary>Makes <paramref name="paragraph"/> the paragraph being read again.</summary>
+    public void Resume(OpenParagraph paragraph)
+    {
+        _segments.Clear();
+        _segments.AddRange(paragraph.Segments);
+        _length = paragraph.Length;
+        _pendingSpace = paragraph.PendingSpace;
+        _pendingSpaceStyle = paragraph.PendingSpaceStyle;
+        _paragraphStyle = paragraph.Style;
+        _markStyle = paragraph.MarkStyle;
+    }
+
+    /// <summary>Gives the paragraph being read other paragraph and mark styles, keeping its text.</summary>
+    public void Restyle(ParagraphStyle style, InlineStyle markStyle)
+    {
+        _paragraphStyle = style;
+        _markStyle = markStyle;
+    }
+
     public void StartParagraph(ParagraphStyle style, InlineStyle markStyle = default)
     {
         _segments.Clear();
@@ -175,6 +211,9 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
 
     private void AppendCore(string text, InlineStyle style)
     {
+        if (style.Revision is null && Revision is not null)
+            style = style with { Revision = Revision };
+
         if (_length >= _limits.MaxRunLength)
         {
             AddDiagnosticOnce("odt.limit.run", "An ODT paragraph exceeded MaxRunLength and was truncated.");
@@ -214,9 +253,15 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
             return;
         }
 
+        // A paragraph break inside an insertion was inserted with it, and one
+        // inside a deletion was deleted with it.
+        InlineStyle markStyle = _markStyle;
+        if (markStyle.Revision is null && Revision is { Kind: RevisionKind.Insertion or RevisionKind.Deletion })
+            markStyle = markStyle with { Revision = Revision };
+
         RichTextParagraph paragraph = RichTextParagraph.Empty
             .WithParagraphStyle(_paragraphStyle)
-            .WithMarkStyle(_markStyle);
+            .WithMarkStyle(markStyle);
         int offset = 0;
         foreach (Segment segment in _segments)
         {
@@ -294,5 +339,18 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
     private static bool IsCollapsibleWhiteSpace(char character) =>
         character is ' ' or '\t' or '\r' or '\n';
 
-    private readonly record struct Segment(string Text, InlineStyle Style);
+    internal readonly record struct Segment(string Text, InlineStyle Style);
+
+    /// <summary>A paragraph taken out of the builder by <see cref="Suspend"/>.</summary>
+    internal sealed record OpenParagraph(
+        IReadOnlyList<Segment> Segments,
+        int Length,
+        bool PendingSpace,
+        InlineStyle PendingSpaceStyle,
+        ParagraphStyle Style,
+        InlineStyle MarkStyle)
+    {
+        /// <summary>True when nothing has been read into it yet.</summary>
+        public bool IsEmpty => Length == 0;
+    }
 }

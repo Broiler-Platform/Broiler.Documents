@@ -279,4 +279,20 @@ public sealed class CsvWriterTests
     }
 
     private sealed class OtherWriteOptions : DocumentWriteOptions;
+
+    [Fact]
+    public void Tracked_Changes_Are_Written_Accepted_And_Reported()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("kept ")
+                .InsertText(5, "gone", InlineStyle.Default with { Revision = new TextRevision(RevisionKind.Deletion, "Ben") })
+                .InsertText(9, "added", InlineStyle.Default with { Revision = new TextRevision(RevisionKind.Insertion, "Anna") }),
+        ]);
+
+        (byte[] bytes, DocumentWriteResult result) = CsvFixtures.WriteBytes(document);
+
+        Assert.Equal("kept added", System.Text.Encoding.UTF8.GetString(bytes).Trim());
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == CsvDiagnosticCodes.RevisionAccepted);
+    }
 }

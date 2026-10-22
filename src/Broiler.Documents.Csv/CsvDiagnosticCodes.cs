@@ -36,6 +36,9 @@ public static class CsvDiagnosticCodes
     /// <summary>A merged cell was written as its text in the first column it covers, with empty fields for the rest.</summary>
     public const string TableSpan = "csv.table.span";
 
+    /// <summary>Tracked changes were written accepted: deleted text left out, inserted text written as plain text.</summary>
+    public const string RevisionAccepted = "csv.revision";
+
     /// <summary>A table inside a cell was written as that cell's text.</summary>
     public const string TableNested = "csv.table.nested";
 

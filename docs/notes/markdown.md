@@ -69,6 +69,11 @@ that starts at four, counts in letters or roman numerals, or carries its count o
 past a paragraph between its items - is reported once as
 `markdown.list.numbering`; a list numbered 1, 2, 3 loses nothing and is not.
 
+Markdown cannot say text was inserted or deleted. A document with tracked
+changes is written as accepting them would leave it - the deleted text left out,
+a deleted paragraph break joining its two paragraphs, the inserted text plain -
+and reported once as `markdown.revision`.
+
 A paragraph that starts a new page is written as an ordinary paragraph and
 reported as `markdown.page-break`. Markdown has no page, so it has no page break:
 there is no syntax to write one in and no fallback that would be honest, since a

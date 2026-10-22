@@ -31,6 +31,9 @@ internal static class OdtNamespaces
 
     public static readonly XNamespace Xml = "http://www.w3.org/XML/1998/namespace";
 
+    /// <summary>The settings namespace: <c>config:config-item</c> in <c>settings.xml</c>.</summary>
+    public static readonly XNamespace Config = "urn:oasis:names:tc:opendocument:xmlns:config:1.0";
+
     /// <summary>
     /// The prefixes LibreOffice declares on the root of every document it
     /// writes, taken as bound when a document uses one without declaring it.
@@ -101,6 +104,7 @@ internal static class OdtNamespaces
     public const string ContentPart = "content.xml";
     public const string StylesPart = "styles.xml";
     public const string MetaPart = "meta.xml";
+    public const string SettingsPart = "settings.xml";
     public const string ManifestPart = "META-INF/manifest.xml";
     public const string MimeTypePart = "mimetype";
     public const string PicturesDirectory = "Pictures/";

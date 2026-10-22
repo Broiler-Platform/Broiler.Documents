@@ -31,6 +31,15 @@ public static class MarkdownWriter
                 "Markdown output carries no grid."));
         }
 
+        // Markdown has no way to say text was inserted or deleted.
+        if (RevisionDisplay.HasRevisions(document))
+        {
+            diagnostics.Add(DocumentDiagnostic.Info(
+                "markdown.revision",
+                "Tracked changes were written accepted: the deleted text was left out and the inserted text written as plain text; Markdown states no changes."));
+            document = RevisionDisplay.WithoutDeletions(document);
+        }
+
         if (LosesListLabels(document))
         {
             diagnostics.Add(DocumentDiagnostic.Info(

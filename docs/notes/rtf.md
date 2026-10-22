@@ -65,6 +65,17 @@ document. The writer writes each note the same way, `{\super\chftn}` then
 `{\footnote\pard\plain{\super\chftn} ...}`, a note's own mark in place of
 `\chftn`.
 
+## Tracked changes
+
+`\revised` marks inserted text and `\deleted` deleted text, as a
+`TextRevision` on the runs, and on the paragraph mark where one is open at
+`\par`. `\revauthN` and `\revauthdelN` name the author by index into
+`\revtbl`, and `\revdttmN` and `\revdttmdelN` give the time as a packed DTTM,
+taken as universal time. Deleted text is kept, as LibreOffice keeps it, and a
+deletion wins over an insertion the same text is in. The writer states no
+changes yet: it writes the document as accepting them would leave it, the
+deleted text left out and the inserted text plain, and reports `rtf.revision`.
+
 ## Default font
 
 An explicit `\deffN` selects the font-table family inherited by runs with no
@@ -402,7 +413,7 @@ reader does not compose is owed an answer to the question rather than a note
 about the document. Skipped with them are the following non-content
 destinations: `\info` `\stylesheet` `\annotation`
 `\colorschememapping` `\latentstyles` `\datastore` `\themedata` `\generator`
-`\revtbl` `\pntext`, plus any unknown
+`\pntext`, plus any unknown
 ignorable destination introduced by `\*` - `\*\shpinst` excepted, since the
 reader understands that one. `\binN` binary data is skipped at the tokenizer
 (reported as `rtf.bin` when it exceeds `MaxBinBytes`).
@@ -574,6 +585,7 @@ anything a caller asked for that this codec does not do.
 | `rtf.sections` | Warning | Write | The document's sections, each with columns and margins of its own, were not written; the page and its columns were written for the whole document. |
 | `rtf.table.flattened` | Warning | Write | A table was written as its cell paragraphs, in row order; this codec carries no table structure. |
 | `rtf.note.nested` | Warning | Write | A note cited inside a note was dropped; RTF cannot nest them. |
+| `rtf.revision` | Warning | Write | Tracked changes were written accepted: the deleted text left out and the inserted text written as plain text. |
 | `rtf.image.format` | Warning | Write | RTF carries PNG and JPEG pictures; one in another format was dropped. |
 | `rtf.image.omitted` | Warning | Write | The caller's resource policy did not permit a picture into the output; the message names the denial. |
 | `rtf.image.anchored` | Warning | Write | A floating picture was written into its paragraph; its position beside the text was not kept. |

@@ -120,8 +120,17 @@ internal sealed class PdfPageLayout(
     /// </summary>
     private TextWrapExclusions _wrap = new();
 
+    /// <summary>How the document being laid out draws its tracked changes.</summary>
+    private RevisionDisplay _revisions = RevisionDisplay.None;
+
     public List<PdfLayoutPage> Build(RichTextDocument document)
     {
+        // As the page renderer draws them: deletions left out where the document
+        // hides its changes, each change in its author's colour where it shows
+        // them. The bars LibreOffice puts in the margin are the renderer's alone.
+        document = RevisionDisplay.HideDeletions(document);
+        _revisions = RevisionDisplay.For(document);
+
         // What a run with no size and no family falls back to. The document's own
         // defaults outrank the write options, because those are the author's
         // statement and these are a caller's answer for a document that made none.
@@ -1324,7 +1333,7 @@ internal sealed class PdfPageLayout(
 
         if (marker.Length > 0)
         {
-            InlineStyle markerStyle = paragraph.Runs.Count > 0 ? paragraph.Runs[0].Style : InlineStyle.Default;
+            InlineStyle markerStyle = (paragraph.Runs.Count > 0 ? paragraph.Runs[0].Style : InlineStyle.Default) with { Revision = null };
             RunStyle resolved = Resolve(markerStyle);
             yield return MakeWord(marker, resolved, isSpace: false);
         }
@@ -1516,6 +1525,7 @@ internal sealed class PdfPageLayout(
 
     private RunStyle Resolve(InlineStyle style)
     {
+        style = _revisions.Decorate(style, out _);
         PdfFontFamilyKind family = ClassifyFamily(style.FontFamily);
         PdfStandardFont font = PdfStandardFonts.Select(family, style.Bold, style.Italic);
         double size = _defaults.FontSizeOf(style);

@@ -27,6 +27,37 @@ internal sealed record OdtReadContext(
     /// <summary>True for the flow of a note's own text, which cannot hold another note.</summary>
     public bool InNote { get; init; }
 
+    /// <summary>The document's tracked changes by region id; see <see cref="OdtRevisions"/>.</summary>
+    public IReadOnlyDictionary<string, OdtChangedRegion> Regions { get; init; } =
+        new Dictionary<string, OdtChangedRegion>(StringComparer.Ordinal);
+
+    private readonly List<(string Id, TextRevision Revision)> _openChanges = [];
+
+    /// <summary>
+    /// A <c>text:change-start</c>: the text from here to its
+    /// <c>text:change-end</c> is the insertion or change of formatting its
+    /// region records.
+    /// </summary>
+    public void OpenChange(string? id)
+    {
+        if (id is null || !Regions.TryGetValue(id, out OdtChangedRegion? region) || region.Revision.IsDeletion)
+            return;
+
+        _openChanges.Add((id, region.Revision));
+        Builder.Revision = region.Revision;
+    }
+
+    /// <summary>A <c>text:change-end</c>: the change it names ends here.</summary>
+    public void CloseChange(string? id)
+    {
+        int index = _openChanges.FindLastIndex(open => open.Id == id);
+        if (index < 0)
+            return;
+
+        _openChanges.RemoveAt(index);
+        Builder.Revision = _openChanges.Count > 0 ? _openChanges[^1].Revision : null;
+    }
+
     private OdtBreak _pendingBreak;
     private readonly Dictionary<string, ListDefinition> _lastListByStyle = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ListDefinition> _listsById = new(StringComparer.Ordinal);

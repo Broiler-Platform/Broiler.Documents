@@ -172,6 +172,21 @@ by ADR 0008).
   `RichTextDocument.NoteNumbering` states, so the page, the PDF, every writer
   and the text dump agree. DOCX, ODT and RTF read and write them; HTML and
   Markdown write them after the body; CSV drops them.
+- **Tracked changes.** A change is a `TextRevision` - insertion, deletion or
+  change of formatting, with its author, its date and whether it is one side of
+  a move - on the runs it marks (`InlineStyle.Revision`) and on a paragraph mark
+  it inserted or deleted (`RichTextParagraph.MarkStyle`). Deleted text stays in
+  the paragraph, as it does in DOCX, ODT and LibreOffice's model.
+  `RichTextDocument.ShowsRevisions` says whether the document shows its changes.
+  `RevisionDisplay` is how they are drawn, LibreOffice's way: inserted text
+  underlined and deleted text struck through in the author's colour, moved text
+  green, changed formatting bold, a bar in the margin beside a changed line; a
+  document that hides its changes is laid out as it reads with its deletions
+  gone. The renderer and the PDF writer both follow it, and the text dump
+  writes deleted text, as LibreOffice's text export does. DOCX and ODT read and
+  write changes; RTF reads them; HTML writes `<ins>` and `<del>`; RTF, Markdown
+  and CSV write the document with its changes accepted, and say so. Text typed
+  beside a change is not part of it.
 - **Page geometry.** `PageGeometry` is the page a document says it was written
   for: size, margins, header and footer distances, one per document. DOCX, ODT,
   RTF and HTML state it; PDF import infers it. It describes the page and places

@@ -43,6 +43,16 @@ public static class RtfWriter
 
         DocumentConversionContext resources = (options ?? DocumentWriteOptions.Default).Resources;
         var reported = new HashSet<string>(StringComparer.Ordinal);
+
+        // RTF can state a change (\revised, \deleted, \revtbl), and this
+        // reader reads them; writing them is not done yet, and until it is the
+        // text reads as the changes accepted would leave it.
+        if (RevisionDisplay.HasRevisions(document))
+        {
+            AddOnce(diagnostics, reported, "rtf.revision", "Tracked changes were written accepted: the deleted text was left out and the inserted text written as plain text; this writer states no changes.");
+            document = RevisionDisplay.WithoutDeletions(document);
+        }
+
         CollectResources(document, fonts, colors);
         if (document.StyleDefaults.FontFamily is string defaultFamily)
             fonts.Intern(defaultFamily);
