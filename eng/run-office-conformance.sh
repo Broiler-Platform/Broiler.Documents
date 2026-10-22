@@ -25,6 +25,7 @@
 #     --axis <kind>            semantic, pixel, or all (default: all)
 #     --only <substring>       Run only documents whose seed/format key contains this
 #     --jobs <n>               Concurrent documents
+#     --threshold <percent>   Minimum rendering similarity, 0 to 100 (default: 80)
 #     --dpi <n>                Resolution for both rasterisers (default: 144)
 #     --font-dir <dir>         Pin a font directory. Repeatable
 #     --skip-install           Trust whatever soffice and pdftoppm are on PATH
@@ -71,6 +72,7 @@ AXIS="all"
 ONLY=""
 JOBS=""
 DPI="144"
+THRESHOLD="80"
 FONT_DIRS=()
 SKIP_INSTALL=false
 REQUIRE_PINNED=false
@@ -115,6 +117,7 @@ while [[ $# -gt 0 ]]; do
         --axis) AXIS="$2"; shift 2 ;;
         --only) ONLY="$2"; shift 2 ;;
         --jobs) JOBS="$2"; shift 2 ;;
+        --threshold) THRESHOLD="$2"; shift 2 ;;
         --dpi) DPI="$2"; shift 2 ;;
         --font-dir) FONT_DIRS+=("$2"); shift 2 ;;
         --skip-install) SKIP_INSTALL=true; shift ;;
@@ -372,6 +375,7 @@ RUNNER_ARGS=(
     --junit "$JUNIT_FILE"
     --axis "$AXIS"
     --dpi "$DPI"
+    --threshold "$THRESHOLD"
     --soffice "$SOFFICE"
 )
 

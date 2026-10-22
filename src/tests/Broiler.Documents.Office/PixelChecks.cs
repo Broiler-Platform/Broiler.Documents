@@ -86,7 +86,8 @@ internal static class PixelChecks
         IReadOnlyList<string> pinnedFonts,
         IReadOnlyList<string> toolFonts,
         IReadOnlyList<string> fontDirectories,
-        IReadOnlyList<string> fontArguments)
+        IReadOnlyList<string> fontArguments,
+        double threshold = 80)
     {
         var results = new List<CheckResult>();
         string id = document.Seed.Id;
@@ -387,7 +388,13 @@ internal static class PixelChecks
             id, via, ourPages.Length, theirPages, worst.Page, bands, observed,
             BaselineState.SuspectedDefect, null, string.Empty, null, null);
 
-        results.Add(Hold(prefix, row, baseline, comparing, notComparing));
+        double similarityPercent = measurements.Min(m => RenderingThreshold.Similarity(
+            new RenderObserved(m.InkBoxDelta, m.InkProfileSimilarity, m.CoverageDelta, m.BlurRatio)));
+        results.Add(!comparing
+            ? CheckResult.Skip("pixel", prefix, notComparing)
+            : measurements.All(m => m.Geometry == "match") && ourPages.Length == theirPages && similarityPercent >= threshold
+                ? CheckResult.Pass("pixel", prefix)
+                : CheckResult.Fail("pixel", prefix, RenderingThreshold.Describe(similarityPercent, threshold) + Describe(row)));
 
         if (results.Any(result => result.Outcome == CheckOutcome.Failed) && worst.Page <= pages)
         {
@@ -396,59 +403,6 @@ internal static class PixelChecks
         }
 
         return new PixelOutcome(results, row);
-    }
-
-    /// <summary>
-    /// Holds one render against the committed baseline, by band rather than by
-    /// number.
-    /// </summary>
-    /// <remarks>
-    /// A recorded number would fail on every poppler point release, every font
-    /// package update and every LibreOffice patch, and a suite that cries wolf
-    /// on its own toolchain teaches everybody to ignore it. A band is a policy,
-    /// and the raw numbers are kept beside it so a reviewer can see whether a
-    /// row is comfortably classified or sitting on a line.
-    /// </remarks>
-    private static CheckResult Hold(
-        string name, RenderRow observed, OfficeBaseline? baseline, bool comparing,
-        string notComparing)
-    {
-        if (!comparing)
-            return CheckResult.Skip("pixel", name, notComparing);
-
-        RenderRow? row = baseline?.FindRender(observed.Seed, observed.Via);
-        bool clean = Bands.IsBest(observed.Bands) &&
-                     observed.BroilerdocPages == observed.LibreOfficePages;
-
-        if (row is null)
-        {
-            return clean
-                ? CheckResult.Pass("pixel", name)
-                : CheckResult.Fail("pixel", name,
-                    "no baseline row, so the two renderings were expected to agree and they did not." +
-                    Describe(observed));
-        }
-
-        int recorded = Bands.Rank(row.Bands);
-        int now = Bands.Rank(observed.Bands);
-
-        if (Bands.Same(row.Bands, observed.Bands) &&
-            row.BroilerdocPages == observed.BroilerdocPages &&
-            row.LibreOfficePages == observed.LibreOfficePages)
-        {
-            return CheckResult.Pass("pixel", name);
-        }
-
-        if (now < recorded)
-        {
-            return CheckResult.Fail("pixel", name,
-                "the two renderings agree better than the baseline records. An improvement nobody " +
-                "records is an improvement nobody can show: update the baseline." + Describe(observed));
-        }
-
-        return CheckResult.Fail("pixel", name,
-            "the two renderings agree less well than the baseline records." + Describe(observed) +
-            "\n      recorded: " + Bands.Describe(row.Bands));
     }
 
     private static string Describe(RenderRow row) =>

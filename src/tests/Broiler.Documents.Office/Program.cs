@@ -88,6 +88,7 @@ internal static class Program
         var log = new RunLog();
         string platform = PlatformName();
 
+        Console.WriteLine("threshold   " + options.Threshold.ToString(CultureInfo.InvariantCulture) + "%");
         Console.WriteLine("tool        " + tool.Description);
 
         ToolRegister register = ToolRegister.Load(toolsPath);
@@ -223,7 +224,7 @@ internal static class Program
                     PixelOutcome pixel = await PixelChecks
                         .RunAsync(tool, space, rasterizer, document, baseline, comparing, notComparing,
                             options.Dpi, options.MaxPages, pinned, manifest.ToolFonts, options.FontDirectories,
-                            fontArguments)
+                            fontArguments, options.Threshold)
                         .ConfigureAwait(false);
 
                     log.AddRange(pixel.Results);
@@ -437,7 +438,7 @@ internal static class Program
                         options.FontDirectories,
                         fontArguments,
                         options.LibreOfficeTimeout,
-                        NextProfile).ConfigureAwait(false);
+                        NextProfile, options.Threshold).ConfigureAwait(false);
                 }
 
                 log.AddRange(sampleResults);
@@ -758,6 +759,7 @@ internal static class Program
         bool Help,
         int Jobs,
         int Dpi,
+        double Threshold,
         int MaxPages,
         TimeSpan LibreOfficeTimeout)
     {
@@ -772,6 +774,7 @@ internal static class Program
             bool keep = false, verbose = false, update = false, restamp = false;
             bool allowPending = false, help = false, createIssue = false, seedCorpus = false;
             int jobs = Environment.ProcessorCount;
+            double threshold = 80;
             int dpi = 144, maxPages = 40, timeout = 120;
             int topDifferences = ExtrasConformance.DefaultTopDifferences;
             int? maxFiles = null;
@@ -821,6 +824,12 @@ internal static class Program
                     case "--create-github-issue": createIssue = true; break;
                     case "--seed-corpus": seedCorpus = true; break;
                     case "--jobs": jobs = Integer(argument, 1); break;
+                    case "--threshold":
+                        string percent = Value(argument);
+                        if (!double.TryParse(percent, NumberStyles.Float, CultureInfo.InvariantCulture, out threshold) ||
+                            !double.IsFinite(threshold) || threshold < 0 || threshold > 100)
+                            throw new ArgumentException("'--threshold' needs a percentage from 0 to 100, not '" + percent + "'.");
+                        break;
                     case "--dpi": dpi = Integer(argument, 24); break;
                     case "--max-pages": maxPages = Integer(argument, 1); break;
                     case "--lo-timeout": timeout = Integer(argument, 1); break;
@@ -851,7 +860,7 @@ internal static class Program
                 tool, soffice, pdftoppm, manifest, baseline, tools, workspace, fontDirectories, fontSet,
                 axis, only, json, junit, extrasUrl, extrasDir, issueOut, githubRepo, crashRegressions, topDifferences,
                 maxFiles, createIssue, seedCorpus, keep, verbose, update, restamp, allowPending, help,
-                jobs, dpi, maxPages, TimeSpan.FromSeconds(timeout));
+                jobs, dpi, threshold, maxPages, TimeSpan.FromSeconds(timeout));
         }
 
         public static void WriteUsage(TextWriter output)
@@ -887,6 +896,7 @@ internal static class Program
             output.WriteLine("  --report <path>          Write the JSON report.");
             output.WriteLine("  --junit <path>           Write the JUnit XML report.");
             output.WriteLine("  --jobs <n>               Concurrent documents. (default processor count)");
+            output.WriteLine("  --threshold <percent>   Minimum rendering similarity, 0 to 100. (default 80)");
             output.WriteLine("  --dpi <n>                Resolution for both rasterisers. (default 144)");
             output.WriteLine("  --max-pages <n>          Pages compared per document. (default 40)");
             output.WriteLine("  --lo-timeout <seconds>   Per LibreOffice invocation. (default 120)");

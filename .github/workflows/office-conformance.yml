@@ -54,6 +54,10 @@ on:
         description: Resolution for both rasterisers
         required: false
         default: '144'
+      threshold:
+        description: Minimum rendering similarity percentage (0 to 100)
+        required: false
+        default: '80'
       extrasUrl:
         description: GitHub tree URL for LibreOffice sw/qa/extras samples
         required: false
@@ -153,6 +157,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OFFICE_AXIS: ${{ inputs.axis || 'all' }}
+          OFFICE_THRESHOLD: ${{ inputs.threshold || '80' }}
           OFFICE_DPI: ${{ inputs.dpi || '144' }}
           OFFICE_ONLY: ${{ inputs.only || '' }}
           OFFICE_EXTRAS_URL: ${{ inputs.extrasUrl || 'https://github.com/LibreOffice/core/tree/master/sw/qa/extras' }}
@@ -171,6 +176,7 @@ jobs:
             --skip-install
             --axis "$OFFICE_AXIS"
             --dpi "$OFFICE_DPI"
+            --threshold "$OFFICE_THRESHOLD"
             --font-dir /usr/share/fonts/truetype
             --font-set office-fonts-1
             --extras-url "$OFFICE_EXTRAS_URL"

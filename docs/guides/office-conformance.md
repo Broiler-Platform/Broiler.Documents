@@ -527,3 +527,25 @@ every differential suite, and it is why this one sits beside
 **It is not a required check.** It is nightly and dispatchable, and it must not
 become required while the reference implementation is a floating third-party
 binary.
+
+## Rendering pass threshold
+
+The workflow dispatch input `threshold` and runner option `--threshold <percent>`
+set the minimum rendering similarity, defaulting to **80** percent. Values from
+0 to 100 are accepted, including decimals. Scheduled runs also use 80 percent.
+For example, `bash eng/run-office-conformance.sh --threshold 90` requires 90%.
+
+Each compared page must meet the threshold. Similarity is 100 times the lowest
+of the ink-profile cosine similarity, one minus the blurred pixel difference
+ratio, and one minus the ink-coverage difference. This is a rendering metric,
+not a percentage of identical document bytes or exact pixels. Page counts must
+agree and page dimensions must match within the existing geometry tolerance.
+The page limit (`--max-pages`, default 40) still bounds the pages inspected.
+
+This threshold replaces the fixed best-band verdict for upstream samples and
+the pixel baseline-band verdict for seed documents. Baseline stamps, tool and
+font guards, semantic checks and baseline regeneration retain their existing
+rules. Reports keep the measured bands and severity ranking for investigation;
+failed pixel checks include the measured similarity and required threshold.
+The upstream workflow continues to publish a ranking; its existing policy does
+not fail the job for individual upstream sample differences.

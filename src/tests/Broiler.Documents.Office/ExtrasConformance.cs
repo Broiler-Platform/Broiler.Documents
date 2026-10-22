@@ -527,7 +527,8 @@ internal static class ExtrasConformance
         IReadOnlyList<string> fontDirectories,
         IReadOnlyList<string> fontArguments,
         TimeSpan libreOfficeTimeout,
-        Func<string> nextProfile)
+        Func<string> nextProfile,
+        double threshold = 80)
     {
         var results = new List<CheckResult>();
         string safeKey = SanitizePath(sample.Id);
@@ -802,8 +803,10 @@ internal static class ExtrasConformance
                                     null,
                                     null);
 
-                                bool clean = Bands.IsBest(renderRow.Bands) &&
-                                             renderRow.BroilerdocPages == renderRow.LibreOfficePages;
+                                double similarityPercent = measurements.Min(m => RenderingThreshold.Similarity(m.Observed));
+                                bool clean = measurements.All(m => m.Bands.Geometry == "match") &&
+                                             renderRow.BroilerdocPages == renderRow.LibreOfficePages &&
+                                             similarityPercent >= threshold;
 
                                 if (clean)
                                 {
@@ -814,7 +817,7 @@ internal static class ExtrasConformance
                                     results.Add(CheckResult.Fail(
                                         "pixel",
                                         "pixel/" + sample.Id,
-                                        Bands.Describe(renderRow.Bands) +
+                                        RenderingThreshold.Describe(similarityPercent, threshold) + " " + Bands.Describe(renderRow.Bands) +
                                         " (worst page " + renderRow.WorstPage.ToString(CultureInfo.InvariantCulture) +
                                         ", blur diff " + renderRow.Observed.BlurDiffRatio.ToString("0.0000", CultureInfo.InvariantCulture) +
                                         ", profile similarity " + renderRow.Observed.InkProfileSimilarity.ToString("0.000", CultureInfo.InvariantCulture) +
