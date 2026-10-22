@@ -24,7 +24,8 @@ internal static class OdtTableReader
     /// </remarks>
     internal static void Read(
         XElement table, OdtReadContext context, int depth,
-        Action<IEnumerable<XElement>, int> readBlocks)
+        Action<IEnumerable<XElement>, int> readBlocks,
+        OdtBreak precedingBreak = OdtBreak.None)
     {
         int start = context.Builder.CurrentParagraphIndex;
         var rows = new List<TableRow>();
@@ -70,6 +71,11 @@ internal static class OdtTableReader
                     var nested = new List<DocumentTable>();
                     context.Builder.PushTableSink(nested);
                     readBlocks(cell.Elements(), depth + 1);
+                    // An empty ODF cell still has an editable paragraph and a
+                    // line box in Writer. Leaving its range empty collapses
+                    // spacer rows and loses their contribution to pagination.
+                    if (context.Builder.CurrentParagraphIndex == cellStart && nested.Count == 0)
+                        readBlocks([new XElement(OdtNamespaces.Text + "p")], depth + 1);
                     context.Builder.PopTableSink();
 
                     // A cell is the end of a flow as far as a page break is
@@ -88,7 +94,14 @@ internal static class OdtTableReader
                         ReadCellShading(properties),
                         ReadCellBorders(properties),
                         isRowSpanContinuation: false,
-                        tables: nested));
+                        tables: nested,
+                        padding: ReadCellPadding(properties),
+                        verticalAlignment: (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-align") switch
+                        {
+                            "middle" => CellVerticalAlignment.Center,
+                            "bottom" => CellVerticalAlignment.Bottom,
+                            _ => CellVerticalAlignment.Top,
+                        }));
                     column += span;
                 }
             }
@@ -105,9 +118,59 @@ internal static class OdtTableReader
             context.Builder.CurrentParagraphIndex - start,
             rows,
             ReadColumnWidths(table, context.Styles, depth),
-            DocumentTable.DefaultCellPadding));
+            DocumentTable.DefaultCellPadding,
+            keepWithNext: (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "keep-with-next") == "always",
+            preferredWidth: TableLength(table, context.Styles, OdtNamespaces.Style + "width"),
+            widthPercent: TablePercent(table, context.Styles),
+            alignment: (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Table + "align") switch
+            {
+                "center" => TableAlignment.Center,
+                "right" => TableAlignment.End,
+                _ => TableAlignment.Start,
+            },
+            leftIndent: TableLength(table, context.Styles, OdtNamespaces.Fo + "margin-left") ?? 0,
+            pageBreakBefore: precedingBreak == OdtBreak.Page ||
+                (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "break-before") == "page",
+            columnBreakBefore: precedingBreak == OdtBreak.Column ||
+                (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "break-before") == "column"));
+
+        context.HoldBreak((string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "break-after") switch
+        {
+            "page" => OdtBreak.Page,
+            "column" => OdtBreak.Column,
+            _ => OdtBreak.None,
+        });
 
         context.Builder.NoteTable();
+    }
+
+    private static double? TableLength(XElement table, OdtStyles styles, XName attribute) =>
+        OdtUnits.TryParseLength((string?)TableProperties(table, styles)?.Attribute(attribute), out double points)
+            ? points : null;
+
+    private static double? TablePercent(XElement table, OdtStyles styles) =>
+        OdtUnits.TryParsePercentage((string?)TableProperties(table, styles)?.Attribute(OdtNamespaces.Style + "rel-width"), out double ratio) && ratio > 0
+            ? ratio * 100 : null;
+
+    private static XElement? TableProperties(XElement table, OdtStyles styles) =>
+        (string?)table.Attribute(OdtNamespaces.Table + "style-name") is string name &&
+        styles.TableProperties.TryGetValue(name, out XElement? properties) ? properties : null;
+
+    private static TableCellPadding? ReadCellPadding(XElement? properties)
+    {
+        if (properties is null)
+            return null;
+        double? uniform = Read("padding");
+        double? left = Read("padding-left") ?? uniform;
+        double? right = Read("padding-right") ?? uniform;
+        double? top = Read("padding-top") ?? uniform;
+        double? bottom = Read("padding-bottom") ?? uniform;
+        if (left is null && right is null && top is null && bottom is null)
+            return null;
+        return new TableCellPadding(left ?? 0, top ?? 0, right ?? 0, bottom ?? 0);
+
+        double? Read(string name) => OdtUnits.TryParseLength(
+            (string?)properties.Attribute(OdtNamespaces.Fo + name), out double value) && value >= 0 ? value : null;
     }
 
     /// <summary>A repeat count beyond this is a spreadsheet's empty tail, not a table.</summary>

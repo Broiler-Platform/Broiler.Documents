@@ -243,6 +243,12 @@ public sealed class DocumentComparison
             yield return "line height rule " + left.LineHeightRule + " vs " + right.LineHeightRule;
         if (!Near(left.LineHeight, right.LineHeight))
             yield return "line height " + Number(left.LineHeight) + " vs " + Number(right.LineHeight);
+        if (left.KeepWithNext != right.KeepWithNext)
+            yield return "keep with next " + left.KeepWithNext + " vs " + right.KeepWithNext;
+        if (left.KeepTogether != right.KeepTogether)
+            yield return "keep together " + left.KeepTogether + " vs " + right.KeepTogether;
+        if (left.OrphanLines != right.OrphanLines || left.WidowLines != right.WidowLines)
+            yield return "widow/orphan line counts differ";
         if (!Near(left.SpacingBefore, right.SpacingBefore))
             yield return "spacing before " + Number(left.SpacingBefore) + " vs " + Number(right.SpacingBefore);
         if (!Near(left.SpacingAfter, right.SpacingAfter))

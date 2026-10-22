@@ -12,6 +12,49 @@ namespace Broiler.Documents.Pagination.Tests;
 /// </remarks>
 public sealed class DocumentLayoutRowSplitTests
 {
+    [Fact]
+    public void Minimum_row_height_sets_the_next_rows_position()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+                [RichTextParagraph.Plain("first"), RichTextParagraph.Plain("second")])
+            .WithTables([new DocumentTable(0, 2,
+                [new TableRow([new TableCell(0, 1, 0)], minHeight: 180),
+                 new TableRow([new TableCell(1, 1, 0)])], [200], cellPadding: 0)]);
+
+        LayoutPage page = Assert.Single(Layout(document).Pages);
+
+        Assert.Equal(180, page.Cells[0].Bounds.Height, 3);
+        Assert.Equal(252, page.Lines.Single(line => line.ParagraphIndex == 1).Top, 3);
+    }
+
+    [Fact]
+    public void A_rows_minimum_moves_it_to_a_fresh_page_when_only_its_text_would_fit()
+    {
+        RichTextParagraph[] paragraphs = [RichTextParagraph.Plain("space"), RichTextParagraph.Plain("tall row")];
+        RichTextDocument document = RichTextDocument.FromParagraphs(paragraphs)
+            .WithTables([new DocumentTable(0, 2,
+                [new TableRow([new TableCell(0, 1, 0)], minHeight: 400),
+                 new TableRow([new TableCell(1, 1, 0)], minHeight: 400)], [200], cellPadding: 0)]);
+
+        LayoutResult result = Layout(document);
+
+        Assert.Equal(2, result.Pages.Count);
+        Assert.Equal(1, Assert.Single(result.Pages[1].Lines).ParagraphIndex);
+        Assert.Equal(400, Assert.Single(result.Pages[1].Cells).Bounds.Height, 3);
+    }
+
+    [Fact]
+    public void Content_taller_than_a_rows_minimum_still_grows()
+    {
+        RichTextDocument document = RichTextDocument.FromPlainText(string.Join("\n", Enumerable.Repeat("line", 12)))
+            .WithTables([new DocumentTable(0, 12,
+                [new TableRow([new TableCell(0, 12, 0)], minHeight: 30)], [200], cellPadding: 0)]);
+
+        LayoutPage page = Assert.Single(Layout(document).Pages);
+        Assert.True(page.Cells[0].Bounds.Height > 30);
+        Assert.Equal(12, page.Lines.Count);
+    }
+
     /// <summary>US Letter with one-inch margins: a text area 648 points tall.</summary>
     private static readonly DocumentPageBox Letter = new(612, 792, 72, 72, 72, 72);
 

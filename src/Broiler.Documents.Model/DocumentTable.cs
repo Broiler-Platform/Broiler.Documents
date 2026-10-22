@@ -47,7 +47,14 @@ public sealed class DocumentTable(
     IReadOnlyList<TableRow> rows,
     IReadOnlyList<double>? columnWidths = null,
     double cellPadding = DocumentTable.DefaultCellPadding,
-    TablePosition? position = null)
+    TablePosition? position = null,
+    bool keepWithNext = false,
+    double? preferredWidth = null,
+    double? widthPercent = null,
+    TableAlignment alignment = TableAlignment.Start,
+    double leftIndent = 0,
+    bool pageBreakBefore = false,
+    bool columnBreakBefore = false)
 {
 
     /// <summary>Word's own default cell margin: 0.08 inch on the left and right.</summary>
@@ -82,6 +89,40 @@ public sealed class DocumentTable(
     /// position says only where they are drawn. See <see cref="TablePosition"/>.
     /// </remarks>
     public TablePosition? Position { get; } = position;
+
+    /// <summary>Keep the table with the following block when both fit on a page.</summary>
+    public bool KeepWithNext { get; } = keepWithNext;
+
+    /// <summary>Preferred table width in points, or a percentage of the containing text area.</summary>
+    public double? PreferredWidth { get; } = preferredWidth is > 0 && double.IsFinite(preferredWidth.Value) ? preferredWidth : null;
+    public double? WidthPercent { get; } = widthPercent is > 0 && double.IsFinite(widthPercent.Value) ? widthPercent : null;
+    public TableAlignment Alignment { get; } = alignment;
+    public double LeftIndent { get; } = double.IsFinite(leftIndent) ? leftIndent : 0;
+    public bool PageBreakBefore { get; } = pageBreakBefore;
+    public bool ColumnBreakBefore { get; } = columnBreakBefore;
+
+    /// <summary>The inline table's width within its containing text area.</summary>
+    public double WidthIn(double available)
+    {
+        int columns = ColumnWidths.Count;
+        foreach (TableRow row in Rows)
+            foreach (TableCell cell in row.Cells)
+                columns = Math.Max(columns, cell.ColumnIndex + cell.ColumnSpan);
+        bool incomplete = columns > ColumnWidths.Count;
+        foreach (double width in ColumnWidths)
+            incomplete |= !(width > 0);
+        double requested = WidthPercent is > 0 ? available * WidthPercent.Value / 100 :
+            PreferredWidth is > 0 ? PreferredWidth.Value : !incomplete && TotalWidth > 0 ? TotalWidth : available;
+        return Math.Clamp(requested, 1, Math.Max(1, available));
+    }
+
+    /// <summary>The inline table's horizontal offset in its containing text area.</summary>
+    public double OffsetIn(double available) => Alignment switch
+    {
+        TableAlignment.Center => Math.Max(0, (available - WidthIn(available)) / 2),
+        TableAlignment.End or TableAlignment.Outside => Math.Max(0, available - WidthIn(available)),
+        _ => LeftIndent,
+    };
 
     /// <summary>True when the table stands outside the text flow.</summary>
     public bool IsFloating => Position is not null;
@@ -154,7 +195,8 @@ public sealed class DocumentTable(
         // them. What the edit put back is body text: leaving the grid over it
         // would draw an empty table and lay the paragraph out inside no cell,
         // which is to say nowhere.
-        return held == 0 ? null : new DocumentTable(index, count, rows, ColumnWidths, CellPadding, Position);
+        return held == 0 ? null : new DocumentTable(index, count, rows, ColumnWidths, CellPadding, Position,
+            KeepWithNext, PreferredWidth, WidthPercent, Alignment, LeftIndent, PageBreakBefore, ColumnBreakBefore);
     }
 
     /// <summary>
@@ -248,7 +290,9 @@ public sealed class TableCell(
     BColor shading = default,
     CellBorders borders = default,
     bool isRowSpanContinuation = false,
-    IReadOnlyList<DocumentTable>? tables = null)
+    IReadOnlyList<DocumentTable>? tables = null,
+    TableCellPadding? padding = null,
+    CellVerticalAlignment verticalAlignment = CellVerticalAlignment.Top)
 {
 
     /// <summary>The document paragraph this cell's text starts at.</summary>
@@ -273,6 +317,13 @@ public sealed class TableCell(
     public BColor Shading { get; } = shading;
 
     public CellBorders Borders { get; } = borders;
+
+    /// <summary>Explicit cell insets; null uses the table's horizontal padding and no vertical inset.</summary>
+    public TableCellPadding? Padding { get; } = padding;
+    public CellVerticalAlignment VerticalAlignment { get; } = verticalAlignment;
+
+    public TableCellPadding PaddingFor(DocumentTable table) =>
+        Padding ?? new TableCellPadding(table.CellPadding, 0, table.CellPadding, 0);
 
     /// <summary>
     /// True for the lower half of a vertical merge: a cell the document writes so
@@ -308,9 +359,17 @@ public sealed class TableCell(
             Shading,
             Borders,
             IsRowSpanContinuation,
-            tables);
+            tables,
+            Padding,
+            VerticalAlignment);
     }
 }
+
+/// <summary>Cell insets in points, measured inward from each border.</summary>
+public readonly record struct TableCellPadding(double Left, double Top, double Right, double Bottom);
+
+/// <summary>Where a cell places content when its row has spare height.</summary>
+public enum CellVerticalAlignment { Top, Center, Bottom }
 
 /// <summary>One edge of a cell's border: its colour and how thick it is drawn.</summary>
 public readonly record struct TableBorder(BColor Color, double Width)

@@ -9,6 +9,28 @@ namespace Broiler.Documents.Odt.Tests;
 /// </summary>
 public sealed class OdtFloatingPictureTests
 {
+    [Theory]
+    [InlineData("500pt", "450pt", "432pt", "648pt", -75, 0)]
+    [InlineData("500pt", "700pt", "100pt", "100pt", 257, 548)]
+    [InlineData("-20pt", "-30pt", "100pt", "100pt", -75, -30)]
+    [InlineData("80pt", "90pt", "100pt", "100pt", 5, 90)]
+    public void Page_anchored_pictures_are_constrained_to_the_paper(
+        string x, string y, string width, string height, double expectedX, double expectedY)
+    {
+        string styles = "<office:automatic-styles><style:page-layout style:name=\"page\">" +
+            "<style:page-layout-properties fo:page-width=\"432pt\" fo:page-height=\"648pt\" " +
+            "fo:margin-left=\"75pt\" fo:margin-right=\"68pt\" fo:margin-top=\"68pt\" fo:margin-bottom=\"75pt\"/>" +
+            "</style:page-layout></office:automatic-styles>" +
+            "<office:master-styles><style:master-page style:name=\"Standard\" style:page-layout-name=\"page\"/></office:master-styles>";
+        string frame = Frame("page", x, y, width, height).Replace(
+            "text:anchor-type=\"page\"", "text:anchor-type=\"page\" text:anchor-page-number=\"1\"", StringComparison.Ordinal);
+        using var stream = new MemoryStream(OdtTestPackage.FromBody(
+            frame + "<text:p/>", stylesPartInnerXml: styles, binaryParts: Pictures()));
+        DocumentShape shape = Assert.Single(new OdtDocumentCodec().Read(stream).Document.Shapes);
+        Assert.Equal(expectedX, shape.OffsetX, 2);
+        Assert.Equal(expectedY, shape.OffsetY, 2);
+    }
+
     private static Dictionary<string, byte[]> Pictures() =>
         new(StringComparer.Ordinal) { ["Pictures/logo.png"] = OdtTestPackage.OnePixelPng };
 

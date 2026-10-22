@@ -119,10 +119,8 @@ internal sealed record OdtReadContext(
     }
 
     /// <summary>
-    /// Gives up on a held break, because nothing follows it that the model
-    /// could hang one on: the flow ended, or the next block is a table, whose
-    /// page break would belong to the table rather than to a paragraph inside
-    /// somebody's cell. It goes out as a diagnostic rather than quietly,
+    /// Gives up on a held break when its flow ends, including the end of a
+    /// table cell. It goes out as a diagnostic rather than quietly,
     /// since a break the reader knew about and could not place is exactly the
     /// thing a caller comparing page counts needs told.
     /// </summary>
@@ -138,7 +136,7 @@ internal sealed record OdtReadContext(
     }
 }
 
-/// <summary>A break one paragraph hands to the next: none, a page, or a column.</summary>
+/// <summary>A break one block hands to the next: none, a page, or a column.</summary>
 internal enum OdtBreak
 {
     None,

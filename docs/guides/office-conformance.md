@@ -448,9 +448,8 @@ Classified, not open:
 - `letterhead-frames/rtf` is `documented`. With `	itlepg` and no `ooterf`,
   page one gets no footer, as in Word; LibreOffice draws the default one. Matching
   LibreOffice would make this component disagree with its own DOCX reader.
-- The plain-text projections differ on lists and tables: LibreOffice writes list
-  markers and joins a table row onto one line, `broilerdoc dump --as text` does
-  neither. That is a projection difference, not lost content.
+- List labels, note citations and table cell separators follow LibreOffice's
+  text export, so those projection differences no longer masquerade as lost text.
 - `lists-nested/html/roundtrip` carries `html.list`, which is the writer saying
   it did not emit list structure.
 
@@ -564,3 +563,27 @@ finishes (including on exceptions). Only failure images for the current top
 `--top-differences` samples are retained until the report is written. This bounds
 intermediate storage by the concurrent documents rather than the entire corpus.
 `--keep` explicitly disables this cleanup for local investigation.
+
+
+## Paragraph pagination rules
+
+The [paragraph-pagination verification note](../notes/office-issue-135-pagination-verification-2026-10-22.md)
+records keep-with-next, keep-together and explicit widow/orphan controls read
+from DOCX and ODT. Authored page assignments match LibreOffice, while the five
+sampled issue #135 scores remain unchanged. The note describes the supported
+body and table-cell cases and the remaining limitations.
+
+The [table/image verification note](../notes/office-issue-135-table-image-verification-2026-10-22.md)
+records the subsequent page-frame positioning, table keep-with-next and cell
+padding changes. One sampled blank-image failure now passes the pixel check;
+the table results are mixed, including a page-count regression documented there.
+
+The [table-geometry verification note](../notes/office-issue-135-table-geometry-verification-2026-10-22.md)
+records preferred widths, horizontal placement and cell vertical alignment.
+Authored geometry agrees with LibreOffice; the seven ranked samples still fail
+their pixel checks despite lower blurred differences in several cases.
+
+The [empty-cell and table-break verification note](../notes/office-issue-135-empty-cells-breaks-verification-2026-10-22.md)
+records preservation of empty ODT cells, first-paragraph cell spacing and table
+page/column breaks. It also covers the PDF fix for text lost after blank table
+continuation pages, and the remaining mixed results on upstream samples.

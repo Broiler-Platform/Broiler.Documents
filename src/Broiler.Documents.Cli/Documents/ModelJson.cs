@@ -81,6 +81,10 @@ public static class ModelJson
         ["lineHeight"] = style.LineHeight,
         ["listKind"] = style.ListKind.ToString().ToLowerInvariant(),
         ["indentLevel"] = style.IndentLevel,
+        ["keepWithNext"] = style.KeepWithNext,
+        ["keepTogether"] = style.KeepTogether,
+        ["orphanLines"] = style.OrphanLines,
+        ["widowLines"] = style.WidowLines,
         ["spacingBefore"] = style.SpacingBefore,
         ["spacingAfter"] = style.SpacingAfter,
     };

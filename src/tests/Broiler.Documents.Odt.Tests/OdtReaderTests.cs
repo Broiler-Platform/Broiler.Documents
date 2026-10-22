@@ -207,6 +207,25 @@ public sealed class OdtReaderTests
         Assert.Equal("Chapter one", result.Document.Paragraphs[0].Text);
     }
 
+    [Theory]
+    [InlineData("table-of-content")]
+    [InlineData("alphabetical-index")]
+    [InlineData("illustration-index")]
+    [InlineData("table-index")]
+    [InlineData("object-index")]
+    [InlineData("user-index")]
+    [InlineData("bibliography")]
+    public void Generated_index_titles_are_preserved_before_entries(string kind)
+    {
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:" + kind + " text:name=\"Index\"><text:index-body>" +
+            "<text:index-title text:name=\"Title\"><text:h text:outline-level=\"1\">Inhalt</text:h></text:index-title>" +
+            OdtTestPackage.Paragraph("Chapter one") + "</text:index-body></text:" + kind + ">");
+
+        Assert.Equal(new[] { "Inhalt", "Chapter one" }, result.Document.Paragraphs.Select(p => p.Text));
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.block.unsupported");
+    }
+
     [Fact]
     public void Reads_The_Value_A_Field_Displays()
     {

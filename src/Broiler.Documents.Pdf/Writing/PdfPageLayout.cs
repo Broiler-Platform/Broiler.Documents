@@ -222,12 +222,37 @@ internal sealed class PdfPageLayout(
 
             if (DocumentTable.StartingAt(document.Tables, paragraphIndex) is DocumentTable table)
             {
+                if ((table.PageBreakBefore || table.ColumnBreakBefore) && y < setup.Height - setup.MarginTop)
+                    BreakPage();
                 // A row is placed whole: its cells sit beside each other, and
                 // breaking one across a page would mean breaking all of them at
                 // the same line.
-                foreach (CellContent row in ComposeTable(document, table, setup.MarginLeft, setup.ContentWidth))
+                List<CellContent> rows = ComposeTable(document, table, setup.MarginLeft, setup.ContentWidth);
+                if (table.KeepWithNext && table.ParagraphEnd < document.ParagraphCount &&
+                    DocumentTable.StartingAt(document.Tables, table.ParagraphEnd) is null)
                 {
-                    if (y - row.Height < bottom && page.Runs.Count > 0)
+                    RichTextParagraph following = document.Paragraphs[table.ParagraphEnd];
+                    if (!following.Style.PageBreakBefore && !following.Style.ColumnBreakBefore)
+                    {
+                        ListNumberer probe = numberer.Snapshot();
+                        double nextWidth = Math.Max(1, setup.ContentWidth - following.Style.IndentLevel * IndentWidth);
+                        List<LayoutLine> next = BreakParagraph(following, nextWidth,
+                            Marker(following.Style, probe.Advance(following.Style), listNumber + 1));
+                        double nextHeight = next.Sum(line => following.Style.LineBoxHeight(line.Height));
+                        if (nextHeight > setup.Height - setup.MarginTop - setup.MarginBottom)
+                            nextHeight = next.Take(Math.Max(1, following.Style.OrphanLines ?? 1)).Sum(line => following.Style.LineBoxHeight(line.Height));
+                        double tableRequired = rows.Sum(row => row.Height) + Math.Max(0, following.Style.SpacingBefore) + nextHeight;
+                        if (tableRequired <= setup.Height - setup.MarginTop - setup.MarginBottom &&
+                            y - tableRequired < bottom && page.Runs.Count > 0)
+                            BreakPage();
+                    }
+                }
+                foreach (CellContent row in rows)
+                {
+                    // Empty rows occupy space even when they emit no glyphs.
+                    // A glyph-count guard lets later text fall below the page
+                    // after a continuation page filled only by empty cells.
+                    if (y - row.Height < bottom && y < setup.Height - setup.MarginTop)
                         BreakPage();
 
                     row.PlaceOn(page, y, anchors);
@@ -328,9 +353,90 @@ internal sealed class PdfPageLayout(
                 continue;
             }
 
+            double[] lineHeights = [.. lines.Select(line => style.LineBoxHeight(line.Height))];
+            void RecomposeMovedParagraph()
+            {
+                anchors[paragraphIndex] = (page, y);
+                foreach (DocumentShape shape in document.Shapes)
+                {
+                    if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
+                        _wrap.Add(shape, shape.OffsetFromPage ? shape.OffsetY - setup.Height : -(y - shape.OffsetY),
+                            height: BoxHeight(shape));
+                }
+                bands.Clear();
+                if (_wrap.IsEmpty)
+                    lines = BreakParagraph(paragraph, available, marker);
+                else
+                {
+                    double lineY = y;
+                    double estimate = style.LineBoxHeight(EmptyLineHeight());
+                    lines = BreakParagraph(paragraph, _ =>
+                    {
+                        TextBand row = WrapBand(ref lineY, estimate, available);
+                        lineY -= estimate;
+                        return row;
+                    }, marker, bands);
+                }
+                lineHeights = [.. lines.Select(line => style.LineBoxHeight(line.Height))];
+            }
+
+            double capacity = setup.Height - setup.MarginTop - setup.MarginBottom;
+            double required = lineHeights.Sum();
+            if (style.KeepWithNext)
+            {
+                ListNumberer probe = numberer.Snapshot();
+                ParagraphStyle previous = style;
+                double previousLineHeight = lineHeights.LastOrDefault();
+                for (int next = paragraphIndex + 1; previous.KeepWithNext && next < document.ParagraphCount; next++)
+                {
+                    RichTextParagraph following = document.Paragraphs[next];
+                    if (following.Style.PageBreakBefore || following.Style.ColumnBreakBefore ||
+                        DocumentTable.StartingAt(document.Tables, next) is not null)
+                        break;
+                    double nextWidth = Math.Max(1, setup.ContentWidth - following.Style.IndentLevel * IndentWidth);
+                    string nextMarker = Marker(following.Style, probe.Advance(following.Style), listNumber + 1);
+                    List<LayoutLine> followingLines = BreakParagraph(following, nextWidth, nextMarker);
+                    double followingHeight = followingLines.Sum(line => following.Style.LineBoxHeight(line.Height));
+                    if (!following.Style.KeepWithNext && followingHeight > capacity)
+                        followingHeight = followingLines.Take(Math.Max(1, following.Style.OrphanLines ?? 1))
+                            .Sum(line => following.Style.LineBoxHeight(line.Height));
+                    required += SpacingAfter(previous, previousLineHeight) + Math.Max(0, following.Style.SpacingBefore) + followingHeight;
+                    previous = following.Style;
+                    previousLineHeight = followingLines.Count == 0 ? EmptyLineHeight() :
+                        following.Style.LineBoxHeight(followingLines[^1].Height);
+                    if (required > capacity)
+                        break;
+                }
+            }
+            if ((style.KeepTogether || style.KeepWithNext) && required <= capacity &&
+                y - required < bottom && page.Runs.Count > 0)
+            {
+                BreakPage();
+                RecomposeMovedParagraph();
+            }
+
+            int segmentEnd = -1;
             double lastLineHeight = 0;
             for (int lineIndex = 0; lineIndex < lines.Count; lineIndex++)
             {
+                if ((style.OrphanLines is > 0 || style.WidowLines is > 0) && lineIndex >= segmentEnd)
+                {
+                    if (segmentEnd >= 0 && page.Runs.Count > 0)
+                        BreakPage();
+                    int fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex, y - bottom,
+                        style.OrphanLines ?? 0, style.WidowLines ?? 0);
+                    if (fit == 0 && page.Runs.Count > 0)
+                    {
+                        BreakPage();
+                        if (lineIndex == 0)
+                            RecomposeMovedParagraph();
+                        fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex, y - bottom,
+                            style.OrphanLines ?? 0, style.WidowLines ?? 0);
+                    }
+                    if (fit == 0)
+                        fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex, y - bottom, 0, 0);
+                    segmentEnd = lineIndex + Math.Max(1, fit);
+                }
                 LayoutLine line = lines[lineIndex];
                 TextBand band = lineIndex < bands.Count ? bands[lineIndex] : new TextBand(0, available);
                 double lineHeight = style.LineBoxHeight(line.Height);
@@ -518,6 +624,7 @@ internal sealed class PdfPageLayout(
         double[] edges = ColumnEdges(table, left, width);
         var rows = new List<CellContent>(table.Rows.Count);
         var spans = new List<(int Row, CellBoxDraft Box)>();
+        var contents = new List<(int Row, TableCell Cell, CellContent Content, TableCellPadding Padding)>();
 
         foreach (TableRow row in table.Rows)
         {
@@ -525,17 +632,18 @@ internal sealed class PdfPageLayout(
             foreach (TableCell cell in row.Cells)
             {
                 (double cellLeft, double cellWidth) = ColumnSpanBox(edges, cell);
-                double textWidth = Math.Max(1, cellWidth - (table.CellPadding * 2));
+                TableCellPadding padding = cell.PaddingFor(table);
+                double textWidth = Math.Max(1, cellWidth - padding.Left - padding.Right);
                 CellContent content = ComposeBlocks(
                     document,
                     cell.Tables,
                     cell.ParagraphIndex,
                     cell.ParagraphEnd,
-                    cellLeft + table.CellPadding,
+                    cellLeft + padding.Left,
                     textWidth);
 
-                composed.Absorb(content);
-                composed.Height = Math.Max(composed.Height, content.Height);
+                contents.Add((rows.Count, cell, content, padding));
+                composed.Height = Math.Max(composed.Height, content.Height + padding.Top + padding.Bottom);
 
                 if (cell.IsRowSpanContinuation)
                     continue;
@@ -546,7 +654,7 @@ internal sealed class PdfPageLayout(
             }
 
             // A row is never shorter than a line, so an empty one is still a row.
-            composed.Height = Math.Max(composed.Height, EmptyLineHeight());
+            composed.Height = Math.Max(composed.Height, Math.Max(row.MinHeight, EmptyLineHeight()));
             foreach (CellBoxDraft box in composed.Boxes)
                 box.RowHeight = composed.Height;
 
@@ -560,6 +668,21 @@ internal sealed class PdfPageLayout(
                 extra += rows[r].Height;
 
             box.ExtraHeight = extra;
+        }
+
+        foreach ((int index, TableCell cell, CellContent content, TableCellPadding padding) in contents)
+        {
+            double height = rows[index].Height;
+            for (int r = index + 1; r < Math.Min(rows.Count, index + cell.RowSpan); r++)
+                height += rows[r].Height;
+            double spare = Math.Max(0, height - content.Height - padding.Top - padding.Bottom);
+            double down = cell.VerticalAlignment switch
+            {
+                CellVerticalAlignment.Center => spare / 2,
+                CellVerticalAlignment.Bottom => spare,
+                _ => 0,
+            };
+            rows[index].AbsorbAt(content, padding.Top + down);
         }
 
         return rows;
@@ -610,8 +733,7 @@ internal sealed class PdfPageLayout(
             previousList = style.ListKind;
             string? label = numberer.Advance(style);
 
-            if (content.Height > 0)
-                content.Height += style.SpacingBefore;
+            content.Height += Math.Max(0, style.SpacingBefore);
 
             List<LayoutLine> lines = BreakParagraph(
                 paragraph,
@@ -657,10 +779,18 @@ internal sealed class PdfPageLayout(
     /// </summary>
     private static double[] ColumnEdges(DocumentTable table, double left, double width)
     {
+        if (!table.IsFloating)
+        {
+            left += table.OffsetIn(width);
+            width = table.WidthIn(width);
+        }
         int columns = ColumnCount(table);
         var edges = new double[columns + 1];
         double total = table.TotalWidth;
-        double scale = total > 0 && total > width ? width / total : 1.0;
+        int unspecified = Enumerable.Range(0, columns).Count(i => i >= table.ColumnWidths.Count || !(table.ColumnWidths[i] > 0));
+        double scale = total > 0 && (total > width || (!table.IsFloating && unspecified == 0 &&
+            (table.PreferredWidth is > 0 || table.WidthPercent is > 0))) ? width / total : 1.0;
+        double shared = unspecified > 0 ? Math.Max(0, width - total * scale) / unspecified : 0;
 
         double x = left;
         edges[0] = x;
@@ -668,7 +798,7 @@ internal sealed class PdfPageLayout(
         {
             x += i < table.ColumnWidths.Count && table.ColumnWidths[i] > 0
                 ? table.ColumnWidths[i] * scale
-                : width / columns;
+                : table.IsFloating ? width / columns : shared;
             edges[i + 1] = x;
         }
 

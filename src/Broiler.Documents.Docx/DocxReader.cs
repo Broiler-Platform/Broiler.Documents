@@ -1996,6 +1996,16 @@ internal static class DocxReader
         // shows nothing else. "solid" shows the pattern's own colour. A fill of
         // "auto" with no pattern is no shading, which is how a paragraph takes
         // away the shading its style gave.
+        if (pPr.Element(DocxNamespaces.Wordprocessing + "keepNext") is XElement keepNext)
+            style = style with { KeepWithNext = ReadOnOff(keepNext) };
+        if (pPr.Element(DocxNamespaces.Wordprocessing + "keepLines") is XElement keepLines)
+            style = style with { KeepTogether = ReadOnOff(keepLines) };
+        if (pPr.Element(DocxNamespaces.Wordprocessing + "widowControl") is XElement widowControl)
+        {
+            int count = ReadOnOff(widowControl) ? 2 : 0;
+            style = style with { OrphanLines = count, WidowLines = count };
+        }
+
         XElement? shading = pPr.Element(DocxNamespaces.Wordprocessing + "shd");
         if (shading is not null)
             style = style with { Background = ReadParagraphShading(shading) };

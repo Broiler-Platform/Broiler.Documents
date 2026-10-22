@@ -37,9 +37,8 @@ internal sealed class OdtStyles
     public const string TextFamily = "text";
 
     /// <summary>
-    /// The table family. Nothing here resolves table properties through the
-    /// chain, but a table style may name the master page a document starts on,
-    /// and a document may begin with a table.
+    /// The table family: its styles carry keep rules and can name the master
+    /// page a document starts on.
     /// </summary>
     public const string TableFamily = "table";
 
@@ -132,6 +131,9 @@ internal sealed class OdtStyles
     /// name. A cell names one, and that is where ODF states its background and
     /// its borders.
     /// </summary>
+    public IReadOnlyDictionary<string, XElement> TableProperties { get; init; } =
+        new Dictionary<string, XElement>(StringComparer.Ordinal);
+
     public IReadOnlyDictionary<string, XElement> TableCellProperties { get; init; } =
         new Dictionary<string, XElement>(StringComparer.Ordinal);
 
@@ -255,8 +257,9 @@ internal sealed class OdtStyles
             MasterStyles = masterStyles,
             PageLayouts = pageLayouts,
             NotesConfigurations = notesConfigurations,
-            GraphicProperties = ResolveGraphicChains(styles, graphicProperties, limits.MaxGroupDepth),
-            TableCellProperties = cellProperties,
+            GraphicProperties = ResolvePropertyChains(styles, graphicProperties, limits.MaxGroupDepth),
+            TableProperties = ResolvePropertyChains(styles, CollectTableProperties(stylesRoot, contentRoot), limits.MaxGroupDepth, TableFamily),
+            TableCellProperties = ResolvePropertyChains(styles, cellProperties, limits.MaxGroupDepth, "table-cell"),
             TableColumnProperties = columnProperties,
             TableRowProperties = rowProperties,
             SectionProperties = sectionProperties,
@@ -265,8 +268,26 @@ internal sealed class OdtStyles
         };
     }
 
+    private static Dictionary<string, XElement> CollectTableProperties(params XElement?[] roots)
+    {
+        var result = new Dictionary<string, XElement>(StringComparer.Ordinal);
+        foreach (XElement? root in roots)
+        {
+            if (root is null)
+                continue;
+            foreach (XElement style in root.Descendants(OdtNamespaces.Style + "style"))
+            {
+                if ((string?)style.Attribute(OdtNamespaces.Style + "family") == TableFamily &&
+                    (string?)style.Attribute(OdtNamespaces.Style + "name") is string name &&
+                    style.Element(OdtNamespaces.Style + "table-properties") is XElement properties)
+                    result[name] = properties;
+            }
+        }
+        return result;
+    }
+
     /// <summary>
-    /// Each graphic style's properties with what its parents state beneath them.
+    /// Each style family's properties with what its parents state beneath them.
     /// </summary>
     /// <remarks>
     /// ODF styles inherit through <c>style:parent-style-name</c>, and LibreOffice
@@ -277,15 +298,16 @@ internal sealed class OdtStyles
     /// wins; child elements are taken whole from the nearest style that has any.
     /// A chain that loops or runs past <paramref name="maxDepth"/> stops there.
     /// </remarks>
-    private static Dictionary<string, XElement> ResolveGraphicChains(
+    private static Dictionary<string, XElement> ResolvePropertyChains(
         Dictionary<StyleKey, StyleDefinition> styles,
         Dictionary<string, XElement> own,
-        int maxDepth)
+        int maxDepth,
+        string family = "graphic")
     {
         var resolved = new Dictionary<string, XElement>(own, StringComparer.Ordinal);
         foreach (StyleKey key in styles.Keys)
         {
-            if (!string.Equals(key.Family, "graphic", StringComparison.Ordinal))
+            if (!string.Equals(key.Family, family, StringComparison.Ordinal))
                 continue;
 
             var chain = new List<XElement>();
@@ -296,17 +318,22 @@ internal sealed class OdtStyles
                 if (own.TryGetValue(current, out XElement? properties))
                     chain.Add(properties);
 
-                current = styles.TryGetValue(new StyleKey("graphic", current), out StyleDefinition? definition)
+                current = styles.TryGetValue(new StyleKey(family, current), out StyleDefinition? definition)
                     ? definition.ParentStyleName
                     : null;
             }
 
-            if (chain.Count < 2)
+            if (chain.Count == 0)
                 continue;
 
             var merged = new XElement(chain[0].Name);
             for (int i = chain.Count - 1; i >= 0; i--)
             {
+                if (family == "table-cell" && chain[i].Attribute(OdtNamespaces.Fo + "padding") is XAttribute padding)
+                {
+                    foreach (string edge in new[] { "left", "top", "right", "bottom" })
+                        merged.SetAttributeValue(OdtNamespaces.Fo + "padding-" + edge, padding.Value);
+                }
                 foreach (XAttribute attribute in chain[i].Attributes())
                     merged.SetAttributeValue(attribute.Name, attribute.Value);
             }

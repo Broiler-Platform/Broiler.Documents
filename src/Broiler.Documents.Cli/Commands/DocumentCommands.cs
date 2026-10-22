@@ -283,11 +283,13 @@ public static class DocumentCommands
         var numberer = new ListNumberer();
         var notes = new NoteNumberer(document.NoteNumbering);
         var builder = new StringBuilder();
+        var cellSeparators = new Dictionary<int, char>();
+        ReadCellSeparators(document.Tables, cellSeparators);
         for (int i = 0; i < document.ParagraphCount; i++)
         {
             RichTextParagraph paragraph = document.Paragraphs[i];
             if (i > 0)
-                builder.Append('\n');
+                builder.Append(cellSeparators.GetValueOrDefault(i, '\n'));
 
             string? label = numberer.Advance(paragraph.Style);
             if (paragraph.Style.List is ListReference list && label is not null)
@@ -303,13 +305,40 @@ public static class DocumentCommands
                 int length = Math.Min(run.Length, paragraph.Length - offset);
                 if (run.Style.Note is DocumentNote note)
                     builder.Append(notes.Label(note));
-                else
+                else if (!run.Style.IsImage)
                     builder.Append(paragraph.Text, offset, length);
                 offset += length;
             }
         }
 
         return builder.ToString();
+    }
+
+    // Writer's text export separates table cells with tabs and rows with
+    // newlines. Paragraphs inside a cell keep their own newline boundaries.
+    private static void ReadCellSeparators(
+        IReadOnlyList<DocumentTable> tables, Dictionary<int, char> separators)
+    {
+        foreach (DocumentTable table in tables)
+        {
+            bool firstRow = true;
+            foreach (TableRow row in table.Rows)
+            {
+                bool firstCell = true;
+                foreach (TableCell cell in row.Cells)
+                {
+                    if (cell.ParagraphCount == 0)
+                        continue;
+                    if (!firstCell)
+                        separators[cell.ParagraphIndex] = '\t';
+                    else if (!firstRow)
+                        separators[cell.ParagraphIndex] = '\n';
+                    ReadCellSeparators(cell.Tables, separators);
+                    firstCell = false;
+                }
+                firstRow = false;
+            }
+        }
     }
 
     /// <summary>The shared tail of every command that produces a document.</summary>

@@ -48,6 +48,66 @@ public sealed class DocumentLayoutSectionTests
             ]);
 
     [Fact]
+    public void Sections_switch_paper_size_and_restore_the_document_paper()
+    {
+        PageGeometry portrait = new(612, 792, 72, 72, 72, 72);
+        PageGeometry landscape = new(792, 612, 36, 36, 36, 36);
+        var next = ParagraphStyle.Default with { PageBreakBefore = true };
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+                [Line("portrait"), Line("landscape", next), Line("portrait again", next)])
+            .WithPageGeometry(portrait)
+            .WithSections([new(0, 1, 1, 0), new(1, 1, 1, 0, landscape), new(2, 1, 1, 0)]);
+
+        LayoutResult result = Layout(document);
+
+        Assert.Equal(new[] { 612d, 792d, 612d }, result.Pages.Select(page => page.WidthPoints));
+        Assert.Equal(new[] { 792d, 612d, 792d }, result.Pages.Select(page => page.HeightPoints));
+        Assert.Equal(36, result.Pages[1].Lines[0].Top, 3);
+        Assert.Equal(36, LeftOf(result.Pages[1].Lines[0]), 3);
+    }
+
+    [Fact]
+    public void A_sections_continuation_pages_keep_its_paper_and_fit_its_height()
+    {
+        PageGeometry portrait = new(612, 792, 72, 72, 72, 72);
+        PageGeometry shortPaper = new(792, 300, 36, 36, 36, 36);
+        RichTextParagraph[] paragraphs = [Line("cover"), .. Lines("body", 80)];
+        paragraphs[1] = Line("body 1", ParagraphStyle.Default with { PageBreakBefore = true });
+        RichTextDocument document = RichTextDocument.FromParagraphs(paragraphs)
+            .WithPageGeometry(portrait)
+            .WithSections([new(0, 1, 1, 0), new(1, 80, 1, 0, shortPaper)]);
+
+        LayoutResult result = Layout(document);
+
+        Assert.True(result.Pages.Count > 2);
+        Assert.All(result.Pages.Skip(1), page =>
+        {
+            Assert.Equal(792, page.WidthPoints);
+            Assert.Equal(300, page.HeightPoints);
+            Assert.All(page.Lines, line => Assert.True(line.Top + line.Height <= 264.01));
+        });
+    }
+
+    [Fact]
+    public void Explicit_paper_override_keeps_every_section_on_requested_paper()
+    {
+        PageGeometry portrait = new(612, 792, 72, 72, 72, 72);
+        PageGeometry landscape = new(792, 612, 36, 36, 36, 36);
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+                [Line("one"), Line("two", ParagraphStyle.Default with { PageBreakBefore = true })])
+            .WithPageGeometry(portrait)
+            .WithSections([new(0, 1, 1, 0), new(1, 1, 1, 0, landscape)]);
+
+        LayoutResult result = Layout(document, new DocumentPageBox(500, 700, 50, 50, 50, 50));
+
+        Assert.All(result.Pages, page =>
+        {
+            Assert.Equal(500, page.WidthPoints);
+            Assert.Equal(700, page.HeightPoints);
+        });
+    }
+
+    [Fact]
     public void A_Section_Starts_Below_The_Text_Above_It_In_Both_Its_Columns()
     {
         LayoutPage page = Assert.Single(Layout(Sandwich()).Pages);

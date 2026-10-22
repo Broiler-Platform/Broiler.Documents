@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
@@ -106,6 +107,8 @@ internal static class DocxTableReader
                     IsLastInRow = cellIndex == cellElements.Count - 1,
                     TableEdges = rowEdges,
                     Tables = nested,
+                    VerticalAlignment = ReadCellAlignment(styles.TableStyleParts(styleId, conditions, "tcPr"), cellProperties),
+                    Padding = ResolvePadding(styleTableParts, properties, styles.TableStyleParts(styleId, conditions, "tcPr"), cellProperties),
                 });
                 column += span;
             }
@@ -148,7 +151,11 @@ internal static class DocxTableReader
             [.. rows.Select(BuildRow)],
             ReadTableGrid(table),
             ReadCellPadding(styleTableParts, properties),
-            depth <= 1 ? ReadPosition(properties) : null));
+            depth <= 1 ? ReadPosition(properties) : null,
+            preferredWidth: ReadPreferredWidth(TableProperty(styleTableParts, properties, "tblW"), percent: false),
+            widthPercent: ReadPreferredWidth(TableProperty(styleTableParts, properties, "tblW"), percent: true),
+            alignment: ReadAlignment(DocxValueReader.WordValue(TableProperty(styleTableParts, properties, "jc"))),
+            leftIndent: DocxValueReader.Twips(TableProperty(styleTableParts, properties, "tblInd"), "w")));
 
         if (depth > 1 && properties?.Element(DocxNamespaces.Wordprocessing + "tblpPr") is not null)
         {
@@ -186,12 +193,12 @@ internal static class DocxTableReader
                 string name = property.Name.LocalName;
                 bool applied = (kind, name) switch
                 {
-                    ("tblPr", "tblBorders" or "shd" or "tblCellMar" or "tblInd" or "tblW" or "tblLook" or "tblStyle") => true,
+                    ("tblPr", "tblBorders" or "shd" or "tblCellMar" or "tblInd" or "tblW" or "jc" or "tblLook" or "tblStyle") => true,
                     ("tblPr", "tblStyleRowBandSize" or "tblStyleColBandSize") =>
                         !DocxValueReader.TryReadInt(property.Attribute(DocxNamespaces.Wordprocessing + "val"), out int size) || size <= 1,
                     ("trPr", "cantSplit" or "tblHeader") => true,
                     ("tcPr", "tcBorders") => !property.Elements().Any(edge => edge.Name.LocalName is "tl2br" or "tr2bl"),
-                    ("tcPr", "shd" or "tcW") => true,
+                    ("tcPr", "shd" or "tcW" or "tcMar" or "vAlign") => true,
                     _ => false,
                 };
                 if (!applied)
@@ -263,6 +270,52 @@ internal static class DocxTableReader
         };
     }
 
+    private static XElement? TableProperty(IReadOnlyList<XElement> styles, XElement? own, string name)
+    {
+        XName key = DocxNamespaces.Wordprocessing + name;
+        if (own?.Element(key) is XElement direct)
+            return direct;
+        for (int i = styles.Count - 1; i >= 0; i--)
+            if (styles[i].Element(key) is XElement inherited)
+                return inherited;
+        return null;
+    }
+
+    private static double? ReadPreferredWidth(XElement? width, bool percent)
+    {
+        string? type = (string?)width?.Attribute(DocxNamespaces.Wordprocessing + "type");
+        if (percent && type == "pct")
+        {
+            string? value = (string?)width?.Attribute(DocxNamespaces.Wordprocessing + "w");
+            if (value?.EndsWith('%') == true && double.TryParse(value[..^1], NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out double explicitPercent) && double.IsFinite(explicitPercent) && explicitPercent > 0)
+                return explicitPercent;
+            return DocxValueReader.TryReadInt(width?.Attribute(DocxNamespaces.Wordprocessing + "w"), out int units) && units > 0
+                ? units / 50.0 : null;
+        }
+        if (!percent && type is null or "dxa")
+        {
+            double points = DocxValueReader.Twips(width, "w");
+            return points > 0 ? points : null;
+        }
+        return null;
+    }
+
+    private static TableAlignment ReadAlignment(string? value) => value switch
+    {
+        "center" => TableAlignment.Center,
+        "right" or "end" => TableAlignment.End,
+        _ => TableAlignment.Start,
+    };
+
+    private static CellVerticalAlignment ReadCellAlignment(IReadOnlyList<XElement> styles, XElement? own) =>
+        DocxValueReader.WordValue(TableProperty(styles, own, "vAlign")) switch
+        {
+            "center" => CellVerticalAlignment.Center,
+            "bottom" => CellVerticalAlignment.Bottom,
+            _ => CellVerticalAlignment.Top,
+        };
+
     /// <summary>What a cell's <c>w:vMerge</c> says about the merge it is part of.</summary>
     private enum VerticalMerge
     {
@@ -287,6 +340,8 @@ internal static class DocxTableReader
         public VerticalMerge Merge;
         public BColor Shading;
         public CellBorders Borders;
+        public TableCellPadding? Padding;
+        public CellVerticalAlignment VerticalAlignment;
         public XElement? Properties;
         public IReadOnlyList<XElement> StyleParts = [];
         public int RowIndex;
@@ -386,7 +441,9 @@ internal static class DocxTableReader
             cell.Shading,
             cell.Borders,
             cell.Merge == VerticalMerge.Continue,
-            cell.Tables))],
+            cell.Tables,
+            cell.Padding,
+            cell.VerticalAlignment))],
             isHeader: row.IsHeader,
             minHeight: row.MinHeight,
             canSplit: row.CanSplit);
@@ -472,11 +529,51 @@ internal static class DocxTableReader
     }
 
     /// <summary>
-    /// The space between a cell's edge and its text, from <c>w:tblCellMar</c>:
-    /// the table's own, else its style's. Word states each side; this model has
-    /// one padding, so the left margin is the one it takes - it is the one that
-    /// moves the text.
+    /// Each cell edge, from table styles, table margins, conditional cell
+    /// styles and direct cell margins, in increasing priority.
     /// </summary>
+    private static TableCellPadding? ResolvePadding(IReadOnlyList<XElement> tableStyles, XElement? table,
+        IReadOnlyList<XElement> cellStyles, XElement? cell)
+    {
+        double left = DocumentTable.DefaultCellPadding, right = left, top = 0, bottom = 0;
+        bool stated = false;
+        foreach (XElement part in tableStyles)
+            Apply(part.Element(DocxNamespaces.Wordprocessing + "tblCellMar"));
+        Apply(table?.Element(DocxNamespaces.Wordprocessing + "tblCellMar"));
+        foreach (XElement part in cellStyles)
+            Apply(part.Element(DocxNamespaces.Wordprocessing + "tcMar"));
+        Apply(cell?.Element(DocxNamespaces.Wordprocessing + "tcMar"));
+        return stated ? new TableCellPadding(left, top, right, bottom) : null;
+
+        void Apply(XElement? margins)
+        {
+            Read("left", "start", ref left);
+            Read("right", "end", ref right);
+            Read("top", "top", ref top);
+            Read("bottom", "bottom", ref bottom);
+            void Read(string edge, string logical, ref double target)
+            {
+                XElement? value = margins?.Element(DocxNamespaces.Wordprocessing + logical) ??
+                    margins?.Element(DocxNamespaces.Wordprocessing + edge);
+                if (value is null)
+                    return;
+                string? type = (string?)value.Attribute(DocxNamespaces.Wordprocessing + "type");
+                if (type == "nil")
+                {
+                    target = 0;
+                    stated = true;
+                }
+                else if (type is null or "dxa" && DocxValueReader.TryReadTwips(
+                    value.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) && twips >= 0)
+                {
+                    target = twips / 20.0;
+                    stated = true;
+                }
+            }
+        }
+    }
+
+    /// <summary>The legacy table-wide horizontal fallback, from its left cell margin.</summary>
     private static double ReadCellPadding(IReadOnlyList<XElement> styleTableParts, XElement? properties)
     {
         if (LeftCellMargin(properties) is double own)

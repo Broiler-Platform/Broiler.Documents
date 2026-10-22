@@ -56,6 +56,18 @@ public sealed class ListNumberer
     /// </summary>
     public ListNumberer ForNestedFlow() => new(_counters);
 
+    /// <summary>An independent copy for measuring ahead without consuming list labels.</summary>
+    public ListNumberer Snapshot()
+    {
+        var counters = new Dictionary<ListDefinition, int?[]>(ReferenceEqualityComparer.Instance);
+        foreach (var entry in _counters)
+            counters.Add(entry.Key, (int?[])entry.Value.Clone());
+        var copy = new ListNumberer(counters);
+        copy._legacy.AddRange(_legacy);
+        return copy;
+    }
+
+
     /// <summary>
     /// Counts <paramref name="style"/>'s paragraph and returns its label, or null
     /// when it draws none.

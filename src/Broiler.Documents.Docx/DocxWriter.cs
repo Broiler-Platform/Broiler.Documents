@@ -506,6 +506,13 @@ public static class DocxWriter
     /// </summary>
     private static XElement BuildTable(RichTextDocument document, DocumentTable table, DocxWriteContext context)
     {
+        if (table.KeepWithNext)
+            context.AddDiagnosticOnce("docx.table.keepnext",
+                "A table's keep-with-next rule was not written; WordprocessingML expresses keeps on cell paragraphs rather than tables.");
+        if (table.PageBreakBefore || table.ColumnBreakBefore)
+            context.AddDiagnosticOnce("docx.table.break",
+                "A table's leading page or column break was not written; WordprocessingML has no table-level break property.");
+
         var element = new XElement(
             DocxNamespaces.Wordprocessing + "tbl",
             BuildTableProperties(table),
@@ -548,7 +555,7 @@ public static class DocxWriter
 
     private static XElement BuildTableProperties(DocumentTable table)
     {
-        double total = table.TotalWidth;
+        double total = table.PreferredWidth ?? table.TotalWidth;
         var properties = new XElement(DocxNamespaces.Wordprocessing + "tblPr");
 
         // CT_TblPr is a sequence, and the position comes before the width.
@@ -561,8 +568,14 @@ public static class DocxWriter
 
         properties.Add(new XElement(
             DocxNamespaces.Wordprocessing + "tblW",
-            WordAttribute("w", total > 0 ? Twips(total) : "0"),
-            WordAttribute("type", total > 0 ? "dxa" : "auto")));
+            WordAttribute("w", table.WidthPercent is > 0 ? (table.WidthPercent.Value * 50).ToString("0", CultureInfo.InvariantCulture) : total > 0 ? Twips(total) : "0"),
+            WordAttribute("type", table.WidthPercent is > 0 ? "pct" : total > 0 ? "dxa" : "auto")));
+        if (table.Alignment != TableAlignment.Start)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "jc",
+                WordAttribute("val", table.Alignment == TableAlignment.Center ? "center" : "right")));
+        if (table.LeftIndent != 0)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tblInd",
+                WordAttribute("w", Twips(table.LeftIndent)), WordAttribute("type", "dxa")));
 
         string padding = Twips(table.CellPadding);
         properties.Add(new XElement(
@@ -691,6 +704,9 @@ public static class DocxWriter
         else if (cell.RowSpan > 1)
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "vMerge", WordAttribute("val", "restart")));
 
+        if (cell.Borders.IsVisible)
+            properties.Add(BuildCellBorders(cell.Borders));
+
         if (!cell.Shading.IsEmpty && cell.Shading.A > 0)
         {
             properties.Add(new XElement(
@@ -700,8 +716,14 @@ public static class DocxWriter
                 WordAttribute("fill", HexColor(cell.Shading))));
         }
 
-        if (cell.Borders.IsVisible)
-            properties.Add(BuildCellBorders(cell.Borders));
+        if (cell.Padding is TableCellPadding padding)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tcMar",
+                CellMargin("top", Twips(padding.Top)), CellMargin("left", Twips(padding.Left)),
+                CellMargin("bottom", Twips(padding.Bottom)), CellMargin("right", Twips(padding.Right))));
+
+        if (cell.VerticalAlignment != CellVerticalAlignment.Top)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "vAlign",
+                WordAttribute("val", cell.VerticalAlignment == CellVerticalAlignment.Center ? "center" : "bottom")));
 
         return properties;
     }
@@ -873,6 +895,10 @@ public static class DocxWriter
     private static XElement? BuildParagraphProperties(ParagraphStyle style, DocxWriteContext context)
     {
         var properties = new XElement(DocxNamespaces.Wordprocessing + "pPr");
+        if (style.KeepWithNext)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "keepNext"));
+        if (style.KeepTogether)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "keepLines"));
 
         // The property form rather than a run holding w:br w:type="page",
         // because the property is what the model holds. A break written into a
@@ -882,6 +908,16 @@ public static class DocxWriter
         // all.
         if (style.PageBreakBefore)
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "pageBreakBefore"));
+
+        if (style.OrphanLines is not null || style.WidowLines is not null)
+        {
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "widowControl",
+                WordAttribute("val", style.OrphanLines is > 0 || style.WidowLines is > 0 ? "1" : "0")));
+            if (style.OrphanLines is not (null or 0 or 2) || style.WidowLines is not (null or 0 or 2) ||
+                (style.OrphanLines ?? style.WidowLines) != (style.WidowLines ?? style.OrphanLines))
+                context.AddDiagnosticOnce("docx.paragraph.pagination",
+                    "DOCX widow control supports two lines on both sides; custom widow/orphan counts were reduced to on/off.");
+        }
 
         if (style.List is ListReference list)
         {

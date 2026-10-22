@@ -197,7 +197,7 @@ meaningful. `dump --as codes` emits the Formatting Codes projection — this
 component's own canonical, versioned rendering of a document's semantics
 ([ADR 0006](../adr/0006-formatting-codes-projection-and-grammar.md)).
 
-`dump --as text` is the characters, with two things stated the way LibreOffice's
+`dump --as text` is the characters, with structural separators stated the way LibreOffice's
 own text export states them, so the two can be compared. **A paragraph in a list
 its document defined projects with its label first**: `4. alpha`, the label, one
 space, the text. A bullet is written as LibreOffice writes one — its default
@@ -209,6 +209,10 @@ gets none; `--as outline` is where the list kind and depth are shown, and
 and the note's own text is not part of the body's. **Text a tracked change
 deleted is written** with the rest, as LibreOffice's export writes it whether or
 not the document shows its changes; `--as json` says which change marks each run.
+**Table cells are separated by tabs and rows by newlines**. Paragraphs inside a
+cell keep their newline boundaries; nested tables preserve their own separators.
+Image objects contribute no text, as in LibreOffice's export; the pixel checks
+remain responsible for detecting missing images.
 
 **A table projects as one line per cell**, in row order, because that is how the
 model holds a table once it is flattened; a projection that joined a row onto one

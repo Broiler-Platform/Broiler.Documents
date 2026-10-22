@@ -848,6 +848,15 @@ internal static class OdtReader
             _ => areaTop + y,
         };
 
+        // Writer brings page-anchored frames back from the right and bottom
+        // edges. A negative vertical offset still permits a picture to bleed
+        // above the page. Paragraph anchors and drawing objects keep their offsets.
+        if (geometry is { IsUsable: true } && drawing.Name == OdtNamespaces.Draw + "frame")
+        {
+            left = Math.Clamp(left, 0, Math.Max(0, pageWidth - width));
+            top = Math.Min(top, Math.Max(0, pageHeight - height));
+        }
+
         return (page, left - marginLeft, top, false);
     }
 
@@ -1182,14 +1191,9 @@ internal static class OdtReader
 
             if (name == OdtNamespaces.Table + "table")
             {
-                // A break held over from the paragraph above has nowhere to land:
-                // the next thing to be laid out is a table, and this model states
-                // a page break on a paragraph rather than on a table. Putting it
-                // on the first paragraph of the first cell would break the page
-                // inside the grid instead of before it.
-                context.DropPageBreak();
+                OdtBreak precedingBreak = context.TakeBreak();
                 OdtTableReader.Read(element, context, depth + 1,
-                    (children, childDepth) => ReadBlockContent(children, context, list: null, childDepth));
+                    (children, childDepth) => ReadBlockContent(children, context, list: null, childDepth), precedingBreak);
                 continue;
             }
 
@@ -1215,7 +1219,8 @@ internal static class OdtReader
                 continue;
             }
 
-            if (name == OdtNamespaces.Text + "index-body" || IsIndexContainer(name))
+            if (name == OdtNamespaces.Text + "index-body" ||
+                name == OdtNamespaces.Text + "index-title" || IsIndexContainer(name))
             {
                 ReadBlockContent(element.Elements(), context, list: null, depth + 1);
                 continue;
@@ -2177,6 +2182,17 @@ internal static class OdtReader
                 style = style with { PageBreakBefore = false, ColumnBreakBefore = false };
                 break;
         }
+
+        if ((string?)properties.Attribute(OdtNamespaces.Fo + "keep-with-next") is string keepNext)
+            style = style with { KeepWithNext = keepNext == "always" };
+        if ((string?)properties.Attribute(OdtNamespaces.Fo + "keep-together") is string keepTogether)
+            style = style with { KeepTogether = keepTogether == "always" };
+        if (int.TryParse((string?)properties.Attribute(OdtNamespaces.Fo + "orphans"),
+                NumberStyles.Integer, CultureInfo.InvariantCulture, out int orphans) && orphans >= 0)
+            style = style with { OrphanLines = orphans };
+        if (int.TryParse((string?)properties.Attribute(OdtNamespaces.Fo + "widows"),
+                NumberStyles.Integer, CultureInfo.InvariantCulture, out int widows) && widows >= 0)
+            style = style with { WidowLines = widows };
 
         // fo:margin is the shorthand a producer writes to reset all four edges at
         // once. Only the single-value form is unambiguous without a box model.

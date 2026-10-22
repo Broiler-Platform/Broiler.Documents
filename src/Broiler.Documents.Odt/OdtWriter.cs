@@ -491,6 +491,8 @@ public static class OdtWriter
         var element = new XElement(
             OdtNamespaces.Table + "table",
             new XAttribute(OdtNamespaces.Table + "name", context.NextTableName()));
+        if (context.GetTableStyleName(table) is string tableStyle)
+            element.Add(new XAttribute(OdtNamespaces.Table + "style-name", tableStyle));
 
         int columns = ColumnCount(table);
         for (int i = 0; i < columns; i++)
@@ -1266,6 +1268,15 @@ public static class OdtWriter
     private static XElement BuildParagraphProperties(ParagraphStyle style, bool inList)
     {
         var properties = new XElement(OdtNamespaces.Style + "paragraph-properties");
+        if (style.KeepWithNext)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always"));
+        if (style.KeepTogether)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-together", "always"));
+        if (style.OrphanLines is int orphanLines)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "orphans", Math.Max(0, orphanLines)));
+        if (style.WidowLines is int widowLines)
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "widows", Math.Max(0, widowLines)));
+
 
         if (style.Alignment == TextAlignment.Center)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "text-align", "center"));
@@ -2126,6 +2137,43 @@ public static class OdtWriter
             return name;
         }
 
+        private readonly Dictionary<string, string> _tableStyleNames = new(StringComparer.Ordinal);
+
+        public string? GetTableStyleName(DocumentTable table)
+        {
+            var properties = new XElement(OdtNamespaces.Style + "table-properties");
+            if (table.PageBreakBefore || table.ColumnBreakBefore)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "break-before", table.PageBreakBefore ? "page" : "column"));
+            if (table.KeepWithNext)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always"));
+            double fixedWidth = table.PreferredWidth ??
+                (table.Alignment != TableAlignment.Start || table.LeftIndent != 0 || table.WidthPercent is > 0 ? table.TotalWidth : 0);
+            if (fixedWidth > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Style + "width", OdtUnits.FormatPoints(fixedWidth)));
+            if (table.WidthPercent is > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Style + "rel-width", table.WidthPercent.Value.ToString("0.####", CultureInfo.InvariantCulture) + "%"));
+            if (table.Alignment != TableAlignment.Start || table.PreferredWidth is > 0 || table.WidthPercent is > 0 || table.LeftIndent != 0)
+                properties.Add(new XAttribute(OdtNamespaces.Table + "align", table.Alignment switch
+                {
+                    TableAlignment.Center => "center",
+                    TableAlignment.End or TableAlignment.Outside => "right",
+                    _ => "left",
+                }));
+            if (table.LeftIndent != 0)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "margin-left", OdtUnits.FormatPoints(table.LeftIndent)));
+            if (!properties.HasAttributes)
+                return null;
+            string key = properties.ToString(SaveOptions.DisableFormatting);
+            if (_tableStyleNames.TryGetValue(key, out string? existing))
+                return existing;
+            string name = "ta" + (_tableStyleNames.Count + 1).ToString(CultureInfo.InvariantCulture);
+            _tableStyles.Add(new XElement(OdtNamespaces.Style + "style",
+                new XAttribute(OdtNamespaces.Style + "name", name),
+                new XAttribute(OdtNamespaces.Style + "family", "table"), properties));
+            _tableStyleNames[key] = name;
+            return name;
+        }
+
         /// <summary>A name per table, which ODF requires and uses as its identity.</summary>
         public string NextTableName() =>
             "Table" + (++_tableCount).ToString(CultureInfo.InvariantCulture);
@@ -2199,6 +2247,18 @@ public static class OdtWriter
                 properties.Add(new XAttribute(
                     OdtNamespaces.Fo + "background-color",
                     OdtUnits.FormatColor(cell.Shading)));
+            }
+
+            if (cell.VerticalAlignment != CellVerticalAlignment.Top)
+                properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-align",
+                    cell.VerticalAlignment == CellVerticalAlignment.Center ? "middle" : "bottom"));
+
+            if (cell.Padding is TableCellPadding padding)
+            {
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "padding-left", OdtUnits.FormatPoints(padding.Left)),
+                    new XAttribute(OdtNamespaces.Fo + "padding-top", OdtUnits.FormatPoints(padding.Top)),
+                    new XAttribute(OdtNamespaces.Fo + "padding-right", OdtUnits.FormatPoints(padding.Right)),
+                    new XAttribute(OdtNamespaces.Fo + "padding-bottom", OdtUnits.FormatPoints(padding.Bottom)));
             }
 
             AddBorder(properties, "border-left", cell.Borders.Left);

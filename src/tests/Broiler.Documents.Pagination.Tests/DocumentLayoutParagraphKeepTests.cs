@@ -1,0 +1,142 @@
+namespace Broiler.Documents.Pagination.Tests;
+
+public sealed class DocumentLayoutParagraphKeepTests
+{
+    private static ParagraphStyle Style => ParagraphStyle.Default with
+    { LineHeightRule = LineHeightRule.Exact, LineHeight = 10 };
+    private static RichTextParagraph Para(int lines, ParagraphStyle? style = null) =>
+        RichTextParagraph.Create(string.Join("\u2028", Enumerable.Repeat("x", lines)), InlineStyle.Default, style ?? Style);
+    private static LayoutResult Layout(params RichTextParagraph[] paragraphs)
+    {
+        using var images = new ImageStore();
+        return new DocumentLayout(new LayoutSettings(), images).Layout(
+            RichTextDocument.FromParagraphs(paragraphs), new DocumentPageBox(200, 100, 10, 10, 10, 10));
+    }
+
+    [Fact]
+    public void KeepTogether_moves_a_paragraph_that_fits_a_fresh_page()
+    {
+        LayoutResult result = Layout(Para(6), Para(3, Style with { KeepTogether = true }));
+        Assert.Equal(new[] { 6, 3 }, result.Pages.Select(p => p.Lines.Count));
+        Assert.Equal(10, result.Pages[1].Lines[0].Top, 3);
+    }
+
+    [Fact]
+    public void KeepNext_moves_a_heading_with_the_following_paragraph()
+    {
+        LayoutResult result = Layout(Para(7), Para(1, Style with { KeepWithNext = true }), Para(2));
+        Assert.Equal(new[] { 7, 3 }, result.Pages.Select(p => p.Lines.Count));
+    }
+
+    [Fact]
+    public void KeepNext_chains_are_measured_together()
+    {
+        LayoutResult result = Layout(Para(6), Para(1, Style with { KeepWithNext = true }),
+            Para(1, Style with { KeepWithNext = true }), Para(2));
+        Assert.Equal(new[] { 6, 4 }, result.Pages.Select(p => p.Lines.Count));
+    }
+
+    [Fact]
+    public void A_heading_stays_with_the_start_of_a_body_longer_than_a_page()
+    {
+        LayoutResult result = Layout(Para(7), Para(1, Style with { KeepWithNext = true }), Para(12));
+        Assert.Equal(7, result.Pages[0].Lines.Count);
+        Assert.Equal(1, result.Pages[1].Lines[0].ParagraphIndex);
+    }
+
+    [Fact]
+    public void Keep_next_lookahead_does_not_consume_numbered_list_labels()
+    {
+        var definition = new ListDefinition([new ListLevel { Format = ListNumberFormat.Decimal, Template = "%1." }]);
+        ParagraphStyle numbered = Style with { List = new ListReference(definition, 0), ListKind = ListKind.Numbered };
+        LayoutResult result = Layout(Para(7), Para(1, numbered with { KeepWithNext = true }), Para(2, numbered));
+        string[] labels = [.. result.Pages.SelectMany(page => page.Lines)
+            .SelectMany(line => line.Pieces).Select(piece => piece.Text).Where(text => text.EndsWith('.'))];
+        Assert.Equal(new[] { "1.", "2." }, labels);
+    }
+
+    [Fact]
+    public void Keep_together_uses_the_next_column_before_opening_a_page()
+    {
+        using var images = new ImageStore();
+        var page = new PageGeometry(200, 100, 10, 10, 10, 10, ColumnCount: 2, ColumnGap: 20);
+        var document = RichTextDocument.FromParagraphs([Para(6), Para(3, Style with { KeepTogether = true })])
+            .WithPageGeometry(page);
+        LayoutResult result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10));
+        LayoutPage only = Assert.Single(result.Pages);
+        Assert.All(only.Lines.Where(line => line.ParagraphIndex == 1),
+            line => Assert.True(line.Pieces[0].X >= 110));
+        Assert.Equal(10, only.Lines.First(line => line.ParagraphIndex == 1).Top, 3);
+    }
+
+    [Fact]
+    public void Orphan_control_moves_a_paragraph_when_only_one_line_would_fit()
+    {
+        LayoutResult result = Layout(Para(7), Para(3, Style with { OrphanLines = 2 }));
+        Assert.Equal(new[] { 7, 3 }, result.Pages.Select(p => p.Lines.Count));
+    }
+
+    [Fact]
+    public void Widow_control_leaves_two_lines_for_the_next_page()
+    {
+        LayoutResult result = Layout(Para(5), Para(4, Style with { WidowLines = 2 }));
+        Assert.Equal(new[] { 7, 2 }, result.Pages.Select(p => p.Lines.Count));
+    }
+
+    [Fact]
+    public void Impossible_constraints_relax_without_blank_pages_or_lost_lines()
+    {
+        LayoutResult result = Layout(Para(20, Style with
+        { KeepTogether = true, OrphanLines = 100, WidowLines = 100 }));
+        Assert.Equal(new[] { 8, 8, 4 }, result.Pages.Select(p => p.Lines.Count));
+        Assert.False(result.Truncated);
+    }
+
+    [Fact]
+    public void Explicit_page_breaks_win_over_keep_next()
+    {
+        LayoutResult result = Layout(Para(7), Para(1, Style with { KeepWithNext = true }),
+            Para(1, Style with { PageBreakBefore = true }));
+        Assert.Equal(new[] { 8, 1 }, result.Pages.Select(p => p.Lines.Count));
+    }
+
+    [Theory]
+    [InlineData(6, 4, true, false, null, null, 6, 4)]
+    [InlineData(7, 3, false, false, 2, null, 7, 3)]
+    [InlineData(5, 4, false, false, null, 2, 7, 2)]
+    public void Table_cell_paragraphs_obey_keep_and_line_count_rules(int filler, int bodyLines,
+        bool together, bool next, int? orphans, int? widows, int firstCount, int secondCount)
+    {
+        using var images = new ImageStore();
+        var document = RichTextDocument.FromParagraphs([Para(filler), Para(bodyLines, Style with
+            { KeepTogether = together, KeepWithNext = next, OrphanLines = orphans, WidowLines = widows })])
+            .WithTables([new DocumentTable(1, 1, [new TableRow([new TableCell(1, 1, 0)])], [100], cellPadding: 0)]);
+        var result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10));
+        Assert.Equal(new[] { firstCount, secondCount }, result.Pages.Select(page => page.Lines.Count));
+    }
+
+    [Fact]
+    public void Table_cell_keeps_a_heading_with_the_next_paragraph()
+    {
+        using var images = new ImageStore();
+        var document = RichTextDocument.FromParagraphs([Para(7),
+                Para(1, Style with { KeepWithNext = true }), Para(2)])
+            .WithTables([new DocumentTable(1, 2, [new TableRow([new TableCell(1, 2, 0)])], [100], cellPadding: 0)]);
+        var result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10));
+        Assert.Equal(new[] { 7, 3 }, result.Pages.Select(page => page.Lines.Count));
+    }
+
+    [Fact]
+    public void Continuous_output_does_not_paginate_for_keep_rules()
+    {
+        using var images = new ImageStore();
+        var document = RichTextDocument.FromParagraphs([Para(7), Para(3, Style with
+        { KeepTogether = true, KeepWithNext = true, OrphanLines = 2, WidowLines = 2 })]);
+        LayoutResult result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10, continuous: true));
+        Assert.Equal(10, Assert.Single(result.Pages).Lines.Count);
+    }
+}

@@ -186,18 +186,16 @@ public sealed class OdtPageBreakTests
     }
 
     [Fact]
-    public void A_Break_After_Does_Not_Carry_Into_A_Table()
+    public void A_Break_After_A_Paragraph_Carries_To_The_Table_Not_Its_First_Cell()
     {
-        // The next thing laid out is a grid, and a page break belongs to a
-        // paragraph here. Handing it to the first paragraph of the first cell
-        // would break the page inside the table rather than before it.
         DocumentReadResult result = OdtTestPackage.ReadBody(
             OdtTestPackage.StyledParagraph("P1", "before") +
             OdtTestPackage.Table([[OdtTestPackage.Paragraph("cell")]]),
             OdtTestPackage.Style("P1", BreakAfterPage));
 
         Assert.False(StyleOf(result, 1).PageBreakBefore);
-        Assert.True(Reports(result, "odt.break.after"));
+        Assert.True(Assert.Single(result.Document.Tables).PageBreakBefore);
+        Assert.False(Reports(result, "odt.break.after"));
     }
 
     [Fact]

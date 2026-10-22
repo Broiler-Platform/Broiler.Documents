@@ -73,6 +73,10 @@ public sealed class DocxPropertyOrderTests
             ParagraphStyle.Default with
             {
                 PageBreakBefore = true,
+                KeepWithNext = true,
+                KeepTogether = true,
+                OrphanLines = 2,
+                WidowLines = 2,
                 ListKind = ListKind.Numbered,
                 IndentLevel = 2,
                 LineSpacing = 1.5f,
@@ -81,7 +85,7 @@ public sealed class DocxPropertyOrderTests
                 Alignment = TextAlignment.Center,
             }));
 
-        AssertPresent(properties, "pageBreakBefore", "numPr", "spacing", "ind", "jc");
+        AssertPresent(properties, "keepNext", "keepLines", "widowControl", "pageBreakBefore", "numPr", "spacing", "ind", "jc");
         AssertSequenceOrder(properties, ParagraphPropertySequence, "CT_PPr");
     }
 

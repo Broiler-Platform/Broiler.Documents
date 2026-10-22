@@ -280,7 +280,12 @@ public sealed class DocxTableStyleBorderTests
             "Centred",
             "<w:tcPr><w:vAlign w:val=\"center\"/></w:tcPr>",
             type: "table");
-        DocumentReadResult unapplied = DocxTestPackage.ReadStyled(TwoByTwo("<w:tblStyle w:val=\"Centred\"/>"), centred);
-        Assert.Contains(unapplied.Diagnostics, d => d.Code == "docx.table.style" && d.Message.Contains("vAlign"));
+        DocumentReadResult aligned = DocxTestPackage.ReadStyled(TwoByTwo("<w:tblStyle w:val=\"Centred\"/>"), centred);
+        Assert.DoesNotContain(aligned.Diagnostics, d => d.Code == "docx.table.style");
+        Assert.Equal(CellVerticalAlignment.Center, aligned.Document.Tables[0].Rows[0].Cells[0].VerticalAlignment);
+
+        string rotated = DocxTestPackage.Style("Rotated", "<w:tcPr><w:textDirection w:val=\"tbRl\"/></w:tcPr>", type: "table");
+        DocumentReadResult unapplied = DocxTestPackage.ReadStyled(TwoByTwo("<w:tblStyle w:val=\"Rotated\"/>"), rotated);
+        Assert.Contains(unapplied.Diagnostics, d => d.Code == "docx.table.style" && d.Message.Contains("textDirection"));
     }
 }

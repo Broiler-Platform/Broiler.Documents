@@ -110,6 +110,19 @@ public readonly record struct ParagraphStyle
     /// </remarks>
     public bool PageBreakBefore { get; init; }
 
+    /// <summary>Keep this paragraph on the same page or column as the next, when the group fits.</summary>
+    public bool KeepWithNext { get; init; }
+
+    /// <summary>Keep all lines on one page or column when the paragraph fits there.</summary>
+    public bool KeepTogether { get; init; }
+
+    /// <summary>Minimum lines before a paragraph may split; zero disables orphan control; null leaves it unspecified.</summary>
+    public int? OrphanLines { get; init; }
+
+    /// <summary>Minimum lines after a paragraph split; zero disables widow control; null leaves it unspecified.</summary>
+    public int? WidowLines { get; init; }
+
+
     /// <summary>
     /// Whether the paragraph starts the next text column.
     /// </summary>

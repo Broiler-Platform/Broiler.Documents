@@ -10,6 +10,125 @@ namespace Broiler.Documents.Pdf.Tests;
 /// </summary>
 public sealed class PdfTableRenderTests
 {
+    [Fact]
+    public void Empty_table_continuation_pages_do_not_lose_the_following_text()
+    {
+        RichTextParagraph[] paragraphs = [RichTextParagraph.Plain("first"),
+            .. Enumerable.Repeat(RichTextParagraph.Empty, 10), RichTextParagraph.Plain("last")];
+        RichTextDocument document = RichTextDocument.FromParagraphs(paragraphs).WithTables([
+            new DocumentTable(0, 12, [.. Enumerable.Range(0, 12).Select(i =>
+                new TableRow([new TableCell(i, 1, 0)], minHeight: 30))], [180])])
+            .WithPageGeometry(new PageGeometry(200, 100, 10, 10, 10, 10));
+        string pdf = Write(document);
+        Assert.Equal(6, System.Text.RegularExpressions.Regex.Matches(pdf, @"/Type /Page\b").Count);
+        Assert.True(OriginOf(pdf, "last").Y >= 10);
+    }
+
+    [Fact]
+    public void First_cell_paragraph_spacing_moves_text_and_the_following_block()
+    {
+        RichTextDocument Document(float before) => RichTextDocument.FromParagraphs([
+            RichTextParagraph.Create("cell", InlineStyle.Default, ParagraphStyle.Default with { SpacingBefore = before }),
+            RichTextParagraph.Plain("after")]).WithTables([
+                new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0)])], [180])]);
+        string ordinary = Write(Document(0));
+        string spaced = Write(Document(7));
+        Assert.Equal(7, OriginOf(ordinary, "cell").Y - OriginOf(spaced, "cell").Y, 3);
+        Assert.Equal(7, OriginOf(ordinary, "after").Y - OriginOf(spaced, "after").Y, 3);
+    }
+
+    [Fact]
+    public void A_table_page_break_places_its_text_at_the_top_of_the_next_page()
+    {
+        RichTextDocument Document(bool pageBreak) => RichTextDocument.FromPlainText("before\ncell").WithTables([
+            new DocumentTable(1, 1, [new TableRow([new TableCell(1, 1, 0)])], [180], pageBreakBefore: pageBreak)]);
+        string ordinary = Write(Document(false));
+        string broken = Write(Document(true));
+        Assert.Equal(OriginOf(broken, "before").Y, OriginOf(broken, "cell").Y, 3);
+        Assert.True(OriginOf(ordinary, "cell").Y < OriginOf(broken, "cell").Y);
+    }
+
+    [Theory]
+    [InlineData(TableAlignment.Start, 10)]
+    [InlineData(TableAlignment.Center, 50)]
+    [InlineData(TableAlignment.End, 90)]
+    public void Inline_table_alignment_moves_its_text_with_its_grid(TableAlignment alignment, double left)
+    {
+        RichTextDocument document = RichTextDocument.FromPlainText("cell").WithTables([
+            new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0)])], [100], cellPadding: 0, alignment: alignment)])
+            .WithPageGeometry(new PageGeometry(200, 100, 10, 10, 10, 10));
+        Assert.Equal(left, OriginOf(Write(document), "cell").X, 3);
+    }
+
+    [Fact]
+    public void Percentage_width_scales_column_positions_in_pdf()
+    {
+        RichTextDocument document = RichTextDocument.FromPlainText("left\nright").WithTables([
+            new DocumentTable(0, 2, [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)])],
+                [40, 60], cellPadding: 0, widthPercent: 50)])
+            .WithPageGeometry(new PageGeometry(200, 100, 10, 10, 10, 10));
+        Assert.Equal(46, OriginOf(Write(document), "right").X, 3);
+    }
+
+    [Theory]
+    [InlineData(CellVerticalAlignment.Center, 12.5)]
+    [InlineData(CellVerticalAlignment.Bottom, 25)]
+    public void Vertical_alignment_uses_the_padded_rows_spare_height(CellVerticalAlignment alignment, double down)
+    {
+        ParagraphStyle style = ParagraphStyle.Default with
+        { LineHeightRule = LineHeightRule.Exact, LineHeight = 10, SpacingAfter = 5 };
+        RichTextDocument Document(CellVerticalAlignment align) => RichTextDocument.FromParagraphs([
+            RichTextParagraph.Create("cell", InlineStyle.Default, style)]).WithTables([
+                new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0,
+                    padding: new TableCellPadding(0, 7, 0, 13), verticalAlignment: align)], minHeight: 60)], [180])]);
+        Assert.Equal(down, OriginOf(Write(Document(CellVerticalAlignment.Top)), "cell").Y -
+            OriginOf(Write(Document(alignment)), "cell").Y, 3);
+    }
+
+    [Fact]
+    public void Cell_padding_moves_text_inside_its_border_and_grows_the_row()
+    {
+        RichTextDocument Document(TableCellPadding? padding) => RichTextDocument.FromParagraphs([
+            RichTextParagraph.Plain("cell"), RichTextParagraph.Plain("after")]).WithTables([
+                new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0, padding: padding)])], [180], cellPadding: 0)]);
+        string plain = Write(Document(null));
+        string padded = Write(Document(new TableCellPadding(3, 7, 11, 13)));
+        Assert.Equal(3, OriginOf(padded, "cell").X - OriginOf(plain, "cell").X, 3);
+        Assert.Equal(7, OriginOf(plain, "cell").Y - OriginOf(padded, "cell").Y, 3);
+        Assert.Equal(20, OriginOf(plain, "after").Y - OriginOf(padded, "after").Y, 3);
+    }
+
+    [Fact]
+    public void Table_keep_next_moves_the_table_and_following_text_to_a_fresh_page()
+    {
+        ParagraphStyle style = ParagraphStyle.Default with
+        { LineHeightRule = LineHeightRule.Exact, LineHeight = 10, SpacingAfter = 0.01f };
+        RichTextParagraph Para(string text, int lines) => RichTextParagraph.Create(
+            string.Join("\u2028", Enumerable.Repeat(text, lines)), InlineStyle.Default, style);
+        RichTextDocument Document(bool keep) => RichTextDocument.FromParagraphs([
+            Para("filler", 5), Para("cell", 2), Para("after", 2)])
+            .WithTables([new DocumentTable(1, 1, [new TableRow([new TableCell(1, 1, 0)])],
+                [180], cellPadding: 0, keepWithNext: keep)])
+            .WithPageGeometry(new PageGeometry(200, 100, 10, 10, 10, 10));
+        string kept = Write(Document(true));
+        string ordinary = Write(Document(false));
+        Assert.Equal(OriginOf(kept, "filler").Y, OriginOf(kept, "cell").Y, 3);
+        Assert.True(OriginOf(ordinary, "cell").Y < OriginOf(kept, "cell").Y);
+    }
+
+    [Fact]
+    public void Minimum_row_height_moves_the_next_row_in_pdf_output()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+                [RichTextParagraph.Plain("first"), RichTextParagraph.Plain("second")])
+            .WithTables([new DocumentTable(0, 2,
+                [new TableRow([new TableCell(0, 1, 0)], minHeight: 180),
+                 new TableRow([new TableCell(1, 1, 0)])], [200], cellPadding: 0)]);
+
+        string pdf = Write(document);
+        Assert.Equal(180, OriginOf(pdf, "first").Y - OriginOf(pdf, "second").Y, 2);
+    }
+
     private static readonly TableBorder Hairline = new(BColor.Black, 1);
 
     /// <summary>A two-by-two grid over four paragraphs, in two 100-point columns.</summary>
