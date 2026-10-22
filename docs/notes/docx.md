@@ -55,9 +55,12 @@ Open XML WordprocessingML package parts.
 - Tables, as a `DocumentTable` over the paragraphs of their cells: the
   `w:tblGrid` column widths, `w:gridSpan` and `w:vMerge` spans, per-cell and
   per-table borders (`w:tcBorders`, `w:tblBorders`, including the `insideH` and
-  `insideV` edges), cell shading (`w:shd`), the `w:tblCellMar` left margin as the
-  cell padding, header rows (`w:tblHeader`), the height a row states
-  (`w:trHeight`), and tables nested in a cell. The
+  `insideV` edges, each cell taking the outer edge where it meets the table's
+  boundary and the inside edge between cells), cell shading (`w:shd`), the
+  `w:tblCellMar` left margin as the cell padding, header rows (`w:tblHeader`),
+  the height a row states (`w:trHeight`), and tables nested in a cell. All of
+  these but the height can also come from the table's style, as described
+  below. The
   cells hold no text of their own: a cell names a range of the document's
   paragraphs, so a caret, a selection, a style, and every codec's text handling
   go on working through one flat list. Written back as `w:tbl`.
@@ -327,8 +330,7 @@ Open XML WordprocessingML package parts.
 - An image linked with `r:link` rather than embedded is not fetched; reading it
   would mean a network or file request driven by document content (ADR 0004).
 - Style resolution covers the attributes `RichTextDocument` models. Style
-  features outside it — character spacing/scaling, conditional table
-  formatting — are ignored, as are theme colors
+  features outside it — character spacing/scaling — are ignored, as are theme colors
   (`w:themeColor`); Word writes the computed RGB into `w:val` alongside them,
   which is what the reader uses.
 - A table style's own `w:pPr` and `w:rPr` are applied to the paragraphs and
@@ -339,12 +341,35 @@ Open XML WordprocessingML package parts.
   the default table style; a nested table takes its own, not its parent's; and a
   `w:tblStyle` that names a paragraph style applies nothing. Word's compatibility
   rule that lets a table style override an 11 or 12 point size or a left
-  alignment stated by the default paragraph style is not modelled. The rest of a
-  table style — banding, conditional first-row and first-column formatting
-  (`w:tblStylePr`), and the borders and shading it states — is not applied, and
-  a table naming a style reports `docx.table.style`. Cell vertical alignment,
-  text direction, and table indent and alignment are not represented either; a
-  table starts at the left margin.
+  alignment stated by the default paragraph style is not modelled.
+- A table style's borders, shading and cell margin are applied too, resolved
+  as LibreOffice's `DomainMapperTableHandler` resolves them. The
+  `w:tblBorders` of the style chain sit under the table's own, edge by edge,
+  and those under a row's `w:tblPrEx` borders for that row's cells; each cell
+  takes the outer edge where it meets the table's boundary and
+  `insideH`/`insideV` between cells. What a style states for cells (`w:tcPr`
+  `w:tcBorders` and `w:shd`) sits under the cell's own; a cell turning off an
+  edge its style would draw gives the edge back to the table, as Word does.
+  The style's `w:shd` in `w:tblPr` shades every cell that states none, and its
+  `w:tblCellMar` is the padding of a table that states none.
+- Conditional formats (`w:tblStylePr`) reach the cells they name — first and
+  last row and column, the four corners, and horizontal and vertical bands —
+  with their paragraph, run, cell border and shading properties, and a
+  first-row format marking its row as a header (`w:tblHeader`) repeats it. The
+  table's `w:tblLook` selects them as LibreOffice reads it: no look means first
+  row, first column and horizontal bands (`04A0`); the 2010 attributes, when
+  any is present, are read alone, each on unless it says otherwise; a first or
+  last row or column the style defines no format for is off, and banding
+  counts from the first row or column below it when that is on. Formats merge
+  in LibreOffice's order — bands, then columns, then rows, then corners — so
+  the first row's beats a band's. A style's `w:cantSplit` keeps every row
+  whole unless the row says otherwise.
+- What a table style states that is not applied — cell vertical alignment,
+  diagonal borders, bands of more than one row or column
+  (`w:tblStyleRowBandSize`), row heights, table alignment — reports
+  `docx.table.style`. A style's indent and width are read no more than a
+  table's own are. Cell vertical alignment, text direction, and table indent
+  and alignment are not represented at all; a table starts at the left margin.
 - A table's cells are paragraph ranges, so an edit that adds or removes
   paragraphs moves them and one that spans out of a cell into the body does not
   keep the grid over what it merged. The ranges are moved through the one place
@@ -510,7 +535,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `document.metadata.emitted` | Info | Document properties the caller supplied reached `docProps`; the message names the fields. |
 | `document.metadata.dropped` | Warning | A property OOXML states no equivalent for was not written. `CreatorApplication` is the one: OOXML names a producing application only. |
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
-| `docx.table.style` | Warning | A table named a table style; its paragraph and run properties were applied, banding, conditional formatting and the borders it states were not. |
+| `docx.table.style` | Warning | A table style stated a property the reader does not apply — cell vertical alignment, a diagonal border, a band of more than one row or column, a row height, a table alignment; its borders, shading, cell margin, header rows and paragraph and run properties were applied. |
 | `docx.table.rowheight` | Warning | A row stated an exact height; it was applied as a minimum so its text is not clipped. |
 | `docx.table.floating` | Warning | A table nested in a cell stated a floating position; it was laid out in its cell. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |

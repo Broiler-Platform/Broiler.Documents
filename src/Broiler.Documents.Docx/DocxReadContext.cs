@@ -30,6 +30,12 @@ internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumb
     DocxImageLoader Images, DocxDocumentBuilder Builder, PageGeometry? Page = null, RunningBand Band = RunningBand.Body,
     string? TableStyle = null, DocxSections? Sections = null, DocxNotes? Notes = null)
 {
+    /// <summary>
+    /// The parts of its table the cell being read belongs to, which select the
+    /// conditional formats of <see cref="TableStyle"/> its paragraphs inherit.
+    /// </summary>
+    public TableConditions TableConditions { get; init; }
+
     /// <summary>True for the flow of a note's own text.</summary>
     public bool InNote { get; init; }
 

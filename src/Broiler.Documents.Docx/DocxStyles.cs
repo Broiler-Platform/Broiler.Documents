@@ -112,7 +112,8 @@ internal sealed class DocxStyles
                 type,
                 (string?)style.Element(DocxNamespaces.Wordprocessing + "basedOn")?.Attribute(DocxNamespaces.Wordprocessing + "val"),
                 style.Element(DocxNamespaces.Wordprocessing + "pPr"),
-                style.Element(DocxNamespaces.Wordprocessing + "rPr"));
+                style.Element(DocxNamespaces.Wordprocessing + "rPr"),
+                style);
             styles[id] = definition;
 
             bool isDefault = IsOn((string?)style.Attribute(DocxNamespaces.Wordprocessing + "default"));
@@ -168,18 +169,15 @@ internal sealed class DocxStyles
     /// document whose defaults leave ten points under each paragraph, and a
     /// paragraph style that says otherwise still wins.
     /// </remarks>
-    public IReadOnlyList<XElement> ParagraphProperties(string? paragraphStyleId, string? tableStyleId = null) =>
-        Resolve("p:" + (tableStyleId ?? string.Empty) + "\0" + (paragraphStyleId ?? string.Empty), () =>
+    public IReadOnlyList<XElement> ParagraphProperties(
+        string? paragraphStyleId, string? tableStyleId = null, TableConditions conditions = TableConditions.None) =>
+        Resolve("p:" + (tableStyleId ?? string.Empty) + "\0" + (int)conditions + "\0" + (paragraphStyleId ?? string.Empty), () =>
         {
             var properties = new List<XElement>();
             if (_defaultParagraphProperties is not null)
                 properties.Add(_defaultParagraphProperties);
 
-            foreach (StyleDefinition style in TableChain(tableStyleId))
-            {
-                if (style.ParagraphProperties is not null)
-                    properties.Add(style.ParagraphProperties);
-            }
+            properties.AddRange(TableStyleParts(tableStyleId, conditions, "pPr"));
 
             foreach (StyleDefinition style in ParagraphChain(paragraphStyleId))
             {
@@ -196,18 +194,15 @@ internal sealed class DocxStyles
     /// defaults, then the table style chain's run properties when the paragraph
     /// is in a table, then the paragraph style chain's.
     /// </summary>
-    public IReadOnlyList<XElement> RunPropertiesForParagraph(string? paragraphStyleId, string? tableStyleId = null) =>
-        Resolve("pr:" + (tableStyleId ?? string.Empty) + "\0" + (paragraphStyleId ?? string.Empty), () =>
+    public IReadOnlyList<XElement> RunPropertiesForParagraph(
+        string? paragraphStyleId, string? tableStyleId = null, TableConditions conditions = TableConditions.None) =>
+        Resolve("pr:" + (tableStyleId ?? string.Empty) + "\0" + (int)conditions + "\0" + (paragraphStyleId ?? string.Empty), () =>
         {
             var properties = new List<XElement>();
             if (_defaultRunProperties is not null)
                 properties.Add(_defaultRunProperties);
 
-            foreach (StyleDefinition style in TableChain(tableStyleId))
-            {
-                if (style.RunProperties is not null)
-                    properties.Add(style.RunProperties);
-            }
+            properties.AddRange(TableStyleParts(tableStyleId, conditions, "rPr"));
 
             foreach (StyleDefinition style in ParagraphChain(paragraphStyleId))
             {
@@ -217,6 +212,87 @@ internal sealed class DocxStyles
 
             return properties;
         });
+
+    /// <summary>
+    /// One kind of property element - <c>w:pPr</c>, <c>w:rPr</c>, <c>w:tblPr</c>
+    /// or <c>w:tcPr</c> - as a table style and its <c>w:basedOn</c> chain state
+    /// it, least specific first: the chain's own, then the conditional formats
+    /// <paramref name="conditions"/> selects, in LibreOffice's merge order, each
+    /// one walked down the chain from its root.
+    /// </summary>
+    public IReadOnlyList<XElement> TableStyleParts(string? tableStyleId, TableConditions conditions, string localName) =>
+        Resolve("t:" + localName + "\0" + (tableStyleId ?? string.Empty) + "\0" + (int)conditions, () =>
+        {
+            var parts = new List<XElement>();
+            List<StyleDefinition> chain = TableChain(tableStyleId);
+            foreach (StyleDefinition style in chain)
+            {
+                if (style.Element.Element(DocxNamespaces.Wordprocessing + localName) is XElement own)
+                    parts.Add(own);
+            }
+
+            if (conditions == TableConditions.None)
+                return parts;
+
+            foreach ((TableConditions condition, string type) in DocxTableLook.MergeOrder)
+            {
+                if ((conditions & condition) == 0)
+                    continue;
+
+                foreach (StyleDefinition style in chain)
+                {
+                    if (ConditionalFormat(style, type)?.Element(DocxNamespaces.Wordprocessing + localName) is XElement part)
+                        parts.Add(part);
+                }
+            }
+
+            return parts;
+        });
+
+    /// <summary>
+    /// Whether a table style or one it is based on defines a conditional format
+    /// of <paramref name="type"/> that states anything at all.
+    /// </summary>
+    public bool DefinesTableCondition(string? tableStyleId, string type)
+    {
+        foreach (StyleDefinition style in TableChain(tableStyleId))
+        {
+            if (ConditionalFormat(style, type) is XElement format && format.HasElements)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The property elements of the table style chain and of every conditional
+    /// format in it, for the reader to find what it does not apply.
+    /// </summary>
+    public IEnumerable<XElement> AllTableStyleParts(string? tableStyleId)
+    {
+        foreach (StyleDefinition style in TableChain(tableStyleId))
+        {
+            foreach (XElement part in style.Element.Elements())
+                yield return part;
+
+            foreach (XElement format in style.Element.Elements(DocxNamespaces.Wordprocessing + "tblStylePr"))
+            {
+                foreach (XElement part in format.Elements())
+                    yield return part;
+            }
+        }
+    }
+
+    private static XElement? ConditionalFormat(StyleDefinition style, string type)
+    {
+        foreach (XElement format in style.Element.Elements(DocxNamespaces.Wordprocessing + "tblStylePr"))
+        {
+            if (string.Equals((string?)format.Attribute(DocxNamespaces.Wordprocessing + "type"), type, StringComparison.Ordinal))
+                return format;
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// The <c>w:rPr</c> elements of a character style named by <c>w:rStyle</c>,
@@ -347,7 +423,8 @@ internal sealed class DocxStyles
         string Type,
         string? BasedOn,
         XElement? ParagraphProperties,
-        XElement? RunProperties);
+        XElement? RunProperties,
+        XElement Element);
 }
 
 /// <summary>

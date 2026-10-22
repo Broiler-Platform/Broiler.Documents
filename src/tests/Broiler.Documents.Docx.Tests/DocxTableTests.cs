@@ -247,17 +247,6 @@ public sealed class DocxTableTests
     }
 
     [Fact]
-    public void Reports_A_Table_Style_It_Cannot_Apply()
-    {
-        DocumentReadResult result = DocxTestPackage.ReadBody(Table(
-            "<w:tblStyle w:val=\"TableGrid\"/>",
-            Grid,
-            Row(Cell("a"), Cell("b"))));
-
-        Assert.Contains(result.Diagnostics, d => d.Code == "docx.table.style");
-    }
-
-    [Fact]
     public void A_Table_Round_Trips_With_Its_Grid_And_Text()
     {
         RichTextDocument actual = RoundTrip(Read(SimpleTable()));

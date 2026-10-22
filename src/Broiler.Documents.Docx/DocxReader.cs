@@ -736,7 +736,7 @@ internal static class DocxReader
     private static InlineStyle ReadInheritedRunStyle(string? paragraphStyleId, DocxReadContext context)
     {
         InlineStyle style = InlineStyle.Default;
-        foreach (XElement rPr in context.Styles.RunPropertiesForParagraph(paragraphStyleId, context.TableStyle))
+        foreach (XElement rPr in context.Styles.RunPropertiesForParagraph(paragraphStyleId, context.TableStyle, context.TableConditions))
             style = ApplyRunProperties(rPr, style, context.Styles.Theme);
 
         return style;
@@ -1829,7 +1829,7 @@ internal static class DocxReader
         DocxReadContext context)
     {
         ParagraphStyle style = ParagraphStyle.Default;
-        IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle);
+        IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions);
         foreach (XElement styleParagraphProperties in chain)
             style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style);
 
