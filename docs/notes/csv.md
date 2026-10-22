@@ -130,6 +130,7 @@ The writer walks the body in order and writes UTF-8 with CRLF after every record
 | Paragraph formatting | Dropped, reported as `csv.paragraph-style` |
 | A picture | Left out, reported as `csv.image.omitted` |
 | A footnote or endnote | Left out with its citation, reported as `csv.note.omitted` |
+| Tracked changes | Written accepted: deleted text left out, inserted text plain, reported as `csv.revision` |
 | Floating shapes | Left out, reported as `csv.shape.omitted` |
 | Headers and footers | Left out, reported as `csv.running-content` |
 | Metadata the caller supplies | Dropped, reported as `document.metadata.dropped` naming the fields |
@@ -170,6 +171,7 @@ back what went in.
 | `csv.text.outside-table` | Warning | Write | Paragraphs outside a table were written as one-field records |
 | `csv.table.span` | Warning | Write | A merged cell was written in its first column and row |
 | `csv.table.nested` | Warning | Write | A table inside a cell was written as the cell's text |
+| `csv.revision` | Info | Write | Tracked changes were written accepted: deleted text left out, inserted text written as plain text |
 | `csv.table.layout` | Warning | Write | Widths, padding, borders, shading, row heights or a lower header row were dropped |
 | `csv.inline-style` | Warning | Write | Character formatting or link targets were dropped |
 | `csv.paragraph-style` | Warning | Write | Paragraph formatting was dropped |

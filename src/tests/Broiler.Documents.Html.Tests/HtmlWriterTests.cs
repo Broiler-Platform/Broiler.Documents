@@ -321,6 +321,24 @@ public sealed class HtmlWriterTests
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "html.link");
     }
 
+    [Fact]
+    public void Inserted_And_Deleted_Text_Is_Written_In_Ins_And_Del()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("kept ")
+                .InsertText(5, "gone", InlineStyle.Default with { Revision = new TextRevision(RevisionKind.Deletion, "Ben") })
+                .InsertText(9, "added", InlineStyle.Default with { Revision = new TextRevision(RevisionKind.Insertion, "Anna") }),
+        ]);
+
+        string written = Encoding.UTF8.GetString(HtmlDocumentCodec.WriteToArray(document));
+        string hidden = Encoding.UTF8.GetString(HtmlDocumentCodec.WriteToArray(document.WithShowsRevisions(false)));
+
+        Assert.Contains("<del>gone</del>", written, StringComparison.Ordinal);
+        Assert.Contains("<ins>added</ins>", written, StringComparison.Ordinal);
+        Assert.DoesNotContain("gone", hidden, StringComparison.Ordinal);
+    }
+
     private static (string Written, DocumentWriteResult Result) WriteLink(string href)
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(

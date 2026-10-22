@@ -39,6 +39,7 @@ public static class OdtWriter
         ArgumentNullException.ThrowIfNull(destination);
 
         DocumentWriteOptions writeOptions = options ?? DocumentWriteOptions.Default;
+        document = RevisionDisplay.JoinDeletedBreaks(document);
         var context = new OdtWriteContext(writeOptions.Resources)
         {
             Notes = new NoteNumberer(document.NoteNumbering),
@@ -66,6 +67,12 @@ public static class OdtWriter
             AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(
                 document.RunningContent, PageOf(document), document.PageBackground, document.NoteNumbering, context));
             AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta(metadata));
+            if (!document.ShowsRevisions)
+            {
+                context.HasSettings = true;
+                AddXmlEntry(archive, OdtNamespaces.SettingsPart, BuildSettings());
+            }
+
             foreach (OdtPicturePart picture in context.Pictures)
                 AddDeflatedEntry(archive, picture.PartPath, picture.Data.Span);
             AddXmlEntry(archive, OdtNamespaces.ManifestPart, BuildManifest(context));
@@ -260,6 +267,7 @@ public static class OdtWriter
             new XAttribute(XNamespace.Xmlns + "draw", OdtNamespaces.Draw.NamespaceName),
             new XAttribute(XNamespace.Xmlns + "table", OdtNamespaces.Table.NamespaceName),
             new XAttribute(XNamespace.Xmlns + "xlink", OdtNamespaces.XLink.NamespaceName),
+            context.Regions.Count > 0 ? new XAttribute(XNamespace.Xmlns + "dc", OdtNamespaces.DublinCore.NamespaceName) : null,
             new XAttribute(OdtNamespaces.Office + "version", OdtNamespaces.WrittenVersion),
             automaticStyles,
             new XElement(OdtNamespaces.Office + "body", body));
@@ -314,8 +322,45 @@ public static class OdtWriter
         foreach (XElement block in BuildBlocks(document, document.Tables, index, document.ParagraphCount, context))
             text.Add(block);
 
+        // The tracked changes the body's marks name, listed ahead of all of it.
+        if (context.Regions.Count > 0)
+            text.AddFirst(new XElement(OdtNamespaces.Text + "tracked-changes", context.Regions));
+
         return text;
     }
+
+    /// <summary>
+    /// A deleted paragraph break inside a joined paragraph: ODF's body holds the
+    /// text with its deletions taken out, so two paragraphs whose break was
+    /// deleted are one <c>text:p</c> there, and the break is a paragraph
+    /// boundary inside the deletion's region. See
+    /// <see cref="RevisionDisplay.JoinDeletedBreaks"/>.
+    /// </summary>
+    private const char DeletedBreak = RevisionDisplay.DeletedBreak;
+
+    /// <summary>
+    /// The settings part, written only to say the document's changes are not
+    /// shown, where LibreOffice keeps it: <c>ShowRedlineChanges</c> in the view
+    /// settings.
+    /// </summary>
+    private static XDocument BuildSettings() =>
+        new(
+            new XDeclaration("1.0", "UTF-8", null),
+            new XElement(
+                OdtNamespaces.Office + "document-settings",
+                new XAttribute(XNamespace.Xmlns + "office", OdtNamespaces.Office.NamespaceName),
+                new XAttribute(XNamespace.Xmlns + "config", OdtNamespaces.Config.NamespaceName),
+                new XAttribute(OdtNamespaces.Office + "version", OdtNamespaces.WrittenVersion),
+                new XElement(
+                    OdtNamespaces.Office + "settings",
+                    new XElement(
+                        OdtNamespaces.Config + "config-item-set",
+                        new XAttribute(OdtNamespaces.Config + "name", "ooo:view-settings"),
+                        new XElement(
+                            OdtNamespaces.Config + "config-item",
+                            new XAttribute(OdtNamespaces.Config + "name", "ShowRedlineChanges"),
+                            new XAttribute(OdtNamespaces.Config + "type", "boolean"),
+                            "false")))));
 
     /// <summary>
     /// The sections written as <c>text:section</c>, in order: each of the
@@ -655,16 +700,129 @@ public static class OdtWriter
         if (styleName is not null)
             element.Add(new XAttribute(OdtNamespaces.Text + "style-name", styleName));
 
-        var state = new ParagraphState(paragraph.Text);
+        // The body holds the paragraph as it reads with its deletions taken out;
+        // each deletion is a mark there and its text is in its region.
+        var state = new ParagraphState(BodyText(paragraph));
         int offset = 0;
-        foreach (StyleRun run in paragraph.Runs)
+        int bodyOffset = 0;
+        IReadOnlyList<StyleRun> runs = paragraph.Runs;
+        for (int i = 0; i < runs.Count;)
         {
-            string text = paragraph.Text.Substring(offset, run.Length);
-            AddRun(element, text, offset, run.Style, state, context);
-            offset += run.Length;
+            TextRevision? revision = runs[i].Style.Revision;
+            int end = i + 1;
+            while (end < runs.Count && Equals(runs[end].Style.Revision, revision))
+                end++;
+
+            int length = 0;
+            for (int k = i; k < end; k++)
+                length += runs[k].Length;
+
+            if (revision is { Kind: RevisionKind.Deletion })
+            {
+                // Text written outside content.xml - a header's - cannot name a
+                // region the body lists, so there a deletion is left out, as
+                // accepting it would leave it.
+                if (!context.InRunning)
+                {
+                    XElement[] deleted = BuildDeletedParagraphs(paragraph, styleName, offset, runs, i, end, context);
+                    element.Add(new XElement(
+                        OdtNamespaces.Text + "change",
+                        new XAttribute(OdtNamespaces.Text + "change-id", context.AddRegion(revision, deleted))));
+                }
+
+                offset += length;
+                i = end;
+                continue;
+            }
+
+            string? id = revision is null || context.InRunning ? null : context.AddRegion(revision, []);
+            if (id is not null)
+                element.Add(new XElement(OdtNamespaces.Text + "change-start", new XAttribute(OdtNamespaces.Text + "change-id", id)));
+
+            for (int k = i; k < end; k++)
+            {
+                string text = paragraph.Text.Substring(offset, runs[k].Length);
+                AddRun(element, text, bodyOffset, runs[k].Style with { Revision = null }, state, context);
+                offset += runs[k].Length;
+                bodyOffset += runs[k].Length;
+            }
+
+            if (id is not null)
+                element.Add(new XElement(OdtNamespaces.Text + "change-end", new XAttribute(OdtNamespaces.Text + "change-id", id)));
+
+            i = end;
         }
 
         return element;
+    }
+
+    /// <summary>The paragraph's text without the runs a change deleted.</summary>
+    private static string BodyText(RichTextParagraph paragraph)
+    {
+        var text = new StringBuilder(paragraph.Length);
+        int offset = 0;
+        foreach (StyleRun run in paragraph.Runs)
+        {
+            if (!run.Style.IsDeleted)
+                text.Append(paragraph.Text, offset, run.Length);
+            offset += run.Length;
+        }
+
+        return text.ToString();
+    }
+
+    /// <summary>
+    /// A deletion's text as the paragraphs its region holds: one, or one more
+    /// for each deleted paragraph break in it (see <see cref="DeletedBreak"/>).
+    /// </summary>
+    private static XElement[] BuildDeletedParagraphs(
+        RichTextParagraph paragraph,
+        string? styleName,
+        int offset,
+        IReadOnlyList<StyleRun> runs,
+        int first,
+        int end,
+        OdtWriteContext context)
+    {
+        int length = 0;
+        for (int k = first; k < end; k++)
+            length += runs[k].Length;
+
+        string[] parts = paragraph.Text.Substring(offset, length).Split(DeletedBreak);
+        var written = new List<XElement>(parts.Length);
+        XElement NewParagraph() => styleName is null
+            ? new XElement(OdtNamespaces.Text + "p")
+            : new XElement(OdtNamespaces.Text + "p", new XAttribute(OdtNamespaces.Text + "style-name", styleName));
+
+        int part = 0;
+        XElement current = NewParagraph();
+        var state = new ParagraphState(parts[0]);
+        int partOffset = 0;
+        written.Add(current);
+        for (int k = first; k < end; k++)
+        {
+            string text = paragraph.Text.Substring(offset, runs[k].Length);
+            offset += runs[k].Length;
+            InlineStyle style = runs[k].Style with { Revision = null };
+            string[] pieces = text.Split(DeletedBreak);
+            for (int p = 0; p < pieces.Length; p++)
+            {
+                if (p > 0)
+                {
+                    part++;
+                    current = NewParagraph();
+                    state = new ParagraphState(parts[part]);
+                    partOffset = 0;
+                    written.Add(current);
+                }
+
+                if (pieces[p].Length > 0)
+                    AddRun(current, pieces[p], partOffset, style, state, context);
+                partOffset += pieces[p].Length;
+            }
+        }
+
+        return [.. written];
     }
 
     /// <summary>
@@ -1487,8 +1645,10 @@ public static class OdtWriter
             foreach (DocumentShape shape in shapes)
                 part.Add(BuildShape(shape, context));
 
+            context.InRunning = true;
             foreach (RichTextParagraph paragraph in paragraphs)
                 part.Add(BuildParagraph(paragraph, context, inList: false));
+            context.InRunning = false;
 
             yield return part;
         }
@@ -1698,7 +1858,8 @@ public static class OdtWriter
             ManifestEntry("/", OdtNamespaces.PackageMediaType, OdtNamespaces.WrittenVersion),
             ManifestEntry(OdtNamespaces.ContentPart, "text/xml"),
             ManifestEntry(OdtNamespaces.StylesPart, "text/xml"),
-            ManifestEntry(OdtNamespaces.MetaPart, "text/xml"));
+            ManifestEntry(OdtNamespaces.MetaPart, "text/xml"),
+            context.HasSettings ? ManifestEntry(OdtNamespaces.SettingsPart, "text/xml") : null);
 
         foreach (OdtPicturePart picture in context.Pictures)
             root.Add(ManifestEntry(picture.PartPath, picture.ContentType));
@@ -1788,6 +1949,49 @@ public static class OdtWriter
 
         /// <summary>True while a note's own paragraphs are being written.</summary>
         public bool InNote { get; set; }
+
+        /// <summary>True while a header's or footer's paragraphs are written, into <c>styles.xml</c>.</summary>
+        public bool InRunning { get; set; }
+
+        /// <summary>True when the package carries a settings part.</summary>
+        public bool HasSettings { get; set; }
+
+        private readonly List<XElement> _regions = [];
+
+        /// <summary>The <c>text:changed-region</c> of every change written so far.</summary>
+        public IReadOnlyList<XElement> Regions => _regions;
+
+        /// <summary>
+        /// Lists a change's region and returns its id: who made it and when, and
+        /// for a deletion the paragraphs it deleted. ODF has no form for a move,
+        /// so each side is written as the insertion or deletion it is.
+        /// </summary>
+        public string AddRegion(TextRevision revision, IEnumerable<XElement> deleted)
+        {
+            string id = "ct" + (_regions.Count + 1).ToString(CultureInfo.InvariantCulture);
+            var info = new XElement(OdtNamespaces.Office + "change-info");
+            if (revision.Author is string author)
+                info.Add(new XElement(OdtNamespaces.DublinCore + "creator", XmlText(author, this)));
+            if (revision.Date is DateTimeOffset date)
+            {
+                info.Add(new XElement(
+                    OdtNamespaces.DublinCore + "date",
+                    date.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture)));
+            }
+
+            string kind = revision.Kind switch
+            {
+                RevisionKind.Deletion => "deletion",
+                RevisionKind.Format => "format-change",
+                _ => "insertion",
+            };
+            _regions.Add(new XElement(
+                OdtNamespaces.Text + "changed-region",
+                new XAttribute(OdtNamespaces.Xml + "id", id),
+                new XAttribute(OdtNamespaces.Text + "id", id),
+                new XElement(OdtNamespaces.Text + kind, info, deleted)));
+            return id;
+        }
 
         /// <summary>
         /// What the caller's policy decided about this document's resources. A

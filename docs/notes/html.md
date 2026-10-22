@@ -99,6 +99,7 @@ it.
 | Inline style fields | CSS on `<span>` or `<a>` |
 | `LinkHref` | `<a href="...">` |
 | `InlineStyle.Image` | `<img src="data:...;base64,...">` with `alt` and a CSS size |
+| `InlineStyle.Revision` | Inserted text in `<ins>` and deleted text in `<del>`, with a `datetime` where the change states one. A document that hides its changes is written as it is drawn, its deletions left out. A change of formatting, and a deleted paragraph break, have no element and are not written. |
 | `InlineStyle.Note` | The note's label in `<sup>`, and the note's paragraphs after the body, under an `<hr>`, the first opened with the label. HTML has no notes; reported once as `html.note`. The reader reads such a page back as text. |
 | Paragraph alignment, line spacing, indent, spacing | CSS on `<p>`. A stated line height is written as a `line-height` length, which reads back as the least a line is; an exact one is reported once as `html.lineheight.exact`. |
 | `ParagraphStyle.ColumnBreakBefore` | `break-before: column`, where the paragraph starts no page. There is no CSS2 spelling to prefer for it. |

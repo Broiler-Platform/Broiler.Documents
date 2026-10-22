@@ -71,7 +71,20 @@ internal sealed class CsvWriter
         ArgumentNullException.ThrowIfNull(destination);
         ArgumentNullException.ThrowIfNull(options);
 
+        // A cell holds text as it reads, so a change is written as accepting it
+        // would leave it.
+        bool revised = RevisionDisplay.HasRevisions(document);
+        if (revised)
+            document = RevisionDisplay.WithoutDeletions(document);
+
         var writer = new CsvWriter(document, options, cancellationToken);
+        if (revised)
+        {
+            writer._diagnostics.Add(DocumentDiagnostic.Info(
+                CsvDiagnosticCodes.RevisionAccepted,
+                "Tracked changes were written accepted: the deleted text was left out and the inserted text written as plain text; CSV holds a cell's text only."));
+        }
+
         byte[] bytes = writer.Build();
 
         cancellationToken.ThrowIfCancellationRequested();

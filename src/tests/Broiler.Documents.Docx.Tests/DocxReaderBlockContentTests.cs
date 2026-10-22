@@ -136,16 +136,18 @@ public sealed class DocxReaderBlockContentTests
     }
 
     [Fact]
-    public void Reads_Inserted_Revisions_And_Skips_Deleted_Ones()
+    public void Reads_Inserted_And_Deleted_Revisions_Alike()
     {
+        // The deleted side is kept and marked, as LibreOffice keeps it; see
+        // DocxRevisionTests.
         string body =
             "<w:ins w:id=\"1\" w:author=\"a\">" + DocxTestPackage.Paragraph("kept") + "</w:ins>" +
             "<w:del w:id=\"2\" w:author=\"a\">" + DocxTestPackage.Paragraph("gone") + "</w:del>";
 
         DocumentReadResult result = DocxTestPackage.ReadBody(body);
 
-        Assert.Equal("kept", Assert.Single(result.Document.Paragraphs).Text);
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.revision.delete");
+        Assert.Equal(["kept", "gone"], result.Document.Paragraphs.Select(paragraph => paragraph.Text));
+        Assert.True(result.Document.Paragraphs[1].StyleAt(0).IsDeleted);
     }
 
     [Fact]

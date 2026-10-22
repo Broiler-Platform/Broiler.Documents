@@ -338,8 +338,8 @@ internal sealed class DocxSections
 
     /// <summary>
     /// The paragraphs of the body's own flow, in document order, walked the way
-    /// the read walks block content: into tables, content controls and accepted
-    /// revisions, past deleted ones, and into the one branch of an
+    /// the read walks block content: into tables, content controls and tracked
+    /// changes, deleted ones included, and into the one branch of an
     /// <c>mc:AlternateContent</c> that is read. A paragraph is not entered, so a
     /// text box's paragraphs - which the read takes as a shape's own story - are
     /// never reached.
@@ -351,12 +351,6 @@ internal sealed class DocxSections
             if (child.Name == DocxNamespaces.Wordprocessing + "p")
             {
                 yield return child;
-                continue;
-            }
-
-            if (child.Name == DocxNamespaces.Wordprocessing + "del" ||
-                child.Name == DocxNamespaces.Wordprocessing + "moveFrom")
-            {
                 continue;
             }
 

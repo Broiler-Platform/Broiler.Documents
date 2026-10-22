@@ -105,6 +105,7 @@ internal static class DocxReader
             document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running));
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
+            document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
             document = document.WithPageBackground(DocxVml.ReadBackground(
                 documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "background"),
                 settings.DisplayBackgroundShape,
@@ -211,21 +212,18 @@ internal static class DocxReader
                 continue;
             }
 
-            // Accepted revisions and move destinations are live content; the
-            // deleted/moved-from side is not.
-            if (name == DocxNamespaces.Wordprocessing + "ins" ||
-                name == DocxNamespaces.Wordprocessing + "moveTo" ||
-                name == DocxNamespaces.Wordprocessing + "customXml" ||
-                name == DocxNamespaces.Wordprocessing + "smartTag")
+            // A tracked change around whole paragraphs marks everything in them;
+            // the deleted side is kept, as LibreOffice keeps it.
+            if (DocxRevisions.Of(element) is TextRevision blockRevision)
             {
-                ReadBlockContent(element.Elements(), context, depth + 1);
+                ReadBlockContent(element.Elements(), context with { Revision = blockRevision }, depth + 1);
                 continue;
             }
 
-            if (name == DocxNamespaces.Wordprocessing + "del" ||
-                name == DocxNamespaces.Wordprocessing + "moveFrom")
+            if (name == DocxNamespaces.Wordprocessing + "customXml" ||
+                name == DocxNamespaces.Wordprocessing + "smartTag")
             {
-                builder.AddDiagnosticOnce("docx.revision.delete", "Deleted revision content was skipped.");
+                ReadBlockContent(element.Elements(), context, depth + 1);
                 continue;
             }
 
@@ -625,8 +623,24 @@ internal static class DocxReader
         if (paragraphStyle.List is not null && IsBareSectionBreak(paragraph, pPr))
             paragraphStyle = paragraphStyle with { List = null, ListKind = ListKind.None };
 
+        // A change of the paragraph's own properties is drawn on its text, as
+        // LibreOffice draws its ParagraphFormat change: as a change of
+        // formatting, where no insertion or deletion marks the text already.
         InlineStyle inherited = ReadInheritedRunStyle(paragraphStyleId, context);
-        context.Builder.StartParagraph(paragraphStyle, ReadMarkStyle(pPr, inherited, context));
+        if (context.Revision is not null)
+            inherited = inherited with { Revision = context.Revision };
+        else if (DocxRevisions.OfParagraphProperties(pPr) is TextRevision paragraphChange)
+            inherited = inherited with { Revision = paragraphChange };
+
+        // A paragraph mark a change inserted or deleted says so in its own w:rPr.
+        InlineStyle markStyle = ReadMarkStyle(pPr, inherited, context);
+        if (DocxRevisions.OfProperties(pPr?.Element(DocxNamespaces.Wordprocessing + "rPr"), includeFormat: false)
+            is TextRevision markRevision)
+        {
+            markStyle = markStyle with { Revision = markRevision };
+        }
+
+        context.Builder.StartParagraph(paragraphStyle, markStyle);
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
         context.Builder.FinishParagraph();
 
@@ -736,7 +750,7 @@ internal static class DocxReader
     private static InlineStyle ReadInheritedRunStyle(string? paragraphStyleId, DocxReadContext context)
     {
         InlineStyle style = InlineStyle.Default;
-        foreach (XElement rPr in context.Styles.RunPropertiesForParagraph(paragraphStyleId, context.TableStyle))
+        foreach (XElement rPr in context.Styles.RunPropertiesForParagraph(paragraphStyleId, context.TableStyle, context.TableConditions))
             style = ApplyRunProperties(rPr, style, context.Styles.Theme);
 
         return style;
@@ -788,9 +802,9 @@ internal static class DocxReader
                 continue;
             }
 
-            if (element.Name == DocxNamespaces.Wordprocessing + "del")
+            if (DocxRevisions.Of(element) is TextRevision revision)
             {
-                context.Builder.AddDiagnosticOnce("docx.revision.delete", "Deleted revision content was skipped.");
+                ReadParagraphChildren(element.Elements(), context, style with { Revision = revision });
                 continue;
             }
 
@@ -820,6 +834,15 @@ internal static class DocxReader
             style = ApplyRunProperties(styleRunProperties, style, context.Styles.Theme);
 
         style = ApplyRunProperties(rPr, style, context.Styles.Theme);
+
+        // A run inserted or deleted is that change whatever else happened to
+        // it; one that is neither may record that its formatting changed.
+        if (style.Revision is null &&
+            DocxRevisions.OfProperties(rPr, includeFormat: true) is TextRevision change)
+        {
+            style = style with { Revision = change };
+        }
+
         ReadRunContent(run.Elements(), context, style);
     }
 
@@ -927,9 +950,10 @@ internal static class DocxReader
                 continue;
             }
 
+            // A deleted run's text: kept, marked by the w:del around the run.
             if (child.Name == DocxNamespaces.Wordprocessing + "delText")
             {
-                builder.AddDiagnosticOnce("docx.revision.delete", "Deleted revision content was skipped.");
+                builder.AppendText(child.Value, style);
                 continue;
             }
 
@@ -1829,7 +1853,7 @@ internal static class DocxReader
         DocxReadContext context)
     {
         ParagraphStyle style = ParagraphStyle.Default;
-        IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle);
+        IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions);
         foreach (XElement styleParagraphProperties in chain)
             style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style);
 

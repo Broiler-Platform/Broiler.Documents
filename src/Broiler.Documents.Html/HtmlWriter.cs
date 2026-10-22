@@ -66,6 +66,10 @@ public static class HtmlWriter
                 "this writer emits no table markup."));
         }
 
+        // A document that hides its changes is written as it is drawn, its
+        // deletions left out; one that shows them marks each with ins or del.
+        document = RevisionDisplay.HideDeletions(document);
+
         DomDocument dom = BuildDom(document, resources, diagnostics);
         string html = HtmlSerializer.Serialize(
             dom.DocumentElement!,
@@ -264,15 +268,27 @@ public static class HtmlWriter
                 continue;
             }
 
+            // Inserted and deleted text is what ins and del are for; the run's
+            // own formatting goes inside.
+            DomNode host = parent;
+            if (run.Style.Revision is { Kind: RevisionKind.Insertion or RevisionKind.Deletion } revision)
+            {
+                DomElement change = document.CreateElement(revision.IsDeletion ? "del" : "ins");
+                if (revision.Date is DateTimeOffset date)
+                    change.SetAttribute("datetime", date.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture));
+                parent.AppendChild(change);
+                host = change;
+            }
+
             DomNode target = CreateRunContainer(document, run.Style, diagnostics);
             if (target is DomElement element)
             {
                 AppendRunContent(document, element, text, run.Style, resources, diagnostics);
-                parent.AppendChild(element);
+                host.AppendChild(element);
             }
             else
             {
-                AppendRunContent(document, parent, text, run.Style, resources, diagnostics);
+                AppendRunContent(document, host, text, run.Style, resources, diagnostics);
             }
         }
     }

@@ -293,6 +293,11 @@ public sealed class DocumentComparison
         return null;
     }
 
+    private static string DescribeRevision(TextRevision? revision) =>
+        revision is null
+            ? "none"
+            : revision.Kind.ToString().ToLowerInvariant() + (revision.Author is string author ? " by " + Quote(author) : string.Empty);
+
     private static string? DescribeInlineDifference(InlineStyle left, InlineStyle right)
     {
         if (left.Bold != right.Bold)
@@ -315,6 +320,8 @@ public sealed class DocumentComparison
             return "background " + ColorText.Format(left.Background) + " vs " + ColorText.Format(right.Background);
         if (!string.Equals(left.LinkHref, right.LinkHref, StringComparison.Ordinal))
             return "link " + Quote(left.LinkHref) + " vs " + Quote(right.LinkHref);
+        if (!Equals(left.Revision, right.Revision))
+            return "tracked change " + DescribeRevision(left.Revision) + " vs " + DescribeRevision(right.Revision);
 
         return DescribeImageDifference(left.Image, right.Image);
     }

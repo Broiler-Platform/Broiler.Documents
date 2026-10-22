@@ -23,8 +23,10 @@ public sealed class RichTextDocument
         DocumentStyleDefaults? styleDefaults = null,
         IReadOnlyList<DocumentSection>? sections = null,
         ShapeFill? pageBackground = null,
-        NoteNumbering? noteNumbering = null)
+        NoteNumbering? noteNumbering = null,
+        bool showsRevisions = true)
     {
+        ShowsRevisions = showsRevisions;
         RunningContent = runningContent ?? RunningContent.Empty;
         NoteNumbering = noteNumbering ?? NoteNumbering.Default;
         PageGeometry = pageGeometry;
@@ -109,38 +111,51 @@ public sealed class RichTextDocument
 
     /// <summary>This document's body with different running content.</summary>
     public RichTextDocument WithRunningContent(RunningContent? runningContent) =>
-        new(_paragraphs, runningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
+        new(_paragraphs, runningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
 
     /// <summary>This document's body with different floating shapes.</summary>
     public RichTextDocument WithShapes(IReadOnlyList<DocumentShape>? shapes) =>
-        new(_paragraphs, RunningContent, shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
+        new(_paragraphs, RunningContent, shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
 
     /// <summary>This document's body on a different page.</summary>
     public RichTextDocument WithPageGeometry(PageGeometry? pageGeometry) =>
-        new(_paragraphs, RunningContent, Shapes, pageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
+        new(_paragraphs, RunningContent, Shapes, pageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
 
     /// <summary>This document's body arranged in different tables.</summary>
     public RichTextDocument WithTables(IReadOnlyList<DocumentTable>? tables) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, tables, StyleDefaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
 
     /// <summary>This document's body divided into different sections.</summary>
     public RichTextDocument WithSections(IReadOnlyList<DocumentSection>? sections) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, sections, PageBackground, NoteNumbering);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, sections, PageBackground, NoteNumbering, ShowsRevisions);
 
     /// <summary>This document's body painted on a different page background.</summary>
     public RichTextDocument WithPageBackground(ShapeFill? pageBackground) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, pageBackground, NoteNumbering);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, pageBackground, NoteNumbering, ShowsRevisions);
+
+    /// <summary>
+    /// True when the document's tracked changes are shown as changes - deleted
+    /// text struck through, inserted text underlined - and false when it says
+    /// they are hidden, which draws it as it reads with its deletions gone. It
+    /// says nothing about whether the document has any; see
+    /// <see cref="TextRevision"/> and <see cref="RevisionDisplay"/>.
+    /// </summary>
+    public bool ShowsRevisions { get; }
+
+    /// <summary>This document's body with its tracked changes shown or hidden.</summary>
+    public RichTextDocument WithShowsRevisions(bool showsRevisions) =>
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering, showsRevisions);
 
     /// <summary>This document's body with its notes numbered differently.</summary>
     public RichTextDocument WithNoteNumbering(NoteNumbering? noteNumbering) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, noteNumbering);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, noteNumbering, ShowsRevisions);
 
     /// <summary>The notes the body cites, in the order it cites them.</summary>
     public IReadOnlyList<DocumentNote> Notes => DocumentNote.CitedIn(_paragraphs);
 
     /// <summary>This document's body with different formatting fallbacks.</summary>
     public RichTextDocument WithStyleDefaults(DocumentStyleDefaults? styleDefaults) =>
-        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, styleDefaults, Sections, PageBackground, NoteNumbering);
+        new(_paragraphs, RunningContent, Shapes, PageGeometry, Tables, styleDefaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
 
     /// <summary>
     /// The body table starting at <paramref name="paragraphIndex"/>, or null when
@@ -217,7 +232,9 @@ public sealed class RichTextDocument
     public InlineStyle InlineStyleAt(RichTextPosition position)
     {
         position = ClampPosition(position);
-        return _paragraphs[position.ParagraphIndex].StyleBefore(position.Offset);
+        // Text typed beside a tracked change is not part of it: this model
+        // records no changes of its own.
+        return _paragraphs[position.ParagraphIndex].StyleBefore(position.Offset) with { Revision = null };
     }
 
     public RichTextPosition PositionLeftOf(RichTextPosition position)
@@ -353,7 +370,7 @@ public sealed class RichTextDocument
             paragraphs.Add(_paragraphs[i].ApplyInlineStyle(startOffset, endOffset - startOffset, delta));
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
     }
 
     public RichTextDocument ApplyParagraphStyle(RichTextRange range, ParagraphStyleDelta delta)
@@ -370,7 +387,7 @@ public sealed class RichTextDocument
                 paragraphs.Add(_paragraphs[i]);
         }
 
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
     }
 
     /// <summary>
@@ -438,12 +455,30 @@ public sealed class RichTextDocument
         return new RichTextEditResult(document, lastCaret);
     }
 
+    /// <summary>This document with <paramref name="paragraph"/> in place of the one at <paramref name="index"/>.</summary>
+    internal RichTextDocument ReplaceParagraph(int index, RichTextParagraph paragraph) => WithParagraph(index, paragraph);
+
+    /// <summary>
+    /// This document without <paramref name="count"/> whole paragraphs from
+    /// <paramref name="index"/>, its tables and sections moved to follow. A
+    /// document is never left without a paragraph.
+    /// </summary>
+    internal RichTextDocument RemoveParagraphs(int index, int count)
+    {
+        if (count <= 0 || index < 0 || index + count > _paragraphs.Length)
+            return this;
+
+        return count == _paragraphs.Length
+            ? ReplaceRange(0, count, [RichTextParagraph.Empty])
+            : ReplaceRange(index, count, []);
+    }
+
     private RichTextDocument WithParagraph(int index, RichTextParagraph paragraph)
     {
         var paragraphs = new RichTextParagraph[_paragraphs.Length];
         Array.Copy(_paragraphs, paragraphs, _paragraphs.Length);
         paragraphs[index] = paragraph;
-        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering);
+        return new RichTextDocument(paragraphs, RunningContent, Shapes, PageGeometry, Tables, StyleDefaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
     }
 
     /// <summary>
@@ -472,7 +507,8 @@ public sealed class RichTextDocument
             StyleDefaults,
             ShiftSections(index, removeCount, insert.Count),
             PageBackground,
-            NoteNumbering);
+            NoteNumbering,
+            ShowsRevisions);
     }
 
     /// <summary>This document's tables, moved for an edit at <paramref name="at"/>.</summary>

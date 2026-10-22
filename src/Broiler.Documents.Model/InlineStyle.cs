@@ -64,6 +64,13 @@ public readonly record struct InlineStyle
     /// </summary>
     public DocumentNote? Note { get; init; }
 
+    /// <summary>
+    /// The tracked change this run is part of, or <see langword="null"/> for text
+    /// no change marks. A deleted run is kept and marked here; how it is drawn is
+    /// <see cref="RevisionDisplay"/>'s business.
+    /// </summary>
+    public TextRevision? Revision { get; init; }
+
     /// <summary>The unformatted default style (<c>default(InlineStyle)</c>).</summary>
     public static InlineStyle Default => default;
 
@@ -75,4 +82,7 @@ public readonly record struct InlineStyle
 
     /// <summary>True when the run cites a note rather than holding text.</summary>
     public bool IsNote => Note is not null;
+
+    /// <summary>True when the run is text a tracked change deleted.</summary>
+    public bool IsDeleted => Revision?.Kind == RevisionKind.Deletion;
 }

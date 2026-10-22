@@ -35,6 +35,8 @@ public static class DocxWriter
         XDocument? endnotesXml = BuildNotes(NoteKind.Endnote, document.NoteNumbering.RaisedLabels, context);
         if (document.NoteNumbering with { RaisedLabels = false } != NoteNumbering.Default)
             context.AddSettings(noteNumbering: document.NoteNumbering);
+        if (!document.ShowsRevisions)
+            context.AddSettings(hideRevisions: true);
 
         // The caller's metadata, never the source document's: this writer is
         // given an envelope or it emits no properties at all.
@@ -751,7 +753,17 @@ public static class DocxWriter
         // The mark's w:rPr closes CT_PPr's base properties and comes before a
         // w:sectPr, which is added after this. A mark carries no link and no
         // picture, so those parts of the model's style are not its to write.
-        if (BuildRunProperties(paragraph.MarkStyle with { LinkHref = null, Image = null }, context) is XElement mark)
+        // A mark a change inserted or deleted says so first in its w:rPr
+        // (CT_ParaRPr); a change of formatting is not recorded on a mark.
+        InlineStyle markStyle = paragraph.MarkStyle with { LinkHref = null, Image = null, Revision = null };
+        XElement? mark = BuildRunProperties(markStyle, context);
+        if (paragraph.MarkStyle.Revision is { Kind: not RevisionKind.Format } markRevision)
+        {
+            mark ??= new XElement(DocxNamespaces.Wordprocessing + "rPr");
+            mark.AddFirst(RevisionElement(markRevision, context));
+        }
+
+        if (mark is not null)
         {
             properties ??= new XElement(DocxNamespaces.Wordprocessing + "pPr");
             properties.Add(mark);
@@ -771,15 +783,70 @@ public static class DocxWriter
                 new XElement(DocxNamespaces.Wordprocessing + "br", WordAttribute("type", "column"))));
         }
 
+        // Runs an insertion or a deletion marks go inside its w:ins or w:del,
+        // consecutive runs of one change inside one.
         int offset = 0;
+        XElement? change = null;
+        TextRevision? changeRevision = null;
         foreach (StyleRun run in paragraph.Runs)
         {
             string text = paragraph.Text.Substring(offset, run.Length);
             offset += run.Length;
-            AddRun(element, text, run.Style, context);
+
+            XElement parent = element;
+            if (run.Style.Revision is { Kind: not RevisionKind.Format } revision)
+            {
+                if (change is null || !Equals(changeRevision, revision))
+                {
+                    change = RevisionElement(revision, context);
+                    changeRevision = revision;
+                    element.Add(change);
+                }
+
+                parent = change;
+            }
+            else
+            {
+                change = null;
+                changeRevision = null;
+            }
+
+            context.InDeletion = run.Style.IsDeleted;
+            AddRun(parent, text, run.Style, context);
+            context.InDeletion = false;
         }
 
         return element;
+    }
+
+    /// <summary>
+    /// The element that records an insertion or a deletion (ECMA-376
+    /// §17.13.5): <c>w:ins</c>, <c>w:del</c>, or for one side of a move
+    /// <c>w:moveTo</c> and <c>w:moveFrom</c>, with its author and date.
+    /// </summary>
+    private static XElement RevisionElement(TextRevision revision, DocxWriteContext context)
+    {
+        string name = (revision.Kind, revision.Moved) switch
+        {
+            (RevisionKind.Deletion, true) => "moveFrom",
+            (RevisionKind.Deletion, false) => "del",
+            (_, true) => "moveTo",
+            _ => "ins",
+        };
+        return new XElement(DocxNamespaces.Wordprocessing + name, RevisionAttributes(revision, context));
+    }
+
+    /// <summary>
+    /// A change's <c>w:id</c>, unique in the document, its <c>w:author</c> -
+    /// required, so empty for a change that names nobody - and its
+    /// <c>w:date</c> where it has one.
+    /// </summary>
+    private static IEnumerable<XAttribute> RevisionAttributes(TextRevision revision, DocxWriteContext context)
+    {
+        yield return WordAttribute("id", context.NextRevisionId().ToString(CultureInfo.InvariantCulture));
+        yield return WordAttribute("author", XmlText(revision.Author ?? string.Empty, context));
+        if (revision.Date is DateTimeOffset date)
+            yield return WordAttribute("date", date.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture));
     }
 
     /// <summary>
@@ -1039,6 +1106,17 @@ public static class DocxWriter
         // it; w:vertAlign is 32nd, after w:shd.
         if (style.IsNote)
             properties.Add(SuperscriptElement());
+
+        // A change of formatting closes the sequence. What the run looked like
+        // before is not held, so the earlier properties are written empty, as
+        // LibreOffice writes a change it holds no old formatting for.
+        if (style.Revision is { Kind: RevisionKind.Format } format)
+        {
+            properties.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "rPrChange",
+                RevisionAttributes(format, context),
+                new XElement(DocxNamespaces.Wordprocessing + "rPr")));
+        }
 
         return properties.HasElements ? properties : null;
     }
@@ -1369,7 +1447,7 @@ public static class DocxWriter
 
     private static XElement TextElement(string value, DocxWriteContext context) =>
         new(
-            DocxNamespaces.Wordprocessing + "t",
+            DocxNamespaces.Wordprocessing + (context.InDeletion ? "delText" : "t"),
             new XAttribute(DocxNamespaces.Xml + "space", "preserve"),
             XmlText(value, context));
 
@@ -1890,6 +1968,17 @@ public static class DocxWriter
             new XAttribute(XNamespace.Xmlns + "w", DocxNamespaces.Wordprocessing.NamespaceName));
         if (context.DisplayBackgroundShape)
             settings.Add(new XElement(DocxNamespaces.Wordprocessing + "displayBackgroundShape"));
+        // w:revisionView sits between the two in CT_Settings. Turning
+        // insertions and deletions off is what LibreOffice reads as changes
+        // hidden.
+        if (context.HideRevisions)
+        {
+            settings.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "revisionView",
+                WordAttribute("insDel", "0"),
+                WordAttribute("formatting", "0")));
+        }
+
         if (context.EvenAndOddHeaders)
             settings.Add(new XElement(DocxNamespaces.Wordprocessing + "evenAndOddHeaders"));
 
@@ -2124,10 +2213,15 @@ public static class DocxWriter
         }
 
         /// <summary>Registers the settings part, once, with the switches named turned on.</summary>
-        public void AddSettings(bool displayBackgroundShape = false, bool evenAndOddHeaders = false, NoteNumbering? noteNumbering = null)
+        public void AddSettings(
+            bool displayBackgroundShape = false,
+            bool evenAndOddHeaders = false,
+            NoteNumbering? noteNumbering = null,
+            bool hideRevisions = false)
         {
             DisplayBackgroundShape |= displayBackgroundShape;
             EvenAndOddHeaders |= evenAndOddHeaders;
+            HideRevisions |= hideRevisions;
             NoteNumbering ??= noteNumbering;
             if (SettingsRelationshipId is not null)
                 return;
@@ -2137,6 +2231,17 @@ public static class DocxWriter
         }
 
         public static string NumberingRelationshipId => "rId1";
+
+        /// <summary>Whether the settings part says the document's changes are hidden.</summary>
+        public bool HideRevisions { get; private set; }
+
+        /// <summary>True while a deleted run is written, whose text is <c>w:delText</c>.</summary>
+        public bool InDeletion { get; set; }
+
+        private int _nextRevisionId;
+
+        /// <summary>The next <c>w:id</c> for a tracked change.</summary>
+        public int NextRevisionId() => _nextRevisionId++;
 
         private readonly Dictionary<ListDefinition, int> _listNumIds = new(ReferenceEqualityComparer.Instance);
         private readonly List<ListDefinition> _listOrder = [];

@@ -31,6 +31,12 @@ namespace Broiler.Documents.Pagination;
 /// </remarks>
 public sealed class DocumentPagePainter
 {
+    /// <summary>How wide a changed line's bar is drawn: a hairline, as LibreOffice draws it.</summary>
+    private const double ChangeBarWidth = 0.5;
+
+    /// <summary>The colour of a changed line's bar, LibreOffice's default black.</summary>
+    private static readonly BColor ChangeBarColor = new(0, 0, 0);
+
     private readonly LayoutSettings _settings;
     private readonly ImageStore _images;
 
@@ -363,6 +369,11 @@ public sealed class DocumentPagePainter
     {
         double baseline = line.Top + line.Baseline;
 
+        // LibreOffice marks a line holding a tracked change with a hairline in
+        // the margin, the height of the line, in black.
+        if (line.ChangeBarX is double bar)
+            list.FillRect(new BRect(bar - (ChangeBarWidth / 2), line.Top, ChangeBarWidth, line.Height), ChangeBarColor);
+
         foreach (LayoutPiece piece in line.Pieces)
         {
             if (piece.Width <= 0)
@@ -411,18 +422,34 @@ public sealed class DocumentPagePainter
 
             double thickness = Math.Max(0.5, piece.Font.Size * 0.055);
 
+            // Moved text's line is doubled: a second one below the underline,
+            // and the strikethrough split into two either side of where it was.
+            double gap = thickness * 2;
             if (piece.Underline)
             {
                 list.FillRect(
                     new BRect(piece.X, pieceBaseline + (piece.Font.Size * 0.10), piece.Width, thickness),
                     piece.Color);
+                if (piece.Doubled)
+                {
+                    list.FillRect(
+                        new BRect(piece.X, pieceBaseline + (piece.Font.Size * 0.10) + gap, piece.Width, thickness),
+                        piece.Color);
+                }
             }
 
             if (piece.Strikethrough)
             {
-                list.FillRect(
-                    new BRect(piece.X, pieceBaseline - (piece.Font.Size * 0.26), piece.Width, thickness),
-                    piece.Color);
+                double strike = pieceBaseline - (piece.Font.Size * 0.26);
+                if (piece.Doubled)
+                {
+                    list.FillRect(new BRect(piece.X, strike - (gap / 2), piece.Width, thickness), piece.Color);
+                    list.FillRect(new BRect(piece.X, strike + (gap / 2), piece.Width, thickness), piece.Color);
+                }
+                else
+                {
+                    list.FillRect(new BRect(piece.X, strike, piece.Width, thickness), piece.Color);
+                }
             }
         }
     }

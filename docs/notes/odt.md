@@ -89,6 +89,26 @@ toolkit behind it.
   gives each kind's `style:num-format` and `text:start-value`, which LibreOffice
   counts from zero, and whether its `text:citation-style-name` raises the label
   at the head of the note. All of it is written back the same way.
+- Tracked changes (ODF 1.3 §5.5), as a `TextRevision` on the runs and
+  paragraph marks they mark. `text:tracked-changes` lists the regions, each with
+  its `dc:creator` and `dc:date`; the text between a `text:change-start` and its
+  `text:change-end` is the insertion or change of formatting that region
+  records, and a paragraph break inside an insertion is inserted with it. A
+  deletion's text is put back where its `text:change` stands, as LibreOffice
+  puts it back: the first of its paragraphs joins the text before the mark, the
+  last joins the text after it, those between keep their own styles, and every
+  paragraph break inside it comes back deleted. A table or list in a deletion is
+  read as block content there, and a page break the paragraph before handed on
+  goes to the text after the mark, not to a paragraph the deletion took away.
+  `ShowRedlineChanges` in the view settings - `settings.xml`, or a flat file's
+  `office:settings` - says whether the document shows its changes
+  (`RichTextDocument.ShowsRevisions`). The writer lists a region for each
+  change and marks the body the same way, a deleted paragraph break joining its
+  two paragraphs in the body as ODF holds them, and writes `settings.xml` when
+  the changes are hidden. ODF has no move: each side of one is written as the
+  insertion or deletion it is. A header or footer is written into `styles.xml`,
+  where no region the body lists can be named, so its changes are written
+  accepted.
 - Styles from `styles.xml` and `content.xml`, resolved per ODF 1.3 §16.2: the
   family's `style:default-style`, then the `style:parent-style-name` chain from
   its root down to the style the content names, then the next more specific
@@ -287,9 +307,9 @@ toolkit behind it.
 
 - **Encrypted packages are rejected.** ODF password protection really encrypts
   the parts; there is nothing to read, and this codec asks for no key.
-- Tracked changes are not applied. The document is read as it stands, and
-  `text:tracked-changes` — where the deleted text lives — is skipped with a
-  diagnostic.
+- A change of formatting is marked but what the text looked like before is
+  not read (ODF does not require it, and LibreOffice does not write it).
+  `text:change` marks in headers and footers are not read.
 - Comments (`office:annotation`) are not part of the body and are not imported.
 - Table styles beyond a cell's own background and borders are not applied, and
   cell vertical alignment and a table's own alignment and indent are not
@@ -430,7 +450,7 @@ blank:
 | `odt.annotation` | Warning | Comment content is not part of the body and was skipped. |
 | `odt.note.nested` | Warning | A note inside a note was read as nothing, or, writing, dropped: ODF cannot nest them. |
 | `odt.note.content` | Warning | A table or shape in a note was read as its text; a note holds paragraphs only. |
-| `odt.revision.tracked` | Warning | Tracked changes were not applied. |
+| `odt.settings.xml` | Warning | The settings part could not be read; the document is viewed as by default, its tracked changes shown. |
 | `odt.link` | Warning | A hyperlink with a disallowed or relative target was dropped. |
 | `odt.align.justify` | Warning | A justified paragraph was read as left-aligned. |
 | `odt.linespacing.leading` | Warning | Line spacing stated as leading between lines (`style:line-spacing`) was not represented. |

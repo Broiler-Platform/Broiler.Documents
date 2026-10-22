@@ -28,6 +28,12 @@ internal static class DocxTableReader
     /// same method and takes its own style, or the default one, rather than its
     /// parent's: the style belongs to a table, not to everything inside it.
     /// </para>
+    /// <para>
+    /// Each cell is also read under the conditional formats of that style it
+    /// falls in - the first row, the last column, a band - as the table's
+    /// <c>w:tblLook</c> selects them (<see cref="DocxTableLook"/>). They reach its
+    /// paragraphs, its runs, its borders and its shading.
+    /// </para>
     /// </remarks>
     internal static void Read(
         XElement table, DocxReadContext context, int depth,
@@ -35,22 +41,41 @@ internal static class DocxTableReader
     {
         int start = context.Builder.CurrentParagraphIndex;
         XElement? properties = table.Element(DocxNamespaces.Wordprocessing + "tblPr");
-        DocxReadContext cellContext = context with
-        {
-            TableStyle = context.Styles.TableStyleFor(
-                DocxValueReader.WordValue(properties?.Element(DocxNamespaces.Wordprocessing + "tblStyle"))),
-        };
-        CellBorders tableBorders = ReadTableBorders(properties);
+        DocxStyles styles = context.Styles;
+        string? styleId = styles.TableStyleFor(
+            DocxValueReader.WordValue(properties?.Element(DocxNamespaces.Wordprocessing + "tblStyle")));
+        DocxTableLook look = DocxTableLook.Read(properties, type => styles.DefinesTableCondition(styleId, type));
+        IReadOnlyList<XElement> styleTableParts = styles.TableStyleParts(styleId, TableConditions.None, "tblPr");
+        Edges tableEdges = ReadTableEdges(styleTableParts, properties);
+        BColor? tableShading = ReadTableShading(styleTableParts, properties);
+        List<XElement> rowElements = [.. EnumerateTableChildren(table, "tr")];
         var rows = new List<RowDraft>();
         bool exactHeightSeen = false;
 
-        foreach (XElement row in EnumerateTableChildren(table, "tr"))
+        for (int rowIndex = 0; rowIndex < rowElements.Count; rowIndex++)
         {
+            XElement row = rowElements[rowIndex];
+            bool isHeader = ReadRowSwitch(row, "tblHeader");
+            TableConditions rowConditions = look.ForRow(rowIndex, rowElements.Count, isHeader);
+            IReadOnlyList<XElement> styleRowParts = styles.TableStyleParts(styleId, rowConditions, "trPr");
+
+            // A row's w:tblPrEx states table borders for that row alone.
+            Edges rowEdges = Edges.Read(row
+                .Element(DocxNamespaces.Wordprocessing + "tblPrEx")?
+                .Element(DocxNamespaces.Wordprocessing + "tblBorders")).Over(tableEdges);
+            List<XElement> cellElements = [.. EnumerateTableChildren(row, "tc")];
             var cells = new List<CellDraft>();
             int column = 0;
-            foreach (XElement cell in EnumerateTableChildren(row, "tc"))
+            for (int cellIndex = 0; cellIndex < cellElements.Count; cellIndex++)
             {
+                XElement cell = cellElements[cellIndex];
                 XElement? cellProperties = cell.Element(DocxNamespaces.Wordprocessing + "tcPr");
+                TableConditions conditions = look.ForCell(rowConditions, cellIndex, cellElements.Count);
+                DocxReadContext cellContext = context with
+                {
+                    TableStyle = styleId,
+                    TableConditions = conditions,
+                };
                 int span = Math.Max(1, WordInt(cellProperties, "gridSpan", 1));
                 int cellStart = context.Builder.CurrentParagraphIndex;
 
@@ -74,18 +99,26 @@ internal static class DocxTableReader
                     ColumnIndex = column,
                     ColumnSpan = span,
                     Merge = ReadVerticalMerge(cellProperties),
-                    Shading = ReadCellShading(cellProperties),
-                    Borders = ReadCellBorders(cellProperties, tableBorders),
+                    Properties = cellProperties,
+                    StyleParts = styles.TableStyleParts(styleId, conditions, "tcPr"),
+                    RowIndex = rowIndex,
+                    IsFirstInRow = cellIndex == 0,
+                    IsLastInRow = cellIndex == cellElements.Count - 1,
+                    TableEdges = rowEdges,
                     Tables = nested,
                 });
                 column += span;
             }
 
+            // A row the style's first-row format marks as a header repeats as one,
+            // and a style's rows can be kept whole; the row's own switches win.
             rows.Add(new RowDraft(
                 cells,
                 ReadRowMinHeight(row, ref exactHeightSeen),
-                !ReadRowSwitch(row, "cantSplit"),
-                ReadRowSwitch(row, "tblHeader")));
+                !(ReadRowSwitchOrNull(row.Element(DocxNamespaces.Wordprocessing + "trPr"), "cantSplit") ??
+                  StyleRowSwitch(styleRowParts, "cantSplit")),
+                ReadRowSwitchOrNull(row.Element(DocxNamespaces.Wordprocessing + "trPr"), "tblHeader") ??
+                  ((rowConditions & TableConditions.FirstRow) != 0 && StyleRowSwitch(styleRowParts, "tblHeader"))));
             if (rows.Count >= context.Builder.Limits.MaxParagraphCount)
                 break;
         }
@@ -99,12 +132,22 @@ internal static class DocxTableReader
         }
 
         ResolveRowSpans([.. rows.Select(draft => draft.Cells)]);
+        foreach (RowDraft row in rows)
+        {
+            foreach (CellDraft cell in row.Cells)
+            {
+                bool reachesEnd = cell.RowIndex + cell.RowSpan >= rows.Count;
+                cell.Borders = ResolveCellBorders(cell, cell.TableEdges, reachesEnd);
+                cell.Shading = ResolveCellShading(cell, tableShading);
+            }
+        }
+
         context.Builder.AddTable(new DocumentTable(
             start,
             context.Builder.CurrentParagraphIndex - start,
             [.. rows.Select(BuildRow)],
             ReadTableGrid(table),
-            ReadCellPadding(properties),
+            ReadCellPadding(styleTableParts, properties),
             depth <= 1 ? ReadPosition(properties) : null));
 
         if (depth > 1 && properties?.Element(DocxNamespaces.Wordprocessing + "tblpPr") is not null)
@@ -115,13 +158,48 @@ internal static class DocxTableReader
         }
 
         context.Builder.NoteTable();
-        if (properties?.Element(DocxNamespaces.Wordprocessing + "tblStyle") is not null)
+        string? unapplied = FirstUnappliedStyleProperty(styles.AllTableStyleParts(styleId));
+        if (unapplied is not null)
         {
             context.Builder.AddDiagnosticOnce(
                 "docx.table.style",
-                "A DOCX table named a table style; its paragraph and run properties were applied, " +
-                "but banding, conditional formatting, and the borders a style states are not.");
+                "A DOCX table style stated a property this reader does not apply (w:" + unapplied + "); " +
+                "its borders, shading, cell margin, header rows and paragraph and run properties were applied.");
         }
+    }
+
+    /// <summary>
+    /// The first property a table style states that the read leaves out, or
+    /// null. Indent and width are not listed: no table is indented or sized by
+    /// them here, whoever states them.
+    /// </summary>
+    private static string? FirstUnappliedStyleProperty(IEnumerable<XElement> parts)
+    {
+        foreach (XElement part in parts)
+        {
+            string kind = part.Name.LocalName;
+            if (kind is not ("tblPr" or "trPr" or "tcPr"))
+                continue;
+
+            foreach (XElement property in part.Elements())
+            {
+                string name = property.Name.LocalName;
+                bool applied = (kind, name) switch
+                {
+                    ("tblPr", "tblBorders" or "shd" or "tblCellMar" or "tblInd" or "tblW" or "tblLook" or "tblStyle") => true,
+                    ("tblPr", "tblStyleRowBandSize" or "tblStyleColBandSize") =>
+                        !DocxValueReader.TryReadInt(property.Attribute(DocxNamespaces.Wordprocessing + "val"), out int size) || size <= 1,
+                    ("trPr", "cantSplit" or "tblHeader") => true,
+                    ("tcPr", "tcBorders") => !property.Elements().Any(edge => edge.Name.LocalName is "tl2br" or "tr2bl"),
+                    ("tcPr", "shd" or "tcW") => true,
+                    _ => false,
+                };
+                if (!applied)
+                    return name == "tcBorders" ? "tl2br" : name;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -209,6 +287,12 @@ internal static class DocxTableReader
         public VerticalMerge Merge;
         public BColor Shading;
         public CellBorders Borders;
+        public XElement? Properties;
+        public IReadOnlyList<XElement> StyleParts = [];
+        public int RowIndex;
+        public bool IsFirstInRow;
+        public bool IsLastInRow;
+        public Edges TableEdges;
         public List<DocumentTable> Tables = [];
     }
 
@@ -224,19 +308,34 @@ internal static class DocxTableReader
     /// every page the table continues onto. A bare element is on and the file
     /// has to spell <c>false</c> to turn it off.
     /// </summary>
-    private static bool ReadRowSwitch(XElement row, string name)
+    private static bool ReadRowSwitch(XElement row, string name) =>
+        ReadRowSwitchOrNull(row.Element(DocxNamespaces.Wordprocessing + "trPr"), name) ?? false;
+
+    /// <summary>One on/off row property of a <c>w:trPr</c>, or null when it is not stated.</summary>
+    private static bool? ReadRowSwitchOrNull(XElement? rowProperties, string name)
     {
-        XElement? element = row
-            .Element(DocxNamespaces.Wordprocessing + "trPr")?
-            .Element(DocxNamespaces.Wordprocessing + name);
+        XElement? element = rowProperties?.Element(DocxNamespaces.Wordprocessing + name);
         if (element is null)
-            return false;
+            return null;
 
         string? value = DocxValueReader.WordValue(element);
         return value is null ||
             !(value.Equals("false", StringComparison.OrdinalIgnoreCase) ||
               value.Equals("0", StringComparison.Ordinal) ||
               value.Equals("off", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>An on/off row property as a table style's row formats state it, the most specific last.</summary>
+    private static bool StyleRowSwitch(IReadOnlyList<XElement> styleRowParts, string name)
+    {
+        bool result = false;
+        foreach (XElement part in styleRowParts)
+        {
+            if (ReadRowSwitchOrNull(part, name) is bool stated)
+                result = stated;
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -373,23 +472,38 @@ internal static class DocxTableReader
     }
 
     /// <summary>
-    /// The space between a cell's edge and its text, from <c>w:tblCellMar</c>.
-    /// Word states each side; this model has one padding, so the left margin is
-    /// the one it takes - it is the one that moves the text.
+    /// The space between a cell's edge and its text, from <c>w:tblCellMar</c>:
+    /// the table's own, else its style's. Word states each side; this model has
+    /// one padding, so the left margin is the one it takes - it is the one that
+    /// moves the text.
     /// </summary>
-    private static double ReadCellPadding(XElement? properties)
+    private static double ReadCellPadding(IReadOnlyList<XElement> styleTableParts, XElement? properties)
     {
-        XElement? margins = properties?.Element(DocxNamespaces.Wordprocessing + "tblCellMar");
-        XElement? left = margins?.Element(DocxNamespaces.Wordprocessing + "left") ??
-            margins?.Element(DocxNamespaces.Wordprocessing + "start");
-        if (left is null ||
-            !DocxValueReader.TryReadTwips(left.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) ||
-            twips < 0)
+        if (LeftCellMargin(properties) is double own)
+            return own;
+
+        for (int i = styleTableParts.Count - 1; i >= 0; i--)
         {
-            return DocumentTable.DefaultCellPadding;
+            if (LeftCellMargin(styleTableParts[i]) is double styled)
+                return styled;
         }
 
-        return twips / 20.0;
+        return DocumentTable.DefaultCellPadding;
+
+        static double? LeftCellMargin(XElement? tableProperties)
+        {
+            XElement? margins = tableProperties?.Element(DocxNamespaces.Wordprocessing + "tblCellMar");
+            XElement? left = margins?.Element(DocxNamespaces.Wordprocessing + "left") ??
+                margins?.Element(DocxNamespaces.Wordprocessing + "start");
+            if (left is null ||
+                !DocxValueReader.TryReadTwips(left.Attribute(DocxNamespaces.Wordprocessing + "w"), out int twips) ||
+                twips < 0)
+            {
+                return null;
+            }
+
+            return twips / 20.0;
+        }
     }
 
     /// <summary>
@@ -407,52 +521,135 @@ internal static class DocxTableReader
             : VerticalMerge.Continue;
     }
 
-    /// <summary>A cell's background, from <c>w:shd</c>; empty when it states none.</summary>
-    private static BColor ReadCellShading(XElement? properties)
+    /// <summary>
+    /// A cell's background: its own <c>w:shd</c>, else what its style's formats
+    /// state for it, the most specific last, else the table's. A <c>w:shd</c>
+    /// whose fill is <c>auto</c> is stated, and states no background.
+    /// </summary>
+    private static BColor ResolveCellShading(CellDraft cell, BColor? table)
+    {
+        if (ReadShading(cell.Properties) is BColor own)
+            return own;
+
+        for (int i = cell.StyleParts.Count - 1; i >= 0; i--)
+        {
+            if (ReadShading(cell.StyleParts[i]) is BColor styled)
+                return styled;
+        }
+
+        return table ?? BColor.Empty;
+    }
+
+    /// <summary>The background a table states for all its cells: its own <c>w:shd</c>, else its style's.</summary>
+    private static BColor? ReadTableShading(IReadOnlyList<XElement> styleTableParts, XElement? properties)
+    {
+        if (ReadShading(properties) is BColor own)
+            return own;
+
+        for (int i = styleTableParts.Count - 1; i >= 0; i--)
+        {
+            if (ReadShading(styleTableParts[i]) is BColor styled)
+                return styled;
+        }
+
+        return null;
+    }
+
+    /// <summary>The fill of a <c>w:shd</c>, empty for <c>auto</c>, or null when there is none.</summary>
+    private static BColor? ReadShading(XElement? properties)
     {
         XElement? shading = properties?.Element(DocxNamespaces.Wordprocessing + "shd");
         if (shading is null)
-            return BColor.Empty;
+            return null;
 
         string? fill = (string?)shading.Attribute(DocxNamespaces.Wordprocessing + "fill");
         return DocxValueReader.TryParseHexColor(fill, out BColor color) ? color : BColor.Empty;
     }
 
-    /// <summary>The four edges a table states in <c>w:tblBorders</c>, for its cells to inherit.</summary>
-    private static CellBorders ReadTableBorders(XElement? properties)
+    /// <summary>
+    /// The six edges a <c>w:tblBorders</c> or <c>w:tcBorders</c> can state, each
+    /// null where it says nothing.
+    /// </summary>
+    private readonly record struct Edges(
+        TableBorder? Left, TableBorder? Top, TableBorder? Right, TableBorder? Bottom,
+        TableBorder? InsideH, TableBorder? InsideV)
     {
-        XElement? borders = properties?.Element(DocxNamespaces.Wordprocessing + "tblBorders");
-        if (borders is null)
-            return default;
+        /// <summary>These edges over <paramref name="lower"/>: each stated one wins.</summary>
+        public Edges Over(Edges lower) => new(
+            Left ?? lower.Left, Top ?? lower.Top, Right ?? lower.Right, Bottom ?? lower.Bottom,
+            InsideH ?? lower.InsideH, InsideV ?? lower.InsideV);
 
-        // insideH/insideV are the edges between cells. A cell takes them for the
-        // sides that face another cell, which the outer edges then override on
-        // the cells that sit against the table's own boundary.
-        TableBorder? inside = ReadBorderEdge(borders, "insideH");
-        TableBorder? insideVertical = ReadBorderEdge(borders, "insideV");
-        return new CellBorders(
-            FirstStated(ReadBorderEdge(borders, "left"), ReadBorderEdge(borders, "start"), insideVertical),
-            FirstStated(ReadBorderEdge(borders, "top"), inside),
-            FirstStated(ReadBorderEdge(borders, "right"), ReadBorderEdge(borders, "end"), insideVertical),
-            FirstStated(ReadBorderEdge(borders, "bottom"), inside));
+        public static Edges Read(XElement? borders) => borders is null
+            ? default
+            : new Edges(
+                ReadBorderEdge(borders, "left") ?? ReadBorderEdge(borders, "start"),
+                ReadBorderEdge(borders, "top"),
+                ReadBorderEdge(borders, "right") ?? ReadBorderEdge(borders, "end"),
+                ReadBorderEdge(borders, "bottom"),
+                ReadBorderEdge(borders, "insideH"),
+                ReadBorderEdge(borders, "insideV"));
     }
 
     /// <summary>
-    /// A cell's own borders, falling back to what the table states. A cell that
-    /// states an edge wins outright, including when what it states is no border
-    /// at all - turning one off is a decision, not a gap to fill in from above.
+    /// The edges a table states in <c>w:tblBorders</c> for its cells to take by
+    /// where they stand: its style's, the most specific last, under its own.
     /// </summary>
-    private static CellBorders ReadCellBorders(XElement? properties, CellBorders table)
+    private static Edges ReadTableEdges(IReadOnlyList<XElement> styleTableParts, XElement? properties)
     {
-        XElement? borders = properties?.Element(DocxNamespaces.Wordprocessing + "tcBorders");
-        if (borders is null)
-            return table;
+        Edges edges = default;
+        foreach (XElement part in styleTableParts)
+            edges = Edges.Read(part.Element(DocxNamespaces.Wordprocessing + "tblBorders")).Over(edges);
 
+        return Edges.Read(properties?.Element(DocxNamespaces.Wordprocessing + "tblBorders")).Over(edges);
+    }
+
+    /// <summary>
+    /// A cell's four borders, resolved as LibreOffice resolves them
+    /// (<c>DomainMapperTableHandler</c>, <c>lcl_computeCellBorders</c>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The cell's own <c>w:tcBorders</c> wins, then what its style states for
+    /// cells - its own <c>w:tcPr</c> and the conditional formats the cell falls
+    /// in. An edge neither states comes from the table by where the cell stands:
+    /// its outer edge for a cell against the table's boundary, and
+    /// <c>w:insideH</c> or <c>w:insideV</c> between cells, where a conditional
+    /// format's inside edges replace the table's. A cell turning off an edge is
+    /// a decision and stays off - except over a style that would draw one, which
+    /// Word reads as giving the edge back to the table; and the same when both
+    /// turn it off but the table states that outer edge.
+    /// </para>
+    /// <para>
+    /// The inside edges a cell states for itself mean nothing without a region
+    /// around it, and are ignored, as LibreOffice ignores them.
+    /// </para>
+    /// </remarks>
+    private static CellBorders ResolveCellBorders(CellDraft cell, Edges table, bool reachesEnd)
+    {
+        Edges styled = default;
+        foreach (XElement part in cell.StyleParts)
+            styled = Edges.Read(part.Element(DocxNamespaces.Wordprocessing + "tcBorders")).Over(styled);
+
+        Edges own = Edges.Read(cell.Properties?.Element(DocxNamespaces.Wordprocessing + "tcBorders"));
+
+        TableBorder? insideH = styled.InsideH ?? table.InsideH;
+        TableBorder? insideV = styled.InsideV ?? table.InsideV;
         return new CellBorders(
-            FirstStated(ReadBorderEdge(borders, "left"), ReadBorderEdge(borders, "start"), table.Left),
-            FirstStated(ReadBorderEdge(borders, "top"), table.Top),
-            FirstStated(ReadBorderEdge(borders, "right"), ReadBorderEdge(borders, "end"), table.Right),
-            FirstStated(ReadBorderEdge(borders, "bottom"), table.Bottom));
+            Resolve(own.Left, styled.Left, table.Left) ?? (cell.IsFirstInRow ? table.Left : insideV) ?? TableBorder.None,
+            Resolve(own.Top, styled.Top, table.Top) ?? (cell.RowIndex == 0 ? table.Top : insideH) ?? TableBorder.None,
+            Resolve(own.Right, styled.Right, table.Right) ?? (cell.IsLastInRow ? table.Right : insideV) ?? TableBorder.None,
+            Resolve(own.Bottom, styled.Bottom, table.Bottom) ?? (reachesEnd ? table.Bottom : insideH) ?? TableBorder.None);
+
+        static TableBorder? Resolve(TableBorder? own, TableBorder? styled, TableBorder? tableEdge)
+        {
+            if (own is TableBorder cellEdge && styled is TableBorder styleEdge && !cellEdge.IsVisible)
+            {
+                if (styleEdge.IsVisible || tableEdge is { IsVisible: true })
+                    return null;
+            }
+
+            return own ?? styled;
+        }
     }
 
     /// <summary>
@@ -483,18 +680,6 @@ internal static class DocxTableReader
         return new TableBorder(
             DocxValueReader.TryParseHexColor(color, out BColor parsed) ? parsed : BColor.Black,
             width);
-    }
-
-    /// <summary>The first edge that was stated at all, else no border.</summary>
-    private static TableBorder FirstStated(params TableBorder?[] candidates)
-    {
-        foreach (TableBorder? candidate in candidates)
-        {
-            if (candidate is TableBorder stated)
-                return stated;
-        }
-
-        return TableBorder.None;
     }
 
     /// <summary>A border thicker than this is a rule, not a border, and would swallow the cell.</summary>

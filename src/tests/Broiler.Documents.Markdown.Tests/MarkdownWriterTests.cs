@@ -311,4 +311,21 @@ public sealed class MarkdownWriterTests
         Assert.Equal("link", written.Trim());
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.link");
     }
+
+    [Fact]
+    public void Tracked_Changes_Are_Written_Accepted_And_Reported()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Plain("kept ")
+                .InsertText(5, "gone", InlineStyle.Default with { Revision = new TextRevision(RevisionKind.Deletion, "Ben") })
+                .InsertText(9, "added", InlineStyle.Default with { Revision = new TextRevision(RevisionKind.Insertion, "Anna") }),
+        ]);
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult result = new MarkdownDocumentCodec().Write(document, stream);
+
+        Assert.Equal("kept added", System.Text.Encoding.UTF8.GetString(stream.ToArray()).Trim());
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.revision");
+    }
 }

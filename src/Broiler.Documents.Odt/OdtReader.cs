@@ -89,6 +89,7 @@ internal static class OdtReader
             images,
             resources,
             () => OdtMetadata.Read(archive, options.Limits, diagnostics),
+            ReadSettings(archive, options.Limits, diagnostics),
             options,
             diagnostics);
     }
@@ -152,6 +153,7 @@ internal static class OdtReader
             images,
             resources,
             () => OdtMetadata.Read(root.Element(OdtNamespaces.Office + "meta"), diagnostics),
+            root.Element(OdtNamespaces.Office + "settings"),
             options,
             diagnostics);
     }
@@ -163,6 +165,7 @@ internal static class OdtReader
         OdtImageLoader images,
         DocumentConversionContextBuilder resources,
         Func<DocumentMetadata> readMetadata,
+        XElement? settings,
         DocumentReadOptions options,
         List<DocumentDiagnostic> diagnostics)
     {
@@ -181,6 +184,7 @@ internal static class OdtReader
         document = document.WithPageBackground(
             ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
         document = document.WithNoteNumbering(ReadNoteNumbering(styles));
+        document = document.WithShowsRevisions(OdtRevisions.Shown(settings));
         DocumentMetadata metadata = readMetadata();
         return new DocumentReadResult(
             document,
@@ -188,6 +192,30 @@ internal static class OdtReader
             DocumentReadResult.StatusFrom(diagnostics),
             resources.Build(),
             metadata);
+    }
+
+    /// <summary>
+    /// The package's <c>office:settings</c>, or null where it has none or it
+    /// cannot be read. Settings only say how the document is viewed, so one
+    /// that does not parse costs the view and nothing else: a warning, where a
+    /// content part that does not parse is an error.
+    /// </summary>
+    private static XElement? ReadSettings(ZipArchive archive, DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
+    {
+        ZipArchiveEntry? entry = OdtPackage.FindEntry(archive, OdtNamespaces.SettingsPart);
+        if (entry is null)
+            return null;
+
+        var failures = new List<DocumentDiagnostic>();
+        XElement? root = OdtPackage.LoadEntryXml(entry, limits, failures, "odt.settings.xml")?.Root;
+        if (failures.Count > 0)
+        {
+            diagnostics.Add(DocumentDiagnostic.Warning(
+                "odt.settings.xml",
+                "The ODT settings part could not be read; the document is viewed as by default, its tracked changes shown."));
+        }
+
+        return root;
     }
 
     private static RichTextDocument ReadContent(
@@ -210,7 +238,7 @@ internal static class OdtReader
         }
 
         var builder = new OdtDocumentBuilder(limits, diagnostics);
-        var context = new OdtReadContext(styles, images, builder, page);
+        var context = new OdtReadContext(styles, images, builder, page) { Regions = OdtRevisions.ReadRegions(body) };
         ReadBlockContent(body.Elements(), context, list: null, depth: 0);
 
         // A break after the last paragraph asks for a page with nothing on it,
@@ -1234,13 +1262,13 @@ internal static class OdtReader
                 continue;
             }
 
+            // The regions were read before the body; the marks in the body say
+            // where each one is.
             if (name == OdtNamespaces.Text + "tracked-changes")
-            {
-                builder.AddDiagnosticOnce(
-                    "odt.revision.tracked",
-                    "ODT tracked changes were not applied; the document is read as it stands.");
                 continue;
-            }
+
+            if (ReadChangeMark(element, context, depth))
+                continue;
 
             if (IsIgnorableBlock(name))
                 continue;
@@ -1269,6 +1297,22 @@ internal static class OdtReader
             return;
         }
 
+        foreach ((XElement child, OdtListContext item) in ListItems(list, context, outer))
+            ReadBlockContent(child.Elements(), context, item, depth + 1);
+    }
+
+    /// <summary>
+    /// The items of a <c>text:list</c>, each with the list context its content
+    /// is read in: its level, the kind of label that level draws, the list it
+    /// counts in and its own start value. A list header is the unnumbered
+    /// lead-in paragraph of a list; it keeps the level's indent but carries no
+    /// bullet or number.
+    /// </summary>
+    private static IEnumerable<(XElement Item, OdtListContext List)> ListItems(
+        XElement list,
+        OdtReadContext context,
+        OdtListContext? outer)
+    {
         string? styleName = (string?)list.Attribute(OdtNamespaces.Text + "style-name");
         if (string.IsNullOrEmpty(styleName))
             styleName = outer?.StyleName;
@@ -1299,20 +1343,12 @@ internal static class OdtReader
                     item = inner with { Start = new OdtItemStart(start) };
                 }
 
-                ReadBlockContent(child.Elements(), context, item, depth + 1);
+                yield return (child, item);
                 continue;
             }
 
-            // A list header is the unnumbered lead-in paragraph of a list. It
-            // keeps the level's indent but carries no bullet or number.
             if (child.Name == OdtNamespaces.Text + "list-header")
-            {
-                ReadBlockContent(
-                    child.Elements(),
-                    context,
-                    inner with { Kind = ListKind.None, Definition = null },
-                    depth + 1);
-            }
+                yield return (child, inner with { Kind = ListKind.None, Definition = null });
         }
     }
 
@@ -1589,6 +1625,9 @@ internal static class OdtReader
                 continue;
             }
 
+            if (ReadChangeMark(element, context, depth))
+                continue;
+
             if (IsIgnorableInline(name))
                 continue;
 
@@ -1601,7 +1640,214 @@ internal static class OdtReader
         }
     }
 
-    /// <summary>Inline elements that carry no text and are skipped silently.</summary>
+    /// <summary>
+    /// Acts on a tracked change's mark, and says whether <paramref name="element"/>
+    /// was one: <c>text:change-start</c> and <c>text:change-end</c> open and close
+    /// an insertion or a change of formatting, and <c>text:change</c> puts a
+    /// deletion's text back where it was.
+    /// </summary>
+    private static bool ReadChangeMark(XElement element, OdtReadContext context, int depth)
+    {
+        if (element.Name.Namespace != OdtNamespaces.Text)
+            return false;
+
+        string? id = (string?)element.Attribute(OdtNamespaces.Text + "change-id");
+        switch (element.Name.LocalName)
+        {
+            case "change-start":
+                context.OpenChange(id);
+                return true;
+            case "change-end":
+                context.CloseChange(id);
+                return true;
+            case "change":
+                if (id is not null && context.Regions.TryGetValue(id, out OdtChangedRegion? region) && region.Revision.IsDeletion)
+                    ReadDeletion(region, context, depth);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Puts a deletion's text back at its <c>text:change</c>, marked as deleted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The mark is a point inside the paragraph being read, and the deletion
+    /// holds paragraphs: ODF joins the first of them to the text before the
+    /// mark and the last to the text after it, and keeps any between as
+    /// paragraphs of their own, so a deleted paragraph break comes back as a
+    /// break - with its mark deleted, which is what joins the two again when the
+    /// change is hidden. LibreOffice writes a deleted whole paragraph as that
+    /// paragraph followed by an empty one, the empty one being the half that
+    /// joins the text after the mark.
+    /// </para>
+    /// <para>
+    /// The paragraph the mark is in keeps its style for the text before the
+    /// mark and the text after it. Where nothing came before the mark, the
+    /// first deleted paragraph keeps its own style instead, and the paragraphs
+    /// between keep theirs. A table or a list in the deletion is read as block
+    /// content between them.
+    /// </para>
+    /// </remarks>
+    private static void ReadDeletion(OdtChangedRegion region, OdtReadContext context, int depth)
+    {
+        OdtDocumentBuilder builder = context.Builder;
+        if (region.Deleted.Count == 0 || depth > builder.Limits.MaxGroupDepth)
+            return;
+
+        TextRevision? outer = builder.Revision;
+        builder.Revision = region.Revision;
+
+        // A break the paragraph before handed over belongs to the text after
+        // the mark, not to a paragraph the deletion took away, and one a
+        // deleted paragraph asked for went with it.
+        OdtBreak heldBreak = context.TakeBreak();
+
+        OdtDocumentBuilder.OpenParagraph original = builder.Suspend();
+        OdtDocumentBuilder.OpenParagraph? open = original;
+        bool originalWritten = false;
+
+        List<(XElement Element, OdtListContext? List)> items = [.. DeletedItems(region.Deleted, context, outer: null, depth)];
+        for (int i = 0; i < items.Count; i++)
+        {
+            (XElement item, OdtListContext? list) = items[i];
+            bool isLast = i == items.Count - 1;
+
+            if (item.Name == OdtNamespaces.Text + "p" || item.Name == OdtNamespaces.Text + "h")
+            {
+                (ParagraphStyle style, InlineStyle inherited) = DeletedParagraphStyle(item, list, context);
+                if (open is not null)
+                {
+                    builder.Resume(open);
+                    if (ReferenceEquals(open, original) && original.IsEmpty)
+                        builder.Restyle(style, inherited);
+                }
+                else
+                {
+                    builder.StartParagraph(style, inherited);
+                }
+
+                ReadInlineContent(item, context, inherited, depth + 1);
+                if (isLast)
+                {
+                    open = builder.Suspend();
+                    continue;
+                }
+
+                originalWritten |= ReferenceEquals(open, original) && !original.IsEmpty;
+                builder.FinishParagraph();
+                open = null;
+                continue;
+            }
+
+            // A table or a list is block content: the paragraph before it ends
+            // there, unless nothing was read into it.
+            if (open is not null)
+            {
+                builder.Resume(open);
+                if (!(ReferenceEquals(open, original) && original.IsEmpty))
+                {
+                    originalWritten |= ReferenceEquals(open, original);
+                    builder.FinishParagraph();
+                }
+
+                open = null;
+            }
+
+            ReadBlockContent([item], context, list, depth + 1);
+        }
+
+        builder.Revision = outer;
+        context.TakeBreak();
+        context.HoldBreak(heldBreak);
+
+        // The text after the mark joins the last deleted paragraph, in the
+        // style of the paragraph the mark is in. A page break it opened with
+        // has been taken by the text before the mark if that was written.
+        ParagraphStyle continued = originalWritten
+            ? original.Style with { PageBreakBefore = false, ColumnBreakBefore = false }
+            : original.Style;
+        if (open is not null)
+        {
+            builder.Resume(open);
+            builder.Restyle(continued, original.MarkStyle);
+        }
+        else
+        {
+            builder.StartParagraph(continued, original.MarkStyle);
+        }
+    }
+
+    /// <summary>
+    /// A deletion's content as the paragraphs and blocks it is read as, in
+    /// order: a list's paragraphs are paragraphs of the deletion, each with its
+    /// item's list context, so the first and last of them join the text around
+    /// the mark as any other paragraph does, as LibreOffice joins them.
+    /// </summary>
+    private static IEnumerable<(XElement Element, OdtListContext? List)> DeletedItems(
+        IEnumerable<XElement> elements,
+        OdtReadContext context,
+        OdtListContext? outer,
+        int depth)
+    {
+        if (depth > context.Builder.Limits.MaxGroupDepth)
+            yield break;
+
+        foreach (XElement element in elements)
+        {
+            if (element.Name != OdtNamespaces.Text + "list")
+            {
+                yield return (element, outer);
+                continue;
+            }
+
+            foreach ((XElement item, OdtListContext list) in ListItems(element, context, outer))
+            {
+                foreach ((XElement Element, OdtListContext? List) nested in DeletedItems(item.Elements(), context, list, depth + 1))
+                    yield return nested;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A deleted paragraph's own paragraph style, with the list it is an item
+    /// of, and the formatting its runs start from. Its breaks are not taken: it
+    /// is read where the deletion's mark is, not where it once stood.
+    /// </summary>
+    private static (ParagraphStyle Style, InlineStyle Inherited) DeletedParagraphStyle(
+        XElement paragraph,
+        OdtListContext? list,
+        OdtReadContext context)
+    {
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name");
+        ParagraphStyle style = ParagraphStyle.Default;
+        foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
+            style = ApplyParagraphProperties(properties, style, context.Builder);
+
+        if (list is not null)
+        {
+            style = style with
+            {
+                ListKind = list.Kind,
+                IndentLevel = Math.Max(list.Level, list.Kind == ListKind.None ? 0 : 1),
+            };
+
+            if (list.Definition is ListDefinition definition)
+            {
+                var reference = new ListReference(definition, list.Level - 1, list.Start?.Take());
+                style = style with { List = reference, ListKind = reference.Kind };
+            }
+        }
+
+        InlineStyle inherited = InlineStyle.Default;
+        foreach (XElement properties in context.Styles.TextPropertiesForParagraph(styleName))
+            inherited = ApplyTextProperties(properties, inherited, context.Styles, context.Builder);
+
+        return (style with { PageBreakBefore = false, ColumnBreakBefore = false }, inherited);
+    }
+
     /// <summary>
     /// Reads a <c>text:note</c> into a citation: one placeholder in the
     /// paragraph, holding the note's own paragraphs.
@@ -1630,8 +1876,11 @@ internal static class OdtReader
             : NoteKind.Footnote;
         string? label = (string?)note.Element(OdtNamespaces.Text + "note-citation")?.Attribute(OdtNamespaces.Text + "label");
 
-        var builder = new OdtDocumentBuilder(context.Builder.Limits, context.Builder.Diagnostics);
-        var nested = new OdtReadContext(context.Styles, context.Images, builder) { InNote = true };
+        var builder = new OdtDocumentBuilder(context.Builder.Limits, context.Builder.Diagnostics)
+        {
+            Revision = context.Builder.Revision,
+        };
+        var nested = new OdtReadContext(context.Styles, context.Images, builder) { InNote = true, Regions = context.Regions };
         XElement? body = note.Element(OdtNamespaces.Text + "note-body");
         if (body is not null)
             ReadBlockContent(body.Elements(), nested, list: null, depth + 1);

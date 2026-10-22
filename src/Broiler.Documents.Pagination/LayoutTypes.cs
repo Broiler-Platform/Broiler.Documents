@@ -78,6 +78,12 @@ public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BCol
 
     /// <summary>The note this piece is the citation of, or null.</summary>
     public DocumentNote? Note { get; internal set; }
+
+    /// <summary>True when the piece is part of a tracked change the page shows, so its line is marked in the margin.</summary>
+    public bool Revised { get; internal set; }
+
+    /// <summary>True when the piece's underline or strikethrough is drawn twice, as moved text's is.</summary>
+    public bool Doubled { get; internal set; }
 }
 
 /// <summary>One laid-out line, positioned on its page.</summary>
@@ -128,6 +134,12 @@ public sealed class LayoutLine
     /// <summary>Where the paragraph's shading starts across: its left indent.</summary>
     public double BackgroundLeft { get; internal set; }
 
+    /// <summary>
+    /// Where the bar marking a line that holds a tracked change is drawn across,
+    /// or null for a line with no change to mark.
+    /// </summary>
+    public double? ChangeBarX { get; internal set; }
+
     /// <summary>How wide the paragraph's shading is: from its indent to its column's edge.</summary>
     public double BackgroundWidth { get; internal set; }
 
@@ -137,6 +149,8 @@ public sealed class LayoutLine
             return;
 
         BackgroundLeft += dx;
+        if (ChangeBarX is double bar)
+            ChangeBarX = bar + dx;
         foreach (LayoutPiece piece in _pieces)
             piece.X += dx;
     }
