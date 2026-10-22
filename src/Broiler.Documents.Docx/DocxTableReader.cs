@@ -121,7 +121,9 @@ internal static class DocxTableReader
                 !(ReadRowSwitchOrNull(row.Element(DocxNamespaces.Wordprocessing + "trPr"), "cantSplit") ??
                   StyleRowSwitch(styleRowParts, "cantSplit")),
                 ReadRowSwitchOrNull(row.Element(DocxNamespaces.Wordprocessing + "trPr"), "tblHeader") ??
-                  ((rowConditions & TableConditions.FirstRow) != 0 && StyleRowSwitch(styleRowParts, "tblHeader"))));
+                  ((rowConditions & TableConditions.FirstRow) != 0 && StyleRowSwitch(styleRowParts, "tblHeader")),
+                (string?)row.Element(DocxNamespaces.Wordprocessing + "trPr")?
+                    .Element(DocxNamespaces.Wordprocessing + "trHeight")?.Attribute(DocxNamespaces.Wordprocessing + "hRule") == "exact"));
             if (rows.Count >= context.Builder.Limits.MaxParagraphCount)
                 break;
         }
@@ -130,8 +132,7 @@ internal static class DocxTableReader
         {
             context.Builder.AddDiagnosticOnce(
                 "docx.table.rowheight",
-                "A DOCX table row stated an exact height; it was applied as a minimum, " +
-                "because a row that clipped its own text would lose content the document has.");
+                "A DOCX table row stated an exact height; overflowing text is retained in the model and clipped when rendered.");
         }
 
         ResolveRowSpans([.. rows.Select(draft => draft.Cells)]);
@@ -355,7 +356,7 @@ internal static class DocxTableReader
     /// A row being read: its cells, the height it asked for, whether it may break
     /// across a page, and whether it repeats at the top of each page.
     /// </summary>
-    private readonly record struct RowDraft(List<CellDraft> Cells, double MinHeight, bool CanSplit, bool IsHeader);
+    private readonly record struct RowDraft(List<CellDraft> Cells, double MinHeight, bool CanSplit, bool IsHeader, bool ExactHeight);
 
     /// <summary>
     /// One of ECMA-376's on/off row properties: <c>w:cantSplit</c>, which keeps
@@ -394,14 +395,13 @@ internal static class DocxTableReader
     }
 
     /// <summary>
-    /// ECMA-376 §17.4.81: the height a row states, in points, as a minimum.
+    /// ECMA-376 §17.4.81: the height a row states, in points.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The rule attribute decides what the value means. <c>exact</c> is read as a
-    /// minimum rather than obeyed - clipping a row's own text is a worse outcome
-    /// than a row taller than it asked for - and it is diagnosed so the difference
-    /// is visible. An explicit <c>auto</c> asks for nothing and gets nothing.
+    /// The rule attribute decides what the value means. The draft row retains
+    /// the exact-height flag separately, and overflow is clipped only at render
+    /// time. An explicit <c>auto</c> asks for nothing and gets nothing.
     /// </para>
     /// <para>
     /// A <c>w:trHeight</c> carrying no rule at all is read as a minimum, which is
@@ -446,7 +446,8 @@ internal static class DocxTableReader
             cell.VerticalAlignment))],
             isHeader: row.IsHeader,
             minHeight: row.MinHeight,
-            canSplit: row.CanSplit);
+            canSplit: row.CanSplit,
+            exactHeight: row.ExactHeight);
 
     /// <summary>
     /// Turns <c>w:vMerge</c> continuations into a row span on the cell that

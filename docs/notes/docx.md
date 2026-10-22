@@ -123,7 +123,10 @@ Open XML WordprocessingML package parts.
   `docx.numbering.format`), `w:lvlText`, `w:isLgl`, `w:lvlRestart` and the
   level's `w:ind`. Every `w:num` naming the same abstract numbering is one list
   and counts on from the others; one with a `w:lvlOverride` (`w:startOverride`,
-  or a replacement `w:lvl`) is a list of its own. An abstract numbering with a
+  or a replacement `w:lvl`) restarts that shared counter family on its first
+  use. Returning to another instance continues from the restarted count.
+  Overrides and this counter relationship survive a DOCX round trip.
+  An explicit empty bullet `w:lvlText` stays empty. An abstract numbering with a
   `w:numStyleLink` takes the levels of the one whose `w:styleLink` names that
   style. The list and the level are each taken from the nearest `w:numPr` that
   states them, the paragraph's own or its style chain's; with no `w:ilvl`, the
@@ -400,10 +403,10 @@ Open XML WordprocessingML package parts.
   keep the grid over what it merged. The ranges are moved through the one place
   paragraph counts change, so typing in a cell, splitting its paragraph, and
   deleting inside it all keep the table around the text.
-- A row's `w:trHeight` is a **minimum** and never a ceiling: the row is at least
-  that tall and grows for content that does not fit. An `w:hRule="exact"` is
-  therefore read as a floor too, with `docx.table.rowheight`, because a row that
-  clipped its own text would lose content the document has. An explicit
+- A row's `w:trHeight` is a minimum unless `w:hRule="exact"` makes it fixed.
+  Fixed rows retain their full model text while the shared and PDF renderers
+  clip overflowing lines. `docx.table.rowheight` identifies the fixed rule.
+  The writer preserves it. An explicit
   `w:hRule="auto"` asks for nothing and gets nothing. A height carrying **no**
   rule is read as a minimum as well, which is a deliberate departure from the
   specification's stated default of `auto`: no producer means `auto` by omission,
@@ -561,7 +564,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `document.metadata.dropped` | Warning | A property OOXML states no equivalent for was not written. `CreatorApplication` is the one: OOXML names a producing application only. |
 | `docx.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
 | `docx.table.style` | Warning | A table style stated a property the reader does not apply — cell vertical alignment, a diagonal border, a band of more than one row or column, a row height, a table alignment; its borders, shading, cell margin, header rows and paragraph and run properties were applied. |
-| `docx.table.rowheight` | Warning | A row stated an exact height; it was applied as a minimum so its text is not clipped. |
+| `docx.table.rowheight` | Warning | A row stated an exact height; its text is retained in the model and its rendered overflow is clipped. |
 | `docx.table.floating` | Warning | A table nested in a cell stated a floating position; it was laid out in its cell. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
 | `docx.pagebreak.split` | Warning | A `w:br w:type="page"` had text after it in the same paragraph; it was read as a line break, because pages break between paragraphs here and not inside one. |
@@ -636,6 +639,19 @@ values, including explicit zero overrides. Numbering-level left/hanging offsets
 are resolved beneath paragraph style and direct formatting. Section background
 colours have no direct section equivalent in this writer and report
 `docx.section.background` when omitted.
+
+`w:vanish` is inherited and can be explicitly disabled. Hidden text remains
+editable and is written back, but is omitted from normal rendering. CLI text
+dumps retain it, as LibreOffice's plain-text export does. Text boxes retain DrawingML `bodyPr` insets and VML `inset`,
+including explicit zero. Defaults are 7.2 points horizontally and 3.6 vertically.
+Their own paragraph spacing and list numbering are laid out inside those insets.
+DrawingML top/centre/bottom text anchoring and explicit vertical overflow are
+retained and rendered; VML middle/bottom anchors and visible overflow are also
+read. Writing minimum-width auto-sizing or linked ODT frames as DOCX reports
+`docx.shape.flow`: these become independent fixed-width boxes.
+Writing an automatic page-style sequence reports `docx.section.page-sequence`:
+the first style of each section is written, while automatic changes to paper and
+margins on later pages are not represented.
 
 DOCX is ECMA-376, republished as ISO/IEC 29500. Its rights position (the Microsoft
 Open Specification Promise and its three self-stated limits), the approved labels

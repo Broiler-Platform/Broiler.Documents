@@ -595,6 +595,7 @@ public static class RtfReader
                 case "b": _state.Char = _state.Char with { Bold = !(has && p == 0) }; break;
                 case "i": _state.Char = _state.Char with { Italic = !(has && p == 0) }; break;
                 case "strike": _state.Char = _state.Char with { Strikethrough = !(has && p == 0) }; break;
+                case "v": _state.Char = _state.Char with { Hidden = !(has && p == 0) }; break;
                 case "ul": _state.Char = _state.Char with { Underline = !(has && p == 0) }; break;
                 case "ulnone": _state.Char = _state.Char with { Underline = false }; break;
 

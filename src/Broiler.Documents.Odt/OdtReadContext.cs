@@ -24,6 +24,10 @@ internal sealed record OdtReadContext(
     OdtDocumentBuilder Builder,
     PageGeometry? Page = null)
 {
+    public PageGeometry? ActivePage { get; set; } = Page;
+    public Func<string, string?, int, bool>? SelectPageStyle { get; init; }
+    public int TableDepth { get; set; }
+    public IReadOnlySet<string> LinkedFrameTargets { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     /// <summary>True for the flow of a note's own text, which cannot hold another note.</summary>
     public bool InNote { get; init; }
 

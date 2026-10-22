@@ -30,6 +30,8 @@ public static class DocxWriter
             document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None || p.Style.List is not null),
             (options ?? DocumentWriteOptions.Default).Resources);
         BuildRunningParts(document, context);
+        if (document.Sections.Any(section => section.PageStyles is not null))
+            context.AddDiagnosticOnce("docx.section.page-sequence", "An automatic page-style sequence was written using the first style of each section; subsequent alternating paper and margins were not written.");
         if (document.Sections.Any(section => !section.Background.IsEmpty && section.Background.A > 0))
             context.AddDiagnosticOnce("docx.section.background", "Section background colours have no direct DOCX section equivalent and were not written.");
         XDocument documentXml = BuildDocumentXml(document, context);
@@ -540,7 +542,7 @@ public static class DocxWriter
                     DocxNamespaces.Wordprocessing + "trHeight",
                     new XAttribute(DocxNamespaces.Wordprocessing + "val",
                         ((int)Math.Round(row.MinHeight * 20)).ToString(CultureInfo.InvariantCulture)),
-                    new XAttribute(DocxNamespaces.Wordprocessing + "hRule", "atLeast")));
+                    new XAttribute(DocxNamespaces.Wordprocessing + "hRule", row.ExactHeight ? "exact" : "atLeast")));
             }
 
             if (properties.HasElements)
@@ -1124,6 +1126,9 @@ public static class DocxWriter
         if (style.Strikethrough)
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "strike"));
 
+        if (style.Hidden)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "vanish"));
+
         if (!style.Foreground.IsEmpty)
         {
             properties.Add(new XElement(
@@ -1579,6 +1584,8 @@ public static class DocxWriter
         DocxWriteContext context,
         bool pageAnchored = false)
     {
+        if (shape.NextFrameName is not null || shape.GrowsWidthToText)
+            context.AddDiagnosticOnce("docx.shape.flow", "Linked text-frame flow and minimum-width auto-sizing were written as independent fixed-width boxes.");
         if (shape.Image is InlineImage image)
         {
             if (!DocumentResourceGate.TryTakeEncodedBytes(
@@ -1640,7 +1647,13 @@ public static class DocxWriter
                 content.Add(block);
 
             wsp.Add(new XElement(DocxNamespaces.WordShape + "txbx", content));
-            wsp.Add(new XElement(DocxNamespaces.WordShape + "bodyPr"));
+            wsp.Add(new XElement(DocxNamespaces.WordShape + "bodyPr",
+                new XAttribute("lIns", Math.Round(shape.TextPadding.Left * 12700)),
+                new XAttribute("tIns", Math.Round(shape.TextPadding.Top * 12700)),
+                new XAttribute("rIns", Math.Round(shape.TextPadding.Right * 12700)),
+                new XAttribute("bIns", Math.Round(shape.TextPadding.Bottom * 12700)),
+                new XAttribute("anchor", shape.TextVerticalAlignment switch { CellVerticalAlignment.Center => "ctr", CellVerticalAlignment.Bottom => "b", _ => "t" }),
+                new XAttribute("vertOverflow", shape.TextOverflow ? "overflow" : "clip")));
         }
 
         return BuildAnchorRun(
@@ -2064,8 +2077,12 @@ public static class DocxWriter
         var lists = context.Lists.ToList();
         root.Add(BuildAbstractNumber(1, ListDefinition.PlainBullets, context));
         root.Add(BuildAbstractNumber(2, ListDefinition.PlainNumbers, context));
+        var groups = new Dictionary<ListDefinition, int>(ReferenceEqualityComparer.Instance);
         foreach ((ListDefinition definition, int numId) in lists)
-            root.Add(BuildAbstractNumber(numId, definition, context));
+        {
+            if (groups.TryAdd(definition.CounterGroup, numId))
+                root.Add(BuildAbstractNumber(numId, definition.CounterGroup, context));
+        }
 
         root.Add(BuildNum(1, 1));
         root.Add(BuildNum(2, 2));
@@ -2077,8 +2094,20 @@ public static class DocxWriter
                 new XElement(DocxNamespaces.Wordprocessing + "startOverride", WordAttribute("val", "1")))));
         }
 
-        foreach ((ListDefinition _, int numId) in lists)
-            root.Add(BuildNum(numId, numId));
+        foreach ((ListDefinition definition, int numId) in lists)
+        {
+            XElement num = BuildNum(numId, groups[definition.CounterGroup]);
+            if (!ReferenceEquals(definition, definition.CounterGroup))
+            {
+                foreach (XElement level in BuildAbstractNumber(0, definition, context).Elements(DocxNamespaces.Wordprocessing + "lvl"))
+                    num.Add(new XElement(DocxNamespaces.Wordprocessing + "lvlOverride",
+                        WordAttribute("ilvl", (string)level.Attribute(DocxNamespaces.Wordprocessing + "ilvl")!),
+                        new XElement(DocxNamespaces.Wordprocessing + "startOverride",
+                            WordAttribute("val", DocxValueReader.WordValue(level.Element(DocxNamespaces.Wordprocessing + "start")) ?? "1")),
+                        new XElement(level)));
+            }
+            root.Add(num);
+        }
 
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), root);
     }

@@ -106,12 +106,16 @@ public static class OdtWriter
     /// </summary>
     private static XElement? BuildShape(DocumentShape shape, OdtWriteContext context)
     {
+        if (shape.TextOverflow)
+            context.AddDiagnosticOnce("odt.shape.overflow", "Explicit text-box overflow was not written; the frame and its text are retained.");
+        if (shape.NextFrameName is not null)
+            context.AddDiagnosticOnce("odt.shape.linked", "Text-frame chain names were retained, but clipping of linked frame text differs between applications; verify the exported document's rendering.");
         // A floating picture is a frame, not a custom shape: draw:image belongs to
         // draw:frame, and the box it is given is the box it draws in.
         if (shape.Image is InlineImage image)
             return BuildShapeFrame(shape, image, context);
 
-        if ((shape.GrowsToText || shape.Tables.Count > 0) && shape.HasText)
+        if (shape.FrameName is not null || shape.NextFrameName is not null || ((shape.GrowsToText || shape.GrowsWidthToText || shape.Tables.Count > 0 || shape.TextPadding != default) && shape.HasText))
             return BuildTextFrame(shape, context);
 
         var element = new XElement(
@@ -159,13 +163,17 @@ public static class OdtWriter
     {
         var textBox = new XElement(
             OdtNamespaces.Draw + "text-box",
-            shape.GrowsToText ? new XAttribute(OdtNamespaces.Fo + "min-height", OdtUnits.FormatPoints(Math.Max(0, shape.Height))) : null);
+            shape.NextFrameName is not null ? new XAttribute(OdtNamespaces.Draw + "chain-next-name", shape.NextFrameName) : null,
+            shape.GrowsToText ? new XAttribute(OdtNamespaces.Fo + "min-height", OdtUnits.FormatPoints(Math.Max(0, shape.Height))) : null,
+            shape.GrowsWidthToText ? new XAttribute(OdtNamespaces.Fo + "min-width", OdtUnits.FormatPoints(Math.Max(0, shape.Width))) : null);
         RichTextDocument shapeDocument = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
-        foreach (XElement block in BuildBlocks(shapeDocument, shape.Tables, 0, shapeDocument.ParagraphCount, context))
-            textBox.Add(block);
+        if (shape.HasText)
+            foreach (XElement block in BuildBlocks(shapeDocument, shape.Tables, 0, shapeDocument.ParagraphCount, context))
+                textBox.Add(block);
 
         return new XElement(
             OdtNamespaces.Draw + "frame",
+            shape.FrameName is not null ? new XAttribute(OdtNamespaces.Draw + "name", shape.FrameName) : null,
             new XAttribute(OdtNamespaces.Draw + "style-name", context.GetShapeStyleName(shape)),
             new XAttribute(
                 OdtNamespaces.Draw + "z-index",
@@ -173,7 +181,7 @@ public static class OdtWriter
             AnchorAttributes(shape),
             new XAttribute(OdtNamespaces.Svg + "x", OdtUnits.FormatPoints(shape.OffsetX)),
             new XAttribute(OdtNamespaces.Svg + "y", OdtUnits.FormatPoints(shape.OffsetY)),
-            new XAttribute(OdtNamespaces.Svg + "width", OdtUnits.FormatPoints(shape.Width)),
+            !shape.GrowsWidthToText ? new XAttribute(OdtNamespaces.Svg + "width", OdtUnits.FormatPoints(shape.Width)) : null,
             !shape.GrowsToText ? new XAttribute(OdtNamespaces.Svg + "height", OdtUnits.FormatPoints(shape.Height)) : null,
             textBox);
     }
@@ -293,12 +301,15 @@ public static class OdtWriter
         // A section with columns of its own is a text:section around its
         // paragraphs, named after the columns it states; the stretches between
         // sections are the body as it always was.
-        if (document.Sections.Any(section => section.Page is not null))
+        if (document.Sections.Any(section => section.Page is not null || section.PageStyles is not null))
         {
             context.AddDiagnosticOnce(
                 "odt.section.page",
                 "A section's own page and margins were not written; its text is written within the document's page.");
         }
+        if (document.Paragraphs.Any(paragraph => paragraph.Style.List is ListReference list &&
+            !ReferenceEquals(list.Definition, list.Definition.CounterGroup)))
+            context.AddDiagnosticOnce("odt.list.shared-counter", "A list restart that also resets another list's shared counters was written as an independent list restart.");
 
         int index = 0;
         int written = 0;
@@ -461,7 +472,7 @@ public static class OdtWriter
                 XElement element = BuildParagraph(paragraphs[index], context, inList: false);
                 // ODF anchors a shape to a paragraph by putting it inside one, so
                 // it goes first and the text follows it.
-                foreach (DocumentShape shape in ShapesAnchoredTo(document, index))
+                foreach (DocumentShape shape in ShapesAnchoredTo(document, index).Reverse())
                     element.AddFirst(BuildShape(shape, context));
 
                 yield return element;
@@ -514,7 +525,7 @@ public static class OdtWriter
             if (row.MinHeight > 0 || !row.CanSplit)
             {
                 tr.Add(new XAttribute(
-                    OdtNamespaces.Table + "style-name", context.GetRowStyleName(row.MinHeight, row.CanSplit)));
+                    OdtNamespaces.Table + "style-name", context.GetRowStyleName(row.MinHeight, row.CanSplit, row.ExactHeight)));
             }
 
             int column = 0;
@@ -1371,6 +1382,9 @@ public static class OdtWriter
         if (style.Strikethrough)
             properties.Add(new XAttribute(OdtNamespaces.Style + "text-line-through-style", "solid"));
 
+        if (style.Hidden)
+            properties.Add(new XAttribute(OdtNamespaces.Text + "display", "none"));
+
         if (style.Capitalization == TextCapitalization.AllCaps)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "text-transform", "uppercase"));
         else if (style.Capitalization == TextCapitalization.SmallCaps)
@@ -2109,6 +2123,15 @@ public static class OdtWriter
                     OdtUnits.FormatColor(shape.Outline)));
             }
 
+            properties.Add(
+                new XAttribute(OdtNamespaces.Draw + "auto-grow-width", shape.GrowsWidthToText ? "true" : "false"),
+                new XAttribute(OdtNamespaces.Draw + "auto-grow-height", shape.GrowsToText ? "true" : "false"),
+                new XAttribute(OdtNamespaces.Fo + "wrap-option", shape.GrowsWidthToText ? "no-wrap" : "wrap"),
+                new XAttribute(OdtNamespaces.Draw + "textarea-vertical-align", shape.TextVerticalAlignment switch { CellVerticalAlignment.Center => "middle", CellVerticalAlignment.Bottom => "bottom", _ => "top" }),
+                new XAttribute(OdtNamespaces.Fo + "padding-left", OdtUnits.FormatPoints(shape.TextPadding.Left)),
+                new XAttribute(OdtNamespaces.Fo + "padding-top", OdtUnits.FormatPoints(shape.TextPadding.Top)),
+                new XAttribute(OdtNamespaces.Fo + "padding-right", OdtUnits.FormatPoints(shape.TextPadding.Right)),
+                new XAttribute(OdtNamespaces.Fo + "padding-bottom", OdtUnits.FormatPoints(shape.TextPadding.Bottom)));
             _shapeStyles.Add(new XElement(
                 OdtNamespaces.Style + "style",
                 new XAttribute(OdtNamespaces.Style + "name", name),
@@ -2218,20 +2241,19 @@ public static class OdtWriter
         /// named style rather than on the row.
         /// </summary>
         /// <remarks>
-        /// Written as <c>style:min-row-height</c> and never <c>style:row-height</c>:
-        /// the model's height is a floor, and the fixed attribute would tell the
-        /// next reader something stronger than this document knows. A row that may
-        /// break says nothing, because <c>fo:keep-together</c>'s default lets it.
+        /// Written as <c>style:min-row-height</c> or <c>style:row-height</c>
+        /// according to the row's height rule. A row that may break says nothing,
+        /// because <c>fo:keep-together</c>'s default lets it.
         /// </remarks>
-        public string GetRowStyleName(double height, bool canSplit = true)
+        public string GetRowStyleName(double height, bool canSplit = true, bool exactHeight = false)
         {
-            string key = (height > 0 ? OdtUnits.FormatPoints(height) : string.Empty) + (canSplit ? string.Empty : "|keep");
+            string key = (height > 0 ? OdtUnits.FormatPoints(height) : string.Empty) + (canSplit ? string.Empty : "|keep") + (exactHeight ? "|exact" : "");
             if (_rowStyleNames.TryGetValue(key, out string? existing))
                 return existing;
 
             var properties = new XElement(OdtNamespaces.Style + "table-row-properties");
             if (height > 0)
-                properties.Add(new XAttribute(OdtNamespaces.Style + "min-row-height", OdtUnits.FormatPoints(height)));
+                properties.Add(new XAttribute(OdtNamespaces.Style + (exactHeight ? "row-height" : "min-row-height"), OdtUnits.FormatPoints(height)));
             if (!canSplit)
                 properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-together", "always"));
 

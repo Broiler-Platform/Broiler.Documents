@@ -7,6 +7,18 @@ toolkit behind it.
 
 ## Supported Read/Write Subset
 
+Text frames retain chain names and empty link destinations. The raster layout
+flows styled paragraphs between linked body frames, including paragraph splits
+and list counters. Cycles are bounded; tables within linked frames and links
+inside running content are not routed. PDF export reports this limitation with
+`pdf.write.feature-unsupported`. Minimum-width text frames grow to their text,
+and top/middle/bottom text alignment is retained. Explicit text overflow cannot
+be written by this ODT writer and reports `odt.shape.overflow`.
+Writing linked frames reports `odt.shape.linked`: chain names and text are kept,
+but an authored LibreOffice PDF export clipped text in the source frame even
+while placing its overflow in the destination. Model round trips and raster
+layout are covered; this does not claim identical exported clipping.
+
 - Package layout: the `mimetype` entry, `META-INF/manifest.xml`, `content.xml`,
   and `styles.xml`. Part paths are the normative ones, so nothing has to be
   resolved through relationships the way an OPC package does.
@@ -314,17 +326,12 @@ toolkit behind it.
 - Table styles beyond a cell's own background and borders are not applied, and
   cell vertical alignment and a table's own alignment and indent are not
   represented; a table starts at the left margin.
-- A row's height is a **minimum** and never a ceiling. `style:min-row-height` is
-  a floor and is taken as one; `style:row-height` is a fixed height and is taken
-  as a floor as well, because a row honouring it exactly would clip its own text
-  and losing text is the one outcome a reader may not choose. That is the
-  position the DOCX codec takes for `w:hRule="exact"`, so the two formats agree
-  rather than each inventing an answer. A row stating both takes the larger, each
-  being a floor. `style:use-optimal-row-height` asks for the height the content
-  needs, which is what a row does anyway without a floor, so it asks for none.
-  A write states the height as `style:min-row-height`, never as the fixed
-  attribute, which would tell the next reader something stronger than the
-  document knows. A cell's paragraphs are a range, so an edit that spans out of a cell and
+- `style:min-row-height` is a floor; `style:row-height` is fixed. If both are
+  present, the last attribute wins, matching LibreOffice's import behaviour.
+  Fixed rows retain their text in the model
+  and clip its rendered overflow. The writer preserves the distinction.
+  `style:use-optimal-row-height="true"` asks for the height the content needs.
+  A cell's paragraphs are a range, so an edit that spans out of a cell and
   into the body does not keep the grid over what it merged.
 - A row's `fo:keep-together="always"` keeps it on one page and is
   `TableRow.CanSplit` false; `auto`, or saying nothing, lets it break across a
@@ -536,6 +543,17 @@ default layout; writing exact per-paragraph list offsets reports
 colours are read, painted by the shared paginator, and written, including nested
 colour overrides. The standalone PDF layout reports that section colours are
 not painted.
+
+Body paragraph and table styles can switch master pages, including their paper,
+margins, headers and footers. The shared paginator follows bounded master-page
+chains and their repeating suffix, including alternating paper sizes. A master
+page named inside a table cell does not switch the body page. These page changes
+remain a read/render feature: writing them reports `odt.section.page`.
+Text-box `fo:padding` and side overrides survive round trips and affect its text
+area. Paragraph spacing and lists are composed in the box's own flow. Hidden
+text (`text:display="none"`) is retained and written back while normal rendering
+omits it. `odt.list.shared-counter` reports a cross-list counter restart written
+as an independent list restart; that DOCX counter relationship is not preserved.
 
 ODF is an OASIS standard, republished as ISO/IEC 26300. Its rights position (the
 OASIS royalty-free mode and the covenants on top of it), the approved labels and

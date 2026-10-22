@@ -11,6 +11,17 @@ namespace Broiler.Documents.Rtf.Tests;
 /// </summary>
 public sealed class RtfTableTests
 {
+    [Theory]
+    [InlineData(-400, true)]
+    [InlineData(400, false)]
+    public void The_Sign_Of_The_Row_Height_Distinguishes_Fixed_And_Minimum(int value, bool exact)
+    {
+        var document = Read("{\\rtf1\\trowd\\trrh" + value + "\\cellx1000\\intbl text\\cell\\row\\pard\\par}");
+        var row = Assert.Single(Assert.Single(document.Tables).Rows);
+        Assert.Equal(20, row.MinHeight);
+        Assert.Equal(exact, row.ExactHeight);
+    }
+
     private static RichTextDocument Read(string rtf) => RtfReader.Read(Encoding.ASCII.GetBytes(rtf)).Document;
 
     private static IEnumerable<string> Texts(RichTextDocument document) =>
@@ -103,7 +114,7 @@ public sealed class RtfTableTests
         Assert.Equal([50, 50], table.ColumnWidths);
         Assert.Equal(5.4, table.CellPadding, 3);
 
-        // An exact height is read as a minimum, as every format's is.
+        // The magnitude is stored independently of the fixed-height flag.
         Assert.Equal(20, table.Rows[0].MinHeight, 3);
         Assert.True(table.Rows[0].IsHeader);
         Assert.False(table.Rows[0].CanSplit);

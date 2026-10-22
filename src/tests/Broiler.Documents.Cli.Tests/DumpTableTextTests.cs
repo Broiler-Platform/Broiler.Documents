@@ -5,6 +5,15 @@ namespace Broiler.Documents.Cli.Tests;
 public sealed class DumpTableTextTests
 {
     [Fact]
+    public void Text_Export_Keeps_Hidden_Source_Text_As_LibreOffice_Does()
+    {
+        var paragraph = RichTextParagraph.Plain("visible").InsertText(0, "secret", InlineStyle.Default with { Hidden = true });
+        var document = RichTextDocument.FromParagraphs([paragraph]);
+        Assert.Equal("secretvisible", document.PlainText);
+        Assert.Equal("secretvisible", DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
     public void Anchored_Text_Box_Tables_Are_Exported_In_Their_Own_Flow()
     {
         var definition = new ListDefinition([new ListLevel { Template = "%1." }]);

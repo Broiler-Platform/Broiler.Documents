@@ -47,6 +47,7 @@ internal sealed class RtfTableBuilder
     private int _rowLeft;
     private int _rowGap = -1;
     private double _rowHeight;
+    private bool _rowExactHeight;
     private bool _rowHeader;
     private bool _rowKeep;
 
@@ -76,6 +77,7 @@ internal sealed class RtfTableBuilder
                 _rowLeft = 0;
                 _rowGap = -1;
                 _rowHeight = 0;
+                _rowExactHeight = false;
                 _rowHeader = false;
                 _rowKeep = false;
                 return true;
@@ -85,10 +87,12 @@ internal sealed class RtfTableBuilder
             // no padding at all, the text against the cell's edge, and so does
             // this.
             case "trgaph": if (hasParameter) _rowGap = Math.Max(0, parameter); return true;
-            // Positive is at least that tall and negative exactly that tall. An
-            // exact height is read as a minimum, as TableRow says every format's
-            // is: a row that clipped its own text would lose it.
-            case "trrh": _rowHeight = hasParameter ? Math.Abs(parameter) / 20d : 0; return true;
+            // Positive is at least that tall and negative exactly that tall.
+            // Preserve the sign's meaning separately from the height magnitude.
+            case "trrh":
+                _rowHeight = hasParameter ? Math.Abs((double)parameter) / 20d : 0;
+                _rowExactHeight = hasParameter && parameter < 0;
+                return true;
             case "trhdr": _rowHeader = !(hasParameter && parameter == 0); return true;
             case "trkeep": _rowKeep = !(hasParameter && parameter == 0); return true;
 
@@ -206,7 +210,8 @@ internal sealed class RtfTableBuilder
             _rowGap,
             _rowHeight,
             _rowHeader,
-            _rowKeep));
+            _rowKeep,
+            _rowExactHeight));
         _cells.Clear();
     }
 
@@ -258,7 +263,7 @@ internal sealed class RtfTableBuilder
                     borders: definition is null ? default : definition.Borders()));
             }
 
-            built.Add(new TableRow(cells, row.Header, row.Height, !row.Keep));
+            built.Add(new TableRow(cells, row.Header, row.Height, !row.Keep, row.ExactHeight));
         }
 
         int gap = rows[0].Gap;
@@ -394,5 +399,6 @@ internal sealed class RtfTableBuilder
         int Gap,
         double Height,
         bool Header,
-        bool Keep);
+        bool Keep,
+        bool ExactHeight);
 }

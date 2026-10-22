@@ -104,6 +104,7 @@ public sealed class ListDefinition
             _levels[i] = levels is not null && i < levels.Count && levels[i] is ListLevel level ? level : ListLevel.DecimalAt(i);
 
         Name = string.IsNullOrWhiteSpace(name) ? null : name;
+        CounterGroup = this;
     }
 
     /// <summary>All <see cref="MaxLevels"/> levels; a level the source left out is decimal.</summary>
@@ -111,6 +112,16 @@ public sealed class ListDefinition
 
     /// <summary>The name the source gave the list, if any: a list style's name, or a DOCX abstract numbering's.</summary>
     public string? Name { get; }
+
+    /// <summary>The list whose counters this definition uses. Normally the definition itself.</summary>
+    public ListDefinition CounterGroup { get; private init; }
+
+    /// <summary>
+    /// Restarts a shared counter group on this definition's first use, then
+    /// continues in that group. DOCX level overrides have this behaviour.
+    /// </summary>
+    public ListDefinition WithSharedCounterRestart(ListDefinition source) =>
+        new(_levels, Name) { CounterGroup = source.CounterGroup };
 
     /// <summary>The level at <paramref name="level"/>, clamped into the levels there are.</summary>
     public ListLevel LevelAt(int level) => _levels[Math.Clamp(level, 0, MaxLevels - 1)];

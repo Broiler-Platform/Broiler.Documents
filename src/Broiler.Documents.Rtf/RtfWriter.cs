@@ -246,10 +246,15 @@ public static class RtfWriter
         if (shape.GrowsToText)
             AppendShapeProperty(sb, "fFitShapeToText", "1");
 
+        if (shape.NextFrameName is not null || shape.GrowsWidthToText || shape.TextOverflow || shape.TextVerticalAlignment != CellVerticalAlignment.Top)
+            AddOnce(diagnostics, reported, "rtf.shape.flow", "Linked text frames, minimum-width sizing, vertical text alignment and explicit overflow were not written; frame text is retained.");
+
         if (shape.HasText)
         {
             if (shape.Tables.Count > 0)
                 AddOnce(diagnostics, reported, "rtf.shape.table", "Tables inside a text box were written as paragraphs; their text is kept but their cell layout is not written.");
+            if (shape.TextPadding != default)
+                AddOnce(diagnostics, reported, "rtf.shape.padding", "Text-box inner padding was not written; its text and outer frame are retained.");
             sb.Append("{\\shptxt ");
             foreach (RichTextParagraph paragraph in shape.Paragraphs)
             {
@@ -876,6 +881,7 @@ public static class RtfWriter
         if (style.Italic) b.Append("\\i");
         if (style.Underline) b.Append("\\ul");
         if (style.Strikethrough) b.Append("\\strike");
+        if (style.Hidden) b.Append("\\v");
         if (style.Capitalization == TextCapitalization.AllCaps) b.Append("\\caps");
         else if (style.Capitalization == TextCapitalization.SmallCaps) b.Append("\\scaps");
         if (style.FontFamily is not null)

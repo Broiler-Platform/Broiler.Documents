@@ -10,6 +10,17 @@ namespace Broiler.Documents.Docx.Tests;
 /// </summary>
 public sealed class DocxShapeGroupTests
 {
+    [Theory]
+    [InlineData("<wps:bodyPr/>", 7.2, 3.6)]
+    [InlineData("<wps:bodyPr lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\"/>", 0, 0)]
+    public void Text_Box_Insets_Use_Their_Defaults_Or_Explicit_Zero(string properties, double left, double top)
+    {
+        string box = Box("2", 0, 0, 2540000, 1270000, "ffffff").Replace("<wps:bodyPr/>", properties);
+        var shape = Assert.Single(Read(Group(Transform(0, 0, 2540000, 1270000, 0, 0, 2540000, 1270000), box)).Document.Shapes);
+        Assert.Equal(left, shape.TextPadding.Left, 3);
+        Assert.Equal(top, shape.TextPadding.Top, 3);
+    }
+
     [Fact]
     public void Grouped_Text_Box_Tables_Keep_Their_Own_Paragraph_Indices_And_Round_Trip()
     {

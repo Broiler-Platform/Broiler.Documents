@@ -176,7 +176,7 @@ internal static class OdtReader
         // frame anchored to a page states its position from the page's edges.
         XElement? master = ResolveMasterPage(content, styles);
         PageGeometry? page = ReadPageGeometry(master, styles, diagnostics);
-        RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics);
+        RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics, master);
         document = document.WithRunningContent(
             ReadRunningContent(master, styles, images, options.Limits, diagnostics));
         document = document.WithPageGeometry(page);
@@ -224,7 +224,8 @@ internal static class OdtReader
         OdtImageLoader images,
         PageGeometry? page,
         DocumentLimits limits,
-        List<DocumentDiagnostic> diagnostics)
+        List<DocumentDiagnostic> diagnostics,
+        XElement? initialMaster)
     {
         XElement? body = content.Root
             ?.Element(OdtNamespaces.Office + "body")
@@ -238,7 +239,56 @@ internal static class OdtReader
         }
 
         var builder = new OdtDocumentBuilder(limits, diagnostics);
-        var context = new OdtReadContext(styles, images, builder, page) { Regions = OdtRevisions.ReadRegions(body) };
+        var starts = new List<(int Index, PageGeometry? Page, RunningContent Running, PageStyleSequence? Sequence)>();
+        var masters = styles.MasterStyles?.Elements(OdtNamespaces.Style + "master-page")
+            .Where(master => master.Attribute(OdtNamespaces.Style + "name") is not null)
+            .GroupBy(master => (string)master.Attribute(OdtNamespaces.Style + "name")!)
+            .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal);
+        PageStyleSequence? SequenceFor(XElement? first)
+        {
+            if (first is null)
+                return null;
+            var seen = new Dictionary<XElement, int>();
+            var sequence = new List<PageStyle>();
+            XElement? master = first;
+            int repeatFrom = 0;
+            while (master is not null && sequence.Count < limits.MaxGroupDepth)
+            {
+                if (seen.TryGetValue(master, out repeatFrom))
+                    return new PageStyleSequence(sequence, repeatFrom);
+                seen.Add(master, sequence.Count);
+                RunningContent running = ReadParts(master, RunningContent.Empty, false, styles, images, limits, diagnostics);
+                sequence.Add(new PageStyle(ReadPageGeometry(master, styles, diagnostics) ?? page, running,
+                    ReadPageBackground(master, PageLayoutProperties(master, styles), styles)));
+                master = NextMasterPage(master, styles);
+            }
+            return new PageStyleSequence(sequence, sequence.Count - 1);
+        }
+        starts.Add((0, page, ReadRunningContent(initialMaster, styles, images, limits, diagnostics), SequenceFor(initialMaster)));
+        OdtReadContext? context = null;
+        context = new OdtReadContext(styles, images, builder, page)
+        {
+            Regions = OdtRevisions.ReadRegions(body),
+            LinkedFrameTargets = content.Descendants(OdtNamespaces.Draw + "text-box")
+                .Select(box => (string?)box.Attribute(OdtNamespaces.Draw + "chain-next-name"))
+                .Where(name => !string.IsNullOrEmpty(name)).Select(name => name!).ToHashSet(StringComparer.Ordinal),
+            SelectPageStyle = (family, style, index) =>
+            {
+                if (context!.TableDepth > 0)
+                    return false;
+                string? name = styles.MasterPageName(family, style);
+                if (string.IsNullOrEmpty(name) || masters is null || !masters.TryGetValue(name, out XElement? master))
+                    return false;
+                PageGeometry? selected = ReadPageGeometry(master, styles, diagnostics) ?? page;
+                context!.ActivePage = selected;
+                if (index == 0)
+                    return false;
+                if (starts[^1].Index == index)
+                    starts.RemoveAt(starts.Count - 1);
+                starts.Add((index, selected, ReadRunningContent(master, styles, images, limits, diagnostics), SequenceFor(master)));
+                return true;
+            },
+        };
         ReadBlockContent(body.Elements(), context, list: null, depth: 0);
 
         // A break after the last paragraph asks for a page with nothing on it,
@@ -251,7 +301,24 @@ internal static class OdtReader
             styles.Count,
             styles.ListStyleCount,
             images.ImageCount);
-        return builder.Build();
+        RichTextDocument built = builder.Build();
+        if (starts.Count == 1 && (starts[0].Sequence is null || starts[0].Sequence!.Styles.Count == 1))
+            return built;
+        int[] edges = [.. starts.Select(start => start.Index)
+            .Concat(built.Sections.SelectMany(section => new[] { section.ParagraphIndex, section.ParagraphEnd }))
+            .Append(built.ParagraphCount).Distinct().Order()];
+        var sections = new List<DocumentSection>();
+        for (int i = 0; i + 1 < edges.Length; i++)
+        {
+            int index = edges[i];
+            var selected = starts.Last(start => start.Index <= index);
+            DocumentSection? textSection = DocumentSection.Containing(built.Sections, index);
+            sections.Add(new DocumentSection(index, edges[i + 1] - index,
+                textSection?.ColumnCount ?? selected.Page?.ColumnCount ?? 1,
+                textSection?.ColumnGap ?? selected.Page?.ColumnGap ?? 0,
+                selected.Page, selected.Running, textSection?.Background ?? default, selected.Sequence));
+        }
+        return built.WithSections(sections);
     }
 
     /// <summary>
@@ -691,6 +758,7 @@ internal static class OdtReader
             return false;
 
         string? styleName = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
+        XElement? graphic = context.Styles.GraphicPropertiesFor(styleName);
         (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) =
             ReadShapeStyle(styleName, context.Styles);
 
@@ -700,12 +768,15 @@ internal static class OdtReader
         RichTextDocument shapeContent = ReadShapeParagraphs(textSource, context, depth);
         IReadOnlyList<RichTextParagraph> paragraphs = shapeContent.ParagraphCount == 1 &&
             shapeContent.Paragraphs[0].Length == 0 && shapeContent.Tables.Count == 0 ? [] : shapeContent.Paragraphs;
+        string? frameName = (string?)drawing.Attribute(OdtNamespaces.Draw + "name");
+        string? nextFrameName = (string?)textBox?.Attribute(OdtNamespaces.Draw + "chain-next-name");
+        bool linked = !string.IsNullOrEmpty(nextFrameName) || (frameName is not null && context.LinkedFrameTargets.Contains(frameName));
 
-        if (fill is null && paragraphs.Count == 0)
+        if (fill is null && paragraphs.Count == 0 && !linked)
             return false;
 
         // Nothing to grow to, and nothing to draw at no height.
-        if (height == 0 && paragraphs.Count == 0)
+        if (height == 0 && paragraphs.Count == 0 && !linked)
             return false;
 
         double x = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "x"), out double left)
@@ -733,8 +804,31 @@ internal static class OdtReader
             anchorPage: anchorPage,
             offsetFromPage: fromPage,
             growsToText: grows,
-            tables: shapeContent.Tables));
+            tables: shapeContent.Tables,
+            textPadding: ReadShapePadding(graphic),
+            textVerticalAlignment: (string?)graphic?.Attribute(OdtNamespaces.Draw + "textarea-vertical-align") switch
+            {
+                "middle" => CellVerticalAlignment.Center,
+                "bottom" => CellVerticalAlignment.Bottom,
+                _ => CellVerticalAlignment.Top,
+            },
+            growsWidthToText: (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-width") == "true" ||
+                (drawing.Attribute(OdtNamespaces.Svg + "width") is null &&
+                textBox?.Attribute(OdtNamespaces.Fo + "min-width") is not null &&
+                (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-width") != "false" &&
+                (string?)graphic?.Attribute(OdtNamespaces.Fo + "wrap-option") == "no-wrap"),
+            frameName: linked ? frameName : null,
+            nextFrameName: nextFrameName));
         return true;
+    }
+
+    private static TableCellPadding ReadShapePadding(XElement? properties)
+    {
+        double Length(string name, double fallback = 0) => OdtUnits.TryParseLength(
+            (string?)properties?.Attribute(OdtNamespaces.Fo + name), out double value) ? Math.Clamp(value, 0, 20000) : fallback;
+        double all = Length("padding");
+        return new TableCellPadding(Length("padding-left", all), Length("padding-top", all),
+            Length("padding-right", all), Length("padding-bottom", all));
     }
 
     /// <summary>
@@ -800,10 +894,10 @@ internal static class OdtReader
             string? verticalRel = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-rel");
             if (anchorType is "paragraph" or "char" && verticalRel is "page" or "page-content")
             {
-                double frameTop = verticalRel == "page-content" ? context.Page?.MarginTop ?? 0 : 0;
+                double frameTop = verticalRel == "page-content" ? context.ActivePage?.MarginTop ?? 0 : 0;
                 double frameHeight = verticalRel == "page-content"
-                    ? context.Page?.ContentHeight ?? 0
-                    : context.Page?.Height ?? 0;
+                    ? context.ActivePage?.ContentHeight ?? 0
+                    : context.ActivePage?.Height ?? 0;
                 double fromTop = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-pos") switch
                 {
                     "top" => frameTop,
@@ -817,7 +911,7 @@ internal static class OdtReader
             return (0, x, y, false);
         }
 
-        PageGeometry? geometry = context.Page;
+        PageGeometry? geometry = context.ActivePage;
         double pageWidth = geometry?.Width ?? 0;
         double pageHeight = geometry?.Height ?? 0;
         double marginLeft = geometry?.MarginLeft ?? 0;
@@ -1204,6 +1298,9 @@ internal static class OdtReader
             if (name == OdtNamespaces.Table + "table")
             {
                 OdtBreak precedingBreak = context.TakeBreak();
+                if (context.SelectPageStyle?.Invoke("table", (string?)element.Attribute(OdtNamespaces.Table + "style-name"),
+                    builder.CurrentParagraphIndex) == true)
+                    precedingBreak = OdtBreak.Page;
                 OdtTableReader.Read(element, context, depth + 1,
                     (children, childDepth) => ReadBlockContent(children, context, list: null, childDepth), precedingBreak);
                 continue;
@@ -1436,6 +1533,9 @@ internal static class OdtReader
             if (after is not null)
                 breakAfter = after;
         }
+
+        if (context.SelectPageStyle?.Invoke("paragraph", styleName, context.Builder.CurrentParagraphIndex) == true)
+            paragraphStyle = paragraphStyle with { PageBreakBefore = true, ColumnBreakBefore = false };
 
         // A break handed over by the paragraph above is taken after this
         // paragraph's own properties have been applied, so it wins over an
@@ -2382,6 +2482,8 @@ internal static class OdtReader
 
         style = ApplyLineDecoration(properties, "text-underline", style, static (s, v) => s with { Underline = v });
         style = ApplyLineDecoration(properties, "text-line-through", style, static (s, v) => s with { Strikethrough = v });
+        if ((string?)properties.Attribute(OdtNamespaces.Text + "display") is string display)
+            style = style with { Hidden = display == "none" };
 
         string? family =
             styles.ResolveFontName((string?)properties.Attribute(OdtNamespaces.Style + "font-name")) ??

@@ -15,9 +15,9 @@ namespace Broiler.Documents.Docx;
 /// <para>
 /// An abstract numbering (<c>w:abstractNum</c>) holds the levels, and a
 /// <c>w:num</c> names one. Every <c>w:num</c> naming the same abstract
-/// numbering is one list here and counts on from the others, which is what Word
-/// draws; one that overrides a level (<c>w:lvlOverride</c>, §17.9.9) is a list of
-/// its own, starting where its <c>w:startOverride</c> says.
+/// numbering is one list here and counts on from the others, as LibreOffice
+/// draws. A level override (<c>w:lvlOverride</c>, §17.9.9) restarts that shared
+/// counter family on its first use, at its <c>w:startOverride</c> values.
 /// </para>
 /// <para>
 /// An abstract numbering that only points at a numbering style
@@ -145,12 +145,14 @@ internal sealed class DocxNumbering
                     changed = true;
                 }
 
-                // Each change makes a new definition, and so a list counted
-                // apart from the abstract numbering's other lists.
+                // Keep the overridden levels in their own definition; below it
+                // is linked back to the abstract family's shared counters.
                 if (changed)
                     definition = definition.WithLevel(ilvl, level);
             }
 
+            if (!ReferenceEquals(definition, found.Definition))
+                definition = definition.WithSharedCounterRestart(found.Definition);
             nums[numId] = new NumEntry(definition, indents, found.Entry.Styles);
         }
 
@@ -263,7 +265,7 @@ internal sealed class DocxNumbering
     private static string BulletText(string text)
     {
         if (text.Length == 0)
-            return ((char)0x2022).ToString();
+            return string.Empty;
 
         var chars = text.ToCharArray();
         for (int i = 0; i < chars.Length; i++)

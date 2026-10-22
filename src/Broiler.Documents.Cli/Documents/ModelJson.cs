@@ -129,6 +129,7 @@ public static class ModelJson
             ["italic"] = style.Italic,
             ["underline"] = style.Underline,
             ["strikethrough"] = style.Strikethrough,
+            ["hidden"] = style.Hidden,
             ["capitalization"] = style.Capitalization.ToString().ToLowerInvariant(),
             ["foreground"] = ColorText.Format(style.Foreground),
             ["background"] = ColorText.Format(style.Background),

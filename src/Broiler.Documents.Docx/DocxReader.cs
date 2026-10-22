@@ -1376,8 +1376,24 @@ internal static class DocxReader
             wrapDistance: Distance,
             zOrder: RelativeHeight(anchor),
             offsetFromPage: fromPage,
-            tables: shapeContent.Tables));
+            tables: shapeContent.Tables,
+            textPadding: ReadShapePadding(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
+            textVerticalAlignment: (string?)wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Attribute("anchor") switch
+            {
+                "ctr" => CellVerticalAlignment.Center,
+                "b" => CellVerticalAlignment.Bottom,
+                _ => CellVerticalAlignment.Top,
+            },
+            textOverflow: (string?)wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Attribute("vertOverflow") == "overflow"));
         return true;
+    }
+
+    private static TableCellPadding ReadShapePadding(XElement? body)
+    {
+        double Length(string attribute, double fallback) =>
+            long.TryParse((string?)body?.Attribute(attribute), NumberStyles.Integer, CultureInfo.InvariantCulture, out long value)
+                ? Math.Clamp(value / 12700d, 0, 20000) : fallback;
+        return new TableCellPadding(Length("lIns", 7.2), Length("tIns", 3.6), Length("rIns", 7.2), Length("bIns", 3.6));
     }
 
     /// <summary>
@@ -1507,8 +1523,24 @@ internal static class DocxReader
             wrap: wrap,
             zOrder: zIndex == int.MinValue ? int.MaxValue : Math.Abs(zIndex),
             offsetFromPage: fromPage,
-            tables: shapeContent.Tables));
+            tables: shapeContent.Tables,
+            textPadding: ReadVmlPadding(shape.Element(DocxNamespaces.Vml + "textbox")),
+            textVerticalAlignment: style.GetValueOrDefault("v-text-anchor") switch
+            {
+                "middle" or "middle-center" => CellVerticalAlignment.Center,
+                "bottom" or "bottom-center" => CellVerticalAlignment.Bottom,
+                _ => CellVerticalAlignment.Top,
+            },
+            textOverflow: style.GetValueOrDefault("overflow") == "visible"));
         return true;
+    }
+
+    private static TableCellPadding ReadVmlPadding(XElement? textBox)
+    {
+        string[] values = ((string?)textBox?.Attribute("inset") ?? "").Split(',');
+        double Length(int index, double fallback) => index < values.Length && DocxVml.TryLength(values[index].Trim(), out double value)
+            ? Math.Clamp(value, 0, 20000) : fallback;
+        return new TableCellPadding(Length(0, 7.2), Length(1, 3.6), Length(2, 7.2), Length(3, 3.6));
     }
 
     /// <summary>A VML shape's outline colour, or empty for none.</summary>
@@ -2161,6 +2193,7 @@ internal static class DocxReader
         style = ApplyOnOff(rPr, "i", style, static (s, v) => s with { Italic = v });
         style = ApplyOnOff(rPr, "strike", style, static (s, v) => s with { Strikethrough = v });
         style = ApplyOnOff(rPr, "dstrike", style, static (s, v) => s with { Strikethrough = v });
+        style = ApplyOnOff(rPr, "vanish", style, static (s, v) => s with { Hidden = v });
 
         // w:smallCaps first: when a run turns both on, Word draws all caps. An
         // explicit "off" clears only the kind it names, so a run can drop the

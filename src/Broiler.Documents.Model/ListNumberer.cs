@@ -39,30 +39,44 @@ public sealed class ListNumberer
 {
     private const string Bullets = "•◦▪";
 
-    private readonly Dictionary<ListDefinition, int?[]> _counters;
+    private sealed class CounterState(ListDefinition starts)
+    {
+        public int?[] Values { get; } = new int?[ListDefinition.MaxLevels];
+        public ListDefinition Starts { get; set; } = starts;
+    }
+    private readonly Dictionary<ListDefinition, CounterState> _counters;
+    private readonly HashSet<ListDefinition> _started;
     private readonly List<int> _legacy = [];
 
     public ListNumberer()
-        : this(new Dictionary<ListDefinition, int?[]>(ReferenceEqualityComparer.Instance))
+        : this(new Dictionary<ListDefinition, CounterState>(ReferenceEqualityComparer.Instance), new(ReferenceEqualityComparer.Instance))
     {
     }
 
-    private ListNumberer(Dictionary<ListDefinition, int?[]> counters) => _counters = counters;
+    private ListNumberer(Dictionary<ListDefinition, CounterState> counters, HashSet<ListDefinition> started)
+    {
+        _counters = counters;
+        _started = started;
+    }
 
     /// <summary>
     /// A numberer for a flow inside this one - a table cell's paragraphs - that
     /// counts on in the same lists, and numbers a list with no definition from
     /// one, as a cell always did.
     /// </summary>
-    public ListNumberer ForNestedFlow() => new(_counters);
+    public ListNumberer ForNestedFlow() => new(_counters, _started);
 
     /// <summary>An independent copy for measuring ahead without consuming list labels.</summary>
     public ListNumberer Snapshot()
     {
-        var counters = new Dictionary<ListDefinition, int?[]>(ReferenceEqualityComparer.Instance);
+        var counters = new Dictionary<ListDefinition, CounterState>(ReferenceEqualityComparer.Instance);
         foreach (var entry in _counters)
-            counters.Add(entry.Key, (int?[])entry.Value.Clone());
-        var copy = new ListNumberer(counters);
+        {
+            var state = new CounterState(entry.Value.Starts);
+            entry.Value.Values.CopyTo(state.Values, 0);
+            counters.Add(entry.Key, state);
+        }
+        var copy = new ListNumberer(counters, new HashSet<ListDefinition>(_started, ReferenceEqualityComparer.Instance));
         copy._legacy.AddRange(_legacy);
         return copy;
     }
@@ -78,20 +92,26 @@ public sealed class ListNumberer
     private string? Advance(ListReference list)
     {
         ListDefinition definition = list.Definition;
-        if (!_counters.TryGetValue(definition, out int?[]? counters))
+        if (!_counters.TryGetValue(definition.CounterGroup, out CounterState? state))
         {
-            counters = new int?[ListDefinition.MaxLevels];
-            _counters[definition] = counters;
+            state = new CounterState(definition.CounterGroup);
+            _counters[definition.CounterGroup] = state;
+        }
+        int?[] counters = state.Values;
+        if (_started.Add(definition) && !ReferenceEquals(definition, definition.CounterGroup))
+        {
+            Array.Clear(counters);
+            state.Starts = definition;
         }
 
         int level = Math.Clamp(list.Level, 0, ListDefinition.MaxLevels - 1);
         ListLevel style = definition.LevelAt(level);
-        counters[level] = list.RestartAt ?? (counters[level] is int value ? value + 1 : style.Start);
+        counters[level] = list.RestartAt ?? (counters[level] is int value ? value + 1 : state.Starts.LevelAt(level).Start);
 
         // A level above this one that has had no item yet is taken to have had
         // its first, so the next item there is its second.
         for (int above = 0; above < level; above++)
-            counters[above] ??= definition.LevelAt(above).Start;
+            counters[above] ??= state.Starts.LevelAt(above).Start;
 
         for (int deeper = level + 1; deeper < ListDefinition.MaxLevels; deeper++)
         {
@@ -100,11 +120,11 @@ public sealed class ListNumberer
                 counters[deeper] = null;
         }
 
-        return Label(definition, level, counters);
+        return Label(definition, level, counters, state.Starts);
     }
 
     /// <summary>The label of an item at <paramref name="level"/> with the counters as they stand.</summary>
-    private static string? Label(ListDefinition definition, int level, int?[] counters)
+    private static string? Label(ListDefinition definition, int level, int?[] counters, ListDefinition starts)
     {
         ListLevel style = definition.LevelAt(level);
         if (style.Format == ListNumberFormat.Bullet)
@@ -119,7 +139,7 @@ public sealed class ListNumberer
             {
                 int referenced = template[i + 1] - '1';
                 ListLevel levelStyle = definition.LevelAt(referenced);
-                int number = counters[referenced] ?? levelStyle.Start;
+                int number = counters[referenced] ?? starts.LevelAt(referenced).Start;
                 ListNumberFormat format = style.Legal && levelStyle.Format != ListNumberFormat.None
                     ? ListNumberFormat.Decimal
                     : levelStyle.Format;

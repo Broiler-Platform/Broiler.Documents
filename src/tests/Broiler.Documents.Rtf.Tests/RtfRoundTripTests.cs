@@ -5,6 +5,16 @@ namespace Broiler.Documents.Rtf.Tests;
 
 public sealed class RtfRoundTripTests
 {
+    [Fact]
+    public void Hidden_Text_Round_Trips_And_A_Visible_Run_Resets_It()
+    {
+        var source = Doc(Para(("secret", InlineStyle.Default with { Hidden = true }), ("visible", InlineStyle.Default)));
+        var restored = RoundTrip(source);
+        Assert.Equal("secretvisible", restored.PlainText);
+        Assert.True(restored.Paragraphs[0].Runs[0].Style.Hidden);
+        Assert.False(restored.Paragraphs[0].Runs[1].Style.Hidden);
+    }
+
     private static RichTextParagraph Para(ParagraphStyle style, params (string Text, InlineStyle Style)[] runs)
     {
         RichTextParagraph paragraph = RichTextParagraph.Create(string.Empty, InlineStyle.Default, style);

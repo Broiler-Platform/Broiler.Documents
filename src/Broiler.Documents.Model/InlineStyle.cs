@@ -33,6 +33,9 @@ public readonly record struct InlineStyle
 
     public bool Strikethrough { get; init; }
 
+    /// <summary>Retained text that is omitted from normal rendering.</summary>
+    public bool Hidden { get; init; }
+
     /// <summary>
     /// How the run's letters are cased when drawn. Presentation only — the text
     /// itself is stored as the author typed it.

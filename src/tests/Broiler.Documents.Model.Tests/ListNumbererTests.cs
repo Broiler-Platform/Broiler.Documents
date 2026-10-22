@@ -2,6 +2,22 @@ namespace Broiler.Documents.Model.Tests;
 
 public sealed class ListNumbererTests
 {
+    [Fact]
+    public void A_Shared_Restart_Resets_The_Family_And_Its_Unused_Level_Starts()
+    {
+        var definition = new ListDefinition([new ListLevel { Template = "%1" }, new ListLevel { Template = "%1.%2" }]);
+        var restart = definition.WithLevel(0, definition.LevelAt(0) with { Start = 7 })
+            .WithLevel(1, definition.LevelAt(1) with { Start = 5 }).WithSharedCounterRestart(definition);
+        var numberer = new ListNumberer();
+        Assert.Equal("1", numberer.Advance(At(definition, 0)));
+        Assert.Equal("7", numberer.Advance(At(restart, 0)));
+        Assert.Equal("7.5", numberer.Advance(At(definition, 1)));
+        Assert.Equal("8", numberer.Snapshot().Advance(At(definition, 0)));
+        Assert.Equal("7.6", numberer.Advance(At(definition, 1)));
+        Assert.Equal("8", numberer.ForNestedFlow().Advance(At(definition, 0)));
+        Assert.Equal("9", numberer.Advance(At(restart, 0)));
+    }
+
     private static readonly ListDefinition Outline = new(
     [
         new ListLevel { Template = "%1" },

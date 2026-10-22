@@ -1,5 +1,9 @@
 # RTF Conformance And Limits
 
+Writing linked text frames, minimum-width sizing, vertical text alignment or
+explicit overflow reports `rtf.shape.flow`; frame text is retained but these
+layout properties are not written.
+
 This document is the authoritative statement of what `Broiler.Documents.Rtf`
 honours, approximates, ignores, and skips when reading RTF into the rich-text
 document model (ADR 0005), and what it emits when writing. The reader is total
@@ -31,7 +35,7 @@ than its `\ucN` count.
 
 | Group | Control words |
 |---|---|
-| Inline character | `\b` `\b0` `\i` `\i0` `\ul` `\ul0` `\ulnone` `\strike` `\strike0` `\caps` `\caps0` `\scaps` `\scaps0` `\plain` `\fsN` `\fN` `\cfN` `\cbN` `\highlightN` |
+| Inline character | `\b` `\b0` `\i` `\i0` `\ul` `\ul0` `\ulnone` `\strike` `\strike0` `\v` `\v0` `\caps` `\caps0` `\scaps` `\scaps0` `\plain` `\fsN` `\fN` `\cfN` `\cbN` `\highlightN` |
 | Paragraph | `\pard` `\ql` `\qc` `\qr` `\qj` `\liN` `\sbN` `\saN` `\slN` with `\slmult1` `\pagebb` `\pagebb0` `\cbpatN` (the paragraph's shading, → `ParagraphStyle.Background`; written back) |
 | Paragraph mark | The character formatting in effect at `\par` (→ `RichTextParagraph.MarkStyle`, what an empty paragraph is as tall as; not written back) |
 | Breaks & entities | `\par` `\line` `\page` (→ `PageBreakBefore` on the paragraph that follows) `\tab` `\nestcell` (→ tab) `\lquote` `\rquote` `\ldblquote` `\rdblquote` `\bullet` `\endash` `\emdash` `\enspace` `\emspace` |
@@ -286,8 +290,9 @@ some row of which holds more cells than it defines, or defines an edge that goes
 backwards, gets no widths and is divided evenly, as a table stating no grid is.
 
 `\trgaph` is the cell padding; a table that states none has none, which is how
-LibreOffice sets it. `\trrh` is the row's minimum height, an exact (negative)
-one included, as every format's is here. `\trhdr` marks a header row and
+LibreOffice sets it. Positive `\trrh` is a minimum height and negative `\trrh`
+is fixed. Fixed rows keep their editable text while rendered overflow is clipped.
+`\trhdr` marks a header row and
 `\trkeep` keeps a row on one page. `\clbrdrt`, `\clbrdrb`, `\clbrdrl` and
 `\clbrdrr` point the border words that follow at a side of the next cell:
 `\brdrw` is its width, `\brdrcf` its colour (black when absent or auto), and any
@@ -575,6 +580,7 @@ anything a caller asked for that this codec does not do.
 | `rtf.codepage` | Info | Read | A double-byte code page, or one the runtime does not carry, decoded its high bytes through a Latin-1 fallback; `\uN` text is unaffected. Once per read. |
 | `rtf.shape.line` | Info | Read | A slanted line was not read; the model holds a line only as a horizontal or vertical rule. Once per read. |
 | `rtf.shape.table` | Warning | Write | Tables inside a text box are written as paragraphs. Their text is retained, but their cell layout is not written. Once per write. |
+| `rtf.shape.padding` | Warning | Write | Text-box inner padding was not written; the text and outer frame are retained. Once per write. |
 | `rtf.frame.position` | Info | Read | A frame aligned to the centre or foot of its reference was set at its top, its height not being known until layout. Once per read. |
 | `rtf.embedded` | Info | Read | Pictures and objects were skipped. Once per read, and replaced by `document.capability.not-composed` when decoding was asked for. |
 | `rtf.page.geometry` | Warning | Read | The section properties described a page with no room to write on, so the page was not read. |

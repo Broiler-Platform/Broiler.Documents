@@ -604,3 +604,13 @@ records five further corrections to graphic defaults, frame pagination, text-box
 tables and text export. One sampled visual check now passes and another page
 count matches; the note also records a visual regression and text-export
 differences exposed by retaining previously omitted content.
+
+The [issue #137 verification note](../notes/office-issue-137-verification-2026-10-22.md)
+records ten corrections to page styles, fixed rows, numbering, hidden text and
+text-box layout. All 30 ranked samples were compared before and after; the note
+records newly passing checks, corrected page counts and remaining regressions.
+
+The [linked-frame and merged-cell verification note](../notes/office-issue-137-textframes-merged-cells-verification-2026-10-22.md)
+records five further corrections. A five-versus-two page mismatch closes, while
+the focused pass count stays unchanged; the note records mixed visual metrics,
+regression tests and the remaining export limitations.

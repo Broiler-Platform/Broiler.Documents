@@ -229,27 +229,29 @@ public sealed class OdtTableTests
     }
 
     [Fact]
-    public void A_Fixed_Row_Height_Is_Read_As_A_Minimum_Too()
+    public void A_Fixed_Row_Height_Remains_Fixed_And_Round_Trips()
     {
-        // ODF's style:row-height is a fixed height. Honoured exactly it would clip
-        // the row's own text, so it is a floor here - the position the DOCX codec
-        // takes for w:hRule="exact", and the two formats agree rather than each
-        // inventing an answer.
+        // Fixed height is separate from the editable content it may clip.
         RichTextDocument document = ReadWithRowStyle(
             "style:row-height=\"1in\"",
             Table(Columns(2), StyledRow("ro1", Cell("a1"), Cell("b1")), Row(Cell("a2"), Cell("b2"))));
 
         Assert.Equal(72, Assert.Single(document.Tables).Rows[0].MinHeight, 3);
+        Assert.True(document.Tables[0].Rows[0].ExactHeight);
+        Assert.True(RoundTrip(document).Tables[0].Rows[0].ExactHeight);
     }
 
-    [Fact]
-    public void A_Row_Stating_Both_Heights_Takes_The_Larger()
+    [Theory]
+    [InlineData("style:min-row-height=\"120pt\" style:row-height=\"90pt\"", 90, true)]
+    [InlineData("style:row-height=\"90pt\" style:min-row-height=\"120pt\"", 120, false)]
+    public void Conflicting_Height_Choices_Follow_LibreOffice_Attribute_Order(string properties, double height, bool exact)
     {
         RichTextDocument document = ReadWithRowStyle(
-            "style:min-row-height=\"20pt\" style:row-height=\"90pt\"",
+            properties,
             Table(Columns(2), StyledRow("ro1", Cell("a1"), Cell("b1"))));
 
-        Assert.Equal(90, Assert.Single(document.Tables).Rows[0].MinHeight, 3);
+        Assert.Equal(height, Assert.Single(document.Tables).Rows[0].MinHeight, 3);
+        Assert.Equal(exact, document.Tables[0].Rows[0].ExactHeight);
     }
 
     [Fact]

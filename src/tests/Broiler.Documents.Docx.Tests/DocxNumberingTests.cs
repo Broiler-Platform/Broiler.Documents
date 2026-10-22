@@ -62,7 +62,22 @@ public sealed class DocxNumberingTests
             Item(1, 0, "a") + Item(2, 0, "b") + Item(3, 0, "c") + Item(3, 0, "d") + Item(1, 0, "e"),
             numbering);
 
-        Assert.Equal(["1.", "2.", "7.", "8.", "3."], Labels(document));
+        Assert.Equal(["1.", "2.", "7.", "8.", "9."], Labels(document));
+        using var stream = new MemoryStream();
+        DocxWriter.Write(document, stream);
+        Assert.Equal(Labels(document), Labels(DocxReader.Read(stream.ToArray(), new DocumentReadOptions()).Document));
+    }
+
+    [Fact]
+    public void An_Empty_Bullet_Label_Remains_Empty_And_Round_Trips()
+    {
+        RichTextDocument document = Read(Item(1, 0, "plain label"),
+            Abstract(0, Level(0, "bullet", "")) + Num(1, 0));
+        Assert.Null(Assert.Single(Labels(document)));
+        using var stream = new MemoryStream();
+        DocxWriter.Write(document, stream);
+        stream.Position = 0;
+        Assert.Null(Assert.Single(Labels(DocxReader.Read(stream.ToArray(), new DocumentReadOptions()).Document)));
     }
 
     [Fact]

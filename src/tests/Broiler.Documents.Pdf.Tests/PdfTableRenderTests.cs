@@ -10,6 +10,77 @@ namespace Broiler.Documents.Pdf.Tests;
 /// </summary>
 public sealed class PdfTableRenderTests
 {
+    [Theory]
+    [InlineData(CellVerticalAlignment.Center, 14.5)]
+    [InlineData(CellVerticalAlignment.Bottom, 29)]
+    public void Box_Vertical_Alignment_Uses_The_Padded_Interior(CellVerticalAlignment alignment, double shift)
+    {
+        RichTextDocument Document(CellVerticalAlignment value) => RichTextDocument.FromPlainText("body").WithShapes([
+            new DocumentShape(0, 0, 0, 100, 60, paragraphs: [RichTextParagraph.Create("boxed", InlineStyle.Default,
+                ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 20, SpacingAfter = 1 })],
+                textPadding: new TableCellPadding(3, 4, 3, 6), textVerticalAlignment: value)]);
+        Assert.Equal(shift, OriginOf(Write(Document(CellVerticalAlignment.Top)), "boxed").Y - OriginOf(Write(Document(alignment)), "boxed").Y, 3);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Box_Overflow_Is_Explicit(bool overflow)
+    {
+        var document = RichTextDocument.FromPlainText("body").WithShapes([new DocumentShape(0, 0, 0, 100, 15,
+            paragraphs: [RichTextParagraph.Create("one\u2028two\u2028three", InlineStyle.Default,
+                ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 10 })], textOverflow: overflow)]);
+        Assert.Equal(overflow, Write(document).Contains("(three)"));
+    }
+
+    [Fact]
+    public void A_Minimum_Width_Box_Keeps_Its_Word_On_One_Line()
+    {
+        var document = RichTextDocument.FromPlainText("body").WithShapes([new DocumentShape(0, 0, 0, 1, 1,
+            paragraphs: [RichTextParagraph.Plain("Vestibulum")], growsToText: true, growsWidthToText: true)]);
+        Assert.Contains("(Vestibulum)", Write(document));
+    }
+
+    [Fact]
+    public void Merged_Cell_Content_Does_Not_Inflate_The_First_Row()
+    {
+        var style = ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 20, SpacingAfter = 1 };
+        var document = RichTextDocument.FromParagraphs([RichTextParagraph.Create("one\u2028two\u2028three", InlineStyle.Default, style),
+            RichTextParagraph.Create("neighbor", InlineStyle.Default, style), RichTextParagraph.Create("below", InlineStyle.Default, style),
+            RichTextParagraph.Create("after", InlineStyle.Default, style)]).WithTables([new DocumentTable(0, 3, [
+                new TableRow([new TableCell(0, 1, 0, rowSpan: 2), new TableCell(1, 1, 1)]),
+                new TableRow([new TableCell(2, 1, 1)])], [100, 100], cellPadding: 0)]);
+        string pdf = Write(document);
+        Assert.Equal(21, OriginOf(pdf, "neighbor").Y - OriginOf(pdf, "below").Y, 3);
+        Assert.Equal(61, OriginOf(pdf, "one").Y - OriginOf(pdf, "after").Y, 3);
+    }
+
+    [Fact]
+    public void A_Fixed_Row_Clips_Late_Lines_And_Keeps_The_Following_Paragraph()
+    {
+        var style = ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 10 };
+        var document = RichTextDocument.FromParagraphs([
+            RichTextParagraph.Create("first\u2028second\u2028third", InlineStyle.Default, style),
+            RichTextParagraph.Create("after", InlineStyle.Default, style)])
+            .WithTables([new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0)], minHeight: 15, exactHeight: true)], [100], cellPadding: 0)]);
+        string pdf = Write(document);
+        Assert.Contains("(first)", pdf);
+        Assert.DoesNotContain("(third)", pdf);
+        Assert.Equal(15, OriginOf(pdf, "first").Y - OriginOf(pdf, "after").Y, 3);
+    }
+
+    [Fact]
+    public void Hidden_Text_Is_Omitted_And_Text_Box_Padding_Moves_Visible_Text()
+    {
+        RichTextDocument Document(double left) => RichTextDocument.FromPlainText("body").WithShapes([
+            new DocumentShape(0, 0, 0, 100, 80, paragraphs: [RichTextParagraph.Plain("visible")
+                .InsertText(0, "secret", InlineStyle.Default with { Hidden = true })],
+                textPadding: new TableCellPadding(left, 3, 5, 4))]);
+        string pdf = Write(Document(7));
+        Assert.DoesNotContain("(secret", pdf);
+        Assert.Equal(7, OriginOf(pdf, "visible").X - OriginOf(Write(Document(0)), "visible").X, 3);
+    }
+
     [Fact]
     public void A_Table_Inside_A_Text_Box_Uses_Its_Grid_And_Cell_Shading()
     {

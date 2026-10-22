@@ -66,7 +66,13 @@ public sealed class DocumentShape(
     int anchorPage = 0,
     bool offsetFromPage = false,
     bool growsToText = false,
-    IReadOnlyList<DocumentTable>? tables = null)
+    IReadOnlyList<DocumentTable>? tables = null,
+    TableCellPadding textPadding = default,
+    CellVerticalAlignment textVerticalAlignment = CellVerticalAlignment.Top,
+    bool textOverflow = false,
+    bool growsWidthToText = false,
+    string? frameName = null,
+    string? nextFrameName = null)
 {
 
     /// <summary>The paragraph the shape is anchored to.</summary>
@@ -84,6 +90,21 @@ public sealed class DocumentShape(
     public double Width { get; } = width;
 
     public double Height { get; } = height;
+
+    public TableCellPadding TextPadding { get; } = textPadding;
+
+    public double TextWidth => Math.Max(1, Width - TextPadding.Left - TextPadding.Right);
+
+    /// <summary>Vertical placement of text inside the padded frame.</summary>
+    public CellVerticalAlignment TextVerticalAlignment { get; } = textVerticalAlignment;
+    /// <summary>Whether lines may paint beyond the frame's fixed height.</summary>
+    public bool TextOverflow { get; } = textOverflow;
+    /// <summary>Whether Width is a minimum and text determines the unwrapped width.</summary>
+    public bool GrowsWidthToText { get; } = growsWidthToText;
+    /// <summary>The name by which another text frame can link to this one.</summary>
+    public string? FrameName { get; } = string.IsNullOrEmpty(frameName) ? null : frameName;
+    /// <summary>The frame that receives text which does not fit in this frame.</summary>
+    public string? NextFrameName { get; } = string.IsNullOrEmpty(nextFrameName) ? null : nextFrameName;
 
     /// <summary>How the box is painted, or null when it is not filled.</summary>
     public ShapeFill? Fill { get; } = fill;

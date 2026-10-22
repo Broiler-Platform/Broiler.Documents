@@ -71,6 +71,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private TextWrapExclusions _wrap = new();
     private readonly Dictionary<int, double> _paragraphTops = [];
     private readonly Dictionary<DocumentShape, double> _grownHeights = [];
+    private readonly Dictionary<DocumentShape, double> _grownWidths = [];
+    private readonly Dictionary<DocumentShape, IReadOnlyList<RichTextParagraph>> _linkedParagraphs = [];
+    private readonly Dictionary<DocumentShape, ListNumberer> _linkedStarts = [];
     private ListNumberer _lists = new();
 
     // How the body's notes are labelled, and each footnote's lines, composed
@@ -143,6 +146,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _noteBlocks.Clear();
         _paragraphTops.Clear();
         _grownHeights.Clear();
+        _grownWidths.Clear();
+        _linkedParagraphs.Clear();
+        _linkedStarts.Clear();
+        foreach (DocumentShape shape in _documentShapes)
+            NoteGrownHeight(shape, setup);
+        PrepareLinkedFrames(setup);
+        _grownHeights.Clear();
         foreach (DocumentShape shape in _documentShapes)
             NoteGrownHeight(shape, setup);
         _wrap = new TextWrapExclusions();
@@ -181,12 +191,24 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // set in: the margins of the section that started the page where it
         // states them, the box's otherwise, each moved clear of the header and
         // footer the page draws.
+        int ownerFirstPage = 1;
         (double Top, double Bottom) BandOf(DocumentSection? section)
         {
+            PageGeometry? selectedPage = section?.Page;
+            if (section?.PageStyles is PageStyleSequence sequence && !setup.Continuous)
+            {
+                PageStyle style = sequence.At(pages.Count + 1 - ownerFirstPage);
+                selectedPage = style.Page ?? selectedPage;
+                _running = style.RunningContent;
+                _background = style.Background;
+                if (sectionPages && selectedPage is not null)
+                    setup = requestedSetup.WithGeometry(selectedPage);
+                sectionColumns.Clear();
+            }
             if (setup.Continuous)
                 return (setup.ContentTopPoints, setup.ContentTopPoints + columnHeight);
 
-            if (!sectionPages || section?.Page is not PageGeometry page)
+            if (!sectionPages || selectedPage is not PageGeometry page)
             {
                 _frame = FrameFor(
                     pages.Count + 1, setup, setup.MarginTopPoints, setup.MarginBottomPoints,
@@ -218,6 +240,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             hasOwner = true;
             owner = section;
+            ownerFirstPage = pages.Count + 1;
             // Paper belongs to the section that opens a page. Keep an explicit
             // caller override, and keep continuous output on its original box.
             if (sectionPages && !requestedSetup.Continuous)
@@ -248,7 +271,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 double left = setup.ContentLeftPoints;
                 double width = setup.ContentWidthPoints;
-                if (sectionPages && pageSection?.Page is PageGeometry page)
+                PageGeometry? ownPage = pageSection?.PageStyles?.At(pages.Count + 1 - ownerFirstPage).Page ?? pageSection?.Page;
+                if (sectionPages && ownPage is PageGeometry page)
                 {
                     left = Math.Clamp(page.MarginLeft, 0, setup.WidthPoints - 1);
                     width = Math.Max(1, setup.WidthPoints - page.MarginRight - left);
@@ -662,7 +686,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             if (shape.Wraps && !shape.IsPageAnchored &&
                                 _paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchor))
                             {
-                                _wrap.Add(shape, shape.TopOnPage(anchor), height: BoxHeight(shape));
+                                _wrap.Add(shape, shape.TopOnPage(anchor), height: BoxHeight(shape), width: BoxWidth(shape));
                             }
                         }
 
@@ -732,7 +756,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 if (shape.Wraps && !shape.IsPageAnchored &&
                     _paragraphTops.TryGetValue(shape.ParagraphIndex, out double anchor))
-                    _wrap.Add(shape, shape.TopOnPage(anchor), height: BoxHeight(shape));
+                    _wrap.Add(shape, shape.TopOnPage(anchor), height: BoxHeight(shape), width: BoxWidth(shape));
             }
             AddFloatExclusions();
         }
@@ -846,6 +870,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 foreach (RowBox composedRow in composedRows)
                 {
                     bool inHeader = rowNumber++ < headerCount;
+                    int groupEnd = rowNumber;
+                    for (int index = rowNumber - 1; index < groupEnd && index < table.Rows.Count; index++)
+                        groupEnd = Math.Min(table.Rows.Count, Math.Max(groupEnd,
+                            index + table.Rows[index].Cells.Select(cell => cell.RowSpan).DefaultIfEmpty(1).Max()));
+                    double groupHeight = composedRows.Skip(rowNumber - 1).Take(groupEnd - rowNumber + 1).Sum(item => item.Height);
+                    if (groupEnd > rowNumber && !setup.Continuous && groupHeight <= contentBottom - pageTop && y + groupHeight > contentBottom && ColumnHasContent())
+                        ContinueTable(inHeader);
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
                     {
@@ -946,7 +977,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             foreach (DocumentShape shape in _documentShapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
-                    _wrap.Add(shape, shape.TopOnPage(y), height: BoxHeight(shape));
+                    _wrap.Add(shape, shape.TopOnPage(y), height: BoxHeight(shape), width: BoxWidth(shape));
             }
 
             // Space before never opens a page, or a column: a paragraph that
@@ -1346,7 +1377,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         foreach (DocumentShape shape in _documentShapes)
         {
             if (shape.Wraps && shape.AnchorPage == number)
-                _wrap.Add(shape, shape.OffsetY, height: BoxHeight(shape));
+                _wrap.Add(shape, shape.OffsetY, height: BoxHeight(shape), width: BoxWidth(shape));
         }
     }
 
@@ -1373,7 +1404,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             var bounds = new BRect(
                 setup.ContentLeftPoints + shape.OffsetX,
                 shape.OffsetY,
-                Math.Max(0, shape.Width),
+                BoxWidth(shape),
                 BoxHeight(shape));
             if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
                 continue;
@@ -1425,7 +1456,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             var bounds = new BRect(setup.ContentLeftPoints + shape.OffsetX, shape.TopOnPage(anchorTop),
-                Math.Max(0, shape.Width), BoxHeight(shape));
+                BoxWidth(shape), BoxHeight(shape));
 
             if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
                 continue;
@@ -1461,7 +1492,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             var box = new RowBox
             {
                 MinimumHeight = row.MinHeight,
-                CanSplit = row.CanSplit &&
+                CanSplit = !row.ExactHeight && row.CanSplit &&
                     row.Cells.All(cell => cell.RowSpan == 1 && !cell.IsRowSpanContinuation),
             };
             foreach (TableCell cell in row.Cells)
@@ -1489,7 +1520,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 box.Lines.AddRange(lines);
                 box.Cells.AddRange(nested);
                 box.Contents.Add(new CellLines(lines, nested, pieces, height, cell));
-                box.Height = Math.Max(box.Height, height);
+                if (cell.RowSpan <= 1 && !cell.IsRowSpanContinuation)
+                    box.Height = Math.Max(box.Height, height);
 
                 // A cell the merge above it covers is drawn by no one: the cell
                 // that opened the merge draws the whole of it.
@@ -1499,11 +1531,43 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             // The codecs already preserve row heights. Apply the floor before
             // extending merged cells or deciding where a row breaks.
-            box.Height = Math.Max(box.Height, row.MinHeight);
+            box.Height = row.ExactHeight ? row.MinHeight : Math.Max(box.Height, row.MinHeight);
             boxes.Add(box);
         }
 
+        for (int index = 0; index < boxes.Count; index++)
+        {
+            foreach (CellLines content in boxes[index].Contents.Where(content => content.Cell is { RowSpan: > 1 }))
+            {
+                int end = Math.Min(boxes.Count, index + content.Cell!.RowSpan);
+                double deficit = content.Height - boxes.Skip(index).Take(end - index).Sum(row => row.Height);
+                for (int last = end - 1; deficit > 0 && last >= index; last--)
+                {
+                    if (table.Rows[last].ExactHeight)
+                        continue;
+                    boxes[last].Height += deficit;
+                    break;
+                }
+            }
+        }
         ExtendRowSpans(boxes);
+        for (int index = 0; index < boxes.Count; index++)
+        {
+            if (!table.Rows[index].ExactHeight)
+                continue;
+            RowBox row = boxes[index];
+            foreach (CellLines content in row.Contents)
+            {
+                double limit = row.Height + (row.Boxes.FirstOrDefault(box => ReferenceEquals(box.Cell, content.Cell))?.ExtraHeight ?? 0);
+                foreach (LayoutLine line in content.Lines)
+                    if (line.Top + line.Height > limit + 0.01)
+                        row.Lines.Remove(line);
+                foreach (LayoutCell nested in content.Cells)
+                    nested.Bounds = new BRect(nested.Bounds.Left, nested.Bounds.Top, nested.Bounds.Width,
+                        Math.Max(0, Math.Min(nested.Bounds.Height, limit - nested.Bounds.Top)));
+            }
+            row.Cells.RemoveAll(cell => cell.Bounds.Height <= 0);
+        }
         return boxes;
     }
 
@@ -1919,30 +1983,127 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
     }
 
-    /// <summary>A shape's own text, laid out inside its box.</summary>
+    private IReadOnlyList<RichTextParagraph> ShapeParagraphs(DocumentShape shape) =>
+        _linkedParagraphs.GetValueOrDefault(shape, shape.Paragraphs);
+
+    private void PrepareLinkedFrames(DocumentPageBox setup)
+    {
+        var named = _documentShapes.Where(shape => shape.FrameName is not null)
+            .GroupBy(shape => shape.FrameName!, StringComparer.Ordinal).Where(group => group.Count() == 1)
+            .ToDictionary(group => group.Key, group => group.Single(), StringComparer.Ordinal);
+        var incoming = _documentShapes.Where(shape => shape.NextFrameName is not null)
+            .Select(shape => shape.NextFrameName!).ToHashSet(StringComparer.Ordinal);
+        var done = new HashSet<DocumentShape>();
+        foreach (DocumentShape root in _documentShapes.Where(shape => shape.NextFrameName is not null)
+            .OrderBy(shape => shape.FrameName is not null && incoming.Contains(shape.FrameName)))
+        {
+            if (done.Contains(root))
+                continue;
+            var chain = new List<DocumentShape>();
+            var seen = new HashSet<DocumentShape>();
+            DocumentShape? current = root;
+            while (current is not null && seen.Add(current) && !done.Contains(current))
+            {
+                chain.Add(current);
+                current = current.NextFrameName is string next && named.TryGetValue(next, out DocumentShape? target) ? target : null;
+            }
+            if (current is not null)
+                _notes.Add("stopped a cyclic or shared linked text-frame chain after visiting each frame once.");
+            foreach (DocumentShape shape in chain)
+                done.Add(shape);
+            if (chain.Any(shape => shape.Tables.Count > 0))
+            {
+                _notes.Add("linked text frames containing tables retain their model content, but their table overflow is not routed to following frames.");
+                continue;
+            }
+            var pending = new LinkedList<RichTextParagraph>(chain.SelectMany(shape => shape.Paragraphs));
+            var lists = new ListNumberer();
+            for (int frame = 0; frame < chain.Count; frame++)
+            {
+                DocumentShape shape = chain[frame];
+                var placed = new List<RichTextParagraph>();
+                _linkedParagraphs[shape] = placed;
+                _linkedStarts[shape] = lists.Snapshot();
+                double available = Math.Max(0, shape.Height - shape.TextPadding.Top - shape.TextPadding.Bottom);
+                double width = Math.Max(1, BoxWidth(shape) - shape.TextPadding.Left - shape.TextPadding.Right);
+                double Height(RichTextParagraph paragraph, string? marker) => Math.Max(0, paragraph.Style.SpacingBefore) +
+                    ComposeParagraph(paragraph, marker, setup, -1, 0, width).Lines.Sum(line => line.Height) + Math.Max(0, paragraph.Style.SpacingAfter);
+                while (pending.First is not null)
+                {
+                    RichTextParagraph paragraph = pending.First.Value;
+                    string? marker = lists.Snapshot().Advance(paragraph.Style);
+                    double height = Height(paragraph, marker);
+                    if (shape.GrowsToText || height <= available + 0.01)
+                    {
+                        placed.Add(paragraph);
+                        pending.RemoveFirst();
+                        lists.Advance(paragraph.Style);
+                        available -= height;
+                        continue;
+                    }
+                    // Find a source prefix that fits, preserving its styled runs.
+                    // Prefer a word boundary; over-wide individual words can split.
+                    int low = 1, high = paragraph.Length - 1, best = 0;
+                    while (low <= high)
+                    {
+                        int middle = low + (high - low) / 2;
+                        var prefix = paragraph.SplitAt(middle).Head.WithParagraphStyle(paragraph.Style with { SpacingAfter = 0 });
+                        if (Height(prefix, marker) <= available + 0.01)
+                        {
+                            best = middle;
+                            low = middle + 1;
+                        }
+                        else
+                            high = middle - 1;
+                    }
+                    if (best > 0 && best < paragraph.Length && !char.IsWhiteSpace(paragraph.Text[best - 1]) && !char.IsWhiteSpace(paragraph.Text[best]))
+                    {
+                        int boundary = paragraph.Text.LastIndexOfAny([' ', '\t', '\u2028'], best - 1, best);
+                        if (boundary >= 0)
+                            best = boundary + 1;
+                    }
+                    if (best > 0 && char.IsHighSurrogate(paragraph.Text[best - 1]))
+                        best--;
+                    if (best > 0)
+                    {
+                        var split = paragraph.SplitAt(best);
+                        placed.Add(split.Head.WithParagraphStyle(paragraph.Style with { SpacingAfter = 0 }));
+                        pending.RemoveFirst();
+                        RichTextParagraph tail = split.Tail.WithParagraphStyle(paragraph.Style with
+                            { SpacingBefore = 0, ListKind = ListKind.None, List = null });
+                        if (tail.Text.StartsWith('\u2028'))
+                            tail = tail.RemoveRange(0, 1);
+                        pending.AddFirst(tail);
+                        lists.Advance(paragraph.Style);
+                    }
+                    break;
+                }
+                if (frame == chain.Count - 1 && pending.Count > 0)
+                    placed.AddRange(pending);
+            }
+        }
+    }
+
     /// <summary>
     /// Measures a shape that grows to hold its text, once, at its own width:
-    /// its lines laid one under another, as <see cref="PlaceShapeText"/> lays
-    /// them, or its stated height where that is more.
+    /// its blocks, paragraph spacing and inner padding, or its stated height
+    /// where that is more.
     /// </summary>
     private void NoteGrownHeight(DocumentShape shape, DocumentPageBox setup)
     {
-        if (!shape.GrowsToText || !shape.HasText || shape.Width <= 0 || _grownHeights.ContainsKey(shape))
+        if (shape.GrowsWidthToText && !_grownWidths.ContainsKey(shape))
+        {
+            double width = 0;
+            foreach (RichTextParagraph paragraph in shape.Paragraphs)
+                foreach (LayoutLine line in ComposeParagraph(paragraph, null, setup, -1, 0, 20000).Lines)
+                    width = Math.Max(width, line.Pieces.Sum(piece => piece.Width) + paragraph.Style.LeftIndentIn(_settings.IndentStepPoints) + paragraph.Style.RightIndentIn);
+            width = Math.Max(width, shape.Tables.Select(table => table.TotalWidth).DefaultIfEmpty(0).Max());
+            _grownWidths[shape] = Math.Max(Math.Max(0, shape.Width), Math.Min(20000, width + shape.TextPadding.Left + shape.TextPadding.Right));
+        }
+        if (!shape.GrowsToText || ShapeParagraphs(shape).Count == 0 || shape.Width <= 0 || _grownHeights.ContainsKey(shape))
             return;
 
-        double height = 0;
-        if (shape.Tables.Count > 0)
-        {
-            height = ComposeShapeBlocks(shape, setup, 0).Height;
-            _grownHeights[shape] = Math.Max(Math.Max(0, shape.Height), height);
-            return;
-        }
-        foreach (RichTextParagraph paragraph in shape.Paragraphs)
-        {
-            foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1, 0, shape.Width).Lines)
-                height += line.Height;
-        }
-
+        double height = ComposeShapeBlocks(shape, setup, 0).Height + shape.TextPadding.Top + shape.TextPadding.Bottom;
         _grownHeights[shape] = Math.Max(Math.Max(0, shape.Height), height);
     }
 
@@ -1950,15 +2111,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private double BoxHeight(DocumentShape shape) =>
         _grownHeights.TryGetValue(shape, out double grown) ? grown : Math.Max(0, shape.Height);
 
+    private double BoxWidth(DocumentShape shape) => _grownWidths.GetValueOrDefault(shape, Math.Max(0, shape.Width));
+
     private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeShapeBlocks(
         DocumentShape shape, DocumentPageBox setup, double left)
     {
         ListNumberer bodyLists = _lists;
-        _lists = new ListNumberer();
+        _lists = _linkedStarts.TryGetValue(shape, out ListNumberer? start) ? start.Snapshot() : new ListNumberer();
         try
         {
-            RichTextDocument content = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
-            return ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, setup, left, shape.Width);
+            RichTextDocument content = RichTextDocument.FromParagraphs(ShapeParagraphs(shape)).WithTables(shape.Tables);
+            return ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, setup, left,
+                Math.Max(1, BoxWidth(shape) - shape.TextPadding.Left - shape.TextPadding.Right));
         }
         finally
         {
@@ -1968,55 +2132,39 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     private (List<LayoutLine> Lines, List<LayoutCell> Cells) PlaceShapeContent(DocumentShape shape, BRect bounds, DocumentPageBox setup)
     {
-        if (shape.Tables.Count == 0)
-            return (PlaceShapeText(shape, bounds, setup), []);
+        if (ShapeParagraphs(shape).Count == 0)
+            return ([], []);
+        bounds = new BRect(bounds.Left + shape.TextPadding.Left, bounds.Top + shape.TextPadding.Top,
+            Math.Max(0, bounds.Width - shape.TextPadding.Left - shape.TextPadding.Right),
+            Math.Max(0, bounds.Height - shape.TextPadding.Top - shape.TextPadding.Bottom));
+        if (bounds.Width <= 0 || bounds.Height <= 0)
+            return ([], []);
         var content = ComposeShapeBlocks(shape, setup, bounds.Left);
+        double spare = Math.Max(0, bounds.Height - content.Height);
+        double down = shape.TextVerticalAlignment switch { CellVerticalAlignment.Center => spare / 2, CellVerticalAlignment.Bottom => spare, _ => 0 };
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
         foreach (LayoutLine line in content.Lines)
         {
-            line.Top += bounds.Top;
-            if (line.Top >= bounds.Top && line.Top + line.Height <= bounds.Bottom + 0.01)
+            line.Top += bounds.Top + down;
+            if (shape.TextOverflow || (line.Top >= bounds.Top && line.Top + line.Height <= bounds.Bottom + 0.01))
                 lines.Add(line);
         }
         foreach (LayoutCell cell in content.Cells)
         {
-            double top = Math.Max(bounds.Top, bounds.Top + cell.Bounds.Top);
-            double bottom = Math.Min(bounds.Bottom, bounds.Top + cell.Bounds.Bottom);
+            double top = bounds.Top + down + cell.Bounds.Top;
+            double bottom = bounds.Top + down + cell.Bounds.Bottom;
+            if (!shape.TextOverflow)
+            {
+                top = Math.Max(bounds.Top, top);
+                bottom = Math.Min(bounds.Bottom, bottom);
+            }
             if (bottom <= top)
                 continue;
             cell.Bounds = new BRect(cell.Bounds.Left, top, cell.Bounds.Width, bottom - top);
             cells.Add(cell);
         }
         return (lines, cells);
-    }
-
-    private List<LayoutLine> PlaceShapeText(DocumentShape shape, BRect bounds, DocumentPageBox setup)
-    {
-        var lines = new List<LayoutLine>();
-        if (!shape.HasText || bounds.Width <= 0)
-            return lines;
-
-        double y = bounds.Top;
-        foreach (RichTextParagraph paragraph in shape.Paragraphs)
-        {
-            ParagraphLines composed = ComposeParagraph(
-                paragraph, marker: null, setup, -1, bounds.Left, bounds.Width);
-
-            foreach (LayoutLine line in composed.Lines)
-            {
-                // Text that overflows its box is clipped rather than spilling
-                // across the letter it sits beside.
-                if (y + line.Height > bounds.Bottom + 0.01)
-                    break;
-
-                line.Top = y;
-                lines.Add(line);
-                y += line.Height;
-            }
-        }
-
-        return lines;
     }
 
     /// <summary>
@@ -2433,6 +2581,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             string text = paragraph.Text.Substring(offset, length);
             offset += run.Length;
+            if (run.Style.Hidden)
+                continue;
 
             // A citation is its note's label, raised and smaller, and part of
             // the word it follows: no line breaks between "text" and its "1".

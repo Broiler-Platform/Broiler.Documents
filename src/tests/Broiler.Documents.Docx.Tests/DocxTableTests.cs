@@ -366,15 +366,18 @@ public sealed class DocxTableTests
     }
 
     [Fact]
-    public void An_Exact_Height_Is_Applied_As_A_Minimum_And_Reported()
+    public void An_Exact_Height_Is_Kept_Separately_From_A_Minimum_And_Reported()
     {
-        // Clipping a row's own text loses content the document has, so an exact
-        // height becomes a floor. The difference is diagnosed rather than hidden.
+        // Retain the fixed-height rule without deleting overflow from the model.
         DocumentReadResult result = DocxTestPackage.ReadBody(Table(
             string.Empty, Grid,
             RowWith("<w:trHeight w:val=\"720\" w:hRule=\"exact\"/>", Cell("a"), Cell("b"), Cell("c"))));
 
         Assert.Equal(36, Assert.Single(result.Document.Tables).Rows[0].MinHeight, 3);
+        Assert.True(result.Document.Tables[0].Rows[0].ExactHeight);
+        using var stream = new MemoryStream();
+        DocxWriter.Write(result.Document, stream);
+        Assert.True(DocxReader.Read(stream.ToArray(), new DocumentReadOptions()).Document.Tables[0].Rows[0].ExactHeight);
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.table.rowheight");
     }
 

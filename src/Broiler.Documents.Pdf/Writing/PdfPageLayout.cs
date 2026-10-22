@@ -178,6 +178,10 @@ internal sealed class PdfPageLayout(
 
         AddPageExclusions(document.Shapes, 1, setup.Height);
 
+        if (document.Shapes.Any(shape => shape.NextFrameName is not null))
+            _diagnostics.Warning(PdfDiagnosticCodes.WriteFeatureUnsupported,
+                "Linked text-frame overflow was not routed between frames by the PDF layout; use the raster layout for linked-frame flow.");
+
         // This layout fills the document's page as one column, so text columns -
         // the page's or a section's - and a section's own margins are not drawn,
         // and a column break is the page break a page of one column makes of it.
@@ -313,7 +317,7 @@ internal sealed class PdfPageLayout(
             foreach (DocumentShape shape in document.Shapes)
             {
                 if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
-                    _wrap.Add(shape, shape.OffsetFromPage ? shape.OffsetY - setup.Height : -(y - shape.OffsetY), height: BoxHeight(shape));
+                    _wrap.Add(shape, shape.OffsetFromPage ? shape.OffsetY - setup.Height : -(y - shape.OffsetY), height: BoxHeight(shape), width: BoxWidth(shape));
             }
 
             string marker = Marker(style, label, listNumber);
@@ -364,7 +368,7 @@ internal sealed class PdfPageLayout(
                 {
                     if (shape.Wraps && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex)
                         _wrap.Add(shape, shape.OffsetFromPage ? shape.OffsetY - setup.Height : -(y - shape.OffsetY),
-                            height: BoxHeight(shape));
+                            height: BoxHeight(shape), width: BoxWidth(shape));
                 }
                 bands.Clear();
                 if (_wrap.IsEmpty)
@@ -599,7 +603,7 @@ internal sealed class PdfPageLayout(
             page.Shapes.Add(new PdfPlacedShape(
                 left,
                 top - height,
-                Math.Max(0, shape.Width),
+                BoxWidth(shape),
                 height,
                 shape.Fill,
                 shape.Outline,
@@ -646,7 +650,8 @@ internal sealed class PdfPageLayout(
                     textWidth);
 
                 contents.Add((rows.Count, cell, content, padding));
-                composed.Height = Math.Max(composed.Height, content.Height + padding.Top + padding.Bottom);
+                if (cell.RowSpan <= 1 && !cell.IsRowSpanContinuation)
+                    composed.Height = Math.Max(composed.Height, content.Height + padding.Top + padding.Bottom);
 
                 if (cell.IsRowSpanContinuation)
                     continue;
@@ -657,12 +662,28 @@ internal sealed class PdfPageLayout(
             }
 
             // A row is never shorter than a line, so an empty one is still a row.
-            composed.Height = Math.Max(composed.Height, Math.Max(row.MinHeight, EmptyLineHeight()));
+            composed.Height = row.ExactHeight ? row.MinHeight : Math.Max(composed.Height, Math.Max(row.MinHeight, EmptyLineHeight()));
             foreach (CellBoxDraft box in composed.Boxes)
                 box.RowHeight = composed.Height;
 
             rows.Add(composed);
         }
+
+        foreach ((int index, TableCell cell, CellContent content, TableCellPadding padding) in contents.Where(item => item.Cell.RowSpan > 1))
+        {
+            int end = Math.Min(rows.Count, index + cell.RowSpan);
+            double deficit = content.Height + padding.Top + padding.Bottom - rows.Skip(index).Take(end - index).Sum(row => row.Height);
+            for (int last = end - 1; deficit > 0 && last >= index; last--)
+            {
+                if (table.Rows[last].ExactHeight)
+                    continue;
+                rows[last].Height += deficit;
+                break;
+            }
+        }
+        foreach (CellContent row in rows)
+            foreach (CellBoxDraft box in row.Boxes)
+                box.RowHeight = row.Height;
 
         foreach ((int index, CellBoxDraft box) in spans)
         {
@@ -685,6 +706,17 @@ internal sealed class PdfPageLayout(
                 CellVerticalAlignment.Bottom => spare,
                 _ => 0,
             };
+            if (table.Rows[index].ExactHeight)
+            {
+                double limit = height - padding.Top - down;
+                content.Lines.RemoveAll(line => line.Offset > limit + 0.01);
+                content.Boxes.RemoveAll(box => box.Offset >= limit);
+                foreach (CellBoxDraft box in content.Boxes.Where(box => box.Offset + box.RowHeight + box.ExtraHeight > limit))
+                {
+                    box.RowHeight = Math.Max(0, limit - box.Offset);
+                    box.ExtraHeight = 0;
+                }
+            }
             rows[index].AbsorbAt(content, padding.Top + down);
         }
 
@@ -1018,7 +1050,7 @@ internal sealed class PdfPageLayout(
             anchor.Page.Shapes.Add(new PdfPlacedShape(
                 left,
                 top - height,
-                Math.Max(0, shape.Width),
+                BoxWidth(shape),
                 height,
                 shape.Fill,
                 shape.Outline,
@@ -1041,7 +1073,7 @@ internal sealed class PdfPageLayout(
         foreach (DocumentShape shape in shapes)
         {
             if (shape.Wraps && shape.AnchorPage == number)
-                _wrap.Add(shape, shape.OffsetY - pageHeight, height: BoxHeight(shape));
+                _wrap.Add(shape, shape.OffsetY - pageHeight, height: BoxHeight(shape), width: BoxWidth(shape));
         }
     }
 
@@ -1063,44 +1095,51 @@ internal sealed class PdfPageLayout(
         if (!shape.GrowsToText || !shape.HasText || shape.Width <= 0)
             return stated;
 
-        double height = 0;
-        if (shape.Tables.Count > 0)
-        {
-            RichTextDocument content = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
-            return Math.Max(stated, ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, 0, shape.Width).Height);
-        }
-        foreach (RichTextParagraph paragraph in shape.Paragraphs)
-        {
-            List<LayoutLine> broken = BreakParagraph(paragraph, shape.Width, marker: string.Empty);
-            foreach (LayoutLine line in broken)
-                height += paragraph.Style.LineBoxHeight(line.Height);
-
-            if (broken.Count == 0)
-                height += paragraph.Style.LineBoxHeight(EmptyLineHeight());
-        }
-
-        return Math.Max(stated, height);
+        RichTextDocument content = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
+        return Math.Max(stated, ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, 0, ShapeTextWidth(shape)).Height +
+            shape.TextPadding.Top + shape.TextPadding.Bottom);
     }
 
     private void PlaceShapeContent(PdfLayoutPage page, DocumentShape shape, double left, double top, double height)
     {
-        if (shape.Tables.Count == 0)
-        {
-            PlaceRunningBlock(page, shape.Paragraphs, left, shape.Width, top, height, isHeader: true);
+        if (!shape.HasText)
             return;
-        }
+        left += shape.TextPadding.Left;
+        top -= shape.TextPadding.Top;
+        height -= shape.TextPadding.Top + shape.TextPadding.Bottom;
+        if (height <= 0)
+            return;
         RichTextDocument document = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
-        CellContent content = ComposeBlocks(document, shape.Tables, 0, document.ParagraphCount, left, shape.Width);
-        content.Lines.RemoveAll(line => line.Offset > height + 0.01);
-        content.Boxes.RemoveAll(box => box.Offset >= height);
+        CellContent content = ComposeBlocks(document, shape.Tables, 0, document.ParagraphCount, left, ShapeTextWidth(shape));
+        double spare = Math.Max(0, height - content.Height);
+        double down = shape.TextVerticalAlignment switch { CellVerticalAlignment.Center => spare / 2, CellVerticalAlignment.Bottom => spare, _ => 0 };
+        top -= down;
+        height -= down;
+        if (!shape.TextOverflow)
+        {
+            content.Lines.RemoveAll(line => line.Offset > height + 0.01);
+            content.Boxes.RemoveAll(box => box.Offset >= height);
+        }
         foreach (CellBoxDraft box in content.Boxes)
         {
-            double visible = Math.Max(0, height - box.Offset);
+            double visible = shape.TextOverflow ? box.RowHeight + box.ExtraHeight : Math.Max(0, height - box.Offset);
             box.RowHeight = Math.Min(box.RowHeight + box.ExtraHeight, visible);
             box.ExtraHeight = 0;
         }
         content.PlaceOn(page, top, new Dictionary<int, (PdfLayoutPage Page, double Top)>());
     }
+
+    private double BoxWidth(DocumentShape shape)
+    {
+        if (!shape.GrowsWidthToText)
+            return Math.Max(0, shape.Width);
+        double width = shape.Paragraphs.SelectMany(paragraph => BreakParagraph(paragraph, 20000, string.Empty))
+            .Select(line => line.Width).DefaultIfEmpty(0).Max();
+        width = Math.Max(width, shape.Tables.Select(table => table.TotalWidth).DefaultIfEmpty(0).Max());
+        return Math.Max(Math.Max(0, shape.Width), Math.Min(20000, width + shape.TextPadding.Left + shape.TextPadding.Right));
+    }
+
+    private double ShapeTextWidth(DocumentShape shape) => Math.Max(1, BoxWidth(shape) - shape.TextPadding.Left - shape.TextPadding.Right);
 
     private void PlaceRunningBlock(
         PdfLayoutPage page,
@@ -1516,6 +1555,8 @@ internal sealed class PdfPageLayout(
             int length = Math.Min(run.Length, text.Length - offset);
             string runText = text.Substring(offset, length);
             offset += length;
+            if (run.Style.Hidden)
+                continue;
 
             if (run.Style.Note is DocumentNote note)
             {

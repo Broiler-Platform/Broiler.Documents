@@ -227,7 +227,8 @@ public sealed class DocumentTable(
 }
 
 /// <summary>One row of a <see cref="DocumentTable"/>.</summary>
-public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = false, double minHeight = 0, bool canSplit = true)
+public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = false, double minHeight = 0, bool canSplit = true,
+    bool exactHeight = false)
 {
     public IReadOnlyList<TableCell> Cells { get; } = cells is null || cells.Count == 0 ? [] : [.. cells];
 
@@ -239,11 +240,8 @@ public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = fal
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A <em>minimum</em>, deliberately, and never a ceiling: a row is at least
-    /// this tall and grows for content that does not fit. A layout that clipped
-    /// text to honour a stated height would lose the one thing the document is
-    /// for, so a format's exact-height rule is read as a floor too and diagnosed
-    /// rather than obeyed.
+    /// A minimum unless <see cref="ExactHeight"/> is true. Fixed-height rows
+    /// retain their full editable content while clipping its rendered overflow.
     /// </para>
     /// <para>
     /// It matters more than a row of a data table suggests. The page-layout
@@ -253,6 +251,9 @@ public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = fal
     /// </para>
     /// </remarks>
     public double MinHeight { get; } = double.IsFinite(minHeight) && minHeight > 0 ? minHeight : 0;
+
+    /// <summary>True when MinHeight is a fixed height and overflowing content is clipped visually.</summary>
+    public bool ExactHeight { get; } = exactHeight && double.IsFinite(minHeight) && minHeight > 0;
 
     /// <summary>
     /// True when the row may break across a page: the lines of its cells that fit
@@ -273,7 +274,7 @@ public sealed class TableRow(IReadOnlyList<TableCell> cells, bool isHeader = fal
         var cells = new List<TableCell>(Cells.Count);
         foreach (TableCell cell in Cells)
             cells.Add(cell.Shifted(at, removed, inserted));
-        return new TableRow(cells, IsHeader, MinHeight, CanSplit);
+        return new TableRow(cells, IsHeader, MinHeight, CanSplit, ExactHeight);
     }
 }
 

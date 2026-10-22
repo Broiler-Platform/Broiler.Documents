@@ -10,6 +10,71 @@ namespace Broiler.Documents.Odt.Tests;
 /// </summary>
 public sealed class OdtShapeTests
 {
+    [Fact]
+    public void Linked_Frames_Keep_Their_Empty_Destination_On_Round_Trip()
+    {
+        var document = WithShapes(new DocumentShape(0, 0, 0, 100, 50, paragraphs: [RichTextParagraph.Plain("source")],
+            frameName: "a", nextFrameName: "b"), new DocumentShape(0, 110, 0, 100, 50, frameName: "b"));
+        var shapes = RoundTrip(document).Shapes;
+        Assert.Equal(2, shapes.Count);
+        Assert.Equal("b", Assert.Single(shapes, shape => shape.FrameName == "a").NextFrameName);
+        Assert.False(Assert.Single(shapes, shape => shape.FrameName == "b").HasText);
+    }
+
+    [Theory]
+    [InlineData(CellVerticalAlignment.Center)]
+    [InlineData(CellVerticalAlignment.Bottom)]
+    public void Minimum_Width_And_Vertical_Alignment_Round_Trip(CellVerticalAlignment alignment)
+    {
+        var shape = Assert.Single(RoundTrip(WithShapes(new DocumentShape(0, 0, 0, 1, 1,
+            paragraphs: [RichTextParagraph.Plain("Vestibulum")], growsToText: true, growsWidthToText: true,
+            textVerticalAlignment: alignment))).Shapes);
+        Assert.True(shape.GrowsWidthToText);
+        Assert.True(shape.GrowsToText);
+        Assert.Equal(alignment, shape.TextVerticalAlignment);
+        Assert.Equal(1, shape.Width, 3);
+    }
+
+    [Fact]
+    public void A_Wrapping_Minimum_Width_Frame_Does_Not_Grow_Horizontally()
+    {
+        byte[] bytes = OdtDocumentCodec.WriteToArray(WithShapes(new DocumentShape(0, 0, 0, 1, 1,
+            paragraphs: [RichTextParagraph.Plain("word")], growsToText: true, growsWidthToText: true)));
+        using var buffer = new MemoryStream();
+        buffer.Write(bytes);
+        using (var archive = new System.IO.Compression.ZipArchive(buffer, System.IO.Compression.ZipArchiveMode.Update, leaveOpen: true))
+        {
+            var entry = archive.GetEntry("content.xml")!;
+            string xml;
+            using (var reader = new StreamReader(entry.Open())) xml = reader.ReadToEnd();
+            entry.Delete();
+            using var writer = new StreamWriter(archive.CreateEntry("content.xml").Open());
+            writer.Write(xml.Replace("fo:wrap-option=\"no-wrap\"", "fo:wrap-option=\"wrap\"")
+                .Replace("draw:auto-grow-width=\"true\"", "draw:auto-grow-width=\"false\""));
+        }
+        buffer.Position = 0;
+        Assert.False(Assert.Single(new OdtDocumentCodec().Read(buffer).Document.Shapes).GrowsWidthToText);
+    }
+
+    [Fact]
+    public void Hidden_Text_Round_Trips_Without_Losing_The_Text()
+    {
+        var paragraph = RichTextParagraph.Plain("visible").InsertText(0, "secret", InlineStyle.Default with { Hidden = true });
+        var restored = RoundTrip(RichTextDocument.FromParagraphs([paragraph]));
+        Assert.Equal("secretvisible", restored.PlainText);
+        Assert.True(restored.Paragraphs[0].Runs[0].Style.Hidden);
+        Assert.False(restored.Paragraphs[0].Runs[1].Style.Hidden);
+    }
+
+    [Fact]
+    public void Shape_Text_Padding_Round_Trips()
+    {
+        var padding = new TableCellPadding(7, 3, 9, 4);
+        var source = WithShapes(new DocumentShape(0, 0, 0, 100, 50,
+            paragraphs: [RichTextParagraph.Plain("box")], textPadding: padding));
+        Assert.Equal(padding, Assert.Single(RoundTrip(source).Shapes).TextPadding);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

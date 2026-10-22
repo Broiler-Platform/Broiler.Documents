@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
@@ -70,7 +71,15 @@ internal static class OdtTableReader
                     int cellStart = context.Builder.CurrentParagraphIndex;
                     var nested = new List<DocumentTable>();
                     context.Builder.PushTableSink(nested);
-                    readBlocks(cell.Elements(), depth + 1);
+                    context.TableDepth++;
+                    try
+                    {
+                        readBlocks(cell.Elements(), depth + 1);
+                    }
+                    finally
+                    {
+                        context.TableDepth--;
+                    }
                     // An empty ODF cell still has an editable paragraph and a
                     // line box in Writer. Leaving its range empty collapses
                     // spacer rows and loses their contribution to pagination.
@@ -110,7 +119,8 @@ internal static class OdtTableReader
                 cells,
                 row.Parent?.Name == OdtNamespaces.Table + "table-header-rows",
                 ReadRowMinHeight(row, context.Styles),
-                ReadRowCanSplit(row, context.Styles)));
+                ReadRowCanSplit(row, context.Styles),
+                exactHeight: IsFixedRow(row, context.Styles)));
         }
 
         context.Builder.AddTable(new DocumentTable(
@@ -213,25 +223,19 @@ internal static class OdtTableReader
     }
 
     /// <summary>
-    /// The height a row asks for, in points, as a minimum.
+    /// Whether the row has a positive fixed height, rather than an optimal or
+    /// minimum height. Its text remains in the model even where rendering clips it.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// ODF states this two ways and they do not mean the same thing.
-    /// <c>style:min-row-height</c> is a floor and is taken as one.
-    /// <c>style:row-height</c> is a fixed height, and is <em>also</em> taken as a
-    /// floor: a row honouring it exactly would clip its own text, and losing text
-    /// is the one outcome a document reader may not choose. That is the position
-    /// the DOCX codec takes for <c>w:hRule="exact"</c>, and the two formats agree
-    /// here rather than each inventing an answer.
-    /// </para>
-    /// <para>
-    /// Where a row states both, the larger wins: each is a floor and a row
-    /// satisfying the taller satisfies the other. <c>style:use-optimal-row-height</c>
-    /// asks for the height the content needs, which is what a row does anyway
-    /// without a floor, so it is read as asking for none.
-    /// </para>
-    /// </remarks>
+    private static bool IsFixedRow(XElement row, OdtStyles styles) =>
+        (string?)row.Attribute(OdtNamespaces.Table + "style-name") is string name &&
+        styles.TableRowProperties.TryGetValue(name, out XElement? properties) &&
+        (string?)properties.Attribute(OdtNamespaces.Style + "use-optimal-row-height") != "true" &&
+        RowHeightAttribute(properties) is XAttribute attribute && attribute.Name == OdtNamespaces.Style + "row-height" &&
+        OdtUnits.TryParseLength(attribute.Value, out double height) && height > 0;
+
+    private static XAttribute? RowHeightAttribute(XElement properties) => properties.Attributes().LastOrDefault(attribute =>
+        attribute.Name == OdtNamespaces.Style + "row-height" || attribute.Name == OdtNamespaces.Style + "min-row-height");
+
     private static double ReadRowMinHeight(XElement row, OdtStyles styles)
     {
         string? styleName = (string?)row.Attribute(OdtNamespaces.Table + "style-name");
@@ -249,20 +253,8 @@ internal static class OdtTableReader
             return 0;
         }
 
-        double height = 0;
-        if (OdtUnits.TryParseLength(
-                (string?)properties.Attribute(OdtNamespaces.Style + "min-row-height"), out double minimum))
-        {
-            height = Math.Max(height, minimum);
-        }
-
-        if (OdtUnits.TryParseLength(
-                (string?)properties.Attribute(OdtNamespaces.Style + "row-height"), out double stated))
-        {
-            height = Math.Max(height, stated);
-        }
-
-        return Math.Max(0, height);
+        // Writer imports these mutually exclusive choices in attribute order.
+        return OdtUnits.TryParseLength(RowHeightAttribute(properties)?.Value, out double height) ? Math.Max(0, height) : 0;
     }
 
     /// <summary>
