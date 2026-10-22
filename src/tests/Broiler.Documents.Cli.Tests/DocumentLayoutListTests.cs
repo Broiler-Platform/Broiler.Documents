@@ -128,6 +128,30 @@ public sealed class DocumentLayoutListTests
     }
 
     [Fact]
+    public void The_Text_Dump_Writes_LibreOffices_Default_Bullet_For_Each_Level()
+    {
+        // tdf104492.docx bullets with "o", tdf115079.odt with "◆" and "►", and
+        // Word's Symbol-font bullet is a private-use character; LibreOffice's
+        // text export writes its own bullet for the level in place of each.
+        var bullets = new ListDefinition(
+        [
+            new ListLevel { Format = ListNumberFormat.Bullet, Template = "o" },
+            new ListLevel { Format = ListNumberFormat.Bullet, Template = ((char)0xF0B7).ToString() },
+            new ListLevel { Format = ListNumberFormat.Bullet, Template = "◆" },
+            new ListLevel { Format = ListNumberFormat.Bullet, Template = "►" },
+        ]);
+        RichTextParagraph Bullet(string text, int level) => RichTextParagraph.Create(
+            text,
+            InlineStyle.Default,
+            ParagraphStyle.Default with { List = new ListReference(bullets, level), ListKind = ListKind.Bullet, IndentLevel = level + 1 });
+
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [Bullet("a", 0), Bullet("b", 1), Bullet("c", 2), Bullet("d", 3), Clause("Numbered", 0)]);
+
+        Assert.Equal("• a\n◦ b\n▪ c\n• d\n4. Numbered", Broiler.Documents.Cli.Commands.DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
     public void The_Text_Dump_Writes_A_Citation_As_Its_Label_As_LibreOffice_Does()
     {
         var footnote = new DocumentNote(NoteKind.Footnote, [RichTextParagraph.Plain("n")]);

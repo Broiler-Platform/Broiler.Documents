@@ -256,6 +256,9 @@ public static class DocumentCommands
             ExitCode.Ok);
     }
 
+    /// <summary>LibreOffice's default bullet for each list level, the first level first.</summary>
+    private const string TextExportBullets = "•◦▪";
+
     /// <summary>
     /// The document's text with each numbered paragraph's label before it, as
     /// LibreOffice's text export writes it: the label, one space, the text.
@@ -265,6 +268,15 @@ public static class DocumentCommands
     /// only by its kind has no label anybody stated, and the dump has never
     /// invented one for it. A note's citation is its label too, as LibreOffice
     /// writes it, and the note's own text is not part of the body's.
+    /// <para>
+    /// A bullet is written as LibreOffice's text export writes one: not the
+    /// glyph the document chose but LibreOffice's default bullet for the
+    /// item's level - "•", "◦", "▪", and round again - whatever the list
+    /// draws on the page (ascatr.cxx, numfunc::GetBulletChar). A document's
+    /// "o", "◆" or Symbol-font private-use bullet would otherwise differ from
+    /// LibreOffice's text on every item without either reader having lost a
+    /// word.
+    /// </para>
     /// </remarks>
     internal static string LabelledText(RichTextDocument document)
     {
@@ -278,8 +290,12 @@ public static class DocumentCommands
                 builder.Append('\n');
 
             string? label = numberer.Advance(paragraph.Style);
-            if (paragraph.Style.List is not null && label is not null)
+            if (paragraph.Style.List is ListReference list && label is not null)
+            {
+                if (list.LevelStyle.Format == ListNumberFormat.Bullet)
+                    label = TextExportBullets[Math.Max(0, list.Level) % TextExportBullets.Length].ToString();
                 builder.Append(label).Append(' ');
+            }
 
             int offset = 0;
             foreach (StyleRun run in paragraph.Runs)
