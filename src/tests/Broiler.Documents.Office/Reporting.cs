@@ -100,7 +100,8 @@ internal static class OfficeReporting
         IReadOnlyList<SemanticReading> readings,
         IReadOnlyList<RenderRow> renders,
         RunHeader header,
-        IReadOnlyList<ExtrasDifference>? topDifferences = null)
+        IReadOnlyList<ExtrasDifference>? topDifferences = null,
+        double threshold = 80)
     {
         var root = new JsonObject
         {
@@ -110,6 +111,7 @@ internal static class OfficeReporting
             ["fontSet"] = header.FontSet,
             ["platform"] = header.Platform,
             ["dpi"] = header.Dpi,
+            ["threshold"] = threshold,
             ["stampMatches"] = header.StampMatches,
             ["passed"] = results.Count(result => result.Outcome == CheckOutcome.Passed),
             ["failed"] = results.Count(result => result.Outcome == CheckOutcome.Failed),

@@ -317,7 +317,7 @@ internal static class Program
                 platform, options.Dpi, mismatch is null);
 
             if (options.JsonReport is not null)
-                OfficeReporting.WriteJson(options.JsonReport, results, readings, renders, header);
+                OfficeReporting.WriteJson(options.JsonReport, results, readings, renders, header, threshold: options.Threshold);
 
             if (options.JUnitReport is not null)
                 OfficeReporting.WriteJUnit(options.JUnitReport, results);
@@ -467,7 +467,7 @@ internal static class Program
                 platform, options.Dpi, true);
 
             string issueMarkdown = ExtrasConformance.FormatIssueMarkdown(
-                sourceLabel, header, samples, differences, options.TopDifferences);
+                sourceLabel, header, samples, differences, options.TopDifferences, options.Threshold);
 
             if (options.IssueReport is not null)
             {
@@ -519,7 +519,7 @@ internal static class Program
             }
 
             if (options.JsonReport is not null)
-                OfficeReporting.WriteJson(options.JsonReport, results, readings, renders, header, top);
+                OfficeReporting.WriteJson(options.JsonReport, results, readings, renders, header, top, options.Threshold);
 
             if (options.JUnitReport is not null)
                 OfficeReporting.WriteJUnit(options.JUnitReport, results);

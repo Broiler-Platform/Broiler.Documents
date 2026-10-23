@@ -40,6 +40,7 @@
     is slightly odd to read, and it is the price of one definition.
   -->
   <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Documents.Office.Tests" />
     <Compile Include="..\Broiler.Documents.Corpus\BroilerDocTool.cs" Link="BroilerDocTool.cs" />
     <Compile Include="..\Broiler.Documents.Corpus\CheckResult.cs" Link="CheckResult.cs" />
   </ItemGroup>

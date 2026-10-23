@@ -242,5 +242,12 @@
       <BuildType Project="Debug" Solution="Debug-Windows|*" />
       <BuildType Project="Release" Solution="Release-Windows|*" />
     </Project>
+    <!-- Unit tests of reporting policy; these do not launch LibreOffice. -->
+    <Project Path="src/tests/Broiler.Documents.Office.Tests/Broiler.Documents.Office.Tests.csproj">
+      <BuildType Project="Debug" Solution="Debug-Linux|*" />
+      <BuildType Project="Release" Solution="Release-Linux|*" />
+      <BuildType Project="Debug" Solution="Debug-Windows|*" />
+      <BuildType Project="Release" Solution="Release-Windows|*" />
+    </Project>
   </Folder>
 </Solution>

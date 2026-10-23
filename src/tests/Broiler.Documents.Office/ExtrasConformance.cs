@@ -61,6 +61,7 @@ internal sealed record ExtrasDifference(
     string? DiffImagePath,
     double SeverityScore,
     string Summary,
+    IReadOnlyList<CheckResult> Checks,
     string? CrashRegressionFamily = null,
     bool RefusedByBoth = false)
 {
@@ -68,17 +69,15 @@ internal sealed record ExtrasDifference(
     public bool SetAside => CrashRegressionFamily is not null;
 
     /// <summary>
-    /// True when either the semantic projection or the pixel rendering diverged
-    /// between LibreOffice and <c>broilerdoc</c>, or when <c>broilerdoc</c>
+    /// True when an executed check failed, using the configured rendering
+    /// threshold rather than the descriptive bands, or when <c>broilerdoc</c>
     /// failed to read or render a document that LibreOffice handled. For a
     /// crash-regression input it is only the second: there was nothing to
     /// diverge from. A document both refused has none.
     /// </summary>
     public bool HasDifference =>
         !RefusedByBoth &&
-        (BroilerReadFailed ||
-        (Semantic is not null && (Semantic.Differences.Count > 0 || Semantic.Diagnostics.Count > 0)) ||
-        (Render is not null && (!Bands.IsBest(Render.Bands) || Render.BroilerdocPages != Render.LibreOfficePages)));
+        (BroilerReadFailed || Checks.Any(check => check.Outcome == CheckOutcome.Failed));
 }
 
 /// <summary>
@@ -875,6 +874,7 @@ internal static class ExtrasConformance
             diffImagePath,
             score,
             summary,
+            results,
             RefusedByBoth: refusedByBoth);
 
         return (results, reading, renderRow, difference);
@@ -969,6 +969,7 @@ internal static class ExtrasConformance
             failed
                 ? "broilerdoc " + unhandled!.Arguments[0] + " " + DescribeExit(exitCode) + " (" + error + ")"
                 : "handled",
+            results,
             family);
 
         return (results, difference);
@@ -1124,7 +1125,8 @@ internal static class ExtrasConformance
         RunHeader header,
         IReadOnlyList<ExtrasSample> allSamples,
         IReadOnlyList<ExtrasDifference> allDifferences,
-        int topCount = DefaultTopDifferences)
+        int topCount = DefaultTopDifferences,
+        double threshold = 80)
     {
         IReadOnlyList<ExtrasDifference> top = TopDifferences(allDifferences, topCount);
         ExtrasDifference[] documents = [.. allDifferences.Where(diff => !diff.SetAside)];
@@ -1145,6 +1147,7 @@ internal static class ExtrasConformance
         sb.AppendLine("| Property | Value |");
         sb.AppendLine("| :--- | :--- |");
         sb.AppendLine("| **Corpus Source** | `" + extrasSource + "` |");
+        sb.AppendLine("| **Rendering Threshold** | " + threshold.ToString("0.##", CultureInfo.InvariantCulture) + "% |");
         sb.AppendLine("| **Supported Samples Evaluated** | " + allSamples.Count.ToString(CultureInfo.InvariantCulture) + " |");
         sb.AppendLine("| **Documents Compared With LibreOffice** | " + documents.Length.ToString(CultureInfo.InvariantCulture) + " |");
         sb.AppendLine("| **Crash-Regression Inputs Set Aside** | " + setAside.Length.ToString(CultureInfo.InvariantCulture) +

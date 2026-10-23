@@ -546,6 +546,13 @@ the pixel baseline-band verdict for seed documents. Baseline stamps, tool and
 font guards, semantic checks and baseline regeneration retain their existing
 rules. Reports keep the measured bands and severity ranking for investigation;
 failed pixel checks include the measured similarity and required threshold.
+The issue's difference counts and ranking use actual failed check results,
+including the configured rendering threshold. Non-best descriptive bands or
+informational diagnostics alone do not make a passing document an issue entry.
+Skipped axes are not failures. The issue summary and JSON report record the
+configured threshold. Renderer failures without measurements are still reported.
+The [threshold-reporting verification note](../notes/office-threshold-reporting-verification-2026-10-23.md)
+records artifact replays and the 80%/100% end-to-end check for this policy.
 The upstream workflow continues to publish a ranking; its existing policy does
 not fail the job for individual upstream sample differences.
 
