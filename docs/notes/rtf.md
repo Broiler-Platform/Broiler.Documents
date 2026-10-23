@@ -1,5 +1,12 @@
 # RTF Conformance And Limits
 
+Unicode and escaped bytes in field instructions are retained. A recognised ruby
+equation with an empty cached result contributes its base text and reports
+`rtf.field.ruby`; phonetic annotation layout is not represented. Cached results
+take precedence. Nested fields retain their own instruction and result state.
+Writing extended bitmap/hatch fills, centred gradients, gradient borders or
+page-fill bounds reports `rtf.fill.extended` when approximated.
+
 Writing linked text frames, minimum-width sizing, vertical text alignment or
 explicit overflow reports `rtf.shape.flow`; frame text is retained but these
 layout properties are not written.
@@ -333,13 +340,15 @@ and the column are where the model measures from already.
 `fFitShapeToText` makes the box grow to its text (`DocumentShape.GrowsToText`),
 and the writer writes it for such a box.
 
-A line (`shapeType` 20) is a box of nought by its length, and a box with no
+A line (`shapeType` 20) retains its endpoints as a line, and a box with no
 breadth and an outline is drawn as the rule its outline makes
 (`DocumentShape.IsRule`). A ruled form is drawn this way: `tdf133437.rtf`'s
 statement is 285 lines and an unfilled rectangle around paragraphs set in
-frames, and every one of them was dropped. A slanted line would need a geometry
-the model does not hold, and drawn as its box it would be a rectangle that is
-not there, so it is not read and is reported once (`rtf.shape.line`).
+frames, and every one of them was dropped. Slanted shape lines now retain their
+direction, including reversed endpoints and `fFlipV`. Ellipses (`shapeType` 3)
+retain their path; `lineWidth` retains EMU widths as points. The writer preserves
+these paths and widths. Legacy drawing-object slanted lines still report
+`rtf.shape.line`.
 
 Every other shape property is ignored, `pib` - a picture inside a shape - among
 them. A shape that ends with no fill, no text and no outline is dropped, and so
@@ -578,7 +587,7 @@ anything a caller asked for that this codec does not do.
 | `rtf.hex` | Warning | Read | A malformed `\'hh` hex escape was skipped. |
 | `rtf.paragraphs` | Warning | Read | The document exceeded `MaxParagraphCount`; the text past the cap was dropped. |
 | `rtf.codepage` | Info | Read | A double-byte code page, or one the runtime does not carry, decoded its high bytes through a Latin-1 fallback; `\uN` text is unaffected. Once per read. |
-| `rtf.shape.line` | Info | Read | A slanted line was not read; the model holds a line only as a horizontal or vertical rule. Once per read. |
+| `rtf.shape.line` | Info | Read | A legacy drawing-object slanted line was not read. Modern `shapeType` 20 lines retain their geometry. Once per read. |
 | `rtf.shape.table` | Warning | Write | Tables inside a text box are written as paragraphs. Their text is retained, but their cell layout is not written. Once per write. |
 | `rtf.shape.padding` | Warning | Write | Text-box inner padding was not written; the text and outer frame are retained. Once per write. |
 | `rtf.frame.position` | Info | Read | A frame aligned to the centre or foot of its reference was set at its top, its height not being known until layout. Once per read. |

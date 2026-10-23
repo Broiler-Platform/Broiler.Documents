@@ -75,7 +75,7 @@ public sealed class OdtPageBackgroundTests
     }
 
     [Fact]
-    public void A_Rectangular_Gradient_Is_Its_Border_Colour_And_Says_So()
+    public void A_Rectangular_Gradient_Retains_Its_Geometry_And_Centre()
     {
         DocumentReadResult result = Read(
             "draw:fill=\"gradient\" draw:fill-gradient-name=\"g1\"",
@@ -83,8 +83,11 @@ public sealed class OdtPageBackgroundTests
                 "<draw:gradient draw:name=\"g1\" draw:style=\"rectangular\" draw:cx=\"0%\" draw:cy=\"0%\" " +
                 "draw:start-color=\"#ff8200\" draw:end-color=\"#000082\" draw:angle=\"90deg\"/>");
 
-        Assert.Equal(ShapeFill.Solid(BColor.FromArgb(0xFF, 0x82, 0)), result.Document.PageBackground);
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "odt.gradient");
+        var fill = Assert.IsType<ShapeFill>(result.Document.PageBackground);
+        Assert.Equal(GradientGeometry.Rectangular, fill.Geometry);
+        Assert.Equal(0, fill.CenterX);
+        Assert.Equal(0, fill.CenterY);
+        Assert.Equal(BColor.FromArgb(0, 0, 0x82), fill.ColorAt(0, 0, 100, 100));
     }
 
     [Fact]

@@ -23,6 +23,55 @@ public sealed class PdfShapeRenderTests
         return Encoding.Latin1.GetString(stream.ToArray());
     }
 
+    [Fact]
+    public void Ellipses_Use_Bezier_Paths_And_Clip_Their_Fill()
+    {
+        string pdf = Write(WithShape(new DocumentShape(0, 10, 20, 80, 40, ShapeFill.Solid(BColor.Black),
+            BColor.Black, geometry: ShapeGeometry.Ellipse, outlineWidth: 3)));
+        Assert.Contains(" c h", pdf);
+        Assert.Contains("W n", pdf);
+        Assert.Contains("3 w", pdf);
+    }
+
+    [Theory]
+    [InlineData(ShapeGeometry.Line)]
+    [InlineData(ShapeGeometry.LineAscending)]
+    public void Diagonal_Shapes_Emit_Line_Operators(ShapeGeometry geometry)
+    {
+        string pdf = Write(WithShape(new DocumentShape(0, 10, 20, 80, 40,
+            outline: BColor.Black, geometry: geometry, outlineWidth: 2.5)));
+        Assert.Contains(" l S", pdf);
+        Assert.Contains("2.5 w", pdf);
+        Assert.DoesNotContain(" re S", pdf);
+    }
+
+    [Fact]
+    public void A_Content_Only_Page_Fill_Uses_The_Page_Margins()
+    {
+        string pdf = Write(RichTextDocument.Empty.WithPageGeometry(new PageGeometry(200, 100, 10, 20, 15, 25))
+            .WithPageBackground(ShapeFill.Solid(BColor.Black) with { ContentOnly = true }));
+        Assert.Contains("10 25 170 60 re f", pdf);
+    }
+
+    [Fact]
+    public void A_Hatch_Produces_Clipped_Stroke_Operators()
+    {
+        string pdf = Write(WithShape(Stripe(ShapeFill.Solid(BColor.Empty) with { Hatch = new HatchFill(BColor.Black, 6, 0, 2) })));
+        Assert.Contains("re W n", pdf);
+        Assert.Contains("0.5 w", pdf);
+        Assert.Contains(" l S", pdf);
+    }
+
+    [Fact]
+    public void A_Bitmap_Fill_Reports_The_Standalone_Pdf_Limitation()
+    {
+        var document = RichTextDocument.Empty.WithPageBackground(ShapeFill.Solid(BColor.Empty) with
+            { Image = new ImageFill(new InlineImage(new byte[] { 1 }, "image/png", 12, 12)) });
+        using var stream = new MemoryStream();
+        var result = new PdfDocumentCodec().WritePdf(document, stream);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == PdfDiagnosticCodes.WriteFeatureUnsupported);
+    }
+
     /// <summary>The content stream's rectangle-fill operators, in order.</summary>
     private static List<string> Fills(string content)
     {

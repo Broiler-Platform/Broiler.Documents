@@ -244,6 +244,9 @@ public static class InspectCommands
     /// mirrored, and its angle.
     /// </summary>
     private static string FormatFill(ShapeFill fill) =>
+        fill.Image is ImageFill image ? "bitmap " + image.Repeat.ToString().ToLowerInvariant() + (fill.ContentOnly ? " within margins" : "") :
+        fill.Hatch is HatchFill hatch ? "hatch " + hatch.Directions.ToString(CultureInfo.InvariantCulture) + " direction(s)" :
+        fill.Geometry != GradientGeometry.Linear ? fill.Geometry.ToString().ToLowerInvariant() + " " + ColorText.Format(fill.Start) + " > " + ColorText.Format(fill.End) :
         !fill.IsGradient
             ? ColorText.Format(fill.Start)
             : ColorText.Format(fill.Start) + (fill.Axial ? " <> " : " > ") + ColorText.Format(fill.End) +

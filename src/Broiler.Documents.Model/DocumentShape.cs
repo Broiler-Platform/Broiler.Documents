@@ -72,7 +72,9 @@ public sealed class DocumentShape(
     bool textOverflow = false,
     bool growsWidthToText = false,
     string? frameName = null,
-    string? nextFrameName = null)
+    string? nextFrameName = null,
+    ShapeGeometry geometry = ShapeGeometry.Rectangle,
+    double outlineWidth = 1)
 {
 
     /// <summary>The paragraph the shape is anchored to.</summary>
@@ -111,6 +113,10 @@ public sealed class DocumentShape(
 
     /// <summary>The outline colour; <see cref="BColor.Empty"/> for no outline.</summary>
     public BColor Outline { get; } = outline;
+
+    public ShapeGeometry Geometry { get; } = geometry;
+    /// <summary>Stroke width in points; zero represents a device hairline.</summary>
+    public double OutlineWidth { get; } = double.IsFinite(outlineWidth) && outlineWidth >= 0 ? Math.Min(outlineWidth, 20000) : 1;
 
     /// <summary>
     /// The picture the box draws, or null when it draws only paint and text. It
@@ -268,3 +274,6 @@ public sealed class DocumentShape(
         !Outline.IsEmpty && Outline.A > 0 &&
         ((Width <= 0 && Height > 0) || (Height <= 0 && Width > 0));
 }
+
+/// <summary>Basic shape paths; line directions use page coordinates with y increasing downwards.</summary>
+public enum ShapeGeometry { Rectangle, Ellipse, Line, LineAscending }

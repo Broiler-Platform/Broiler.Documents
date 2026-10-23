@@ -164,7 +164,8 @@ public sealed class LayoutLine
 public sealed class LayoutShape
 {
     internal LayoutShape(BRect bounds, ShapeFill? fill, BColor outline, IReadOnlyList<LayoutLine> lines,
-        InlineImage? image = null, bool behindText = true, int zOrder = 0, IReadOnlyList<LayoutCell>? cells = null)
+        InlineImage? image = null, bool behindText = true, int zOrder = 0, IReadOnlyList<LayoutCell>? cells = null,
+        ShapeGeometry geometry = ShapeGeometry.Rectangle, double outlineWidth = 1)
     {
         Bounds = bounds;
         Fill = fill;
@@ -174,6 +175,8 @@ public sealed class LayoutShape
         BehindText = behindText;
         ZOrder = zOrder;
         Cells = cells ?? [];
+        Geometry = geometry;
+        OutlineWidth = outlineWidth;
     }
 
     public BRect Bounds { get; }
@@ -184,6 +187,9 @@ public sealed class LayoutShape
     public ShapeFill? Fill { get; }
 
     public BColor Outline { get; }
+
+    public ShapeGeometry Geometry { get; }
+    public double OutlineWidth { get; }
 
     /// <summary>The picture the box draws, filling <see cref="Bounds"/>, or null.</summary>
     public InlineImage? Image { get; }
@@ -232,10 +238,11 @@ public sealed class LayoutPage
 
     internal LayoutPage(int number, double widthPoints, double heightPoints,
         List<LayoutLine> lines, List<LayoutShape>? shapes = null, List<LayoutCell>? cells = null,
-        ShapeFill? background = null)
+        ShapeFill? background = null, BRect? backgroundBounds = null)
     {
         Number = number;
         Background = background;
+        BackgroundBounds = backgroundBounds ?? new BRect(0, 0, widthPoints, heightPoints);
         WidthPoints = widthPoints;
         HeightPoints = heightPoints;
         _lines = lines;
@@ -254,6 +261,7 @@ public sealed class LayoutPage
     /// a page left as the surface it is drawn on.
     /// </summary>
     public ShapeFill? Background { get; }
+    public BRect BackgroundBounds { get; }
 
     /// <summary>One-based page number.</summary>
     public int Number { get; }

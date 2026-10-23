@@ -308,7 +308,9 @@ internal sealed class PdfWriter
 
         // The page's own colour is the bottom layer of all.
         if (_pageBackground is ShapeFill background)
-            AppendFill(content, 0, 0, _pageSetup.Width, _pageSetup.Height, background);
+            AppendFill(content, background.ContentOnly ? _pageSetup.MarginLeft : 0, background.ContentOnly ? _pageSetup.MarginBottom : 0,
+                background.ContentOnly ? _pageSetup.ContentWidth : _pageSetup.Width,
+                background.ContentOnly ? _pageSetup.ContentHeight : _pageSetup.Height, background);
 
         // Shapes before run backgrounds, and both before text: a letterhead's
         // stripe is the bottom layer of the page.
@@ -579,7 +581,7 @@ internal sealed class PdfWriter
     /// <summary>
     /// Paints one shape's box.
     /// </summary>
-    private static void AppendShape(MemoryStream content, PdfPlacedShape shape)
+    private void AppendShape(MemoryStream content, PdfPlacedShape shape)
     {
         // A box with no breadth is a rule: its outline stroked along one edge,
         // which is what a degenerate rectangle strokes to.
@@ -587,15 +589,36 @@ internal sealed class PdfWriter
         if ((shape.Width <= 0 || shape.Height <= 0) && !rule)
             return;
 
-        if (!rule && shape.Fill is ShapeFill fill)
+        bool line = shape.Geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending;
+        string path = ShapePath(shape);
+        AppendAscii(content, "q\n");
+        if (!rule && !line && shape.Fill is ShapeFill fill)
+        {
+            if (shape.Geometry == ShapeGeometry.Ellipse) AppendAscii(content, "q\n" + path + "W n\n");
             AppendFill(content, shape.X, shape.Y, shape.Width, shape.Height, fill);
+            if (shape.Geometry == ShapeGeometry.Ellipse) AppendAscii(content, "Q\n");
+        }
 
-        if (shape.Outline.IsEmpty || shape.Outline.A == 0)
-            return;
+        if (!shape.Outline.IsEmpty && shape.Outline.A > 0)
+            AppendAscii(content, StrokeColor(shape.Outline) + Number(shape.OutlineWidth) + " w\n" + path.TrimEnd() + " S\n");
+        AppendAscii(content, "Q\n");
+    }
 
-        AppendAscii(content, StrokeColor(shape.Outline));
-        AppendAscii(content, FormattableString.Invariant(
-            $"{Number(shape.X)} {Number(shape.Y)} {Number(shape.Width)} {Number(shape.Height)} re S\n"));
+    private static string ShapePath(PdfPlacedShape shape)
+    {
+        double x = shape.X, y = shape.Y, w = shape.Width, h = shape.Height;
+        string P(double px, double py) => Number(px) + " " + Number(py);
+        if (shape.Geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending)
+            return P(x, shape.Geometry == ShapeGeometry.Line ? y + h : y) + " m " + P(x + w, shape.Geometry == ShapeGeometry.Line ? y : y + h) + " l\n";
+        if (shape.Geometry != ShapeGeometry.Ellipse)
+            return P(x, y) + " " + P(w, h) + " re\n";
+        const double k = 0.5522847498307936;
+        double rx = w / 2, ry = h / 2, cx = x + rx, cy = y + ry;
+        return P(x + w, cy) + " m\n" +
+            P(x + w, cy + k * ry) + " " + P(cx + k * rx, y + h) + " " + P(cx, y + h) + " c\n" +
+            P(cx - k * rx, y + h) + " " + P(x, cy + k * ry) + " " + P(x, cy) + " c\n" +
+            P(x, cy - k * ry) + " " + P(cx - k * rx, y) + " " + P(cx, y) + " c\n" +
+            P(cx + k * rx, y) + " " + P(x + w, cy - k * ry) + " " + P(x + w, cy) + " c h\n";
     }
 
     /// <summary>
@@ -611,10 +634,39 @@ internal sealed class PdfWriter
     /// angle, clipped to the box, exactly as <c>DocumentPagePainter</c> draws
     /// them, so a page printed and the same page written here agree.
     /// </remarks>
-    private static void AppendFill(MemoryStream content, double x, double y, double width, double height, ShapeFill fill)
+    private void AppendFill(MemoryStream content, double x, double y, double width, double height, ShapeFill fill)
     {
         if (width <= 0 || height <= 0)
             return;
+
+        if (fill.Image is not null)
+        {
+            _diagnostics.Warning(PdfDiagnosticCodes.WriteFeatureUnsupported, "Bitmap fills were not painted by the standalone PDF writer; raster export supports them.");
+            return;
+        }
+        if (fill.Hatch is HatchFill hatch)
+        {
+            if (!fill.Start.IsEmpty && fill.Start.A > 0)
+                AppendAscii(content, BoxFillColor(fill.Start) + Rectangle(x, y, width, height));
+            double alpha = hatch.Color.A / 255d;
+            var color = new BColor((byte)Math.Round(hatch.Color.R * alpha + 255 * (1 - alpha)),
+                (byte)Math.Round(hatch.Color.G * alpha + 255 * (1 - alpha)), (byte)Math.Round(hatch.Color.B * alpha + 255 * (1 - alpha)));
+            AppendAscii(content, "q\n" + FormattableString.Invariant($"{Number(x)} {Number(y)} {Number(width)} {Number(height)} re W n\n") + StrokeColor(color) + "0.5 w\n");
+            foreach (var stroke in FillGeometry.Hatching(hatch, width, height))
+                AppendAscii(content, FormattableString.Invariant($"{Number(x + stroke.X1)} {Number(y + height - stroke.Y1)} m {Number(x + stroke.X2)} {Number(y + height - stroke.Y2)} l S\n"));
+            AppendAscii(content, "Q\n");
+            return;
+        }
+        if (fill.Geometry != GradientGeometry.Linear && fill.IsGradient)
+        {
+            const int count = 128;
+            double w = width / count, h = height / count;
+            for (int row = 0; row < count; row++)
+                for (int column = 0; column < count; column++)
+                    AppendAscii(content, BoxFillColor(fill.ColorAt((column + 0.5) * w, (row + 0.5) * h, width, height)) +
+                        Rectangle(x + column * w, y + height - (row + 1) * h, w, h));
+            return;
+        }
 
         if (!fill.IsGradient)
         {

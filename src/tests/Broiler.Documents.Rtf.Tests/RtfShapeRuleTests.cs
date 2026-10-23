@@ -40,12 +40,12 @@ public sealed class RtfShapeRuleTests
     }
 
     [Fact]
-    public void A_Slanted_Line_Is_Not_Read_And_Is_Reported()
+    public void A_Slanted_Line_Is_Kept_As_A_Line_Instead_Of_A_Rectangle()
     {
         RtfResult result = Read("\\shpleft0\\shptop0\\shpright2000\\shpbottom2000{\\sp{\\sn shapeType}{\\sv 20}}");
 
-        Assert.Empty(result.Shapes);
-        Assert.Contains(result.Read.Diagnostics, d => d.Code == "rtf.shape.line");
+        Assert.Equal(ShapeGeometry.Line, Assert.Single(result.Shapes).Geometry);
+        Assert.DoesNotContain(result.Read.Diagnostics, d => d.Code == "rtf.shape.line");
     }
 
     [Fact]
@@ -114,6 +114,20 @@ public sealed class RtfShapeRuleTests
 
         Assert.True(rule.IsRule);
         Assert.Equal(50, rule.Height, 3);
+    }
+
+    [Theory]
+    [InlineData(ShapeGeometry.Rectangle)]
+    [InlineData(ShapeGeometry.Ellipse)]
+    [InlineData(ShapeGeometry.Line)]
+    [InlineData(ShapeGeometry.LineAscending)]
+    public void Basic_Geometries_And_Widths_Survive_Export(ShapeGeometry geometry)
+    {
+        var document = RichTextDocument.FromPlainText("body").WithShapes([new DocumentShape(0, 10, 20, 80, 40,
+            outline: BColor.Black, geometry: geometry, outlineWidth: 3)]);
+        var shape = Assert.Single(RtfReader.Read(RtfWriter.WriteToArray(document)).Document.Shapes);
+        Assert.Equal(geometry, shape.Geometry);
+        Assert.Equal(3, shape.OutlineWidth);
     }
 
     private sealed record RtfResult(DocumentReadResult Read)

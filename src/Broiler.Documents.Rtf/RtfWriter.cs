@@ -43,6 +43,8 @@ public static class RtfWriter
 
         DocumentConversionContext resources = (options ?? DocumentWriteOptions.Default).Resources;
         var reported = new HashSet<string>(StringComparer.Ordinal);
+        if (document.PageBackground?.HasExtendedPaint == true || System.Linq.Enumerable.Any(document.Shapes, shape => shape.Fill?.HasExtendedPaint == true))
+            AddOnce(diagnostics, reported, "rtf.fill.extended", "Bitmap and hatch fills, centred gradient geometry, gradient borders and page-fill bounds were approximated by their base colours or linear gradients.");
 
         // RTF can state a change (\revised, \deleted, \revtbl), and this
         // reader reads them; writing them is not done yet, and until it is the
@@ -190,6 +192,8 @@ public static class RtfWriter
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
+        if (shape.Fill?.HasExtendedPaint == true)
+            AddOnce(diagnostics, reported, "rtf.fill.extended", "Bitmap and hatch fills, centred gradient geometry, gradient borders and page-fill bounds were approximated by their base colours or linear gradients.");
         if (shape.Image is InlineImage image)
         {
             WriteFloatingPicture(sb, shape, image, resources, diagnostics, reported);
@@ -221,6 +225,8 @@ public static class RtfWriter
         sb.Append(shape.IsPageAnchored || shape.OffsetFromPage
             ? "\\shpbxcolumn\\shpbypage\\shpwr3"
             : "\\shpbxcolumn\\shpbypara\\shpwr3");
+        AppendShapeProperty(sb, "shapeType", shape.Geometry == ShapeGeometry.Ellipse ? "3" : shape.Geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending ? "20" : "1");
+        if (shape.Geometry == ShapeGeometry.LineAscending) AppendShapeProperty(sb, "fFlipV", "1");
 
         if (shape.Fill is ShapeFill fill)
         {
@@ -239,6 +245,7 @@ public static class RtfWriter
         {
             AppendShapeProperty(sb, "fLine", "1");
             AppendShapeProperty(sb, "lineColor", ShapeColor(shape.Outline));
+            AppendShapeProperty(sb, "lineWidth", ((long)Math.Round(shape.OutlineWidth * 12700)).ToString(CultureInfo.InvariantCulture));
         }
 
         // A box sized by its text, as a frame is that leaves its height to its

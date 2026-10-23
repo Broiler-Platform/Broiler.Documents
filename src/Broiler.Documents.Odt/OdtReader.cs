@@ -174,6 +174,9 @@ internal static class OdtReader
         // different ones would put a Letter header on an A4 page without
         // anything saying so. The page is read before the content, because a
         // frame anchored to a page states its position from the page's edges.
+        styles.ReadFillImage = definition => images.Read(new XElement(OdtNamespaces.Draw + "frame",
+            new XElement(OdtNamespaces.Draw + "image", definition.Attributes().Where(attribute => attribute.Name.Namespace == OdtNamespaces.XLink),
+                definition.Elements(OdtNamespaces.Office + "binary-data"))), styles);
         XElement? master = ResolveMasterPage(content, styles);
         PageGeometry? page = ReadPageGeometry(master, styles, diagnostics);
         RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics, master);
@@ -738,6 +741,8 @@ internal static class OdtReader
     /// </remarks>
     private static bool ReadShape(XElement drawing, OdtReadContext context, int depth)
     {
+        if (drawing.Name == OdtNamespaces.Draw + "line")
+            return ReadShapeLine(drawing, context);
         if (!TryReadFrameWidth(drawing, out double width) || width <= 0)
             return false;
 
@@ -761,6 +766,13 @@ internal static class OdtReader
         XElement? graphic = context.Styles.GraphicPropertiesFor(styleName);
         (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) =
             ReadShapeStyle(styleName, context.Styles);
+        double outlineWidth = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Svg + "stroke-width"), out double strokeWidth) ? strokeWidth : 0.75;
+        if (drawing.Name == OdtNamespaces.Draw + "frame" && graphic?.Attribute(OdtNamespaces.Fo + "border") is not null)
+        {
+            TableBorder border = OdtTableReader.ReadBorderEdge(graphic, "border");
+            outline = border.Width > 0 ? border.Color : BColor.Empty;
+            outlineWidth = border.Width;
+        }
 
         // A frame keeps its text in a draw:text-box; a custom shape carries the
         // paragraphs itself.
@@ -772,7 +784,11 @@ internal static class OdtReader
         string? nextFrameName = (string?)textBox?.Attribute(OdtNamespaces.Draw + "chain-next-name");
         bool linked = !string.IsNullOrEmpty(nextFrameName) || (frameName is not null && context.LinkedFrameTargets.Contains(frameName));
 
-        if (fill is null && paragraphs.Count == 0 && !linked)
+        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty && !linked && drawing.Element(OdtNamespaces.Draw + "image") is null)
+            return false;
+
+        // Image frames must still go through the image admission path.
+        if (drawing.Element(OdtNamespaces.Draw + "image") is not null && paragraphs.Count == 0)
             return false;
 
         // Nothing to grow to, and nothing to draw at no height.
@@ -818,7 +834,31 @@ internal static class OdtReader
                 (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-width") != "false" &&
                 (string?)graphic?.Attribute(OdtNamespaces.Fo + "wrap-option") == "no-wrap"),
             frameName: linked ? frameName : null,
-            nextFrameName: nextFrameName));
+            nextFrameName: nextFrameName,
+            geometry: drawing.Name == OdtNamespaces.Draw + "ellipse" ||
+                (string?)drawing.Element(OdtNamespaces.Draw + "enhanced-geometry")?.Attribute(OdtNamespaces.Draw + "type") is "ellipse" ? ShapeGeometry.Ellipse : ShapeGeometry.Rectangle,
+            outlineWidth: outlineWidth));
+        return true;
+    }
+
+    private static bool ReadShapeLine(XElement drawing, OdtReadContext context)
+    {
+        double Point(string name) => OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + name), out double value) ? value : 0;
+        double x1 = Point("x1"), y1 = Point("y1"), x2 = Point("x2"), y2 = Point("y2");
+        double width = Math.Abs(x2 - x1), height = Math.Abs(y2 - y1);
+        if (width == 0 && height == 0) return false;
+        string? name = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
+        XElement? properties = context.Styles.GraphicPropertiesFor(name);
+        var paint = ReadShapeStyle(name, context.Styles);
+        if ((string?)properties?.Attribute(OdtNamespaces.Draw + "stroke") == "none") return true;
+        BColor outline = paint.Outline.IsEmpty ? BColor.Black : paint.Outline;
+        double thickness = OdtUnits.TryParseLength((string?)properties?.Attribute(OdtNamespaces.Svg + "stroke-width"), out double value) ? value : 0.75;
+        (int page, double x, double y, bool fromPage) = PlaceOnPage(drawing, name, Math.Min(x1, x2), Math.Min(y1, y2), width, height, context);
+        context.Builder.AddShape(new DocumentShape(context.Builder.CurrentParagraphIndex, x, y, width, height,
+            outline: outline, behindText: paint.BehindText, wrap: paint.Wrap, wrapSide: paint.Side,
+            zOrder: ZIndex(drawing), anchorPage: page, offsetFromPage: fromPage,
+            geometry: (x2 - x1) * (y2 - y1) < 0 ? ShapeGeometry.LineAscending : ShapeGeometry.Line,
+            outlineWidth: thickness));
         return true;
     }
 
@@ -999,7 +1039,8 @@ internal static class OdtReader
         BColor outline = BColor.Empty;
         string? stroke = (string?)properties.Attribute(OdtNamespaces.Draw + "stroke");
         if (!string.Equals(stroke, "none", StringComparison.Ordinal))
-            TryColor((string?)properties.Attribute(OdtNamespaces.Svg + "stroke-color"), out outline);
+            if (!TryColor((string?)properties.Attribute(OdtNamespaces.Svg + "stroke-color"), out outline) && stroke is not null)
+                outline = BColor.Black;
 
         (ShapeWrap wrap, WrapSide side) = ReadWrap(properties);
         return (fill, outline, BehindText(properties), wrap, side);
@@ -1056,6 +1097,26 @@ internal static class OdtReader
     /// </summary>
     private static ShapeFill? ReadDrawFill(XElement properties, OdtStyles styles)
     {
+        ShapeFill? fill = ReadDrawFillCore(properties, styles);
+        if (fill is null) return null;
+        double opacity = ReadFillPercent(properties, "opacity", 1);
+        if (fill.Image is not null && opacity < 1)
+            styles.Report("odt.fill.opacity", "odt.fill.opacity", "Bitmap fill opacity is not applied by this painter; the bitmap is retained at full opacity.");
+        BColor Alpha(BColor color) => new(color.R, color.G, color.B, (byte)Math.Round(color.A * opacity));
+        return fill with { Start = Alpha(fill.Start), End = Alpha(fill.End),
+            Hatch = fill.Hatch is HatchFill hatch ? hatch with { Color = Alpha(hatch.Color) } : null,
+            ContentOnly = (string?)properties.Attribute(OdtNamespaces.Draw + "background-size") == "border" };
+    }
+
+    private static double ReadFillPercent(XElement element, string name, double fallback)
+    {
+        string? value = (string?)element.Attribute(OdtNamespaces.Draw + name);
+        return value is not null && value.EndsWith('%') && double.TryParse(value.AsSpan(0, value.Length - 1), NumberStyles.Float,
+            CultureInfo.InvariantCulture, out double percent) && double.IsFinite(percent) ? Math.Clamp(percent / 100, 0, 1) : fallback;
+    }
+
+    private static ShapeFill? ReadDrawFillCore(XElement properties, OdtStyles styles)
+    {
         string? kind = (string?)properties.Attribute(OdtNamespaces.Draw + "fill");
         if (string.Equals(kind, "gradient", StringComparison.Ordinal))
         {
@@ -1066,12 +1127,43 @@ internal static class OdtReader
                     : null;
         }
 
+        if (kind == "hatch")
+        {
+            string? name = (string?)properties.Attribute(OdtNamespaces.Draw + "fill-hatch-name");
+            if (name is not null && styles.FillDefinitions.TryGetValue(name, out XElement? hatch) &&
+                TryColor((string?)hatch.Attribute(OdtNamespaces.Draw + "color"), out BColor color))
+            {
+                _ = OdtUnits.TryParseLength((string?)hatch.Attribute(OdtNamespaces.Draw + "distance"), out double distance);
+                _ = OdtUnits.TryParseAngle((string?)hatch.Attribute(OdtNamespaces.Draw + "rotation"), out double angle);
+                BColor background = (string?)properties.Attribute(OdtNamespaces.Draw + "fill-hatch-solid") == "true" &&
+                    TryColor((string?)properties.Attribute(OdtNamespaces.Draw + "fill-color"), out BColor hatchBackground) ? hatchBackground : BColor.Empty;
+                return ShapeFill.Solid(background) with { Hatch = new HatchFill(color, distance, -angle,
+                    (string?)hatch.Attribute(OdtNamespaces.Draw + "style") switch { "double" => 2, "triple" => 3, _ => 1 }) };
+            }
+        }
+        if (kind == "bitmap")
+        {
+            string? name = (string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-name");
+            XElement? definition = name is not null && styles.FillDefinitions.TryGetValue(name, out XElement? found) ? found :
+                properties.Element(OdtNamespaces.Style + "background-image");
+            if (definition is not null && styles.ReadFillImage?.Invoke(definition) is InlineImage image)
+            {
+                _ = OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-width"), out double width);
+                _ = OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-height"), out double height);
+                string position = (string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-ref-point") ?? "center";
+                var repeat = (string?)properties.Attribute(OdtNamespaces.Style + "repeat") switch
+                    { "stretch" => ImageFillRepeat.Stretch, "no-repeat" => ImageFillRepeat.Single, _ => ImageFillRepeat.Tile };
+                return ShapeFill.Solid(BColor.Empty) with { Image = new ImageFill(image, repeat, width, height,
+                    position.Contains("left", StringComparison.Ordinal) ? 0 : position.Contains("right", StringComparison.Ordinal) ? 1 : 0.5,
+                    position.Contains("top", StringComparison.Ordinal) ? 0 : position.Contains("bottom", StringComparison.Ordinal) ? 1 : 0.5) };
+            }
+        }
         if (kind is "bitmap" or "hatch")
         {
             styles.Report(
                 "odt.fill:" + kind,
                 "odt.fill",
-                "A " + kind + " fill was not drawn; this reader paints colours and gradients only.");
+                "A " + kind + " fill could not be resolved and was not drawn.");
             return null;
         }
 
@@ -1091,12 +1183,9 @@ internal static class OdtReader
     /// edges first, so the two are exchanged.
     /// </para>
     /// <para>
-    /// The other styles (<c>radial</c>, <c>ellipsoid</c>, <c>square</c>,
-    /// <c>rectangular</c>) spread from a centre the model cannot place, out to
-    /// the start colour at the border. They are held as that start colour, which
-    /// is most of what the box shows, and reported - the same answer the DOCX
-    /// reader gives VML's rectangular gradient. Read as a line between the two
-    /// colours, which this did, the centre's colour filled half the box.
+    /// Centred styles retain their geometry, origin and border. Endpoint
+    /// intensities are folded into the two colours; the shared and PDF painters
+    /// sample the same bounded geometry instead of flattening it to one colour.
     /// </para>
     /// </remarks>
     private static ShapeFill? ReadGradient(XElement gradient, OdtStyles styles)
@@ -1108,20 +1197,26 @@ internal static class OdtReader
         }
 
         _ = OdtUnits.TryParseAngle((string?)gradient.Attribute(OdtNamespaces.Draw + "angle"), out double odfDegrees);
+        BColor Intensity(BColor color, string name)
+        {
+            double intensity = ReadFillPercent(gradient, name, 1);
+            return new BColor((byte)Math.Round(color.R * intensity), (byte)Math.Round(color.G * intensity), (byte)Math.Round(color.B * intensity), color.A);
+        }
+        start = Intensity(start, "start-intensity");
+        end = Intensity(end, "end-intensity");
         double angle = OdtGradientAngle.ToModel(odfDegrees);
         string style = (string?)gradient.Attribute(OdtNamespaces.Draw + "style") ?? "linear";
-        if (style is "radial" or "ellipsoid" or "square" or "rectangular")
+        if (style is not ("linear" or "axial" or "radial" or "ellipsoid" or "square" or "rectangular"))
         {
-            styles.Report(
-                "odt.gradient:" + style,
-                "odt.gradient",
-                "A " + style + " gradient was drawn in its border colour.");
+            styles.Report("odt.gradient:" + style, "odt.gradient", "An unknown gradient style was approximated by its start colour.");
             return ShapeFill.Solid(start);
         }
-
-        return style == "axial"
+        ShapeFill result = style == "axial"
             ? new ShapeFill(end, start, angle, Axial: true)
             : new ShapeFill(start, end, angle);
+        return result with { Geometry = style switch { "radial" => GradientGeometry.Radial, "ellipsoid" => GradientGeometry.Ellipsoid,
+            "square" => GradientGeometry.Square, "rectangular" => GradientGeometry.Rectangular, _ => GradientGeometry.Linear },
+            CenterX = ReadFillPercent(gradient, "cx", 0.5), CenterY = ReadFillPercent(gradient, "cy", 0.5), Border = ReadFillPercent(gradient, "border", 0) };
     }
 
     /// <summary>
@@ -1151,6 +1246,16 @@ internal static class OdtReader
 
         if (layoutProperties.Attribute(OdtNamespaces.Draw + "fill") is not null)
             return ReadDrawFill(layoutProperties, styles);
+
+        if (layoutProperties.Element(OdtNamespaces.Style + "background-image") is XElement legacy)
+        {
+            var properties = new XElement(layoutProperties);
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill", "bitmap");
+            properties.SetAttributeValue(OdtNamespaces.Style + "repeat", (string?)legacy.Attribute(OdtNamespaces.Style + "repeat") ?? "repeat");
+            string position = (string?)legacy.Attribute(OdtNamespaces.Style + "position") ?? "center";
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill-image-ref-point", position.Replace(' ', '-'));
+            return ReadDrawFill(properties, styles);
+        }
 
         return TryColor((string?)layoutProperties.Attribute(OdtNamespaces.Fo + "background-color"), out BColor color) &&
             !color.IsEmpty && color.A > 0
@@ -1337,8 +1442,8 @@ internal static class OdtReader
 
             // A drawing that carries paint or text of its own is a floating shape
             // beside the body, not body content.
-            if (name == OdtNamespaces.Draw + "custom-shape" ||
-                name == OdtNamespaces.Draw + "rect")
+            if (name == OdtNamespaces.Draw + "custom-shape" || name == OdtNamespaces.Draw + "line" ||
+                name == OdtNamespaces.Draw + "ellipse" || name == OdtNamespaces.Draw + "rect")
             {
                 if (ReadShape(element, context, depth))
                     continue;
@@ -1702,8 +1807,8 @@ internal static class OdtReader
                 continue;
             }
 
-            if (name == OdtNamespaces.Draw + "custom-shape" ||
-                name == OdtNamespaces.Draw + "rect")
+            if (name == OdtNamespaces.Draw + "custom-shape" || name == OdtNamespaces.Draw + "line" ||
+                name == OdtNamespaces.Draw + "ellipse" || name == OdtNamespaces.Draw + "rect")
             {
                 ReadShape(element, context, depth: 0);
                 continue;
@@ -2199,6 +2304,14 @@ internal static class OdtReader
         string? styleName = (string?)frame.Attribute(OdtNamespaces.Draw + "style-name");
         (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) =
             ReadShapeStyle(styleName, context.Styles);
+        XElement? graphic = context.Styles.GraphicPropertiesFor(styleName);
+        double outlineWidth = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Svg + "stroke-width"), out double lineWidth) ? lineWidth : 0.75;
+        if (graphic?.Attribute(OdtNamespaces.Fo + "border") is not null)
+        {
+            TableBorder border = OdtTableReader.ReadBorderEdge(graphic, "border");
+            outline = border.Width > 0 ? border.Color : BColor.Empty;
+            outlineWidth = border.Width;
+        }
 
         double x = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "x"), out double left)
             ? left
@@ -2223,7 +2336,8 @@ internal static class OdtReader
             wrapSide: wrapSide,
             zOrder: ZIndex(frame),
             anchorPage: anchorPage,
-            offsetFromPage: fromPage));
+            offsetFromPage: fromPage,
+            outlineWidth: outlineWidth));
         return true;
     }
 

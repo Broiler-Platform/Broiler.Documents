@@ -78,10 +78,13 @@ public sealed class DocxVmlShapeTests
     }
 
     [Fact]
-    public void A_Shape_That_Is_Not_Filled_And_Holds_No_Text_Is_Not_A_Shape()
+    public void An_Unfilled_Empty_Shape_Keeps_Its_Default_Outline()
     {
-        Assert.Empty(Read(
-            "<v:rect filled=\"f\" style=\"position:absolute;width:10pt;height:10pt\"/>").Document.Shapes);
+        var shape = Assert.Single(Read(
+            "<v:rect filled=\"f\" strokeweight=\"2pt\" style=\"position:absolute;width:10pt;height:10pt\"/>").Document.Shapes);
+        Assert.Null(shape.Fill);
+        Assert.Equal(BColor.Black, shape.Outline);
+        Assert.Equal(2, shape.OutlineWidth);
     }
 
     [Fact]

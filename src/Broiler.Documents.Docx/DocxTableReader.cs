@@ -225,8 +225,8 @@ internal static class DocxTableReader
     /// </para>
     /// <para>
     /// <c>w:tblOverlap</c> (§17.4.56) is read with it. <c>overlap</c> is its
-    /// default, and the model keeps <c>never</c> without acting on it: it is
-    /// about other floating tables, which this layout does not move apart.
+    /// default. The raster layout moves intersecting floating tables apart
+    /// when either table states <c>never</c>.
     /// </para>
     /// </remarks>
     private static TablePosition? ReadPosition(XElement? properties)

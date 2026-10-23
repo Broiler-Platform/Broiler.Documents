@@ -53,6 +53,31 @@ public sealed class DocxShapeTests
     private static RichTextDocument Read(string runXml) =>
         DocxTestPackage.ReadBody("<w:p>" + runXml + "<w:r><w:t>body</w:t></w:r></w:p>").Document;
 
+    [Theory]
+    [InlineData(ShapeGeometry.Rectangle, 40d)]
+    [InlineData(ShapeGeometry.Ellipse, 40d)]
+    [InlineData(ShapeGeometry.Line, 0d)]
+    [InlineData(ShapeGeometry.Line, 40d)]
+    [InlineData(ShapeGeometry.LineAscending, 40d)]
+    public void Empty_Unfilled_Geometry_And_Stroke_Width_Survive_Export(ShapeGeometry geometry, double height)
+    {
+        var source = RichTextDocument.FromPlainText("body").WithShapes([new DocumentShape(0, 10, 20, 80, height,
+            outline: BColor.Black, geometry: geometry, outlineWidth: 2.5)]);
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(source));
+        var restored = Assert.Single(new DocxDocumentCodec().Read(stream).Document.Shapes);
+        Assert.Null(restored.Fill);
+        Assert.Equal(geometry, restored.Geometry);
+        Assert.Equal(2.5, restored.OutlineWidth, 3);
+        Assert.Equal(height, restored.Height, 3);
+    }
+
+    [Fact]
+    public void A_Straight_Connector_Uses_A_Line_Path()
+    {
+        var shape = Assert.Single(Read(GradientShape.Replace("prst=\"rect\"", "prst=\"straightConnector1\"")).Shapes);
+        Assert.Equal(ShapeGeometry.Line, shape.Geometry);
+    }
+
     [Fact]
     public void Reads_A_Gradient_Shape_With_Its_Colours_And_Angle()
     {

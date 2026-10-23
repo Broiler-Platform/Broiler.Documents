@@ -1211,7 +1211,7 @@ internal static class DocxReader
         XElement? extent = anchor.Element(DocxNamespaces.WordDrawing + "extent");
         double width = EmuToPoints((string?)extent?.Attribute("cx"));
         double height = EmuToPoints((string?)extent?.Attribute("cy"));
-        if (width <= 0 || height <= 0)
+        if (width < 0 || height < 0 || (width == 0 && height == 0))
             return false;
 
         if (group is not null)
@@ -1348,14 +1348,20 @@ internal static class DocxReader
     private static bool ReadDrawnShape(
         XElement wsp, XElement anchor, double left, double top, double width, double height, DocxReadContext context)
     {
-        if (width <= 0 || height <= 0)
+        if (width < 0 || height < 0 || (width == 0 && height == 0))
             return false;
 
         XElement? spPr = wsp.Element(DocxNamespaces.WordShape + "spPr");
         ShapeFill? fill = ReadFill(spPr, context);
+        BColor outline = ReadOutline(spPr, context.Styles.Theme);
+        string? preset = (string?)spPr?.Element(DocxNamespaces.Drawing + "prstGeom")?.Attribute("prst");
+        XElement? transform = spPr?.Element(DocxNamespaces.Drawing + "xfrm");
+        bool flipped = ((string?)transform?.Attribute("flipH") is "1" or "true") != ((string?)transform?.Attribute("flipV") is "1" or "true");
+        ShapeGeometry geometry = preset == "ellipse" ? ShapeGeometry.Ellipse : preset is "line" or "straightConnector1"
+            ? (flipped ? ShapeGeometry.LineAscending : ShapeGeometry.Line) : ShapeGeometry.Rectangle;
         RichTextDocument shapeContent = ReadShapeText(wsp, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
-        if (fill is null && paragraphs.Count == 0)
+        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty)
             return false;
 
         (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
@@ -1367,7 +1373,7 @@ internal static class DocxReader
             width,
             height,
             fill,
-            ReadOutline(spPr, context.Styles.Theme),
+            outline,
             paragraphs,
             image: null,
             behindText: BehindDoc(anchor),
@@ -1384,7 +1390,9 @@ internal static class DocxReader
                 "b" => CellVerticalAlignment.Bottom,
                 _ => CellVerticalAlignment.Top,
             },
-            textOverflow: (string?)wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Attribute("vertOverflow") == "overflow"));
+            textOverflow: (string?)wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Attribute("vertOverflow") == "overflow",
+            geometry: geometry,
+            outlineWidth: long.TryParse((string?)spPr?.Element(DocxNamespaces.Drawing + "ln")?.Attribute("w"), out long lineWidth) && lineWidth >= 0 ? lineWidth / 12700d : 0.75));
         return true;
     }
 
@@ -1450,7 +1458,8 @@ internal static class DocxReader
             "shape");
         RichTextDocument shapeContent = ReadShapeText(shape, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
-        if (fill is null && paragraphs.Count == 0)
+        BColor outline = ReadVmlOutline(shape);
+        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty)
             return false;
 
         DocxVml.TryLength(style.GetValueOrDefault("left"), out double left);
@@ -1516,7 +1525,7 @@ internal static class DocxReader
             width,
             height,
             fill,
-            ReadVmlOutline(shape),
+            outline,
             paragraphs,
             image: null,
             behindText: zIndex < 0,
@@ -1531,7 +1540,9 @@ internal static class DocxReader
                 "bottom" or "bottom-center" => CellVerticalAlignment.Bottom,
                 _ => CellVerticalAlignment.Top,
             },
-            textOverflow: style.GetValueOrDefault("overflow") == "visible"));
+            textOverflow: style.GetValueOrDefault("overflow") == "visible",
+            geometry: shape.Name == DocxNamespaces.Vml + "oval" ? ShapeGeometry.Ellipse : ShapeGeometry.Rectangle,
+            outlineWidth: DocxVml.TryLength((string?)shape.Attribute("strokeweight") ?? (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("weight"), out double strokeWidth) ? strokeWidth : 0.75));
         return true;
     }
 

@@ -30,7 +30,7 @@ namespace Broiler.Documents.Odt;
 /// attribute, so one chain walk covers both.
 /// </para>
 /// </remarks>
-internal sealed class OdtStyles
+internal sealed class OdtStyles : IOdtImageDiagnostics
 {
     /// <summary>The two style families this codec resolves.</summary>
     public const string ParagraphFamily = "paragraph";
@@ -181,6 +181,12 @@ internal sealed class OdtStyles
     public IReadOnlyDictionary<string, XElement> Gradients { get; init; } =
         new Dictionary<string, XElement>(StringComparer.Ordinal);
 
+    public IReadOnlyDictionary<string, XElement> FillDefinitions { get; init; } = new Dictionary<string, XElement>();
+    public IReadOnlyDictionary<string, XElement> NumberFormats { get; init; } = new Dictionary<string, XElement>();
+    public CultureInfo NumberCulture { get; } = CultureInfo.CurrentCulture;
+    public Func<XElement, InlineImage?>? ReadFillImage { get; set; }
+    public void AddDiagnosticOnce(string code, string message) => Report(code, code, message);
+
     /// <summary>
     /// The <c>style:drawing-page-properties</c> by style name: where a master
     /// page's <c>draw:style-name</c> states the page's fill (ODF 1.3 §16.10).
@@ -293,6 +299,16 @@ internal sealed class OdtStyles
             TableRowProperties = rowProperties,
             SectionProperties = ResolvePropertyChains(styles, sectionProperties, limits.MaxGroupDepth, "section"),
             Gradients = gradients,
+            FillDefinitions = new[] { stylesRoot, contentRoot }.Where(root => root is not null)
+                .SelectMany(root => root!.Descendants()).Where(element => element.Name == OdtNamespaces.Draw + "hatch" || element.Name == OdtNamespaces.Draw + "fill-image")
+                .Where(element => element.Attribute(OdtNamespaces.Draw + "name") is not null)
+                .GroupBy(element => (string)element.Attribute(OdtNamespaces.Draw + "name")!, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal),
+            NumberFormats = new[] { stylesRoot, contentRoot }.Where(root => root is not null)
+                .SelectMany(root => root!.Descendants(OdtNamespaces.Number + "number-style"))
+                .Where(element => element.Attribute(OdtNamespaces.Style + "name") is not null)
+                .GroupBy(element => (string)element.Attribute(OdtNamespaces.Style + "name")!, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal),
             DrawingPageProperties = drawingPageProperties,
         };
     }
@@ -416,7 +432,8 @@ internal sealed class OdtStyles
                 (string?)style.Attribute(OdtNamespaces.Style + "parent-style-name"),
                 style.Element(OdtNamespaces.Style + "paragraph-properties"),
                 style.Element(OdtNamespaces.Style + "text-properties"),
-                (string?)style.Attribute(OdtNamespaces.Style + "master-page-name"));
+                (string?)style.Attribute(OdtNamespaces.Style + "master-page-name"),
+                (string?)style.Attribute(OdtNamespaces.Style + "data-style-name"));
 
             XElement? graphic = style.Element(OdtNamespaces.Style + "graphic-properties");
             if (graphic is not null)
@@ -709,12 +726,25 @@ internal sealed class OdtStyles
     /// <summary>A style is identified by family and name; the families share one name space.</summary>
     private readonly record struct StyleKey(string Family, string Name);
 
+    public bool HasGeneralNumberFormat(string? styleName)
+    {
+        string? name = null;
+        foreach (StyleDefinition style in Chain("table-cell", styleName))
+            if (style.DataStyleName is not null) name = style.DataStyleName;
+        if (name is null || !NumberFormats.TryGetValue(name, out XElement? format)) return false;
+        XElement? number = format.Elements().FirstOrDefault(element => element.Name == OdtNamespaces.Number + "number");
+        return number is not null && format.Elements().Count() == 1 &&
+            !format.Attributes().Any(attribute => attribute.Name == OdtNamespaces.Number + "language" || attribute.Name == OdtNamespaces.Number + "country") &&
+            number.Attributes().All(attribute => attribute.Name == OdtNamespaces.Number + "min-integer-digits" && attribute.Value == "1");
+    }
+
     private sealed record StyleDefinition(
         string Name,
         string? ParentStyleName,
         XElement? ParagraphProperties,
         XElement? TextProperties,
-        string? MasterPageName);
+        string? MasterPageName,
+        string? DataStyleName);
 
     private sealed record DefaultStyle(XElement? ParagraphProperties, XElement? TextProperties);
 

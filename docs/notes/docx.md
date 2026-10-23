@@ -292,6 +292,13 @@ Open XML WordprocessingML package parts.
   lists them. The group was read as its first box at the size of the whole group
   before. Rotation and flips are not applied, and a picture inside a group is not
   read (`docx.shape.group`). A write puts each box back as a shape of its own.
+- Empty, unfilled DrawingML and VML shapes retain their visible outlines.
+  Basic paths include rectangles, ellipses and DrawingML lines, including
+  degenerate horizontal/vertical rules and flipped line directions. DrawingML
+  `a:ln@w` and VML `strokeweight` retain point widths; the default is 0.75 pt.
+  DOCX export preserves these paths and widths and explicitly writes no fill
+  for unfilled shapes. Group rotations and arbitrary preset paths remain outside
+  this subset; VML line endpoints are not read by this path.
 - Floating pictures: an anchored (`wp:anchor`) picture is read as a floating
   shape carrying the image, placed at the `posOffset` of its `wp:positionH` and
   `wp:positionV`, converted from whichever frame the anchor names into the text
@@ -453,11 +460,21 @@ Open XML WordprocessingML package parts.
   down the side of the column with room for it, or below the table where
   neither side has an inch, and an inline table that would run into it moves
   below it, as LibreOffice master does (`testInlineTableShiftDown`; 24.2 drew
-  the two over each other). A floating table taller than the room left
-  continues at the top of the next page. Written back with both anchors
+  the two over each other). Preferred absolute and percentage widths resize
+  the grid consistently; percentages use the page text extents. Intersecting
+  floating tables move apart when either forbids overlap. A floating table
+  taller than the room left continues at the top of the next page, repeating
+  its header rows when body content still fits. Repeated headers replay list
+  labels without consuming the following body's counters. Multiple floating
+  continuations are retained, and finish on their section's paper before a
+  following section opens a page. A non-splittable first row moves to a fresh
+  page when it fits there. Written back with both anchors
   stated. A floating table nested in a cell stays in its cell, with
   `docx.table.floating`, and the PDF writer lays a floating table out in the
   flow (`pdf.write.feature-unsupported`).
+- Writing a vertical merge supplies continuation cells for model rows that
+  omit the covered cells, as ODT readers do. Later cells keep their grid
+  columns; existing explicit continuations are retained without duplication.
 - A page break that opens its paragraph - nothing of the paragraph before it -
   starts that paragraph on the new page. Nothing is split, so nothing is
   demoted: the paragraph is what the page begins with. If the paragraph already
@@ -645,6 +662,9 @@ editable and is written back, but is omitted from normal rendering. CLI text
 dumps retain it, as LibreOffice's plain-text export does. Text boxes retain DrawingML `bodyPr` insets and VML `inset`,
 including explicit zero. Defaults are 7.2 points horizontally and 3.6 vertically.
 Their own paragraph spacing and list numbering are laid out inside those insets.
+Writing bitmap/hatch fills, centred gradients, gradient borders or page-fill
+bounds reports `docx.fill.extended` when approximated as a base colour or linear
+gradient. These properties are carried by the common model for ODT rendering.
 DrawingML top/centre/bottom text anchoring and explicit vertical overflow are
 retained and rendered; VML middle/bottom anchors and visible overflow are also
 read. Writing minimum-width auto-sizing or linked ODT frames as DOCX reports

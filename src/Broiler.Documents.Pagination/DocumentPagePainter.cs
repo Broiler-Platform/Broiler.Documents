@@ -88,7 +88,7 @@ public sealed class DocumentPagePainter
 
         // The page's own colour goes under everything, the content box included.
         if (page.Background is ShapeFill background)
-            DrawFill(list, new BRect(0, 0, page.WidthPoints, page.HeightPoints), background);
+            DrawFill(list, page.BackgroundBounds, background, resolveImage);
 
         if (_settings.ShowContentBox)
         {
@@ -129,6 +129,13 @@ public sealed class DocumentPagePainter
     /// </summary>
     private void DrawShape(BRenderList list, LayoutShape shape, Func<InlineImage, BImageHandle?> resolveImage)
     {
+        if (shape.Geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending)
+        {
+            BRect box = shape.Bounds;
+            DrawSegment(list, new BPoint(box.Left, shape.Geometry == ShapeGeometry.Line ? box.Top : box.Bottom),
+                new BPoint(box.Right, shape.Geometry == ShapeGeometry.Line ? box.Bottom : box.Top), shape.Outline, shape.OutlineWidth);
+            return;
+        }
         if (shape.Bounds.Width <= 0 || shape.Bounds.Height <= 0)
         {
             DrawRule(list, shape);
@@ -136,14 +143,41 @@ public sealed class DocumentPagePainter
         }
 
         if (shape.Fill is ShapeFill fill)
-            DrawFill(list, shape.Bounds, fill);
+        {
+            if (shape.Geometry == ShapeGeometry.Ellipse)
+            {
+                if (!fill.IsGradient && fill.Image is null && fill.Hatch is null)
+                    list.Append(new BRenderCommand.FillRoundedRect(shape.Bounds, fill.Start, shape.Bounds.Width / 2, shape.Bounds.Height / 2));
+                else
+                {
+                    // BRenderList clips rectangles. Bounded horizontal strips keep
+                    // every fill type inside the ellipse without a rectangular backdrop.
+                    const int strips = 128;
+                    for (int i = 0; i < strips; i++)
+                    {
+                        double unit = 2 * (i + 0.5) / strips - 1;
+                        double half = shape.Bounds.Width / 2 * Math.Sqrt(Math.Max(0, 1 - unit * unit));
+                        list.PushClip(new BRect(shape.Bounds.Left + shape.Bounds.Width / 2 - half,
+                            shape.Bounds.Top + shape.Bounds.Height * i / strips, 2 * half, shape.Bounds.Height / strips));
+                        DrawFill(list, shape.Bounds, fill, resolveImage);
+                        list.PopClip();
+                    }
+                }
+            }
+            else DrawFill(list, shape.Bounds, fill, resolveImage);
+        }
 
         // Over the fill and under the outline: a framed picture keeps its frame.
         if (shape.Image is InlineImage image)
             DrawShapeImage(list, image, shape.Bounds, resolveImage);
 
         if (!shape.Outline.IsEmpty && shape.Outline.A > 0)
-            list.StrokeRect(shape.Bounds, shape.Outline, 1);
+        {
+            double thickness = shape.OutlineWidth == 0 ? 0.25 : shape.OutlineWidth;
+            if (shape.Geometry == ShapeGeometry.Ellipse)
+                list.Append(new BRenderCommand.StrokeRoundedRect(shape.Bounds, shape.Outline, shape.Bounds.Width / 2, shape.Bounds.Height / 2, thickness));
+            else list.StrokeRect(shape.Bounds, shape.Outline, thickness);
+        }
 
         foreach (LayoutCell cell in shape.Cells)
             DrawCell(list, cell);
@@ -158,7 +192,7 @@ public sealed class DocumentPagePainter
     /// </summary>
     private static void DrawRule(BRenderList list, LayoutShape shape)
     {
-        const double width = 0.75;
+        double width = shape.OutlineWidth == 0 ? 0.25 : shape.OutlineWidth;
         if (shape.Outline.IsEmpty || shape.Outline.A == 0)
             return;
 
@@ -167,6 +201,17 @@ public sealed class DocumentPagePainter
             list.FillRect(new BRect(bounds.Left - (width / 2), bounds.Top, width, bounds.Height), shape.Outline);
         else if (bounds.Height <= 0 && bounds.Width > 0)
             list.FillRect(new BRect(bounds.Left, bounds.Top - (width / 2), bounds.Width, width), shape.Outline);
+    }
+
+    private static void DrawSegment(BRenderList list, BPoint start, BPoint end, BColor color, double width)
+    {
+        if (color.IsEmpty || color.A == 0) return;
+        double dx = end.X - start.X, dy = end.Y - start.Y, length = Math.Sqrt(dx * dx + dy * dy);
+        if (length <= 0) return;
+        double half = (width == 0 ? 0.25 : width) / 2;
+        list.PushTransform(new BMatrix3x2(dx / length, dy / length, -dy / length, dx / length, start.X, start.Y));
+        list.FillRect(new BRect(0, -half, length, 2 * half), color);
+        list.PopTransform();
     }
 
     /// <summary>
@@ -291,10 +336,49 @@ public sealed class DocumentPagePainter
     /// colours meet in its corners into one whose colours meet at its sides.
     /// </para>
     /// </remarks>
-    private static void DrawFill(BRenderList list, BRect bounds, ShapeFill fill)
+    private void DrawFill(BRenderList list, BRect bounds, ShapeFill fill, Func<InlineImage, BImageHandle?> resolveImage)
     {
         if (bounds.Width <= 0 || bounds.Height <= 0)
             return;
+
+        if (fill.Image is ImageFill image)
+        {
+            var size = _images.MeasurePoints(image.Picture);
+            list.Append(new BRenderCommand.PushClip(bounds));
+            foreach (var tile in FillGeometry.Tiles(image, bounds.Width, bounds.Height, size.Width, size.Height))
+                DrawShapeImage(list, image.Picture, new BRect(bounds.Left + tile.X, bounds.Top + tile.Y, tile.Width, tile.Height), resolveImage);
+            list.Append(new BRenderCommand.PopClip());
+            return;
+        }
+        if (fill.Hatch is HatchFill hatch)
+        {
+            list.Append(new BRenderCommand.PushClip(bounds));
+            if (!fill.Start.IsEmpty && fill.Start.A > 0) list.FillRect(bounds, fill.Start);
+            foreach (var stroke in FillGeometry.Hatching(hatch, bounds.Width, bounds.Height))
+            {
+                double sx = stroke.X2 - stroke.X1, sy = stroke.Y2 - stroke.Y1;
+                double length = Math.Sqrt(sx * sx + sy * sy);
+                if (length < 0.001) continue;
+                double nx = -sy / length * 0.25, ny = sx / length * 0.25;
+                BPoint a = new(bounds.Left + stroke.X1 + nx, bounds.Top + stroke.Y1 + ny);
+                BPoint b = new(bounds.Left + stroke.X2 + nx, bounds.Top + stroke.Y2 + ny);
+                BPoint c = new(bounds.Left + stroke.X2 - nx, bounds.Top + stroke.Y2 - ny);
+                BPoint d = new(bounds.Left + stroke.X1 - nx, bounds.Top + stroke.Y1 - ny);
+                list.FillTriangle(a, b, c, hatch.Color); list.FillTriangle(a, c, d, hatch.Color);
+            }
+            list.Append(new BRenderCommand.PopClip());
+            return;
+        }
+        if (fill.Geometry != GradientGeometry.Linear && fill.IsGradient)
+        {
+            const int count = 128;
+            double w = bounds.Width / count, h = bounds.Height / count;
+            for (int y = 0; y < count; y++)
+                for (int x = 0; x < count; x++)
+                    list.FillRect(new BRect(bounds.Left + x * w, bounds.Top + y * h, w, h),
+                        fill.ColorAt((x + 0.5) * w, (y + 0.5) * h, bounds.Width, bounds.Height));
+            return;
+        }
 
         if (!fill.IsGradient)
         {

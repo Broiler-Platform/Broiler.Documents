@@ -30,6 +30,8 @@ public static class DocxWriter
             document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None || p.Style.List is not null),
             (options ?? DocumentWriteOptions.Default).Resources);
         BuildRunningParts(document, context);
+        if (document.PageBackground?.HasExtendedPaint == true || document.Shapes.Any(shape => shape.Fill?.HasExtendedPaint == true))
+            context.AddDiagnosticOnce("docx.fill.extended", "Bitmap and hatch fills, centred gradient geometry, gradient borders and page-fill bounds were approximated by their base colours or linear gradients.");
         if (document.Sections.Any(section => section.PageStyles is not null))
             context.AddDiagnosticOnce("docx.section.page-sequence", "An automatic page-style sequence was written using the first style of each section; subsequent alternating paper and margins were not written.");
         if (document.Sections.Any(section => !section.Background.IsEmpty && section.Background.A > 0))
@@ -522,6 +524,7 @@ public static class DocxWriter
             BuildTableProperties(table),
             BuildTableGrid(table));
 
+        int rowIndex = 0;
         foreach (TableRow row in table.Rows)
         {
             var tr = new XElement(DocxNamespaces.Wordprocessing + "tr");
@@ -548,10 +551,21 @@ public static class DocxWriter
             if (properties.HasElements)
                 tr.Add(properties);
 
-            foreach (TableCell cell in row.Cells)
+            var writtenCells = new List<TableCell>(row.Cells);
+            // ODT-style model tables omit cells covered by a vertical merge.
+            // Word requires explicit continuation cells to keep later cells in their columns.
+            for (int above = 0; above < rowIndex; above++)
+                foreach (TableCell span in table.Rows[above].Cells)
+                    if (!span.IsRowSpanContinuation && above + span.RowSpan > rowIndex &&
+                        !writtenCells.Any(cell => cell.ColumnIndex < span.ColumnIndex + span.ColumnSpan && cell.ColumnIndex + cell.ColumnSpan > span.ColumnIndex))
+                        writtenCells.Add(new TableCell(table.ParagraphEnd, 0, span.ColumnIndex, span.ColumnSpan,
+                            shading: span.Shading, borders: span.Borders, isRowSpanContinuation: true,
+                            padding: span.Padding, verticalAlignment: span.VerticalAlignment));
+            foreach (TableCell cell in writtenCells.OrderBy(cell => cell.ColumnIndex))
                 tr.Add(BuildTableCell(document, table, cell, context));
 
             element.Add(tr);
+            rowIndex++;
         }
 
         return element;
@@ -1586,6 +1600,8 @@ public static class DocxWriter
     {
         if (shape.NextFrameName is not null || shape.GrowsWidthToText)
             context.AddDiagnosticOnce("docx.shape.flow", "Linked text-frame flow and minimum-width auto-sizing were written as independent fixed-width boxes.");
+        if (shape.Fill?.HasExtendedPaint == true)
+            context.AddDiagnosticOnce("docx.fill.extended", "Bitmap and hatch fills, centred gradient geometry, gradient borders and page-fill bounds were approximated by their base colours or linear gradients.");
         if (shape.Image is InlineImage image)
         {
             if (!DocumentResourceGate.TryTakeEncodedBytes(
@@ -1616,6 +1632,7 @@ public static class DocxWriter
             DocxNamespaces.WordShape + "spPr",
             new XElement(
                 DocxNamespaces.Drawing + "xfrm",
+                shape.Geometry == ShapeGeometry.LineAscending ? new XAttribute("flipV", "1") : null,
                 new XElement(
                     DocxNamespaces.Drawing + "off",
                     new XAttribute("x", "0"),
@@ -1626,16 +1643,18 @@ public static class DocxWriter
                     new XAttribute("cy", PointsToEmu(shape.Height)))),
             new XElement(
                 DocxNamespaces.Drawing + "prstGeom",
-                new XAttribute("prst", "rect"),
+                new XAttribute("prst", shape.Geometry == ShapeGeometry.Ellipse ? "ellipse" : shape.Geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending ? "line" : "rect"),
                 new XElement(DocxNamespaces.Drawing + "avLst")));
 
         if (shape.Fill is ShapeFill fill)
             properties.Add(BuildShapeFill(fill));
+        else properties.Add(new XElement(DocxNamespaces.Drawing + "noFill"));
 
         properties.Add(shape.Outline.IsEmpty
             ? new XElement(DocxNamespaces.Drawing + "ln", new XElement(DocxNamespaces.Drawing + "noFill"))
             : new XElement(
                 DocxNamespaces.Drawing + "ln",
+                new XAttribute("w", PointsToEmu(shape.OutlineWidth)),
                 new XElement(DocxNamespaces.Drawing + "solidFill", DrawingColor(shape.Outline))));
 
         var wsp = new XElement(DocxNamespaces.WordShape + "wsp", properties);

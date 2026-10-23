@@ -34,6 +34,40 @@ public sealed class DocumentPageBackgroundTests
         RichTextDocument.FromParagraphs(Enumerable.Range(0, count).Select(i => RichTextParagraph.Plain("Line " + i)));
 
     [Fact]
+    public void A_Content_Only_Background_Leaves_The_Margins_Unpainted()
+    {
+        LayoutPage page = Layout(Lines(1).WithPageBackground(ShapeFill.Solid(Red) with { ContentOnly = true })).Pages[0];
+        var first = Assert.IsType<BRenderCommand.FillRect>(Paint(page)[0]);
+        Assert.Equal(new BRect(72, 72, 468, 648), first.Rect);
+    }
+
+    [Fact]
+    public void Changing_Page_Styles_Use_Their_Own_Background_Bounds()
+    {
+        var a = new PageGeometry(200, 100, 10, 10, 10, 10);
+        var b = new PageGeometry(300, 120, 20, 20, 20, 20);
+        var fill = ShapeFill.Solid(Red) with { ContentOnly = true };
+        var sequence = new PageStyleSequence([new PageStyle(a, RunningContent.Empty, fill), new PageStyle(b, RunningContent.Empty, fill)], 0);
+        var document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("one"), RichTextParagraph.Plain("two")
+            .WithParagraphStyle(ParagraphStyle.Default with { PageBreakBefore = true })]).WithPageGeometry(a)
+            .WithSections([new DocumentSection(0, 2, 1, 0, a, pageStyles: sequence)]);
+        using var images = new ImageStore();
+        var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document, new DocumentPageBox(200, 100, 10, 10, 10, 10)).Pages;
+        Assert.Equal(new BRect(10, 10, 180, 80), pages[0].BackgroundBounds);
+        Assert.Equal(new BRect(20, 20, 260, 80), pages[1].BackgroundBounds);
+    }
+
+    [Fact]
+    public void Hatch_Paint_Is_Clipped_And_Contains_Strokes()
+    {
+        var fill = ShapeFill.Solid(BColor.Empty) with { Hatch = new HatchFill(Blue, 12, -45, 2), ContentOnly = true };
+        var commands = Paint(Layout(Lines(1).WithPageBackground(fill)).Pages[0]);
+        Assert.Equal(new BRect(72, 72, 468, 648), Assert.IsType<BRenderCommand.PushClip>(commands[0]).Rect);
+        Assert.Contains(commands, command => command is BRenderCommand.FillTriangle);
+        Assert.Contains(commands, command => command is BRenderCommand.PopClip);
+    }
+
+    [Fact]
     public void Every_Page_Carries_The_Background()
     {
         ShapeFill background = ShapeFill.Solid(Red);

@@ -9,7 +9,9 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>Broiler.Documents.Cli</RootNamespace>
     <AssemblyName>broilerdoc</AssemblyName>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- General-format numeric cells use the application's locale. Protocol,
+         JSON and command-line numbers are formatted invariantly at their call sites. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
     <RollForward>LatestMinor</RollForward>
   </PropertyGroup>
 

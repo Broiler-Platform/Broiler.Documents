@@ -614,3 +614,17 @@ The [linked-frame and merged-cell verification note](../notes/office-issue-137-t
 records five further corrections. A five-versus-two page mismatch closes, while
 the focused pass count stays unchanged; the note records mixed visual metrics,
 regression tests and the remaining export limitations.
+
+The [issue #138 fill and field verification note](../notes/office-issue-138-fills-fields-verification-2026-10-23.md)
+records ten shared corrections to background painting and RTF field text. The
+30-sample comparison improves from 40/90 to 42/90 passing checks, without lost
+passes; it includes authored LibreOffice checks and the remaining limits.
+
+The [floating-table and numeric-cell verification note](../notes/office-issue-138-floating-tables-numeric-cells-verification-2026-10-23.md)
+records the next ten corrections: preferred widths, grid scaling, repeated
+headers and numbering, non-overlap, continuation preservation and section
+ownership, locale-aware numeric display, and vertical-merge export.
+
+The [drawing-geometry verification note](../notes/office-issue-138-drawing-geometry-verification-2026-10-23.md)
+records five further corrections to outline retention, line paths, stroke
+widths, frame borders and ellipses, with authored LibreOffice comparisons.

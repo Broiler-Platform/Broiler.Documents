@@ -15,6 +15,7 @@ internal static class OdtNamespaces
     public static readonly XNamespace Text = "urn:oasis:names:tc:opendocument:xmlns:text:1.0";
     public static readonly XNamespace Style = "urn:oasis:names:tc:opendocument:xmlns:style:1.0";
     public static readonly XNamespace Table = "urn:oasis:names:tc:opendocument:xmlns:table:1.0";
+    public static readonly XNamespace Number = "urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0";
     public static readonly XNamespace Draw = "urn:oasis:names:tc:opendocument:xmlns:drawing:1.0";
     public static readonly XNamespace Manifest = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
     public static readonly XNamespace Meta = "urn:oasis:names:tc:opendocument:xmlns:meta:1.0";

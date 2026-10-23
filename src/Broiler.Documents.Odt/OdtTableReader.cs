@@ -74,7 +74,7 @@ internal static class OdtTableReader
                     context.TableDepth++;
                     try
                     {
-                        readBlocks(cell.Elements(), depth + 1);
+                        readBlocks(DisplayCellContent(cell, context.Styles), depth + 1);
                     }
                     finally
                     {
@@ -157,6 +157,22 @@ internal static class OdtTableReader
     private static double? TableLength(XElement table, OdtStyles styles, XName attribute) =>
         OdtUnits.TryParseLength((string?)TableProperties(table, styles)?.Attribute(attribute), out double points)
             ? points : null;
+
+    private static IEnumerable<XElement> DisplayCellContent(XElement cell, OdtStyles styles)
+    {
+        // For a General-format numeric cell the stored value is authoritative.
+        // Keep rich/multi-paragraph content and explicit number formats unchanged.
+        XElement? paragraph = cell.Elements().FirstOrDefault();
+        if ((string?)cell.Attribute(OdtNamespaces.Office + "value-type") == "float" &&
+            cell.Elements().Count() == 1 && paragraph?.Name == OdtNamespaces.Text + "p" && !paragraph.HasElements &&
+            styles.HasGeneralNumberFormat((string?)cell.Attribute(OdtNamespaces.Table + "style-name")) &&
+            double.TryParse((string?)cell.Attribute(OdtNamespaces.Office + "value"), NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value))
+        {
+            var displayed = new XElement(paragraph) { Value = value.ToString("G15", styles.NumberCulture) };
+            return [displayed];
+        }
+        return cell.Elements();
+    }
 
     private static double? TablePercent(XElement table, OdtStyles styles) =>
         OdtUnits.TryParsePercentage((string?)TableProperties(table, styles)?.Attribute(OdtNamespaces.Style + "rel-width"), out double ratio) && ratio > 0
@@ -339,7 +355,7 @@ internal static class OdtTableReader
     /// <c>none</c> is a border turned off, and anything unparseable is left off
     /// rather than guessed at.
     /// </summary>
-    private static TableBorder ReadBorderEdge(XElement properties, string attribute)
+    internal static TableBorder ReadBorderEdge(XElement properties, string attribute)
     {
         string? value = (string?)properties.Attribute(OdtNamespaces.Fo + attribute);
         if (string.IsNullOrWhiteSpace(value) || value.Equals("none", StringComparison.OrdinalIgnoreCase))

@@ -115,11 +115,20 @@ public static class OdtWriter
         if (shape.Image is InlineImage image)
             return BuildShapeFrame(shape, image, context);
 
-        if (shape.FrameName is not null || shape.NextFrameName is not null || ((shape.GrowsToText || shape.GrowsWidthToText || shape.Tables.Count > 0 || shape.TextPadding != default) && shape.HasText))
+        if (shape.Geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending)
+            return new XElement(OdtNamespaces.Draw + "line", AnchorAttributes(shape),
+                new XAttribute(OdtNamespaces.Draw + "style-name", context.GetShapeStyleName(shape)),
+                new XAttribute(OdtNamespaces.Draw + "z-index", shape.ZOrder),
+                new XAttribute(OdtNamespaces.Svg + "x1", OdtUnits.FormatPoints(shape.OffsetX)),
+                new XAttribute(OdtNamespaces.Svg + "x2", OdtUnits.FormatPoints(shape.OffsetX + shape.Width)),
+                new XAttribute(OdtNamespaces.Svg + "y1", OdtUnits.FormatPoints(shape.OffsetY + (shape.Geometry == ShapeGeometry.LineAscending ? shape.Height : 0))),
+                new XAttribute(OdtNamespaces.Svg + "y2", OdtUnits.FormatPoints(shape.OffsetY + (shape.Geometry == ShapeGeometry.LineAscending ? 0 : shape.Height))));
+
+        if (shape.Geometry == ShapeGeometry.Rectangle && (shape.FrameName is not null || shape.NextFrameName is not null || ((shape.GrowsToText || shape.GrowsWidthToText || shape.Tables.Count > 0 || shape.TextPadding != default) && shape.HasText)))
             return BuildTextFrame(shape, context);
 
         var element = new XElement(
-            OdtNamespaces.Draw + "custom-shape",
+            OdtNamespaces.Draw + (shape.Geometry == ShapeGeometry.Ellipse ? "ellipse" : "custom-shape"),
             AnchorAttributes(shape),
             new XAttribute(
                 OdtNamespaces.Draw + "z-index",
@@ -143,7 +152,7 @@ public static class OdtWriter
         // ODF says what a custom shape is with an enhanced geometry, and a reader
         // that finds none has been given a shape with no form. LibreOffice keeps
         // the box and drops the text it holds, which is the worse half to lose.
-        element.Add(new XElement(
+        if (shape.Geometry != ShapeGeometry.Ellipse) element.Add(new XElement(
             OdtNamespaces.Draw + "enhanced-geometry",
             new XAttribute(OdtNamespaces.Draw + "type", "rectangle"),
             new XAttribute(OdtNamespaces.Svg + "viewBox", "0 0 21600 21600"),
@@ -1716,7 +1725,7 @@ public static class OdtWriter
     /// the previous default for documents that carry no geometry keeps that guess
     /// exactly where it already was.
     /// </summary>
-    private static XElement BuildPageLayoutProperties(PageGeometry? geometry, ShapeFill? background)
+    private static XElement BuildPageLayoutProperties(PageGeometry? geometry, ShapeFill? background, OdtWriteContext context)
     {
         PageGeometry page = geometry is not null && geometry.IsUsable
             ? geometry
@@ -1751,17 +1760,9 @@ public static class OdtWriter
         // for one that only knows the page colour.
         if (background is not null)
         {
-            properties.Add(new XAttribute(OdtNamespaces.Fo + "background-color", OdtUnits.FormatColor(background.ColorAt(0.5))));
-            if (background.IsGradient)
-            {
-                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "gradient"));
-                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill-gradient-name", PageGradientName));
-            }
-            else
-            {
-                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "solid"));
-                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill-color", OdtUnits.FormatColor(background.Start)));
-            }
+            if (background.Image is null && background.Hatch is null && background.Start.A > 0)
+                properties.SetAttributeValue(OdtNamespaces.Fo + "background-color", OdtUnits.FormatColor(background.ColorAt(0.5)));
+            WriteFill(properties, background, context, PageGradientName);
         }
 
         return properties;
@@ -1786,7 +1787,10 @@ public static class OdtWriter
         new(
             OdtNamespaces.Draw + "gradient",
             new XAttribute(OdtNamespaces.Draw + "name", name),
-            new XAttribute(OdtNamespaces.Draw + "style", fill.Axial ? "axial" : "linear"),
+            new XAttribute(OdtNamespaces.Draw + "style", fill.Geometry != GradientGeometry.Linear ? fill.Geometry.ToString().ToLowerInvariant() : fill.Axial ? "axial" : "linear"),
+            new XAttribute(OdtNamespaces.Draw + "cx", (Math.Clamp(fill.CenterX, 0, 1) * 100).ToString(CultureInfo.InvariantCulture) + "%"),
+            new XAttribute(OdtNamespaces.Draw + "cy", (Math.Clamp(fill.CenterY, 0, 1) * 100).ToString(CultureInfo.InvariantCulture) + "%"),
+            new XAttribute(OdtNamespaces.Draw + "border", (Math.Clamp(fill.Border, 0, 1) * 100).ToString(CultureInfo.InvariantCulture) + "%"),
             new XAttribute(OdtNamespaces.Draw + "start-color", OdtUnits.FormatColor(fill.Axial ? fill.End : fill.Start)),
             new XAttribute(OdtNamespaces.Draw + "end-color", OdtUnits.FormatColor(fill.Axial ? fill.Start : fill.End)),
             // Converted rather than written straight, and with the unit
@@ -1797,6 +1801,64 @@ public static class OdtWriter
             new XAttribute(
                 OdtNamespaces.Draw + "angle",
                 OdtUnits.FormatAngle(OdtGradientAngle.ToOdf(fill.AngleDegrees))));
+
+    private static void WriteFill(XElement properties, ShapeFill fill, OdtWriteContext context, string? gradientName = null)
+    {
+        if (fill.IsGradient && fill.Start.A != fill.End.A)
+            context.AddDiagnosticOnce("odt.fill.opacity", "Different gradient endpoint opacities were written using the start opacity for both endpoints.");
+        properties.SetAttributeValue(OdtNamespaces.Draw + "background-size", fill.ContentOnly ? "border" : "full");
+        byte alpha = fill.Image is not null ? (byte)255 : fill.Hatch is HatchFill pattern && fill.Start.A == 0 ? pattern.Color.A : fill.Start.A;
+        properties.SetAttributeValue(OdtNamespaces.Draw + "opacity", (alpha / 255d * 100).ToString(CultureInfo.InvariantCulture) + "%");
+        if (fill.Image is ImageFill image)
+        {
+            // A pattern image uses the same admission and byte-transfer gate as a picture.
+            if (!DocumentResourceGate.TryTakeEncodedBytes(image.Picture, context.Resources, DocumentResourceOperations.ByteTransfer,
+                out ReadOnlyMemory<byte> data, out string? type, out string? denial))
+            {
+                context.AddDiagnosticOnce("odt.image.omitted", "A bitmap fill was not written because " + denial + ".");
+                properties.SetAttributeValue(OdtNamespaces.Draw + "fill", "none");
+                return;
+            }
+            OdtPicturePart part = context.GetPicturePart(image.Picture, data, type!);
+            string name = "pattern" + (context.PatternDefinitions.Count + 1).ToString(CultureInfo.InvariantCulture);
+            context.PatternDefinitions.Add(new XElement(OdtNamespaces.Draw + "fill-image", new XAttribute(OdtNamespaces.Draw + "name", name),
+                new XAttribute(OdtNamespaces.XLink + "href", part.PartPath), new XAttribute(OdtNamespaces.XLink + "type", "simple")));
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill", "bitmap");
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill-image-name", name);
+            properties.SetAttributeValue(OdtNamespaces.Style + "repeat", image.Repeat switch { ImageFillRepeat.Stretch => "stretch", ImageFillRepeat.Single => "no-repeat", _ => "repeat" });
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill-image-width", OdtUnits.FormatPoints(Math.Max(0, image.Width)));
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill-image-height", OdtUnits.FormatPoints(Math.Max(0, image.Height)));
+            string horizontal = image.AlignX < 0.25 ? "left" : image.AlignX > 0.75 ? "right" : "center";
+            string vertical = image.AlignY < 0.25 ? "top" : image.AlignY > 0.75 ? "bottom" : "center";
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill-image-ref-point", vertical == "center" ? horizontal : horizontal == "center" ? vertical : vertical + "-" + horizontal);
+            return;
+        }
+        if (fill.Hatch is HatchFill hatch)
+        {
+            string name = "pattern" + (context.PatternDefinitions.Count + 1).ToString(CultureInfo.InvariantCulture);
+            context.PatternDefinitions.Add(new XElement(OdtNamespaces.Draw + "hatch", new XAttribute(OdtNamespaces.Draw + "name", name),
+                new XAttribute(OdtNamespaces.Draw + "style", hatch.Directions switch { 2 => "double", 3 => "triple", _ => "single" }),
+                new XAttribute(OdtNamespaces.Draw + "color", OdtUnits.FormatColor(hatch.Color)),
+                new XAttribute(OdtNamespaces.Draw + "distance", OdtUnits.FormatPoints(hatch.Distance)),
+                new XAttribute(OdtNamespaces.Draw + "rotation", OdtUnits.FormatAngle(-hatch.AngleDegrees))));
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill", "hatch");
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill-hatch-name", name);
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill-hatch-solid", !fill.Start.IsEmpty && fill.Start.A > 0 ? "true" : "false");
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill-color", OdtUnits.FormatColor(fill.Start));
+            return;
+        }
+        properties.SetAttributeValue(OdtNamespaces.Draw + "fill", fill.IsGradient ? "gradient" : fill.Start.A == 0 ? "none" : "solid");
+        if (fill.IsGradient)
+        {
+            if (gradientName is null)
+            {
+                gradientName = "gradient" + (context.Gradients.Count + 1).ToString(CultureInfo.InvariantCulture);
+                context.AddGradient(BuildGradient(gradientName, fill));
+            }
+            properties.SetAttributeValue(OdtNamespaces.Draw + "fill-gradient-name", gradientName);
+        }
+        else properties.SetAttributeValue(OdtNamespaces.Draw + "fill-color", OdtUnits.FormatColor(fill.Start));
+    }
 
     private static XDocument BuildStyles(
         RunningContent running,
@@ -1825,6 +1887,7 @@ public static class OdtWriter
             runningStyles.Add(context.ShapeStyles[i]);
         for (int i = gradientsBefore; i < context.Gradients.Count; i++)
             runningStyles.Add(context.Gradients[i]);
+        XElement pageProperties = BuildPageLayoutProperties(geometry, background, context);
 
         var root = new XElement(
             OdtNamespaces.Office + "document-styles",
@@ -1842,13 +1905,18 @@ public static class OdtWriter
                     new XAttribute(OdtNamespaces.Style + "family", "paragraph"),
                     new XAttribute(OdtNamespaces.Style + "class", "text")),
                 BuildPageGradient(background),
+                context.PatternDefinitions,
                 BuildNotesConfigurations(noteNumbering, context)),
             new XElement(
                 OdtNamespaces.Office + "automatic-styles",
+                background is null ? null : new XElement(OdtNamespaces.Style + "style",
+                    new XAttribute(OdtNamespaces.Style + "name", "pagePaint"), new XAttribute(OdtNamespaces.Style + "family", "drawing-page"),
+                    new XElement(OdtNamespaces.Style + "drawing-page-properties", pageProperties.Attributes().Where(attribute =>
+                        attribute.Name.Namespace == OdtNamespaces.Draw || attribute.Name == OdtNamespaces.Style + "repeat"))),
                 new XElement(
                     OdtNamespaces.Style + "page-layout",
                     new XAttribute(OdtNamespaces.Style + "name", "pm1"),
-                    BuildPageLayoutProperties(geometry, background)),
+                    pageProperties),
                 // A header lives in this part, and a style reference only resolves
                 // within the part that carries it. Without these the footer's
                 // paragraphs name styles that exist in content.xml alone, and a
@@ -1862,6 +1930,7 @@ public static class OdtWriter
                     OdtNamespaces.Style + "master-page",
                     new XAttribute(OdtNamespaces.Style + "name", "Standard"),
                     new XAttribute(OdtNamespaces.Style + "page-layout-name", "pm1"),
+                    background is null ? null : new XAttribute(OdtNamespaces.Draw + "style-name", "pagePaint"),
                     runningParts)));
 
         return new XDocument(new XDeclaration("1.0", "UTF-8", null), root);
@@ -2038,6 +2107,8 @@ public static class OdtWriter
 
         /// <summary>The named gradients those graphic styles refer to.</summary>
         public IReadOnlyList<XElement> Gradients => _gradients;
+        public List<XElement> PatternDefinitions { get; } = [];
+        public void AddGradient(XElement gradient) => _gradients.Add(gradient);
 
         /// <summary>
         /// The graphic style for one shape, created on first use. ODF puts the
@@ -2090,22 +2161,8 @@ public static class OdtWriter
                 properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-rel", "page"));
             }
 
-            if (shape.Fill is ShapeFill fill && fill.IsGradient)
-            {
-                string gradientName = "gradient" +
-                    (_gradients.Count + 1).ToString(CultureInfo.InvariantCulture);
-                _gradients.Add(BuildGradient(gradientName, fill));
-
-                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "gradient"));
-                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill-gradient-name", gradientName));
-            }
-            else if (shape.Fill is ShapeFill solid)
-            {
-                properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "solid"));
-                properties.Add(new XAttribute(
-                    OdtNamespaces.Draw + "fill-color",
-                    OdtUnits.FormatColor(solid.Start)));
-            }
+            if (shape.Fill is ShapeFill fill)
+                WriteFill(properties, fill, this);
             else
             {
                 properties.Add(new XAttribute(OdtNamespaces.Draw + "fill", "none"));
@@ -2121,6 +2178,9 @@ public static class OdtWriter
                 properties.Add(new XAttribute(
                     OdtNamespaces.Svg + "stroke-color",
                     OdtUnits.FormatColor(shape.Outline)));
+                properties.Add(new XAttribute(OdtNamespaces.Svg + "stroke-width", OdtUnits.FormatPoints(shape.OutlineWidth)));
+                if (shape.HasText || shape.Image is not null)
+                    properties.Add(new XAttribute(OdtNamespaces.Fo + "border", OdtUnits.FormatPoints(shape.OutlineWidth) + " solid " + OdtUnits.FormatColor(shape.Outline)));
             }
 
             properties.Add(

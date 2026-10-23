@@ -42,6 +42,39 @@ public sealed class DocxTableTests
     }
 
     [Fact]
+    public void Omitted_Vertical_Merge_Continuations_Are_Synthesised_Without_Shifting_Neighbour_Cells()
+    {
+        var source = RichTextDocument.FromPlainText("merged\nupper\nlower\nafter").WithTables([
+            new DocumentTable(0, 3, [new TableRow([new TableCell(0, 1, 0, rowSpan: 2), new TableCell(1, 1, 1)]),
+                new TableRow([new TableCell(2, 1, 1)])], [70, 90])]);
+        var restored = RoundTrip(source);
+        var table = Assert.Single(restored.Tables);
+        Assert.Equal(2, table.Rows[0].Cells[0].RowSpan);
+        Assert.Equal(2, table.Rows[1].Cells.Count);
+        Assert.True(table.Rows[1].Cells[0].IsRowSpanContinuation);
+        Assert.Equal(1, table.Rows[1].Cells[1].ColumnIndex);
+        Assert.Equal("lower", restored.Paragraphs[table.Rows[1].Cells[1].ParagraphIndex].Text);
+        Assert.Equal("after", restored.Paragraphs[table.ParagraphEnd].Text);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Multi_Column_Merges_Keep_One_Continuation_Per_Row(bool explicitContinuation)
+    {
+        var continuation = new TableCell(2, 0, 0, columnSpan: 2, isRowSpanContinuation: true);
+        var lower = new TableCell(2, 1, 2);
+        var source = RichTextDocument.FromPlainText("merged\nupper\nlower").WithTables([new DocumentTable(0, 3, [
+            new TableRow([new TableCell(0, 1, 0, columnSpan: 2, rowSpan: 2), new TableCell(1, 1, 2)]),
+            new TableRow(explicitContinuation ? [continuation, lower] : [lower])], [40, 40, 40])]);
+        var table = Assert.Single(RoundTrip(source).Tables);
+        Assert.Equal(2, table.Rows[1].Cells.Count);
+        Assert.Equal(2, table.Rows[1].Cells[0].ColumnSpan);
+        Assert.True(table.Rows[1].Cells[0].IsRowSpanContinuation);
+        Assert.Equal(2, table.Rows[1].Cells[1].ColumnIndex);
+    }
+
+    [Fact]
     public void Reads_A_Table_As_A_Grid_Over_Its_Paragraphs()
     {
         RichTextDocument document = Read(SimpleTable());

@@ -7,6 +7,23 @@ toolkit behind it.
 
 ## Supported Read/Write Subset
 
+Page and shape fills support embedded bitmap patterns, tiled/stretch/single
+placement, single/double/triple hatches, centred gradient geometry, gradient
+border and endpoint intensity, uniform colour opacity, and page-margin bounds.
+Legacy `style:background-image` uses the same embedded-image admission gate;
+external resources are not fetched. Unresolved patterns still report `odt.fill`.
+Standalone PDF export reports `pdf.write.feature-unsupported` for bitmap fills;
+the raster painter supports them. Gradient geometry uses bounded sampling.
+`odt.fill.opacity` reports bitmap opacity that cannot be painted, or unequal
+gradient endpoint opacities that cannot be written as a uniform opacity.
+
+Basic drawings retain unfilled outlines, `draw:ellipse`, and `draw:line`
+endpoints in either direction. Stroke widths use `svg:stroke-width`; a stated
+solid stroke without a color uses black. Frame `fo:border` supplies a uniform
+outline, including explicit `none`, for text and floating-image frames. Basic
+paths and widths survive ODT export. Asymmetric borders, dash patterns, arrow
+heads, rotated drawings and arbitrary enhanced paths remain approximations.
+
 Text frames retain chain names and empty link destinations. The raster layout
 flows styled paragraphs between linked body frames, including paragraph splits
 and list counters. Cycles are bounded; tables within linked frames and links
@@ -64,6 +81,13 @@ layout are covered; this does not claim identical exported clipping.
   selection, a style, and every codec's text handling go on working through one
   flat list. Written back as `table:table`, with a covered cell for every
   position a span swallowed.
+- A plain, single-paragraph numeric table cell with a General number style
+  displays its finite `office:value` using the application's current culture.
+  Inherited cell number styles are resolved. The CLI enables system locale
+  support; command-line, JSON and protocol numbers retain invariant formatting.
+  Rich content, explicit decimal or language-specific formats, string cells
+  and invalid values retain their cached text. This is display normalization,
+  without formula evaluation or preservation of numeric-cell metadata on write.
 - White-space processing per ODF 1.3 part 3 §3.17: a run of white space in a text
   node is one space, white space at either edge of a paragraph is nothing, and
   significant spaces arrive as `text:s`. The writer applies the same rule in
@@ -385,13 +409,18 @@ layout are covered; this does not claim identical exported clipping.
   page: from the `drawing-page` style its `draw:style-name` names (ODF 1.3
   §16.10) where that states a `draw:fill`, else from the page layout's own
   `draw:fill`, else from its `fo:background-color`. LibreOffice writes all three.
-  A write states `draw:fill` and `fo:background-color` on the page layout, with
-  a gradient named in `office:styles`. An `axial` gradient puts its start colour
+  A write states the drawing-page fill and its bounds, plus a page-layout fill
+  and flattened `fo:background-color` fallback for colours/gradients, with
+  named gradients and bitmap/hatch definitions in `office:styles`.
+  An `axial` gradient puts its start colour
   along the middle and its end colour at the edges, which is what LibreOffice
-  draws; `radial`, `ellipsoid`, `square` and `rectangular` are read as the start
-  colour, at their border, and reported as `odt.gradient`. A `bitmap` or `hatch`
-  fill is not read and is reported as `odt.fill`. All of this holds for a
-  shape's fill as well.
+  draws. Centred gradients retain their geometry, centre and border. Embedded
+  bitmap fills retain repeat mode and simple reference-point alignment; hatch
+  fills retain line directions, angle and spacing. Unresolved definitions report
+  `odt.fill`; unknown gradient styles report `odt.gradient`. Percentage bitmap
+  dimensions, repeat offsets and staggered tiling are not applied. All of this
+  holds for a shape's fill as well. Legacy embedded `style:background-image`
+  is also read, without fetching external links.
 - SVG, EMF, and WMF — what a producer stores for charts, formulas, and object
   replacement images — are not carried, because they cannot be decoded to pixels
   here. They are reported as `odt.image.format` rather than kept as a picture
@@ -484,8 +513,8 @@ blank:
 | `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
 | `odt.image.denied` | Warning | A picture was not read into the document because the caller's resource policy did not permit it; the message names the denial. |
 | `odt.page.geometry` | Warning | A page layout described a page with no room to write on, so the page was not read. |
-| `odt.gradient` | Warning | A `radial`, `ellipsoid`, `square` or `rectangular` gradient, which spreads from a centre the model cannot place, was read as its start colour, the colour at its border. |
-| `odt.fill` | Warning | A `bitmap` or `hatch` fill, on a shape or a page, was not read. |
+| `odt.gradient` | Warning | An unknown gradient style was approximated by its start colour. |
+| `odt.fill` | Warning | A bitmap or hatch definition could not be resolved. |
 | `odt.columns.geometry` | Warning | A page layout's `style:columns` left no room to write in a column; the page was kept and read as one column. |
 | `odt.columns.unequal` | Info | A page layout listed columns of different relative widths; they were read as equal columns. |
 | `odt.limit.depth` | Warning | Block or inline nesting hit `MaxGroupDepth`; the deepest content was skipped. |

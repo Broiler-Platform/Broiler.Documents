@@ -63,7 +63,9 @@ internal sealed record PdfPlacedShape(
     double Height,
     ShapeFill? Fill,
     BColor Outline,
-    int ZOrder = 0);
+    int ZOrder = 0,
+    ShapeGeometry Geometry = ShapeGeometry.Rectangle,
+    double OutlineWidth = 1);
 
 /// <summary>One laid-out page.</summary>
 internal sealed class PdfLayoutPage
@@ -607,7 +609,7 @@ internal sealed class PdfPageLayout(
                 height,
                 shape.Fill,
                 shape.Outline,
-                shape.ZOrder));
+                shape.ZOrder, shape.Geometry, shape.OutlineWidth));
 
             if (shape.HasText)
                 PlaceShapeContent(page, shape, left, top, height);
@@ -1054,7 +1056,7 @@ internal sealed class PdfPageLayout(
                 height,
                 shape.Fill,
                 shape.Outline,
-                shape.ZOrder));
+                shape.ZOrder, shape.Geometry, shape.OutlineWidth));
 
             if (shape.HasText)
                 PlaceShapeContent(anchor.Page, shape, left, top, height);

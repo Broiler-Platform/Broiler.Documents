@@ -38,6 +38,7 @@ public static class RtfReader
         /// that holds it is open and gives it back when the group closes.
         /// </summary>
         public RtfDestination FieldHost;
+        public FieldFrame? Field;
         public int UnicodeSkip;
         public int CodePage;
         public int DocumentCodePage;
@@ -61,6 +62,14 @@ public static class RtfReader
         /// background, not a shape on it.
         /// </summary>
         public bool InBackground;
+    }
+
+    private sealed class FieldFrame
+    {
+        public StringBuilder Instruction { get; } = new();
+        public string? Link;
+        public string? RubyBase;
+        public int Characters;
     }
 
     private sealed class Worker
@@ -148,6 +157,8 @@ public static class RtfReader
         // The shape's shapeType: 1 a rectangle, which Word takes when none is
         // given, 20 a line.
         private long _shapeType = 1;
+        private double _shapeLineWidth = 0.75;
+        private bool _shapeFlipVertical;
         private bool _shapeInBackground;
         private double _shapeFillFocus;
         private ShapeFill? _pageBackground;
@@ -161,12 +172,10 @@ public static class RtfReader
 
         // Table/field parsing scratch.
         private readonly StringBuilder _fontName = new();
-        private readonly StringBuilder _fieldInstruction = new();
         private int _fontIndex;
         private int _fontCharset;
         private int _r, _g, _b;
         private bool _colorSeen;
-        private string? _fieldLink;
 
         private int _pendingUnicodeSkip;
         private bool _sawStar;
@@ -292,12 +301,23 @@ public static class RtfReader
             _pendingUnicodeSkip = 0;
             State closing = _state;
 
-            if (closing.Dest == RtfDestination.FieldInstruction)
-                _fieldLink = ExtractHyperlink(_fieldInstruction.ToString());
+            if (closing.Dest == RtfDestination.FieldInstruction && closing.Field is FieldFrame instruction)
+            {
+                instruction.Link = ExtractHyperlink(instruction.Instruction.ToString());
+                instruction.RubyBase = ExtractRubyBase(instruction.Instruction.ToString());
+            }
             else if (closing.Dest == RtfDestination.FontTable && _fontName.Length > 0)
                 CommitFont();
-            else if (closing.Dest == RtfDestination.Field)
-                _fieldLink = null;
+            else if (closing.Dest == RtfDestination.Field && closing.Field is { Characters: 0, RubyBase: string ruby } &&
+                (_stack.Count == 0 || _stack.Peek().Field != closing.Field))
+            {
+                _state.Dest = closing.FieldHost;
+                AppendBody(ruby);
+                FlushPending();
+                _state.Dest = closing.Dest;
+                if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.field.ruby"))
+                    _diagnostics.Add(DocumentDiagnostic.Warning("rtf.field.ruby", "An empty-result ruby equation field was read as its base text; phonetic annotation layout is not represented."));
+            }
 
             FlushPending();
             // The root group can close without a final \par. Commit its body
@@ -313,6 +333,8 @@ public static class RtfReader
                 return false;
 
             _state = _stack.Pop();
+            if (closing.Dest == RtfDestination.Field && closing.Field is not null && _state.Field is not null && closing.Field != _state.Field)
+                _state.Field.Characters += closing.Field.Characters;
             if (closing.Dest == RtfDestination.Note && _state.Dest != RtfDestination.Note)
                 FinishNote(closing.Para);
 
@@ -458,18 +480,18 @@ public static class RtfReader
                     // inside it, so a letterhead's cached page number arrived at
                     // the head of the letter with the word beside it correctly
                     // skipped.
-                    _state.FieldHost = _state.Dest;
+                    _state.FieldHost = _state.Dest == RtfDestination.FieldResult ? _state.FieldHost : _state.Dest;
+                    _state.Field = new FieldFrame();
                     _state.Dest = RtfDestination.Field;
-                    _fieldLink = null;
                     return;
                 case "fldinst":
                     _state.Dest = RtfDestination.FieldInstruction;
-                    _fieldInstruction.Clear();
+                    _state.Field?.Instruction.Clear();
                     return;
                 case "fldrslt":
                     _state.Dest = RtfDestination.FieldResult;
-                    if (_fieldLink is not null)
-                        _state.Char = _state.Char with { LinkHref = _fieldLink };
+                    if (_state.Field?.Link is string link)
+                        _state.Char = _state.Char with { LinkHref = link };
                     return;
                 case "pict":
                 case "object":
@@ -562,9 +584,12 @@ public static class RtfReader
             {
                 case RtfDestination.Skip:
                 case RtfDestination.Field:
-                case RtfDestination.FieldInstruction:
                 case RtfDestination.Generator:
                 case RtfDestination.RevisionTable:
+                    return;
+                case RtfDestination.FieldInstruction:
+                    if (kw == "uc") _state.UnicodeSkip = token.HasParameter ? Math.Max(0, token.Parameter) : 1;
+                    else if (kw == "u") HandleUnicode(token.Parameter);
                     return;
                 case RtfDestination.FontTable:
                     HandleFontTableControlWord(kw, token.Parameter);
@@ -960,6 +985,12 @@ public static class RtfReader
 
         private void HandleByte(byte value)
         {
+            if (_state.Dest == RtfDestination.FieldInstruction)
+            {
+                if (_pendingUnicodeSkip > 0) _pendingUnicodeSkip--;
+                else _state.Field?.Instruction.Append(RtfCodePage.DecodeByte(value, _state.CodePage));
+                return;
+            }
             if (_state.Dest == RtfDestination.FontTable)
             {
                 if (_pendingUnicodeSkip > 0)
@@ -1021,7 +1052,12 @@ public static class RtfReader
             {
                 case RtfDestination.FontTable: HandleFontTableText(text); break;
                 case RtfDestination.ColorTable: HandleColorTableText(text); break;
-                case RtfDestination.FieldInstruction: _fieldInstruction.Append(text); break;
+                case RtfDestination.FieldInstruction:
+                    int skipped = Math.Min(_pendingUnicodeSkip, text.Length);
+                    _pendingUnicodeSkip -= skipped;
+                    foreach (char character in text.AsSpan(skipped))
+                        _state.Field?.Instruction.Append(character <= 255 ? RtfCodePage.DecodeByte((byte)character, _state.CodePage) : character);
+                    break;
                 case RtfDestination.Generator: _generator.Append(text); break;
                 case RtfDestination.RevisionTable: HandleRevisionTableText(text); break;
                 case RtfDestination.Normal:
@@ -1072,6 +1108,13 @@ public static class RtfReader
 
         private void HandleUnicode(int parameter)
         {
+            if (_state.Dest == RtfDestination.FieldInstruction)
+            {
+                int value = parameter < 0 ? parameter + 65536 : parameter;
+                _state.Field?.Instruction.Append((char)(value is >= 0 and <= 0xFFFF ? value : 0xFFFD));
+                _pendingUnicodeSkip = _state.UnicodeSkip;
+                return;
+            }
             if (!KeepsText(_state.Dest))
                 return;
 
@@ -1299,6 +1342,8 @@ public static class RtfReader
             _shapeLeftFromPage = false;
             _shapeFitsText = false;
             _shapeType = 1;
+            _shapeLineWidth = 0.75;
+            _shapeFlipVertical = false;
             _shapeFillStart = BColor.Empty;
             _shapeFillEnd = BColor.Empty;
 
@@ -1363,6 +1408,12 @@ public static class RtfReader
                 case "lineColor":
                     _shapeLineColor = ShapeColor(number);
                     break;
+                case "lineWidth":
+                    _shapeLineWidth = Math.Max(0, number / 12700d);
+                    break;
+                case "fFlipV":
+                    _shapeFlipVertical = number != 0;
+                    break;
                 case "shapeType":
                     _shapeType = number;
                     break;
@@ -1419,19 +1470,10 @@ public static class RtfReader
             _shapeText = null;
             BColor outline = _shapeHasLine ? _shapeLineColor : BColor.Empty;
 
-            // A line is a box of nought by its length, drawn as its outline. A
-            // slanted one would need a geometry the model does not hold, and
-            // drawn as its box it would be a rectangle that is not there.
-            if (_shapeType == 20 && width != 0 && height != 0)
-            {
-                ReportSlantedLine();
-                return;
-            }
-
             bool rule = outline.IsEmpty is false && ((width == 0) != (height == 0));
             // A box sized by its text may state no height at all.
             bool sizedByText = _shapeFitsText && paragraphs.Count > 0 && height == 0;
-            if (!rule && (width <= 0 || (height <= 0 && !sizedByText)))
+            if (!rule && (width == 0 || (height == 0 && !sizedByText)))
                 return;
 
             // A picture's frame draws its picture, which is not read, rather than
@@ -1464,7 +1506,10 @@ public static class RtfReader
                 paragraphs,
                 zOrder: _shapeZ,
                 offsetFromPage: _shapeVerticalFrame != 2,
-                growsToText: _shapeFitsText));
+                growsToText: _shapeFitsText,
+                geometry: _shapeType == 3 ? ShapeGeometry.Ellipse : _shapeType == 20
+                    ? (((_shapeRight - _shapeLeft) * (_shapeBottom - _shapeTop) < 0) != _shapeFlipVertical ? ShapeGeometry.LineAscending : ShapeGeometry.Line) : ShapeGeometry.Rectangle,
+                outlineWidth: _shapeLineWidth));
         }
 
         /// <summary>The headers and footers the document's running destinations collected.</summary>
@@ -1752,6 +1797,7 @@ public static class RtfReader
         {
             if (text.Length == 0)
                 return;
+            if (_state.Field is FieldFrame field && !string.IsNullOrWhiteSpace(text)) field.Characters += text.Length;
 
             if (_hasPending && !_pendingStyle.Equals(_state.Char))
                 FlushPending();
@@ -1763,6 +1809,28 @@ public static class RtfReader
             }
 
             _pending.Append(text);
+        }
+
+        private static string? ExtractRubyBase(string instruction)
+        {
+            if (!instruction.TrimStart().StartsWith("EQ ", StringComparison.OrdinalIgnoreCase)) return null;
+            int overlay = instruction.IndexOf("\\o", StringComparison.OrdinalIgnoreCase);
+            if (overlay < 0) return null;
+            int open = instruction.IndexOf('(', overlay), comma = -1, depth = 0;
+            if (open < 0) return null;
+            for (int i = open; i < instruction.Length; i++)
+            {
+                char ch = instruction[i];
+                if (ch == '(') depth++;
+                else if (ch == ')' && --depth == 0)
+                {
+                    if (comma < 0 || !instruction.AsSpan(open, comma - open).Contains("\\s\\up", StringComparison.OrdinalIgnoreCase)) return null;
+                    string value = instruction[(comma + 1)..i].Trim();
+                    return value.Length > 0 && !value.Contains('\\') ? value : null;
+                }
+                else if (ch == ',' && depth == 1) comma = i;
+            }
+            return null;
         }
 
         private void FlushPending()

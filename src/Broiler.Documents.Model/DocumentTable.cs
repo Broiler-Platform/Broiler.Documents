@@ -116,6 +116,14 @@ public sealed class DocumentTable(
         return Math.Clamp(requested, 1, Math.Max(1, available));
     }
 
+    /// <summary>A floating width is relative to its text area, but may exceed that area up to the paper width.</summary>
+    public double FloatingWidthIn(double available, double paperWidth)
+    {
+        double requested = WidthPercent is > 0 ? available * WidthPercent.Value / 100 :
+            PreferredWidth is > 0 ? PreferredWidth.Value : TotalWidth > 0 ? TotalWidth : available;
+        return Math.Clamp(requested, 1, Math.Max(1, paperWidth));
+    }
+
     /// <summary>The inline table's horizontal offset in its containing text area.</summary>
     public double OffsetIn(double available) => Alignment switch
     {
