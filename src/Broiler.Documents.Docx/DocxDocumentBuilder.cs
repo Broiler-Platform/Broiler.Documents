@@ -168,6 +168,17 @@ internal sealed class DocxDocumentBuilder(
         _heldBreakIsColumn = false;
     }
 
+    /// <summary>Transfers a break between blocks onto a following table, before
+    /// its first cell paragraph can consume it.</summary>
+    public (bool Page, bool Column) TakeBlockBreak()
+    {
+        bool held = _pageBreakStartsNextParagraph;
+        bool column = _heldBreakIsColumn;
+        _pageBreakStartsNextParagraph = false;
+        _heldBreakIsColumn = false;
+        return (held && !column, held && column);
+    }
+
     /// <summary>
     /// Drops a page break that reached the end of a table cell. Word splits
     /// the row a break inside a table falls in; a row breaks here only where

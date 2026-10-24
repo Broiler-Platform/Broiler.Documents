@@ -24,7 +24,10 @@ outline, including explicit `none`, for text and floating-image frames. Basic
 paths and widths survive ODT export. Asymmetric borders, dash patterns, arrow
 heads, rotated drawings and arbitrary enhanced paths remain approximations.
 
-Text frames retain chain names and empty link destinations. The raster layout
+Text frames retain chain names and empty link destinations. Empty positioned
+text frames remain frames rather than adding spurious body paragraphs. A final
+paragraph-anchored frame keeps a body anchor; page anchors need none. Unrepresented
+nested drawings still take the existing fallback path. The raster layout
 flows styled paragraphs between linked body frames, including paragraph splits
 and list counters. Cycles are bounded; tables within linked frames and links
 inside running content are not routed. PDF export reports this limitation with
@@ -258,6 +261,13 @@ layout are covered; this does not claim identical exported clipping.
   `svg:title` (falling back to `svg:desc`). A write stores each distinct image
   once under `Pictures`, declares it in the manifest, and anchors the frame
   `as-char`. Raster formats only: PNG, JPEG, GIF, BMP, TIFF, WebP, and ICO.
+  A frame's alternative `draw:image` representations are tried in source order
+  until the loader can carry one, including alternatives inside `draw:a`.
+  A supported first representation keeps priority; unsupported or unavailable
+  ones retain their diagnostics. An embedded PNG may therefore supply the
+  picture when an earlier SVM representation cannot be read. Flat binary-data
+  alternatives work too. External resources are never fetched, and resource
+  policy denial stops extraction rather than trying another representation.
 - The page, from the `style:page-layout` that a master page names: size, and the
   four margins. Which master page is a question ODF answers from the other end —
   a master page never says it is the first, the content says which one it is on,
@@ -321,8 +331,10 @@ layout are covered; this does not claim identical exported clipping.
   as into `content.xml`, because a style reference resolves only within the part
   that carries it — without that a stripe arrived unpainted, and an unpainted
   shape holding no text is not read as a shape at all.
-- Floating pictures: a frame anchored to anything other than a character is read
-  as a floating shape carrying the image, boxed by its `svg:x`/`svg:y` against
+- Floating pictures: `text:anchor-type="char"` floats at a character anchor;
+  `as-char` is the inline form. Paragraph/page anchors float too; a missing
+  anchor-type retains the reader's legacy inline fallback. Floating pictures
+  are read as shapes carrying the image, boxed by their `svg:x`/`svg:y` against
   the text column and its paragraph and its `svg:width`/`svg:height`, and keeping
   the fill, outline, and `style:run-through` of its graphic style. It is written
   back as a paragraph-anchored `draw:frame` at the same box, with its run-through
@@ -590,3 +602,35 @@ the provenance findings are in [the ODT register](../ip/odt.md). The position is
 assessed green, which is a risk judgement and not a clearance. Implementing a
 documented subset is not conformance, so nothing describes this codec as
 ODF-conformant, and `OdtClaimGuardTests` fails the build over it.
+
+
+### Unconditionally hidden body sections
+
+`text:section text:display="none"` is retained as `DocumentSection.Hidden`.
+Its paragraphs and tables remain in the model and plain-text projections, and
+ODT writing preserves the visibility flag, including cell-local sections.
+Nested visible sections cannot reveal a hidden parent. The shared paginator
+omits hidden body content, anchored objects and note numbering contributions;
+hidden paragraph breaks and page-style selections do not affect visible text.
+A break from a preceding visible paragraph still reaches the next visible block.
+Conditional visibility is not evaluated. Running parts and text frames do not
+carry their own section collections, so hidden sections inside those parts are
+not covered by this body-section support. Other writers report their visibility
+limitation rather than silently claiming to preserve the flag.
+
+### Header bands and outer page margins
+
+For a master page with an enabled header, its outer top margin is read as
+`PageGeometry.HeaderDistance`. The header style's declared `fo:height` or
+`fo:min-height` supplies the reserved band below it; the sum becomes the model's
+body `MarginTop`. The shared paginator can additionally move body text clear of
+a header whose measured content exceeds that minimum. A header style without an
+enabled header does not reserve space. Text inside a positioned drawing is not
+used to select the body's first master page.
+
+Writing usable page geometry with a header reverses the mapping: the outer
+margin is the header distance and `style:header-style` retains the remaining
+minimum band. Independent LibreOffice probes verify the header/body positions
+before and after this round trip, including page-content anchored objects.
+This does not add footer-band conversion, header padding or fixed-height header
+clipping support.

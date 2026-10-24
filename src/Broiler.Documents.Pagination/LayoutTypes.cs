@@ -121,6 +121,9 @@ public sealed class LayoutLine
 
     public double Height { get; }
 
+    /// <summary>Visible height within a fixed table row, relative to Top; null leaves the line unclipped.</summary>
+    public double? ClipHeight { get; internal set; }
+
     /// <summary>Distance from <see cref="Top"/> down to the baseline, in points.</summary>
     public double Baseline { get; }
 

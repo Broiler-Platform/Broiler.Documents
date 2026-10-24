@@ -277,7 +277,7 @@ internal static class OdtReader
                 .Where(name => !string.IsNullOrEmpty(name)).Select(name => name!).ToHashSet(StringComparer.Ordinal),
             SelectPageStyle = (family, style, index) =>
             {
-                if (context!.TableDepth > 0)
+                if (context!.TableDepth > 0 || context.HiddenSectionDepth > 0)
                     return false;
                 string? name = styles.MasterPageName(family, style);
                 if (string.IsNullOrEmpty(name) || masters is null || !masters.TryGetValue(name, out XElement? master))
@@ -319,7 +319,7 @@ internal static class OdtReader
             sections.Add(new DocumentSection(index, edges[i + 1] - index,
                 textSection?.ColumnCount ?? selected.Page?.ColumnCount ?? 1,
                 textSection?.ColumnGap ?? selected.Page?.ColumnGap ?? 0,
-                selected.Page, selected.Running, textSection?.Background ?? default, selected.Sequence));
+                selected.Page, selected.Running, textSection?.Background ?? default, selected.Sequence, textSection?.Hidden ?? false));
         }
         return built.WithSections(sections);
     }
@@ -415,6 +415,13 @@ internal static class OdtReader
 
         foreach (XElement block in body.Descendants())
         {
+            // Text inside a positioned drawing belongs to that object, not to
+            // the body's first page. Its paragraph style must not select it.
+            if (block.Ancestors().Any(ancestor => ancestor.Name.Namespace == OdtNamespaces.Draw))
+                continue;
+            if (block.Ancestors(OdtNamespaces.Text + "section")
+                .Any(section => (string?)section.Attribute(OdtNamespaces.Text + "display") == "none"))
+                continue;
             if (block.Name == OdtNamespaces.Text + "p" || block.Name == OdtNamespaces.Text + "h")
             {
                 return styles.MasterPageName(
@@ -627,13 +634,23 @@ internal static class OdtReader
             return null;
         }
 
+        double outerTop = Length(properties, "margin-top");
+        bool hasHeader = master?.Elements().Any(element =>
+            (element.Name == OdtNamespaces.Style + "header" || element.Name == OdtNamespaces.Style + "header-left" ||
+             element.Name == OdtNamespaces.Style + "header-first") &&
+            (string?)element.Attribute(OdtNamespaces.Style + "display") != "false") == true;
+        XElement? header = properties.Parent?.Element(OdtNamespaces.Style + "header-style")
+            ?.Element(OdtNamespaces.Style + "header-footer-properties");
+        double headerHeight = hasHeader && header is not null
+            ? Math.Max(Length(header, "height"), Length(header, "min-height")) : 0;
         var geometry = new PageGeometry(
             width,
             height,
             Length(properties, "margin-left"),
             Length(properties, "margin-right"),
-            Length(properties, "margin-top"),
-            Length(properties, "margin-bottom"));
+            outerTop + Math.Max(0, headerHeight),
+            Length(properties, "margin-bottom"),
+            HeaderDistance: hasHeader ? Math.Max(0, outerTop) : 0);
 
         if (geometry.IsUsable)
             return ReadColumns(properties, geometry, diagnostics);
@@ -784,7 +801,12 @@ internal static class OdtReader
         string? nextFrameName = (string?)textBox?.Attribute(OdtNamespaces.Draw + "chain-next-name");
         bool linked = !string.IsNullOrEmpty(nextFrameName) || (frameName is not null && context.LinkedFrameTargets.Contains(frameName));
 
-        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty && !linked && drawing.Element(OdtNamespaces.Draw + "image") is null)
+        // A valid empty text frame is still a positioned object, not a body
+        // paragraph. A nested drawing that this text path did not represent is
+        // not evidence of emptiness: leave it to the existing fallback walk.
+        bool unrepresentedDrawing = textBox?.Descendants().Any(element => element.Name.Namespace == OdtNamespaces.Draw) == true;
+        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty && !linked &&
+            (textBox is null || unrepresentedDrawing) && drawing.Element(OdtNamespaces.Draw + "image") is null)
             return false;
 
         // Image frames must still go through the image admission path.
@@ -1435,12 +1457,26 @@ internal static class OdtReader
             // A section is a named region of ordinary body content; an index is a
             // generated one whose text:index-body holds real paragraphs. Both are
             // walked so the words inside them survive.
-            // A section with columns of its own is a DocumentSection over the
-            // paragraphs read inside it; one without is ordinary body content.
+            // Column/background styles and unconditional visibility are kept
+            // over the paragraph range; hidden content remains in the model.
             if (name == OdtNamespaces.Text + "section")
             {
                 int sectionStart = builder.CurrentParagraphIndex;
-                ReadBlockContent(element.Elements(), context, list, depth + 1);
+                bool hidden = (string?)element.Attribute(OdtNamespaces.Text + "display") == "none";
+                OdtBreak pending = hidden ? context.TakeBreak() : OdtBreak.None;
+                if (hidden) context.HiddenSectionDepth++;
+                try
+                {
+                    ReadBlockContent(element.Elements(), context, list, depth + 1);
+                }
+                finally
+                {
+                    if (hidden)
+                    {
+                        context.HiddenSectionDepth--;
+                        context.HoldBreak(pending);
+                    }
+                }
                 string? sectionStyle = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
                 if (sectionStyle is not null &&
                     context.Styles.SectionProperties.TryGetValue(sectionStyle, out XElement? sectionProperties))
@@ -1448,8 +1484,10 @@ internal static class OdtReader
                     (int count, double gap) = TryReadColumns(sectionProperties, builder.AddDiagnosticOnce) ?? (1, 0);
                     TryColor((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "background-color"), out BColor background);
                     builder.AddSection(new DocumentSection(
-                        sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap, background: background));
+                        sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap, background: background, hidden: hidden));
                 }
+                else if (hidden)
+                    builder.AddSection(new DocumentSection(sectionStart, builder.CurrentParagraphIndex - sectionStart, 1, 0, hidden: true));
 
                 continue;
             }
@@ -2291,13 +2329,12 @@ internal static class OdtReader
         context.Builder.AppendLiteral(InlineImage.PlaceholderText, style with { Image = image });
     }
 
-    /// <summary>True for the two anchors that put a frame in the text rather than beside it.</summary>
+    /// <summary>As-char occupies a line character; char floats beside its anchor.
+    /// Missing anchor-type keeps the legacy inline fallback.</summary>
     private static bool IsAnchoredInText(XElement frame)
     {
         string? anchor = (string?)frame.Attribute(OdtNamespaces.Text + "anchor-type");
-        return anchor is null ||
-            anchor.Equals("as-char", StringComparison.Ordinal) ||
-            anchor.Equals("char", StringComparison.Ordinal);
+        return anchor is null || anchor.Equals("as-char", StringComparison.Ordinal);
     }
 
     /// <summary>

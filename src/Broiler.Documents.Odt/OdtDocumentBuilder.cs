@@ -300,6 +300,11 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
 
     public RichTextDocument Build()
     {
+        // A block-level frame after the last paragraph still needs that next
+        // paragraph as its anchor; page-anchored objects need no body anchor.
+        if (_shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _paragraphs.Count))
+            FinishParagraph();
+
         RichTextDocument document = _paragraphs.Count == 0
             ? RichTextDocument.Empty
             : RichTextDocument.FromParagraphs(_paragraphs);
@@ -326,16 +331,17 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
                 continue;
             DocumentSection outer = covering[0];
             var background = covering.LastOrDefault(section => !section.Background.IsEmpty && section.Background.A > 0)?.Background ?? default;
+            bool hidden = covering.Any(section => section.Hidden);
             int start = edges[i];
             if (resolved.LastOrDefault() is DocumentSection previous && previous.ParagraphEnd == start &&
                 previous.ColumnCount == outer.ColumnCount && previous.ColumnGap == outer.ColumnGap &&
-                previous.Page == outer.Page && previous.RunningContent == outer.RunningContent && previous.Background == background)
+                previous.Page == outer.Page && previous.RunningContent == outer.RunningContent && previous.Background == background && previous.Hidden == hidden)
             {
                 resolved.RemoveAt(resolved.Count - 1);
                 start = previous.ParagraphIndex;
             }
             resolved.Add(new DocumentSection(start, edges[i + 1] - start, outer.ColumnCount, outer.ColumnGap,
-                outer.Page, outer.RunningContent, background));
+                outer.Page, outer.RunningContent, background, hidden: hidden));
         }
         return resolved;
     }

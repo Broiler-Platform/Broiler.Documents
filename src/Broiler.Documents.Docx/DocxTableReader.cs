@@ -50,6 +50,10 @@ internal static class DocxTableReader
         Edges tableEdges = ReadTableEdges(styleTableParts, properties);
         BColor? tableShading = ReadTableShading(styleTableParts, properties);
         List<XElement> rowElements = [.. EnumerateTableChildren(table, "tr")];
+        // A malformed empty table contributes no block; leave the break for
+        // the next real paragraph or table instead of swallowing it here.
+        (bool pageBreak, bool columnBreak) = rowElements.Any(row => EnumerateTableChildren(row, "tc").Any())
+            ? context.Builder.TakeBlockBreak() : (false, false);
         var rows = new List<RowDraft>();
         bool exactHeightSeen = false;
 
@@ -156,7 +160,8 @@ internal static class DocxTableReader
             preferredWidth: ReadPreferredWidth(TableProperty(styleTableParts, properties, "tblW"), percent: false),
             widthPercent: ReadPreferredWidth(TableProperty(styleTableParts, properties, "tblW"), percent: true),
             alignment: ReadAlignment(DocxValueReader.WordValue(TableProperty(styleTableParts, properties, "jc"))),
-            leftIndent: DocxValueReader.Twips(TableProperty(styleTableParts, properties, "tblInd"), "w")));
+            leftIndent: DocxValueReader.Twips(TableProperty(styleTableParts, properties, "tblInd"), "w"),
+            pageBreakBefore: pageBreak, columnBreakBefore: columnBreak));
 
         if (depth > 1 && properties?.Element(DocxNamespaces.Wordprocessing + "tblpPr") is not null)
         {

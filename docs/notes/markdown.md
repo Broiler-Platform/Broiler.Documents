@@ -123,3 +123,8 @@ the reading of the licence's naming clause, the approved labels and the
 provenance findings are in [the Markdown register](../ip/markdown.md). This is a
 CommonMark-oriented subset and the limits above enumerate what it does not
 implement, so nothing may describe it as CommonMark-compliant.
+
+
+Hidden body-section visibility is not written by this codec. The retained
+content is exported as visible paragraphs, with `markdown.section.hidden`.
+ODT retains the flag; the shared raster paginator omits hidden body sections.

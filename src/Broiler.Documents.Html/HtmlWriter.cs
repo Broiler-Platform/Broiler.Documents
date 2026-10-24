@@ -47,6 +47,9 @@ public static class HtmlWriter
         DocumentConversionContext resources = (options ?? DocumentWriteOptions.Default).Resources;
 
         var diagnostics = new List<DocumentDiagnostic>();
+        if (document.Sections.Any(section => section.Hidden))
+            diagnostics.Add(DocumentDiagnostic.Warning("html.section.hidden",
+                "Hidden section visibility was not written; its retained content is exported as visible paragraphs."));
         if (document.Sections.Count > 0 || document.PageGeometry is { HasColumns: true })
         {
             // CSS could state columns, but a browser balances them over the

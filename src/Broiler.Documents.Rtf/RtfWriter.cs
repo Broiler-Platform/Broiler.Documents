@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Documents.Resources;
@@ -30,6 +31,9 @@ public static class RtfWriter
         var fonts = new ResourceTable<string>(StringComparer.Ordinal);
         var colors = new ResourceTable<BColor>(EqualityComparer<BColor>.Default);
         var diagnostics = new List<DocumentDiagnostic>();
+        if (document.Sections.Any(section => section.Hidden))
+            diagnostics.Add(DocumentDiagnostic.Warning("rtf.section.hidden",
+                "Hidden section visibility was not written; its retained content is exported as visible paragraphs."));
 
         // The writer always escapes non-ASCII as \uN?; there is no raw-byte mode.
         // A caller asking for one is told, rather than silently given the escaped

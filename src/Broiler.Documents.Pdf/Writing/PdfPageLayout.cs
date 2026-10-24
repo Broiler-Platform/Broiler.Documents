@@ -187,6 +187,9 @@ internal sealed class PdfPageLayout(
         // This layout fills the document's page as one column, so text columns -
         // the page's or a section's - and a section's own margins are not drawn,
         // and a column break is the page break a page of one column makes of it.
+        if (document.Sections.Any(section => section.Hidden))
+            _diagnostics.Warning(PdfDiagnosticCodes.WriteFeatureUnsupported,
+                "Hidden section visibility is not supported by the PDF layout; its retained content is drawn. Use the shared raster paginator to omit it.");
         if (document.PageGeometry?.HasColumns == true || document.Sections.Count > 0)
         {
             _diagnostics.Warning(

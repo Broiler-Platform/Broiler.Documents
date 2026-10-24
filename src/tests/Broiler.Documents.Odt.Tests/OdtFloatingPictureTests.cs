@@ -53,6 +53,21 @@ public sealed class OdtFloatingPictureTests
         Assert.Equal(expectedY, shape.OffsetY, 2);
     }
 
+    [Fact]
+    public void A_Character_Anchor_Floats_Instead_Of_Taking_Space_In_The_Line()
+    {
+        DocumentReadResult result = ReadInParagraph(Frame(anchor: "char", x: "12pt", y: "18pt",
+            width: "100pt", height: "200pt"));
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.Equal(12, shape.OffsetX);
+        Assert.Equal(18, shape.OffsetY);
+        Assert.Equal(100, shape.Width);
+        Assert.Equal(200, shape.Height);
+        Assert.False(shape.IsPageAnchored);
+        Assert.DoesNotContain(result.Document.Paragraphs.SelectMany(paragraph => paragraph.Runs), run => run.Style.Image is not null);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "odt.image.anchored");
+    }
+
     private static Dictionary<string, byte[]> Pictures() =>
         new(StringComparer.Ordinal) { ["Pictures/logo.png"] = OdtTestPackage.OnePixelPng };
 

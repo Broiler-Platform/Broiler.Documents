@@ -87,8 +87,9 @@ public sealed class DocumentLayoutPageStyleTests
         var page = Assert.Single(new DocumentLayout(new LayoutSettings(), images).Layout(document,
             new DocumentPageBox(200, 100, 10, 10, 10, 10)).Pages);
         Assert.Equal(15, Assert.Single(page.Cells).Bounds.Height);
-        Assert.Equal(2, page.Lines.Count);
-        Assert.Equal(25, page.Lines[1].Top, 3);
+        Assert.Equal(3, page.Lines.Count);
+        Assert.Equal(5, page.Lines[1].ClipHeight);
+        Assert.Equal(25, page.Lines[2].Top, 3);
         Assert.Contains("third", document.PlainText);
     }
 

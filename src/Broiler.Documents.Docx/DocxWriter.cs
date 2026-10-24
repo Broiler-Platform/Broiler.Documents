@@ -29,6 +29,8 @@ public static class DocxWriter
         var context = new DocxWriteContext(
             document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None || p.Style.List is not null),
             (options ?? DocumentWriteOptions.Default).Resources);
+        if (document.Sections.Any(section => section.Hidden))
+            context.AddDiagnosticOnce("docx.section.hidden", "Hidden section visibility was not written; its retained content is exported as visible paragraphs.");
         BuildRunningParts(document, context);
         if (document.PageBackground?.HasExtendedPaint == true || document.Shapes.Any(shape => shape.Fill?.HasExtendedPaint == true))
             context.AddDiagnosticOnce("docx.fill.extended", "Bitmap and hatch fills, centred gradient geometry, gradient borders and page-fill bounds were approximated by their base colours or linear gradients.");

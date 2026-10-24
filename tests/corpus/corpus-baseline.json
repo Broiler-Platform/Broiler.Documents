@@ -500,7 +500,8 @@
         "paragraph-style@p6: list Numbered vs None"
       ],
       "diagnostics": [
-        "html.list"
+        "html.list",
+        "html.table.flattened"
       ],
       "state": "documented",
       "reference": "docs/notes/html.md",
@@ -527,7 +528,8 @@
       ],
       "diagnostics": [
         "markdown.inline-style",
-        "markdown.paragraph-style"
+        "markdown.paragraph-style",
+        "markdown.table.flattened"
       ],
       "state": "suspected-defect",
       "reference": "docs/guides/corpus-suite.md",
@@ -546,7 +548,9 @@
         "paragraph-style@p5: list Numbered vs None",
         "paragraph-style@p6: list Numbered vs None"
       ],
-      "diagnostics": [],
+      "diagnostics": [
+        "rtf.table.flattened"
+      ],
       "state": "documented",
       "reference": "docs/notes/rtf.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",

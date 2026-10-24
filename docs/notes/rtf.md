@@ -614,3 +614,8 @@ RTF is a vendor format with no standards body. Its rights position (the Microsof
 Open Specification Promise names `[RTF]` itself), the approved labels and the
 provenance findings are in [the RTF register](../ip/rtf.md). Decided is not
 cleared: no lawyer reviewed it, and patent-freedom is not claimed.
+
+
+Hidden body-section visibility is not written by this codec. The retained
+content is exported as visible paragraphs, with `rtf.section.hidden`.
+ODT retains the flag; the shared raster paginator omits hidden body sections.

@@ -270,6 +270,10 @@ public static class RtfReader
             FlushPending();
             FinishFrame();
             FinishTable();
+            // A final frame can belong to an otherwise empty body paragraph.
+            // Keep that anchor even when preceding body paragraphs already exist.
+            if (_shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _builder.ParagraphCount))
+                _builder.EndParagraph(_state.Para);
             RichTextDocument document = _builder.Build(_state.Para)
                 .WithStyleDefaults(DocumentStyleDefaults.Default with
                 {
