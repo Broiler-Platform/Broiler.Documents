@@ -277,7 +277,7 @@ internal static class OdtReader
                 .Where(name => !string.IsNullOrEmpty(name)).Select(name => name!).ToHashSet(StringComparer.Ordinal),
             SelectPageStyle = (family, style, index) =>
             {
-                if (context!.TableDepth > 0)
+                if (context!.TableDepth > 0 || context.HiddenSectionDepth > 0)
                     return false;
                 string? name = styles.MasterPageName(family, style);
                 if (string.IsNullOrEmpty(name) || masters is null || !masters.TryGetValue(name, out XElement? master))
@@ -319,7 +319,7 @@ internal static class OdtReader
             sections.Add(new DocumentSection(index, edges[i + 1] - index,
                 textSection?.ColumnCount ?? selected.Page?.ColumnCount ?? 1,
                 textSection?.ColumnGap ?? selected.Page?.ColumnGap ?? 0,
-                selected.Page, selected.Running, textSection?.Background ?? default, selected.Sequence));
+                selected.Page, selected.Running, textSection?.Background ?? default, selected.Sequence, textSection?.Hidden ?? false));
         }
         return built.WithSections(sections);
     }
@@ -415,6 +415,9 @@ internal static class OdtReader
 
         foreach (XElement block in body.Descendants())
         {
+            if (block.Ancestors(OdtNamespaces.Text + "section")
+                .Any(section => (string?)section.Attribute(OdtNamespaces.Text + "display") == "none"))
+                continue;
             if (block.Name == OdtNamespaces.Text + "p" || block.Name == OdtNamespaces.Text + "h")
             {
                 return styles.MasterPageName(
@@ -1440,12 +1443,26 @@ internal static class OdtReader
             // A section is a named region of ordinary body content; an index is a
             // generated one whose text:index-body holds real paragraphs. Both are
             // walked so the words inside them survive.
-            // A section with columns of its own is a DocumentSection over the
-            // paragraphs read inside it; one without is ordinary body content.
+            // Column/background styles and unconditional visibility are kept
+            // over the paragraph range; hidden content remains in the model.
             if (name == OdtNamespaces.Text + "section")
             {
                 int sectionStart = builder.CurrentParagraphIndex;
-                ReadBlockContent(element.Elements(), context, list, depth + 1);
+                bool hidden = (string?)element.Attribute(OdtNamespaces.Text + "display") == "none";
+                OdtBreak pending = hidden ? context.TakeBreak() : OdtBreak.None;
+                if (hidden) context.HiddenSectionDepth++;
+                try
+                {
+                    ReadBlockContent(element.Elements(), context, list, depth + 1);
+                }
+                finally
+                {
+                    if (hidden)
+                    {
+                        context.HiddenSectionDepth--;
+                        context.HoldBreak(pending);
+                    }
+                }
                 string? sectionStyle = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
                 if (sectionStyle is not null &&
                     context.Styles.SectionProperties.TryGetValue(sectionStyle, out XElement? sectionProperties))
@@ -1453,8 +1470,10 @@ internal static class OdtReader
                     (int count, double gap) = TryReadColumns(sectionProperties, builder.AddDiagnosticOnce) ?? (1, 0);
                     TryColor((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "background-color"), out BColor background);
                     builder.AddSection(new DocumentSection(
-                        sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap, background: background));
+                        sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap, background: background, hidden: hidden));
                 }
+                else if (hidden)
+                    builder.AddSection(new DocumentSection(sectionStart, builder.CurrentParagraphIndex - sectionStart, 1, 0, hidden: true));
 
                 continue;
             }

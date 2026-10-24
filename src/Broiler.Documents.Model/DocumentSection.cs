@@ -33,7 +33,8 @@ public sealed class DocumentSection(
     PageGeometry? page = null,
     RunningContent? runningContent = null,
     BColor background = default,
-    PageStyleSequence? pageStyles = null)
+    PageStyleSequence? pageStyles = null,
+    bool hidden = false)
 {
     /// <summary>The first paragraph the section holds.</summary>
     public int ParagraphIndex { get; } = Math.Max(0, paragraphIndex);
@@ -93,6 +94,9 @@ public sealed class DocumentSection(
 
     public PageStyleSequence? PageStyles { get; } = pageStyles;
 
+    /// <summary>Retain this section in the model without displaying its body content.</summary>
+    public bool Hidden { get; } = hidden;
+
     /// <summary>True when <paramref name="paragraphIndex"/> is one of the section's paragraphs.</summary>
     public bool Contains(int paragraphIndex) => paragraphIndex >= ParagraphIndex && paragraphIndex < ParagraphEnd;
 
@@ -124,6 +128,6 @@ public sealed class DocumentSection(
             return this;
 
         (int index, int count) = DocumentTable.ShiftRange(ParagraphIndex, ParagraphCount, at, removed, inserted);
-        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles);
+        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden);
     }
 }

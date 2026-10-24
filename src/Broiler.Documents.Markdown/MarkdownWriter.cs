@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Documents.Resources;
@@ -20,6 +21,9 @@ public static class MarkdownWriter
         DocumentConversionContext resources = (options ?? DocumentWriteOptions.Default).Resources;
 
         var diagnostics = new List<DocumentDiagnostic>();
+        if (document.Sections.Any(section => section.Hidden))
+            diagnostics.Add(DocumentDiagnostic.Warning("markdown.section.hidden",
+                "Hidden section visibility was not written; its retained content is exported as visible paragraphs."));
         if (document.Tables.Count > 0)
         {
             // Markdown has a table syntax, but not one that carries spans,

@@ -308,3 +308,59 @@ fonts, an 80% threshold and a 40-page cap. Reports outside the checkout:
 `/workspace/.setup/round4-before.json`, `round4-verified.json` and
 `round4-top10-verified.json`. The original was fetched again from LibreOffice's
 public `sw/qa/extras` tree; its binary is not committed.
+
+## Further case: hidden ODT sections contributing visible pages
+
+Rank 27, `uiwriter/data/fdo114306_2.odt`, includes numerous sections explicitly
+marked `text:display="none"`. The reader previously imported their paragraphs
+and tables as ordinary visible body content, including breaks that created
+extra pages.
+
+The model now retains unconditional visibility as `DocumentSection.Hidden`.
+The ODT reader resolves nested visibility, keeps the text, and isolates hidden
+page breaks and page-style selections from the visible flow. The shared
+paginator skips hidden body ranges, objects anchored to hidden paragraphs and
+hidden note-label contributions. ODT writing retains the flag and keeps
+cell-local sections inside cells instead of duplicating their containing table.
+Paragraph edits preserve visibility through the existing range-shifting rule.
+
+The original now has **4 pages vs LibreOffice's 4**, previously 7 vs 4:
+
+| Worst-page observation | Before | After |
+| --- | ---: | ---: |
+| Ink profile similarity | 0% | 90.24% |
+| Ink bounds delta | 731 px | 254 px |
+| Coverage delta | 5.08% | 3.57% |
+| Blur difference | 13.86% | 26.02% |
+
+The blur metric gets worse as visible content moves onto its correct pages;
+this is not an improvement in every visual metric. The pixel comparison remains
+below threshold at 73.98% rendering similarity, and the text comparison still
+reports the two missing heading strings. Plain text remains unchanged by the
+visibility fix: hidden content is preserved for editing and ODT round trips,
+not removed from the source model. No whole-document pass is claimed. The
+floating-table candidates inspected earlier remain open; no speculative table
+spacing change was made.
+
+Conditional section visibility is not evaluated. Sections inside text frames
+and running parts lack independent section collections and remain outside this
+body-section support. DOCX, RTF, HTML and Markdown writers explicitly report
+`*.section.hidden` when exporting retained content as visible paragraphs. The
+native PDF layout likewise reports its visibility limitation; the shared raster
+paginator supports omission of hidden body sections.
+
+Release build succeeds; **3,881 executed unit tests pass** (3 additional
+skips), and **2,320/2,320 CLI corpus checks pass** (105 documented skips).
+Regressions cover ODT content/visibility round trips, nested inheritance,
+page-break isolation and carry, first-page style selection, table-cell/nested
+cell round trips, hidden tables and page-anchored objects, visible sibling cells,
+and explicit loss diagnostics in the other writers. No corpus baseline or
+comparison threshold changed. The ten highest-impact originals retain 13/30
+passes and their prior rendering observations.
+
+Reports outside the checkout are `/workspace/.setup/round5-before.json`,
+`round5-verified.json` and `round5-top10.json`. The baseline CLI was published
+from `e16fa6b`; the intervening image-alternative fix does not affect this
+input's single-representation frames. Runs use identical originals, LibreOffice
+26.8.1.1, poppler 26.05.0, 72 dpi, unpinned fonts, the unchanged 80% threshold and
+40-page cap. These tool versions differ from the original issue's reference.

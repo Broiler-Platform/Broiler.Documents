@@ -602,3 +602,18 @@ the provenance findings are in [the ODT register](../ip/odt.md). The position is
 assessed green, which is a risk judgement and not a clearance. Implementing a
 documented subset is not conformance, so nothing describes this codec as
 ODF-conformant, and `OdtClaimGuardTests` fails the build over it.
+
+
+### Unconditionally hidden body sections
+
+`text:section text:display="none"` is retained as `DocumentSection.Hidden`.
+Its paragraphs and tables remain in the model and plain-text projections, and
+ODT writing preserves the visibility flag, including cell-local sections.
+Nested visible sections cannot reveal a hidden parent. The shared paginator
+omits hidden body content, anchored objects and note numbering contributions;
+hidden paragraph breaks and page-style selections do not affect visible text.
+A break from a preceding visible paragraph still reaches the next visible block.
+Conditional visibility is not evaluated. Running parts and text frames do not
+carry their own section collections, so hidden sections inside those parts are
+not covered by this body-section support. Other writers report their visibility
+limitation rather than silently claiming to preserve the flag.

@@ -684,3 +684,8 @@ and the provenance findings are in [the DOCX register](../ip/docx.md). Decided i
 not cleared: no lawyer reviewed it, and patent-freedom is not claimed. No format
 label may name a vendor or its product, so `.docx` is offered as
 `DOCX Document (*.docx)`.
+
+
+Hidden body-section visibility is not written by this codec. The retained
+content is exported as visible paragraphs, with `docx.section.hidden`.
+ODT retains the flag; the shared raster paginator omits hidden body sections.

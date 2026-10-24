@@ -138,10 +138,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _headerDistance = document.PageGeometry?.HeaderDistance;
         _footerDistance = document.PageGeometry?.FooterDistance;
         _frame = null;
-        _documentShapes = document.Shapes;
+        bool IsHidden(int index) => DocumentSection.Containing(document.Sections, index)?.Hidden == true;
+        _documentShapes = document.Shapes.Where(shape => !IsHidden(shape.ParagraphIndex)).ToArray();
         _background = document.PageBackground;
         _styleDefaults = document.StyleDefaults;
-        _noteLabels = NoteNumberer.For(document.Paragraphs, document.NoteNumbering);
+        _noteLabels = NoteNumberer.For(document.Paragraphs.Where((_, index) => !IsHidden(index)).ToArray(), document.NoteNumbering);
         _raisedNoteLabels = document.NoteNumbering.RaisedLabels;
         _noteBlocks.Clear();
         _paragraphTops.Clear();
@@ -808,6 +809,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             DocumentTable? table = DocumentTable.StartingAt(document.Tables, paragraphIndex);
             DocumentSection? section = DocumentSection.Containing(document.Sections, paragraphIndex);
+            if (section?.Hidden == true && (table is null || table.ParagraphEnd <= section.ParagraphEnd))
+            {
+                paragraphIndex = section.ParagraphEnd;
+                continue;
+            }
             if (!ReferenceEquals(section, region))
             {
                 bool opensPage = table?.PageBreakBefore ?? document.Paragraphs[paragraphIndex].Style.PageBreakBefore;
@@ -1796,7 +1802,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         int index = Math.Max(0, from);
         while (index < Math.Min(to, document.ParagraphCount))
         {
-            if (DocumentTable.StartingAt(tables, index) is DocumentTable nested)
+            DocumentTable? nested = DocumentTable.StartingAt(tables, index);
+            DocumentSection? section = DocumentSection.Containing(document.Sections, index);
+            if (section?.Hidden == true && (nested is null || nested.ParagraphEnd <= section.ParagraphEnd))
+            {
+                index = Math.Min(to, section.ParagraphEnd);
+                continue;
+            }
+            if (nested is not null)
             {
                 // Keep the nested row's legal cuts. Treating every nested row
                 // as indivisible lets a long cell run off the page even when

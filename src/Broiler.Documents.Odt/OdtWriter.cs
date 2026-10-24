@@ -335,6 +335,8 @@ public static class OdtWriter
                 new XAttribute(
                     OdtNamespaces.Text + "name",
                     "Section" + (++written).ToString(CultureInfo.InvariantCulture)));
+            if (section.Hidden)
+                element.Add(new XAttribute(OdtNamespaces.Text + "display", "none"));
             foreach (XElement block in BuildBlocks(document, document.Tables, section.ParagraphIndex, section.ParagraphEnd, context))
                 element.Add(block);
 
@@ -419,8 +421,37 @@ public static class OdtWriter
         if (page is not null && index < document.ParagraphCount)
             written.Add(new DocumentSection(index, document.ParagraphCount - index, page.ColumnCount, page.ColumnGap));
 
-        written.RemoveAll(section => section.ColumnCount <= 1 && (section.Background.IsEmpty || section.Background.A == 0));
+        // Cell-local visibility belongs inside the cell, not around a slice of
+        // its containing table: doing the latter would write the table twice.
+        written.RemoveAll(section => section.Hidden && InsideTable(section, document.Tables));
+        written.RemoveAll(section => !section.Hidden && section.ColumnCount <= 1 && (section.Background.IsEmpty || section.Background.A == 0));
         return written;
+    }
+
+    private static bool InsideTable(DocumentSection section, IReadOnlyList<DocumentTable> tables) =>
+        tables.Any(table => section.ParagraphIndex >= table.ParagraphIndex && section.ParagraphEnd <= table.ParagraphEnd &&
+            (section.ParagraphIndex > table.ParagraphIndex || section.ParagraphEnd < table.ParagraphEnd));
+
+    private static IEnumerable<XElement> BuildCellBlocks(RichTextDocument document, TableCell cell, OdtWriteContext context)
+    {
+        int index = cell.ParagraphIndex;
+        foreach (DocumentSection section in document.Sections.Where(section => section.Hidden &&
+            section.ParagraphIndex >= cell.ParagraphIndex && section.ParagraphEnd <= cell.ParagraphEnd &&
+            !InsideTable(section, cell.Tables)).OrderBy(section => section.ParagraphIndex))
+        {
+            if (section.ParagraphIndex < index) continue;
+            foreach (XElement block in BuildBlocks(document, cell.Tables, index, section.ParagraphIndex, context))
+                yield return block;
+            var hidden = new XElement(OdtNamespaces.Text + "section",
+                new XAttribute(OdtNamespaces.Text + "name", "Hidden" + section.ParagraphIndex.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute(OdtNamespaces.Text + "display", "none"));
+            foreach (XElement block in BuildBlocks(document, cell.Tables, section.ParagraphIndex, section.ParagraphEnd, context))
+                hidden.Add(block);
+            yield return hidden;
+            index = section.ParagraphEnd;
+        }
+        foreach (XElement block in BuildBlocks(document, cell.Tables, index, cell.ParagraphEnd, context))
+            yield return block;
     }
 
     private static bool PageColumnsGoOnSections(RichTextDocument document) =>
@@ -587,7 +618,7 @@ public static class OdtWriter
         }
 
         bool empty = true;
-        foreach (XElement block in BuildBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, context))
+        foreach (XElement block in BuildCellBlocks(document, cell, context))
         {
             element.Add(block);
             empty = false;

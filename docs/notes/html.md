@@ -214,3 +214,8 @@ labels and the provenance findings are in [the HTML register](../ip/html.md).
 This codec does not tokenize or parse HTML: `Broiler.Dom.Html` does, and that
 repository keeps its own register. A claim about Broiler's HTML support as a
 whole needs both.
+
+
+Hidden body-section visibility is not written by this codec. The retained
+content is exported as visible paragraphs, with `html.section.hidden`.
+ODT retains the flag; the shared raster paginator omits hidden body sections.
