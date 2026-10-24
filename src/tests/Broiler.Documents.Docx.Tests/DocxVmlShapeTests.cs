@@ -48,6 +48,22 @@ public sealed class DocxVmlShapeTests
     }
 
     [Fact]
+    public void Negative_Vml_Levels_Keep_Backgrounds_Behind_Other_Shapes()
+    {
+        DocumentShape At(int level) => Assert.Single(Read(
+            $"<v:rect fillcolor='red' style='width:10pt;height:10pt;z-index:{level}'/>").Document.Shapes);
+        var levels = new[] { int.MinValue, -251658240, -998, -997, -1 };
+        var shapes = levels.Select(At).ToArray();
+        Assert.All(shapes, shape => Assert.True(shape.BehindText));
+        for (int i = 1; i < shapes.Length; i++)
+            Assert.True(shapes[i - 1].ZOrder < shapes[i].ZOrder);
+        Assert.Equal(0, shapes[0].ZOrder);
+        Assert.Equal(int.MaxValue, shapes[^1].ZOrder);
+        Assert.False(At(0).BehindText);
+        Assert.Equal(123, At(123).ZOrder);
+    }
+
+    [Fact]
     public void A_Backdrop_Measured_From_The_Page_Stands_On_The_Page()
     {
         // tdf123163-1.docx: a full-page panel behind the text, at nought from

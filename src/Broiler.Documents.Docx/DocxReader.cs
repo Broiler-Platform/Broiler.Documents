@@ -1532,7 +1532,9 @@ internal static class DocxReader
             image: null,
             behindText: zIndex < 0,
             wrap: wrap,
-            zOrder: zIndex == int.MinValue ? int.MaxValue : Math.Abs(zIndex),
+            // Keep VML's signed order within the behind-text layer. Absolute
+            // values reverse negative levels and paint backgrounds over shapes.
+            zOrder: zIndex < 0 ? zIndex - int.MinValue : zIndex,
             offsetFromPage: fromPage,
             tables: shapeContent.Tables,
             textPadding: ReadVmlPadding(shape.Element(DocxNamespaces.Vml + "textbox")),
