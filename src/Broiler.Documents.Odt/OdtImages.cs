@@ -42,23 +42,28 @@ internal sealed class OdtImageLoader(
     /// </summary>
     public InlineImage? Read(XElement frame, IOdtImageDiagnostics diagnostics)
     {
-        XElement? image = FirstImage(frame);
-        if (image is null)
+        PicturePart? part = null;
+        bool foundImage = false;
+        foreach (XElement image in ImageAlternatives(frame))
         {
-            // An object, applet, plugin, or text box frame lands here. A text box
-            // is read as block content by the reader, not as a picture.
-            diagnostics.AddDiagnosticOnce(
-                "odt.image.shape",
-                "An ODT frame held no embedded picture and was skipped.");
+            foundImage = true;
+            part = ReadPicture(image, diagnostics);
+            if (part is not null)
+                break;
+        }
+        if (part is null)
+        {
+            if (!foundImage)
+            {
+                diagnostics.AddDiagnosticOnce(
+                    "odt.image.shape",
+                    "An ODT frame held no embedded picture and was skipped.");
+            }
             return null;
         }
 
         (double width, double height) = ReadExtent(frame);
         (string? altText, string? name) = ReadDescription(frame);
-
-        PicturePart? part = ReadPicture(image, diagnostics);
-        if (part is null)
-            return null;
 
         var picture = new InlineImage(
             part.Data,
@@ -92,27 +97,23 @@ internal sealed class OdtImageLoader(
     }
 
     /// <summary>
-    /// The first <c>draw:image</c> in a frame. ODF lets a frame carry several
-    /// alternative representations of one picture; the first is the preferred
-    /// one, and taking any other would silently prefer a fallback. A clickable
-    /// picture wraps the image in a <c>draw:a</c>, which is looked through: the
-    /// link belongs to the frame, and the picture is still the picture.
+    /// Alternative representations of one picture, in document preference order.
+    /// The first readable one wins; an unsupported vector representation must
+    /// not hide an embedded raster fallback. Clickable images may be wrapped in
+    /// draw:a, but nested frames hold separate objects and are not searched.
     /// </summary>
-    private static XElement? FirstImage(XElement frame)
+    private static IEnumerable<XElement> ImageAlternatives(XElement frame)
     {
         foreach (XElement child in frame.Elements())
         {
             if (child.Name == OdtNamespaces.Draw + "image")
-                return child;
-
-            if (child.Name == OdtNamespaces.Draw + "a")
+                yield return child;
+            else if (child.Name == OdtNamespaces.Draw + "a")
             {
                 foreach (XElement nested in child.Elements(OdtNamespaces.Draw + "image"))
-                    return nested;
+                    yield return nested;
             }
         }
-
-        return null;
     }
 
     private PicturePart? ReadPicture(XElement image, IOdtImageDiagnostics diagnostics)

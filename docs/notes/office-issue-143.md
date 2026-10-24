@@ -254,3 +254,57 @@ input bytes, LibreOffice 26.8.1.1, poppler 26.05.0, 72 dpi, unpinned fonts and a
 `/workspace/.setup/round3-before-all.json`, `round3-after-final.json` and
 `round3-top10-final.json`. Source originals were fetched again from LibreOffice's
 public `sw/qa/extras` tree; no upstream document binaries are committed.
+
+## Further case: embedded raster alternatives after unsupported vector images
+
+Rank 28, `ooxmlexport/data/testCustomShapePresetExport.odt`, stores a vector SVM
+representation and a PNG representation of each screenshot in the same frame.
+The loader previously selected only the first `draw:image`, rejected its format,
+and discarded the frame's picture even though a supported alternative was
+embedded beside it.
+
+The loader now tries representations in source order until it can carry one.
+It preserves the preference for an already supported first representation, the
+frame's extent/name/description, package caching, and diagnostics for skipped
+representations. Alternatives inside a clickable `draw:a` and flat
+`office:binary-data` payloads are included. Nested frames are separate objects
+and are not searched. Resource admission still happens once after selection;
+a denied representation does not trigger further alternatives. No external
+resource is fetched.
+
+The original's screenshot column is restored. Against an isolated CLI published
+from `e16fa6b`, with identical original bytes and reference settings:
+
+| Worst-page metric | Before | After |
+| --- | ---: | ---: |
+| Ink profile similarity | 42.80% | 90.25% |
+| Blur difference | 24.51% | 21.07% |
+| Coverage delta | 13.18% | 6.27% |
+| Ink bounds delta | 17 px | 17 px |
+
+Both renders have six pages. Rendering similarity is now 78.93%, still below the
+unchanged 80% threshold; the text comparison also remains open. The native-shape
+column still has incorrect inline placement, simplified preset geometry and
+missing implicit fill handling. A fill-only change was not retained: painting
+those shapes at their currently incorrect positions made the overall comparison
+worse. This change claims restored embedded pictures, not complete shape support
+or resolution of the whole original case.
+
+Rank 29, `ooo96040-2.odt`, was checked again and retains identical observed
+rendering metrics and the existing 16-vs-12 page discrepancy. Across these two
+inputs the checks remain 2/6, with only the reads passing. The top-ten recheck
+retains 13/30 passing checks and identical rendering observations for all ten
+inputs.
+
+Validation: Release build; **3,867 executed unit tests pass** (3 additional
+skips); **2,320/2,320 CLI corpus checks pass** (105 documented skips). Five new
+regression cases cover unsupported preferred images with PNG alternatives,
+clickable wrappers, preference for a supported first image, an external
+alternative followed by flat embedded data, and resource denial. No corpus
+baseline or comparison threshold was changed.
+
+The local comparisons use LibreOffice 26.8.1.1, poppler 26.05.0, 72 dpi, unpinned
+fonts, an 80% threshold and a 40-page cap. Reports outside the checkout:
+`/workspace/.setup/round4-before.json`, `round4-verified.json` and
+`round4-top10-verified.json`. The original was fetched again from LibreOffice's
+public `sw/qa/extras` tree; its binary is not committed.

@@ -261,6 +261,13 @@ layout are covered; this does not claim identical exported clipping.
   `svg:title` (falling back to `svg:desc`). A write stores each distinct image
   once under `Pictures`, declares it in the manifest, and anchors the frame
   `as-char`. Raster formats only: PNG, JPEG, GIF, BMP, TIFF, WebP, and ICO.
+  A frame's alternative `draw:image` representations are tried in source order
+  until the loader can carry one, including alternatives inside `draw:a`.
+  A supported first representation keeps priority; unsupported or unavailable
+  ones retain their diagnostics. An embedded PNG may therefore supply the
+  picture when an earlier SVM representation cannot be read. Flat binary-data
+  alternatives work too. External resources are never fetched, and resource
+  policy denial stops extraction rather than trying another representation.
 - The page, from the `style:page-layout` that a master page names: size, and the
   four margins. Which master page is a question ODF answers from the other end —
   a master page never says it is the first, the content says which one it is on,
