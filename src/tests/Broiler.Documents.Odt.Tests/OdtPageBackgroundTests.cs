@@ -37,7 +37,7 @@ public sealed class OdtPageBackgroundTests
     public void A_Page_Layouts_Background_Colour_Is_Read()
     {
         Assert.Equal(
-            ShapeFill.Solid(BColor.FromArgb(0xFF, 0, 0)),
+            ShapeFill.Solid(BColor.FromArgb(0xFF, 0, 0)) with { ContentOnly = true },
             Read("fo:background-color=\"#ff0000\"").Document.PageBackground);
     }
 

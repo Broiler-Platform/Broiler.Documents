@@ -25,7 +25,8 @@ internal sealed class LineWrapper(double tabStopPoints)
     /// line lands. <paramref name="bands"/> collects what each row was given, so
     /// the caller can place it at the left edge it was wrapped to.
     /// </remarks>
-    internal List<List<LayoutPiece>> Wrap(List<LayoutToken> tokens, Func<int, TextBand> bandFor, List<TextBand>? bands)
+    internal List<List<LayoutPiece>> Wrap(List<LayoutToken> tokens, Func<int, TextBand> bandFor, List<TextBand>? bands,
+        ParagraphTabStops? tabStops = null, double indent = 0)
     {
         var rows = new List<List<LayoutPiece>>();
         var current = new List<LayoutPiece>();
@@ -50,8 +51,9 @@ internal sealed class LineWrapper(double tabStopPoints)
             maxWidth = Math.Max(1, band.Width);
         }
 
-        foreach (LayoutToken token in tokens)
+        for (int tokenIndex = 0; tokenIndex < tokens.Count; tokenIndex++)
         {
+            LayoutToken token = tokens[tokenIndex];
             if (token.IsForcedBreak)
             {
                 // The document says the line ends here, so it ends here even with
@@ -74,15 +76,57 @@ internal sealed class LineWrapper(double tabStopPoints)
                 // Leading whitespace on a wrapped line is dropped; whitespace
                 // inside a line is held back until a word arrives to justify it,
                 // so a line never ends with a visible ragged space. A tab that
-                // opens the paragraph is not that space — it is the indent the
-                // author typed — so it is the one kind of leading gap that stays.
-                if (current.Count == 0 && !(token.IsTab && rows.Count == 0))
+                // opens the paragraph is not that space: it is the indent the
+                // author typed. Explicit tab stops also apply after manual breaks.
+                if (current.Count == 0 && !(token.IsTab && (rows.Count == 0 || tabStops is { Count: > 0 })))
                     continue;
 
                 if (token.IsTab)
                 {
                     double reached = currentWidth + pendingWidth;
-                    token.ResolveTabWidth(NextTabStop(reached) - reached);
+                    double origin = indent + band.Left;
+                    ParagraphTabStop? explicitStop = null;
+                    if (tabStops is not null)
+                        foreach (ParagraphTabStop stop in tabStops)
+                            if (stop.Position > origin + reached + 0.01)
+                            {
+                                explicitStop = stop;
+                                break;
+                            }
+                    double target = NextTabStop(reached);
+                    if (explicitStop is ParagraphTabStop selected)
+                    {
+                        double segmentWidth = 0;
+                        double? decimalWidth = null;
+                        double trailing = 0;
+                        for (int next = tokenIndex + 1; next < tokens.Count && !tokens[next].IsTab && !tokens[next].IsForcedBreak; next++)
+                        {
+                            foreach (LayoutPiece piece in tokens[next].Pieces)
+                            {
+                                int separator = piece.Text.IndexOf(selected.DecimalCharacter);
+                                if (decimalWidth is null && separator >= 0)
+                                    decimalWidth = segmentWidth + BTextMeasurer.MeasureAdvance(piece.Text[..separator], piece.Font);
+                                segmentWidth += piece.Width;
+                            }
+                            trailing = tokens[next].IsWhitespace ? trailing + tokens[next].Width : 0;
+                        }
+                        segmentWidth -= trailing;
+                        double alignment = selected.Alignment switch
+                        {
+                            TabAlignment.Right => segmentWidth,
+                            TabAlignment.Center => segmentWidth / 2,
+                            TabAlignment.Decimal => decimalWidth ?? segmentWidth,
+                            _ => 0,
+                        };
+                        // Writer brings a right-aligned stop back to a narrow
+                        // text frame's edge. TOC styles often retain the wider
+                        // page's stop even when their paragraphs live in a frame.
+                        double position = selected.Alignment == TabAlignment.Right
+                            ? Math.Min(selected.Position, origin + maxWidth) : selected.Position;
+                        target = position - origin - alignment;
+                        token.Pieces[0].TabLeader = selected.Leader;
+                    }
+                    token.ResolveTabWidth(Math.Max(0, target - reached));
                 }
 
                 pendingSpace.Add(token);
@@ -90,7 +134,7 @@ internal sealed class LineWrapper(double tabStopPoints)
                 continue;
             }
 
-            if (current.Count > 0 && currentWidth + pendingWidth + token.Width > maxWidth)
+            if (current.Count > 0 && currentWidth + pendingWidth + token.Width > maxWidth + 0.01)
                 Flush();
 
             if (current.Count == 0 && token.Width > maxWidth)

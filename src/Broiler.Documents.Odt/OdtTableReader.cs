@@ -30,11 +30,17 @@ internal static class OdtTableReader
     {
         int start = context.Builder.CurrentParagraphIndex;
         var rows = new List<TableRow>();
+        BColor tableShading = ReadCellShading(TableProperties(table, context.Styles));
 
         foreach (XElement row in EnumerateRows(table, depth))
         {
             var cells = new List<TableCell>();
             int column = 0;
+            XElement? rowProperties = (string?)row.Attribute(OdtNamespaces.Table + "style-name") is string rowStyle &&
+                context.Styles.TableRowProperties.TryGetValue(rowStyle, out XElement? foundRow) ? foundRow : null;
+            BColor rowShading = ReadCellShading(rowProperties);
+            if (rowShading.IsEmpty || rowShading.A == 0)
+                rowShading = tableShading;
 
             // Columns a span in this row has already claimed. The covered cells
             // that follow it stand for those, so they take no column of their
@@ -100,7 +106,7 @@ internal static class OdtTableReader
                         column,
                         span,
                         rowSpan,
-                        ReadCellShading(properties),
+                        ReadCellShading(properties, rowShading),
                         ReadCellBorders(properties),
                         isRowSpanContinuation: false,
                         tables: nested,
@@ -320,13 +326,13 @@ internal static class OdtTableReader
             : null;
     }
 
-    private static BColor ReadCellShading(XElement? properties)
+    private static BColor ReadCellShading(XElement? properties, BColor fallback = default)
     {
         string? color = (string?)properties?.Attribute(OdtNamespaces.Fo + "background-color");
         if (color is null || color.Equals("transparent", StringComparison.OrdinalIgnoreCase))
-            return BColor.Empty;
+            return fallback;
 
-        return OdtUnits.TryParseColor(color, out BColor parsed) ? parsed : BColor.Empty;
+        return OdtUnits.TryParseColor(color, out BColor parsed) ? parsed : fallback;
     }
 
     /// <summary>

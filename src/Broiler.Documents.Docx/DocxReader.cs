@@ -2047,6 +2047,27 @@ internal static class DocxReader
         if (pPr is null)
             return style;
 
+        if (pPr.Element(DocxNamespaces.Wordprocessing + "tabs") is XElement tabs)
+        {
+            var resolved = style.TabStops?.ToDictionary(stop => stop.Position) ?? new Dictionary<double, ParagraphTabStop>();
+            foreach (XElement tab in tabs.Elements(DocxNamespaces.Wordprocessing + "tab").Take(256))
+            {
+                if (!DocxValueReader.TryReadTwips(tab.Attribute(DocxNamespaces.Wordprocessing + "pos"), out int twips) ||
+                    twips < 0 || twips > 400000)
+                    continue;
+                double position = twips / 20d;
+                string? kind = DocxValueReader.WordValue(tab);
+                if (kind == "clear")
+                    resolved.Remove(position);
+                else if (kind is "left" or "start" or "center" or "right" or "end" or "decimal" or null)
+                    resolved[position] = new ParagraphTabStop(position, kind switch
+                    { "center" => TabAlignment.Center, "right" or "end" => TabAlignment.Right, "decimal" => TabAlignment.Decimal, _ => TabAlignment.Left },
+                    (string?)tab.Attribute(DocxNamespaces.Wordprocessing + "leader") switch
+                    { "dot" => ".", "hyphen" => "-", "underscore" or "heavy" => "_", "middleDot" => "·", _ => null });
+            }
+            style = style with { TabStops = new ParagraphTabStops(resolved.Values) };
+        }
+
         // A w:jc names an alignment outright, including the default one. Leaving
         // "left" to fall through would make it mean "whatever was inherited",
         // so a paragraph that says left inside a right-aligned style would stay

@@ -1293,6 +1293,14 @@ public static class OdtWriter
     private static XElement BuildParagraphProperties(ParagraphStyle style, bool inList)
     {
         var properties = new XElement(OdtNamespaces.Style + "paragraph-properties");
+        if (style.TabStops is ParagraphTabStops tabs)
+            properties.Add(new XElement(OdtNamespaces.Style + "tab-stops", tabs.Select(tab =>
+                new XElement(OdtNamespaces.Style + "tab-stop",
+                    new XAttribute(OdtNamespaces.Style + "position", OdtUnits.FormatPoints(tab.Position)),
+                    new XAttribute(OdtNamespaces.Style + "type", tab.Alignment switch
+                    { TabAlignment.Center => "center", TabAlignment.Right => "right", TabAlignment.Decimal => "char", _ => "left" }),
+                    tab.Alignment == TabAlignment.Decimal ? new XAttribute(OdtNamespaces.Style + "char", tab.DecimalCharacter) : null,
+                    tab.Leader is null ? null : new XAttribute(OdtNamespaces.Style + "leader-text", tab.Leader)))));
         if (style.KeepWithNext)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always"));
         if (style.KeepTogether)
@@ -2424,12 +2432,14 @@ public static class OdtWriter
             string family,
             string? parentStyleName)
         {
-            if (!properties.HasAttributes)
+            if (!properties.HasAttributes && !properties.HasElements)
                 return null;
 
             string key = string.Join(
                 "",
                 properties.Attributes().Select(attribute => attribute.Name + "=" + attribute.Value));
+            if (properties.HasElements)
+                key += "\u0001" + string.Concat(properties.Elements().Select(element => element.ToString(SaveOptions.DisableFormatting)));
             if (names.TryGetValue(key, out string? existing))
                 return existing;
 

@@ -931,6 +931,21 @@ internal static class OdtReader
                 out int page) ||
             page < 1)
         {
+            // A paragraph/character anchor moves with its paragraph, but its
+            // horizontal coordinates can still refer to the whole page.
+            string? horizontalRel = (string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-rel");
+            if (anchorType is "paragraph" or "char" && horizontalRel is "page" or "page-content")
+            {
+                double horizontalLeft = horizontalRel == "page" ? -(context.ActivePage?.MarginLeft ?? 0) : 0;
+                double horizontalWidth = horizontalRel == "page" ? context.ActivePage?.Width ?? 0 : context.ActivePage?.ContentWidth ?? 0;
+                x = (string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-pos") switch
+                {
+                    "left" or "inside" => horizontalLeft,
+                    "center" => horizontalLeft + (horizontalWidth - width) / 2,
+                    "right" or "outside" => horizontalLeft + horizontalWidth - width,
+                    _ => horizontalLeft + x,
+                };
+            }
             string? verticalRel = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-rel");
             if (anchorType is "paragraph" or "char" && verticalRel is "page" or "page-content")
             {
@@ -1247,10 +1262,13 @@ internal static class OdtReader
         if (layoutProperties.Attribute(OdtNamespaces.Draw + "fill") is not null)
             return ReadDrawFill(layoutProperties, styles);
 
-        if (layoutProperties.Element(OdtNamespaces.Style + "background-image") is XElement legacy)
+        if (layoutProperties.Element(OdtNamespaces.Style + "background-image") is XElement legacy &&
+            (!string.IsNullOrWhiteSpace((string?)legacy.Attribute(OdtNamespaces.XLink + "href")) ||
+             legacy.Element(OdtNamespaces.Office + "binary-data") is not null))
         {
             var properties = new XElement(layoutProperties);
             properties.SetAttributeValue(OdtNamespaces.Draw + "fill", "bitmap");
+            properties.SetAttributeValue(OdtNamespaces.Draw + "background-size", "border");
             properties.SetAttributeValue(OdtNamespaces.Style + "repeat", (string?)legacy.Attribute(OdtNamespaces.Style + "repeat") ?? "repeat");
             string position = (string?)legacy.Attribute(OdtNamespaces.Style + "position") ?? "center";
             properties.SetAttributeValue(OdtNamespaces.Draw + "fill-image-ref-point", position.Replace(' ', '-'));
@@ -1259,7 +1277,10 @@ internal static class OdtReader
 
         return TryColor((string?)layoutProperties.Attribute(OdtNamespaces.Fo + "background-color"), out BColor color) &&
             !color.IsEmpty && color.A > 0
-                ? ShapeFill.Solid(color)
+                // The legacy fo:background-color paints the page's content
+                // rectangle, leaving its margins clear. Drawing-page fills
+                // above use their explicit draw:background-size instead.
+                ? ShapeFill.Solid(color) with { ContentOnly = true }
                 : null;
     }
 
@@ -2377,6 +2398,22 @@ internal static class OdtReader
     {
         if (properties is null)
             return style;
+
+        if (properties.Element(OdtNamespaces.Style + "tab-stops") is XElement tabs)
+        {
+            var stops = new List<ParagraphTabStop>();
+            foreach (XElement tab in tabs.Elements(OdtNamespaces.Style + "tab-stop").Take(256))
+            {
+                if (!OdtUnits.TryParseLength((string?)tab.Attribute(OdtNamespaces.Style + "position"), out double position) || position < 0)
+                    continue;
+                string? decimalChar = (string?)tab.Attribute(OdtNamespaces.Style + "char");
+                stops.Add(new ParagraphTabStop(position, (string?)tab.Attribute(OdtNamespaces.Style + "type") switch
+                    { "center" => TabAlignment.Center, "right" => TabAlignment.Right, "char" => TabAlignment.Decimal, _ => TabAlignment.Left },
+                    (string?)tab.Attribute(OdtNamespaces.Style + "leader-text"),
+                    string.IsNullOrEmpty(decimalChar) ? '.' : decimalChar[0]));
+            }
+            style = style with { TabStops = new ParagraphTabStops(stops) };
+        }
 
         string? alignment = (string?)properties.Attribute(OdtNamespaces.Fo + "text-align");
         switch (alignment)
