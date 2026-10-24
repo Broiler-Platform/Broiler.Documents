@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Globalization;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Dom;
@@ -246,6 +247,12 @@ internal static class HtmlReader
             return;
         }
 
+        if (tag.Equals("table", StringComparison.OrdinalIgnoreCase))
+        {
+            ReadTable(element, builder, styleSheet, childInline, childParagraph, childPreserveWhitespace);
+            return;
+        }
+
         if (BlockContainers.Contains(tag))
         {
             builder.FinishParagraph(force: false);
@@ -256,6 +263,89 @@ internal static class HtmlReader
 
         ReadChildren(element, builder, styleSheet, childInline, childParagraph, childPreserveWhitespace);
     }
+
+    private static void ReadTable(DomElement element, HtmlDocumentBuilder builder,
+        HtmlStyleSheet styleSheet, InlineStyle inline, ParagraphStyle paragraph, bool preserveWhitespace)
+    {
+        builder.FinishParagraph(force: false);
+        foreach (DomElement caption in element.ChildNodes.OfType<DomElement>().Where(child => child.LocalName == "caption"))
+        {
+            ReadChildren(caption, builder, styleSheet, inline, paragraph, preserveWhitespace);
+            builder.FinishParagraph(force: false);
+        }
+        int start = builder.ParagraphCount;
+        int nestedStart = builder.Tables.Count;
+        var rows = new List<TableRow>();
+        var occupied = new Dictionary<int, int>();
+        double borderWidth = AttributeNumber(element, "border", 0) * .75;
+        var borders = CellBorders.All(new TableBorder(BColor.FromName("black"), borderWidth));
+        double padding = AttributeNumber(element, "cellpadding", 1) * .75;
+        foreach (DomElement row in TableRows(element))
+        {
+            var cells = new List<TableCell>();
+            int column = 0;
+            foreach (DomElement cell in row.ChildNodes.OfType<DomElement>())
+            {
+                if (cell.LocalName is not ("td" or "th"))
+                    continue;
+                while (occupied.TryGetValue(column, out int through) && through > rows.Count)
+                    column++;
+                int span = (int)Math.Clamp(AttributeNumber(cell, "colspan", 1), 1, 1000);
+                int rowSpan = (int)Math.Clamp(AttributeNumber(cell, "rowspan", 1), 1, 1000);
+                int cellStart = builder.ParagraphCount;
+                int cellTables = builder.Tables.Count;
+                InlineStyle cellInline = ApplyInlineElement(cell, styleSheet, inline, builder.Diagnostics);
+                if (cell.LocalName == "th")
+                    cellInline = cellInline with { Bold = true };
+                ParagraphStyle cellParagraph = ApplyParagraphElement(cell, styleSheet,
+                    cell.LocalName == "th" ? paragraph with { Alignment = TextAlignment.Center } : paragraph);
+                builder.StartParagraph(cellParagraph);
+                ReadChildren(cell, builder, styleSheet, cellInline, cellParagraph, preserveWhitespace);
+                builder.FinishParagraph(force: true);
+                if (builder.ParagraphCount == cellStart)
+                {
+                    builder.StartParagraph(paragraph);
+                    builder.FinishParagraph(force: true);
+                }
+                DocumentTable[] nested = builder.Tables.Skip(cellTables).ToArray();
+                builder.Tables.RemoveRange(cellTables, builder.Tables.Count - cellTables);
+                cells.Add(new TableCell(cellStart, builder.ParagraphCount - cellStart, column,
+                    span, rowSpan, PageBackground(cell, styleSheet) ?? default, borders,
+                    tables: nested, padding: new TableCellPadding(padding, padding, padding, padding)));
+                for (int c = column; c < column + span; c++)
+                    occupied[c] = rows.Count + rowSpan;
+                column += span;
+            }
+            if (cells.Count > 0)
+                rows.Add(new TableRow(cells));
+        }
+        builder.Tables.RemoveRange(nestedStart, builder.Tables.Count - nestedStart);
+        if (rows.Count > 0 && builder.ParagraphCount > start)
+        {
+            string width = element.GetAttribute("width") ?? "";
+            double? percent = width.EndsWith('%') && double.TryParse(width[..^1],
+                NumberStyles.Float, CultureInfo.InvariantCulture, out double value) ? value : null;
+            double points = AttributeNumber(element, "width", 0) * .75;
+            builder.Tables.Add(new DocumentTable(start, builder.ParagraphCount - start, rows,
+                preferredWidth: points > 0 ? points : null, widthPercent: percent, autoFit: true));
+        }
+    }
+
+    private static IEnumerable<DomElement> TableRows(DomElement table)
+    {
+        foreach (DomElement child in table.ChildNodes.OfType<DomElement>())
+        {
+            if (child.LocalName == "tr")
+                yield return child;
+            else if (child.LocalName is "thead" or "tbody" or "tfoot")
+                foreach (DomElement row in TableRows(child))
+                    yield return row;
+        }
+    }
+
+    private static double AttributeNumber(DomElement element, string name, double fallback) =>
+        double.TryParse(element.GetAttribute(name), NumberStyles.Float, CultureInfo.InvariantCulture,
+            out double value) && double.IsFinite(value) && value >= 0 ? Math.Min(value, 100000) : fallback;
 
     private static InlineStyle ApplyInlineElement(
         DomElement element,
@@ -655,6 +745,8 @@ internal static class HtmlReader
     private sealed class HtmlDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
     {
         private readonly List<RichTextParagraph> _paragraphs = [];
+        public int ParagraphCount => _paragraphs.Count;
+        public List<DocumentTable> Tables { get; } = [];
         private readonly List<Segment> _segments = [];
         private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
         private bool _paragraphOpen;
@@ -768,7 +860,7 @@ internal static class HtmlReader
             FinishParagraph(force: false);
             return _paragraphs.Count == 0
                 ? RichTextDocument.Empty
-                : RichTextDocument.FromParagraphs(_paragraphs);
+                : RichTextDocument.FromParagraphs(_paragraphs).WithTables(Tables);
         }
 
         private void EnsureParagraph()

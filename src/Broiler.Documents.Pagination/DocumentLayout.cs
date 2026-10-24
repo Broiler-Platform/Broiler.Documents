@@ -29,7 +29,7 @@ namespace Broiler.Documents.Pagination;
 /// page its citation is on and is not split across pages; endnotes follow the
 /// body. A table row
 /// breaks across a page cell by cell unless it says it may not, or holds a cell
-/// that spans rows; a table nested in a cell breaks between its own rows. Text
+/// that spans rows; a nested table also keeps the safe cuts its rows permit. Text
 /// columns are filled one after the
 /// other. A section's columns are balanced where the next section follows on
 /// the same page, as Word and LibreOffice balance them, a table row moving as
@@ -1537,7 +1537,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </remarks>
     private List<RowBox> ComposeTable(DocumentTable table, RichTextDocument document, DocumentPageBox setup, double left, double width)
     {
-        double[] edges = ColumnEdges(table, left, width);
+        double[] edges = table.AutoFit && table.ColumnWidths.Count == 0
+            ? AutoColumnEdges(table, document, left, width) : ColumnEdges(table, left, width);
         var boxes = new List<RowBox>(table.Rows.Count);
 
         foreach (TableRow row in table.Rows)
@@ -1652,11 +1653,71 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
-    /// The x of every column boundary, left to right. A grid wider than the space
-    /// it has is scaled to fit rather than drawn off the page, and a table that
-    /// states no grid divides what it has evenly - which is what a word processor
-    /// does with one.
+    /// Content-based column sizes for an auto table: longest unbreakable tokens
+    /// supply minimum widths, and unwrapped lines supply preferred widths.
+    /// Spanning cells add constraints after the individual columns.
     /// </summary>
+    private double[] AutoColumnEdges(DocumentTable table, RichTextDocument document, double left, double available)
+    {
+        int columns = ColumnCount(table);
+        var minimum = Enumerable.Repeat(1.0, columns).ToArray();
+        var preferred = Enumerable.Repeat(1.0, columns).ToArray();
+        foreach (TableCell cell in table.Rows.SelectMany(row => row.Cells).OrderBy(cell => cell.ColumnSpan))
+        {
+            double min = 0, max = 0;
+            for (int p = cell.ParagraphIndex; p < Math.Min(cell.ParagraphEnd, document.Paragraphs.Count); p++)
+            {
+                double line = 0;
+                foreach (LayoutToken token in Tokenize(document.Paragraphs[p]))
+                {
+                    if (token.IsForcedBreak)
+                    {
+                        max = Math.Max(max, line);
+                        line = 0;
+                    }
+                    else
+                    {
+                        line += token.Width;
+                        if (!token.IsWhitespace)
+                            min = Math.Max(min, token.Width);
+                    }
+                }
+                max = Math.Max(max, line);
+            }
+            TableCellPadding padding = cell.PaddingFor(table);
+            min += padding.Left + padding.Right;
+            max = Math.Max(min, max + padding.Left + padding.Right);
+            int end = Math.Min(columns, cell.ColumnIndex + cell.ColumnSpan);
+            double minDeficit = Math.Max(0, min - minimum.Skip(cell.ColumnIndex).Take(cell.ColumnSpan).Sum());
+            double maxDeficit = Math.Max(0, max - preferred.Skip(cell.ColumnIndex).Take(cell.ColumnSpan).Sum());
+            for (int c = cell.ColumnIndex; c < end; c++)
+            {
+                minimum[c] += minDeficit / cell.ColumnSpan;
+                preferred[c] = Math.Max(minimum[c], preferred[c] + maxDeficit / cell.ColumnSpan);
+            }
+        }
+        double minTotal = minimum.Sum(), maxTotal = preferred.Sum();
+        bool explicitWidth = table.PreferredWidth is > 0 || table.WidthPercent is > 0;
+        double target = explicitWidth ? table.WidthIn(available) : Math.Min(available, maxTotal);
+        double[] widths = new double[columns];
+        for (int c = 0; c < columns; c++)
+            widths[c] = target < minTotal ? minimum[c] * target / minTotal :
+                maxTotal > minTotal && target < maxTotal
+                    ? minimum[c] + (preferred[c] - minimum[c]) * (target - minTotal) / (maxTotal - minTotal)
+                    : preferred[c] + (target - maxTotal) / columns;
+        double offset = table.Alignment switch
+        {
+            TableAlignment.Center => (available - target) / 2,
+            TableAlignment.End or TableAlignment.Outside => available - target,
+            _ => table.LeftIndent,
+        };
+        var edges = new double[columns + 1];
+        edges[0] = left + offset;
+        for (int c = 0; c < columns; c++)
+            edges[c + 1] = edges[c] + widths[c];
+        return edges;
+    }
+
     private static double[] ColumnEdges(DocumentTable table, double left, double width)
     {
         if (!table.IsFloating)
@@ -1733,14 +1794,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             if (DocumentTable.StartingAt(tables, index) is DocumentTable nested)
             {
-                // A nested row is one piece: a page breaks between two of them,
-                // never through one. Its paragraphs' tops here are measured from
-                // the box, so they are not the page's; the row that holds the box
-                // records them where it is placed.
+                // Keep the nested row's legal cuts. Treating every nested row
+                // as indivisible lets a long cell run off the page even when
+                // both its row and the outer row permit splitting.
                 foreach (RowBox row in ComposeTable(nested, document, setup, left, width))
                 {
+                    pieces.AddRange(row.NestedPieces().Select(piece => new CutPiece(y + piece.Top, y + piece.Bottom)));
                     row.PlaceAt(y, 0, lines, cells, new Dictionary<int, double>());
-                    pieces.Add(new CutPiece(y, y + row.Height));
                     y += row.Height;
                 }
 
@@ -1880,6 +1940,44 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         /// <summary>True when the row may break across a page; see <see cref="TableRow.CanSplit"/>.</summary>
         public bool CanSplit { get; init; }
 
+        /// <summary>Common safe cut boundaries when this row is inside another cell.</summary>
+        public IReadOnlyList<CutPiece> NestedPieces()
+        {
+            if (!CanSplit)
+                return [new CutPiece(0, Height)];
+
+            var intervals = new List<CutPiece>();
+            foreach (CellLines content in Contents)
+            {
+                double spare = Math.Max(0, Height - content.Height);
+                double down = content.Cell?.VerticalAlignment switch
+                {
+                    CellVerticalAlignment.Center => spare / 2,
+                    CellVerticalAlignment.Bottom => spare,
+                    _ => 0,
+                };
+                intervals.AddRange(content.Pieces.Select(piece => new CutPiece(piece.Top + down, piece.Bottom + down)));
+            }
+            if (intervals.Count == 0)
+                return [new CutPiece(0, Height)];
+
+            // Overlapping atomic pieces in different cells cannot be separated
+            // by a common horizontal cut. Touching pieces can. Sweep the sorted
+            // intervals rather than testing every boundary against every cell.
+            intervals.Sort((a, b) => a.Top.CompareTo(b.Top));
+            var merged = new List<CutPiece>();
+            foreach (CutPiece piece in intervals)
+            {
+                if (merged.Count > 0 && (piece.Top < merged[^1].Bottom - 0.001 || merged[^1].Bottom < MinimumHeight))
+                    merged[^1] = new CutPiece(merged[^1].Top, Math.Max(merged[^1].Bottom, piece.Bottom));
+                else
+                    merged.Add(piece);
+            }
+            merged[0] = merged[0] with { Top = 0 };
+            merged[^1] = merged[^1] with { Bottom = Math.Max(Height, merged[^1].Bottom) };
+            return merged;
+        }
+
         /// <summary>
         /// Cuts the row where <paramref name="room"/> runs out: each cell keeps the
         /// lines, and the rows of a table nested in it, that end within it, and
@@ -1895,7 +1993,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         /// Each cell is cut on its own boundary, as Word and LibreOffice cut one,
         /// rather than at one height for the whole row: a line across the cut
         /// would be drawn in half on two pages. A nested table is cut between
-        /// its rows, each of which goes to one page whole. The first part's boxes
+        /// its rows or at common legal boundaries inside a splittable row. The first part's boxes
         /// run down to the cut, so a cell whose text ended higher still reaches
         /// the foot of the page, and both parts draw their borders.
         /// </remarks>

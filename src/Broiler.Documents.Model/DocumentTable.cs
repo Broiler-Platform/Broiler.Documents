@@ -54,7 +54,8 @@ public sealed class DocumentTable(
     TableAlignment alignment = TableAlignment.Start,
     double leftIndent = 0,
     bool pageBreakBefore = false,
-    bool columnBreakBefore = false)
+    bool columnBreakBefore = false,
+    bool autoFit = false)
 {
 
     /// <summary>Word's own default cell margin: 0.08 inch on the left and right.</summary>
@@ -100,6 +101,9 @@ public sealed class DocumentTable(
     public double LeftIndent { get; } = double.IsFinite(leftIndent) ? leftIndent : 0;
     public bool PageBreakBefore { get; } = pageBreakBefore;
     public bool ColumnBreakBefore { get; } = columnBreakBefore;
+
+    /// <summary>Size columns from their text when no grid is stated, as HTML auto tables do.</summary>
+    public bool AutoFit { get; } = autoFit;
 
     /// <summary>The inline table's width within its containing text area.</summary>
     public double WidthIn(double available)
@@ -204,7 +208,7 @@ public sealed class DocumentTable(
         // would draw an empty table and lay the paragraph out inside no cell,
         // which is to say nowhere.
         return held == 0 ? null : new DocumentTable(index, count, rows, ColumnWidths, CellPadding, Position,
-            KeepWithNext, PreferredWidth, WidthPercent, Alignment, LeftIndent, PageBreakBefore, ColumnBreakBefore);
+            KeepWithNext, PreferredWidth, WidthPercent, Alignment, LeftIndent, PageBreakBefore, ColumnBreakBefore, AutoFit);
     }
 
     /// <summary>

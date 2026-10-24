@@ -17,7 +17,8 @@ for parsing and writes deterministic UTF-8 HTML with `HtmlSerializer`.
 | HTML | Model | Notes |
 |---|---|---|
 | `<p>`, headings, `<li>` | `RichTextParagraph` | Empty paragraph elements are preserved. |
-| `<div>`, sections, table cells, blockquote-like containers | Paragraph boundaries | Direct text in a block becomes a paragraph. |
+| `<div>`, sections, blockquote-like containers | Paragraph boundaries | Direct text in a block becomes a paragraph. |
+| `<table>`, `<tr>`, `<td>`, `<th>` | `DocumentTable`, `TableRow`, `TableCell` | Retains nested grids, spans, empty cells and captions; `th` defaults to bold and centered. Legacy `border`, `cellpadding`, `width` and cell backgrounds are read. Tables without a grid use content-based column sizing. CSS table geometry and separate border spacing remain unsupported. |
 | `<br>` | `U+2028` soft break | Same model convention as RTF line breaks. |
 | `<b>`, `<strong>` | `InlineStyle.Bold` | CSS `font-weight:bold` or numeric `>=600` also maps. |
 | `<i>`, `<em>` | `InlineStyle.Italic` | CSS `font-style:italic/oblique` also maps. |
@@ -114,9 +115,9 @@ another layout than the document's.
 and emits an `html.list` diagnostic. An embedded image is written inline as a
 base64 data URI (`html.image.datauri`), which keeps an exported page a single
 file; the reader does not turn `<img>` back into a model image, so an image does
-not survive an HTML round-trip. Non-model constructs such as tables, embedded
-objects, scripts, stylesheets, forms, and metadata are not serialized from the
-model.
+not survive an HTML round-trip. Tables are written as cell paragraphs with `html.table.flattened`; their grid
+does not survive an HTML round-trip. Embedded objects, scripts, stylesheets,
+forms, and metadata are not serialized from the model.
 
 ## Security And Limits
 
@@ -173,8 +174,9 @@ model.
   seeds without tables now score as their DOCX twins do - `plain-paragraphs` at
   an ink box of 9 pixels against the twin's 9, where before this it was 38 - and
   `table-simple` still sits at 107 against 11. Two things are behind that number
-  and only one of them is this: HTML tables are flattened to their cell
-  paragraphs regardless. It is recorded here rather than left for the next reader
+  and only one of them is this: at the time of that measurement, HTML tables
+  were flattened to their cell paragraphs. The reader now retains basic table
+  grids (see [issue 143](office-issue-143.md)); the writer still flattens them. It is recorded here rather than left for the next reader
   to rediscover from a number, and it is the case to weigh first if the line ever
   moves.
 - A page break follows the same line as every other declaration. `p {
@@ -197,7 +199,8 @@ model.
   rule in one is read. The reader never makes a network request, and finding out
   how a document's paragraphs are spaced should not be the thing that changes
   that.
-- Tables are flattened through their text content and block boundaries.
+- Table writing flattens cell content; reading retains basic grids. CSS table
+  layout, separate border spacing and column declarations remain unsupported.
 - Relative links are currently dropped; only absolute `http`, `https`, and
   `mailto` links are retained.
 - Writer output is semantic model HTML, not a preservation of source markup.
