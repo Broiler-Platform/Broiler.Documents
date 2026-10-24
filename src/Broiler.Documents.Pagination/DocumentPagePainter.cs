@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Geometry;
@@ -476,6 +477,18 @@ public sealed class DocumentPagePainter
             {
                 DrawImage(list, piece, baseline, resolveImage);
                 continue;
+            }
+
+            if (piece.IsTab && piece.TabLeader is string leader)
+            {
+                double advance = BTextMeasurer.MeasureAdvance(leader, piece.Font);
+                if (advance > 0 && double.IsFinite(advance))
+                {
+                    int count = (int)Math.Min(2000, Math.Floor(piece.Width / advance));
+                    if (count > 0)
+                        list.DrawText(new BTextRun(string.Concat(Enumerable.Repeat(leader, count)), piece.Font, piece.Color),
+                            new BPoint(piece.X, baseline - piece.Rise - piece.Font.Size * 0.8));
+                }
             }
 
             if (piece.Text.Length == 0)

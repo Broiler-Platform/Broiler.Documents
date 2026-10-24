@@ -2445,11 +2445,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     lineY += estimate;
                     return IndentedBand(row, index);
                 },
-                bands);
+                bands, style.TabStops, indent + hang);
         }
         else
         {
-            rows = _lineWrapper.Wrap(tokens, index => IndentedBand(new TextBand(0, textWidth), index), bands);
+            rows = _lineWrapper.Wrap(tokens, index => IndentedBand(new TextBand(0, textWidth), index), bands,
+                style.TabStops, indent + hang);
         }
 
         var lines = new List<LayoutLine>(rows.Count);

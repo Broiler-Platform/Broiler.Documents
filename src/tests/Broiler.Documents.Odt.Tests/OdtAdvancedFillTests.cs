@@ -5,6 +5,16 @@ namespace Broiler.Documents.Odt.Tests;
 
 public sealed class OdtAdvancedFillTests
 {
+    [Theory]
+    [InlineData("#000000", 0, 0, 0)]
+    [InlineData("#00ccff", 0, 204, 255)]
+    public void An_Empty_Legacy_Image_Does_Not_Hide_The_Page_Colour(string color, byte r, byte g, byte b)
+    {
+        var result = Read("fo:background-color=\"" + color + "\"", children: "<style:background-image/>");
+        Assert.Equal(ShapeFill.Solid(new BColor(r, g, b)) with { ContentOnly = true }, result.Document.PageBackground);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code is "odt.fill" or "odt.image.shape");
+    }
+
     private static DocumentReadResult Read(string properties, string definitions = "", string children = "")
     {
         string styles = "<office:styles>" + definitions + "</office:styles><office:automatic-styles>" +

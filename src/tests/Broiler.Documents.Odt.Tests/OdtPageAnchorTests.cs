@@ -14,6 +14,25 @@ namespace Broiler.Documents.Odt.Tests;
 /// </remarks>
 public sealed class OdtPageAnchorTests
 {
+    [Theory]
+    [InlineData("page", "from-left", 72)]
+    [InlineData("page", "center", 162)]
+    [InlineData("page-content", "from-left", 144)]
+    [InlineData("page-content", "right", 324)]
+    public void Paragraph_And_Character_Anchors_Respect_Their_Horizontal_Page_Area(string area, string alignment, double expected)
+    {
+        foreach (string anchor in new[] { "paragraph", "char" })
+        {
+            DocumentShape shape = Assert.Single(Read(
+                "<text:p>anchor" + Frame("text:anchor-type=\"" + anchor + "\"", Box) + "</text:p>",
+                GraphicStyle("fr1", "style:horizontal-rel=\"" + area + "\" style:horizontal-pos=\"" + alignment +
+                    "\" style:vertical-rel=\"page\"" )).Document.Shapes);
+            Assert.Equal(expected, shape.OffsetX, 3);
+            Assert.Equal(0, shape.AnchorPage);
+            Assert.True(shape.OffsetFromPage);
+        }
+    }
+
     /// <summary>US Letter with one-inch margins.</summary>
     private const string Styles =
         "<office:automatic-styles>" +
@@ -112,11 +131,11 @@ public sealed class OdtPageAnchorTests
     }
 
     [Theory]
-    [InlineData("text:anchor-type=\"paragraph\"")]
-    [InlineData("text:anchor-type=\"page\"")]
-    [InlineData("text:anchor-type=\"page\" text:anchor-page-number=\"0\"")]
-    [InlineData("text:anchor-type=\"page\" text:anchor-page-number=\"three\"")]
-    public void A_Frame_With_No_Page_Number_Stays_With_Its_Paragraph(string anchor)
+    [InlineData("text:anchor-type=\"paragraph\"", 72)]
+    [InlineData("text:anchor-type=\"page\"", 144)]
+    [InlineData("text:anchor-type=\"page\" text:anchor-page-number=\"0\"", 144)]
+    [InlineData("text:anchor-type=\"page\" text:anchor-page-number=\"three\"", 144)]
+    public void A_Frame_With_No_Page_Number_Stays_With_Its_Paragraph(string anchor, double expectedX)
     {
         DocumentShape shape = Assert.Single(Read(
             Frame(anchor, Box) + OdtTestPackage.Paragraph("body"),
@@ -124,7 +143,9 @@ public sealed class OdtPageAnchorTests
             .Document.Shapes);
 
         Assert.False(shape.IsPageAnchored);
-        Assert.Equal(144, shape.OffsetX, 3);
+        // A paragraph anchor can use page-relative coordinates without naming
+        // a physical page. Invalid page anchors retain their fallback offset.
+        Assert.Equal(expectedX, shape.OffsetX, 3);
         Assert.Equal(216, shape.OffsetY, 3);
     }
 

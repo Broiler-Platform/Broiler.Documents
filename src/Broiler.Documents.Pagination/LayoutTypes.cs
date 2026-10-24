@@ -24,6 +24,9 @@ public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BCol
 {
     public string Text { get; } = text;
 
+    /// <summary>The repeating character painted in an explicitly styled tab gap.</summary>
+    public string? TabLeader { get; internal set; }
+
     public BFontStyle Font { get; } = font;
 
     public BColor Color { get; } = color;

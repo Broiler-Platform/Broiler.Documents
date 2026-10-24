@@ -913,6 +913,14 @@ public static class DocxWriter
     private static XElement? BuildParagraphProperties(ParagraphStyle style, DocxWriteContext context)
     {
         var properties = new XElement(DocxNamespaces.Wordprocessing + "pPr");
+        if (style.TabStops is ParagraphTabStops tabs)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tabs", tabs.Select(tab =>
+                new XElement(DocxNamespaces.Wordprocessing + "tab",
+                    WordAttribute("pos", Twips(tab.Position)),
+                    WordAttribute("val", tab.Alignment switch
+                    { TabAlignment.Center => "center", TabAlignment.Right => "right", TabAlignment.Decimal => "decimal", _ => "left" }),
+                    tab.Leader is null ? null : WordAttribute("leader", tab.Leader switch
+                    { "-" => "hyphen", "_" => "underscore", "·" => "middleDot", _ => "dot" })))));
         if (style.KeepWithNext)
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "keepNext"));
         if (style.KeepTogether)
