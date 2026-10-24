@@ -90,3 +90,22 @@ The Release build succeeds and all **3,908 executed unit tests** pass (three add
 Artifacts outside the checkout: `issue145-odt-fallback-before.json`, `issue145-odt-fallback-after.json`, `issue145-odt-fallback-work`, `issue145-odt-fallback-build.log`, `issue145-odt-fallback-tests.log` and `issue145-odt-fallback-corpus.json`.
 
 The final CLI corpus passes **2,320/2,320** checks, with 105 documented skips. The top-ten #145 rerun (`issue145-odt-fallback-top10.json`) stays at 12/30; all pixel/text check details and outcomes are unchanged from the preceding top-ten run. The existing frame-heavy-document tradeoffs remain as documented above.
+
+## Further case: update text width when a page-style sequence advances
+
+Rank 16, `ooxmlexport/data/tdf132149_pgBreak.odt`, now renders **five pages vs LibreOffice's five**, rather than six vs five. This remains a partial correction: the pixel check is still below the unchanged 80% threshold (68.51% before, 69.26% after), while read/text checks remain passing. Worst-page blur difference changes from 13.62% to 14.59%, so this is not claimed as an across-the-board pixel improvement.
+
+Two pagination defects were isolated with authored page-style cases:
+
+- Advancing an automatic page-style sequence updated paper and margins, but kept the old computed text-column width. Columns are now refreshed after the destination style is selected.
+- If a paragraph's first line overflowed onto another page/column, the ordinary overflow path placed its old line composition there. A paragraph with no placed lines is now measured against the destination page, with line heights and widow/orphan segmentation recalculated.
+
+Tests cover a narrow-to-wide automatic overflow (the paragraph fits on a single destination-page line) and an explicit wide-to-narrow page break (all line pieces fit the narrower text area). They check content and positions, not only page counts. The existing oversized-frame regression also ensures that a frame already placed on the preceding page stays there when its anchor text continues. Reflow of the remainder of a paragraph that already has lines placed on a previous page, and recomposition of tables already spanning different paper widths, remain outside this change.
+
+Four more original DOCX samples from #145 were downloaded and investigated: rank 24 `tdf123163-1.docx`, rank 25 `tdf135623.docx`, rank 26 `tdf87569_vml.docx`, rank 27 `fdo78883.docx`. Their local baseline is 5/12 checks: all four read, the VML sample already passes pixels, and all four text checks remain open. Their after-run details are unchanged. The original top ten also retain all pixel/text outcomes and measured check details at 12/30. Among the previous four additional originals, only `tdf132149_pgBreak.odt` changes; both corrected bitmap cases stay passing and `pageBreakInHiddenSection.fodt` remains open.
+
+Artifacts outside the checkout: baselines `issue145-odt-fallback-after.json` and `issue145-round4-before.json`; final comparisons `issue145-remeasure-eight-final.json` and `issue145-remeasure-top10-final.json`; their retained workspaces; `issue145-remeasure-build.log`, `issue145-remeasure-tests.log`, and `issue145-remeasure-corpus-final.json`. These use the local LibreOffice/poppler/DPI settings described above. No baseline or threshold was relaxed.
+
+The final Release build and all **3,910 executed unit tests** pass, with three additional skips. The pagination project passes all 236 tests, including the oversized-frame guard and the two new width regressions.
+
+The final CLI corpus passes **2,320/2,320** checks, with 105 documented skips. The final 18-original comparison changes only the pagination/profile/blur details of `tdf132149_pgBreak.odt`; all other check details and outcomes remain unchanged.

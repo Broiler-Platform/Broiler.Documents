@@ -463,6 +463,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             (pageTop, contentBottom) = BandOf(owner);
+            // BandOf can select different paper/margins in a page-style
+            // sequence. Rebuild the text columns after that selection.
+            columns = ColumnsOf(region, owner);
             y = pageTop;
             paintedSection = region;
             paintTop = y;
@@ -1142,6 +1145,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     BreakColumn();
                     if (truncated)
                         break;
+                    if (first)
+                    {
+                        // No line of this paragraph was placed yet. Its new
+                        // page can have different margins/paper or exclusions,
+                        // so measure it there before placing its first line.
+                        composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
+                            columnWidthOverride: columns.Width, wrapTop: y);
+                        lineHeights = [.. composed.Lines.Select(item => item.Height + item.LeadingSkip)];
+                        lineIndex = -1;
+                        segmentEnd = -1;
+                        continue;
+                    }
                 }
 
                 line.Top = y;
