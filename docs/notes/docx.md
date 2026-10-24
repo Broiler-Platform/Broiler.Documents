@@ -560,6 +560,11 @@ Open XML WordprocessingML package parts.
   A section ending in a table gets an empty paragraph after the table to hold
   its `w:sectPr`, as Word writes it. The body's own `w:sectPr` closes the last
   section, `continuous` too.
+- A pending section or trailing run break before a table is read onto the
+  table's leading page/column-break flag, rather than its first cell paragraph.
+  Empty tables leave the break pending for the next actual block. Breaks inside
+  cells retain their existing limitations; table breaks still report
+  `docx.table.break` on write because the writer does not serialize them.
 - Block nesting deeper than `DocumentLimits.MaxGroupDepth` is abandoned with a
   `docx.limit.depth` diagnostic.
 - DOCX packages above `DocumentLimits.MaxDocumentBytes` are not parsed.

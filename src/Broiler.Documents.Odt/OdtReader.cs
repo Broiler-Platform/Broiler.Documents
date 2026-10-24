@@ -784,7 +784,12 @@ internal static class OdtReader
         string? nextFrameName = (string?)textBox?.Attribute(OdtNamespaces.Draw + "chain-next-name");
         bool linked = !string.IsNullOrEmpty(nextFrameName) || (frameName is not null && context.LinkedFrameTargets.Contains(frameName));
 
-        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty && !linked && drawing.Element(OdtNamespaces.Draw + "image") is null)
+        // A valid empty text frame is still a positioned object, not a body
+        // paragraph. A nested drawing that this text path did not represent is
+        // not evidence of emptiness: leave it to the existing fallback walk.
+        bool unrepresentedDrawing = textBox?.Descendants().Any(element => element.Name.Namespace == OdtNamespaces.Draw) == true;
+        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty && !linked &&
+            (textBox is null || unrepresentedDrawing) && drawing.Element(OdtNamespaces.Draw + "image") is null)
             return false;
 
         // Image frames must still go through the image admission path.

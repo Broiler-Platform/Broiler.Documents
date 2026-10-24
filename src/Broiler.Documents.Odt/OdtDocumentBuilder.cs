@@ -300,6 +300,11 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
 
     public RichTextDocument Build()
     {
+        // A block-level frame after the last paragraph still needs that next
+        // paragraph as its anchor; page-anchored objects need no body anchor.
+        if (_shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _paragraphs.Count))
+            FinishParagraph();
+
         RichTextDocument document = _paragraphs.Count == 0
             ? RichTextDocument.Empty
             : RichTextDocument.FromParagraphs(_paragraphs);

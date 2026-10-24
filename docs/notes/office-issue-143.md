@@ -4,8 +4,8 @@ The ten highest severity scores in
 [issue 143](https://github.com/Broiler-Platform/Broiler.Documents/issues/143)
 were selected in their reported order. This investigation does **not** claim
 that ten original cases were fixed. The initial investigation corrected two reproducible implementation defects,
-but the ten original comparisons remain unresolved. A further HTML-table fix
-and measurements for ranks 26 and 30 are documented below.
+but the ten original comparisons remain unresolved. Further HTML-table, DOCX table-break and ODT empty-frame fixes and
+original-document measurements are documented below.
 
 ## Selected cases
 
@@ -23,7 +23,7 @@ are from the local comparison with LibreOffice 26.8.1.1, not the issue's 26.2.6.
 | 7 | 1303.92 | `layout/data/fdo43573-2-min.docx` | Two-column section, anchored images and tables; 22 vs 15 pages. The explicit column widths differ by only one twip, so unequal widths are not an adequate explanation. Wrapping and section flow remain open. |
 | 8 | 1299.68 | `ww8export/data/tdf91083.odt` | Nested tables and merged cells; 6 vs 7 pages. The general row-splitting fix is covered by authored tests, but this input's render is unchanged. |
 | 9 | 1286.87 | `ooxmlexport/data/tdf141173_missingFrames.rtf` | Positioned paragraphs, an ordinary drawing and an explicit page/section break; 1 vs 2 pages. LibreOffice's first page is blank. Broader page-break rewrites were rejected after independent frame/drawing probes contradicted them. The safe final-anchor fix below does not resolve this original input. |
-| 10 | 1242.37 | `ooxmlexport/data/tdf127814.docx` | A cell spans 28 rows and states `w:textDirection="btLr"`. Vertical cell text is not represented by the current table model. Both renders have two pages, but visual and text differences remain. |
+| 10 | 1242.37 | `ooxmlexport/data/tdf127814.docx` | A cell spans 28 rows and states `w:textDirection="btLr"`. Vertical cell text is not represented by the current table model. The later table-break fix below corrects the leading section break: the local pixel check now passes, while the text check remains open. Both renders have two pages. |
 
 ## Changes retained
 
@@ -58,7 +58,7 @@ probes showed that a general rewrite would alter unrelated frame and ordinary
 drawing behaviour. In particular, correcting case 9's page count while placing
 its frames on the wrong page is not a valid conformance fix.
 
-## Validation
+## Validation at `112e9a4`
 
 The Release build succeeds. All 3,850 executed unit tests pass, with three
 additional tests skipped. The CLI corpus passes 2,320/2,320 checks, with 105
@@ -67,10 +67,10 @@ baseline records three newly exposed `*.table.flattened` diagnostics for the
 authored HTML table: the reader now retains its grid, while those existing
 writers report losing it. All previous differences and classifications remain.
 
-The original ten-sample comparison remains at 12/30 passing checks before and
-after the retained changes: ten reads and two text checks pass; ten pixel checks
-and eight text checks fail. No original top-ten input has been fully fixed in
-this change. The improvement demonstrated by the new regression tests must not
+At `112e9a4`, the original ten-sample comparison remained at 12/30 passing checks before and
+after those changes: ten reads and two text checks pass; ten pixel checks
+and eight text checks fail. No original top-ten input was fully fixed in
+that change. The improvement demonstrated by the new regression tests must not
 be presented as an improved original-corpus score.
 
 The ten original input files were fetched again from upstream and all ten
@@ -96,7 +96,7 @@ dotnet run --project src/tests/Broiler.Documents.Office -c Release --no-build --
   --top-differences 10 --report /workspace/.setup/office143-recheck.json
 ```
 
-The original ten-sample comparison is still expected to fail. Authored regression
+The original ten-sample comparison is still expected to fail overall. Authored regression
 coverage for the two retained fixes must not be confused with closure of those
 whole-document comparisons.
 
@@ -130,3 +130,64 @@ improve from 3/6 to 4/6. These are partial conformance improvements: blurred
 pixel differences increase slightly (4.78% to 5.08%, and 4.89% to 6.16%), so the
 profile gain must not be described as improvement in every visual metric or as
 full resolution of either document. The top-ten findings above remain open.
+
+
+## Further cases: section-leading tables and empty ODT frames
+
+### DOCX breaks must belong to the next block
+
+The builder carried section and trailing run breaks to the next paragraph. When
+that block was a table, its first cell consumed the flag, but table layout does
+not apply a cell paragraph's break to the whole table. The table now takes a
+pending block break before its cells are read, retaining it as `PageBreakBefore`
+or `ColumnBreakBefore`. Empty malformed tables do not consume it. Breaks inside
+cells retain their existing handling and diagnostics.
+
+This corrects two original samples:
+
+| Input | Before | After | Remaining limitations |
+| --- | --- | --- | --- |
+| Rank 16, `ooxmlexport/data/tdf95033.docx` | 2 pages vs 3; final-page geometry mismatched | 3 vs 3 with the correct landscape/portrait sections; measured rendering similarity 76.95% | Pixel check remains below 80%; font and table geometry differences remain. Text check passes. |
+| Rank 10, `ooxmlexport/data/tdf127814.docx` | Pixel check failed; worst-page profile similarity 0.96% | Pixel check passes; worst-page profile similarity 87.63%, blur difference 0.18% | Text check still fails; vertical merged-cell text remains unsupported. |
+
+The original ten-sample comparison improves from **12/30 to 13/30** checks:
+10 reads, 2 text checks and 1 pixel check pass. No complete top-ten document is
+claimed resolved. The other nine samples' observed rendering metrics match the
+previous run exactly.
+
+### Empty positioned ODT text frames must not become body paragraphs
+
+A valid text frame with neither visible paint nor text used to fall through to
+the body-content reader, which emitted its empty paragraph into the body. It is
+now retained as a positioned frame, including its anchor and wrap properties.
+A trailing paragraph-anchored frame still gets an empty body anchor when needed;
+a page-anchored frame does not require one. A frame containing an unrepresented
+nested drawing is not treated as empty: its existing fallback path is preserved.
+
+In rank 14, `mailmerge/data/missing-default-line-color.ott`, the spurious body
+paragraph preceded the first named page style and caused an extra page. The
+original now has **1 page vs LibreOffice's 1**, previously 2 vs 1. Its worst-page
+profile similarity rises from 8.45% to 38.37%, but pixel and text comparisons
+remain open. The blur metric increases from 2.33% to 4.31%; correcting the page
+boundary does not imply every pixel metric improves.
+
+Ranks 15 (`tdf123351_UnderlineGroupSapeText.docx`) and 20 (`fdo87488.docx`) were
+also checked; their outputs remain unchanged. In the four additional originals,
+6/12 checks pass before and after; the improvements above correct pagination
+without yet clearing another complete check in that group.
+
+### Verification of this follow-up
+
+Release build succeeds; **3,859 executed unit tests pass**, with 3 additional
+skips. The CLI corpus passes **2,320/2,320**, with 105 documented skips. No corpus
+baseline or conformance threshold changed in this follow-up. Authored regressions
+cover section/run breaks before tables, column breaks, one-time consumption,
+empty tables, breaks within cells, empty page/paragraph frames, trailing anchors
+and unrepresented nested drawings.
+
+The new four-input before/after runs use identical originals, LibreOffice
+26.8.1.1, poppler 26.05.0, 72 dpi, unpinned fonts and the unchanged 80% threshold.
+They are recorded outside the checkout as `/workspace/.setup/next143-before.json`
+and `/workspace/.setup/next143-after-final.json`; the top-ten recheck is
+`/workspace/.setup/next143-top10-final.json`. These references differ from the
+versions used in the original issue; results are local reproductions.

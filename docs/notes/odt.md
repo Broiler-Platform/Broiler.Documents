@@ -24,7 +24,10 @@ outline, including explicit `none`, for text and floating-image frames. Basic
 paths and widths survive ODT export. Asymmetric borders, dash patterns, arrow
 heads, rotated drawings and arbitrary enhanced paths remain approximations.
 
-Text frames retain chain names and empty link destinations. The raster layout
+Text frames retain chain names and empty link destinations. Empty positioned
+text frames remain frames rather than adding spurious body paragraphs. A final
+paragraph-anchored frame keeps a body anchor; page anchors need none. Unrepresented
+nested drawings still take the existing fallback path. The raster layout
 flows styled paragraphs between linked body frames, including paragraph splits
 and list counters. Cycles are bounded; tables within linked frames and links
 inside running content are not routed. PDF export reports this limitation with
