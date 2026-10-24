@@ -415,6 +415,10 @@ internal static class OdtReader
 
         foreach (XElement block in body.Descendants())
         {
+            // Text inside a positioned drawing belongs to that object, not to
+            // the body's first page. Its paragraph style must not select it.
+            if (block.Ancestors().Any(ancestor => ancestor.Name.Namespace == OdtNamespaces.Draw))
+                continue;
             if (block.Ancestors(OdtNamespaces.Text + "section")
                 .Any(section => (string?)section.Attribute(OdtNamespaces.Text + "display") == "none"))
                 continue;
@@ -630,13 +634,23 @@ internal static class OdtReader
             return null;
         }
 
+        double outerTop = Length(properties, "margin-top");
+        bool hasHeader = master?.Elements().Any(element =>
+            (element.Name == OdtNamespaces.Style + "header" || element.Name == OdtNamespaces.Style + "header-left" ||
+             element.Name == OdtNamespaces.Style + "header-first") &&
+            (string?)element.Attribute(OdtNamespaces.Style + "display") != "false") == true;
+        XElement? header = properties.Parent?.Element(OdtNamespaces.Style + "header-style")
+            ?.Element(OdtNamespaces.Style + "header-footer-properties");
+        double headerHeight = hasHeader && header is not null
+            ? Math.Max(Length(header, "height"), Length(header, "min-height")) : 0;
         var geometry = new PageGeometry(
             width,
             height,
             Length(properties, "margin-left"),
             Length(properties, "margin-right"),
-            Length(properties, "margin-top"),
-            Length(properties, "margin-bottom"));
+            outerTop + Math.Max(0, headerHeight),
+            Length(properties, "margin-bottom"),
+            HeaderDistance: hasHeader ? Math.Max(0, outerTop) : 0);
 
         if (geometry.IsUsable)
             return ReadColumns(properties, geometry, diagnostics);

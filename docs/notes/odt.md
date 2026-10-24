@@ -617,3 +617,20 @@ Conditional visibility is not evaluated. Running parts and text frames do not
 carry their own section collections, so hidden sections inside those parts are
 not covered by this body-section support. Other writers report their visibility
 limitation rather than silently claiming to preserve the flag.
+
+### Header bands and outer page margins
+
+For a master page with an enabled header, its outer top margin is read as
+`PageGeometry.HeaderDistance`. The header style's declared `fo:height` or
+`fo:min-height` supplies the reserved band below it; the sum becomes the model's
+body `MarginTop`. The shared paginator can additionally move body text clear of
+a header whose measured content exceeds that minimum. A header style without an
+enabled header does not reserve space. Text inside a positioned drawing is not
+used to select the body's first master page.
+
+Writing usable page geometry with a header reverses the mapping: the outer
+margin is the header distance and `style:header-style` retains the remaining
+minimum band. Independent LibreOffice probes verify the header/body positions
+before and after this round trip, including page-content anchored objects.
+This does not add footer-band conversion, header padding or fixed-height header
+clipping support.

@@ -364,3 +364,70 @@ from `e16fa6b`; the intervening image-alternative fix does not affect this
 input's single-representation frames. Runs use identical originals, LibreOffice
 26.8.1.1, poppler 26.05.0, 72 dpi, unpinned fonts, the unchanged 80% threshold and
 40-page cap. These tool versions differ from the original issue's reference.
+
+## Further cases: ODT header bands and header distance
+
+Ranks 19 (`layout/data/tdf116501.odt`) and 17
+(`ww8export/data/fdo66304-1.odt`) have headers whose declared outer margin and
+reserved band were previously conflated with the body's top margin. Header
+text was drawn at the page's edge rather than the stated distance.
+
+The reader now distinguishes the outer top margin (`HeaderDistance`) from the
+minimum body offset below the declared header area (`MarginTop`). The writer
+reverses this mapping using `style:header-style`, preserving explicit header
+positions on ODT round trips. The first master-page lookup also skips paragraphs
+inside positioned drawings; a frame's own text style does not select the body's
+initial page. That separate lookup defect is covered by an authored regression;
+no original-book improvement is attributed to it.
+
+| Original | Profile similarity before / after | Blur difference before / after | Pages |
+| --- | ---: | ---: | --- |
+| `tdf116501.odt` | 57.53% / 62.04% | 23.83% / 21.86% | 2 vs 2 throughout |
+| `fdo66304-1.odt` | 64.44% / 68.28% | 6.42% / 5.91% | 2 vs 2 throughout |
+
+The first sample's ink bounds delta improves from 20 to 8 pixels. Both pixel
+and text checks remain open. Rank 18 (`tdf81345.docx`) retains identical metrics
+and its existing 7-vs-5 pagination discrepancy. These three inputs retain 3/9
+passing checks, namely their reads. No additional whole-document pass is claimed.
+
+### Known visual tradeoffs in the top ten
+
+The top-ten recheck remains **13/30**, with unchanged page counts. Geometry
+corrections do not improve every existing approximate layout:
+
+- `tdf142694-1.odt`: blur difference improves from 59.68% to 55.77%, but profile
+  similarity drops from 12.74% to 8.50%. Its 5-vs-8 page discrepancy remains.
+- **`tdf146955.odt` gets visually worse in the capped comparison**: blur
+  difference increases from 16.94% to 28.27%, profile similarity drops from
+  6.17% to 4.29%, coverage delta grows from 6.32% to 8.89%, and ink bounds delta
+  increases from 501 to 542 pixels. Both renders are still capped at 40 pages.
+  This complex frame-heavy input remains unresolved; these observations must
+  not be represented as a general conformance improvement or complete
+  pagination evidence. The independently verified header mapping is retained,
+  and the remaining frame/layout discrepancy is explicitly recorded here.
+
+The other eight top-ten originals retain their rendering observations. Footer
+band conversion, header padding and fixed-height header clipping remain outside
+this change.
+
+### Independent reference probes and validation
+
+A minimal ODF source with outer top margin 18pt and minimum header band 54pt was
+converted to ODT and both files exported by LibreOffice. `pdftotext -bbox` reports
+identical top coordinates in both PDFs: HEADER at 18.508449pt and BODY at
+72.508449pt. A page-content anchored 10pt red rectangle begins at (30, 72) in
+both LibreOffice and the shared raster layout. A second probe with a 10pt header
+bottom gap retains the same body coordinate, confirming the gap is not added
+twice to the stated minimum band. These probes are outside the checkout under
+`/workspace/.setup/round6-*`.
+
+The Release build succeeds. **3,887 executed unit tests pass** (3 additional
+skips); the CLI corpus passes **2,320/2,320** checks (105 documented skips).
+Six new cases cover height/minimum-height mapping, unused header styles,
+explicit-distance round trips, page-content anchored objects and excluding
+frame text from first-page selection. No baseline or threshold changed.
+
+Reports: `/workspace/.setup/round6-before.json`, `round6-verified.json` and
+`round6-top10-verified.json`. Before/after runs use identical fresh upstream
+originals, LibreOffice 26.8.1.1, poppler 26.05.0, 72 dpi, unpinned fonts, an 80%
+threshold and a 40-page cap. These versions differ from the issue's reference.
