@@ -324,8 +324,10 @@ layout are covered; this does not claim identical exported clipping.
   as into `content.xml`, because a style reference resolves only within the part
   that carries it — without that a stripe arrived unpainted, and an unpainted
   shape holding no text is not read as a shape at all.
-- Floating pictures: a frame anchored to anything other than a character is read
-  as a floating shape carrying the image, boxed by its `svg:x`/`svg:y` against
+- Floating pictures: `text:anchor-type="char"` floats at a character anchor;
+  `as-char` is the inline form. Paragraph/page anchors float too; a missing
+  anchor-type retains the reader's legacy inline fallback. Floating pictures
+  are read as shapes carrying the image, boxed by their `svg:x`/`svg:y` against
   the text column and its paragraph and its `svg:width`/`svg:height`, and keeping
   the fill, outline, and `style:run-through` of its graphic style. It is written
   back as a paragraph-anchored `draw:frame` at the same box, with its run-through

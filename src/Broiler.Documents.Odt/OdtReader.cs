@@ -2296,13 +2296,12 @@ internal static class OdtReader
         context.Builder.AppendLiteral(InlineImage.PlaceholderText, style with { Image = image });
     }
 
-    /// <summary>True for the two anchors that put a frame in the text rather than beside it.</summary>
+    /// <summary>As-char occupies a line character; char floats beside its anchor.
+    /// Missing anchor-type keeps the legacy inline fallback.</summary>
     private static bool IsAnchoredInText(XElement frame)
     {
         string? anchor = (string?)frame.Attribute(OdtNamespaces.Text + "anchor-type");
-        return anchor is null ||
-            anchor.Equals("as-char", StringComparison.Ordinal) ||
-            anchor.Equals("char", StringComparison.Ordinal);
+        return anchor is null || anchor.Equals("as-char", StringComparison.Ordinal);
     }
 
     /// <summary>

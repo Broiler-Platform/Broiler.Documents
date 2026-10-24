@@ -1618,8 +1618,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 double limit = row.Height + (row.Boxes.FirstOrDefault(box => ReferenceEquals(box.Cell, content.Cell))?.ExtraHeight ?? 0);
                 foreach (LayoutLine line in content.Lines)
-                    if (line.Top + line.Height > limit + 0.01)
+                {
+                    if (line.Top >= limit)
                         row.Lines.Remove(line);
+                    else if (line.Top + line.Height > limit)
+                        line.ClipHeight = Math.Min(line.ClipHeight ?? line.Height, limit - line.Top);
+                }
                 foreach (LayoutCell nested in content.Cells)
                     nested.Bounds = new BRect(nested.Bounds.Left, nested.Bounds.Top, nested.Bounds.Width,
                         Math.Max(0, Math.Min(nested.Bounds.Height, limit - nested.Bounds.Top)));
@@ -2302,7 +2306,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         foreach (LayoutLine line in content.Lines)
         {
             line.Top += bounds.Top + down;
-            if (shape.TextOverflow || (line.Top >= bounds.Top && line.Top + line.Height <= bounds.Bottom + 0.01))
+            if (shape.TextOverflow || (line.Top >= bounds.Top && line.Top + (line.ClipHeight ?? line.Height) <= bounds.Bottom + 0.01))
                 lines.Add(line);
         }
         foreach (LayoutCell cell in content.Cells)

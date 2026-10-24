@@ -4,7 +4,7 @@ The ten highest severity scores in
 [issue 143](https://github.com/Broiler-Platform/Broiler.Documents/issues/143)
 were selected in their reported order. This investigation does **not** claim
 that ten original cases were fixed. The initial investigation corrected two reproducible implementation defects,
-but the ten original comparisons remain unresolved. Further HTML-table, DOCX table-break and ODT empty-frame fixes and
+but the ten original comparisons remain unresolved. Further HTML-table, DOCX table-break, ODT frame/picture and table-clipping fixes and
 original-document measurements are documented below.
 
 ## Selected cases
@@ -191,3 +191,66 @@ They are recorded outside the checkout as `/workspace/.setup/next143-before.json
 and `/workspace/.setup/next143-after-final.json`; the top-ten recheck is
 `/workspace/.setup/next143-top10-final.json`. These references differ from the
 versions used in the original issue; results are local reproductions.
+
+## Further case: character-anchored pictures and partially visible table lines
+
+Rank 23, `layout/data/tdf152106.odt`, exposes two independent rendering defects:
+
+- `text:anchor-type="char"` was treated as inline, just like `as-char`. A
+  character anchor instead floats beside the text. Only `as-char` is inline;
+  missing anchor types retain the reader's previous fallback. Pictures now use
+  the existing floating-picture path and diagnostic, preserving page-relative
+  positions, size and wrapping. The current model still uses a paragraph anchor
+  rather than locating the exact glyph for character-relative offsets.
+- A fixed-height table row discarded any line extending below its bottom,
+  including an image just slightly taller than the row. Partially intersecting
+  lines now carry a visible height and are clipped when painted; wholly hidden
+  lines are still omitted. Paragraph shading respects the same visible height.
+  A containing text frame checks that visible extent, so it does not discard
+  the clipped image a second time. Model text and original image size remain
+  intact. This applies to body tables and tables inside text frames.
+
+The original's full-page background picture was previously shrunk to column
+width and placed in the text. It now covers the page. Its image in a fixed-height
+row is also restored instead of disappearing. The comparison remains open:
+font substitution and text wrapping/flow still differ.
+
+| Worst-page metric | Before (`72ab55e`) | After character-anchor fix | After both fixes |
+| --- | ---: | ---: | ---: |
+| Blur difference | 70.30% | 32.54% | 28.86% |
+| Ink profile similarity | 87.51% | 96.34% | 99.51% |
+| Ink bounds delta | 81 px | 6 px | 6 px |
+| Coverage delta | 15.25% | 0.27% | 2.35% |
+
+Both renders have four pages throughout. Worst-page selection changes from page
+4 to page 1; these are the comparison's aggregate worst-page observations, not
+paired measurements of one physical page. Rendering similarity improves from
+29.70% to 71.14%, still below the unchanged 80% threshold. Coverage is slightly
+worse after adding back the table image than after the anchor fix alone, while
+remaining substantially better than the starting point. No whole-document pass
+is claimed.
+
+Five more originals were checked: ranks 13 (`tdf135056.odt`), 24
+(`FDO76248.docx`), 25 (`floattable-split.docx`), 27 (`fdo114306_2.odt`) and 29
+(`ooo96040-2.odt`). Their observed rendering metrics and page counts are unchanged.
+In particular, changing the character-anchor classification alone does not
+resolve rank 27, despite its character-anchored picture markup. Across these six
+inputs the read/text/pixel result stays at 6/18, with only the six reads passing.
+The top-ten recheck retains **13/30** passes and identical rendering observations
+for all ten inputs.
+
+Validation: Release build, **3,862 executed unit tests pass** (3 additional
+skips), and **2,320/2,320 CLI corpus checks pass** (105 documented skips). New
+coverage verifies the character/inline distinction and rasterizes an oversized
+image in a fixed row both in the body and inside a text frame: pixels above the
+row edge remain visible, pixels below it are clipped, and clip commands balance.
+The existing exact-row test now also retains and clips the partially visible
+second line while still excluding the wholly hidden third line. No corpus
+baseline or comparison threshold changed.
+
+Before/after comparisons use an isolated CLI published from `72ab55e`, the same
+input bytes, LibreOffice 26.8.1.1, poppler 26.05.0, 72 dpi, unpinned fonts and a
+40-page cap. Reports are outside the checkout at
+`/workspace/.setup/round3-before-all.json`, `round3-after-final.json` and
+`round3-top10-final.json`. Source originals were fetched again from LibreOffice's
+public `sw/qa/extras` tree; no upstream document binaries are committed.

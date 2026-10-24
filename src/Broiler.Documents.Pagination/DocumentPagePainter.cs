@@ -241,7 +241,7 @@ public sealed class DocumentPagePainter
                 continue;
             }
 
-            double bottom = line.Top + line.Height;
+            double bottom = line.Top + Math.Min(line.Height, line.ClipHeight ?? line.Height);
             if (open is BRect box &&
                 line.Background == color &&
                 (line.ParagraphIndex == paragraph || line.ParagraphIndex == paragraph + 1) &&
@@ -453,6 +453,27 @@ public sealed class DocumentPagePainter
     }
 
     private void DrawLine(BRenderList list, LayoutLine line, Func<InlineImage, BImageHandle?> resolveImage)
+    {
+        if (line.ClipHeight is not double height)
+        {
+            DrawLineContents(list, line, resolveImage);
+            return;
+        }
+        // Restrict only the vertical extent. Include glyph overhangs and any
+        // change bar horizontally, so this does not add a new cell-width clip.
+        double left = Math.Min(line.BackgroundLeft, line.Pieces.Select(piece => piece.X - piece.Font.Size)
+            .DefaultIfEmpty(line.BackgroundLeft).Min());
+        double right = Math.Max(line.BackgroundLeft + line.BackgroundWidth,
+            line.Pieces.Select(piece => piece.X + piece.Width + piece.Font.Size)
+                .DefaultIfEmpty(line.BackgroundLeft).Max());
+        if (line.ChangeBarX is double bar)
+            left = Math.Min(left, bar - ChangeBarWidth);
+        list.PushClip(new BRect(left, line.Top, Math.Max(1, right - left), height));
+        DrawLineContents(list, line, resolveImage);
+        list.PopClip();
+    }
+
+    private void DrawLineContents(BRenderList list, LayoutLine line, Func<InlineImage, BImageHandle?> resolveImage)
     {
         double baseline = line.Top + line.Baseline;
 
