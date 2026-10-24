@@ -25,6 +25,20 @@ public sealed class DocxVmlShapeTests
     private static string TextBox(string text) =>
         "<v:textbox><w:txbxContent><w:p><w:r><w:t>" + text + "</w:t></w:r></w:p></w:txbxContent></v:textbox>";
 
+    [Theory]
+    [InlineData("t", true)]
+    [InlineData("true", true)]
+    [InlineData("1", true)]
+    [InlineData("f", false)]
+    [InlineData("false", false)]
+    [InlineData("0", false)]
+    public void Vml_Textbox_Autofit_Keeps_Its_Explicit_Growth_Setting(string value, bool grows)
+    {
+        var document = Read("<v:rect style='width:80pt;height:10pt'>" +
+            TextBox("first line").Replace("<v:textbox>", $"<v:textbox style='mso-fit-shape-to-text:{value}'>") + "</v:rect>").Document;
+        Assert.Equal(grows, Assert.Single(document.Shapes).GrowsToText);
+    }
+
     [Fact]
     public void A_Text_Box_Is_A_Shape_With_Its_Text_Fill_And_Outline()
     {

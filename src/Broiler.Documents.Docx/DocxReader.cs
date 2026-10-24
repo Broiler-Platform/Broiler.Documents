@@ -1384,6 +1384,7 @@ internal static class DocxReader
             wrapDistance: Distance,
             zOrder: RelativeHeight(anchor),
             offsetFromPage: fromPage,
+            growsToText: wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Element(DocxNamespaces.Drawing + "spAutoFit") is not null,
             tables: shapeContent.Tables,
             textPadding: ReadShapePadding(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
             textVerticalAlignment: (string?)wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Attribute("anchor") switch
@@ -1536,6 +1537,8 @@ internal static class DocxReader
             // values reverse negative levels and paint backgrounds over shapes.
             zOrder: zIndex < 0 ? zIndex - int.MinValue : zIndex,
             offsetFromPage: fromPage,
+            growsToText: DocxVml.ReadStyle((string?)shape.Element(DocxNamespaces.Vml + "textbox")?.Attribute("style"))
+                .GetValueOrDefault("mso-fit-shape-to-text")?.Trim().ToLowerInvariant() is "t" or "true" or "1",
             tables: shapeContent.Tables,
             textPadding: ReadVmlPadding(shape.Element(DocxNamespaces.Vml + "textbox")),
             textVerticalAlignment: style.GetValueOrDefault("v-text-anchor") switch
