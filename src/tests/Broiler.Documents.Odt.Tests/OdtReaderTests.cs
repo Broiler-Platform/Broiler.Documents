@@ -226,6 +226,58 @@ public sealed class OdtReaderTests
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.block.unsupported");
     }
 
+    [Theory]
+    [InlineData("table-of-content")]
+    [InlineData("alphabetical-index")]
+    [InlineData("illustration-index")]
+    [InlineData("table-index")]
+    [InlineData("object-index")]
+    [InlineData("user-index")]
+    [InlineData("bibliography")]
+    public void Index_generation_instructions_are_not_reported_as_lost_content(string kind)
+    {
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:" + kind + "><text:" + kind + "-source>" +
+            "<text:index-title-template>template, not displayed text</text:index-title-template>" +
+            "</text:" + kind + "-source><text:index-body>" +
+            "<text:index-title><text:p>Cached title</text:p></text:index-title>" +
+            "<text:p>Cached entry 7</text:p></text:index-body></text:" + kind + ">");
+
+        Assert.Equal(new[] { "Cached title", "Cached entry 7" }, result.Document.Paragraphs.Select(p => p.Text));
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.block.unsupported");
+    }
+
+    [Fact]
+    public void Cached_index_content_survives_inside_a_linked_text_frame()
+    {
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:p><draw:frame draw:name='First' text:anchor-type='paragraph' svg:width='100pt' svg:height='100pt'>" +
+            "<draw:text-box draw:chain-next-name='Second'><text:table-of-content>" +
+            "<text:table-of-content-source><text:index-title-template>Template</text:index-title-template>" +
+            "</text:table-of-content-source><text:index-body><text:p>Cached entry</text:p>" +
+            "</text:index-body></text:table-of-content></draw:text-box></draw:frame></text:p>" +
+            "<text:p><draw:frame draw:name='Second' text:anchor-type='paragraph' svg:width='100pt' svg:height='100pt'>" +
+            "<draw:text-box><text:p/></draw:text-box></draw:frame></text:p>");
+
+        Assert.Equal(2, result.Document.Shapes.Count);
+        DocumentShape first = result.Document.Shapes[0];
+        Assert.Equal("Second", first.NextFrameName);
+        Assert.Equal("Cached entry", Assert.Single(first.Paragraphs).Text);
+        Assert.Equal("Second", result.Document.Shapes[1].FrameName);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.block.unsupported");
+    }
+
+    [Fact]
+    public void Unknown_index_children_are_still_reported()
+    {
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:table-of-content><text:unknown-index-content/><text:index-body>" +
+            "<text:p>Cached entry</text:p></text:index-body></text:table-of-content>");
+
+        Assert.Equal("Cached entry", Assert.Single(result.Document.Paragraphs).Text);
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.block.unsupported");
+    }
+
     [Fact]
     public void Reads_The_Value_A_Field_Displays()
     {

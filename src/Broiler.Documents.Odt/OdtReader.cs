@@ -1492,8 +1492,19 @@ internal static class OdtReader
                 continue;
             }
 
+            if (IsIndexContainer(name))
+            {
+                // The source describes how an application regenerates the
+                // index, not displayed content. Read the cached body and keep
+                // reporting genuinely unknown children instead of treating the
+                // generation instructions as lost paragraphs.
+                XName source = OdtNamespaces.Text + (name.LocalName + "-source");
+                ReadBlockContent(element.Elements().Where(child => child.Name != source), context, list: null, depth + 1);
+                continue;
+            }
+
             if (name == OdtNamespaces.Text + "index-body" ||
-                name == OdtNamespaces.Text + "index-title" || IsIndexContainer(name))
+                name == OdtNamespaces.Text + "index-title")
             {
                 ReadBlockContent(element.Elements(), context, list: null, depth + 1);
                 continue;
