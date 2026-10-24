@@ -1197,11 +1197,15 @@ internal static class OdtReader
         }
         if (kind is "bitmap" or "hatch")
         {
+            BColor fallback = BColor.Empty;
+            bool hasFallback = kind == "bitmap" &&
+                TryColor((string?)properties.Attribute(OdtNamespaces.Draw + "fill-color"), out fallback);
             styles.Report(
                 "odt.fill:" + kind,
                 "odt.fill",
-                "A " + kind + " fill could not be resolved and was not drawn.");
-            return null;
+                "A " + kind + " fill could not be resolved" +
+                (hasFallback ? "; its declared fallback colour was drawn." : " and was not drawn."));
+            return hasFallback ? ShapeFill.Solid(fallback) : null;
         }
 
         return string.Equals(kind, "solid", StringComparison.Ordinal) &&

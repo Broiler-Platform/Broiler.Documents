@@ -76,3 +76,17 @@ The other investigated cases remain open:
 Regression tests cover embedded bytes/repeat mode, missing and external relationships, resource denial, image size limits and disabled display/fills. The full Release build succeeds and all **3,905 executed unit tests** pass, with three additional skips. No comparison threshold or baseline was relaxed.
 
 Artifacts outside the checkout: `issue145-more-before.json`, `issue145-more-final.json`, `issue145-bitmap-verified.json`, their retained `*-work` directories (the final guarded run uses `issue145-more-guard-work`), and `issue145-bitmap-final-build.log`, `issue145-bitmap-final-tests.log`, `issue145-bitmap-corpus.json`. The four-case final comparison improves from **8/12 to 9/12** checks; only the bitmap pixel outcome changes. The CLI corpus passes **2,320/2,320** checks with 105 documented skips.
+
+## Further case: missing ODT bitmap definitions retain the declared colour
+
+Rank 28, `odfimport/data/fill-image-name-missing-definition.odt`, now passes **3/3** checks. The file names a bitmap definition that is absent, but explicitly declares `draw:fill-color="#99ccff"`. LibreOffice paints that blue colour; the reader previously discarded the entire fill and left a white page.
+
+An unresolved bitmap fill now uses its explicitly declared, valid `draw:fill-color`. It still emits `odt.fill`, explaining that the bitmap could not be resolved and the fallback colour was drawn. With no valid declared colour it keeps the previous no-fill result. Resolvable images retain priority. The shared fill wrapper still applies opacity and `draw:background-size` to the fallback; no external image loading or implicit colour defaults were added. This applies to bitmap fills only; unresolved hatch behaviour is unchanged.
+
+Under the same local comparison settings, the original's blur difference falls from **99.82% to 0.17%**, and profile similarity rises from **25.68% to 99.99999%**. Both renders have one page; ink-bounds delta remains five pixels. The four-case comparison improves from **9/12 to 10/12** checks. The DOCX bitmap correction stays passing, and the two remaining pagination cases have unchanged outcomes.
+
+The Release build succeeds and all **3,908 executed unit tests** pass (three additional skips). Three new regressions cover explicit vs absent fallback colours, opacity/content bounds, and external-reference diagnostics without fetching. Comparison thresholds and baselines remain unchanged.
+
+Artifacts outside the checkout: `issue145-odt-fallback-before.json`, `issue145-odt-fallback-after.json`, `issue145-odt-fallback-work`, `issue145-odt-fallback-build.log`, `issue145-odt-fallback-tests.log` and `issue145-odt-fallback-corpus.json`.
+
+The final CLI corpus passes **2,320/2,320** checks, with 105 documented skips. The top-ten #145 rerun (`issue145-odt-fallback-top10.json`) stays at 12/30; all pixel/text check details and outcomes are unchanged from the preceding top-ten run. The existing frame-heavy-document tradeoffs remain as documented above.
