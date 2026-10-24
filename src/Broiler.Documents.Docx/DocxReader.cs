@@ -106,14 +106,16 @@ internal static class DocxReader
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
+            void ReportBackground(string code, string message)
+            {
+                if (reported.Add(code))
+                    diagnostics.Add(DocumentDiagnostic.Warning(code, message));
+            }
             document = document.WithPageBackground(DocxVml.ReadBackground(
                 documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "background"),
                 settings.DisplayBackgroundShape,
-                (code, message) =>
-                {
-                    if (reported.Add(code))
-                        diagnostics.Add(DocumentDiagnostic.Warning(code, message));
-                }));
+                ReportBackground,
+                fill => images.ReadFillPicture(fill, documentRelationships, ReportBackground)));
             return new DocumentReadResult(
                 document,
                 diagnostics,

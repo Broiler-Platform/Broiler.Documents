@@ -52,3 +52,27 @@ dotnet run --project src/tests/Broiler.Documents.Office -c Release --no-build --
 ```
 
 The Office runner exits with 18 for the 18 remaining failed checks; those are recorded conformance differences, not a successful comparison run.
+
+## Further cases: embedded DOCX page-background images
+
+Investigated ranks 16 (`tdf132149_pgBreak.odt`), 23 (`tdf126533_pageBitmap.docx`), 28 (`fill-image-name-missing-definition.odt`) and 30 (`pageBreakInHiddenSection.fodt`). The embedded DOCX bitmap defect is corrected; the other three visual comparisons remain open.
+
+### Import correction
+
+`tdf126533_pageBitmap.docx` references an embedded JPEG from `v:background/v:fill` with `type="frame"`. The reader previously replaced picture fills with a solid fallback colour. It now loads embedded page-background `frame` and `tile` fills using the existing DOCX image loader and stores an `ImageFill` on the page background. `frame` stretches across the paper; `tile` uses the image's intrinsic size. This change targets ordinary rectangular backgrounds; VML-specific sizing, offsets, aspect modes and transparency remain on the existing colour-fallback path with a warning.
+
+The existing relationship resolution, per-image size limit, raster-format checks and resource-policy admission apply. External pictures are not fetched. Missing, unsupported or denied images retain the existing colour fallback and emit diagnostics. A disabled background or disabled fill does not load the image. DOCX export still approximates bitmap fills and emits its existing `docx.fill.extended` warning; this is an import/render fix, not image-fill DOCX round-trip support.
+
+### Original-document result
+
+The original bitmap document now passes **3/3** checks (read, text and pixels), compared with **2/3** before. Both renderers produce one page. The independently rerun pixel comparison has zero measured blur difference, ink-profile similarity 99.992%, coverage delta 0.012% and a one-pixel ink-bounds difference. The prior comparison had 42.01% blur difference and zero profile similarity. These metrics use the same local versions/settings listed above.
+
+The other investigated cases remain open:
+
+- `tdf132149_pgBreak.odt`: six pages vs five, rendering similarity 68.51%.
+- `fill-image-name-missing-definition.odt`: one page each, rendering similarity 0.18%; the named bitmap definition is absent.
+- `pageBreakInHiddenSection.fodt`: two pages vs three, including a page-geometry difference. Hidden-section break semantics and surrounding flow need further investigation.
+
+Regression tests cover embedded bytes/repeat mode, missing and external relationships, resource denial, image size limits and disabled display/fills. The full Release build succeeds and all **3,905 executed unit tests** pass, with three additional skips. No comparison threshold or baseline was relaxed.
+
+Artifacts outside the checkout: `issue145-more-before.json`, `issue145-more-final.json`, `issue145-bitmap-verified.json`, their retained `*-work` directories (the final guarded run uses `issue145-more-guard-work`), and `issue145-bitmap-final-build.log`, `issue145-bitmap-final-tests.log`, `issue145-bitmap-corpus.json`. The four-case final comparison improves from **8/12 to 9/12** checks; only the bitmap pixel outcome changes. The CLI corpus passes **2,320/2,320** checks with 105 documented skips.

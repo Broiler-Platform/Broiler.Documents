@@ -55,6 +55,23 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
     /// <summary>How many pictures this read turned into inline images.</summary>
     public int ImageCount { get; private set; }
 
+    /// <summary>Loads a VML fill through the same limits and resource admission as ordinary pictures.</summary>
+    public InlineImage? ReadFillPicture(XElement fill, DocxRelationships relationships, Action<string, string> report)
+    {
+        string? id = (string?)fill.Attribute(DocxNamespaces.Relationships + "id");
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            report("docx.image.external", "A DOCX picture fill has no embedded relationship; external images are not fetched.");
+            return null;
+        }
+        return Load(id, relationships, 0, 0, null, null, new FillDiagnostics(report));
+    }
+
+    private sealed class FillDiagnostics(Action<string, string> report) : IDocxImageDiagnostics
+    {
+        public void AddDiagnosticOnce(string code, string message) => report(code, message);
+    }
+
     /// <summary>
     /// Reads a <c>w:drawing</c> or <c>w:pict</c> element. Returns null — after
     /// recording why — when the element holds no picture this codec can carry.
