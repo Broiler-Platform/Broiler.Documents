@@ -481,8 +481,8 @@ public static class RtfWriter
             default: break; // Left is the \pard default.
         }
 
-        if (style.IndentLevel > 0)
-            sb.Append("\\li").Append(style.IndentLevel * 360);
+        if (style.LeftIndent.HasValue || style.IndentLevel > 0)
+            sb.Append("\\li").Append(Twips((float)style.LeftIndentIn()));
         if (style.SpacingBefore != 0f)
             sb.Append("\\sb").Append(Twips(style.SpacingBefore));
         if (style.SpacingAfter != 0f)

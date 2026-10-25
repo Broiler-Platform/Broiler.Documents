@@ -1,7 +1,7 @@
 {
   "$schema": "corpus-baseline.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-10-23",
+  "updated": "2026-10-25",
   "policy": {
     "records": "Only the round trips that lose something or warn about something. Everything this corpus can do that is absent from the list below is asserted to round trip clean, so a new loss fails by not being listed.",
     "reproduce": "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at.",
@@ -316,9 +316,7 @@
       "source": "docx",
       "via": "odt",
       "differences": [],
-      "diagnostics": [
-        "odt.list.indent"
-      ],
+      "diagnostics": [],
       "state": "suspected-defect",
       "reference": "docs/guides/corpus-suite.md",
       "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
@@ -519,7 +517,7 @@
         "paragraph-style@p7: alignment Center vs Left",
         "paragraph-style@p8: alignment Right vs Left",
         "paragraph-style@p8: indent level 2 vs 0",
-        "paragraph-style@p8: left indent 36 vs 0",
+        "paragraph-style@p8: left indent 30 vs 0",
         "paragraph-style@p8: line spacing 1.5 vs 1",
         "inline-style@p9: formatting differs from character 14: underline True vs False",
         "inline-style@p10: formatting differs from character 0: font family \"Courier\" vs default",
@@ -533,7 +531,7 @@
       ],
       "state": "suspected-defect",
       "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. The source left margin is now read as its stated 30 points instead of rounded to 36; Markdown still loses that indent to zero.",
       "reviewer": null,
       "decided": null
     },
@@ -881,27 +879,6 @@
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
-    },
-    {
-      "sample": "lists",
-      "source": "odt",
-      "via": "docx",
-      "differences": [
-        "paragraph-style@p1: left indent 18 vs 36",
-        "paragraph-style@p1: first line indent 0 vs -18",
-        "paragraph-style@p2: left indent 18 vs 36",
-        "paragraph-style@p2: first line indent 0 vs -18",
-        "paragraph-style@p3: left indent 18 vs 36",
-        "paragraph-style@p3: first line indent 0 vs -18",
-        "paragraph-style@p4: left indent 18 vs 36",
-        "paragraph-style@p4: first line indent 0 vs -18"
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
-      "reviewer": null,
-      "decided": null
     },
     {
       "sample": "lists",
@@ -1126,7 +1103,6 @@
       "source": "odt",
       "via": "html",
       "differences": [
-        "paragraph-style@p1: left indent 28.346 vs 36",
         "paragraph-style@p2: list Bullet vs None",
         "paragraph-style@p3: list Bullet vs None",
         "paragraph-style@p4: list Bullet vs None"
@@ -1137,7 +1113,7 @@
       ],
       "state": "suspected-defect",
       "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. The exact left-indent loss was removed after the HTML writer began preserving point offsets; remaining list/table limitations are unchanged.",
       "reviewer": null,
       "decided": null
     },
@@ -1184,7 +1160,7 @@
       "source": "odt",
       "via": "rtf",
       "differences": [
-        "paragraph-style@p1: left indent 28.346 vs 36",
+        "paragraph-style@p1: left indent 28.346 vs 28.35",
         "paragraph-style@p1: spacing before 5.669 vs 5.65",
         "paragraph-style@p2: list Bullet vs None",
         "paragraph-style@p3: list Bullet vs None",
@@ -1195,7 +1171,7 @@
       ],
       "state": "suspected-defect",
       "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. Left-indent rounding to an 18-point level is fixed; only native RTF twip quantization (28.346 to 28.35 points) remains for that offset.",
       "reviewer": null,
       "decided": null
     },

@@ -687,7 +687,8 @@ public static class OdtWriter
         OdtWriteContext context)
     {
         bool continues = context.HasListStyle(definition);
-        XElement list = BuildList(paragraphs, start, end, context.UseListStyle(definition), context);
+        XElement list = BuildList(paragraphs, start, end, context.UseListStyle(definition), context,
+            continueNestedAtStart: continues);
         if (continues)
             list.Add(new XAttribute(OdtNamespaces.Text + "continue-numbering", "true"));
 
@@ -699,7 +700,8 @@ public static class OdtWriter
         int start,
         int end,
         string styleName,
-        OdtWriteContext context)
+        OdtWriteContext context,
+        bool continueNestedAtStart = false)
     {
         var root = new XElement(
             OdtNamespaces.Text + "list",
@@ -730,6 +732,10 @@ public static class OdtWriter
                 }
 
                 var nested = new XElement(OdtNamespaces.Text + "list");
+                // A resumed run that begins at a deeper level has no new parent
+                // item to reset that level. Explicit restarts still win below.
+                if (continueNestedAtStart && i == start)
+                    nested.Add(new XAttribute(OdtNamespaces.Text + "continue-numbering", "true"));
                 host.Add(nested);
                 open.Add(nested);
             }
@@ -752,7 +758,11 @@ public static class OdtWriter
         bool inList)
     {
         var element = new XElement(OdtNamespaces.Text + "p");
-        if (inList && (paragraph.Style.LeftIndent.HasValue || paragraph.Style.FirstLineIndent.HasValue))
+        int listLevel = Math.Clamp(paragraph.Style.List is ListReference reference ? reference.Level + 1 :
+            Math.Max(1, paragraph.Style.IndentLevel), 1, MaxListLevels);
+        bool defaultListPosition = Math.Abs(paragraph.Style.LeftIndentIn() - listLevel * OdtUnits.PointsPerIndentLevel) < 0.001 &&
+            paragraph.Style.FirstLineIndentIn == 0;
+        if (inList && !defaultListPosition && (paragraph.Style.LeftIndent.HasValue || paragraph.Style.FirstLineIndent.HasValue))
             context.AddDiagnosticOnce("odt.list.indent", "Exact list offsets were written using the list level's default positioning; non-list paragraph indents are preserved.");
         string? styleName = context.GetParagraphStyleName(BuildParagraphProperties(paragraph.Style, inList));
         if (styleName is not null)
@@ -897,14 +907,23 @@ public static class OdtWriter
         OdtWriteContext context)
     {
         XElement host = paragraph;
+        XElement? imageAnchor = null;
 
         if (!string.IsNullOrEmpty(style.LinkHref))
         {
             XElement? anchor = BuildAnchor(style.LinkHref, context);
             if (anchor is not null)
             {
-                paragraph.Add(anchor);
-                host = anchor;
+                if (style.Image is not null)
+                {
+                    anchor.Name = OdtNamespaces.Draw + "a";
+                    imageAnchor = anchor;
+                }
+                else
+                {
+                    paragraph.Add(anchor);
+                    host = anchor;
+                }
             }
         }
 
@@ -918,6 +937,11 @@ public static class OdtWriter
             host = span;
         }
 
+        if (imageAnchor is not null)
+        {
+            host.Add(imageAnchor);
+            host = imageAnchor;
+        }
         AddInlineContent(host, text, offset, style, state, context);
     }
 
@@ -1560,10 +1584,9 @@ public static class OdtWriter
                 OdtNamespaces.Style + "list-level-properties",
                 new XAttribute(
                     OdtNamespaces.Text + "space-before",
-                    OdtUnits.FormatInches((level - 1) * OdtUnits.PointsPerIndentLevel)),
-                new XAttribute(
-                    OdtNamespaces.Text + "min-label-width",
-                    OdtUnits.FormatInches(OdtUnits.PointsPerIndentLevel))));
+                    OdtUnits.FormatInches(level * OdtUnits.PointsPerIndentLevel)),
+                new XAttribute(OdtNamespaces.Text + "min-label-width", "0pt"),
+                new XAttribute(OdtNamespaces.Text + "min-label-distance", "6pt")));
             listStyle.Add(levelStyle);
         }
 
