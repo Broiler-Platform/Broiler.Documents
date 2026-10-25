@@ -1395,7 +1395,9 @@ internal static class DocxReader
             },
             textOverflow: (string?)wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Attribute("vertOverflow") == "overflow",
             geometry: geometry,
-            outlineWidth: long.TryParse((string?)spPr?.Element(DocxNamespaces.Drawing + "ln")?.Attribute("w"), out long lineWidth) && lineWidth >= 0 ? lineWidth / 12700d : 0.75));
+            outlineWidth: long.TryParse((string?)spPr?.Element(DocxNamespaces.Drawing + "ln")?.Attribute("w"), out long lineWidth) && lineWidth >= 0 ? lineWidth / 12700d : 0.75,
+            offsetXFromCell: context.Builder.InTableCell && geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending &&
+                RelativeFrom(anchor, "positionH") == "column"));
         return true;
     }
 
@@ -1441,19 +1443,40 @@ internal static class DocxReader
             element.Name == DocxNamespaces.Vml + "rect" ||
             element.Name == DocxNamespaces.Vml + "roundrect" ||
             element.Name == DocxNamespaces.Vml + "oval" ||
-            element.Name == DocxNamespaces.Vml + "shape");
+            element.Name == DocxNamespaces.Vml + "shape" ||
+            element.Name == DocxNamespaces.Vml + "line" ||
+            element.Name == DocxNamespaces.Vml + "polyline");
         if (shape is null || shape.Descendants(DocxNamespaces.Vml + "imagedata").Any())
             return false;
 
         Dictionary<string, string> style = DocxVml.ReadStyle((string?)shape.Attribute("style"));
-        if (!DocxVml.TryLength(style.GetValueOrDefault("width"), out double width) ||
-            !DocxVml.TryLength(style.GetValueOrDefault("height"), out double height) ||
+        bool segment = shape.Name == DocxNamespaces.Vml + "line" || shape.Name == DocxNamespaces.Vml + "polyline";
+        double lineLeft = 0, lineTop = 0, width, height;
+        ShapeGeometry geometry = shape.Name == DocxNamespaces.Vml + "oval" ? ShapeGeometry.Ellipse : ShapeGeometry.Rectangle;
+        if (segment)
+        {
+            double[]? points = ReadVmlSegmentPoints(shape);
+            if (points is null || style.ContainsKey("rotation"))
+            {
+                context.Builder.AddDiagnosticOnce("docx.shape.geometry",
+                    "A VML line used unsupported coordinates, rotation or more than two points and was skipped.");
+                return true;
+            }
+            lineLeft = Math.Min(points[0], points[2]);
+            lineTop = Math.Min(points[1], points[3]);
+            width = Math.Abs(points[2] - points[0]);
+            height = Math.Abs(points[3] - points[1]);
+            geometry = (points[2] - points[0]) * (points[3] - points[1]) < 0
+                ? ShapeGeometry.LineAscending : ShapeGeometry.Line;
+        }
+        else if (!DocxVml.TryLength(style.GetValueOrDefault("width"), out width) ||
+            !DocxVml.TryLength(style.GetValueOrDefault("height"), out height) ||
             width <= 0 || height <= 0)
         {
             return false;
         }
 
-        ShapeFill? fill = DocxVml.ReadFill(
+        ShapeFill? fill = segment ? null : DocxVml.ReadFill(
             shape,
             BColor.Empty,
             (code, message) => context.Builder.AddDiagnosticOnce(code, message),
@@ -1462,6 +1485,12 @@ internal static class DocxReader
         RichTextDocument shapeContent = ReadShapeText(shape, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
         BColor outline = ReadVmlOutline(shape);
+        if (segment && outline.IsEmpty)
+            return true;
+        string? dash = (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("dashstyle");
+        if (segment && dash is not null && !string.Equals(dash.Trim(), "solid", StringComparison.OrdinalIgnoreCase))
+            context.Builder.AddDiagnosticOnce("docx.shape.stroke",
+                "A VML line dash pattern was approximated by a solid stroke.");
         if (fill is null && paragraphs.Count == 0 && outline.IsEmpty)
             return false;
 
@@ -1470,7 +1499,7 @@ internal static class DocxReader
         DocxVml.TryLength(style.GetValueOrDefault("top"), out double top);
         DocxVml.TryLength(style.GetValueOrDefault("margin-top"), out double marginTop);
         // Across, every frame converts to the column, as a DrawingML anchor's does.
-        double offsetX = left + marginLeft;
+        double offsetX = segment ? lineLeft : left + marginLeft;
         if (context.Page is PageGeometry page)
         {
             offsetX += style.GetValueOrDefault("mso-position-horizontal-relative") switch
@@ -1483,7 +1512,7 @@ internal static class DocxReader
 
         // VML names DrawingML's vertical frames in its own words; the paragraph
         // and the line stay where they are, the rest measure from the page.
-        double offsetY = top + marginTop;
+        double offsetY = segment ? lineTop : top + marginTop;
         string? verticalFrom = style.GetValueOrDefault("mso-position-vertical-relative") switch
         {
             "page" => "page",
@@ -1548,9 +1577,34 @@ internal static class DocxReader
                 _ => CellVerticalAlignment.Top,
             },
             textOverflow: style.GetValueOrDefault("overflow") == "visible",
-            geometry: shape.Name == DocxNamespaces.Vml + "oval" ? ShapeGeometry.Ellipse : ShapeGeometry.Rectangle,
-            outlineWidth: DocxVml.TryLength((string?)shape.Attribute("strokeweight") ?? (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("weight"), out double strokeWidth) ? strokeWidth : 0.75));
+            geometry: geometry,
+            outlineWidth: DocxVml.TryLength((string?)shape.Attribute("strokeweight") ?? (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("weight"), out double strokeWidth) ? strokeWidth : 0.75,
+            offsetXFromCell: segment && context.Builder.InTableCell && style.GetValueOrDefault("mso-position-horizontal-relative") == "text"));
         return true;
+    }
+
+    private static double[]? ReadVmlSegmentPoints(XElement shape)
+    {
+        if (shape.Name == DocxNamespaces.Vml + "line" &&
+            (((string?)shape.Attribute("from"))?.Count(c => c == ',') != 1 ||
+             ((string?)shape.Attribute("to"))?.Count(c => c == ',') != 1))
+            return null;
+        string? value = shape.Name == DocxNamespaces.Vml + "line"
+            ? (string?)shape.Attribute("from") + "," + (string?)shape.Attribute("to")
+            : (string?)shape.Attribute("points");
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 256)
+            return null;
+        string[] coordinates = value.Split(',', StringSplitOptions.TrimEntries);
+        if (coordinates.Length != 4)
+            return null;
+        var points = new double[4];
+        for (int i = 0; i < 4; i++)
+        {
+            if (!DocxVml.TryLength(coordinates[i], out points[i]) || Math.Abs(points[i]) > 10000 ||
+                (shape.Attribute("coordsize") is not null && points[i] != 0 && !char.IsAsciiLetter(coordinates[i][^1])))
+                return null;
+        }
+        return points[0] == points[2] && points[1] == points[3] ? null : points;
     }
 
     private static TableCellPadding ReadVmlPadding(XElement? textBox)

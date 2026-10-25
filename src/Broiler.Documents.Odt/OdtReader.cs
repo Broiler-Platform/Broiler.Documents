@@ -880,7 +880,9 @@ internal static class OdtReader
             outline: outline, behindText: paint.BehindText, wrap: paint.Wrap, wrapSide: paint.Side,
             zOrder: ZIndex(drawing), anchorPage: page, offsetFromPage: fromPage,
             geometry: (x2 - x1) * (y2 - y1) < 0 ? ShapeGeometry.LineAscending : ShapeGeometry.Line,
-            outlineWidth: thickness));
+            outlineWidth: thickness,
+            offsetXFromCell: context.TableDepth > 0 &&
+                ((string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph")));
         return true;
     }
 

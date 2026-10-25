@@ -196,6 +196,9 @@ public static class RtfWriter
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
+        if (shape.OffsetXFromCell)
+            AddOnce(diagnostics, reported, "rtf.shape.cell-anchor",
+                "A cell-relative line was written from the text column; cell-relative horizontal placement is not retained.");
         if (shape.Fill?.HasExtendedPaint == true)
             AddOnce(diagnostics, reported, "rtf.fill.extended", "Bitmap and hatch fills, centred gradient geometry, gradient borders and page-fill bounds were approximated by their base colours or linear gradients.");
         if (shape.Image is InlineImage image)

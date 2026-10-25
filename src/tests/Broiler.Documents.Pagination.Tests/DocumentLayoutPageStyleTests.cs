@@ -2,6 +2,23 @@ namespace Broiler.Documents.Pagination.Tests;
 
 public sealed class DocumentLayoutPageStyleTests
 {
+    [Theory]
+    [InlineData(false, 40)]
+    [InlineData(true, 145)]
+    public void A_Cell_Relative_Line_Uses_The_Cell_Text_Area_Including_Padding(bool cellRelative, double left)
+    {
+        var document = RichTextDocument.FromParagraphs([RichTextParagraph.Empty,
+                RichTextParagraph.Plain("anchor").WithParagraphStyle(ParagraphStyle.Default with { LeftIndent = 20 })])
+            .WithTables([new DocumentTable(0, 2, [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)], minHeight: 100)],
+                [100, 100], cellPadding: 5, preferredWidth: 200)])
+            .WithShapes([new DocumentShape(1, 20, 20, 60, 0, outline: Broiler.Graphics.Color.BColor.Black,
+                geometry: ShapeGeometry.Line, offsetXFromCell: cellRelative)]);
+        using var images = new ImageStore();
+        var page = Assert.Single(new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(300, 200, 20, 20, 20, 20)).Pages);
+        Assert.Equal(left, Assert.Single(page.Shapes).Bounds.Left, 3);
+    }
+
     [Fact]
     public void A_Paragraph_Whose_First_Line_Overflows_Is_Measured_On_Its_Destination_Page()
     {

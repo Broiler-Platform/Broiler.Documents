@@ -580,7 +580,7 @@ public static class OdtWriter
                     continue;
                 }
 
-                tr.Add(BuildTableCell(document, cell, context));
+                tr.Add(BuildTableCell(document, table, cell, context));
                 column += cell.ColumnSpan;
 
                 // ODF wants a covered cell for every position a span swallowed.
@@ -597,10 +597,10 @@ public static class OdtWriter
         return element;
     }
 
-    private static XElement BuildTableCell(RichTextDocument document, TableCell cell, OdtWriteContext context)
+    private static XElement BuildTableCell(RichTextDocument document, DocumentTable table, TableCell cell, OdtWriteContext context)
     {
         var element = new XElement(OdtNamespaces.Table + "table-cell");
-        if (context.GetCellStyleName(cell) is string styleName)
+        if (context.GetCellStyleName(cell, cell.PaddingFor(table)) is string styleName)
             element.Add(new XAttribute(OdtNamespaces.Table + "style-name", styleName));
 
         if (cell.ColumnSpan > 1)
@@ -2212,6 +2212,12 @@ public static class OdtWriter
                 properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-rel", "page"));
             }
 
+            if (shape.OffsetXFromCell)
+            {
+                properties.SetAttributeValue(OdtNamespaces.Style + "horizontal-pos", "from-left");
+                properties.SetAttributeValue(OdtNamespaces.Style + "horizontal-rel", "paragraph");
+            }
+
             if (shape.Fill is ShapeFill fill)
                 WriteFill(properties, fill, this);
             else
@@ -2380,10 +2386,10 @@ public static class OdtWriter
         }
 
         /// <summary>
-        /// The cell style for one cell's paint, created on first use, or null when
-        /// the cell states neither a background nor a border and needs no style.
+        /// The cell style for paint and effective padding, including inherited
+        /// table padding, created on first use.
         /// </summary>
-        public string? GetCellStyleName(TableCell cell)
+        public string? GetCellStyleName(TableCell cell, TableCellPadding padding)
         {
             var properties = new XElement(OdtNamespaces.Style + "table-cell-properties");
             if (!cell.Shading.IsEmpty && cell.Shading.A > 0)
@@ -2397,13 +2403,10 @@ public static class OdtWriter
                 properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-align",
                     cell.VerticalAlignment == CellVerticalAlignment.Center ? "middle" : "bottom"));
 
-            if (cell.Padding is TableCellPadding padding)
-            {
-                properties.Add(new XAttribute(OdtNamespaces.Fo + "padding-left", OdtUnits.FormatPoints(padding.Left)),
-                    new XAttribute(OdtNamespaces.Fo + "padding-top", OdtUnits.FormatPoints(padding.Top)),
-                    new XAttribute(OdtNamespaces.Fo + "padding-right", OdtUnits.FormatPoints(padding.Right)),
-                    new XAttribute(OdtNamespaces.Fo + "padding-bottom", OdtUnits.FormatPoints(padding.Bottom)));
-            }
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "padding-left", OdtUnits.FormatPoints(padding.Left)),
+                new XAttribute(OdtNamespaces.Fo + "padding-top", OdtUnits.FormatPoints(padding.Top)),
+                new XAttribute(OdtNamespaces.Fo + "padding-right", OdtUnits.FormatPoints(padding.Right)),
+                new XAttribute(OdtNamespaces.Fo + "padding-bottom", OdtUnits.FormatPoints(padding.Bottom)));
 
             AddBorder(properties, "border-left", cell.Borders.Left);
             AddBorder(properties, "border-top", cell.Borders.Top);

@@ -4,6 +4,18 @@ namespace Broiler.Documents.Odt.Tests;
 
 public sealed class OdtDrawingGeometryTests
 {
+    [Fact]
+    public void A_Cell_Relative_Line_Keeps_Its_Reference_On_Odt_Round_Trip()
+    {
+        var document = RichTextDocument.FromParagraphs([RichTextParagraph.Empty, RichTextParagraph.Empty])
+            .WithTables([new DocumentTable(0, 2, [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)])], [100, 100])])
+            .WithShapes([new DocumentShape(1, 20, 20, 60, 0, outline: BColor.Black,
+                geometry: ShapeGeometry.Line, offsetXFromCell: true)]);
+        var restored = Assert.Single(OdtWriterTests.RoundTrip(document).Shapes);
+        Assert.True(restored.OffsetXFromCell);
+        Assert.Equal(20, restored.OffsetX);
+    }
+
     private static RichTextDocument Read(string drawing, string properties) => OdtTestPackage.ReadStyled(
         "<text:p>anchor" + drawing + "</text:p>",
         "<office:styles><style:style style:name=\"g\" style:family=\"graphic\"><style:graphic-properties " + properties +

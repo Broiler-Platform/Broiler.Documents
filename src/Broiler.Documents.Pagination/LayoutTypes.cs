@@ -130,6 +130,9 @@ public sealed class LayoutLine
     /// <summary>Which model paragraph this line came from. Carried through for diagnostics.</summary>
     public int ParagraphIndex { get; }
 
+    /// <summary>The column/cell text area's origin, before paragraph indent.</summary>
+    internal double TextAreaLeft { get; set; }
+
     /// <summary>Moves every piece of the line <paramref name="dx"/> points across, into another text column.</summary>
     /// <summary>
     /// The colour the line's paragraph is shaded with, or <see cref="BColor.Empty"/>
@@ -155,6 +158,7 @@ public sealed class LayoutLine
             return;
 
         BackgroundLeft += dx;
+        TextAreaLeft += dx;
         if (ChangeBarX is double bar)
             ChangeBarX = bar + dx;
         foreach (LayoutPiece piece in _pieces)

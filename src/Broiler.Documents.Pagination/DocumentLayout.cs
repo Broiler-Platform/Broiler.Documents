@@ -1356,7 +1356,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // OrderBy rather than Sort, because it is stable: shapes that state no
         // order all sit at zero and keep the order they were read in, which is the
         // answer this gave before z-order was modelled.
-        List<LayoutShape> shapes = PlaceShapes(setup, number);
+        List<LayoutShape> shapes = PlaceShapes(setup, number, lines);
         if (sectionPaint is not null)
             shapes.AddRange(sectionPaint);
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveHeaderShapes(selection), setup));
@@ -1512,11 +1512,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// has not been laid out on this page is not drawn on it. A shape anchored to
     /// a page is drawn on that page, its y measured from the page's top edge.
     /// </remarks>
-    private List<LayoutShape> PlaceShapes(DocumentPageBox setup, int number)
+    private List<LayoutShape> PlaceShapes(DocumentPageBox setup, int number, IReadOnlyList<LayoutLine> sourceLines)
     {
         var placed = new List<LayoutShape>();
         if (_documentShapes.Count == 0)
             return placed;
+
+        var cellTextLefts = new Dictionary<int, double>();
+        if (_documentShapes.Any(shape => shape.OffsetXFromCell))
+            foreach (LayoutLine line in sourceLines)
+                cellTextLefts.TryAdd(line.ParagraphIndex, line.TextAreaLeft);
 
         foreach (DocumentShape shape in _documentShapes)
         {
@@ -1533,7 +1538,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 continue;
             }
 
-            var bounds = new BRect(setup.ContentLeftPoints + shape.OffsetX, shape.TopOnPage(anchorTop),
+            double left = shape.OffsetXFromCell && cellTextLefts.TryGetValue(shape.ParagraphIndex, out double cellLeft)
+                ? cellLeft : setup.ContentLeftPoints;
+            var bounds = new BRect(left + shape.OffsetX, shape.TopOnPage(anchorTop),
                 BoxWidth(shape), BoxHeight(shape));
 
             if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
@@ -2628,6 +2635,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 line.BackgroundWidth = columnWidth;
             }
 
+            line.TextAreaLeft = columnLeft - indent;
             lines.Add(line);
         }
 
