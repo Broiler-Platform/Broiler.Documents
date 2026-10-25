@@ -1,7 +1,7 @@
 {
   "$schema": "corpus-baseline.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-10-23",
+  "updated": "2026-10-25",
   "policy": {
     "records": "Only the round trips that lose something or warn about something. Everything this corpus can do that is absent from the list below is asserted to round trip clean, so a new loss fails by not being listed.",
     "reproduce": "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at.",
@@ -316,9 +316,7 @@
       "source": "docx",
       "via": "odt",
       "differences": [],
-      "diagnostics": [
-        "odt.list.indent"
-      ],
+      "diagnostics": [],
       "state": "suspected-defect",
       "reference": "docs/guides/corpus-suite.md",
       "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
@@ -881,27 +879,6 @@
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
-    },
-    {
-      "sample": "lists",
-      "source": "odt",
-      "via": "docx",
-      "differences": [
-        "paragraph-style@p1: left indent 18 vs 36",
-        "paragraph-style@p1: first line indent 0 vs -18",
-        "paragraph-style@p2: left indent 18 vs 36",
-        "paragraph-style@p2: first line indent 0 vs -18",
-        "paragraph-style@p3: left indent 18 vs 36",
-        "paragraph-style@p3: first line indent 0 vs -18",
-        "paragraph-style@p4: left indent 18 vs 36",
-        "paragraph-style@p4: first line indent 0 vs -18"
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
-      "reviewer": null,
-      "decided": null
     },
     {
       "sample": "lists",

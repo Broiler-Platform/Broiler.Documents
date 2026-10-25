@@ -846,7 +846,17 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
                     ? properties.Element(OdtNamespaces.Style + "list-level-label-alignment") : null;
                 float? Length(string name) => OdtUnits.TryParseLength((string?)alignment?.Attribute(OdtNamespaces.Fo + name), out double value)
                     && double.IsFinite(value) ? (float)Math.Clamp(value, -20000, 20000) : null;
-                indents[number] = (Length("margin-left"), Length("text-indent"));
+                (float? Left, float? First) indent = (Length("margin-left"), Length("text-indent"));
+                string? mode = (string?)properties?.Attribute(OdtNamespaces.Text + "list-level-position-and-space-mode");
+                if (mode is null or "label-width-and-position" && properties is not null &&
+                    (properties.Attribute(OdtNamespaces.Text + "space-before") is not null ||
+                     properties.Attribute(OdtNamespaces.Text + "min-label-width") is not null))
+                {
+                    double before = OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Text + "space-before"), out double space) ? space : 0;
+                    double width = OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Text + "min-label-width"), out double labelWidth) ? Math.Max(0, labelWidth) : 0;
+                    indent = ((float)Math.Clamp(before + width, -20000, 20000), width == 0 ? 0f : (float)-Math.Clamp(width, 0, 20000));
+                }
+                indents[number] = indent;
                 if (number <= ListDefinition.MaxLevels)
                     stated[number - 1] = definition;
             }

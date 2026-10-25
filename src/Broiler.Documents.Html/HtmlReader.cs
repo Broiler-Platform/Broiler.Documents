@@ -215,7 +215,29 @@ internal static class HtmlReader
             {
                 ListKind = tag.Equals("ol", StringComparison.OrdinalIgnoreCase) ? ListKind.Numbered : ListKind.Bullet,
                 IndentLevel = Math.Max(1, childParagraph.IndentLevel + 1),
+                List = null,
             };
+            if (tag.Equals("ol", StringComparison.OrdinalIgnoreCase))
+            {
+                bool explicitStart = int.TryParse(element.GetAttribute("start"), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int start);
+                bool itemValues = element.ChildNodes.OfType<DomElement>().Any(child =>
+                    child.LocalName.Equals("li", StringComparison.OrdinalIgnoreCase) &&
+                    int.TryParse(child.GetAttribute("value"), NumberStyles.Integer, CultureInfo.InvariantCulture, out _));
+                if (explicitStart || itemValues)
+                {
+                    int level = Math.Clamp(listStyle.IndentLevel - 1, 0, ListDefinition.MaxLevels - 1);
+                    ListNumberFormat format = element.GetAttribute("type") switch
+                    {
+                        "a" => ListNumberFormat.LowerLetter, "A" => ListNumberFormat.UpperLetter,
+                        "i" => ListNumberFormat.LowerRoman, "I" => ListNumberFormat.UpperRoman,
+                        _ => ListNumberFormat.Decimal,
+                    };
+                    ListDefinition definition = ListDefinition.PlainNumbers.WithLevel(level,
+                        ListLevel.DecimalAt(level) with { Start = explicitStart ? start : 1, Format = format });
+                    listStyle = listStyle with { List = new ListReference(definition, level) };
+                }
+            }
             builder.FinishParagraph(force: false);
             ReadChildren(element, builder, styleSheet, childInline, listStyle, childPreserveWhitespace);
             builder.FinishParagraph(force: false);
@@ -226,6 +248,10 @@ internal static class HtmlReader
         {
             if (tag.Equals("li", StringComparison.OrdinalIgnoreCase) && childParagraph.ListKind == ListKind.None)
                 childParagraph = childParagraph with { ListKind = ListKind.Bullet, IndentLevel = Math.Max(1, childParagraph.IndentLevel) };
+
+            if (tag.Equals("li", StringComparison.OrdinalIgnoreCase) && childParagraph.List is ListReference numbered &&
+                int.TryParse(element.GetAttribute("value"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+                childParagraph = childParagraph with { List = new ListReference(numbered.Definition, numbered.Level, value) };
 
             if (tag.StartsWith("h", StringComparison.OrdinalIgnoreCase) && tag.Length == 2 && char.IsDigit(tag[1]))
                 childInline = ApplyHeadingInline(tag, childInline);

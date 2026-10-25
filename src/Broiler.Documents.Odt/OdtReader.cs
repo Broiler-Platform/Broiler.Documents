@@ -1887,7 +1887,7 @@ internal static class OdtReader
                 continue;
             }
 
-            if (name == OdtNamespaces.Text + "a")
+            if (name == OdtNamespaces.Text + "a" || name == OdtNamespaces.Draw + "a")
             {
                 ReadInlineContent(element, context, ApplyAnchorStyle(element, context, style), depth + 1);
                 continue;
@@ -2491,7 +2491,8 @@ internal static class OdtReader
                 string? decimalChar = (string?)tab.Attribute(OdtNamespaces.Style + "char");
                 stops.Add(new ParagraphTabStop(position, (string?)tab.Attribute(OdtNamespaces.Style + "type") switch
                     { "center" => TabAlignment.Center, "right" => TabAlignment.Right, "char" => TabAlignment.Decimal, _ => TabAlignment.Left },
-                    (string?)tab.Attribute(OdtNamespaces.Style + "leader-text"),
+                    (string?)tab.Attribute(OdtNamespaces.Style + "leader-style") == "none"
+                        ? null : (string?)tab.Attribute(OdtNamespaces.Style + "leader-text"),
                     string.IsNullOrEmpty(decimalChar) ? '.' : decimalChar[0]));
             }
             style = style with { TabStops = new ParagraphTabStops(stops) };
