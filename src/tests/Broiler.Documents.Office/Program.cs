@@ -85,6 +85,9 @@ internal static class Program
 
         Guard(workspace, root);
 
+        if (options.SampleList is not null) _ = ExtrasSelection.Load(options.SampleList);
+        if (options.PreviousTriage is not null) _ = ExtrasTriage.Load(options.PreviousTriage);
+
         var log = new RunLog();
         string platform = PlatformName();
 
@@ -141,7 +144,7 @@ internal static class Program
               string.Join(", ", options.FontDirectories) + ", " +
               (fontArguments.Count / 2).ToString(CultureInfo.InvariantCulture) + " mapping(s)"));
 
-        if (!options.SeedCorpus && (options.ExtrasUrl is not null || options.ExtrasDirectory is not null))
+        if (options.IsExtrasRun)
         {
             CrashRegressions crashRegressions = CrashRegressions.Load(
                 options.CrashRegressions ?? Path.Combine(root, "tests", "office", "extras-crash-regressions.json"));
@@ -371,7 +374,8 @@ internal static class Program
             }
 
             IReadOnlyList<ExtrasSample> samples = await ExtrasConformance
-                .AcquireSamplesAsync(workspace, options.ExtrasUrl, options.ExtrasDirectory, options.Only, options.MaxFiles)
+                .AcquireSamplesAsync(workspace, options.ExtrasUrl, options.ExtrasDirectory, options.Only, options.MaxFiles,
+                    options.SampleList is null ? null : ExtrasSelection.Load(options.SampleList))
                 .ConfigureAwait(false);
 
             int totalSamples = samples.Count;
@@ -476,6 +480,10 @@ internal static class Program
                     Directory.CreateDirectory(issueDir);
                 File.WriteAllText(options.IssueReport, issueMarkdown, new UTF8Encoding(false));
             }
+
+            if (options.TriageDirectory is not null)
+                ExtrasTriage.Write(options.TriageDirectory, differences, header, options.Axis, options.Threshold,
+                    options.MaxPages, options.LibreOfficeTimeout, options.TopDifferences, options.PreviousTriage);
 
             IReadOnlyList<ExtrasDifference> unhandled = ExtrasConformance.CrashRegressionFailures(differences);
             if (unhandled.Count > 0)
@@ -792,14 +800,20 @@ internal static class Program
         int Dpi,
         double Threshold,
         int MaxPages,
-        TimeSpan LibreOfficeTimeout)
+        TimeSpan LibreOfficeTimeout,
+        string? SampleList = null,
+        string? TriageDirectory = null,
+        string? PreviousTriage = null)
     {
+        public bool IsExtrasRun => !SeedCorpus && (ExtrasUrl is not null || ExtrasDirectory is not null ||
+            SampleList is not null || TriageDirectory is not null);
+
         public static Options Parse(string[] arguments)
         {
             string? tool = null, soffice = null, pdftoppm = null, manifest = null, baseline = null;
             string? tools = null, workspace = null, fontSet = null, only = null, json = null, junit = null;
             string? extrasUrl = null, extrasDir = null, issueOut = null, githubRepo = null;
-            string? crashRegressions = null;
+            string? crashRegressions = null, sampleList = null, triageDirectory = null, previousTriage = null;
             string axis = "all";
             var fontDirectories = new List<string>();
             bool keep = false, verbose = false, update = false, restamp = false;
@@ -843,6 +857,9 @@ internal static class Program
                     case "--font-dir": fontDirectories.Add(Value(argument)); break;
                     case "--font-set": fontSet = Value(argument); break;
                     case "--only": only = Value(argument); break;
+                    case "--sample-list": sampleList = Value(argument); break;
+                    case "--triage-dir": triageDirectory = Value(argument); break;
+                    case "--previous-triage": previousTriage = Value(argument); break;
                     case "--report": json = Value(argument); break;
                     case "--junit": junit = Value(argument); break;
                     case "--extras-url": extrasUrl = Value(argument); break;
@@ -887,11 +904,20 @@ internal static class Program
                 }
             }
 
+            if (sampleList is not null && createIssue)
+                throw new ArgumentException("--sample-list cannot update the global GitHub ranking issue; use the triage artifacts for focused runs.");
+            if (sampleList is not null && (only is not null || maxFiles is not null))
+                throw new ArgumentException("--sample-list cannot be combined with --only or --max-files; all selected IDs must run.");
+            if ((sampleList is not null || triageDirectory is not null || previousTriage is not null) && (seedCorpus || update))
+                throw new ArgumentException("Sample lists and triage reports apply to extras runs, not seed/baseline updates.");
+            if (previousTriage is not null && triageDirectory is null)
+                throw new ArgumentException("--previous-triage requires --triage-dir.");
+
             return new Options(
                 tool, soffice, pdftoppm, manifest, baseline, tools, workspace, fontDirectories, fontSet,
                 axis, only, json, junit, extrasUrl, extrasDir, issueOut, githubRepo, crashRegressions, topDifferences,
                 maxFiles, createIssue, seedCorpus, keep, verbose, update, restamp, allowPending, help,
-                jobs, dpi, threshold, maxPages, TimeSpan.FromSeconds(timeout));
+                jobs, dpi, threshold, maxPages, TimeSpan.FromSeconds(timeout), sampleList, triageDirectory, previousTriage);
         }
 
         public static void WriteUsage(TextWriter output)
@@ -923,6 +949,9 @@ internal static class Program
             output.WriteLine("  --font-dir <dir>         Pin a font directory for both sides. Repeatable.");
             output.WriteLine("  --font-set <name>        The name the baseline stamp records for that set.");
             output.WriteLine("  --axis <kind>            semantic, pixel, or all. (default all)");
+            output.WriteLine("  --sample-list <path>     Exact extras IDs, one per line; fails if any is missing.");
+            output.WriteLine("  --triage-dir <path>      Write structured triage, Markdown summary and top-sample replay list.");
+            output.WriteLine("  --previous-triage <json> Compare against a previous triage.json with input/environment guards.");
             output.WriteLine("  --only <substring>       Run only documents whose key contains this.");
             output.WriteLine("  --report <path>          Write the JSON report.");
             output.WriteLine("  --junit <path>           Write the JUnit XML report.");

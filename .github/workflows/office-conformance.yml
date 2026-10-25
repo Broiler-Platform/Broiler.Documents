@@ -47,7 +47,7 @@ on:
         required: false
         default: 'all'
       only:
-        description: Run only documents whose seed/format key contains this substring
+        description: Substring filter, or @path/to/sample-list.txt in the checkout for exact extras IDs
         required: false
         default: ''
       dpi:
@@ -94,7 +94,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: office-conformance
+  group: office-conformance-${{ startsWith(inputs.only, '@') && github.run_id || 'full' }}
   cancel-in-progress: false
 
 jobs:
@@ -194,13 +194,20 @@ jobs:
             --extras-url "$OFFICE_EXTRAS_URL"
             --top-differences "$OFFICE_TOP_DIFFERENCES"
           )
-          if [ -n "$OFFICE_ONLY" ]; then
+          if [[ "$OFFICE_ONLY" == @* ]]; then
+            SAMPLE_LIST_PATH="$(realpath -e -- "$GITHUB_WORKSPACE/${OFFICE_ONLY#@}")"
+            case "$SAMPLE_LIST_PATH" in
+              "$GITHUB_WORKSPACE"/*) ;;
+              *) echo "::error::Sample lists must be files inside the checkout."; exit 1 ;;
+            esac
+            ARGS+=(--sample-list "$SAMPLE_LIST_PATH")
+          elif [ -n "$OFFICE_ONLY" ]; then
             ARGS+=(--only "$OFFICE_ONLY")
           fi
           if [ -n "$OFFICE_MAX_FILES" ]; then
             ARGS+=(--max-files "$OFFICE_MAX_FILES")
           fi
-          if [ "$OFFICE_CREATE_ISSUE" = "true" ] && [ "$OFFICE_SEED_CORPUS" != "true" ] && [ "$OFFICE_UPDATE_BASELINE" != "true" ]; then
+          if [[ "$OFFICE_ONLY" != @* ]] && [ "$OFFICE_CREATE_ISSUE" = "true" ] && [ "$OFFICE_SEED_CORPUS" != "true" ] && [ "$OFFICE_UPDATE_BASELINE" != "true" ]; then
             ARGS+=(--create-github-issue)
           fi
           if [ "$OFFICE_SEED_CORPUS" = "true" ]; then
@@ -211,6 +218,9 @@ jobs:
           fi
           RUNNER_STATUS=0
           bash eng/run-office-conformance.sh "${ARGS[@]}" || RUNNER_STATUS=$?
+          if [ -f ./test-results/triage/triage.md ]; then
+            cat ./test-results/triage/triage.md >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ "$RUNNER_STATUS" = "69" ]; then
             echo "::warning::The toolchain could not be provisioned; nothing was measured."
             cat ./test-results/office-toolchain-failure.json || true

@@ -23,6 +23,9 @@
 #     --max-files <n>          Maximum number of extras sample files to evaluate
 #     --seed-corpus            Run the authored seed corpus instead of sw/qa/extras
 #     --axis <kind>            semantic, pixel, or all (default: all)
+#     --sample-list <path>     Exact extras IDs, one per line (no --only/--max-files)
+#     --triage-dir <dir>       Triage JSON/Markdown and replay lists (default: output-dir/triage)
+#     --previous-triage <json> Compare with a previous triage.json
 #     --only <substring>       Run only documents whose seed/format key contains this
 #     --jobs <n>               Concurrent documents
 #     --threshold <percent>   Minimum rendering similarity, 0 to 100 (default: 80)
@@ -70,6 +73,9 @@ MAX_FILES=""
 SEED_CORPUS=false
 AXIS="all"
 ONLY=""
+SAMPLE_LIST=""
+TRIAGE_DIR=""
+PREVIOUS_TRIAGE=""
 JOBS=""
 DPI="144"
 THRESHOLD="80"
@@ -116,6 +122,9 @@ while [[ $# -gt 0 ]]; do
         --seed-corpus) SEED_CORPUS=true; shift ;;
         --axis) AXIS="$2"; shift 2 ;;
         --only) ONLY="$2"; shift 2 ;;
+        --sample-list) SAMPLE_LIST="$2"; shift 2 ;;
+        --triage-dir) TRIAGE_DIR="$2"; shift 2 ;;
+        --previous-triage) PREVIOUS_TRIAGE="$2"; shift 2 ;;
         --jobs) JOBS="$2"; shift 2 ;;
         --threshold) THRESHOLD="$2"; shift 2 ;;
         --dpi) DPI="$2"; shift 2 ;;
@@ -132,6 +141,12 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
+
+if [[ "$SEED_CORPUS" == "true" || "$UPDATE_BASELINE" == "true" ]] && \
+   [[ -n "$SAMPLE_LIST" || -n "$TRIAGE_DIR" || -n "$PREVIOUS_TRIAGE" ]]; then
+    echo "Sample lists and triage reports apply to extras runs only." >&2
+    exit 99
+fi
 
 if ! [[ "$INSTALL_RETRIES" =~ ^[1-9][0-9]*$ ]]; then
     echo "  ✗ BROILER_OFFICE_INSTALL_RETRIES must be a positive integer, got '$INSTALL_RETRIES'" >&2
@@ -388,6 +403,9 @@ else
         RUNNER_ARGS+=(--extras-url "$EXTRAS_URL")
     fi
     RUNNER_ARGS+=(--top-differences "$TOP_DIFFERENCES" --issue-out "$ISSUE_FILE")
+    RUNNER_ARGS+=(--triage-dir "${TRIAGE_DIR:-$OUTPUT_DIR/triage}")
+    [[ -n "$SAMPLE_LIST" ]] && RUNNER_ARGS+=(--sample-list "$SAMPLE_LIST")
+    [[ -n "$PREVIOUS_TRIAGE" ]] && RUNNER_ARGS+=(--previous-triage "$PREVIOUS_TRIAGE")
     [[ -n "$MAX_FILES" ]] && RUNNER_ARGS+=(--max-files "$MAX_FILES")
     [[ "$CREATE_GITHUB_ISSUE" == "true" ]] && RUNNER_ARGS+=(--create-github-issue)
     [[ -n "$GITHUB_REPO" ]] && RUNNER_ARGS+=(--github-repo "$GITHUB_REPO")
