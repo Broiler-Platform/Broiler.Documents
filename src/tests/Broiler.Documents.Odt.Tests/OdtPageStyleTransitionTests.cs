@@ -14,6 +14,19 @@ public sealed class OdtPageStyleTransitionTests
         "><style:footer><text:p>foot B</text:p></style:footer></style:master-page></office:master-styles>";
 
     [Fact]
+    public void Missing_Master_Definition_Still_Requires_A_Break_Outside_Hidden_Sections()
+    {
+        var result = OdtTestPackage.ReadBody(
+            "<text:p>first</text:p><text:section text:display='none'><text:p text:style-name='missing'>hidden</text:p></text:section>" +
+            "<text:p text:style-name='missing'>next page</text:p><text:p text:style-name='cancel'>same page</text:p>",
+            "<style:style style:name='missing' style:family='paragraph' style:master-page-name='Absent'/>" +
+            "<style:style style:name='cancel' style:family='paragraph' style:parent-style-name='missing' style:master-page-name=''/>");
+        Assert.False(result.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.True(result.Document.Paragraphs[2].Style.PageBreakBefore);
+        Assert.False(result.Document.Paragraphs[3].Style.PageBreakBefore);
+    }
+
+    [Fact]
     public void A_Later_Paragraph_Changes_Paper_And_Running_Content()
     {
         var result = OdtTestPackage.ReadStyled("<text:p>first</text:p><text:p text:style-name=\"switch\">second</text:p>",

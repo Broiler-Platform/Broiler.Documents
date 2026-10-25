@@ -921,7 +921,7 @@ internal static class DocxReader
             // DocxDocumentBuilder.NotePageBreak.
             if (child.Name == DocxNamespaces.Wordprocessing + "br" && IsPageBreak(child, context))
             {
-                builder.NotePageBreak(style);
+                builder.NotePageBreak(style, sourceColumn: IsColumnBreak(child));
                 continue;
             }
 
@@ -929,7 +929,7 @@ internal static class DocxReader
             // and travels to the paragraph it starts exactly as a page break does.
             if (child.Name == DocxNamespaces.Wordprocessing + "br" && IsColumnBreak(child) && context.Sections is not null)
             {
-                builder.NotePageBreak(style, column: true);
+                builder.NotePageBreak(style, column: true, sourceColumn: true);
                 continue;
             }
 

@@ -711,3 +711,7 @@ explicit version to the official installer, bypassing the `aka.ms` redirect.
 The SDK supplies its matching runtime. The recovered installation is placed in
 runner temporary storage and exported through `GITHUB_PATH` and `DOTNET_ROOT`.
 If recovery fails too, the job fails; no conformance checks are reported as run.
+
+The [issue #152 verification note](../notes/office-issue-152.md) records inline
+DOCX boundary and ODT master-page fallback corrections, with a complete 30-case
+control list and before/after native-reference results.

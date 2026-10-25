@@ -33,6 +33,7 @@ internal sealed class DocxDocumentBuilder(
     // Whether the break being carried is a column break rather than a page
     // break. Both travel the same way, so one set of flags carries either.
     private bool _breakIsColumn;
+    private bool _breakKeepsLeadingLabel;
     private bool _heldBreakIsColumn;
     private int _tableCount;
     private int _unsupportedBlockCount;
@@ -123,14 +124,14 @@ internal sealed class DocxDocumentBuilder(
     /// last thing in its paragraph. Word honours a break with text after it
     /// by splitting the paragraph across the boundary, and a paragraph
     /// carrying one flag cannot say "the first half of me is on the page
-    /// before". That case is demoted to the line break every other
-    /// <c>w:br</c> becomes, and reported, rather than pulling the text that
-    /// followed the break back onto the previous page.
+    /// before". Body paragraphs are therefore split into fragments at that
+    /// boundary. Inside a table cell, the existing line-break approximation
+    /// remains because row pagination does not honor such internal boundaries.
     /// </para>
     /// <para>
-    /// A break with nothing before it in its paragraph splits nothing: all of
-    /// the paragraph's text is on the far side of the boundary, so the
-    /// paragraph is the one that starts the page. See <see cref="AppendText"/>.
+    /// A leading break moves the paragraph to the far side of the boundary.
+    /// A leading column break in a list is different: the label before the
+    /// break is a numbered fragment of its own, as in the native import.
     /// </para>
     /// <para>
     /// A column break in a section of several columns travels exactly the
@@ -138,7 +139,7 @@ internal sealed class DocxDocumentBuilder(
     /// <paramref name="column"/> says which this is.
     /// </para>
     /// </remarks>
-    public void NotePageBreak(InlineStyle style, bool column = false)
+    public void NotePageBreak(InlineStyle style, bool column = false, bool sourceColumn = false)
     {
         // Two breaks with nothing between them are two page boundaries and
         // a blank page in the middle. The flag holds one, and the one kept
@@ -156,6 +157,7 @@ internal sealed class DocxDocumentBuilder(
         _pageBreakLeadsParagraph = _segments.Count == 0;
         _pageBreakStyle = style;
         _breakIsColumn = column;
+        _breakKeepsLeadingLabel = sourceColumn;
     }
 
     /// <summary>
@@ -232,10 +234,15 @@ internal sealed class DocxDocumentBuilder(
         // reader a single forward pass.
         if (_pageBreakSeen)
         {
-            if (_pageBreakLeadsParagraph)
+            if (_pageBreakLeadsParagraph && _breakKeepsLeadingLabel &&
+                _paragraphStyle.ListKind != ListKind.None && !InTableCell)
+                SplitAtPageBreak(keepList: true);
+            else if (_pageBreakLeadsParagraph)
                 StartParagraphOnNewPage();
-            else
+            else if (InTableCell)
                 DemotePageBreakToLineBreak();
+            else
+                SplitAtPageBreak();
         }
 
         if (text.Length > limits.MaxRunLength)
@@ -276,6 +283,30 @@ internal sealed class DocxDocumentBuilder(
         _paragraphStyle = _breakIsColumn
             ? _paragraphStyle with { ColumnBreakBefore = true }
             : _paragraphStyle with { PageBreakBefore = true };
+    }
+
+    /// <summary>Preserves an inline boundary as two paragraph fragments.
+    /// Ordinary continuations have no repeated label or first-line indent;
+    /// keepList retains the item after a leading column break.</summary>
+    private void SplitAtPageBreak(bool keepList = false)
+    {
+        bool column = _breakIsColumn;
+        _pageBreakSeen = false;
+        ParagraphStyle original = _paragraphStyle;
+        InlineStyle mark = _markStyle;
+        _paragraphStyle = original with { SpacingAfter = 0, KeepWithNext = false };
+        FinishParagraph();
+        StartParagraph(original with
+        {
+            PageBreakBefore = !column,
+            ColumnBreakBefore = column,
+            SpacingBefore = 0,
+            FirstLineIndent = keepList ? original.FirstLineIndent : 0,
+            ListKind = keepList ? original.ListKind : ListKind.None,
+            List = keepList ? original.List : null,
+        }, mark);
+        AddDiagnosticOnce("docx.pagebreak.fragment",
+            "An inline page or column break was preserved as paragraph fragments; the source paragraph structure is approximated.");
     }
 
     /// <summary>
