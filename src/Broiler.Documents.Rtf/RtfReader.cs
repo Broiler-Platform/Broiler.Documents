@@ -165,6 +165,15 @@ public static class RtfReader
         private bool _shapeFlipVertical;
         private bool _shapeInBackground;
         private double _shapeFillFocus;
+        private bool? _shapeFillEnabled;
+        private bool _shapeFlipHorizontal;
+        private bool _shapeBehindText;
+        private double _shapeFillOpacity = 1, _shapeBackOpacity = 1, _shapeLineOpacity = 1;
+        private TableCellPadding _shapePadding;
+        private CellVerticalAlignment _shapeAlignment;
+        private ShapeWrap _shapeWrap;
+        private WrapSide _shapeWrapSide = WrapSide.Largest;
+        private double _shapeWrapDistance;
         private ShapeFill? _pageBackground;
         private bool _viewBackground;
         private readonly int _maxParagraphs;
@@ -798,6 +807,13 @@ public static class RtfReader
                 // over it are both in the body here, and this is the only thing
                 // saying which the reader sees.
                 case "shpz": if (has) _shapeZ = p; return;
+                case "shpfblwtxt": _shapeBehindText = !has || p != 0; return;
+                case "shpwr":
+                    _shapeWrap = p switch { 1 => ShapeWrap.TopAndBottom, 2 or 4 => ShapeWrap.Square, _ => ShapeWrap.None };
+                    if (p is 4 or 5)
+                        ReportShapeApproximation("wrap", "Contour wrapping was approximated by the shape rectangle or unrestricted flow.");
+                    return;
+                case "shpwrk": _shapeWrapSide = p switch { 1 => WrapSide.Left, 2 => WrapSide.Right, _ => WrapSide.Largest }; return;
                 case "shpbymargin": _shapeVerticalFrame = 0; return;
                 case "shpbypage": _shapeVerticalFrame = 1; return;
                 case "shpbypara": _shapeVerticalFrame = 2; return;
@@ -1392,6 +1408,15 @@ public static class RtfReader
 
         private void BeginShape()
         {
+            _shapeFillEnabled = null;
+            _shapeFlipHorizontal = false;
+            _shapeBehindText = false;
+            _shapeFillOpacity = _shapeBackOpacity = _shapeLineOpacity = 1;
+            _shapePadding = default;
+            _shapeAlignment = CellVerticalAlignment.Top;
+            _shapeWrap = ShapeWrap.None;
+            _shapeWrapSide = WrapSide.Largest;
+            _shapeWrapDistance = 0;
             _shapeLeft = 0;
             _shapeTop = 0;
             _shapeRight = 0;
@@ -1403,7 +1428,7 @@ public static class RtfReader
             _shapeType = 1;
             _shapeLineWidth = 0.75;
             _shapeFlipVertical = false;
-            _shapeFillStart = BColor.Empty;
+            _shapeFillStart = BColor.White;
             _shapeFillEnd = BColor.Empty;
 
             // Word draws a shape's line black unless it says otherwise, and so
@@ -1462,13 +1487,34 @@ public static class RtfReader
                     _shapeFillAngle = number / 65536d;
                     break;
                 case "fFilled":
-                    _shapeHasFill = number != 0;
+                    _shapeFillEnabled = number != 0;
                     break;
                 case "lineColor":
                     _shapeLineColor = ShapeColor(number);
                     break;
                 case "lineWidth":
                     _shapeLineWidth = Math.Max(0, number / 12700d);
+                    break;
+                case "fFlipH":
+                    _shapeFlipHorizontal = number != 0;
+                    break;
+                case "fillOpacity": _shapeFillOpacity = Math.Clamp(number / 65536d, 0, 1); break;
+                case "fillBackOpacity": _shapeBackOpacity = Math.Clamp(number / 65536d, 0, 1); break;
+                case "lineOpacity": _shapeLineOpacity = Math.Clamp(number / 65536d, 0, 1); break;
+                case "fBehindDocument": _shapeBehindText = number != 0; break;
+                case "posrelh": _shapeLeftFromPage = number == 1; break;
+                case "dxTextLeft": _shapePadding = _shapePadding with { Left = ShapeDistance(number) }; break;
+                case "dyTextTop": _shapePadding = _shapePadding with { Top = ShapeDistance(number) }; break;
+                case "dxTextRight": _shapePadding = _shapePadding with { Right = ShapeDistance(number) }; break;
+                case "dyTextBottom": _shapePadding = _shapePadding with { Bottom = ShapeDistance(number) }; break;
+                case "anchorText":
+                    _shapeAlignment = number switch { 1 or 4 => CellVerticalAlignment.Center, 2 or 5 => CellVerticalAlignment.Bottom, _ => CellVerticalAlignment.Top };
+                    break;
+                case "dxWrapDistLeft":
+                case "dxWrapDistRight":
+                case "dyWrapDistTop":
+                case "dyWrapDistBottom":
+                    _shapeWrapDistance = Math.Max(_shapeWrapDistance, ShapeDistance(number));
                     break;
                 case "fFlipV":
                     _shapeFlipVertical = number != 0;
@@ -1491,14 +1537,23 @@ public static class RtfReader
             }
         }
 
+        private static double ShapeDistance(long value) => Math.Clamp(value / 12700d, 0, 20000);
+        private static BColor ShapeOpacity(BColor color, double opacity) => color.IsEmpty ? color :
+            BColor.FromArgb((byte)Math.Round(color.A * opacity), color.R, color.G, color.B);
+        private void ReportShapeApproximation(string code, string message)
+        {
+            if (!_diagnostics.Any(d => d.Code == "rtf.shape." + code))
+                _diagnostics.Add(DocumentDiagnostic.Warning("rtf.shape." + code, message));
+        }
+
         private static BColor ShapeColor(long value) =>
             new((byte)(value & 0xFF), (byte)((value >> 8) & 0xFF), (byte)((value >> 16) & 0xFF));
 
         /// <summary>Turns the walked group into a shape, when it described one.</summary>
         private void FinishShape()
         {
-            double width = (_shapeRight - _shapeLeft) / 20d;
-            double height = (_shapeBottom - _shapeTop) / 20d;
+            double width = ((double)_shapeRight - _shapeLeft) / 20d;
+            double height = ((double)_shapeBottom - _shapeTop) / 20d;
             IReadOnlyList<RichTextParagraph> paragraphs = _shapeText is null
                 ? []
                 : _shapeText.Build(ParagraphStyle.Default).Paragraphs;
@@ -1506,16 +1561,16 @@ public static class RtfReader
                 paragraphs = [];
 
             ShapeFill? fill = null;
-            if (_shapeHasFill && !_shapeFillStart.IsEmpty)
+            if ((_shapeFillEnabled ?? (_shapeHasFill || _shapeType != 75)) && !_shapeFillStart.IsEmpty)
             {
                 // A focus near 50 mirrors the gradient, as VML's does.
                 fill = _shapeGradient && !_shapeFillEnd.IsEmpty
                     ? new ShapeFill(
-                        _shapeFillStart,
-                        _shapeFillEnd,
+                        ShapeOpacity(_shapeFillStart, _shapeFillOpacity),
+                        ShapeOpacity(_shapeFillEnd, _shapeBackOpacity),
                         _shapeFillAngle,
                         Axial: Math.Abs(_shapeFillFocus) is >= 25 and <= 75)
-                    : ShapeFill.Solid(_shapeFillStart);
+                    : ShapeFill.Solid(ShapeOpacity(_shapeFillStart, _shapeFillOpacity));
             }
 
             // The page's background states no box; it is the page.
@@ -1527,7 +1582,7 @@ public static class RtfReader
             }
 
             _shapeText = null;
-            BColor outline = _shapeHasLine ? _shapeLineColor : BColor.Empty;
+            BColor outline = _shapeHasLine ? ShapeOpacity(_shapeLineColor, _shapeLineOpacity) : BColor.Empty;
 
             bool rule = outline.IsEmpty is false && ((width == 0) != (height == 0));
             // A box sized by its text may state no height at all.
@@ -1563,11 +1618,17 @@ public static class RtfReader
                 fill,
                 outline,
                 paragraphs,
+                behindText: _shapeBehindText,
+                wrap: _shapeWrap,
+                wrapSide: _shapeWrapSide,
+                wrapDistance: _shapeWrapDistance,
+                textPadding: _shapePadding,
+                textVerticalAlignment: _shapeAlignment,
                 zOrder: _shapeZ,
                 offsetFromPage: _shapeVerticalFrame != 2,
                 growsToText: _shapeFitsText,
                 geometry: _shapeType == 3 ? ShapeGeometry.Ellipse : _shapeType == 20
-                    ? (((_shapeRight - _shapeLeft) * (_shapeBottom - _shapeTop) < 0) != _shapeFlipVertical ? ShapeGeometry.LineAscending : ShapeGeometry.Line) : ShapeGeometry.Rectangle,
+                    ? ((width * height < 0) != (_shapeFlipVertical ^ _shapeFlipHorizontal) ? ShapeGeometry.LineAscending : ShapeGeometry.Line) : ShapeGeometry.Rectangle,
                 outlineWidth: _shapeLineWidth));
         }
 
