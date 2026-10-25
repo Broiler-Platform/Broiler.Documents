@@ -190,6 +190,9 @@ internal sealed class PdfPageLayout(
         if (document.Sections.Any(section => section.Hidden))
             _diagnostics.Warning(PdfDiagnosticCodes.WriteFeatureUnsupported,
                 "Hidden section visibility is not supported by the PDF layout; its retained content is drawn. Use the shared raster paginator to omit it.");
+        if (document.Shapes.Any(shape => shape.OffsetXFromCell))
+            _diagnostics.Warning(PdfDiagnosticCodes.WriteFeatureUnsupported,
+                "Cell-relative horizontal line placement is not supported by the PDF layout; use the shared raster paginator for this positioning.");
         if (document.PageGeometry?.HasColumns == true || document.Sections.Count > 0)
         {
             _diagnostics.Warning(

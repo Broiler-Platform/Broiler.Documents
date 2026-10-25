@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
@@ -25,8 +26,9 @@ namespace Broiler.Documents.Docx;
 /// </para>
 /// <para>
 /// A fill the model cannot hold - VML's rectangular "radial" gradient, a
-/// picture, a pattern of two colours - is held as the one colour that covers
-/// most of the box, and says so.
+/// pattern of two colours - is held as the one colour that covers
+/// most of the box, and says so. Embedded page-background pictures can be
+/// retained as stretch or tiled image fills through the image loader.
 /// </para>
 /// </remarks>
 internal static class DocxVml
@@ -43,7 +45,8 @@ internal static class DocxVml
     /// it. The VML shape inside is the background Word draws; <c>w:color</c> is the
     /// colour it falls back to, and the whole background where there is no shape.
     /// </remarks>
-    public static ShapeFill? ReadBackground(XElement? background, bool display, Action<string, string> report)
+    public static ShapeFill? ReadBackground(XElement? background, bool display, Action<string, string> report,
+        Func<XElement, InlineImage?>? readImage = null)
     {
         if (background is null || !display)
             return null;
@@ -54,7 +57,20 @@ internal static class DocxVml
 
         XElement? shape = background.Element(DocxNamespaces.Vml + "background");
         if (shape is not null)
+        {
+            XElement? fill = shape.Element(DocxNamespaces.Vml + "fill");
+            string? type = (string?)fill?.Attribute("type");
+            bool customLayout = fill?.Attributes().Any(attribute => attribute.Name.LocalName is
+                "size" or "origin" or "position" or "aspect" or "angle" or "alignshape" or "rotate" or
+                "opacity" or "opacity2" or "recolortarget") == true;
+            if (type is "frame" or "tile" && !customLayout && !IsOff((string?)shape.Attribute("filled")) &&
+                !IsOff((string?)fill?.Attribute("on")) && readImage?.Invoke(fill!) is InlineImage picture)
+                return ShapeFill.Solid(fallback.IsEmpty ? BColor.FromArgb(255, 255, 255) : fallback) with
+                {
+                    Image = new ImageFill(picture, type == "frame" ? ImageFillRepeat.Stretch : ImageFillRepeat.Tile),
+                };
             return ReadFill(shape, fallback, report, "docx.background.fill", "page background");
+        }
 
         return fallback.IsEmpty ? null : ShapeFill.Solid(fallback);
     }

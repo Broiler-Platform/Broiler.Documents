@@ -1682,7 +1682,8 @@ public static class DocxWriter
                 new XAttribute("rIns", Math.Round(shape.TextPadding.Right * 12700)),
                 new XAttribute("bIns", Math.Round(shape.TextPadding.Bottom * 12700)),
                 new XAttribute("anchor", shape.TextVerticalAlignment switch { CellVerticalAlignment.Center => "ctr", CellVerticalAlignment.Bottom => "b", _ => "t" }),
-                new XAttribute("vertOverflow", shape.TextOverflow ? "overflow" : "clip")));
+                new XAttribute("vertOverflow", shape.TextOverflow ? "overflow" : "clip"),
+                shape.GrowsToText ? new XElement(DocxNamespaces.Drawing + "spAutoFit") : null));
         }
 
         return BuildAnchorRun(

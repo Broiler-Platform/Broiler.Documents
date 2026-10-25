@@ -111,6 +111,10 @@ public static class RtfReader
         private int? _sectionTop;
         private int? _sectionBottom;
         private bool _pastFirstSection;
+        private bool _bodySectionPending;
+        private bool _bodySectionHasProperties;
+        private BodySectionBreak _bodySectionBreak = BodySectionBreak.Page;
+        private enum BodySectionBreak { Continuous, Page, Column }
         private readonly RtfTableBuilder _table;
         private readonly List<DocumentTable> _tables = [];
         private int _columns = 1;
@@ -270,6 +274,14 @@ public static class RtfReader
             FlushPending();
             FinishFrame();
             FinishTable();
+            if (_bodySectionPending)
+            {
+                if (_bodySectionHasProperties)
+                    ApplyBodySectionBreak();
+                else
+                    _bodySectionPending = false;
+                _builder.EndParagraph(_state.Para);
+            }
             // A final frame can belong to an otherwise empty body paragraph.
             // Keep that anchor even when preceding body paragraphs already exist.
             if (_shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _builder.ParagraphCount))
@@ -709,10 +721,48 @@ public static class RtfReader
                 // \sectd puts the section back to its defaults, which for the
                 // page are the document's.
                 case "sectd":
+                    if (_bodySectionPending)
+                    {
+                        _bodySectionBreak = BodySectionBreak.Page;
+                        _bodySectionHasProperties = true;
+                    }
                     if (!_pastFirstSection)
                         _sectionWidth = _sectionHeight = _sectionLeft = _sectionRight = _sectionTop = _sectionBottom = null;
                     return;
-                case "sect": _pastFirstSection = true; return;
+                case "sect":
+                    if (_state.Dest == RtfDestination.Normal && !_state.Frame.IsFrame && !_state.InTable)
+                    {
+                        FlushPending();
+                        if (_bodySectionPending)
+                        {
+                            ApplyBodySectionBreak();
+                            _builder.EndParagraph(_state.Para);
+                        }
+                        else if (_builder.ParagraphCount == 0)
+                            _builder.EndParagraph(_state.Para);
+                        else
+                            _builder.EndPendingParagraph(_state.Para);
+                        FinishTable();
+                        _bodySectionPending = true;
+                        _bodySectionHasProperties = false;
+                        _bodySectionBreak = BodySectionBreak.Page;
+                    }
+                    _pastFirstSection = true;
+                    return;
+                case "sbknone": SetBodySectionBreak(BodySectionBreak.Continuous); return;
+                case "sbkpage": SetBodySectionBreak(BodySectionBreak.Page); return;
+                case "sbkcol": SetBodySectionBreak(BodySectionBreak.Column); return;
+                case "sbkodd":
+                case "sbkeven":
+                    if (_bodySectionPending)
+                    {
+                        _bodySectionBreak = BodySectionBreak.Page;
+                        _bodySectionHasProperties = true;
+                        if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.section.parity"))
+                            _diagnostics.Add(DocumentDiagnostic.Warning("rtf.section.parity",
+                                "An odd/even section starts a new page, but insertion of a blank parity page is not represented."));
+                    }
+                    return;
                 // Orientation is a flag beside the size, not an instruction to
                 // swap it: the width and height a landscape section states are
                 // already the landscape page's. LibreOffice draws
@@ -1676,7 +1726,10 @@ public static class RtfReader
                 if (_state.InTable)
                     _table.NoteParagraph(_builder.ParagraphCount);
                 else
+                {
                     FinishTable();
+                    ApplyBodySectionBreak();
+                }
             }
 
             CloseParagraph();
@@ -1840,10 +1893,38 @@ public static class RtfReader
         private void FlushPending()
         {
             if (_hasPending && _pending.Length > 0)
+            {
+                if (InBody && !_state.InTable)
+                    ApplyBodySectionBreak();
                 Active.Append(_pending.ToString(), _pendingStyle);
+            }
 
             _pending.Clear();
             _hasPending = false;
+        }
+
+        private void ApplyBodySectionBreak()
+        {
+            if (!_bodySectionPending)
+                return;
+            _bodySectionPending = false;
+            if (_bodySectionBreak == BodySectionBreak.Page ||
+                (_bodySectionBreak == BodySectionBreak.Column && _columns <= 1))
+            {
+                if (!_builder.BreakPage(_state.Para))
+                    ReportEmptyPage();
+            }
+            else if (_bodySectionBreak == BodySectionBreak.Column)
+                _builder.BreakColumn(_state.Para);
+        }
+
+        private void SetBodySectionBreak(BodySectionBreak kind)
+        {
+            if (_bodySectionPending)
+            {
+                _bodySectionBreak = kind;
+                _bodySectionHasProperties = true;
+            }
         }
 
         private void ReportCodePageIfNeeded(byte value)

@@ -175,6 +175,123 @@ public sealed class DocxShapeGroupTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.shape.group");
     }
 
+    private static string Picture(string attributes = "", string id = "rId7") =>
+        "<pic:pic><pic:nvPicPr><pic:cNvPr id='8' name='logo' descr='group logo'/><pic:cNvPicPr/></pic:nvPicPr>" +
+        "<pic:blipFill><a:blip r:embed='" + id + "'/><a:srcRect l='25000'/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>" +
+        "<pic:spPr><a:xfrm " + attributes + "><a:off x='127000' y='254000'/><a:ext cx='635000' cy='381000'/></a:xfrm>" +
+        "<a:prstGeom prst='ellipse'/></pic:spPr></pic:pic>";
+
+    private static DocumentReadResult ReadPictureGroup(string children, DocumentReadOptions? options = null,
+        string? relationship = null, byte[]? bytes = null) => DocxTestPackage.ReadWithMedia(
+            "<w:p>" + Group(Transform(0, 0, 2540000, 1270000, 0, 0, 1270000, 635000),
+                Box("1", 0, 0, 1270000, 635000, "ffffff") + children) + "<w:r><w:t>body</w:t></w:r></w:p>",
+            relationship ?? DocxTestPackage.ImageRelationship("rId7", "media/logo.png"),
+            new Dictionary<string, byte[]> { ["word/media/logo.png"] = bytes ?? DocxTestPackage.OnePixelPng }, options);
+
+    [Fact]
+    public void Grouped_Picture_Uses_Mapped_Box_Crop_Metadata_And_Anchor()
+    {
+        var result = ReadPictureGroup(Picture(), new DocumentReadOptions(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments));
+        var shape = Assert.Single(result.Document.Shapes, shape => shape.Image is not null);
+        Assert.Equal(30, shape.OffsetX, 6);
+        Assert.Equal(60, shape.OffsetY, 6);
+        Assert.Equal(100, shape.Width, 6);
+        Assert.Equal(60, shape.Height, 6);
+        Assert.True(shape.BehindText);
+        Assert.Equal(7, shape.ZOrder);
+        var image = Assert.IsType<InlineImage>(shape.Image);
+        Assert.Equal("group logo", image.AltText);
+        Assert.Equal(100, image.Width);
+        Assert.Equal(0.25, image.Presentation.CropLeft);
+        Assert.Equal(ImageMask.Ellipse, image.Presentation.Mask);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.shape.group");
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(result.Document, options: new DocumentWriteOptions(resources: result.Resources)));
+        var restored = Assert.Single(new DocxDocumentCodec().Read(stream).Document.Shapes, shape => shape.Image is not null);
+        Assert.Equal(shape.OffsetX, restored.OffsetX, 6);
+        Assert.Equal(image.Data.ToArray(), restored.Image!.Data.ToArray());
+        Assert.Equal(image.Presentation, restored.Image.Presentation);
+    }
+
+    [Fact]
+    public void Nested_Picture_Keeps_Child_Order_And_Mapped_Origin()
+    {
+        string nested = "<wpg:grpSp><wpg:grpSpPr>" + Transform(127000, 0, 635000, 635000, 0, 0, 1270000, 1270000) +
+            "</wpg:grpSpPr>" + Picture() + "</wpg:grpSp>";
+        var shapes = ReadPictureGroup(Box("2", 0, 0, 100000, 100000, "ff0000") + nested + Picture()).Document.Shapes;
+        Assert.Equal(4, shapes.Count);
+        Assert.Null(shapes[1].Image);
+        Assert.Equal(40, shapes[2].OffsetX, 6);
+        Assert.Equal(40, shapes[2].OffsetY, 6);
+        Assert.Equal(50, shapes[2].Width, 6);
+        Assert.NotNull(shapes[3].Image);
+    }
+
+    [Theory]
+    [InlineData("rot='5400000'")]
+    [InlineData("flipH='1'")]
+    [InlineData("flipV='true'")]
+    public void Unsupported_Picture_Transforms_Do_Not_Fall_Back_To_The_Whole_Group(string attributes)
+    {
+        var result = ReadPictureGroup(Picture(attributes));
+        Assert.DoesNotContain(result.Document.Shapes, shape => shape.Image is not null);
+        Assert.DoesNotContain(result.Document.Paragraphs.SelectMany(p => p.Runs), run => run.Style.Image is not null);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.shape.group");
+    }
+
+    [Fact]
+    public void Grouped_Picture_Admission_Denial_Does_Not_Extract_An_Inline_Fallback()
+    {
+        var result = ReadPictureGroup(Picture(), new DocumentReadOptions(resourcePolicy: DocumentResourcePolicy.DenyAll));
+        Assert.DoesNotContain(result.Document.Shapes, shape => shape.Image is not null);
+        Assert.DoesNotContain(result.Document.Paragraphs.SelectMany(p => p.Runs), run => run.Style.Image is not null);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.denied");
+    }
+
+    [Theory]
+    [InlineData(false, "docx.image.relationship")]
+    [InlineData(true, "docx.image.external")]
+    public void Missing_And_External_Grouped_Pictures_Are_Diagnosed(bool external, string code)
+    {
+        string relationship = external
+            ? DocxTestPackage.ImageRelationship("rId7", "https://example.test/logo.png").Replace("/>", " TargetMode='External'/>")
+            : "";
+        var result = ReadPictureGroup(Picture(), relationship: relationship);
+        Assert.DoesNotContain(result.Document.Shapes, shape => shape.Image is not null);
+        Assert.Contains(result.Diagnostics, d => d.Code == code);
+    }
+
+    [Fact]
+    public void Grouped_Picture_Size_Limit_Is_Enforced()
+    {
+        var result = ReadPictureGroup(Picture(), new DocumentReadOptions(new DocumentLimits(maxBinBytes: 4096)), bytes: new byte[4097]);
+        Assert.DoesNotContain(result.Document.Shapes, shape => shape.Image is not null);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.limit");
+    }
+
+    [Fact]
+    public void Picture_Only_Group_Retains_The_Diagnosed_Legacy_Fallback()
+    {
+        var result = DocxTestPackage.ReadWithMedia("<w:p>" +
+            Group(Transform(0, 0, 2540000, 1270000, 0, 0, 2540000, 1270000), Picture()) + "</w:p>",
+            DocxTestPackage.ImageRelationship("rId7", "media/logo.png"),
+            new Dictionary<string, byte[]> { ["word/media/logo.png"] = DocxTestPackage.OnePixelPng });
+        var shape = Assert.Single(result.Document.Shapes);
+        Assert.Equal(200, shape.Width, 6);
+        Assert.Equal(100, shape.Height, 6);
+        Assert.Equal(10, shape.OffsetX, 6);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.shape.group");
+    }
+
+    [Theory]
+    [InlineData("cx='0'")]
+    [InlineData("cx='999999999999'")]
+    public void Invalid_Grouped_Picture_Extents_Are_Skipped(string extent)
+    {
+        var result = ReadPictureGroup(Picture().Replace("cx='635000'", extent));
+        Assert.DoesNotContain(result.Document.Shapes, shape => shape.Image is not null);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.shape.group");
+    }
+
     [Fact]
     public void A_Group_In_A_Header_Is_Read_Onto_The_Running_Content()
     {
@@ -186,6 +303,6 @@ public sealed class DocxShapeGroupTests
         IReadOnlyList<DocumentShape> shapes = result.Document.RunningContent.HeaderShapes(PageSelection.Default);
         Assert.Equal(2, shapes.Count);
         Assert.Equal(shapes[0].OffsetY + 50, shapes[1].OffsetY, 6);
-        Assert.Empty(result.Document.Shapes);
+        Assert.DoesNotContain(result.Document.Shapes, shape => shape.Image is not null);
     }
 }

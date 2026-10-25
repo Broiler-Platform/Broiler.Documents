@@ -64,6 +64,8 @@ internal sealed class DocxDocumentBuilder(
     /// <summary>Collects the tables read from here until the matching pop.</summary>
     public void PushTableSink(List<DocumentTable> sink) => _tableSinks.Push(sink);
 
+    public bool InTableCell => _tableSinks.Count > 0;
+
     public void PopTableSink()
     {
         if (_tableSinks.Count > 0)

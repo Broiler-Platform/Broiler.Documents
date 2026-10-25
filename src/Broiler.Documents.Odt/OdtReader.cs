@@ -880,7 +880,9 @@ internal static class OdtReader
             outline: outline, behindText: paint.BehindText, wrap: paint.Wrap, wrapSide: paint.Side,
             zOrder: ZIndex(drawing), anchorPage: page, offsetFromPage: fromPage,
             geometry: (x2 - x1) * (y2 - y1) < 0 ? ShapeGeometry.LineAscending : ShapeGeometry.Line,
-            outlineWidth: thickness));
+            outlineWidth: thickness,
+            offsetXFromCell: context.TableDepth > 0 &&
+                ((string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph")));
         return true;
     }
 
@@ -1197,11 +1199,15 @@ internal static class OdtReader
         }
         if (kind is "bitmap" or "hatch")
         {
+            BColor fallback = BColor.Empty;
+            bool hasFallback = kind == "bitmap" &&
+                TryColor((string?)properties.Attribute(OdtNamespaces.Draw + "fill-color"), out fallback);
             styles.Report(
                 "odt.fill:" + kind,
                 "odt.fill",
-                "A " + kind + " fill could not be resolved and was not drawn.");
-            return null;
+                "A " + kind + " fill could not be resolved" +
+                (hasFallback ? "; its declared fallback colour was drawn." : " and was not drawn."));
+            return hasFallback ? ShapeFill.Solid(fallback) : null;
         }
 
         return string.Equals(kind, "solid", StringComparison.Ordinal) &&
@@ -1492,8 +1498,19 @@ internal static class OdtReader
                 continue;
             }
 
+            if (IsIndexContainer(name))
+            {
+                // The source describes how an application regenerates the
+                // index, not displayed content. Read the cached body and keep
+                // reporting genuinely unknown children instead of treating the
+                // generation instructions as lost paragraphs.
+                XName source = OdtNamespaces.Text + (name.LocalName + "-source");
+                ReadBlockContent(element.Elements().Where(child => child.Name != source), context, list: null, depth + 1);
+                continue;
+            }
+
             if (name == OdtNamespaces.Text + "index-body" ||
-                name == OdtNamespaces.Text + "index-title" || IsIndexContainer(name))
+                name == OdtNamespaces.Text + "index-title")
             {
                 ReadBlockContent(element.Elements(), context, list: null, depth + 1);
                 continue;

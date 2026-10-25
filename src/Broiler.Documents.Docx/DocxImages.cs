@@ -55,6 +55,23 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
     /// <summary>How many pictures this read turned into inline images.</summary>
     public int ImageCount { get; private set; }
 
+    /// <summary>Loads a VML fill through the same limits and resource admission as ordinary pictures.</summary>
+    public InlineImage? ReadFillPicture(XElement fill, DocxRelationships relationships, Action<string, string> report)
+    {
+        string? id = (string?)fill.Attribute(DocxNamespaces.Relationships + "id");
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            report("docx.image.external", "A DOCX picture fill has no embedded relationship; external images are not fetched.");
+            return null;
+        }
+        return Load(id, relationships, 0, 0, null, null, new FillDiagnostics(report));
+    }
+
+    private sealed class FillDiagnostics(Action<string, string> report) : IDocxImageDiagnostics
+    {
+        public void AddDiagnosticOnce(string code, string message) => report(code, message);
+    }
+
     /// <summary>
     /// Reads a <c>w:drawing</c> or <c>w:pict</c> element. Returns null — after
     /// recording why — when the element holds no picture this codec can carry.
@@ -68,6 +85,30 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
         if (image is not null)
             ImageCount++;
 
+        return image;
+    }
+
+    /// <summary>Loads one grouped picture at its mapped size, with ordinary image admission and limits.</summary>
+    public InlineImage? ReadGroupedPicture(XElement picture, double width, double height,
+        DocxRelationships relationships, IDocxImageDiagnostics diagnostics)
+    {
+        if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0 ||
+            width > MaxDisplayExtent || height > MaxDisplayExtent)
+        {
+            diagnostics.AddDiagnosticOnce("docx.shape.group", "A grouped DOCX picture had an unsupported display extent and was skipped.");
+            return null;
+        }
+        XElement? fill = picture.Element(DocxNamespaces.Picture + "blipFill");
+        string? id = (string?)fill?.Element(DocxNamespaces.Drawing + "blip")?.Attribute(DocxNamespaces.Relationships + "embed");
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            diagnostics.AddDiagnosticOnce("docx.shape.group", "A grouped DOCX picture held no embedded image; external images are not fetched.");
+            return null;
+        }
+        (string? altText, string? name) = ReadDescription(picture);
+        InlineImage? image = Load(id, relationships, width, height, altText, name, diagnostics, ReadPresentation(fill, picture));
+        if (image is not null)
+            ImageCount++;
         return image;
     }
 
