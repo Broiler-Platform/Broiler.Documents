@@ -86,7 +86,7 @@ public sealed class DocxPageBackgroundTests
     public void A_Negative_Vml_Angle_Reverses_The_Colours()
     {
         ShapeFill? fill = Read(
-            "<w:background><v:background fillcolor=\"green\">" +
+            "<w:background w:color=\"auto\"><v:background fillcolor=\"green\">" +
             "<v:fill color2=\"red\" angle=\"-150\" type=\"gradient\"/></v:background></w:background>")
             .Document.PageBackground;
 
@@ -125,7 +125,7 @@ public sealed class DocxPageBackgroundTests
     public void Vml_Colours_Are_Read_In_Their_Three_Spellings(string value, int r, int g, int b)
     {
         ShapeFill? fill = Read(
-            "<w:background><v:background fillcolor=\"" + value + "\"/></w:background>").Document.PageBackground;
+            "<w:background w:color=\"auto\"><v:background fillcolor=\"" + value + "\"/></w:background>").Document.PageBackground;
 
         Assert.Equal(ShapeFill.Solid(Rgb(r, g, b)), fill);
     }

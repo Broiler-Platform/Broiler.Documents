@@ -42,14 +42,24 @@ internal static class DocxVml
     /// <c>w:displayBackgroundShape</c> (§17.15.1.25) is what says the background
     /// is shown at all; Word leaves a page colour it does not display in the file,
     /// and LibreOffice's import reads neither the colour nor the shape without
-    /// it. The VML shape inside is the background Word draws; <c>w:color</c> is the
-    /// colour it falls back to, and the whole background where there is no shape.
+    /// it. Native import also requires an explicit <c>w:color</c> attribute to
+    /// activate the background; an explicit <c>auto</c> value suffices. The VML
+    /// shape supplies the paint, with <c>w:color</c> as its colour fallback.
     /// </remarks>
     public static ShapeFill? ReadBackground(XElement? background, bool display, Action<string, string> report,
         Func<XElement, InlineImage?>? readImage = null)
     {
         if (background is null || !display)
             return null;
+
+        // Native DOCX import activates the background through w:color, even
+        // when its value is "auto". A VML child alone is not an active background.
+        if (background.Attribute(DocxNamespaces.Wordprocessing + "color") is null)
+        {
+            if (background.Element(DocxNamespaces.Vml + "background") is not null)
+                report("docx.background.color", "A VML page background without w:color was not activated.");
+            return null;
+        }
 
         DocxValueReader.TryParseHexColor(
             (string?)background.Attribute(DocxNamespaces.Wordprocessing + "color"),

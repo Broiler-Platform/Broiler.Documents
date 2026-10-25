@@ -623,7 +623,8 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         if (string.IsNullOrEmpty(listStyleName))
             return ListKind.Bullet;
 
-        if (!_listStyles.TryGetValue(listStyleName, out ListStyle? style))
+        ListStyle? style = FindListStyle(listStyleName);
+        if (style is null)
         {
             Report(
                 "odt.styles.list-unknown:" + listStyleName,
@@ -640,10 +641,19 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     /// for a list that names no style or one the package never defined. A list
     /// that starts counting afresh copies it.
     /// </summary>
-    public ListDefinition? DefinitionForList(string? listStyleName) =>
-        !string.IsNullOrEmpty(listStyleName) && _listStyles.TryGetValue(listStyleName, out ListStyle? style)
-            ? style.Definition
-            : null;
+    public ListDefinition? DefinitionForList(string? listStyleName) => FindListStyle(listStyleName)?.Definition;
+
+    private ListStyle? FindListStyle(string? name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return null;
+        if (_listStyles.TryGetValue(name, out ListStyle? style))
+            return style;
+        // Lists may explicitly name the document's outline style, which is
+        // stored separately so heading numbering and list-style counts stay intact.
+        return _listStyles.TryGetValue(OutlineKey, out ListStyle? outline) && outline.Definition.Name == name
+            ? outline : null;
+    }
 
     /// <summary>
     /// The document's outline numbering (<c>text:outline-style</c>), which

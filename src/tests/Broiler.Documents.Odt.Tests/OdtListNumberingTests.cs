@@ -19,6 +19,39 @@ public sealed class OdtListNumberingTests
         Assert.Equal(2, document.Paragraphs[3].Style.IndentLevel);
     }
 
+    [Theory]
+    [InlineData("Outline")]
+    [InlineData("Custom_20_Outline")]
+    public void Lists_Can_Reference_The_Named_Outline_Style(string name)
+    {
+        string outline = "<office:styles><text:outline-style style:name='" + name + "'>" +
+            "<text:outline-level-style text:level='1' style:num-format='1'/>" +
+            "<text:outline-level-style text:level='2' style:num-format='1' text:display-levels='2'/>" +
+            "</text:outline-style></office:styles>";
+        string body = "<text:list text:style-name='" + name + "'><text:list-item>" + P("parent") +
+            "<text:list><text:list-item>" + P("child") + "</text:list-item><text:list-item>" + P("next") +
+            "</text:list-item></text:list></text:list-item></text:list>";
+        var result = OdtTestPackage.ReadStyled(body, outline);
+        Assert.Equal(["1", "1.1", "1.2"], Labels(result.Document));
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.styles.list-unknown");
+        using var stream = new MemoryStream();
+        new OdtDocumentCodec().Write(result.Document, stream);
+        stream.Position = 0;
+        Assert.Equal(Labels(result.Document), Labels(new OdtDocumentCodec().Read(stream).Document));
+    }
+
+    [Fact]
+    public void Named_List_Styles_Take_Precedence_Over_The_Outline_And_Unknown_Names_Still_Warn()
+    {
+        string styles = "<office:styles><text:outline-style style:name='N'>" +
+            "<text:outline-level-style text:level='1' style:num-format='1'/></text:outline-style>" +
+            "<text:list-style style:name='N'><text:list-level-style-number text:level='1' style:num-format='a'/>" +
+            "</text:list-style></office:styles>";
+        var result = OdtTestPackage.ReadStyled(List("N", "", P("letter")) + List("missing", "", P("unknown")), styles);
+        Assert.Equal("a", Labels(result.Document)[0]);
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.styles.list-unknown");
+    }
+
     private const string Numbered =
         "<text:list-style style:name=\"N\">" +
         "<text:list-level-style-number text:level=\"1\" style:num-format=\"1\" style:num-suffix=\".\"/>" +
