@@ -1217,7 +1217,17 @@ internal static class DocxReader
             return false;
 
         if (group is not null)
+        {
+            // Picture-only groups retain the existing picture fallback. Their
+            // native bounding-box normalization is not the mixed-shape mapping.
+            if (!group.Descendants(DocxNamespaces.WordShape + "wsp").Any())
+            {
+                context.Builder.AddDiagnosticOnce("docx.shape.group",
+                    "A picture-only DOCX group was approximated by its first image at the group's size.");
+                return false;
+            }
             return ReadShapeGroup(group, anchor, width, height, context);
+        }
 
         return ReadDrawnShape(wsp!, anchor, 0, 0, width, height, context);
     }
@@ -1242,8 +1252,8 @@ internal static class DocxReader
     /// group, which made a backdrop of a hatched rectangle and a fade over it
     /// into the hatch alone, and lost a title bar's text box under it. The
     /// children keep the group's anchor, stacking and wrapping, and draw in the
-    /// order the group lists them. Rotation and flips are not applied, and a
-    /// picture in a group is not read (<c>docx.shape.group</c>).
+    /// order the group lists them. Embedded pictures retain their crop and mask.
+    /// Group rotation and flips are not applied.
     /// </para>
     /// </remarks>
     private static bool ReadShapeGroup(XElement group, XElement anchor, double width, double height, DocxReadContext context)
@@ -1275,6 +1285,31 @@ internal static class DocxReader
                 if (ReadDrawnShape(child, anchor, x, y, w, h, context))
                     read++;
             }
+            else if (child.Name == DocxNamespaces.Picture + "pic")
+            {
+                XElement? transform = child.Element(DocxNamespaces.Picture + "spPr")?.Element(DocxNamespaces.Drawing + "xfrm");
+                (double x, double y, double w, double h) = frame.Map(transform);
+                // This is handled even when resource admission fails: falling through
+                // to the ordinary picture path would incorrectly use the whole group's box.
+                read++;
+                if ((string?)transform?.Attribute("rot") is string rotation && rotation != "0" ||
+                    (string?)transform?.Attribute("flipH") is "1" or "true" ||
+                    (string?)transform?.Attribute("flipV") is "1" or "true")
+                {
+                    context.Builder.AddDiagnosticOnce("docx.shape.group", "A rotated or flipped grouped DOCX picture was skipped.");
+                    continue;
+                }
+                InlineImage? image = context.Images.ReadGroupedPicture(child, w, h, context.Relationships, context.Builder);
+                if (image is null)
+                    continue;
+                (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
+                (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
+                context.Builder.AddShape(new DocumentShape(context.Builder.CurrentParagraphIndex,
+                    HorizontalOffset(anchor, context) + x, offsetY + y, w, h,
+                    fill: null, outline: default, paragraphs: null, image: image,
+                    behindText: BehindDoc(anchor), wrap: Wrap, wrapSide: Side, wrapDistance: Distance,
+                    zOrder: RelativeHeight(anchor), offsetFromPage: fromPage));
+            }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
             {
                 XElement? transform = child.Element(DocxNamespaces.WordGroup + "grpSpPr")?.Element(DocxNamespaces.Drawing + "xfrm");
@@ -1289,12 +1324,11 @@ internal static class DocxReader
                     childY);
                 ReadGroupChildren(child, nested, anchor, context, ref read, depth + 1);
             }
-            else if (child.Name == DocxNamespaces.Picture + "pic" ||
-                     child.Name == DocxNamespaces.WordGroup + "grpSp")
+            else if (child.Name == DocxNamespaces.WordGroup + "grpSp")
             {
                 context.Builder.AddDiagnosticOnce(
                     "docx.shape.group",
-                    "A picture, or a group nested too deep, inside a DOCX drawing group was not read; the group's drawn boxes were.");
+                    "A group nested too deep inside a DOCX drawing group was not read.");
             }
         }
     }

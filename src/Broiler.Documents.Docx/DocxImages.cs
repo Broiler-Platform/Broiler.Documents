@@ -88,6 +88,30 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
         return image;
     }
 
+    /// <summary>Loads one grouped picture at its mapped size, with ordinary image admission and limits.</summary>
+    public InlineImage? ReadGroupedPicture(XElement picture, double width, double height,
+        DocxRelationships relationships, IDocxImageDiagnostics diagnostics)
+    {
+        if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0 ||
+            width > MaxDisplayExtent || height > MaxDisplayExtent)
+        {
+            diagnostics.AddDiagnosticOnce("docx.shape.group", "A grouped DOCX picture had an unsupported display extent and was skipped.");
+            return null;
+        }
+        XElement? fill = picture.Element(DocxNamespaces.Picture + "blipFill");
+        string? id = (string?)fill?.Element(DocxNamespaces.Drawing + "blip")?.Attribute(DocxNamespaces.Relationships + "embed");
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            diagnostics.AddDiagnosticOnce("docx.shape.group", "A grouped DOCX picture held no embedded image; external images are not fetched.");
+            return null;
+        }
+        (string? altText, string? name) = ReadDescription(picture);
+        InlineImage? image = Load(id, relationships, width, height, altText, name, diagnostics, ReadPresentation(fill, picture));
+        if (image is not null)
+            ImageCount++;
+        return image;
+    }
+
     /// <summary>
     /// Reads the DrawingML shape: <c>wp:inline</c> or <c>wp:anchor</c>, then the
     /// <c>pic:pic</c> under its graphic data. Both wrappers yield the same image;
