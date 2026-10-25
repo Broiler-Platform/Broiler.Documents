@@ -698,3 +698,16 @@ the global ranking issue, even if **createIssue** retains its default. The CLI
 rejects `--sample-list --create-github-issue` for the same reason. Scheduled/full
 runs retain their serialized global issue reporting. To compare CI artifacts
 locally, extract a previous `triage.json` and pass it via `--previous-triage`.
+
+### Recovering a .NET download failure
+
+If `actions/setup-dotnet` fails, the Office workflow tries
+`eng/install-office-dotnet-fallback.sh` against Microsoft's public
+`https://builds.dotnet.microsoft.com/dotnet` feed. This handles the observed case
+where `aka.ms` resolves to `dotnetorigin.blob.core.windows.net` and runtime/SDK
+downloads return HTTP 409 despite the packages being available on the public
+builds feed. The script resolves the current stable .NET 10 SDK and passes its
+explicit version to the official installer, bypassing the `aka.ms` redirect.
+The SDK supplies its matching runtime. The recovered installation is placed in
+runner temporary storage and exported through `GITHUB_PATH` and `DOTNET_ROOT`.
+If recovery fails too, the job fails; no conformance checks are reported as run.
