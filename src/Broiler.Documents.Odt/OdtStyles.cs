@@ -643,6 +643,10 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     /// </summary>
     public ListDefinition? DefinitionForList(string? listStyleName) => FindListStyle(listStyleName)?.Definition;
 
+    /// <summary>Explicit label-alignment indents for a list level, in points.</summary>
+    public (float? Left, float? First) IndentsForList(string? name, int level) =>
+        FindListStyle(name)?.IndentsAt(level) ?? (null, null);
+
     private ListStyle? FindListStyle(string? name)
     {
         if (string.IsNullOrEmpty(name))
@@ -765,10 +769,13 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     private sealed class ListStyle
     {
         private readonly Dictionary<int, ListKind> _levels;
+        private readonly Dictionary<int, (float? Left, float? First)> _indents;
 
-        private ListStyle(Dictionary<int, ListKind> levels, ListDefinition definition, bool numbers)
+        private ListStyle(Dictionary<int, ListKind> levels, ListDefinition definition, bool numbers,
+            Dictionary<int, (float? Left, float? First)> indents)
         {
             _levels = levels;
+            _indents = indents;
             Definition = definition;
             Numbers = numbers;
         }
@@ -786,6 +793,7 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         {
             var levels = new Dictionary<int, ListKind>();
             var stated = new Dictionary<int, ListLevel>();
+            var indents = new Dictionary<int, (float? Left, float? First)>();
             bool numbers = false;
             foreach (XElement level in listStyle.Elements())
             {
@@ -833,6 +841,12 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
                 }
 
                 levels[number] = kind;
+                XElement? properties = level.Element(OdtNamespaces.Style + "list-level-properties");
+                XElement? alignment = (string?)properties?.Attribute(OdtNamespaces.Text + "list-level-position-and-space-mode") == "label-alignment"
+                    ? properties.Element(OdtNamespaces.Style + "list-level-label-alignment") : null;
+                float? Length(string name) => OdtUnits.TryParseLength((string?)alignment?.Attribute(OdtNamespaces.Fo + name), out double value)
+                    && double.IsFinite(value) ? (float)Math.Clamp(value, -20000, 20000) : null;
+                indents[number] = (Length("margin-left"), Length("text-indent"));
                 if (number <= ListDefinition.MaxLevels)
                     stated[number - 1] = definition;
             }
@@ -861,7 +875,7 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
             }
 
             string? name = (string?)listStyle.Attribute(OdtNamespaces.Style + "name");
-            return new ListStyle(levels, new ListDefinition(resolved, name), numbers);
+            return new ListStyle(levels, new ListDefinition(resolved, name), numbers, indents);
         }
 
         /// <summary>
@@ -903,6 +917,15 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
 
             template.Append((string?)level.Attribute(OdtNamespaces.Style + "num-suffix"));
             return new ListLevel { Format = format, Template = template.ToString(), Start = start };
+        }
+
+        public (float? Left, float? First) IndentsAt(int level)
+        {
+            int best = 0;
+            foreach (int candidate in _levels.Keys)
+                if (candidate <= level && candidate > best)
+                    best = candidate;
+            return _indents.TryGetValue(best, out var indents) ? indents : (null, null);
         }
 
         /// <summary>

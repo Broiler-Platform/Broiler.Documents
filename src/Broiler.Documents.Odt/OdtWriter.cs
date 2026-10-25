@@ -687,7 +687,8 @@ public static class OdtWriter
         OdtWriteContext context)
     {
         bool continues = context.HasListStyle(definition);
-        XElement list = BuildList(paragraphs, start, end, context.UseListStyle(definition), context);
+        XElement list = BuildList(paragraphs, start, end, context.UseListStyle(definition), context,
+            continueNestedAtStart: continues);
         if (continues)
             list.Add(new XAttribute(OdtNamespaces.Text + "continue-numbering", "true"));
 
@@ -699,7 +700,8 @@ public static class OdtWriter
         int start,
         int end,
         string styleName,
-        OdtWriteContext context)
+        OdtWriteContext context,
+        bool continueNestedAtStart = false)
     {
         var root = new XElement(
             OdtNamespaces.Text + "list",
@@ -730,6 +732,10 @@ public static class OdtWriter
                 }
 
                 var nested = new XElement(OdtNamespaces.Text + "list");
+                // A resumed run that begins at a deeper level has no new parent
+                // item to reset that level. Explicit restarts still win below.
+                if (continueNestedAtStart && i == start)
+                    nested.Add(new XAttribute(OdtNamespaces.Text + "continue-numbering", "true"));
                 host.Add(nested);
                 open.Add(nested);
             }

@@ -1382,11 +1382,13 @@ internal static class OdtReader
         string? StyleName,
         ListDefinition? Definition = null,
         OdtItemStart? Start = null,
-        OdtItemLabel? Label = null);
+        OdtItemLabel? Label = null,
+        bool Continues = false);
 
     private sealed class OdtItemLabel
     {
         private bool _first = true;
+        public bool HasParagraph => !_first;
         public bool Take()
         {
             bool first = _first;
@@ -1440,6 +1442,22 @@ internal static class OdtReader
             if (name == OdtNamespaces.Text + "p" || name == OdtNamespaces.Text + "h")
             {
                 ReadParagraph(element, context, list, depth);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Text + "numbered-paragraph")
+            {
+                string? styleName = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
+                int level = int.TryParse((string?)element.Attribute(OdtNamespaces.Text + "level"), out int stated)
+                    ? Math.Clamp(stated, 1, ListDefinition.MaxLevels) : 1;
+                ListDefinition? definition = context.NumberedParagraphList(styleName,
+                    (string?)element.Attribute(OdtNamespaces.Text + "list-id"));
+                OdtItemStart? start = int.TryParse((string?)element.Attribute(OdtNamespaces.Text + "start-value"), out int value)
+                    ? new OdtItemStart(value) : null;
+                var numbered = new OdtListContext(context.Styles.KindForList(styleName, level), level,
+                    styleName, definition, start, new OdtItemLabel());
+                ReadBlockContent(element.Elements().Where(child => child.Name != OdtNamespaces.Text + "number"),
+                    context, numbered, depth + 1);
                 continue;
             }
 
@@ -1625,16 +1643,25 @@ internal static class OdtReader
                 (string?)list.Attribute(OdtNamespaces.Xml + "id"),
                 string.Equals((string?)list.Attribute(OdtNamespaces.Text + "continue-numbering"), "true", StringComparison.Ordinal),
                 (string?)list.Attribute(OdtNamespaces.Text + "continue-list"));
-        var inner = new OdtListContext(kind, level, styleName, definition);
+        bool shared = outer?.Definition is not null && ReferenceEquals(definition, outer.Definition);
+        bool continues = string.Equals((string?)list.Attribute(OdtNamespaces.Text + "continue-numbering"), "true", StringComparison.Ordinal) ||
+            !string.IsNullOrEmpty((string?)list.Attribute(OdtNamespaces.Text + "continue-list")) ||
+            (shared && outer!.Continues && outer.Label?.HasParagraph == false);
+        var inner = new OdtListContext(kind, level, styleName, definition, Continues: continues);
+        // A real new sub-list restarts its own level, while structural wrappers
+        // propagate a containing list's continuation without inventing an item.
+        OdtItemStart? nestedStart = shared && !continues
+            ? new OdtItemStart(definition!.LevelAt(level - 1).Start) : null;
 
         foreach (XElement child in list.Elements())
         {
             if (child.Name == OdtNamespaces.Text + "list-item")
             {
-                OdtListContext item = inner with { Label = new OdtItemLabel() };
+                OdtListContext item = inner with { Label = new OdtItemLabel(), Start = nestedStart };
                 if (int.TryParse((string?)child.Attribute(OdtNamespaces.Text + "start-value"),
                         NumberStyles.Integer, CultureInfo.InvariantCulture, out int start))
                 {
+                    nestedStart?.Take();
                     item = item with { Start = new OdtItemStart(start) };
                 }
 
@@ -1741,17 +1768,18 @@ internal static class OdtReader
             _ => OdtBreak.None,
         });
 
-        // The list wins over whatever indent the paragraph style carried: inside a
-        // list the nesting is the indent, and ODF list paragraph styles routinely
-        // set fo:margin-left to zero precisely because the list supplies it.
+        // List-level alignment wins over the paragraph's margin. Nesting supplies
+        // the fallback only when the list states no explicit alignment.
         if (list is not null)
         {
+            (float? left, float? first) = context.Styles.IndentsForList(list.StyleName, list.Level);
+            bool labelled = list.Label?.Take() != false && list.Kind != ListKind.None;
             paragraphStyle = paragraphStyle with
             {
-                ListKind = list.Label?.Take() == false ? ListKind.None : list.Kind,
+                ListKind = labelled ? list.Kind : ListKind.None,
                 IndentLevel = Math.Max(list.Level, list.Kind == ListKind.None ? 0 : 1),
-                LeftIndent = null,
-                FirstLineIndent = null,
+                LeftIndent = left,
+                FirstLineIndent = labelled ? first : left.HasValue ? 0 : null,
             };
 
             if (paragraphStyle.ListKind != ListKind.None && list.Definition is ListDefinition definition)
