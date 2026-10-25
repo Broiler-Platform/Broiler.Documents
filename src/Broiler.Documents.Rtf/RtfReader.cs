@@ -870,7 +870,12 @@ public static class RtfReader
                 case "qc": _state.Para = _state.Para with { Alignment = TextAlignment.Center }; break;
                 case "qr": _state.Para = _state.Para with { Alignment = TextAlignment.Right }; break;
                 case "qj": _state.Para = _state.Para with { Alignment = TextAlignment.Justify }; break;
-                case "li": _state.Para = _state.Para with { IndentLevel = TwipsToLevel(p) }; break;
+                case "li":
+                    int indent = TwipsToLevel(p);
+                    float exactLeft = Math.Clamp(p / 20f, -20000, 20000);
+                    _state.Para = _state.Para with { IndentLevel = indent,
+                        LeftIndent = Math.Abs(exactLeft - indent * 18f) < 0.001f ? null : exactLeft };
+                    break;
                 case "sb": _state.Para = _state.Para with { SpacingBefore = has ? p / 20f : 0f }; break;
                 case "sa": _state.Para = _state.Para with { SpacingAfter = has ? p / 20f : 0f }; break;
 

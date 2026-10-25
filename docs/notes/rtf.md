@@ -19,7 +19,7 @@ below are exercised by `RtfConformanceTests`, `RtfLimitTests`,
 `RtfPageBreakTests`, `RtfSecurityTests`, `RtfCapitalizationTests`,
 `RtfRunningContentTests`, `RtfPageGeometryTests`, `RtfShapeTests`, and
 `RtfRoundTripTests`, `RtfLineSpacingTests`, `RtfSpaceRunTests`, `RtfDefaultFontTests`, and
-`RtfFontNameTests`, plus `RtfResourceTableTests` for resource collection across
+`RtfFontNameTests`, `RtfExactLeftIndentTests`, plus `RtfResourceTableTests` for resource collection across
 body, running content and shape text, `RtfDefaultSizeTests` for inherited
 font sizes on export, `RtfSkippedDestinationTests` for what a skipped
 destination keeps to itself, `RtfDocumentEndTests` for where the document
@@ -399,7 +399,7 @@ understand, which this is not.
 | Construct | Approximation |
 |---|---|
 | `\headerr` / `\footerr` | Read as the every-page destination: the model names the first page, the even pages, and the rest, and the right-hand page is the rest |
-| `\liN` (twips) | Mapped to a discrete indent level (`round(N / 360)`, capped) |
+| `\liN` (twips) | Exact left indent `N / 20` points, clamped to the model range; equivalent 18-point steps retain the legacy representation. The writer emits the resolved left offset in twips. |
 | `\fs` on write | Rounded to the nearest half-point (`\fs` is integer half-points) |
 | `\'hh` under a double-byte code page | Decoded byte by byte through a Latin-1 fallback for `0x80`-`0xFF`, reported once as `rtf.codepage`. Windows-1252 and every other single-byte code page - Cyrillic 1251, Central European 1250, Greek 1253 and the rest a font's `\fcharset` names - are exact, decoded from the runtime's code-page data without registering a provider. `\uN` text is always exact. |
 

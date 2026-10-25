@@ -180,7 +180,7 @@ internal static class HtmlReader
     {
         if (node is DomText text)
         {
-            builder.AppendText(text.Data, inlineStyle, preserveWhitespace);
+            builder.AppendText(text.Data, inlineStyle, preserveWhitespace, paragraphStyle);
             return;
         }
 
@@ -197,7 +197,7 @@ internal static class HtmlReader
 
         if (tag.Equals("br", StringComparison.OrdinalIgnoreCase))
         {
-            builder.AppendSoftBreak(inlineStyle);
+            builder.AppendSoftBreak(inlineStyle, paragraphStyle);
             return;
         }
 
@@ -217,27 +217,31 @@ internal static class HtmlReader
                 IndentLevel = Math.Max(1, childParagraph.IndentLevel + 1),
                 List = null,
             };
+            IReadOnlyDictionary<string, string> listDeclarations = styleSheet.DeclarationsFor(element);
+            bool ownMargin = listDeclarations.TryGetValue("margin-left", out string? margin) &&
+                HtmlCss.TryParsePoints(margin, out _);
+            if (ownMargin)
+                listStyle = listStyle with { LeftIndent = (float)childParagraph.LeftIndentIn() };
+            else if (childParagraph.LeftIndent is float inheritedOffset)
+                listStyle = listStyle with { LeftIndent = Math.Clamp(inheritedOffset + 18f, -20000, 20000) };
+            // Physical container indentation is independent of list nesting.
+            int level = Math.Clamp((paragraphStyle.List?.Level ?? -1) + 1, 0, ListDefinition.MaxLevels - 1);
             if (tag.Equals("ol", StringComparison.OrdinalIgnoreCase))
             {
                 bool explicitStart = int.TryParse(element.GetAttribute("start"), NumberStyles.Integer,
                     CultureInfo.InvariantCulture, out int start);
-                bool itemValues = element.ChildNodes.OfType<DomElement>().Any(child =>
-                    child.LocalName.Equals("li", StringComparison.OrdinalIgnoreCase) &&
-                    int.TryParse(child.GetAttribute("value"), NumberStyles.Integer, CultureInfo.InvariantCulture, out _));
-                if (explicitStart || itemValues)
+                ListNumberFormat format = element.GetAttribute("type") switch
                 {
-                    int level = Math.Clamp(listStyle.IndentLevel - 1, 0, ListDefinition.MaxLevels - 1);
-                    ListNumberFormat format = element.GetAttribute("type") switch
-                    {
-                        "a" => ListNumberFormat.LowerLetter, "A" => ListNumberFormat.UpperLetter,
-                        "i" => ListNumberFormat.LowerRoman, "I" => ListNumberFormat.UpperRoman,
-                        _ => ListNumberFormat.Decimal,
-                    };
-                    ListDefinition definition = ListDefinition.PlainNumbers.WithLevel(level,
-                        ListLevel.DecimalAt(level) with { Start = explicitStart ? start : 1, Format = format });
-                    listStyle = listStyle with { List = new ListReference(definition, level) };
-                }
+                    "a" => ListNumberFormat.LowerLetter, "A" => ListNumberFormat.UpperLetter,
+                    "i" => ListNumberFormat.LowerRoman, "I" => ListNumberFormat.UpperRoman,
+                    _ => ListNumberFormat.Decimal,
+                };
+                ListDefinition definition = ListDefinition.PlainNumbers.WithLevel(level,
+                    ListLevel.DecimalAt(level) with { Start = explicitStart ? start : 1, Format = format });
+                listStyle = listStyle with { List = new ListReference(definition, level) };
             }
+            else
+                listStyle = listStyle with { List = new ListReference(ListDefinition.PlainBullets.Copy(), level) };
             builder.FinishParagraph(force: false);
             ReadChildren(element, builder, styleSheet, childInline, listStyle, childPreserveWhitespace);
             builder.FinishParagraph(force: false);
@@ -263,6 +267,7 @@ internal static class HtmlReader
             // div carrying one is not three page breaks because it holds three
             // paragraphs.
             bool pageBreak = DeclaresPageBreakBefore(element, styleSheet, builder);
+            int itemStart = builder.ParagraphCount;
             builder.StartParagraph(childParagraph with
             {
                 PageBreakBefore = pageBreak,
@@ -270,6 +275,8 @@ internal static class HtmlReader
             });
             ReadChildren(element, builder, styleSheet, childInline, childParagraph, childPreserveWhitespace);
             builder.FinishParagraph(force: true);
+            if (tag.Equals("li", StringComparison.OrdinalIgnoreCase))
+                builder.FinishListItem(itemStart, childParagraph.List);
             return;
         }
 
@@ -661,6 +668,7 @@ internal static class HtmlReader
         DomElement element, HtmlStyleSheet styleSheet, ParagraphStyle style)
     {
         string tag = element.LocalName;
+        float inheritedLeft = (float)style.LeftIndentIn();
         if (tag.Equals("blockquote", StringComparison.OrdinalIgnoreCase))
             style = style with { IndentLevel = style.IndentLevel + 1 };
 
@@ -669,6 +677,7 @@ internal static class HtmlReader
             style = ApplyAlignment(style, align);
 
         IReadOnlyDictionary<string, string> declarations = styleSheet.DeclarationsFor(element);
+        bool exactMargin = false;
         foreach (KeyValuePair<string, string> declaration in declarations)
         {
             switch (declaration.Key)
@@ -701,6 +710,14 @@ internal static class HtmlReader
                         style = style with { SpacingAfter = after };
                     break;
                 case "margin-left":
+                    if (HtmlCss.TryParsePoints(declaration.Value, out float marginLeft))
+                    {
+                        float exact = Math.Clamp(inheritedLeft + marginLeft, -20000, 20000);
+                        int indent = Math.Max(style.IndentLevel, (int)Math.Round(exact / 18f));
+                        style = style with { LeftIndent = exact, IndentLevel = indent };
+                        exactMargin = true;
+                    }
+                    break;
                 case "padding-left":
                     if (HtmlCss.TryParsePoints(declaration.Value, out float left))
                         style = style with { IndentLevel = Math.Max(style.IndentLevel, (int)Math.Round(left / 18f)) };
@@ -708,6 +725,10 @@ internal static class HtmlReader
             }
         }
 
+        // Canonicalize only after all declarations: changing the legacy level
+        // later must not change an explicitly resolved physical margin.
+        if (exactMargin && style.LeftIndent is float exactLeft && Math.Abs(exactLeft - style.IndentLevel * 18f) < 0.001f)
+            style = style with { LeftIndent = null };
         return style;
     }
 
@@ -795,7 +816,7 @@ internal static class HtmlReader
             _paragraphOpen = true;
         }
 
-        public void AppendText(string text, InlineStyle style, bool preserveWhitespace)
+        public void AppendText(string text, InlineStyle style, bool preserveWhitespace, ParagraphStyle paragraphStyle)
         {
             // DOM text already has its HTML character references decoded.
             //
@@ -837,13 +858,13 @@ internal static class HtmlReader
                 AddDiagnosticOnce("html.limit.run", "An HTML text run exceeded MaxRunLength and was truncated.");
             }
 
-            EnsureParagraph();
+            EnsureParagraph(paragraphStyle);
             AddSegment(normalized, style);
         }
 
-        public void AppendSoftBreak(InlineStyle style)
+        public void AppendSoftBreak(InlineStyle style, ParagraphStyle paragraphStyle)
         {
-            EnsureParagraph();
+            EnsureParagraph(paragraphStyle);
             AddSegment(((char)0x2028).ToString(), style);
         }
 
@@ -889,10 +910,28 @@ internal static class HtmlReader
                 : RichTextDocument.FromParagraphs(_paragraphs).WithTables(Tables);
         }
 
-        private void EnsureParagraph()
+        private void EnsureParagraph(ParagraphStyle paragraphStyle)
         {
             if (!_paragraphOpen)
-                StartParagraph(ParagraphStyle.Default);
+                StartParagraph(paragraphStyle);
+        }
+
+        public void FinishListItem(int start, ListReference? list)
+        {
+            if (list is not ListReference itemList)
+                return;
+            bool first = true;
+            for (int i = start; i < _paragraphs.Count; i++)
+            {
+                ParagraphStyle style = _paragraphs[i].Style;
+                if (style.List is not ListReference candidate || candidate.Level != itemList.Level ||
+                    !ReferenceEquals(candidate.Definition, itemList.Definition))
+                    continue;
+                if (first)
+                    first = false;
+                else
+                    _paragraphs[i] = _paragraphs[i].WithParagraphStyle(style with { List = null, ListKind = ListKind.None });
+            }
         }
 
         private void AddSegment(string text, InlineStyle style)
