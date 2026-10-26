@@ -1121,6 +1121,8 @@ internal static class DocxReader
     /// </summary>
     private static void ReadPicture(XElement picture, DocxReadContext context, InlineStyle style)
     {
+        if (ReadDiagram(picture, context)) return;
+
         // A w:drawing is either a picture or a shape. A shape reports nothing when
         // it does not match, so a drawing that is neither still reaches the picture
         // path and raises its diagnostic.
@@ -1136,6 +1138,52 @@ internal static class DocxReader
             return;
 
         context.Builder.AppendText(InlineImage.PlaceholderText, style with { Image = image });
+    }
+
+    private static bool ReadDiagram(XElement drawing, DocxReadContext context)
+    {
+        XElement? references = drawing.Descendants(DocxDiagram.Diagram + "relIds").FirstOrDefault();
+        if (references is null) return false;
+        XElement? anchor = drawing.Element(DocxNamespaces.WordDrawing + "anchor") ?? drawing.Element(DocxNamespaces.WordDrawing + "inline");
+        XElement? extent = anchor?.Element(DocxNamespaces.WordDrawing + "extent");
+        double width = EmuToPoints((string?)extent?.Attribute("cx")), height = EmuToPoints((string?)extent?.Attribute("cy"));
+        if (anchor is null || width <= 0 || height <= 0 || width > 20000 || height > 20000)
+        {
+            context.Builder.AddDiagnosticOnce("docx.diagram.extent", "A saved diagram had an unsupported outer extent and was skipped.");
+            return true;
+        }
+        DocxDiagram.Cache? cache = context.Images.ReadDiagram(references, anchor, context.Relationships, context.Builder, context.Styles.Theme);
+        if (cache is null) return true;
+        XElement placement = new(anchor);
+        if (context.Builder.InTableCell)
+            context.Builder.AddDiagnosticOnce("docx.diagram.inline", "A saved diagram in a table cell was approximated using its paragraph anchor; cell-relative placement is not fully retained.");
+        if (anchor.Name == DocxNamespaces.WordDrawing + "inline")
+        {
+            XElement? paragraph = drawing.Ancestors(DocxNamespaces.Wordprocessing + "p").FirstOrDefault();
+            bool block = paragraph is not null && paragraph.Descendants(DocxNamespaces.Wordprocessing + "drawing").Count() == 1 &&
+                !paragraph.Descendants().Any(e => e.Name == DocxNamespaces.Wordprocessing + "t" && !string.IsNullOrWhiteSpace(e.Value) ||
+                    e.Name.Namespace == DocxNamespaces.Wordprocessing && e.Name.LocalName is "br" or "tab" or "sym" or "pict" or "footnoteReference" or "endnoteReference" or "instrText" or "fldChar" or "delText");
+            if (block)
+            {
+                double x = context.Builder.ReserveDiagramBlock(width, height, context.Page);
+                placement.Add(new XElement(DocxNamespaces.WordDrawing + "positionH", new XAttribute("relativeFrom", "column"),
+                    new XElement(DocxNamespaces.WordDrawing + "posOffset", Math.Round(x * 12700))));
+            }
+            else context.Builder.AddDiagnosticOnce("docx.diagram.inline", "A diagram mixed with inline text was approximated at its paragraph origin without reserving inline flow.");
+        }
+        XElement? cachedExtent = cache.Group.Element(DocxNamespaces.WordGroup + "grpSpPr")?.Element(DocxNamespaces.Drawing + "xfrm")?.Element(DocxNamespaces.Drawing + "ext");
+        double cachedWidth = EmuToPoints((string?)cachedExtent?.Attribute("cx")), cachedHeight = EmuToPoints((string?)cachedExtent?.Attribute("cy"));
+        if (cachedWidth > 20000 || cachedHeight > 20000)
+        {
+            context.Builder.AddDiagnosticOnce("docx.diagram.extent", "A saved diagram's cached root extent exceeded the supported display size and was skipped.");
+            return true;
+        }
+        // A saved diagram's explicit root extent is already in display EMUs;
+        // the Word inline extent reserves flow but does not rescale that cache.
+        if (!ReadShapeGroup(cache.Group, placement, cachedWidth > 0 ? cachedWidth : width, cachedHeight > 0 ? cachedHeight : height,
+            context with { Relationships = cache.Relationships }))
+            context.Builder.AddDiagnosticOnce("docx.diagram.empty", "A saved diagram contained no supported painted shapes or text.");
+        return true;
     }
 
     /// <summary>
@@ -1387,7 +1435,7 @@ internal static class DocxReader
         if (width < 0 || height < 0 || (width == 0 && height == 0))
             return false;
 
-        XElement? spPr = wsp.Element(DocxNamespaces.WordShape + "spPr");
+        XElement spPr = DocxShapeStyle.Resolve(wsp, context.Styles.Theme);
         ShapeFill? fill = ReadFill(spPr, context);
         BColor outline = ReadOutline(spPr, context.Styles.Theme);
         string? preset = (string?)spPr?.Element(DocxNamespaces.Drawing + "prstGeom")?.Attribute("prst");
