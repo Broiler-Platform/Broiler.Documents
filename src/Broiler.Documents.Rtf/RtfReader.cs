@@ -33,6 +33,8 @@ public static class RtfReader
         public ParagraphStyle Para;
         public RtfDestination Dest;
         public int ShapeOwnerDepth;
+        public RtfLegacyDrawing? LegacyDrawing;
+        public ShapeScope? Shape;
 
         /// <summary>
         /// Where a field's result belongs: the destination the field was sitting
@@ -65,6 +67,11 @@ public static class RtfReader
         /// background, not a shape on it.
         /// </summary>
         public bool InBackground;
+    }
+
+    private sealed class ShapeScope
+    {
+        public bool HasInstructions;
     }
 
     private sealed class FieldFrame
@@ -360,6 +367,13 @@ public static class RtfReader
             else if (closing.Dest == RtfDestination.Shape && closing.ShapeOwnerDepth == _stack.Count)
                 FinishShape();
 
+            if (closing.Dest == RtfDestination.LegacyDrawing && closing.LegacyDrawing is { } drawing && drawing.OwnerDepth == _stack.Count)
+            {
+                DocumentShape? shape = drawing.Build(_builder.ParagraphCount,
+                    (_sectionLeft ?? _marginLeft) / 20d, (_sectionTop ?? _marginTop) / 20d, _diagnostics);
+                if (shape is not null) _shapes.Add(shape);
+            }
+
             if (_stack.Count == 0)
                 return false;
 
@@ -479,6 +493,16 @@ public static class RtfReader
                 return;
             }
 
+            if (_state.Dest == RtfDestination.LegacyDrawing)
+            {
+                // Unknown ignorable subgroups remain opaque inside a drawing too.
+                if (star || kw is "pict" or "object")
+                    _state.Dest = RtfDestination.Skip;
+                else
+                    _state.LegacyDrawing?.Read(kw, token.Parameter, token.HasParameter);
+                return;
+            }
+
             // A note's text is the note's: a header, a font or colour table or a
             // shape stated inside it would escape into the document, so each is
             // skipped there with everything inside it, as a skipped destination
@@ -486,7 +510,7 @@ public static class RtfReader
             if (_state.Dest == RtfDestination.Note &&
                 kw is "header" or "headerf" or "headerl" or "headerr" or
                     "footer" or "footerf" or "footerl" or "footerr" or
-                    "fonttbl" or "colortbl" or "shp" or "listtable" or "listoverridetable")
+                    "fonttbl" or "colortbl" or "shp" or "do" or "listtable" or "listoverridetable")
             {
                 _state.Dest = RtfDestination.Skip;
                 return;
@@ -496,6 +520,18 @@ public static class RtfReader
             // reader walks rather than skips.
             switch (kw)
             {
+                case "do":
+                    if (_state.Dest != RtfDestination.Normal)
+                    {
+                        _state.Dest = RtfDestination.Skip;
+                        return;
+                    }
+                    _state.Dest = RtfDestination.LegacyDrawing;
+                    _state.LegacyDrawing = new RtfLegacyDrawing(_stack.Count);
+                    return;
+                case "shprslt" when _state.Shape?.HasInstructions == true:
+                    _state.Dest = RtfDestination.Skip;
+                    return;
                 case "fonttbl":
                     _state.Dest = RtfDestination.FontTable;
                     _fontName.Clear();
@@ -808,12 +844,12 @@ public static class RtfReader
                 // \shp opens the shape but does not own the destination: \shpinst
                 // does, and only one group may close as the shape or it would be
                 // finished twice - once for the inner group and once for the outer.
-                case "shp": BeginShape(); return;
+                case "shp": BeginShape(); _state.Shape = new ShapeScope(); return;
                 case "background": _state.InBackground = true; return;
                 // Whether the background is shown at all, which LibreOffice
                 // takes as Word's w:displayBackgroundShape.
                 case "viewbksp": _viewBackground = !has || p != 0; return;
-                case "shpinst": _state.Dest = RtfDestination.Shape; _state.ShapeOwnerDepth = _stack.Count; return;
+                case "shpinst": if (_state.Shape is not null) _state.Shape.HasInstructions = true; _state.Dest = RtfDestination.Shape; _state.ShapeOwnerDepth = _stack.Count; return;
                 case "shpleft": if (has) _shapeLeft = p; return;
                 case "shptop": if (has) _shapeTop = p; return;
                 case "shpright": if (has) _shapeRight = p; return;

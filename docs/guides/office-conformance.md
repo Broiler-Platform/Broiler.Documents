@@ -753,3 +753,15 @@ remaining native/autofit differences without a newly resolved ranked original.
 The [WordprocessingML theme-color follow-up](../notes/office-issue-152-word-theme-colors.md)
 records five corrected color contexts, cache-versus-theme precedence and native
 export checks, including the tested LibreOffice importer's cache preference.
+
+The [issue #154 verification note](../notes/office-issue-154.md) records legacy
+RTF drawings and DOCX shape format-matrix references, a new hashed 30-case
+selection, native controls and mixed observations in the original files.
+
+The [DrawingML color follow-up](../notes/office-issue-154-drawing-colors.md)
+records 15 additional color behaviors, a reusable native-probe generator and
+before/after checks, including unchanged original cases and rounding limits.
+
+The [saved-diagram follow-up](../notes/office-issue-154-cached-diagrams.md)
+records 15 SmartArt cache-import behaviors, a newly passing original pixel check,
+the native PDF/TXT projection gap and reproducible derived controls.
