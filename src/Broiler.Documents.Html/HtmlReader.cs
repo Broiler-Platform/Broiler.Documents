@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Globalization;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Dom;
@@ -179,7 +180,7 @@ internal static class HtmlReader
     {
         if (node is DomText text)
         {
-            builder.AppendText(text.Data, inlineStyle, preserveWhitespace);
+            builder.AppendText(text.Data, inlineStyle, preserveWhitespace, paragraphStyle);
             return;
         }
 
@@ -196,7 +197,7 @@ internal static class HtmlReader
 
         if (tag.Equals("br", StringComparison.OrdinalIgnoreCase))
         {
-            builder.AppendSoftBreak(inlineStyle);
+            builder.AppendSoftBreak(inlineStyle, paragraphStyle);
             return;
         }
 
@@ -214,7 +215,33 @@ internal static class HtmlReader
             {
                 ListKind = tag.Equals("ol", StringComparison.OrdinalIgnoreCase) ? ListKind.Numbered : ListKind.Bullet,
                 IndentLevel = Math.Max(1, childParagraph.IndentLevel + 1),
+                List = null,
             };
+            IReadOnlyDictionary<string, string> listDeclarations = styleSheet.DeclarationsFor(element);
+            bool ownMargin = listDeclarations.TryGetValue("margin-left", out string? margin) &&
+                HtmlCss.TryParsePoints(margin, out _);
+            if (ownMargin)
+                listStyle = listStyle with { LeftIndent = (float)childParagraph.LeftIndentIn() };
+            else if (childParagraph.LeftIndent is float inheritedOffset)
+                listStyle = listStyle with { LeftIndent = Math.Clamp(inheritedOffset + 18f, -20000, 20000) };
+            // Physical container indentation is independent of list nesting.
+            int level = Math.Clamp((paragraphStyle.List?.Level ?? -1) + 1, 0, ListDefinition.MaxLevels - 1);
+            if (tag.Equals("ol", StringComparison.OrdinalIgnoreCase))
+            {
+                bool explicitStart = int.TryParse(element.GetAttribute("start"), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int start);
+                ListNumberFormat format = element.GetAttribute("type") switch
+                {
+                    "a" => ListNumberFormat.LowerLetter, "A" => ListNumberFormat.UpperLetter,
+                    "i" => ListNumberFormat.LowerRoman, "I" => ListNumberFormat.UpperRoman,
+                    _ => ListNumberFormat.Decimal,
+                };
+                ListDefinition definition = ListDefinition.PlainNumbers.WithLevel(level,
+                    ListLevel.DecimalAt(level) with { Start = explicitStart ? start : 1, Format = format });
+                listStyle = listStyle with { List = new ListReference(definition, level) };
+            }
+            else
+                listStyle = listStyle with { List = new ListReference(ListDefinition.PlainBullets.Copy(), level) };
             builder.FinishParagraph(force: false);
             ReadChildren(element, builder, styleSheet, childInline, listStyle, childPreserveWhitespace);
             builder.FinishParagraph(force: false);
@@ -226,6 +253,10 @@ internal static class HtmlReader
             if (tag.Equals("li", StringComparison.OrdinalIgnoreCase) && childParagraph.ListKind == ListKind.None)
                 childParagraph = childParagraph with { ListKind = ListKind.Bullet, IndentLevel = Math.Max(1, childParagraph.IndentLevel) };
 
+            if (tag.Equals("li", StringComparison.OrdinalIgnoreCase) && childParagraph.List is ListReference numbered &&
+                int.TryParse(element.GetAttribute("value"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value))
+                childParagraph = childParagraph with { List = new ListReference(numbered.Definition, numbered.Level, value) };
+
             if (tag.StartsWith("h", StringComparison.OrdinalIgnoreCase) && tag.Length == 2 && char.IsDigit(tag[1]))
                 childInline = ApplyHeadingInline(tag, childInline);
 
@@ -236,6 +267,7 @@ internal static class HtmlReader
             // div carrying one is not three page breaks because it holds three
             // paragraphs.
             bool pageBreak = DeclaresPageBreakBefore(element, styleSheet, builder);
+            int itemStart = builder.ParagraphCount;
             builder.StartParagraph(childParagraph with
             {
                 PageBreakBefore = pageBreak,
@@ -243,6 +275,14 @@ internal static class HtmlReader
             });
             ReadChildren(element, builder, styleSheet, childInline, childParagraph, childPreserveWhitespace);
             builder.FinishParagraph(force: true);
+            if (tag.Equals("li", StringComparison.OrdinalIgnoreCase))
+                builder.FinishListItem(itemStart, childParagraph.List);
+            return;
+        }
+
+        if (tag.Equals("table", StringComparison.OrdinalIgnoreCase))
+        {
+            ReadTable(element, builder, styleSheet, childInline, childParagraph, childPreserveWhitespace);
             return;
         }
 
@@ -256,6 +296,89 @@ internal static class HtmlReader
 
         ReadChildren(element, builder, styleSheet, childInline, childParagraph, childPreserveWhitespace);
     }
+
+    private static void ReadTable(DomElement element, HtmlDocumentBuilder builder,
+        HtmlStyleSheet styleSheet, InlineStyle inline, ParagraphStyle paragraph, bool preserveWhitespace)
+    {
+        builder.FinishParagraph(force: false);
+        foreach (DomElement caption in element.ChildNodes.OfType<DomElement>().Where(child => child.LocalName == "caption"))
+        {
+            ReadChildren(caption, builder, styleSheet, inline, paragraph, preserveWhitespace);
+            builder.FinishParagraph(force: false);
+        }
+        int start = builder.ParagraphCount;
+        int nestedStart = builder.Tables.Count;
+        var rows = new List<TableRow>();
+        var occupied = new Dictionary<int, int>();
+        double borderWidth = AttributeNumber(element, "border", 0) * .75;
+        var borders = CellBorders.All(new TableBorder(BColor.FromName("black"), borderWidth));
+        double padding = AttributeNumber(element, "cellpadding", 1) * .75;
+        foreach (DomElement row in TableRows(element))
+        {
+            var cells = new List<TableCell>();
+            int column = 0;
+            foreach (DomElement cell in row.ChildNodes.OfType<DomElement>())
+            {
+                if (cell.LocalName is not ("td" or "th"))
+                    continue;
+                while (occupied.TryGetValue(column, out int through) && through > rows.Count)
+                    column++;
+                int span = (int)Math.Clamp(AttributeNumber(cell, "colspan", 1), 1, 1000);
+                int rowSpan = (int)Math.Clamp(AttributeNumber(cell, "rowspan", 1), 1, 1000);
+                int cellStart = builder.ParagraphCount;
+                int cellTables = builder.Tables.Count;
+                InlineStyle cellInline = ApplyInlineElement(cell, styleSheet, inline, builder.Diagnostics);
+                if (cell.LocalName == "th")
+                    cellInline = cellInline with { Bold = true };
+                ParagraphStyle cellParagraph = ApplyParagraphElement(cell, styleSheet,
+                    cell.LocalName == "th" ? paragraph with { Alignment = TextAlignment.Center } : paragraph);
+                builder.StartParagraph(cellParagraph);
+                ReadChildren(cell, builder, styleSheet, cellInline, cellParagraph, preserveWhitespace);
+                builder.FinishParagraph(force: true);
+                if (builder.ParagraphCount == cellStart)
+                {
+                    builder.StartParagraph(paragraph);
+                    builder.FinishParagraph(force: true);
+                }
+                DocumentTable[] nested = builder.Tables.Skip(cellTables).ToArray();
+                builder.Tables.RemoveRange(cellTables, builder.Tables.Count - cellTables);
+                cells.Add(new TableCell(cellStart, builder.ParagraphCount - cellStart, column,
+                    span, rowSpan, PageBackground(cell, styleSheet) ?? default, borders,
+                    tables: nested, padding: new TableCellPadding(padding, padding, padding, padding)));
+                for (int c = column; c < column + span; c++)
+                    occupied[c] = rows.Count + rowSpan;
+                column += span;
+            }
+            if (cells.Count > 0)
+                rows.Add(new TableRow(cells));
+        }
+        builder.Tables.RemoveRange(nestedStart, builder.Tables.Count - nestedStart);
+        if (rows.Count > 0 && builder.ParagraphCount > start)
+        {
+            string width = element.GetAttribute("width") ?? "";
+            double? percent = width.EndsWith('%') && double.TryParse(width[..^1],
+                NumberStyles.Float, CultureInfo.InvariantCulture, out double value) ? value : null;
+            double points = AttributeNumber(element, "width", 0) * .75;
+            builder.Tables.Add(new DocumentTable(start, builder.ParagraphCount - start, rows,
+                preferredWidth: points > 0 ? points : null, widthPercent: percent, autoFit: true));
+        }
+    }
+
+    private static IEnumerable<DomElement> TableRows(DomElement table)
+    {
+        foreach (DomElement child in table.ChildNodes.OfType<DomElement>())
+        {
+            if (child.LocalName == "tr")
+                yield return child;
+            else if (child.LocalName is "thead" or "tbody" or "tfoot")
+                foreach (DomElement row in TableRows(child))
+                    yield return row;
+        }
+    }
+
+    private static double AttributeNumber(DomElement element, string name, double fallback) =>
+        double.TryParse(element.GetAttribute(name), NumberStyles.Float, CultureInfo.InvariantCulture,
+            out double value) && double.IsFinite(value) && value >= 0 ? Math.Min(value, 100000) : fallback;
 
     private static InlineStyle ApplyInlineElement(
         DomElement element,
@@ -545,6 +668,7 @@ internal static class HtmlReader
         DomElement element, HtmlStyleSheet styleSheet, ParagraphStyle style)
     {
         string tag = element.LocalName;
+        float inheritedLeft = (float)style.LeftIndentIn();
         if (tag.Equals("blockquote", StringComparison.OrdinalIgnoreCase))
             style = style with { IndentLevel = style.IndentLevel + 1 };
 
@@ -553,6 +677,7 @@ internal static class HtmlReader
             style = ApplyAlignment(style, align);
 
         IReadOnlyDictionary<string, string> declarations = styleSheet.DeclarationsFor(element);
+        bool exactMargin = false;
         foreach (KeyValuePair<string, string> declaration in declarations)
         {
             switch (declaration.Key)
@@ -585,6 +710,14 @@ internal static class HtmlReader
                         style = style with { SpacingAfter = after };
                     break;
                 case "margin-left":
+                    if (HtmlCss.TryParsePoints(declaration.Value, out float marginLeft))
+                    {
+                        float exact = Math.Clamp(inheritedLeft + marginLeft, -20000, 20000);
+                        int indent = Math.Max(style.IndentLevel, (int)Math.Round(exact / 18f));
+                        style = style with { LeftIndent = exact, IndentLevel = indent };
+                        exactMargin = true;
+                    }
+                    break;
                 case "padding-left":
                     if (HtmlCss.TryParsePoints(declaration.Value, out float left))
                         style = style with { IndentLevel = Math.Max(style.IndentLevel, (int)Math.Round(left / 18f)) };
@@ -592,6 +725,10 @@ internal static class HtmlReader
             }
         }
 
+        // Canonicalize only after all declarations: changing the legacy level
+        // later must not change an explicitly resolved physical margin.
+        if (exactMargin && style.LeftIndent is float exactLeft && Math.Abs(exactLeft - style.IndentLevel * 18f) < 0.001f)
+            style = style with { LeftIndent = null };
         return style;
     }
 
@@ -655,6 +792,8 @@ internal static class HtmlReader
     private sealed class HtmlDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
     {
         private readonly List<RichTextParagraph> _paragraphs = [];
+        public int ParagraphCount => _paragraphs.Count;
+        public List<DocumentTable> Tables { get; } = [];
         private readonly List<Segment> _segments = [];
         private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
         private bool _paragraphOpen;
@@ -677,7 +816,7 @@ internal static class HtmlReader
             _paragraphOpen = true;
         }
 
-        public void AppendText(string text, InlineStyle style, bool preserveWhitespace)
+        public void AppendText(string text, InlineStyle style, bool preserveWhitespace, ParagraphStyle paragraphStyle)
         {
             // DOM text already has its HTML character references decoded.
             //
@@ -719,13 +858,13 @@ internal static class HtmlReader
                 AddDiagnosticOnce("html.limit.run", "An HTML text run exceeded MaxRunLength and was truncated.");
             }
 
-            EnsureParagraph();
+            EnsureParagraph(paragraphStyle);
             AddSegment(normalized, style);
         }
 
-        public void AppendSoftBreak(InlineStyle style)
+        public void AppendSoftBreak(InlineStyle style, ParagraphStyle paragraphStyle)
         {
-            EnsureParagraph();
+            EnsureParagraph(paragraphStyle);
             AddSegment(((char)0x2028).ToString(), style);
         }
 
@@ -768,13 +907,31 @@ internal static class HtmlReader
             FinishParagraph(force: false);
             return _paragraphs.Count == 0
                 ? RichTextDocument.Empty
-                : RichTextDocument.FromParagraphs(_paragraphs);
+                : RichTextDocument.FromParagraphs(_paragraphs).WithTables(Tables);
         }
 
-        private void EnsureParagraph()
+        private void EnsureParagraph(ParagraphStyle paragraphStyle)
         {
             if (!_paragraphOpen)
-                StartParagraph(ParagraphStyle.Default);
+                StartParagraph(paragraphStyle);
+        }
+
+        public void FinishListItem(int start, ListReference? list)
+        {
+            if (list is not ListReference itemList)
+                return;
+            bool first = true;
+            for (int i = start; i < _paragraphs.Count; i++)
+            {
+                ParagraphStyle style = _paragraphs[i].Style;
+                if (style.List is not ListReference candidate || candidate.Level != itemList.Level ||
+                    !ReferenceEquals(candidate.Definition, itemList.Definition))
+                    continue;
+                if (first)
+                    first = false;
+                else
+                    _paragraphs[i] = _paragraphs[i].WithParagraphStyle(style with { List = null, ListKind = ListKind.None });
+            }
         }
 
         private void AddSegment(string text, InlineStyle style)

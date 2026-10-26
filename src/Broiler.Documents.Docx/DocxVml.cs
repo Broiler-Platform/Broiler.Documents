@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
@@ -25,8 +26,9 @@ namespace Broiler.Documents.Docx;
 /// </para>
 /// <para>
 /// A fill the model cannot hold - VML's rectangular "radial" gradient, a
-/// picture, a pattern of two colours - is held as the one colour that covers
-/// most of the box, and says so.
+/// pattern of two colours - is held as the one colour that covers
+/// most of the box, and says so. Embedded page-background pictures can be
+/// retained as stretch or tiled image fills through the image loader.
 /// </para>
 /// </remarks>
 internal static class DocxVml
@@ -40,13 +42,24 @@ internal static class DocxVml
     /// <c>w:displayBackgroundShape</c> (§17.15.1.25) is what says the background
     /// is shown at all; Word leaves a page colour it does not display in the file,
     /// and LibreOffice's import reads neither the colour nor the shape without
-    /// it. The VML shape inside is the background Word draws; <c>w:color</c> is the
-    /// colour it falls back to, and the whole background where there is no shape.
+    /// it. Native import also requires an explicit <c>w:color</c> attribute to
+    /// activate the background; an explicit <c>auto</c> value suffices. The VML
+    /// shape supplies the paint, with <c>w:color</c> as its colour fallback.
     /// </remarks>
-    public static ShapeFill? ReadBackground(XElement? background, bool display, Action<string, string> report)
+    public static ShapeFill? ReadBackground(XElement? background, bool display, Action<string, string> report,
+        Func<XElement, InlineImage?>? readImage = null)
     {
         if (background is null || !display)
             return null;
+
+        // Native DOCX import activates the background through w:color, even
+        // when its value is "auto". A VML child alone is not an active background.
+        if (background.Attribute(DocxNamespaces.Wordprocessing + "color") is null)
+        {
+            if (background.Element(DocxNamespaces.Vml + "background") is not null)
+                report("docx.background.color", "A VML page background without w:color was not activated.");
+            return null;
+        }
 
         DocxValueReader.TryParseHexColor(
             (string?)background.Attribute(DocxNamespaces.Wordprocessing + "color"),
@@ -54,7 +67,20 @@ internal static class DocxVml
 
         XElement? shape = background.Element(DocxNamespaces.Vml + "background");
         if (shape is not null)
+        {
+            XElement? fill = shape.Element(DocxNamespaces.Vml + "fill");
+            string? type = (string?)fill?.Attribute("type");
+            bool customLayout = fill?.Attributes().Any(attribute => attribute.Name.LocalName is
+                "size" or "origin" or "position" or "aspect" or "angle" or "alignshape" or "rotate" or
+                "opacity" or "opacity2" or "recolortarget") == true;
+            if (type is "frame" or "tile" && !customLayout && !IsOff((string?)shape.Attribute("filled")) &&
+                !IsOff((string?)fill?.Attribute("on")) && readImage?.Invoke(fill!) is InlineImage picture)
+                return ShapeFill.Solid(fallback.IsEmpty ? BColor.FromArgb(255, 255, 255) : fallback) with
+                {
+                    Image = new ImageFill(picture, type == "frame" ? ImageFillRepeat.Stretch : ImageFillRepeat.Tile),
+                };
             return ReadFill(shape, fallback, report, "docx.background.fill", "page background");
+        }
 
         return fallback.IsEmpty ? null : ShapeFill.Solid(fallback);
     }
@@ -82,6 +108,8 @@ internal static class DocxVml
             ? stated
             : TryColor((string?)fill?.Attribute("color"), out BColor own) ? own : BColor.FromArgb(255, 255, 255);
         BColor second = TryColor((string?)fill?.Attribute("color2"), out BColor other) ? other : first;
+        first = ApplyOpacity(first, (string?)fill?.Attribute("opacity"));
+        second = ApplyOpacity(second, (string?)fill?.Attribute("opacity2"));
         string type = ((string?)fill?.Attribute("type"))?.Trim() ?? "solid";
 
         switch (type)
@@ -264,6 +292,16 @@ internal static class DocxVml
         ["teal"] = 0x008080,
         ["aqua"] = 0x00FFFF,
     };
+
+    internal static BColor ApplyOpacity(BColor color, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return color;
+        string text = value.Trim();
+        double divisor = text.EndsWith('%') ? 100 : text.EndsWith('f') ? 65536 : 1;
+        if (divisor != 1) text = text[..^1];
+        if (!TryNumber(text, out double number)) return color;
+        return BColor.FromArgb((byte)Math.Round(color.A * Math.Clamp(number / divisor, 0, 1)), color.R, color.G, color.B);
+    }
 
     private static bool IsOff(string? value) =>
         value is not null && value.Trim() is "f" or "false" or "False" or "0";

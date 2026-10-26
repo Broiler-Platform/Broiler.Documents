@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Documents.Resources;
@@ -30,6 +31,9 @@ public static class RtfWriter
         var fonts = new ResourceTable<string>(StringComparer.Ordinal);
         var colors = new ResourceTable<BColor>(EqualityComparer<BColor>.Default);
         var diagnostics = new List<DocumentDiagnostic>();
+        if (document.Sections.Any(section => section.Hidden))
+            diagnostics.Add(DocumentDiagnostic.Warning("rtf.section.hidden",
+                "Hidden section visibility was not written; its retained content is exported as visible paragraphs."));
 
         // The writer always escapes non-ASCII as \uN?; there is no raw-byte mode.
         // A caller asking for one is told, rather than silently given the escaped
@@ -192,6 +196,9 @@ public static class RtfWriter
         List<DocumentDiagnostic> diagnostics,
         HashSet<string> reported)
     {
+        if (shape.OffsetXFromCell)
+            AddOnce(diagnostics, reported, "rtf.shape.cell-anchor",
+                "A cell-relative line was written from the text column; cell-relative horizontal placement is not retained.");
         if (shape.Fill?.HasExtendedPaint == true)
             AddOnce(diagnostics, reported, "rtf.fill.extended", "Bitmap and hatch fills, centred gradient geometry, gradient borders and page-fill bounds were approximated by their base colours or linear gradients.");
         if (shape.Image is InlineImage image)
@@ -223,8 +230,18 @@ public static class RtfWriter
         }
 
         sb.Append(shape.IsPageAnchored || shape.OffsetFromPage
-            ? "\\shpbxcolumn\\shpbypage\\shpwr3"
-            : "\\shpbxcolumn\\shpbypara\\shpwr3");
+            ? "\\shpbxcolumn\\shpbypage"
+            : "\\shpbxcolumn\\shpbypara");
+        sb.Append("\\shpfblwtxt").Append(shape.BehindText ? '1' : '0');
+        sb.Append("\\shpwr").Append(shape.Wrap switch { ShapeWrap.TopAndBottom => 1, ShapeWrap.Square => 2, _ => 3 });
+        sb.Append("\\shpwrk").Append(shape.WrapSide switch { WrapSide.Left => 1, WrapSide.Right => 2, _ => 3 });
+        foreach (string edge in new[] { "dxWrapDistLeft", "dxWrapDistRight", "dyWrapDistTop", "dyWrapDistBottom" })
+            AppendShapeProperty(sb, edge, ((long)Math.Round(shape.WrapDistance * 12700)).ToString(CultureInfo.InvariantCulture));
+        AppendShapeProperty(sb, "dxTextLeft", ShapeEmu(shape.TextPadding.Left));
+        AppendShapeProperty(sb, "dyTextTop", ShapeEmu(shape.TextPadding.Top));
+        AppendShapeProperty(sb, "dxTextRight", ShapeEmu(shape.TextPadding.Right));
+        AppendShapeProperty(sb, "dyTextBottom", ShapeEmu(shape.TextPadding.Bottom));
+        AppendShapeProperty(sb, "anchorText", shape.TextVerticalAlignment switch { CellVerticalAlignment.Center => "1", CellVerticalAlignment.Bottom => "2", _ => "0" });
         AppendShapeProperty(sb, "shapeType", shape.Geometry == ShapeGeometry.Ellipse ? "3" : shape.Geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending ? "20" : "1");
         if (shape.Geometry == ShapeGeometry.LineAscending) AppendShapeProperty(sb, "fFlipV", "1");
 
@@ -245,6 +262,7 @@ public static class RtfWriter
         {
             AppendShapeProperty(sb, "fLine", "1");
             AppendShapeProperty(sb, "lineColor", ShapeColor(shape.Outline));
+            AppendShapeProperty(sb, "lineOpacity", ShapeAlpha(shape.Outline));
             AppendShapeProperty(sb, "lineWidth", ((long)Math.Round(shape.OutlineWidth * 12700)).ToString(CultureInfo.InvariantCulture));
         }
 
@@ -253,15 +271,13 @@ public static class RtfWriter
         if (shape.GrowsToText)
             AppendShapeProperty(sb, "fFitShapeToText", "1");
 
-        if (shape.NextFrameName is not null || shape.GrowsWidthToText || shape.TextOverflow || shape.TextVerticalAlignment != CellVerticalAlignment.Top)
-            AddOnce(diagnostics, reported, "rtf.shape.flow", "Linked text frames, minimum-width sizing, vertical text alignment and explicit overflow were not written; frame text is retained.");
+        if (shape.NextFrameName is not null || shape.GrowsWidthToText || shape.TextOverflow)
+            AddOnce(diagnostics, reported, "rtf.shape.flow", "Linked text frames, minimum-width sizing and explicit overflow were not written; frame text is retained.");
 
         if (shape.HasText)
         {
             if (shape.Tables.Count > 0)
                 AddOnce(diagnostics, reported, "rtf.shape.table", "Tables inside a text box were written as paragraphs; their text is kept but their cell layout is not written.");
-            if (shape.TextPadding != default)
-                AddOnce(diagnostics, reported, "rtf.shape.padding", "Text-box inner padding was not written; its text and outer frame are retained.");
             sb.Append("{\\shptxt ");
             foreach (RichTextParagraph paragraph in shape.Paragraphs)
             {
@@ -279,6 +295,9 @@ public static class RtfWriter
         sb.Append("}}");
     }
 
+    private static string ShapeEmu(double points) => ((long)Math.Round(Math.Clamp(points, 0, 20000) * 12700)).ToString(CultureInfo.InvariantCulture);
+    private static string ShapeAlpha(BColor color) => ((long)Math.Round(color.A / 255d * 65536)).ToString(CultureInfo.InvariantCulture);
+
     private static void AppendShapeProperty(StringBuilder sb, string name, string value) =>
         sb.Append("{\\sp{\\sn ").Append(name).Append("}{\\sv ").Append(value).Append("}}");
 
@@ -287,9 +306,11 @@ public static class RtfWriter
     {
         AppendShapeProperty(sb, "fFilled", "1");
         AppendShapeProperty(sb, "fillColor", ShapeColor(fill.Start));
+        AppendShapeProperty(sb, "fillOpacity", ShapeAlpha(fill.Start));
         if (fill.IsGradient)
         {
             AppendShapeProperty(sb, "fillBackColor", ShapeColor(fill.End));
+            AppendShapeProperty(sb, "fillBackOpacity", ShapeAlpha(fill.End));
             AppendShapeProperty(sb, "fillType", "1");
             AppendShapeProperty(
                 sb,
@@ -474,8 +495,8 @@ public static class RtfWriter
             default: break; // Left is the \pard default.
         }
 
-        if (style.IndentLevel > 0)
-            sb.Append("\\li").Append(style.IndentLevel * 360);
+        if (style.LeftIndent.HasValue || style.IndentLevel > 0)
+            sb.Append("\\li").Append(Twips((float)style.LeftIndentIn()));
         if (style.SpacingBefore != 0f)
             sb.Append("\\sb").Append(Twips(style.SpacingBefore));
         if (style.SpacingAfter != 0f)

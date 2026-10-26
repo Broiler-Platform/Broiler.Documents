@@ -335,6 +335,8 @@ public static class OdtWriter
                 new XAttribute(
                     OdtNamespaces.Text + "name",
                     "Section" + (++written).ToString(CultureInfo.InvariantCulture)));
+            if (section.Hidden)
+                element.Add(new XAttribute(OdtNamespaces.Text + "display", "none"));
             foreach (XElement block in BuildBlocks(document, document.Tables, section.ParagraphIndex, section.ParagraphEnd, context))
                 element.Add(block);
 
@@ -419,8 +421,37 @@ public static class OdtWriter
         if (page is not null && index < document.ParagraphCount)
             written.Add(new DocumentSection(index, document.ParagraphCount - index, page.ColumnCount, page.ColumnGap));
 
-        written.RemoveAll(section => section.ColumnCount <= 1 && (section.Background.IsEmpty || section.Background.A == 0));
+        // Cell-local visibility belongs inside the cell, not around a slice of
+        // its containing table: doing the latter would write the table twice.
+        written.RemoveAll(section => section.Hidden && InsideTable(section, document.Tables));
+        written.RemoveAll(section => !section.Hidden && section.ColumnCount <= 1 && (section.Background.IsEmpty || section.Background.A == 0));
         return written;
+    }
+
+    private static bool InsideTable(DocumentSection section, IReadOnlyList<DocumentTable> tables) =>
+        tables.Any(table => section.ParagraphIndex >= table.ParagraphIndex && section.ParagraphEnd <= table.ParagraphEnd &&
+            (section.ParagraphIndex > table.ParagraphIndex || section.ParagraphEnd < table.ParagraphEnd));
+
+    private static IEnumerable<XElement> BuildCellBlocks(RichTextDocument document, TableCell cell, OdtWriteContext context)
+    {
+        int index = cell.ParagraphIndex;
+        foreach (DocumentSection section in document.Sections.Where(section => section.Hidden &&
+            section.ParagraphIndex >= cell.ParagraphIndex && section.ParagraphEnd <= cell.ParagraphEnd &&
+            !InsideTable(section, cell.Tables)).OrderBy(section => section.ParagraphIndex))
+        {
+            if (section.ParagraphIndex < index) continue;
+            foreach (XElement block in BuildBlocks(document, cell.Tables, index, section.ParagraphIndex, context))
+                yield return block;
+            var hidden = new XElement(OdtNamespaces.Text + "section",
+                new XAttribute(OdtNamespaces.Text + "name", "Hidden" + section.ParagraphIndex.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute(OdtNamespaces.Text + "display", "none"));
+            foreach (XElement block in BuildBlocks(document, cell.Tables, section.ParagraphIndex, section.ParagraphEnd, context))
+                hidden.Add(block);
+            yield return hidden;
+            index = section.ParagraphEnd;
+        }
+        foreach (XElement block in BuildBlocks(document, cell.Tables, index, cell.ParagraphEnd, context))
+            yield return block;
     }
 
     private static bool PageColumnsGoOnSections(RichTextDocument document) =>
@@ -549,7 +580,7 @@ public static class OdtWriter
                     continue;
                 }
 
-                tr.Add(BuildTableCell(document, cell, context));
+                tr.Add(BuildTableCell(document, table, cell, context));
                 column += cell.ColumnSpan;
 
                 // ODF wants a covered cell for every position a span swallowed.
@@ -566,10 +597,10 @@ public static class OdtWriter
         return element;
     }
 
-    private static XElement BuildTableCell(RichTextDocument document, TableCell cell, OdtWriteContext context)
+    private static XElement BuildTableCell(RichTextDocument document, DocumentTable table, TableCell cell, OdtWriteContext context)
     {
         var element = new XElement(OdtNamespaces.Table + "table-cell");
-        if (context.GetCellStyleName(cell) is string styleName)
+        if (context.GetCellStyleName(cell, cell.PaddingFor(table)) is string styleName)
             element.Add(new XAttribute(OdtNamespaces.Table + "style-name", styleName));
 
         if (cell.ColumnSpan > 1)
@@ -587,7 +618,7 @@ public static class OdtWriter
         }
 
         bool empty = true;
-        foreach (XElement block in BuildBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, context))
+        foreach (XElement block in BuildCellBlocks(document, cell, context))
         {
             element.Add(block);
             empty = false;
@@ -656,7 +687,8 @@ public static class OdtWriter
         OdtWriteContext context)
     {
         bool continues = context.HasListStyle(definition);
-        XElement list = BuildList(paragraphs, start, end, context.UseListStyle(definition), context);
+        XElement list = BuildList(paragraphs, start, end, context.UseListStyle(definition), context,
+            continueNestedAtStart: continues);
         if (continues)
             list.Add(new XAttribute(OdtNamespaces.Text + "continue-numbering", "true"));
 
@@ -668,7 +700,8 @@ public static class OdtWriter
         int start,
         int end,
         string styleName,
-        OdtWriteContext context)
+        OdtWriteContext context,
+        bool continueNestedAtStart = false)
     {
         var root = new XElement(
             OdtNamespaces.Text + "list",
@@ -699,6 +732,10 @@ public static class OdtWriter
                 }
 
                 var nested = new XElement(OdtNamespaces.Text + "list");
+                // A resumed run that begins at a deeper level has no new parent
+                // item to reset that level. Explicit restarts still win below.
+                if (continueNestedAtStart && i == start)
+                    nested.Add(new XAttribute(OdtNamespaces.Text + "continue-numbering", "true"));
                 host.Add(nested);
                 open.Add(nested);
             }
@@ -721,7 +758,11 @@ public static class OdtWriter
         bool inList)
     {
         var element = new XElement(OdtNamespaces.Text + "p");
-        if (inList && (paragraph.Style.LeftIndent.HasValue || paragraph.Style.FirstLineIndent.HasValue))
+        int listLevel = Math.Clamp(paragraph.Style.List is ListReference reference ? reference.Level + 1 :
+            Math.Max(1, paragraph.Style.IndentLevel), 1, MaxListLevels);
+        bool defaultListPosition = Math.Abs(paragraph.Style.LeftIndentIn() - listLevel * OdtUnits.PointsPerIndentLevel) < 0.001 &&
+            paragraph.Style.FirstLineIndentIn == 0;
+        if (inList && !defaultListPosition && (paragraph.Style.LeftIndent.HasValue || paragraph.Style.FirstLineIndent.HasValue))
             context.AddDiagnosticOnce("odt.list.indent", "Exact list offsets were written using the list level's default positioning; non-list paragraph indents are preserved.");
         string? styleName = context.GetParagraphStyleName(BuildParagraphProperties(paragraph.Style, inList));
         if (styleName is not null)
@@ -866,14 +907,23 @@ public static class OdtWriter
         OdtWriteContext context)
     {
         XElement host = paragraph;
+        XElement? imageAnchor = null;
 
         if (!string.IsNullOrEmpty(style.LinkHref))
         {
             XElement? anchor = BuildAnchor(style.LinkHref, context);
             if (anchor is not null)
             {
-                paragraph.Add(anchor);
-                host = anchor;
+                if (style.Image is not null)
+                {
+                    anchor.Name = OdtNamespaces.Draw + "a";
+                    imageAnchor = anchor;
+                }
+                else
+                {
+                    paragraph.Add(anchor);
+                    host = anchor;
+                }
             }
         }
 
@@ -887,6 +937,11 @@ public static class OdtWriter
             host = span;
         }
 
+        if (imageAnchor is not null)
+        {
+            host.Add(imageAnchor);
+            host = imageAnchor;
+        }
         AddInlineContent(host, text, offset, style, state, context);
     }
 
@@ -1293,6 +1348,14 @@ public static class OdtWriter
     private static XElement BuildParagraphProperties(ParagraphStyle style, bool inList)
     {
         var properties = new XElement(OdtNamespaces.Style + "paragraph-properties");
+        if (style.TabStops is ParagraphTabStops tabs)
+            properties.Add(new XElement(OdtNamespaces.Style + "tab-stops", tabs.Select(tab =>
+                new XElement(OdtNamespaces.Style + "tab-stop",
+                    new XAttribute(OdtNamespaces.Style + "position", OdtUnits.FormatPoints(tab.Position)),
+                    new XAttribute(OdtNamespaces.Style + "type", tab.Alignment switch
+                    { TabAlignment.Center => "center", TabAlignment.Right => "right", TabAlignment.Decimal => "char", _ => "left" }),
+                    tab.Alignment == TabAlignment.Decimal ? new XAttribute(OdtNamespaces.Style + "char", tab.DecimalCharacter) : null,
+                    tab.Leader is null ? null : new XAttribute(OdtNamespaces.Style + "leader-text", tab.Leader)))));
         if (style.KeepWithNext)
             properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always"));
         if (style.KeepTogether)
@@ -1521,10 +1584,9 @@ public static class OdtWriter
                 OdtNamespaces.Style + "list-level-properties",
                 new XAttribute(
                     OdtNamespaces.Text + "space-before",
-                    OdtUnits.FormatInches((level - 1) * OdtUnits.PointsPerIndentLevel)),
-                new XAttribute(
-                    OdtNamespaces.Text + "min-label-width",
-                    OdtUnits.FormatInches(OdtUnits.PointsPerIndentLevel))));
+                    OdtUnits.FormatInches(level * OdtUnits.PointsPerIndentLevel)),
+                new XAttribute(OdtNamespaces.Text + "min-label-width", "0pt"),
+                new XAttribute(OdtNamespaces.Text + "min-label-distance", "6pt")));
             listStyle.Add(levelStyle);
         }
 
@@ -1888,6 +1950,18 @@ public static class OdtWriter
         for (int i = gradientsBefore; i < context.Gradients.Count; i++)
             runningStyles.Add(context.Gradients[i]);
         XElement pageProperties = BuildPageLayoutProperties(geometry, background, context);
+        XElement? headerStyle = null;
+        if (geometry is { IsUsable: true } && runningParts.Any(part =>
+            part.Name == OdtNamespaces.Style + "header" || part.Name == OdtNamespaces.Style + "header-left" ||
+            part.Name == OdtNamespaces.Style + "header-first"))
+        {
+            double distance = double.IsFinite(geometry.HeaderDistance) ? Math.Max(0, geometry.HeaderDistance) : 0;
+            pageProperties.SetAttributeValue(OdtNamespaces.Fo + "margin-top", OdtUnits.FormatPoints(distance));
+            headerStyle = new XElement(OdtNamespaces.Style + "header-style",
+                new XElement(OdtNamespaces.Style + "header-footer-properties",
+                    new XAttribute(OdtNamespaces.Fo + "min-height", OdtUnits.FormatPoints(Math.Max(0, geometry.MarginTop - distance))),
+                    new XAttribute(OdtNamespaces.Fo + "margin-bottom", "0pt")));
+        }
 
         var root = new XElement(
             OdtNamespaces.Office + "document-styles",
@@ -1916,7 +1990,7 @@ public static class OdtWriter
                 new XElement(
                     OdtNamespaces.Style + "page-layout",
                     new XAttribute(OdtNamespaces.Style + "name", "pm1"),
-                    pageProperties),
+                    pageProperties, headerStyle),
                 // A header lives in this part, and a style reference only resolves
                 // within the part that carries it. Without these the footer's
                 // paragraphs name styles that exist in content.xml alone, and a
@@ -2161,6 +2235,12 @@ public static class OdtWriter
                 properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-rel", "page"));
             }
 
+            if (shape.OffsetXFromCell)
+            {
+                properties.SetAttributeValue(OdtNamespaces.Style + "horizontal-pos", "from-left");
+                properties.SetAttributeValue(OdtNamespaces.Style + "horizontal-rel", "paragraph");
+            }
+
             if (shape.Fill is ShapeFill fill)
                 WriteFill(properties, fill, this);
             else
@@ -2329,10 +2409,10 @@ public static class OdtWriter
         }
 
         /// <summary>
-        /// The cell style for one cell's paint, created on first use, or null when
-        /// the cell states neither a background nor a border and needs no style.
+        /// The cell style for paint and effective padding, including inherited
+        /// table padding, created on first use.
         /// </summary>
-        public string? GetCellStyleName(TableCell cell)
+        public string? GetCellStyleName(TableCell cell, TableCellPadding padding)
         {
             var properties = new XElement(OdtNamespaces.Style + "table-cell-properties");
             if (!cell.Shading.IsEmpty && cell.Shading.A > 0)
@@ -2346,13 +2426,10 @@ public static class OdtWriter
                 properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-align",
                     cell.VerticalAlignment == CellVerticalAlignment.Center ? "middle" : "bottom"));
 
-            if (cell.Padding is TableCellPadding padding)
-            {
-                properties.Add(new XAttribute(OdtNamespaces.Fo + "padding-left", OdtUnits.FormatPoints(padding.Left)),
-                    new XAttribute(OdtNamespaces.Fo + "padding-top", OdtUnits.FormatPoints(padding.Top)),
-                    new XAttribute(OdtNamespaces.Fo + "padding-right", OdtUnits.FormatPoints(padding.Right)),
-                    new XAttribute(OdtNamespaces.Fo + "padding-bottom", OdtUnits.FormatPoints(padding.Bottom)));
-            }
+            properties.Add(new XAttribute(OdtNamespaces.Fo + "padding-left", OdtUnits.FormatPoints(padding.Left)),
+                new XAttribute(OdtNamespaces.Fo + "padding-top", OdtUnits.FormatPoints(padding.Top)),
+                new XAttribute(OdtNamespaces.Fo + "padding-right", OdtUnits.FormatPoints(padding.Right)),
+                new XAttribute(OdtNamespaces.Fo + "padding-bottom", OdtUnits.FormatPoints(padding.Bottom)));
 
             AddBorder(properties, "border-left", cell.Borders.Left);
             AddBorder(properties, "border-top", cell.Borders.Top);
@@ -2424,12 +2501,14 @@ public static class OdtWriter
             string family,
             string? parentStyleName)
         {
-            if (!properties.HasAttributes)
+            if (!properties.HasAttributes && !properties.HasElements)
                 return null;
 
             string key = string.Join(
                 "",
                 properties.Attributes().Select(attribute => attribute.Name + "=" + attribute.Value));
+            if (properties.HasElements)
+                key += "\u0001" + string.Concat(properties.Elements().Select(element => element.ToString(SaveOptions.DisableFormatting)));
             if (names.TryGetValue(key, out string? existing))
                 return existing;
 

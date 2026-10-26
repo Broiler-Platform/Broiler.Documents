@@ -47,6 +47,9 @@ public static class HtmlWriter
         DocumentConversionContext resources = (options ?? DocumentWriteOptions.Default).Resources;
 
         var diagnostics = new List<DocumentDiagnostic>();
+        if (document.Sections.Any(section => section.Hidden))
+            diagnostics.Add(DocumentDiagnostic.Warning("html.section.hidden",
+                "Hidden section visibility was not written; its retained content is exported as visible paragraphs."));
         if (document.Sections.Count > 0 || document.PageGeometry is { HasColumns: true })
         {
             // CSS could state columns, but a browser balances them over the
@@ -483,8 +486,8 @@ public static class HtmlWriter
         }
         else if (Math.Abs(style.LineSpacing - 1f) > 0.001f)
             declarations.Add("line-height: " + style.LineSpacing.ToString("0.###", CultureInfo.InvariantCulture));
-        if (style.IndentLevel > 0)
-            declarations.Add("margin-left: " + HtmlCss.FormatPoints(style.IndentLevel * 18f));
+        if (style.LeftIndent.HasValue || style.IndentLevel > 0)
+            declarations.Add("margin-left: " + HtmlCss.FormatPoints((float)style.LeftIndentIn()));
         if (Math.Abs(style.SpacingBefore) > 0.001f)
             declarations.Add("margin-top: " + HtmlCss.FormatPoints(style.SpacingBefore));
         if (Math.Abs(style.SpacingAfter) > 0.001f)

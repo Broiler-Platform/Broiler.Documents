@@ -75,6 +75,20 @@ internal static class DocxDrawingColor
         }
     }
 
+    internal static BColor ApplyWordLuminance(BColor color, byte? tint, byte? shade)
+    {
+        if (tint is null && shade is null) return color;
+        (double h, double saturation, double luminance) = ToHsl(color.R / 255d, color.G / 255d, color.B / 255d);
+        if (tint is byte t) luminance = luminance * (t / 255d) + (1 - t / 255d);
+        else if (shade is byte s) luminance *= s / 255d;
+        (double r, double g, double b) = FromHsl(h, saturation, Math.Clamp(luminance, 0, 1));
+        // WordprocessingML converts the resolved luminance back to byte
+        // channels by truncation. Keep an exact identity from drifting at a
+        // floating-point boundary; DrawingML uses its separate conversion.
+        static byte WordByte(double channel) => (byte)Math.Clamp(Math.Floor(channel * 255 + 1e-9), 0, 255);
+        return new BColor(WordByte(r), WordByte(g), WordByte(b), color.A);
+    }
+
     private static BColor Transform(BColor color, XElement element)
     {
         double r = color.R / 255d;

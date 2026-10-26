@@ -277,11 +277,16 @@ internal static class OdtReader
                 .Where(name => !string.IsNullOrEmpty(name)).Select(name => name!).ToHashSet(StringComparer.Ordinal),
             SelectPageStyle = (family, style, index) =>
             {
-                if (context!.TableDepth > 0)
+                if (context!.TableDepth > 0 || context.HiddenSectionDepth > 0)
                     return false;
                 string? name = styles.MasterPageName(family, style);
-                if (string.IsNullOrEmpty(name) || masters is null || !masters.TryGetValue(name, out XElement? master))
+                if (string.IsNullOrEmpty(name))
                     return false;
+                // Naming a master page implies a boundary even in an incomplete
+                // document whose master definition is absent. Keep the active
+                // paper/running content when there is no replacement to read.
+                if (masters is null || !masters.TryGetValue(name, out XElement? master))
+                    return index > 0;
                 PageGeometry? selected = ReadPageGeometry(master, styles, diagnostics) ?? page;
                 context!.ActivePage = selected;
                 if (index == 0)
@@ -319,7 +324,7 @@ internal static class OdtReader
             sections.Add(new DocumentSection(index, edges[i + 1] - index,
                 textSection?.ColumnCount ?? selected.Page?.ColumnCount ?? 1,
                 textSection?.ColumnGap ?? selected.Page?.ColumnGap ?? 0,
-                selected.Page, selected.Running, textSection?.Background ?? default, selected.Sequence));
+                selected.Page, selected.Running, textSection?.Background ?? default, selected.Sequence, textSection?.Hidden ?? false));
         }
         return built.WithSections(sections);
     }
@@ -415,6 +420,13 @@ internal static class OdtReader
 
         foreach (XElement block in body.Descendants())
         {
+            // Text inside a positioned drawing belongs to that object, not to
+            // the body's first page. Its paragraph style must not select it.
+            if (block.Ancestors().Any(ancestor => ancestor.Name.Namespace == OdtNamespaces.Draw))
+                continue;
+            if (block.Ancestors(OdtNamespaces.Text + "section")
+                .Any(section => (string?)section.Attribute(OdtNamespaces.Text + "display") == "none"))
+                continue;
             if (block.Name == OdtNamespaces.Text + "p" || block.Name == OdtNamespaces.Text + "h")
             {
                 return styles.MasterPageName(
@@ -627,13 +639,23 @@ internal static class OdtReader
             return null;
         }
 
+        double outerTop = Length(properties, "margin-top");
+        bool hasHeader = master?.Elements().Any(element =>
+            (element.Name == OdtNamespaces.Style + "header" || element.Name == OdtNamespaces.Style + "header-left" ||
+             element.Name == OdtNamespaces.Style + "header-first") &&
+            (string?)element.Attribute(OdtNamespaces.Style + "display") != "false") == true;
+        XElement? header = properties.Parent?.Element(OdtNamespaces.Style + "header-style")
+            ?.Element(OdtNamespaces.Style + "header-footer-properties");
+        double headerHeight = hasHeader && header is not null
+            ? Math.Max(Length(header, "height"), Length(header, "min-height")) : 0;
         var geometry = new PageGeometry(
             width,
             height,
             Length(properties, "margin-left"),
             Length(properties, "margin-right"),
-            Length(properties, "margin-top"),
-            Length(properties, "margin-bottom"));
+            outerTop + Math.Max(0, headerHeight),
+            Length(properties, "margin-bottom"),
+            HeaderDistance: hasHeader ? Math.Max(0, outerTop) : 0);
 
         if (geometry.IsUsable)
             return ReadColumns(properties, geometry, diagnostics);
@@ -784,7 +806,12 @@ internal static class OdtReader
         string? nextFrameName = (string?)textBox?.Attribute(OdtNamespaces.Draw + "chain-next-name");
         bool linked = !string.IsNullOrEmpty(nextFrameName) || (frameName is not null && context.LinkedFrameTargets.Contains(frameName));
 
-        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty && !linked && drawing.Element(OdtNamespaces.Draw + "image") is null)
+        // A valid empty text frame is still a positioned object, not a body
+        // paragraph. A nested drawing that this text path did not represent is
+        // not evidence of emptiness: leave it to the existing fallback walk.
+        bool unrepresentedDrawing = textBox?.Descendants().Any(element => element.Name.Namespace == OdtNamespaces.Draw) == true;
+        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty && !linked &&
+            (textBox is null || unrepresentedDrawing) && drawing.Element(OdtNamespaces.Draw + "image") is null)
             return false;
 
         // Image frames must still go through the image admission path.
@@ -858,7 +885,9 @@ internal static class OdtReader
             outline: outline, behindText: paint.BehindText, wrap: paint.Wrap, wrapSide: paint.Side,
             zOrder: ZIndex(drawing), anchorPage: page, offsetFromPage: fromPage,
             geometry: (x2 - x1) * (y2 - y1) < 0 ? ShapeGeometry.LineAscending : ShapeGeometry.Line,
-            outlineWidth: thickness));
+            outlineWidth: thickness,
+            offsetXFromCell: context.TableDepth > 0 &&
+                ((string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph")));
         return true;
     }
 
@@ -931,6 +960,21 @@ internal static class OdtReader
                 out int page) ||
             page < 1)
         {
+            // A paragraph/character anchor moves with its paragraph, but its
+            // horizontal coordinates can still refer to the whole page.
+            string? horizontalRel = (string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-rel");
+            if (anchorType is "paragraph" or "char" && horizontalRel is "page" or "page-content")
+            {
+                double horizontalLeft = horizontalRel == "page" ? -(context.ActivePage?.MarginLeft ?? 0) : 0;
+                double horizontalWidth = horizontalRel == "page" ? context.ActivePage?.Width ?? 0 : context.ActivePage?.ContentWidth ?? 0;
+                x = (string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-pos") switch
+                {
+                    "left" or "inside" => horizontalLeft,
+                    "center" => horizontalLeft + (horizontalWidth - width) / 2,
+                    "right" or "outside" => horizontalLeft + horizontalWidth - width,
+                    _ => horizontalLeft + x,
+                };
+            }
             string? verticalRel = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-rel");
             if (anchorType is "paragraph" or "char" && verticalRel is "page" or "page-content")
             {
@@ -1160,11 +1204,15 @@ internal static class OdtReader
         }
         if (kind is "bitmap" or "hatch")
         {
+            BColor fallback = BColor.Empty;
+            bool hasFallback = kind == "bitmap" &&
+                TryColor((string?)properties.Attribute(OdtNamespaces.Draw + "fill-color"), out fallback);
             styles.Report(
                 "odt.fill:" + kind,
                 "odt.fill",
-                "A " + kind + " fill could not be resolved and was not drawn.");
-            return null;
+                "A " + kind + " fill could not be resolved" +
+                (hasFallback ? "; its declared fallback colour was drawn." : " and was not drawn."));
+            return hasFallback ? ShapeFill.Solid(fallback) : null;
         }
 
         return string.Equals(kind, "solid", StringComparison.Ordinal) &&
@@ -1247,10 +1295,13 @@ internal static class OdtReader
         if (layoutProperties.Attribute(OdtNamespaces.Draw + "fill") is not null)
             return ReadDrawFill(layoutProperties, styles);
 
-        if (layoutProperties.Element(OdtNamespaces.Style + "background-image") is XElement legacy)
+        if (layoutProperties.Element(OdtNamespaces.Style + "background-image") is XElement legacy &&
+            (!string.IsNullOrWhiteSpace((string?)legacy.Attribute(OdtNamespaces.XLink + "href")) ||
+             legacy.Element(OdtNamespaces.Office + "binary-data") is not null))
         {
             var properties = new XElement(layoutProperties);
             properties.SetAttributeValue(OdtNamespaces.Draw + "fill", "bitmap");
+            properties.SetAttributeValue(OdtNamespaces.Draw + "background-size", "border");
             properties.SetAttributeValue(OdtNamespaces.Style + "repeat", (string?)legacy.Attribute(OdtNamespaces.Style + "repeat") ?? "repeat");
             string position = (string?)legacy.Attribute(OdtNamespaces.Style + "position") ?? "center";
             properties.SetAttributeValue(OdtNamespaces.Draw + "fill-image-ref-point", position.Replace(' ', '-'));
@@ -1259,7 +1310,10 @@ internal static class OdtReader
 
         return TryColor((string?)layoutProperties.Attribute(OdtNamespaces.Fo + "background-color"), out BColor color) &&
             !color.IsEmpty && color.A > 0
-                ? ShapeFill.Solid(color)
+                // The legacy fo:background-color paints the page's content
+                // rectangle, leaving its margins clear. Drawing-page fills
+                // above use their explicit draw:background-size instead.
+                ? ShapeFill.Solid(color) with { ContentOnly = true }
                 : null;
     }
 
@@ -1333,11 +1387,13 @@ internal static class OdtReader
         string? StyleName,
         ListDefinition? Definition = null,
         OdtItemStart? Start = null,
-        OdtItemLabel? Label = null);
+        OdtItemLabel? Label = null,
+        bool Continues = false);
 
     private sealed class OdtItemLabel
     {
         private bool _first = true;
+        public bool HasParagraph => !_first;
         public bool Take()
         {
             bool first = _first;
@@ -1394,6 +1450,22 @@ internal static class OdtReader
                 continue;
             }
 
+            if (name == OdtNamespaces.Text + "numbered-paragraph")
+            {
+                string? styleName = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
+                int level = int.TryParse((string?)element.Attribute(OdtNamespaces.Text + "level"), out int stated)
+                    ? Math.Clamp(stated, 1, ListDefinition.MaxLevels) : 1;
+                ListDefinition? definition = context.NumberedParagraphList(styleName,
+                    (string?)element.Attribute(OdtNamespaces.Text + "list-id"));
+                OdtItemStart? start = int.TryParse((string?)element.Attribute(OdtNamespaces.Text + "start-value"), out int value)
+                    ? new OdtItemStart(value) : null;
+                var numbered = new OdtListContext(context.Styles.KindForList(styleName, level), level,
+                    styleName, definition, start, new OdtItemLabel());
+                ReadBlockContent(element.Elements().Where(child => child.Name != OdtNamespaces.Text + "number"),
+                    context, numbered, depth + 1);
+                continue;
+            }
+
             if (name == OdtNamespaces.Text + "list")
             {
                 ReadList(element, context, list, depth + 1);
@@ -1414,12 +1486,26 @@ internal static class OdtReader
             // A section is a named region of ordinary body content; an index is a
             // generated one whose text:index-body holds real paragraphs. Both are
             // walked so the words inside them survive.
-            // A section with columns of its own is a DocumentSection over the
-            // paragraphs read inside it; one without is ordinary body content.
+            // Column/background styles and unconditional visibility are kept
+            // over the paragraph range; hidden content remains in the model.
             if (name == OdtNamespaces.Text + "section")
             {
                 int sectionStart = builder.CurrentParagraphIndex;
-                ReadBlockContent(element.Elements(), context, list, depth + 1);
+                bool hidden = (string?)element.Attribute(OdtNamespaces.Text + "display") == "none";
+                OdtBreak pending = hidden ? context.TakeBreak() : OdtBreak.None;
+                if (hidden) context.HiddenSectionDepth++;
+                try
+                {
+                    ReadBlockContent(element.Elements(), context, list, depth + 1);
+                }
+                finally
+                {
+                    if (hidden)
+                    {
+                        context.HiddenSectionDepth--;
+                        context.HoldBreak(pending);
+                    }
+                }
                 string? sectionStyle = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
                 if (sectionStyle is not null &&
                     context.Styles.SectionProperties.TryGetValue(sectionStyle, out XElement? sectionProperties))
@@ -1427,14 +1513,27 @@ internal static class OdtReader
                     (int count, double gap) = TryReadColumns(sectionProperties, builder.AddDiagnosticOnce) ?? (1, 0);
                     TryColor((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "background-color"), out BColor background);
                     builder.AddSection(new DocumentSection(
-                        sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap, background: background));
+                        sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap, background: background, hidden: hidden));
                 }
+                else if (hidden)
+                    builder.AddSection(new DocumentSection(sectionStart, builder.CurrentParagraphIndex - sectionStart, 1, 0, hidden: true));
 
                 continue;
             }
 
+            if (IsIndexContainer(name))
+            {
+                // The source describes how an application regenerates the
+                // index, not displayed content. Read the cached body and keep
+                // reporting genuinely unknown children instead of treating the
+                // generation instructions as lost paragraphs.
+                XName source = OdtNamespaces.Text + (name.LocalName + "-source");
+                ReadBlockContent(element.Elements().Where(child => child.Name != source), context, list: null, depth + 1);
+                continue;
+            }
+
             if (name == OdtNamespaces.Text + "index-body" ||
-                name == OdtNamespaces.Text + "index-title" || IsIndexContainer(name))
+                name == OdtNamespaces.Text + "index-title")
             {
                 ReadBlockContent(element.Elements(), context, list: null, depth + 1);
                 continue;
@@ -1549,16 +1648,25 @@ internal static class OdtReader
                 (string?)list.Attribute(OdtNamespaces.Xml + "id"),
                 string.Equals((string?)list.Attribute(OdtNamespaces.Text + "continue-numbering"), "true", StringComparison.Ordinal),
                 (string?)list.Attribute(OdtNamespaces.Text + "continue-list"));
-        var inner = new OdtListContext(kind, level, styleName, definition);
+        bool shared = outer?.Definition is not null && ReferenceEquals(definition, outer.Definition);
+        bool continues = string.Equals((string?)list.Attribute(OdtNamespaces.Text + "continue-numbering"), "true", StringComparison.Ordinal) ||
+            !string.IsNullOrEmpty((string?)list.Attribute(OdtNamespaces.Text + "continue-list")) ||
+            (shared && outer!.Continues && outer.Label?.HasParagraph == false);
+        var inner = new OdtListContext(kind, level, styleName, definition, Continues: continues);
+        // A real new sub-list restarts its own level, while structural wrappers
+        // propagate a containing list's continuation without inventing an item.
+        OdtItemStart? nestedStart = shared && !continues
+            ? new OdtItemStart(definition!.LevelAt(level - 1).Start) : null;
 
         foreach (XElement child in list.Elements())
         {
             if (child.Name == OdtNamespaces.Text + "list-item")
             {
-                OdtListContext item = inner with { Label = new OdtItemLabel() };
+                OdtListContext item = inner with { Label = new OdtItemLabel(), Start = nestedStart };
                 if (int.TryParse((string?)child.Attribute(OdtNamespaces.Text + "start-value"),
                         NumberStyles.Integer, CultureInfo.InvariantCulture, out int start))
                 {
+                    nestedStart?.Take();
                     item = item with { Start = new OdtItemStart(start) };
                 }
 
@@ -1665,17 +1773,18 @@ internal static class OdtReader
             _ => OdtBreak.None,
         });
 
-        // The list wins over whatever indent the paragraph style carried: inside a
-        // list the nesting is the indent, and ODF list paragraph styles routinely
-        // set fo:margin-left to zero precisely because the list supplies it.
+        // List-level alignment wins over the paragraph's margin. Nesting supplies
+        // the fallback only when the list states no explicit alignment.
         if (list is not null)
         {
+            (float? left, float? first) = context.Styles.IndentsForList(list.StyleName, list.Level);
+            bool labelled = list.Label?.Take() != false && list.Kind != ListKind.None;
             paragraphStyle = paragraphStyle with
             {
-                ListKind = list.Label?.Take() == false ? ListKind.None : list.Kind,
+                ListKind = labelled ? list.Kind : ListKind.None,
                 IndentLevel = Math.Max(list.Level, list.Kind == ListKind.None ? 0 : 1),
-                LeftIndent = null,
-                FirstLineIndent = null,
+                LeftIndent = left,
+                FirstLineIndent = labelled ? first : left.HasValue ? 0 : null,
             };
 
             if (paragraphStyle.ListKind != ListKind.None && list.Definition is ListDefinition definition)
@@ -1783,7 +1892,7 @@ internal static class OdtReader
                 continue;
             }
 
-            if (name == OdtNamespaces.Text + "a")
+            if (name == OdtNamespaces.Text + "a" || name == OdtNamespaces.Draw + "a")
             {
                 ReadInlineContent(element, context, ApplyAnchorStyle(element, context, style), depth + 1);
                 continue;
@@ -2270,13 +2379,12 @@ internal static class OdtReader
         context.Builder.AppendLiteral(InlineImage.PlaceholderText, style with { Image = image });
     }
 
-    /// <summary>True for the two anchors that put a frame in the text rather than beside it.</summary>
+    /// <summary>As-char occupies a line character; char floats beside its anchor.
+    /// Missing anchor-type keeps the legacy inline fallback.</summary>
     private static bool IsAnchoredInText(XElement frame)
     {
         string? anchor = (string?)frame.Attribute(OdtNamespaces.Text + "anchor-type");
-        return anchor is null ||
-            anchor.Equals("as-char", StringComparison.Ordinal) ||
-            anchor.Equals("char", StringComparison.Ordinal);
+        return anchor is null || anchor.Equals("as-char", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -2377,6 +2485,23 @@ internal static class OdtReader
     {
         if (properties is null)
             return style;
+
+        if (properties.Element(OdtNamespaces.Style + "tab-stops") is XElement tabs)
+        {
+            var stops = new List<ParagraphTabStop>();
+            foreach (XElement tab in tabs.Elements(OdtNamespaces.Style + "tab-stop").Take(256))
+            {
+                if (!OdtUnits.TryParseLength((string?)tab.Attribute(OdtNamespaces.Style + "position"), out double position) || position < 0)
+                    continue;
+                string? decimalChar = (string?)tab.Attribute(OdtNamespaces.Style + "char");
+                stops.Add(new ParagraphTabStop(position, (string?)tab.Attribute(OdtNamespaces.Style + "type") switch
+                    { "center" => TabAlignment.Center, "right" => TabAlignment.Right, "char" => TabAlignment.Decimal, _ => TabAlignment.Left },
+                    (string?)tab.Attribute(OdtNamespaces.Style + "leader-style") == "none"
+                        ? null : (string?)tab.Attribute(OdtNamespaces.Style + "leader-text"),
+                    string.IsNullOrEmpty(decimalChar) ? '.' : decimalChar[0]));
+            }
+            style = style with { TabStops = new ParagraphTabStops(stops) };
+        }
 
         string? alignment = (string?)properties.Attribute(OdtNamespaces.Fo + "text-align");
         switch (alignment)

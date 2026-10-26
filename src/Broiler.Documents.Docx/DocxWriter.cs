@@ -29,6 +29,8 @@ public static class DocxWriter
         var context = new DocxWriteContext(
             document.Paragraphs.Any(static p => p.Style.ListKind != ListKind.None || p.Style.List is not null),
             (options ?? DocumentWriteOptions.Default).Resources);
+        if (document.Sections.Any(section => section.Hidden))
+            context.AddDiagnosticOnce("docx.section.hidden", "Hidden section visibility was not written; its retained content is exported as visible paragraphs.");
         BuildRunningParts(document, context);
         if (document.PageBackground?.HasExtendedPaint == true || document.Shapes.Any(shape => shape.Fill?.HasExtendedPaint == true))
             context.AddDiagnosticOnce("docx.fill.extended", "Bitmap and hatch fills, centred gradient geometry, gradient borders and page-fill bounds were approximated by their base colours or linear gradients.");
@@ -525,6 +527,10 @@ public static class DocxWriter
             BuildTableGrid(table));
 
         int rowIndex = 0;
+        int gridColumns = table.ColumnWidths.Count;
+        foreach (TableRow gridRow in table.Rows)
+            foreach (TableCell cell in gridRow.Cells)
+                gridColumns = Math.Max(gridColumns, cell.ColumnIndex + cell.ColumnSpan);
         foreach (TableRow row in table.Rows)
         {
             var tr = new XElement(DocxNamespaces.Wordprocessing + "tr");
@@ -548,9 +554,6 @@ public static class DocxWriter
                     new XAttribute(DocxNamespaces.Wordprocessing + "hRule", row.ExactHeight ? "exact" : "atLeast")));
             }
 
-            if (properties.HasElements)
-                tr.Add(properties);
-
             var writtenCells = new List<TableCell>(row.Cells);
             // ODT-style model tables omit cells covered by a vertical merge.
             // Word requires explicit continuation cells to keep later cells in their columns.
@@ -561,6 +564,16 @@ public static class DocxWriter
                         writtenCells.Add(new TableCell(table.ParagraphEnd, 0, span.ColumnIndex, span.ColumnSpan,
                             shading: span.Shading, borders: span.Borders, isRowSpanContinuation: true,
                             padding: span.Padding, verticalAlignment: span.VerticalAlignment));
+            if (writtenCells.Count > 0)
+            {
+                int before = writtenCells.Min(cell => cell.ColumnIndex);
+                int after = Math.Max(0, gridColumns - writtenCells.Max(cell => cell.ColumnIndex + cell.ColumnSpan));
+                if (before > 0) properties.Add(new XElement(DocxNamespaces.Wordprocessing + "gridBefore",
+                    new XAttribute(DocxNamespaces.Wordprocessing + "val", before)));
+                if (after > 0) properties.Add(new XElement(DocxNamespaces.Wordprocessing + "gridAfter",
+                    new XAttribute(DocxNamespaces.Wordprocessing + "val", after)));
+            }
+            if (properties.HasElements) tr.Add(properties);
             foreach (TableCell cell in writtenCells.OrderBy(cell => cell.ColumnIndex))
                 tr.Add(BuildTableCell(document, table, cell, context));
 
@@ -913,6 +926,14 @@ public static class DocxWriter
     private static XElement? BuildParagraphProperties(ParagraphStyle style, DocxWriteContext context)
     {
         var properties = new XElement(DocxNamespaces.Wordprocessing + "pPr");
+        if (style.TabStops is ParagraphTabStops tabs)
+            properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tabs", tabs.Select(tab =>
+                new XElement(DocxNamespaces.Wordprocessing + "tab",
+                    WordAttribute("pos", Twips(tab.Position)),
+                    WordAttribute("val", tab.Alignment switch
+                    { TabAlignment.Center => "center", TabAlignment.Right => "right", TabAlignment.Decimal => "decimal", _ => "left" }),
+                    tab.Leader is null ? null : WordAttribute("leader", tab.Leader switch
+                    { "-" => "hyphen", "_" => "underscore", "·" => "middleDot", _ => "dot" })))));
         if (style.KeepWithNext)
             properties.Add(new XElement(DocxNamespaces.Wordprocessing + "keepNext"));
         if (style.KeepTogether)
@@ -1672,7 +1693,8 @@ public static class DocxWriter
                 new XAttribute("rIns", Math.Round(shape.TextPadding.Right * 12700)),
                 new XAttribute("bIns", Math.Round(shape.TextPadding.Bottom * 12700)),
                 new XAttribute("anchor", shape.TextVerticalAlignment switch { CellVerticalAlignment.Center => "ctr", CellVerticalAlignment.Bottom => "b", _ => "t" }),
-                new XAttribute("vertOverflow", shape.TextOverflow ? "overflow" : "clip")));
+                new XAttribute("vertOverflow", shape.TextOverflow ? "overflow" : "clip"),
+                shape.GrowsToText ? new XElement(DocxNamespaces.Drawing + "spAutoFit") : null));
         }
 
         return BuildAnchorRun(

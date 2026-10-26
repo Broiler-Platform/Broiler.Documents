@@ -22,7 +22,9 @@ public static class RtfReader
     {
         DocumentReadOptions effective = options ?? DocumentReadOptions.Default;
         RtfTokenizeResult tokenized = RtfTokenizer.Tokenize(content, effective.Limits);
-        return new Worker(effective, tokenized.Diagnostics).Run(tokenized.Tokens);
+        var diagnostics = tokenized.Diagnostics.ToList();
+        var tokens = RtfShapeGroups.Expand(tokenized.Tokens, effective.Limits.MaxGroupDepth, diagnostics);
+        return new Worker(effective, diagnostics).Run(tokens);
     }
 
     private struct State
@@ -30,6 +32,7 @@ public static class RtfReader
         public InlineStyle Char;
         public ParagraphStyle Para;
         public RtfDestination Dest;
+        public int ShapeOwnerDepth;
 
         /// <summary>
         /// Where a field's result belongs: the destination the field was sitting
@@ -111,6 +114,10 @@ public static class RtfReader
         private int? _sectionTop;
         private int? _sectionBottom;
         private bool _pastFirstSection;
+        private bool _bodySectionPending;
+        private bool _bodySectionHasProperties;
+        private BodySectionBreak _bodySectionBreak = BodySectionBreak.Page;
+        private enum BodySectionBreak { Continuous, Page, Column }
         private readonly RtfTableBuilder _table;
         private readonly List<DocumentTable> _tables = [];
         private int _columns = 1;
@@ -136,6 +143,9 @@ public static class RtfReader
         private int _shapeRight;
         private int _shapeBottom;
         private int _shapeZ;
+        private bool _shapeZStated;
+        private int _shapeAlignX, _shapeAlignY;
+        private readonly Dictionary<string, double> _shapeWrapDistances = new(StringComparer.Ordinal);
 
         // What a shape's \shptop is measured from: 0 the top margin, 1 the page,
         // 2 the paragraph - posrelv's numbering, which \shpbymargin, \shpbypage
@@ -161,6 +171,15 @@ public static class RtfReader
         private bool _shapeFlipVertical;
         private bool _shapeInBackground;
         private double _shapeFillFocus;
+        private bool? _shapeFillEnabled;
+        private bool _shapeFlipHorizontal;
+        private bool _shapeBehindText;
+        private double _shapeFillOpacity = 1, _shapeBackOpacity = 1, _shapeLineOpacity = 1;
+        private TableCellPadding _shapePadding;
+        private CellVerticalAlignment _shapeAlignment;
+        private ShapeWrap _shapeWrap;
+        private WrapSide _shapeWrapSide = WrapSide.Largest;
+        private double _shapeWrapDistance;
         private ShapeFill? _pageBackground;
         private bool _viewBackground;
         private readonly int _maxParagraphs;
@@ -270,6 +289,18 @@ public static class RtfReader
             FlushPending();
             FinishFrame();
             FinishTable();
+            if (_bodySectionPending)
+            {
+                if (_bodySectionHasProperties)
+                    ApplyBodySectionBreak();
+                else
+                    _bodySectionPending = false;
+                _builder.EndParagraph(_state.Para);
+            }
+            // A final frame can belong to an otherwise empty body paragraph.
+            // Keep that anchor even when preceding body paragraphs already exist.
+            if (_shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _builder.ParagraphCount))
+                _builder.EndParagraph(_state.Para);
             RichTextDocument document = _builder.Build(_state.Para)
                 .WithStyleDefaults(DocumentStyleDefaults.Default with
                 {
@@ -326,7 +357,7 @@ public static class RtfReader
                 _builder.EndPendingParagraph(closing.Para);
             if (closing.Dest == RtfDestination.ShapeProperty)
                 ApplyShapeProperty();
-            else if (closing.Dest == RtfDestination.Shape)
+            else if (closing.Dest == RtfDestination.Shape && closing.ShapeOwnerDepth == _stack.Count)
                 FinishShape();
 
             if (_stack.Count == 0)
@@ -622,6 +653,15 @@ public static class RtfReader
                 case "strike": _state.Char = _state.Char with { Strikethrough = !(has && p == 0) }; break;
                 case "v": _state.Char = _state.Char with { Hidden = !(has && p == 0) }; break;
                 case "ul": _state.Char = _state.Char with { Underline = !(has && p == 0) }; break;
+                case "uldb": case "uld": case "uldash": case "uldashd": case "uldashdd":
+                case "ulth": case "ulwave": case "ulw":
+                    _state.Char = _state.Char with { Underline = !(has && p == 0) };
+                    if (!(has && p == 0)) ReportApproximation("rtf.underline.pattern", "An RTF underline pattern was retained as a single continuous underline.");
+                    break;
+                case "striked":
+                    _state.Char = _state.Char with { Strikethrough = !(has && p == 0) };
+                    if (!(has && p == 0)) ReportApproximation("rtf.strike.double", "An RTF double strikethrough was retained as a single rule.");
+                    break;
                 case "ulnone": _state.Char = _state.Char with { Underline = false }; break;
 
                 // Tracked changes: \revised marks inserted text and \deleted
@@ -665,6 +705,7 @@ public static class RtfReader
                     break;
                 case "cf": _state.Char = _state.Char with { Foreground = _colors.Get(p) }; break;
                 case "cb":
+                case "chcbpat":
                 case "highlight": _state.Char = _state.Char with { Background = _colors.Get(p) }; break;
 
                 // The paragraph's shading: the colour behind its pattern, which
@@ -705,10 +746,48 @@ public static class RtfReader
                 // \sectd puts the section back to its defaults, which for the
                 // page are the document's.
                 case "sectd":
+                    if (_bodySectionPending)
+                    {
+                        _bodySectionBreak = BodySectionBreak.Page;
+                        _bodySectionHasProperties = true;
+                    }
                     if (!_pastFirstSection)
                         _sectionWidth = _sectionHeight = _sectionLeft = _sectionRight = _sectionTop = _sectionBottom = null;
                     return;
-                case "sect": _pastFirstSection = true; return;
+                case "sect":
+                    if (_state.Dest == RtfDestination.Normal && !_state.Frame.IsFrame && !_state.InTable)
+                    {
+                        FlushPending();
+                        if (_bodySectionPending)
+                        {
+                            ApplyBodySectionBreak();
+                            _builder.EndParagraph(_state.Para);
+                        }
+                        else if (_builder.ParagraphCount == 0)
+                            _builder.EndParagraph(_state.Para);
+                        else
+                            _builder.EndPendingParagraph(_state.Para);
+                        FinishTable();
+                        _bodySectionPending = true;
+                        _bodySectionHasProperties = false;
+                        _bodySectionBreak = BodySectionBreak.Page;
+                    }
+                    _pastFirstSection = true;
+                    return;
+                case "sbknone": SetBodySectionBreak(BodySectionBreak.Continuous); return;
+                case "sbkpage": SetBodySectionBreak(BodySectionBreak.Page); return;
+                case "sbkcol": SetBodySectionBreak(BodySectionBreak.Column); return;
+                case "sbkodd":
+                case "sbkeven":
+                    if (_bodySectionPending)
+                    {
+                        _bodySectionBreak = BodySectionBreak.Page;
+                        _bodySectionHasProperties = true;
+                        if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.section.parity"))
+                            _diagnostics.Add(DocumentDiagnostic.Warning("rtf.section.parity",
+                                "An odd/even section starts a new page, but insertion of a blank parity page is not represented."));
+                    }
+                    return;
                 // Orientation is a flag beside the size, not an instruction to
                 // swap it: the width and height a landscape section states are
                 // already the landscape page's. LibreOffice draws
@@ -734,7 +813,7 @@ public static class RtfReader
                 // Whether the background is shown at all, which LibreOffice
                 // takes as Word's w:displayBackgroundShape.
                 case "viewbksp": _viewBackground = !has || p != 0; return;
-                case "shpinst": _state.Dest = RtfDestination.Shape; return;
+                case "shpinst": _state.Dest = RtfDestination.Shape; _state.ShapeOwnerDepth = _stack.Count; return;
                 case "shpleft": if (has) _shapeLeft = p; return;
                 case "shptop": if (has) _shapeTop = p; return;
                 case "shpright": if (has) _shapeRight = p; return;
@@ -743,7 +822,14 @@ public static class RtfReader
                 // letterhead makes is where it matters: the stripe and the box
                 // over it are both in the body here, and this is the only thing
                 // saying which the reader sees.
-                case "shpz": if (has) _shapeZ = p; return;
+                case "shpz": if (has) { _shapeZ = p; _shapeZStated = true; } return;
+                case "shpfblwtxt": _shapeBehindText = !has || p != 0; return;
+                case "shpwr":
+                    _shapeWrap = p switch { 1 => ShapeWrap.TopAndBottom, 2 or 4 => ShapeWrap.Square, _ => ShapeWrap.None };
+                    if (p is 4 or 5)
+                        ReportShapeApproximation("wrap", "Contour wrapping was approximated by the shape rectangle or unrestricted flow.");
+                    return;
+                case "shpwrk": _shapeWrapSide = p switch { 1 => WrapSide.Left, 2 => WrapSide.Right, _ => WrapSide.Largest }; return;
                 case "shpbymargin": _shapeVerticalFrame = 0; return;
                 case "shpbypage": _shapeVerticalFrame = 1; return;
                 case "shpbypara": _shapeVerticalFrame = 2; return;
@@ -816,7 +902,12 @@ public static class RtfReader
                 case "qc": _state.Para = _state.Para with { Alignment = TextAlignment.Center }; break;
                 case "qr": _state.Para = _state.Para with { Alignment = TextAlignment.Right }; break;
                 case "qj": _state.Para = _state.Para with { Alignment = TextAlignment.Justify }; break;
-                case "li": _state.Para = _state.Para with { IndentLevel = TwipsToLevel(p) }; break;
+                case "li":
+                    int indent = TwipsToLevel(p);
+                    float exactLeft = Math.Clamp(p / 20f, -20000, 20000);
+                    _state.Para = _state.Para with { IndentLevel = indent,
+                        LeftIndent = Math.Abs(exactLeft - indent * 18f) < 0.001f ? null : exactLeft };
+                    break;
                 case "sb": _state.Para = _state.Para with { SpacingBefore = has ? p / 20f : 0f }; break;
                 case "sa": _state.Para = _state.Para with { SpacingAfter = has ? p / 20f : 0f }; break;
 
@@ -1333,18 +1424,30 @@ public static class RtfReader
 
         private void BeginShape()
         {
+            _shapeFillEnabled = null;
+            _shapeFlipHorizontal = false;
+            _shapeBehindText = false;
+            _shapeFillOpacity = _shapeBackOpacity = _shapeLineOpacity = 1;
+            _shapePadding = default;
+            _shapeAlignment = CellVerticalAlignment.Top;
+            _shapeWrap = ShapeWrap.None;
+            _shapeWrapSide = WrapSide.Largest;
+            _shapeWrapDistance = 0;
             _shapeLeft = 0;
             _shapeTop = 0;
             _shapeRight = 0;
             _shapeBottom = 0;
             _shapeZ = 0;
+            _shapeZStated = false;
+            _shapeAlignX = _shapeAlignY = 0;
+            _shapeWrapDistances.Clear();
             _shapeVerticalFrame = 2;
             _shapeLeftFromPage = false;
             _shapeFitsText = false;
             _shapeType = 1;
             _shapeLineWidth = 0.75;
             _shapeFlipVertical = false;
-            _shapeFillStart = BColor.Empty;
+            _shapeFillStart = BColor.White;
             _shapeFillEnd = BColor.Empty;
 
             // Word draws a shape's line black unless it says otherwise, and so
@@ -1403,13 +1506,37 @@ public static class RtfReader
                     _shapeFillAngle = number / 65536d;
                     break;
                 case "fFilled":
-                    _shapeHasFill = number != 0;
+                    _shapeFillEnabled = number != 0;
                     break;
                 case "lineColor":
                     _shapeLineColor = ShapeColor(number);
                     break;
+                case "dhgt": if (!_shapeZStated) _shapeZ = (int)Math.Clamp(number, int.MinValue, int.MaxValue); break;
+                case "posh": _shapeAlignX = number is >= 1 and <= 3 ? (int)number : 0; break;
+                case "posv": _shapeAlignY = number is >= 1 and <= 3 ? (int)number : 0; break;
                 case "lineWidth":
                     _shapeLineWidth = Math.Max(0, number / 12700d);
+                    break;
+                case "fFlipH":
+                    _shapeFlipHorizontal = number != 0;
+                    break;
+                case "fillOpacity": _shapeFillOpacity = Math.Clamp(number / 65536d, 0, 1); break;
+                case "fillBackOpacity": _shapeBackOpacity = Math.Clamp(number / 65536d, 0, 1); break;
+                case "lineOpacity": _shapeLineOpacity = Math.Clamp(number / 65536d, 0, 1); break;
+                case "fBehindDocument": _shapeBehindText = number != 0; break;
+                case "posrelh": _shapeLeftFromPage = number == 1; break;
+                case "dxTextLeft": _shapePadding = _shapePadding with { Left = ShapeDistance(number) }; break;
+                case "dyTextTop": _shapePadding = _shapePadding with { Top = ShapeDistance(number) }; break;
+                case "dxTextRight": _shapePadding = _shapePadding with { Right = ShapeDistance(number) }; break;
+                case "dyTextBottom": _shapePadding = _shapePadding with { Bottom = ShapeDistance(number) }; break;
+                case "anchorText":
+                    _shapeAlignment = number switch { 1 or 4 => CellVerticalAlignment.Center, 2 or 5 => CellVerticalAlignment.Bottom, _ => CellVerticalAlignment.Top };
+                    break;
+                case "dxWrapDistLeft":
+                case "dxWrapDistRight":
+                case "dyWrapDistTop":
+                case "dyWrapDistBottom":
+                    _shapeWrapDistances[name] = ShapeDistance(number);
                     break;
                 case "fFlipV":
                     _shapeFlipVertical = number != 0;
@@ -1432,14 +1559,25 @@ public static class RtfReader
             }
         }
 
+        private static double ShapeDistance(long value) => Math.Clamp(value / 12700d, 0, 20000);
+        private static BColor ShapeOpacity(BColor color, double opacity) => color.IsEmpty ? color :
+            BColor.FromArgb((byte)Math.Round(color.A * opacity), color.R, color.G, color.B);
+        private void ReportShapeApproximation(string code, string message) => ReportApproximation("rtf.shape." + code, message);
+        private void ReportApproximation(string code, string message)
+        {
+            if (!_diagnostics.Any(d => d.Code == code))
+                _diagnostics.Add(DocumentDiagnostic.Warning(code, message));
+        }
+
         private static BColor ShapeColor(long value) =>
             new((byte)(value & 0xFF), (byte)((value >> 8) & 0xFF), (byte)((value >> 16) & 0xFF));
 
         /// <summary>Turns the walked group into a shape, when it described one.</summary>
         private void FinishShape()
         {
-            double width = (_shapeRight - _shapeLeft) / 20d;
-            double height = (_shapeBottom - _shapeTop) / 20d;
+            _shapeWrapDistance = _shapeWrapDistances.Values.DefaultIfEmpty(0).Max();
+            double width = ((double)_shapeRight - _shapeLeft) / 20d;
+            double height = ((double)_shapeBottom - _shapeTop) / 20d;
             IReadOnlyList<RichTextParagraph> paragraphs = _shapeText is null
                 ? []
                 : _shapeText.Build(ParagraphStyle.Default).Paragraphs;
@@ -1447,16 +1585,16 @@ public static class RtfReader
                 paragraphs = [];
 
             ShapeFill? fill = null;
-            if (_shapeHasFill && !_shapeFillStart.IsEmpty)
+            if ((_shapeFillEnabled ?? (_shapeHasFill || _shapeType != 75)) && !_shapeFillStart.IsEmpty)
             {
                 // A focus near 50 mirrors the gradient, as VML's does.
                 fill = _shapeGradient && !_shapeFillEnd.IsEmpty
                     ? new ShapeFill(
-                        _shapeFillStart,
-                        _shapeFillEnd,
+                        ShapeOpacity(_shapeFillStart, _shapeFillOpacity),
+                        ShapeOpacity(_shapeFillEnd, _shapeBackOpacity),
                         _shapeFillAngle,
                         Axial: Math.Abs(_shapeFillFocus) is >= 25 and <= 75)
-                    : ShapeFill.Solid(_shapeFillStart);
+                    : ShapeFill.Solid(ShapeOpacity(_shapeFillStart, _shapeFillOpacity));
             }
 
             // The page's background states no box; it is the page.
@@ -1468,7 +1606,7 @@ public static class RtfReader
             }
 
             _shapeText = null;
-            BColor outline = _shapeHasLine ? _shapeLineColor : BColor.Empty;
+            BColor outline = _shapeHasLine ? ShapeOpacity(_shapeLineColor, _shapeLineOpacity) : BColor.Empty;
 
             bool rule = outline.IsEmpty is false && ((width == 0) != (height == 0));
             // A box sized by its text may state no height at all.
@@ -1495,6 +1633,27 @@ public static class RtfReader
             if (height < 0)
                 top += height;
 
+            if (_shapeAlignX != 0)
+            {
+                double pageWidth = (_sectionWidth ?? _paperWidth) / 20d;
+                double marginLeft = (_sectionLeft ?? _marginLeft) / 20d;
+                double marginRight = (_sectionRight ?? _marginRight) / 20d;
+                double referenceWidth = _shapeLeftFromPage ? pageWidth : pageWidth - marginLeft - marginRight;
+                left = (_shapeLeftFromPage ? -marginLeft : 0) +
+                    (_shapeAlignX == 2 ? (referenceWidth - Math.Abs(width)) / 2 : _shapeAlignX == 3 ? referenceWidth - Math.Abs(width) : 0);
+            }
+            if (_shapeAlignY != 0 && _shapeVerticalFrame is 0 or 1 && height != 0 && !_shapeFitsText)
+            {
+                double pageHeight = (_sectionHeight ?? _paperHeight) / 20d;
+                double marginTop = (_sectionTop ?? _marginTop) / 20d;
+                double marginBottom = (_sectionBottom ?? _marginBottom) / 20d;
+                double referenceHeight = _shapeVerticalFrame == 1 ? pageHeight : pageHeight - marginTop - marginBottom;
+                top = (_shapeVerticalFrame == 1 ? 0 : marginTop) +
+                    (_shapeAlignY == 2 ? (referenceHeight - Math.Abs(height)) / 2 : _shapeAlignY == 3 ? referenceHeight - Math.Abs(height) : 0);
+            }
+            else if (_shapeAlignY is 2 or 3)
+                ReportShapeApproximation("position", "An aligned shape lacked a fixed page-relative height; its stated offset was retained.");
+
             _shapes.Add(new DocumentShape(
                 _builder.ParagraphCount,
                 left,
@@ -1504,11 +1663,17 @@ public static class RtfReader
                 fill,
                 outline,
                 paragraphs,
+                behindText: _shapeBehindText,
+                wrap: _shapeWrap,
+                wrapSide: _shapeWrapSide,
+                wrapDistance: _shapeWrapDistance,
+                textPadding: _shapePadding,
+                textVerticalAlignment: _shapeAlignment,
                 zOrder: _shapeZ,
                 offsetFromPage: _shapeVerticalFrame != 2,
                 growsToText: _shapeFitsText,
                 geometry: _shapeType == 3 ? ShapeGeometry.Ellipse : _shapeType == 20
-                    ? (((_shapeRight - _shapeLeft) * (_shapeBottom - _shapeTop) < 0) != _shapeFlipVertical ? ShapeGeometry.LineAscending : ShapeGeometry.Line) : ShapeGeometry.Rectangle,
+                    ? ((width * height < 0) != (_shapeFlipVertical ^ _shapeFlipHorizontal) ? ShapeGeometry.LineAscending : ShapeGeometry.Line) : ShapeGeometry.Rectangle,
                 outlineWidth: _shapeLineWidth));
         }
 
@@ -1588,7 +1753,7 @@ public static class RtfReader
             bool fromPage = frame.Horizontal == RtfFrameHorizontal.Page;
             double referenceWidth = fromPage ? pageWidth : textWidth;
             double width = frame.Width > 0 ? frame.Width / 20d : textWidth;
-            double height = Math.Abs(frame.Height) / 20d;
+            double height = Math.Abs((double)frame.Height) / 20d;
             double x = frame.AlignX switch
             {
                 RtfFrameAlignX.Left or RtfFrameAlignX.Inside => 0,
@@ -1605,6 +1770,10 @@ public static class RtfReader
             double y = frame.AlignY switch
             {
                 RtfFrameAlignY.None => frame.Y / 20d,
+                RtfFrameAlignY.Center or RtfFrameAlignY.Bottom when frame.Height < 0 && !fromParagraph =>
+                    ((frame.Vertical == RtfFrameVertical.Page ? (_sectionHeight ?? _paperHeight) / 20d :
+                        ((_sectionHeight ?? _paperHeight) - (double)(_sectionTop ?? _marginTop) - (_sectionBottom ?? _marginBottom)) / 20d) - height) /
+                    (frame.AlignY == RtfFrameAlignY.Center ? 2 : 1),
                 RtfFrameAlignY.Center or RtfFrameAlignY.Bottom => ReportFrameAlignment(frame.AlignY),
                 _ => 0,
             };
@@ -1672,7 +1841,10 @@ public static class RtfReader
                 if (_state.InTable)
                     _table.NoteParagraph(_builder.ParagraphCount);
                 else
+                {
                     FinishTable();
+                    ApplyBodySectionBreak();
+                }
             }
 
             CloseParagraph();
@@ -1836,10 +2008,38 @@ public static class RtfReader
         private void FlushPending()
         {
             if (_hasPending && _pending.Length > 0)
+            {
+                if (InBody && !_state.InTable)
+                    ApplyBodySectionBreak();
                 Active.Append(_pending.ToString(), _pendingStyle);
+            }
 
             _pending.Clear();
             _hasPending = false;
+        }
+
+        private void ApplyBodySectionBreak()
+        {
+            if (!_bodySectionPending)
+                return;
+            _bodySectionPending = false;
+            if (_bodySectionBreak == BodySectionBreak.Page ||
+                (_bodySectionBreak == BodySectionBreak.Column && _columns <= 1))
+            {
+                if (!_builder.BreakPage(_state.Para))
+                    ReportEmptyPage();
+            }
+            else if (_bodySectionBreak == BodySectionBreak.Column)
+                _builder.BreakColumn(_state.Para);
+        }
+
+        private void SetBodySectionBreak(BodySectionBreak kind)
+        {
+            if (_bodySectionPending)
+            {
+                _bodySectionBreak = kind;
+                _bodySectionHasProperties = true;
+            }
         }
 
         private void ReportCodePageIfNeeded(byte value)

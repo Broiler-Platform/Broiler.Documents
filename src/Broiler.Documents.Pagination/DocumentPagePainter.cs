@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Geometry;
@@ -240,7 +241,7 @@ public sealed class DocumentPagePainter
                 continue;
             }
 
-            double bottom = line.Top + line.Height;
+            double bottom = line.Top + Math.Min(line.Height, line.ClipHeight ?? line.Height);
             if (open is BRect box &&
                 line.Background == color &&
                 (line.ParagraphIndex == paragraph || line.ParagraphIndex == paragraph + 1) &&
@@ -453,6 +454,27 @@ public sealed class DocumentPagePainter
 
     private void DrawLine(BRenderList list, LayoutLine line, Func<InlineImage, BImageHandle?> resolveImage)
     {
+        if (line.ClipHeight is not double height)
+        {
+            DrawLineContents(list, line, resolveImage);
+            return;
+        }
+        // Restrict only the vertical extent. Include glyph overhangs and any
+        // change bar horizontally, so this does not add a new cell-width clip.
+        double left = Math.Min(line.BackgroundLeft, line.Pieces.Select(piece => piece.X - piece.Font.Size)
+            .DefaultIfEmpty(line.BackgroundLeft).Min());
+        double right = Math.Max(line.BackgroundLeft + line.BackgroundWidth,
+            line.Pieces.Select(piece => piece.X + piece.Width + piece.Font.Size)
+                .DefaultIfEmpty(line.BackgroundLeft).Max());
+        if (line.ChangeBarX is double bar)
+            left = Math.Min(left, bar - ChangeBarWidth);
+        list.PushClip(new BRect(left, line.Top, Math.Max(1, right - left), height));
+        DrawLineContents(list, line, resolveImage);
+        list.PopClip();
+    }
+
+    private void DrawLineContents(BRenderList list, LayoutLine line, Func<InlineImage, BImageHandle?> resolveImage)
+    {
         double baseline = line.Top + line.Baseline;
 
         // LibreOffice marks a line holding a tracked change with a hairline in
@@ -476,6 +498,18 @@ public sealed class DocumentPagePainter
             {
                 DrawImage(list, piece, baseline, resolveImage);
                 continue;
+            }
+
+            if (piece.IsTab && piece.TabLeader is string leader)
+            {
+                double advance = BTextMeasurer.MeasureAdvance(leader, piece.Font);
+                if (advance > 0 && double.IsFinite(advance))
+                {
+                    int count = (int)Math.Min(2000, Math.Floor(piece.Width / advance));
+                    if (count > 0)
+                        list.DrawText(new BTextRun(string.Concat(Enumerable.Repeat(leader, count)), piece.Font, piece.Color),
+                            new BPoint(piece.X, baseline - piece.Rise - piece.Font.Size * 0.8));
+                }
             }
 
             if (piece.Text.Length == 0)

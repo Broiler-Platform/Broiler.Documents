@@ -174,8 +174,11 @@ internal static class ExtrasConformance
         string? extrasUrl,
         string? extrasDirectory,
         string? only,
-        int? maxFiles)
+        int? maxFiles,
+        IReadOnlySet<string>? sampleIds = null)
     {
+        if (sampleIds is not null)
+            sampleIds = ExtrasSelection.Validate(sampleIds);
         string downloadRoot = Path.Combine(workspace, "extras-src");
         Directory.CreateDirectory(downloadRoot);
 
@@ -184,13 +187,16 @@ internal static class ExtrasConformance
             if (!Directory.Exists(extrasDirectory))
                 throw new DirectoryNotFoundException("The directory named by --extras-dir does not exist: " + extrasDirectory);
 
-            return DiscoverFromDirectory(extrasDirectory, sourceUrlPrefix: null, only, maxFiles);
+            return DiscoverFromDirectory(extrasDirectory, sourceUrlPrefix: null, only, maxFiles, sampleIds);
         }
 
         string url = string.IsNullOrWhiteSpace(extrasUrl) ? DefaultExtrasUrl : extrasUrl!;
         (string owner, string repo, string branch, string subpath) = ParseGitHubTreeUrl(url);
         string rawPrefix = "https://github.com/" + owner + "/" + repo + "/blob/" + branch +
                            (string.IsNullOrEmpty(subpath) ? string.Empty : "/" + subpath);
+
+        if (sampleIds is not null)
+            return await DownloadSelectionAsync(downloadRoot, owner, repo, branch, subpath, rawPrefix, sampleIds).ConfigureAwait(false);
 
         // Strategy 1: Git sparse checkout with blobless clone (--filter=blob:none --depth 1 --sparse).
         // When git is available and the caller has not capped to a tiny sample, sparse-checkout fetches
@@ -229,7 +235,8 @@ internal static class ExtrasConformance
         string rootDirectory,
         string? sourceUrlPrefix,
         string? only,
-        int? maxFiles)
+        int? maxFiles,
+        IReadOnlySet<string>? sampleIds = null)
     {
         string fullRoot = Path.GetFullPath(rootDirectory);
         var samples = new List<ExtrasSample>();
@@ -245,6 +252,8 @@ internal static class ExtrasConformance
                 continue;
             }
 
+            if (sampleIds is not null && !sampleIds.Contains(relative))
+                continue;
             string extension = Path.GetExtension(file).ToLowerInvariant();
             string? format = FormatForExtension(extension);
             if (format is null)
@@ -266,7 +275,40 @@ internal static class ExtrasConformance
                 break;
         }
 
+        ExtrasSelection.RequireAll(sampleIds, samples);
         return samples;
+    }
+
+    private static async Task<IReadOnlyList<ExtrasSample>> DownloadSelectionAsync(
+        string root, string owner, string repo, string branch, string subpath, string sourcePrefix,
+        IReadOnlySet<string> ids)
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Broiler.Documents.Office");
+        string filesRoot = Path.Combine(root, "selected-files");
+        var samples = new List<ExtrasSample>();
+        await Parallelism.ForEachAsync(ids, 8, async id =>
+        {
+            string remotePath = string.IsNullOrEmpty(subpath) ? id : subpath.TrimEnd('/') + "/" + id;
+            string rawUrl = "https://raw.githubusercontent.com/" + Uri.EscapeDataString(owner) + "/" +
+                Uri.EscapeDataString(repo) + "/" + Uri.EscapeDataString(branch) + "/" +
+                string.Join("/", remotePath.Split('/').Select(Uri.EscapeDataString));
+            string path = Path.Combine(filesRoot, id.Replace('/', Path.DirectorySeparatorChar));
+            try
+            {
+                byte[] bytes = await client.GetByteArrayAsync(rawUrl).ConfigureAwait(false);
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                await File.WriteAllBytesAsync(path, bytes).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+            {
+                throw new IOException("Could not download selected extras sample: " + id, exception);
+            }
+            lock (samples)
+                samples.Add(new ExtrasSample(id, Path.GetExtension(id).ToLowerInvariant(), FormatForExtension(id)!,
+                    path, sourcePrefix.TrimEnd('/') + "/" + id));
+        }).ConfigureAwait(false);
+        return samples.OrderBy(sample => sample.Id, StringComparer.Ordinal).ToArray();
     }
 
     private static string? TryGitSparseCheckout(

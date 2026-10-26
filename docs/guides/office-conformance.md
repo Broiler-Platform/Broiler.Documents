@@ -642,3 +642,103 @@ ownership, locale-aware numeric display, and vertical-merge export.
 The [drawing-geometry verification note](../notes/office-issue-138-drawing-geometry-verification-2026-10-23.md)
 records five further corrections to outline retention, line paths, stroke
 widths, frame borders and ellipses, with authored LibreOffice comparisons.
+
+## Focused triage and repeatable control groups
+
+Extras runs through `eng/run-office-conformance.sh` also write
+`test-results/triage/triage.json`, `triage.md`, `top-samples.txt` and
+`all-samples.txt`. The JSON includes every selected sample's SHA-256, diagnostic
+codes, check outcomes and available rendering observations. Observation groups
+separate text, pagination and visual differences, incomplete references,
+crash regressions and documents refused by both tools. These are investigation
+hints, not automatic root-cause diagnoses. Only actual failed checks enter the
+ranked replay list; passing checks with imperfect visual measurements stay in
+the complete control group.
+
+Use an exact list to repeat a ranking or retain passing controls while developing
+a fix. IDs are relative to the extras root, one per line. Empty lines and lines
+beginning with `# ` are ignored; duplicates are removed. Missing or invalid IDs
+fail the run instead of silently reducing coverage. An empty ranking file means
+there are no ranked failures; use `all-samples.txt` to rerun that control group.
+Exact selection cannot be combined with `--only` or `--max-files`.
+Remote selections download only the requested files without enumerating or
+cloning the entire upstream corpus.
+
+```bash
+bash eng/run-office-conformance.sh \
+  --sample-list tests/office/selections/issue-147.txt \
+  --output-dir test-results/issue-147-before
+
+# Repeat with the same inputs and reference environment after changing broilerdoc.
+bash eng/run-office-conformance.sh \
+  --sample-list test-results/issue-147-before/triage/all-samples.txt \
+  --previous-triage test-results/issue-147-before/triage/triage.json \
+  --output-dir test-results/issue-147-after
+```
+
+The checked-in issue #147 list contains the original 30 samples, including
+subsequently fixed cases. It is a control group, not a statement that all cases
+remain defective. For reproducibility, point `--extras-url` at an immutable
+LibreOffice commit, or use an archived local corpus with `--extras-dir`.
+A list alone does not pin upstream bytes; recorded hashes reveal changed inputs.
+The runner executable also accepts `--sample-list`, `--triage-dir` and
+`--previous-triage` directly. Seed/baseline update mode does not use these options.
+
+The before/after report counts a check as fixed only when the same input bytes
+and recorded environment change from failed to passed. It distinguishes new
+samples, missing samples, changed coverage, changed diagnostics and changed
+measurements. Changing DPI, threshold, axis, page limit, reference timeout,
+platform or recorded reference-tool/font labels disables fix/regression
+inference. Changing the Broiler tool is intentional and does not disable it.
+Worst-page metrics are comparable only when the worst-page number and both page
+counts also match. The JSON retains the measurements on both sides.
+Environment labels do not prove identical installed fonts; keep the actual font
+set and native tools pinned. A passing raster check does not prove full Office
+conformance or native export fidelity; retain codec regression tests and authored
+native-tool probes for problems such as style retention and exported image URIs.
+
+For a manual GitHub Actions run, set the existing **only** input to
+`@tests/office/selections/issue-147.txt` (or another committed list). The workflow
+shows the triage Markdown in the job summary and uploads it with the existing
+results artifact. Exact-list runs have independent concurrency and never update
+the global ranking issue, even if **createIssue** retains its default. The CLI
+rejects `--sample-list --create-github-issue` for the same reason. Scheduled/full
+runs retain their serialized global issue reporting. To compare CI artifacts
+locally, extract a previous `triage.json` and pass it via `--previous-triage`.
+
+### Recovering a .NET download failure
+
+If `actions/setup-dotnet` fails, the Office workflow tries
+`eng/install-office-dotnet-fallback.sh` against Microsoft's public
+`https://builds.dotnet.microsoft.com/dotnet` feed. This handles the observed case
+where `aka.ms` resolves to `dotnetorigin.blob.core.windows.net` and runtime/SDK
+downloads return HTTP 409 despite the packages being available on the public
+builds feed. The script resolves the current stable .NET 10 SDK and passes its
+explicit version to the official installer, bypassing the `aka.ms` redirect.
+The SDK supplies its matching runtime. The recovered installation is placed in
+runner temporary storage and exported through `GITHUB_PATH` and `DOTNET_ROOT`.
+If recovery fails too, the job fails; no conformance checks are reported as run.
+
+The [issue #152 verification note](../notes/office-issue-152.md) records inline
+DOCX boundary and ODT master-page fallback corrections, with a complete 30-case
+control list and before/after native-reference results.
+
+The [RTF shape-property follow-up](../notes/office-issue-152-rtf-shape-properties.md)
+records ten further import/export corrections, authored native comparisons and
+remaining LibreOffice consumer limitations.
+
+The [VML follow-up](../notes/office-issue-152-vml-shapes.md) records ten DOCX
+shape-reading corrections, group/type handling, native line/polyline distinctions,
+and the remaining mixed measurements in the original control group.
+
+The [RTF group/formatting follow-up](../notes/office-issue-152-rtf-groups-formatting.md)
+records retained graphics in a ranked original, ten reader corrections, native
+controls and the remaining paper-size, nested-group and decoration approximations.
+
+The [table grid/style follow-up](../notes/office-issue-152-table-grids-styles.md)
+records ten import/export corrections, a native sparse-cell export check and
+remaining native/autofit differences without a newly resolved ranked original.
+
+The [WordprocessingML theme-color follow-up](../notes/office-issue-152-word-theme-colors.md)
+records five corrected color contexts, cache-versus-theme precedence and native
+export checks, including the tested LibreOffice importer's cache preference.

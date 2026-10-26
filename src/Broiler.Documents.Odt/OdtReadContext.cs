@@ -27,6 +27,7 @@ internal sealed record OdtReadContext(
     public PageGeometry? ActivePage { get; set; } = Page;
     public Func<string, string?, int, bool>? SelectPageStyle { get; init; }
     public int TableDepth { get; set; }
+    public int HiddenSectionDepth { get; set; }
     public IReadOnlySet<string> LinkedFrameTargets { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     /// <summary>True for the flow of a note's own text, which cannot hold another note.</summary>
     public bool InNote { get; init; }
@@ -65,6 +66,19 @@ internal sealed record OdtReadContext(
     private OdtBreak _pendingBreak;
     private readonly Dictionary<string, ListDefinition> _lastListByStyle = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ListDefinition> _listsById = new(StringComparer.Ordinal);
+
+    private readonly Dictionary<string, ListDefinition> _numberedParagraphLists = new(StringComparer.Ordinal);
+
+    /// <summary>Numbered paragraphs with the same list-id count in one independent list.</summary>
+    public ListDefinition? NumberedParagraphList(string? styleName, string? listId)
+    {
+        if (Styles.DefinitionForList(styleName) is not ListDefinition style)
+            return null;
+        string key = listId ?? "";
+        if (!_numberedParagraphLists.TryGetValue(key, out ListDefinition? list))
+            _numberedParagraphLists[key] = list = style.Copy();
+        return list;
+    }
 
     /// <summary>
     /// The list a top-level <c>text:list</c> counts in: a fresh copy of its

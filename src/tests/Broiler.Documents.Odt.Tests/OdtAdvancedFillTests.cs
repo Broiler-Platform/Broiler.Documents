@@ -5,6 +5,46 @@ namespace Broiler.Documents.Odt.Tests;
 
 public sealed class OdtAdvancedFillTests
 {
+    [Fact]
+    public void An_Unresolved_Bitmap_Uses_Only_Its_Explicit_Fallback_Colour()
+    {
+        var result = Read("draw:fill='bitmap' draw:fill-image-name='missing' draw:fill-color='#99ccff'");
+        Assert.Equal(ShapeFill.Solid(BColor.FromArgb(153, 204, 255)), result.Document.PageBackground);
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.fill");
+        Assert.Null(Read("draw:fill='bitmap' draw:fill-image-name='missing'").Document.PageBackground);
+    }
+
+    [Fact]
+    public void Bitmap_Fallback_Respects_Opacity_And_Page_Bounds()
+    {
+        var result = Read("draw:fill='bitmap' draw:fill-image-name='missing' draw:fill-color='#99ccff' " +
+            "draw:opacity='50%' draw:background-size='border'");
+        var fill = Assert.IsType<ShapeFill>(result.Document.PageBackground);
+        Assert.True(fill.ContentOnly);
+        Assert.Equal(128, fill.Start.A);
+        Assert.Null(fill.Image);
+    }
+
+    [Fact]
+    public void External_Bitmap_Fallback_Does_Not_Load_External_Bytes()
+    {
+        var result = Read("draw:fill='bitmap' draw:fill-image-name='external' draw:fill-color='#99ccff'",
+            "<draw:fill-image draw:name='external' xlink:href='https://example.invalid/background.png'/>");
+        Assert.Equal(ShapeFill.Solid(BColor.FromArgb(153, 204, 255)), result.Document.PageBackground);
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.image.external");
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.fill");
+    }
+
+    [Theory]
+    [InlineData("#000000", 0, 0, 0)]
+    [InlineData("#00ccff", 0, 204, 255)]
+    public void An_Empty_Legacy_Image_Does_Not_Hide_The_Page_Colour(string color, byte r, byte g, byte b)
+    {
+        var result = Read("fo:background-color=\"" + color + "\"", children: "<style:background-image/>");
+        Assert.Equal(ShapeFill.Solid(new BColor(r, g, b)) with { ContentOnly = true }, result.Document.PageBackground);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code is "odt.fill" or "odt.image.shape");
+    }
+
     private static DocumentReadResult Read(string properties, string definitions = "", string children = "")
     {
         string styles = "<office:styles>" + definitions + "</office:styles><office:automatic-styles>" +

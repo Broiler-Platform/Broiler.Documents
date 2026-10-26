@@ -74,14 +74,18 @@ public sealed class DocumentShape(
     string? frameName = null,
     string? nextFrameName = null,
     ShapeGeometry geometry = ShapeGeometry.Rectangle,
-    double outlineWidth = 1)
+    double outlineWidth = 1,
+    bool offsetXFromCell = false)
 {
 
     /// <summary>The paragraph the shape is anchored to.</summary>
     public int ParagraphIndex { get; } = paragraphIndex;
 
-    /// <summary>Points from the text column's left edge; negative puts the shape in the margin.</summary>
+    /// <summary>Points from the text area's left edge, or the cell's text area when OffsetXFromCell is true.</summary>
     public double OffsetX { get; } = offsetX;
+
+    /// <summary>Measure OffsetX from the anchoring table cell's text area rather than the page's text area.</summary>
+    public bool OffsetXFromCell { get; } = offsetXFromCell;
 
     /// <summary>
     /// Points from the top of the anchoring paragraph, or of the page when

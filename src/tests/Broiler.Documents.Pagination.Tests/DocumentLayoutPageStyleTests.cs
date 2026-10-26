@@ -2,6 +2,65 @@ namespace Broiler.Documents.Pagination.Tests;
 
 public sealed class DocumentLayoutPageStyleTests
 {
+    [Theory]
+    [InlineData(false, 40)]
+    [InlineData(true, 145)]
+    public void A_Cell_Relative_Line_Uses_The_Cell_Text_Area_Including_Padding(bool cellRelative, double left)
+    {
+        var document = RichTextDocument.FromParagraphs([RichTextParagraph.Empty,
+                RichTextParagraph.Plain("anchor").WithParagraphStyle(ParagraphStyle.Default with { LeftIndent = 20 })])
+            .WithTables([new DocumentTable(0, 2, [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)], minHeight: 100)],
+                [100, 100], cellPadding: 5, preferredWidth: 200)])
+            .WithShapes([new DocumentShape(1, 20, 20, 60, 0, outline: Broiler.Graphics.Color.BColor.Black,
+                geometry: ShapeGeometry.Line, offsetXFromCell: cellRelative)]);
+        using var images = new ImageStore();
+        var page = Assert.Single(new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(300, 200, 20, 20, 20, 20)).Pages);
+        Assert.Equal(left, Assert.Single(page.Shapes).Bounds.Left, 3);
+    }
+
+    [Fact]
+    public void A_Paragraph_Whose_First_Line_Overflows_Is_Measured_On_Its_Destination_Page()
+    {
+        var narrow = new PageGeometry(100, 80, 10, 10, 10, 10);
+        var wide = new PageGeometry(300, 100, 20, 10, 20, 10);
+        var sequence = new PageStyleSequence([new PageStyle(narrow, RunningContent.Empty),
+            new PageStyle(wide, RunningContent.Empty)], 1);
+        var first = RichTextParagraph.Create("filler", InlineStyle.Default,
+            ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 55 });
+        var second = RichTextParagraph.Create("one two three four five six seven", InlineStyle.Default,
+            ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 15 });
+        var document = RichTextDocument.FromParagraphs([first, second]).WithPageGeometry(narrow)
+            .WithSections([new DocumentSection(0, 2, 1, 0, narrow, pageStyles: sequence)]);
+        using var images = new ImageStore();
+        var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(100, 80, 10, 10, 10, 10)).Pages;
+        Assert.Equal(2, pages.Count);
+        Assert.Single(pages[0].Lines);
+        LayoutLine line = Assert.Single(pages[1].Lines);
+        Assert.Equal("one two three four five six seven", string.Concat(line.Pieces.Select(piece => piece.Text)));
+        Assert.True(line.Pieces[0].X >= 20);
+    }
+
+    [Fact]
+    public void An_Explicit_Page_Break_Uses_The_Next_Page_Styles_Text_Width()
+    {
+        var wide = new PageGeometry(300, 100, 10, 10, 10, 10);
+        var narrow = new PageGeometry(100, 100, 10, 10, 10, 10);
+        var sequence = new PageStyleSequence([new PageStyle(wide, RunningContent.Empty),
+            new PageStyle(narrow, RunningContent.Empty)], 1);
+        var document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("first"),
+            RichTextParagraph.Create("one two three four five six seven", InlineStyle.Default,
+                ParagraphStyle.Default with { PageBreakBefore = true })]).WithPageGeometry(wide)
+            .WithSections([new DocumentSection(0, 2, 1, 0, wide, pageStyles: sequence)]);
+        using var images = new ImageStore();
+        var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(300, 100, 10, 10, 10, 10)).Pages;
+        Assert.Equal(2, pages.Count);
+        Assert.True(pages[1].Lines.Count > 1);
+        Assert.All(pages[1].Lines.SelectMany(line => line.Pieces), piece => Assert.True(piece.X + piece.Width <= 90.001));
+    }
+
     [Fact]
     public void A_Fixed_Row_Does_Not_Clip_A_Cell_That_Spans_The_Next_Row()
     {
@@ -87,8 +146,9 @@ public sealed class DocumentLayoutPageStyleTests
         var page = Assert.Single(new DocumentLayout(new LayoutSettings(), images).Layout(document,
             new DocumentPageBox(200, 100, 10, 10, 10, 10)).Pages);
         Assert.Equal(15, Assert.Single(page.Cells).Bounds.Height);
-        Assert.Equal(2, page.Lines.Count);
-        Assert.Equal(25, page.Lines[1].Top, 3);
+        Assert.Equal(3, page.Lines.Count);
+        Assert.Equal(5, page.Lines[1].ClipHeight);
+        Assert.Equal(25, page.Lines[2].Top, 3);
         Assert.Contains("third", document.PlainText);
     }
 

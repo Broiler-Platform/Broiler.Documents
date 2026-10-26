@@ -560,6 +560,11 @@ Open XML WordprocessingML package parts.
   A section ending in a table gets an empty paragraph after the table to hold
   its `w:sectPr`, as Word writes it. The body's own `w:sectPr` closes the last
   section, `continuous` too.
+- A pending section or trailing run break before a table is read onto the
+  table's leading page/column-break flag, rather than its first cell paragraph.
+  Empty tables leave the break pending for the next actual block. Breaks inside
+  cells retain their existing limitations; table breaks still report
+  `docx.table.break` on write because the writer does not serialize them.
 - Block nesting deeper than `DocumentLimits.MaxGroupDepth` is abandoned with a
   `docx.limit.depth` diagnostic.
 - DOCX packages above `DocumentLimits.MaxDocumentBytes` are not parsed.
@@ -679,3 +684,8 @@ and the provenance findings are in [the DOCX register](../ip/docx.md). Decided i
 not cleared: no lawyer reviewed it, and patent-freedom is not claimed. No format
 label may name a vendor or its product, so `.docx` is offered as
 `DOCX Document (*.docx)`.
+
+
+Hidden body-section visibility is not written by this codec. The retained
+content is exported as visible paragraphs, with `docx.section.hidden`.
+ODT retains the flag; the shared raster paginator omits hidden body sections.

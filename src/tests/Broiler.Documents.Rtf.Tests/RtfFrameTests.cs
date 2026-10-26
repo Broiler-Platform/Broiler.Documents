@@ -11,6 +11,16 @@ namespace Broiler.Documents.Rtf.Tests;
 /// </summary>
 public sealed class RtfFrameTests
 {
+    [Fact]
+    public void A_Final_Frame_After_Body_Text_Keeps_Its_Empty_Anchor()
+    {
+        var document = Read("body\\par\\pard\\pvpg\\posy100\\absw2000 frame\\par");
+        Assert.Equal(2, document.ParagraphCount);
+        Assert.Equal(1, Assert.Single(document.Shapes).ParagraphIndex);
+        Assert.Equal("body", document.Paragraphs[0].Text);
+        Assert.Empty(document.Paragraphs[1].Text);
+    }
+
     // A4 with the margins the statement has: none.
     private const string Page = "\\paperw11905\\paperh16837\\margl0\\margr0\\margt0\\margb0";
 

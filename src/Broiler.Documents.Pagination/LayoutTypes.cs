@@ -24,6 +24,9 @@ public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BCol
 {
     public string Text { get; } = text;
 
+    /// <summary>The repeating character painted in an explicitly styled tab gap.</summary>
+    public string? TabLeader { get; internal set; }
+
     public BFontStyle Font { get; } = font;
 
     public BColor Color { get; } = color;
@@ -118,11 +121,17 @@ public sealed class LayoutLine
 
     public double Height { get; }
 
+    /// <summary>Visible height within a fixed table row, relative to Top; null leaves the line unclipped.</summary>
+    public double? ClipHeight { get; internal set; }
+
     /// <summary>Distance from <see cref="Top"/> down to the baseline, in points.</summary>
     public double Baseline { get; }
 
     /// <summary>Which model paragraph this line came from. Carried through for diagnostics.</summary>
     public int ParagraphIndex { get; }
+
+    /// <summary>The column/cell text area's origin, before paragraph indent.</summary>
+    internal double TextAreaLeft { get; set; }
 
     /// <summary>Moves every piece of the line <paramref name="dx"/> points across, into another text column.</summary>
     /// <summary>
@@ -149,6 +158,7 @@ public sealed class LayoutLine
             return;
 
         BackgroundLeft += dx;
+        TextAreaLeft += dx;
         if (ChangeBarX is double bar)
             ChangeBarX = bar + dx;
         foreach (LayoutPiece piece in _pieces)

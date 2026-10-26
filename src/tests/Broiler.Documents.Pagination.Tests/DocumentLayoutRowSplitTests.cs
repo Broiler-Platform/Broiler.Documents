@@ -220,7 +220,7 @@ public sealed class DocumentLayoutRowSplitTests
     }
 
     [Fact]
-    public void A_Nested_Row_Is_Not_Cut_Through()
+    public void A_Nested_Row_That_Forbids_Splitting_Is_Not_Cut_Through()
     {
         // Two nested rows of three lines each under a body that leaves room for
         // four: the first row fits, and the second goes to the next page whole.
@@ -236,7 +236,8 @@ public sealed class DocumentLayoutRowSplitTests
         paragraphs.Add(RichTextParagraph.Plain("After the table"));
 
         var nested = new DocumentTable(start, 6,
-            [new TableRow([new TableCell(start, 3, 0)]), new TableRow([new TableCell(start + 3, 3, 0)])]);
+            [new TableRow([new TableCell(start, 3, 0)], canSplit: false),
+             new TableRow([new TableCell(start + 3, 3, 0)], canSplit: false)]);
         var outer = new DocumentTable(start, 6,
             [new TableRow([new TableCell(start, 6, 0, tables: [nested])])], [400.0]);
         RichTextDocument document = RichTextDocument.FromParagraphs(paragraphs).WithTables([outer]);

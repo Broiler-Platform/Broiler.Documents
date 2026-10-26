@@ -1,7 +1,7 @@
 {
   "$schema": "corpus-baseline.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-10-20",
+  "updated": "2026-10-25",
   "policy": {
     "records": "Only the round trips that lose something or warn about something. Everything this corpus can do that is absent from the list below is asserted to round trip clean, so a new loss fails by not being listed.",
     "reproduce": "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at.",
@@ -257,6 +257,21 @@
     {
       "sample": "docx-package",
       "source": "docx",
+      "via": "docx",
+      "differences": [
+        "paragraph-style@p1: indent level 2 vs 1",
+        "paragraph-style@p1: first line indent 0 vs -18"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "docx-package",
+      "source": "docx",
       "via": "html",
       "differences": [
         "paragraph-style@p1: list Bullet vs None"
@@ -299,6 +314,18 @@
     {
       "sample": "docx-package",
       "source": "docx",
+      "via": "odt",
+      "differences": [],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "docx-package",
+      "source": "docx",
       "via": "rtf",
       "differences": [
         "paragraph-style@p1: list Bullet vs None"
@@ -439,6 +466,29 @@
     {
       "sample": "html-structure",
       "source": "html",
+      "via": "docx",
+      "differences": [
+        "paragraph-style@p2: left indent 18 vs 36",
+        "paragraph-style@p2: first line indent 0 vs -18",
+        "paragraph-style@p3: left indent 18 vs 36",
+        "paragraph-style@p3: first line indent 0 vs -18",
+        "paragraph-style@p4: left indent 36 vs 54",
+        "paragraph-style@p4: first line indent 0 vs -18",
+        "paragraph-style@p5: left indent 18 vs 36",
+        "paragraph-style@p5: first line indent 0 vs -18",
+        "paragraph-style@p6: left indent 18 vs 36",
+        "paragraph-style@p6: first line indent 0 vs -18"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "html-structure",
+      "source": "html",
       "via": "html",
       "differences": [
         "paragraph-style@p2: list Bullet vs None",
@@ -448,7 +498,8 @@
         "paragraph-style@p6: list Numbered vs None"
       ],
       "diagnostics": [
-        "html.list"
+        "html.list",
+        "html.table.flattened"
       ],
       "state": "documented",
       "reference": "docs/notes/html.md",
@@ -466,20 +517,23 @@
         "paragraph-style@p7: alignment Center vs Left",
         "paragraph-style@p8: alignment Right vs Left",
         "paragraph-style@p8: indent level 2 vs 0",
+        "paragraph-style@p8: left indent 30 vs 0",
         "paragraph-style@p8: line spacing 1.5 vs 1",
         "inline-style@p9: formatting differs from character 14: underline True vs False",
         "inline-style@p10: formatting differs from character 0: font family \"Courier\" vs default",
-        "paragraph-style@p12: indent level 1 vs 0"
+        "paragraph-style@p12: indent level 1 vs 0",
+        "paragraph-style@p12: left indent 18 vs 0"
       ],
       "diagnostics": [
         "markdown.inline-style",
-        "markdown.paragraph-style"
+        "markdown.paragraph-style",
+        "markdown.table.flattened"
       ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. The source left margin is now read as its stated 30 points instead of rounded to 36; Markdown still loses that indent to zero.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "html-structure",
@@ -492,7 +546,9 @@
         "paragraph-style@p5: list Numbered vs None",
         "paragraph-style@p6: list Numbered vs None"
       ],
-      "diagnostics": [],
+      "diagnostics": [
+        "rtf.table.flattened"
+      ],
       "state": "documented",
       "reference": "docs/notes/rtf.md",
       "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
@@ -605,7 +661,9 @@
       "via": "markdown",
       "differences": [
         "paragraph-style@p1: indent level 1 vs 0",
+        "paragraph-style@p1: left indent 18 vs 0",
         "paragraph-style@p2: indent level 2 vs 0",
+        "paragraph-style@p2: left indent 36 vs 0",
         "paragraph-style@p3: line spacing 1.5 vs 1",
         "paragraph-style@p3: spacing before 12 vs 0",
         "paragraph-style@p3: spacing after 12 vs 0"
@@ -613,11 +671,11 @@
       "diagnostics": [
         "markdown.paragraph-style"
       ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "indent-spacing",
@@ -625,7 +683,9 @@
       "via": "markdown",
       "differences": [
         "paragraph-style@p1: indent level 1 vs 0",
+        "paragraph-style@p1: left indent 18 vs 0",
         "paragraph-style@p2: indent level 2 vs 0",
+        "paragraph-style@p2: left indent 36 vs 0",
         "paragraph-style@p3: line spacing 1.5 vs 1",
         "paragraph-style@p3: spacing before 12 vs 0",
         "paragraph-style@p3: spacing after 12 vs 0"
@@ -633,11 +693,11 @@
       "diagnostics": [
         "markdown.paragraph-style"
       ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "indent-spacing",
@@ -645,7 +705,9 @@
       "via": "markdown",
       "differences": [
         "paragraph-style@p1: indent level 1 vs 0",
+        "paragraph-style@p1: left indent 18 vs 0",
         "paragraph-style@p2: indent level 2 vs 0",
+        "paragraph-style@p2: left indent 36 vs 0",
         "paragraph-style@p3: line spacing 1.5 vs 1",
         "paragraph-style@p3: spacing before 12 vs 0",
         "paragraph-style@p3: spacing after 12 vs 0"
@@ -653,11 +715,11 @@
       "diagnostics": [
         "markdown.paragraph-style"
       ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "indent-spacing",
@@ -665,7 +727,9 @@
       "via": "markdown",
       "differences": [
         "paragraph-style@p1: indent level 1 vs 0",
+        "paragraph-style@p1: left indent 18 vs 0",
         "paragraph-style@p2: indent level 2 vs 0",
+        "paragraph-style@p2: left indent 36 vs 0",
         "paragraph-style@p3: line spacing 1.5 vs 1",
         "paragraph-style@p3: spacing before 12 vs 0",
         "paragraph-style@p3: spacing after 12 vs 0"
@@ -673,11 +737,11 @@
       "diagnostics": [
         "markdown.paragraph-style"
       ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "lists",
@@ -685,18 +749,58 @@
       "via": "html",
       "differences": [
         "paragraph-style@p1: list Bullet vs None",
+        "paragraph-style@p1: first line indent -18 vs 0",
         "paragraph-style@p2: list Bullet vs None",
+        "paragraph-style@p2: first line indent -18 vs 0",
         "paragraph-style@p3: list Numbered vs None",
-        "paragraph-style@p4: list Numbered vs None"
+        "paragraph-style@p3: first line indent -18 vs 0",
+        "paragraph-style@p4: list Numbered vs None",
+        "paragraph-style@p4: first line indent -18 vs 0"
       ],
       "diagnostics": [
         "html.list"
       ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "lists",
+      "source": "docx",
+      "via": "markdown",
+      "differences": [
+        "paragraph-style@p1: first line indent -18 vs 0",
+        "paragraph-style@p2: first line indent -18 vs 0",
+        "paragraph-style@p3: first line indent -18 vs 0",
+        "paragraph-style@p4: first line indent -18 vs 0"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "lists",
+      "source": "docx",
+      "via": "odt",
+      "differences": [
+        "paragraph-style@p1: first line indent -18 vs 0",
+        "paragraph-style@p2: first line indent -18 vs 0",
+        "paragraph-style@p3: first line indent -18 vs 0",
+        "paragraph-style@p4: first line indent -18 vs 0"
+      ],
+      "diagnostics": [
+        "odt.list.indent"
+      ],
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "lists",
@@ -704,16 +808,41 @@
       "via": "rtf",
       "differences": [
         "paragraph-style@p1: list Bullet vs None",
+        "paragraph-style@p1: first line indent -18 vs 0",
         "paragraph-style@p2: list Bullet vs None",
+        "paragraph-style@p2: first line indent -18 vs 0",
         "paragraph-style@p3: list Numbered vs None",
-        "paragraph-style@p4: list Numbered vs None"
+        "paragraph-style@p3: first line indent -18 vs 0",
+        "paragraph-style@p4: list Numbered vs None",
+        "paragraph-style@p4: first line indent -18 vs 0"
       ],
       "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "lists",
+      "source": "markdown",
+      "via": "docx",
+      "differences": [
+        "paragraph-style@p1: left indent 18 vs 36",
+        "paragraph-style@p1: first line indent 0 vs -18",
+        "paragraph-style@p2: left indent 18 vs 36",
+        "paragraph-style@p2: first line indent 0 vs -18",
+        "paragraph-style@p3: left indent 18 vs 36",
+        "paragraph-style@p3: first line indent 0 vs -18",
+        "paragraph-style@p4: left indent 18 vs 36",
+        "paragraph-style@p4: first line indent 0 vs -18"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "lists",
@@ -850,6 +979,35 @@
       "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
       "reviewer": "Claude Opus 5, on the writer-losses pass",
       "decided": "2026-09-05"
+    },
+    {
+      "sample": "markdown-blocks",
+      "source": "markdown",
+      "via": "docx",
+      "differences": [
+        "paragraph-style@p7: left indent 18 vs 36",
+        "paragraph-style@p7: first line indent 0 vs -18",
+        "paragraph-style@p8: left indent 18 vs 36",
+        "paragraph-style@p8: first line indent 0 vs -18",
+        "paragraph-style@p9: left indent 18 vs 36",
+        "paragraph-style@p9: first line indent 0 vs -18",
+        "paragraph-style@p10: left indent 18 vs 36",
+        "paragraph-style@p10: first line indent 0 vs -18",
+        "paragraph-style@p11: left indent 18 vs 36",
+        "paragraph-style@p11: first line indent 0 vs -18",
+        "paragraph-style@p12: left indent 36 vs 54",
+        "paragraph-style@p12: first line indent 0 vs -18",
+        "paragraph-style@p13: left indent 18 vs 36",
+        "paragraph-style@p13: first line indent 0 vs -18",
+        "paragraph-style@p14: left indent 18 vs 36",
+        "paragraph-style@p14: first line indent 0 vs -18"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "markdown-blocks",
@@ -882,18 +1040,21 @@
         "inline-style@p0: formatting differs from character 0: font size 24 vs default",
         "inline-style@p1: formatting differs from character 0: font size 12 vs default",
         "paragraph-style@p3: indent level 1 vs 0",
+        "paragraph-style@p3: left indent 18 vs 0",
         "paragraph-style@p4: indent level 1 vs 0",
+        "paragraph-style@p4: left indent 18 vs 0",
         "paragraph-style@p5: indent level 2 vs 0",
+        "paragraph-style@p5: left indent 36 vs 0",
         "text@p6: text differs: \"fenced code, which is monospace   and keeps its own secon...\" vs \"fenced code, which is monospace and keeps its own second ...\""
       ],
       "diagnostics": [
         "markdown.inline-style"
       ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Leading and repeated spaces are structural in Markdown - indentation and code blocks are spelled with them - so a paragraph that begins with them cannot be written as ordinary text. The writer reports what it dropped from the style; the text itself is the format speaking.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Leading and repeated spaces are structural in Markdown - indentation and code blocks are spelled with them - so a paragraph that begins with them cannot be written as ordinary text. The writer reports what it dropped from the style; the text itself is the format speaking.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "markdown-blocks",
@@ -921,14 +1082,21 @@
       "source": "odt",
       "via": "docx",
       "differences": [
-        "paragraph-style@p1: spacing before 5.669 vs 5.65"
+        "paragraph-style@p1: left indent 28.346 vs 28.35",
+        "paragraph-style@p1: spacing before 5.669 vs 5.65",
+        "paragraph-style@p2: left indent 18 vs 36",
+        "paragraph-style@p2: first line indent 0 vs -18",
+        "paragraph-style@p3: left indent 18 vs 36",
+        "paragraph-style@p3: first line indent 0 vs -18",
+        "paragraph-style@p4: left indent 36 vs 54",
+        "paragraph-style@p4: first line indent 0 vs -18"
       ],
       "diagnostics": [],
-      "state": "accepted",
-      "reference": null,
-      "why": "Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "odt-package",
@@ -943,11 +1111,11 @@
         "html.list",
         "html.table.flattened"
       ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. The exact left-indent loss was removed after the HTML writer began preserving point offsets; remaining list/table limitations are unchanged.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "odt-package",
@@ -956,6 +1124,7 @@
       "differences": [
         "paragraph-style@p1: alignment Center vs Left",
         "paragraph-style@p1: indent level 2 vs 0",
+        "paragraph-style@p1: left indent 28.346 vs 0",
         "paragraph-style@p1: line spacing 1.5 vs 1",
         "paragraph-style@p1: spacing before 5.669 vs 0",
         "inline-style@p1: formatting differs from character 0: font size 18 vs default",
@@ -966,17 +1135,32 @@
         "markdown.paragraph-style",
         "markdown.table.flattened"
       ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+      "reviewer": null,
+      "decided": null
+    },
+    {
+      "sample": "odt-package",
+      "source": "odt",
+      "via": "odt",
+      "differences": [
+        "paragraph-style@p1: left indent 28.346 vs 28.347"
+      ],
+      "diagnostics": [],
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "odt-package",
       "source": "odt",
       "via": "rtf",
       "differences": [
+        "paragraph-style@p1: left indent 28.346 vs 28.35",
         "paragraph-style@p1: spacing before 5.669 vs 5.65",
         "paragraph-style@p2: list Bullet vs None",
         "paragraph-style@p3: list Bullet vs None",
@@ -985,11 +1169,11 @@
       "diagnostics": [
         "rtf.table.flattened"
       ],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. Left-indent rounding to an 18-point level is fixed; only native RTF twip quantization (28.346 to 28.35 points) remains for that offset.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "page-break",
@@ -1054,6 +1238,7 @@
       "differences": [
         "paragraph-style@p0: alignment Justify vs Left",
         "paragraph-style@p0: indent level 2 vs 0",
+        "paragraph-style@p0: left indent 36 vs 0",
         "paragraph-style@p0: spacing before 6 vs 0",
         "paragraph-style@p0: spacing after 6 vs 0",
         "inline-style@p1: formatting differs from character 12: underline True vs False",
@@ -1068,11 +1253,11 @@
         "markdown.inline-style",
         "markdown.paragraph-style"
       ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
+      "state": "suspected-defect",
+      "reference": "docs/guides/corpus-suite.md",
+      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
+      "reviewer": null,
+      "decided": null
     },
     {
       "sample": "typography",

@@ -18,6 +18,9 @@ public readonly record struct ParagraphStyle
 {
     public TextAlignment Alignment { get; init; }
 
+    /// <summary>Explicit tab stops; null uses the renderer's default tab interval.</summary>
+    public ParagraphTabStops? TabStops { get; init; }
+
     /// <summary>
     /// Line spacing multiplier; <c>1</c> is single-spaced. Applies where
     /// <see cref="LineHeightRule"/> is <see cref="Model.LineHeightRule.Proportional"/>.

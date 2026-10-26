@@ -54,6 +54,19 @@ public sealed class DocxShapeTests
         DocxTestPackage.ReadBody("<w:p>" + runXml + "<w:r><w:t>body</w:t></w:r></w:p>").Document;
 
     [Theory]
+    [InlineData("spAutoFit", true)]
+    [InlineData("noAutofit", false)]
+    [InlineData("normAutofit", false)]
+    public void Explicit_Shape_Autofit_Is_Read_And_Round_Trips(string kind, bool grows)
+    {
+        var document = Read(TextBoxShape.Replace("</wps:wsp>",
+            "<wps:bodyPr><a:" + kind + "/></wps:bodyPr></wps:wsp>"));
+        Assert.Equal(grows, Assert.Single(document.Shapes).GrowsToText);
+        using var stream = new MemoryStream(DocxWriter.WriteToArray(document));
+        Assert.Equal(grows, Assert.Single(new DocxDocumentCodec().Read(stream).Document.Shapes).GrowsToText);
+    }
+
+    [Theory]
     [InlineData(ShapeGeometry.Rectangle, 40d)]
     [InlineData(ShapeGeometry.Ellipse, 40d)]
     [InlineData(ShapeGeometry.Line, 0d)]

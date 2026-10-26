@@ -6,6 +6,42 @@ namespace Broiler.Documents.Docx.Tests;
 /// </summary>
 public sealed class DocxNumberingTests
 {
+    [Theory]
+    [InlineData("page", false)]
+    [InlineData("column", false)]
+    [InlineData("column", true)]
+    public void A_Leading_Column_Break_Retains_The_Number_Before_The_Boundary(string kind, bool columns)
+    {
+        string body = Item(1, 0, "<w:br w:type='" + kind + "'/><w:t>after")
+            .Replace("<w:t><w:br", "<w:br", StringComparison.Ordinal) + Item(1, 0, "next") +
+            (columns ? "<w:sectPr><w:cols w:num='2'/></w:sectPr>" : "");
+        var document = Read(body, Abstract(0, Level(0, "decimal", "%1.")) + Num(1, 0));
+        if (kind == "column")
+        {
+            Assert.Equal(new[] { "1.", "2.", "3." }, Labels(document));
+            Assert.Equal("", document.Paragraphs[0].Text);
+            Assert.Equal(columns, document.Paragraphs[1].Style.ColumnBreakBefore);
+            Assert.Equal(!columns, document.Paragraphs[1].Style.PageBreakBefore);
+        }
+        else
+            Assert.Equal(new[] { "1.", "2." }, Labels(document));
+    }
+
+    [Theory]
+    [InlineData("page")]
+    [InlineData("column")]
+    public void A_Numbered_Item_Split_After_Text_Does_Not_Number_Its_Continuation(string kind)
+    {
+        string body = Item(1, 0, "before</w:t><w:br w:type='" + kind + "'/><w:t>after") + Item(1, 0, "next");
+        var document = Read(body, Abstract(0, Level(0, "decimal", "%1.")) + Num(1, 0));
+        Assert.Equal(new[] { "1.", null, "2." }, Labels(document));
+        Assert.Equal(new[] { "before", "after", "next" }, document.Paragraphs.Select(p => p.Text));
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(document));
+        var restored = new DocxDocumentCodec().Read(stream).Document;
+        Assert.Equal(Labels(document), Labels(restored));
+        Assert.Equal(document.Paragraphs[1].Style.PageBreakBefore, restored.Paragraphs[1].Style.PageBreakBefore);
+    }
+
     [Fact]
     public void A_List_Starts_At_Its_Start_And_Counts_On_Across_Unnumbered_Paragraphs()
     {

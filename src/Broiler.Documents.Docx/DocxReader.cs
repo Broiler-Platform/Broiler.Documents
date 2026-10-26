@@ -106,14 +106,16 @@ internal static class DocxReader
             document = document.WithStyleDefaults(ReadStyleDefaults(styles));
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
+            void ReportBackground(string code, string message)
+            {
+                if (reported.Add(code))
+                    diagnostics.Add(DocumentDiagnostic.Warning(code, message));
+            }
             document = document.WithPageBackground(DocxVml.ReadBackground(
                 documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "background"),
                 settings.DisplayBackgroundShape,
-                (code, message) =>
-                {
-                    if (reported.Add(code))
-                        diagnostics.Add(DocumentDiagnostic.Warning(code, message));
-                }));
+                ReportBackground,
+                fill => images.ReadFillPicture(fill, documentRelationships, ReportBackground)));
             return new DocumentReadResult(
                 document,
                 diagnostics,
@@ -919,7 +921,7 @@ internal static class DocxReader
             // DocxDocumentBuilder.NotePageBreak.
             if (child.Name == DocxNamespaces.Wordprocessing + "br" && IsPageBreak(child, context))
             {
-                builder.NotePageBreak(style);
+                builder.NotePageBreak(style, sourceColumn: IsColumnBreak(child));
                 continue;
             }
 
@@ -927,7 +929,7 @@ internal static class DocxReader
             // and travels to the paragraph it starts exactly as a page break does.
             if (child.Name == DocxNamespaces.Wordprocessing + "br" && IsColumnBreak(child) && context.Sections is not null)
             {
-                builder.NotePageBreak(style, column: true);
+                builder.NotePageBreak(style, column: true, sourceColumn: true);
                 continue;
             }
 
@@ -1215,7 +1217,17 @@ internal static class DocxReader
             return false;
 
         if (group is not null)
+        {
+            // Picture-only groups retain the existing picture fallback. Their
+            // native bounding-box normalization is not the mixed-shape mapping.
+            if (!group.Descendants(DocxNamespaces.WordShape + "wsp").Any())
+            {
+                context.Builder.AddDiagnosticOnce("docx.shape.group",
+                    "A picture-only DOCX group was approximated by its first image at the group's size.");
+                return false;
+            }
             return ReadShapeGroup(group, anchor, width, height, context);
+        }
 
         return ReadDrawnShape(wsp!, anchor, 0, 0, width, height, context);
     }
@@ -1240,8 +1252,8 @@ internal static class DocxReader
     /// group, which made a backdrop of a hatched rectangle and a fade over it
     /// into the hatch alone, and lost a title bar's text box under it. The
     /// children keep the group's anchor, stacking and wrapping, and draw in the
-    /// order the group lists them. Rotation and flips are not applied, and a
-    /// picture in a group is not read (<c>docx.shape.group</c>).
+    /// order the group lists them. Embedded pictures retain their crop and mask.
+    /// Group rotation and flips are not applied.
     /// </para>
     /// </remarks>
     private static bool ReadShapeGroup(XElement group, XElement anchor, double width, double height, DocxReadContext context)
@@ -1273,6 +1285,31 @@ internal static class DocxReader
                 if (ReadDrawnShape(child, anchor, x, y, w, h, context))
                     read++;
             }
+            else if (child.Name == DocxNamespaces.Picture + "pic")
+            {
+                XElement? transform = child.Element(DocxNamespaces.Picture + "spPr")?.Element(DocxNamespaces.Drawing + "xfrm");
+                (double x, double y, double w, double h) = frame.Map(transform);
+                // This is handled even when resource admission fails: falling through
+                // to the ordinary picture path would incorrectly use the whole group's box.
+                read++;
+                if ((string?)transform?.Attribute("rot") is string rotation && rotation != "0" ||
+                    (string?)transform?.Attribute("flipH") is "1" or "true" ||
+                    (string?)transform?.Attribute("flipV") is "1" or "true")
+                {
+                    context.Builder.AddDiagnosticOnce("docx.shape.group", "A rotated or flipped grouped DOCX picture was skipped.");
+                    continue;
+                }
+                InlineImage? image = context.Images.ReadGroupedPicture(child, w, h, context.Relationships, context.Builder);
+                if (image is null)
+                    continue;
+                (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
+                (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
+                context.Builder.AddShape(new DocumentShape(context.Builder.CurrentParagraphIndex,
+                    HorizontalOffset(anchor, context) + x, offsetY + y, w, h,
+                    fill: null, outline: default, paragraphs: null, image: image,
+                    behindText: BehindDoc(anchor), wrap: Wrap, wrapSide: Side, wrapDistance: Distance,
+                    zOrder: RelativeHeight(anchor), offsetFromPage: fromPage));
+            }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
             {
                 XElement? transform = child.Element(DocxNamespaces.WordGroup + "grpSpPr")?.Element(DocxNamespaces.Drawing + "xfrm");
@@ -1287,12 +1324,11 @@ internal static class DocxReader
                     childY);
                 ReadGroupChildren(child, nested, anchor, context, ref read, depth + 1);
             }
-            else if (child.Name == DocxNamespaces.Picture + "pic" ||
-                     child.Name == DocxNamespaces.WordGroup + "grpSp")
+            else if (child.Name == DocxNamespaces.WordGroup + "grpSp")
             {
                 context.Builder.AddDiagnosticOnce(
                     "docx.shape.group",
-                    "A picture, or a group nested too deep, inside a DOCX drawing group was not read; the group's drawn boxes were.");
+                    "A group nested too deep inside a DOCX drawing group was not read.");
             }
         }
     }
@@ -1382,6 +1418,7 @@ internal static class DocxReader
             wrapDistance: Distance,
             zOrder: RelativeHeight(anchor),
             offsetFromPage: fromPage,
+            growsToText: wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Element(DocxNamespaces.Drawing + "spAutoFit") is not null,
             tables: shapeContent.Tables,
             textPadding: ReadShapePadding(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
             textVerticalAlignment: (string?)wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Attribute("anchor") switch
@@ -1392,7 +1429,9 @@ internal static class DocxReader
             },
             textOverflow: (string?)wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Attribute("vertOverflow") == "overflow",
             geometry: geometry,
-            outlineWidth: long.TryParse((string?)spPr?.Element(DocxNamespaces.Drawing + "ln")?.Attribute("w"), out long lineWidth) && lineWidth >= 0 ? lineWidth / 12700d : 0.75));
+            outlineWidth: long.TryParse((string?)spPr?.Element(DocxNamespaces.Drawing + "ln")?.Attribute("w"), out long lineWidth) && lineWidth >= 0 ? lineWidth / 12700d : 0.75,
+            offsetXFromCell: context.Builder.InTableCell && geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending &&
+                RelativeFrom(anchor, "positionH") == "column"));
         return true;
     }
 
@@ -1434,23 +1473,53 @@ internal static class DocxReader
         if (picture.Name != DocxNamespaces.Wordprocessing + "pict")
             return false;
 
-        XElement? shape = picture.Elements().FirstOrDefault(static element =>
-            element.Name == DocxNamespaces.Vml + "rect" ||
-            element.Name == DocxNamespaces.Vml + "roundrect" ||
-            element.Name == DocxNamespaces.Vml + "oval" ||
-            element.Name == DocxNamespaces.Vml + "shape");
-        if (shape is null || shape.Descendants(DocxNamespaces.Vml + "imagedata").Any())
-            return false;
+        bool read = false;
+        bool hasImages = false;
+        foreach (XElement shape in DocxVmlShapeWalker.Shapes(picture, context.Builder.Limits.MaxGroupDepth,
+            (code, message) => context.Builder.AddDiagnosticOnce(code, message)))
+        {
+            if (shape.Descendants(DocxNamespaces.Vml + "imagedata").Any())
+            {
+                hasImages = true;
+                continue;
+            }
+            read |= ReadVmlShapeElement(shape, context);
+        }
+        // Preserve the established first-image fallback for mixed blocks.
+        return read && !hasImages;
+    }
 
+    private static bool ReadVmlShapeElement(XElement shape, DocxReadContext context)
+    {
         Dictionary<string, string> style = DocxVml.ReadStyle((string?)shape.Attribute("style"));
-        if (!DocxVml.TryLength(style.GetValueOrDefault("width"), out double width) ||
-            !DocxVml.TryLength(style.GetValueOrDefault("height"), out double height) ||
+        bool segment = shape.Name == DocxNamespaces.Vml + "line" || shape.Name == DocxNamespaces.Vml + "polyline";
+        double lineLeft = 0, lineTop = 0, width, height;
+        ShapeGeometry geometry = shape.Name == DocxNamespaces.Vml + "oval" ? ShapeGeometry.Ellipse : ShapeGeometry.Rectangle;
+        if (segment)
+        {
+            double[]? points = ReadVmlSegmentPoints(shape);
+            if (points is null || style.ContainsKey("rotation"))
+            {
+                context.Builder.AddDiagnosticOnce("docx.shape.geometry",
+                    "A VML line used unsupported coordinates, rotation or more than two points and was skipped.");
+                return true;
+            }
+            lineLeft = Math.Min(points[0], points[2]);
+            lineTop = Math.Min(points[1], points[3]);
+            width = Math.Abs(points[2] - points[0]);
+            height = Math.Abs(points[3] - points[1]);
+            bool flip = style.GetValueOrDefault("flip")?.Contains('x') == true ^ style.GetValueOrDefault("flip")?.Contains('y') == true;
+            geometry = ((points[2] - points[0]) * (points[3] - points[1]) < 0) ^ flip
+                ? ShapeGeometry.LineAscending : ShapeGeometry.Line;
+        }
+        else if (!DocxVml.TryLength(style.GetValueOrDefault("width"), out width) ||
+            !DocxVml.TryLength(style.GetValueOrDefault("height"), out height) ||
             width <= 0 || height <= 0)
         {
             return false;
         }
 
-        ShapeFill? fill = DocxVml.ReadFill(
+        ShapeFill? fill = segment ? null : DocxVml.ReadFill(
             shape,
             BColor.Empty,
             (code, message) => context.Builder.AddDiagnosticOnce(code, message),
@@ -1459,6 +1528,12 @@ internal static class DocxReader
         RichTextDocument shapeContent = ReadShapeText(shape, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
         BColor outline = ReadVmlOutline(shape);
+        if (segment && outline.IsEmpty)
+            return true;
+        string? dash = (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("dashstyle");
+        if (segment && dash is not null && !string.Equals(dash.Trim(), "solid", StringComparison.OrdinalIgnoreCase))
+            context.Builder.AddDiagnosticOnce("docx.shape.stroke",
+                "A VML line dash pattern was approximated by a solid stroke.");
         if (fill is null && paragraphs.Count == 0 && outline.IsEmpty)
             return false;
 
@@ -1467,7 +1542,7 @@ internal static class DocxReader
         DocxVml.TryLength(style.GetValueOrDefault("top"), out double top);
         DocxVml.TryLength(style.GetValueOrDefault("margin-top"), out double marginTop);
         // Across, every frame converts to the column, as a DrawingML anchor's does.
-        double offsetX = left + marginLeft;
+        double offsetX = segment ? lineLeft + (shape.Name.LocalName == "polyline" ? left + marginLeft : 0) : left + marginLeft;
         if (context.Page is PageGeometry page)
         {
             offsetX += style.GetValueOrDefault("mso-position-horizontal-relative") switch
@@ -1480,7 +1555,7 @@ internal static class DocxReader
 
         // VML names DrawingML's vertical frames in its own words; the paragraph
         // and the line stay where they are, the rest measure from the page.
-        double offsetY = top + marginTop;
+        double offsetY = segment ? lineTop + (shape.Name.LocalName == "polyline" ? top + marginTop : 0) : top + marginTop;
         string? verticalFrom = style.GetValueOrDefault("mso-position-vertical-relative") switch
         {
             "page" => "page",
@@ -1508,10 +1583,30 @@ internal static class DocxReader
             }
         }
 
+        if (context.Page is PageGeometry alignmentPage)
+        {
+            string? horizontal = style.GetValueOrDefault("mso-position-horizontal");
+            string? horizontalFrame = style.GetValueOrDefault("mso-position-horizontal-relative");
+            double frameWidth = horizontalFrame == "page" ? alignmentPage.Width : alignmentPage.Width - alignmentPage.MarginLeft - alignmentPage.MarginRight;
+            double frameStart = horizontalFrame == "page" ? -alignmentPage.MarginLeft : 0;
+            if (horizontal is "left" or "center" or "right")
+                offsetX = frameStart + (horizontal == "center" ? (frameWidth - width) / 2 : horizontal == "right" ? frameWidth - width : 0);
+            string? vertical = style.GetValueOrDefault("mso-position-vertical");
+            string? verticalFrame = style.GetValueOrDefault("mso-position-vertical-relative");
+            if (vertical is "top" or "center" or "bottom" && verticalFrame is "page" or "margin")
+            {
+                double frameHeight = verticalFrame == "page" ? alignmentPage.Height : alignmentPage.Height - alignmentPage.MarginTop - alignmentPage.MarginBottom;
+                offsetY = (verticalFrame == "page" ? 0 : alignmentPage.MarginTop) +
+                    (vertical == "center" ? (frameHeight - height) / 2 : vertical == "bottom" ? frameHeight - height : 0);
+                fromPage = true;
+            }
+        }
+
         int zIndex = int.TryParse(style.GetValueOrDefault("z-index"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int z)
             ? z
             : 0;
-        ShapeWrap wrap = (string?)shape.Element(DocxNamespaces.VmlWord + "wrap")?.Attribute("type") switch
+        XElement? wrapping = shape.Element(DocxNamespaces.VmlWord + "wrap");
+        ShapeWrap wrap = (string?)wrapping?.Attribute("type") switch
         {
             "square" or "tight" or "through" => ShapeWrap.Square,
             "topAndBottom" => ShapeWrap.TopAndBottom,
@@ -1530,8 +1625,15 @@ internal static class DocxReader
             image: null,
             behindText: zIndex < 0,
             wrap: wrap,
-            zOrder: zIndex == int.MinValue ? int.MaxValue : Math.Abs(zIndex),
+            wrapSide: (string?)wrapping?.Attribute("side") switch { "left" => WrapSide.Left, "right" => WrapSide.Right, _ => WrapSide.Largest },
+            wrapDistance: new[] { "mso-wrap-distance-left", "mso-wrap-distance-right", "mso-wrap-distance-top", "mso-wrap-distance-bottom" }
+                .Select(key => DocxVml.TryLength(style.GetValueOrDefault(key), out double distance) ? Math.Clamp(distance, 0, 20000) : 0).Max(),
+            // Keep VML's signed order within the behind-text layer. Absolute
+            // values reverse negative levels and paint backgrounds over shapes.
+            zOrder: zIndex < 0 ? zIndex - int.MinValue : zIndex,
             offsetFromPage: fromPage,
+            growsToText: DocxVml.ReadStyle((string?)shape.Element(DocxNamespaces.Vml + "textbox")?.Attribute("style"))
+                .GetValueOrDefault("mso-fit-shape-to-text")?.Trim().ToLowerInvariant() is "t" or "true" or "1",
             tables: shapeContent.Tables,
             textPadding: ReadVmlPadding(shape.Element(DocxNamespaces.Vml + "textbox")),
             textVerticalAlignment: style.GetValueOrDefault("v-text-anchor") switch
@@ -1541,9 +1643,36 @@ internal static class DocxReader
                 _ => CellVerticalAlignment.Top,
             },
             textOverflow: style.GetValueOrDefault("overflow") == "visible",
-            geometry: shape.Name == DocxNamespaces.Vml + "oval" ? ShapeGeometry.Ellipse : ShapeGeometry.Rectangle,
-            outlineWidth: DocxVml.TryLength((string?)shape.Attribute("strokeweight") ?? (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("weight"), out double strokeWidth) ? strokeWidth : 0.75));
+            geometry: geometry,
+            outlineWidth: DocxVml.TryLength((string?)shape.Attribute("strokeweight") ?? (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("weight"), out double strokeWidth) ? strokeWidth : 0.75,
+            offsetXFromCell: segment && context.Builder.InTableCell && style.GetValueOrDefault("mso-position-horizontal-relative") == "text"));
         return true;
+    }
+
+    private static double[]? ReadVmlSegmentPoints(XElement shape)
+    {
+        if (shape.Name == DocxNamespaces.Vml + "line" &&
+            (((string?)shape.Attribute("from"))?.Count(c => c == ',') != 1 ||
+             ((string?)shape.Attribute("to"))?.Count(c => c == ',') != 1))
+            return null;
+        string? value = shape.Name == DocxNamespaces.Vml + "line"
+            ? (string?)shape.Attribute("from") + "," + (string?)shape.Attribute("to")
+            : (string?)shape.Attribute("points");
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 256)
+            return null;
+        string[] coordinates = value.Split(',', StringSplitOptions.TrimEntries);
+        if (coordinates.Length != 4)
+            return null;
+        var points = new double[4];
+        for (int i = 0; i < 4; i++)
+        {
+            if (!DocxVml.TryLength(coordinates[i], out points[i]) || Math.Abs(points[i]) > 10000 ||
+                (shape.Attribute("coordsize") is not null && points[i] != 0 && !char.IsAsciiLetter(coordinates[i][^1])))
+                return null;
+            if (shape.Name == DocxNamespaces.Vml + "line" && double.TryParse(coordinates[i], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                points[i] *= 72d / 96;
+        }
+        return points[0] == points[2] && points[1] == points[3] ? null : points;
     }
 
     private static TableCellPadding ReadVmlPadding(XElement? textBox)
@@ -1562,9 +1691,9 @@ internal static class DocxReader
         if (stroked?.Trim() is "f" or "false" or "0")
             return BColor.Empty;
 
-        return DocxVml.TryColor((string?)shape.Attribute("strokecolor") ?? (string?)stroke?.Attribute("color"), out BColor color)
-            ? color
-            : BColor.FromArgb(0, 0, 0);
+        BColor color = DocxVml.TryColor((string?)shape.Attribute("strokecolor") ?? (string?)stroke?.Attribute("color"), out BColor stated)
+            ? stated : BColor.Black;
+        return DocxVml.ApplyOpacity(color, (string?)stroke?.Attribute("opacity"));
     }
 
     /// <summary>
@@ -1925,9 +2054,9 @@ internal static class DocxReader
         ParagraphStyle style = ParagraphStyle.Default;
         IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions);
         foreach (XElement styleParagraphProperties in chain)
-            style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style);
+            style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style, context.Styles.Theme);
 
-        style = ApplyParagraphProperties(pPr, context.Numbering, style);
+        style = ApplyParagraphProperties(pPr, context.Numbering, style, context.Styles.Theme);
         return ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
     }
 
@@ -2024,28 +2153,35 @@ internal static class DocxReader
         return null;
     }
 
-    /// <summary>The colour a paragraph's <c>w:shd</c> shows, or empty for none.</summary>
-    private static BColor ReadParagraphShading(XElement shading)
-    {
-        string? pattern = DocxValueReader.WordValue(shading);
-        if (pattern is "nil")
-            return BColor.Empty;
-
-        string? attribute = pattern is "solid" ? "color" : "fill";
-        return DocxValueReader.TryParseHexColor(
-            (string?)shading.Attribute(DocxNamespaces.Wordprocessing + attribute),
-            out BColor color)
-            ? color
-            : BColor.Empty;
-    }
-
+    /// <summary>Applies paragraph properties, resolving shading against the document theme.</summary>
     private static ParagraphStyle ApplyParagraphProperties(
         XElement? pPr,
         DocxNumbering numbering,
-        ParagraphStyle style)
+        ParagraphStyle style, DocxTheme theme)
     {
         if (pPr is null)
             return style;
+
+        if (pPr.Element(DocxNamespaces.Wordprocessing + "tabs") is XElement tabs)
+        {
+            var resolved = style.TabStops?.ToDictionary(stop => stop.Position) ?? new Dictionary<double, ParagraphTabStop>();
+            foreach (XElement tab in tabs.Elements(DocxNamespaces.Wordprocessing + "tab").Take(256))
+            {
+                if (!DocxValueReader.TryReadTwips(tab.Attribute(DocxNamespaces.Wordprocessing + "pos"), out int twips) ||
+                    twips < 0 || twips > 400000)
+                    continue;
+                double position = twips / 20d;
+                string? kind = DocxValueReader.WordValue(tab);
+                if (kind == "clear")
+                    resolved.Remove(position);
+                else if (kind is "left" or "start" or "center" or "right" or "end" or "decimal" or null)
+                    resolved[position] = new ParagraphTabStop(position, kind switch
+                    { "center" => TabAlignment.Center, "right" or "end" => TabAlignment.Right, "decimal" => TabAlignment.Decimal, _ => TabAlignment.Left },
+                    (string?)tab.Attribute(DocxNamespaces.Wordprocessing + "leader") switch
+                    { "dot" => ".", "hyphen" => "-", "underscore" or "heavy" => "_", "middleDot" => "·", _ => null });
+            }
+            style = style with { TabStops = new ParagraphTabStops(resolved.Values) };
+        }
 
         // A w:jc names an alignment outright, including the default one. Leaving
         // "left" to fall through would make it mean "whatever was inherited",
@@ -2091,7 +2227,7 @@ internal static class DocxReader
 
         XElement? shading = pPr.Element(DocxNamespaces.Wordprocessing + "shd");
         if (shading is not null)
-            style = style with { Background = ReadParagraphShading(shading) };
+            style = style with { Background = DocxWordColor.Shading(shading, theme) };
 
         XElement? spacing = pPr.Element(DocxNamespaces.Wordprocessing + "spacing");
         if (spacing is not null)
@@ -2252,7 +2388,7 @@ internal static class DocxReader
 
         XElement? color = rPr.Element(DocxNamespaces.Wordprocessing + "color");
         string? colorValue = DocxValueReader.WordValue(color);
-        if (DocxValueReader.TryParseHexColor(colorValue, out BColor foreground))
+        if (DocxWordColor.TryRead(color, theme, fill: false, out BColor foreground))
         {
             style = style with { Foreground = foreground };
         }
@@ -2266,9 +2402,8 @@ internal static class DocxReader
         }
 
         XElement? shade = rPr.Element(DocxNamespaces.Wordprocessing + "shd");
-        string? fill = (string?)shade?.Attribute(DocxNamespaces.Wordprocessing + "fill");
-        if (DocxValueReader.TryParseHexColor(fill, out BColor shadeColor))
-            style = style with { Background = shadeColor };
+        if (shade is not null)
+            style = style with { Background = DocxWordColor.Shading(shade, theme) };
 
         XElement? highlight = rPr.Element(DocxNamespaces.Wordprocessing + "highlight");
         string? highlightValue = DocxValueReader.WordValue(highlight);

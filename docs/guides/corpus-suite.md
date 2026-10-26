@@ -147,9 +147,24 @@ Every row carries a state:
 
 | State | Meaning | Count |
 | --- | --- | --- |
-| `documented` | A limitation one of the codec notes states. The row cites it, and a guard checks the cited file exists. | 63 |
-| `suspected-defect` | A difference nobody decided on — which the [CLI guide](cli.md) says is exactly what round-tripping is good for. | 0 |
-| `accepted` | The normalized model's own behaviour, looked at and accepted. | 1 |
+| `documented` | A limitation one of the codec notes states. The row cites it, and a guard checks the cited file exists. | 51 |
+| `suspected-defect` | A difference nobody decided on — which the [CLI guide](cli.md) says is exactly what round-tripping is good for. | 22 |
+| `accepted` | The normalized model's own behaviour, looked at and accepted. | 0 |
+
+The 2026-10-23 publish validation failed on both Linux and Windows because the
+exact-indent comparison added in `708990c` exposed differences absent from the
+2026-10-20 baseline. The refresh records all 22 affected round trips, including
+nine new rows. They remain suspected defects: list label/text offsets change
+through DOCX, hanging indents are lost through other formats, ODT reports
+`odt.list.indent`, and unit conversion changes the authored ODT sample's precise
+indent. Existing classification rationales are retained in those rows as history;
+they do not establish acceptance of the additional differences.
+
+This refresh repairs the stale publish expectations, not the codec losses.
+The corpus still compares every difference and diagnostic exactly, fails on a
+new loss, and fails when a recorded loss stops reproducing. No workflow check
+is skipped or relaxed. Fixing the recorded losses requires codec changes and
+the corresponding baseline reductions.
 
 `documented` and `accepted` both need a reviewer and a date.
 `CorpusControlGuardTests.No_Baseline_Row_Is_Classified_Merely_By_Being_Written_Down`
@@ -170,7 +185,8 @@ difference should read as.
 
 Each finding below was invisible to a caller, because no diagnostic was emitted.
 That is what makes something a defect rather than a limitation here: a codec
-that knows it dropped something says so. All of them are fixed or classified.
+that knows it dropped something says so. The historical findings below are fixed
+or classified; the exact-indent findings above remain suspected defects.
 
 | Finding | Outcome |
 | --- | --- |

@@ -259,6 +259,8 @@ public sealed class DocumentComparison
             yield return "spacing before " + Number(left.SpacingBefore) + " vs " + Number(right.SpacingBefore);
         if (!Near(left.SpacingAfter, right.SpacingAfter))
             yield return "spacing after " + Number(left.SpacingAfter) + " vs " + Number(right.SpacingAfter);
+        if (((left.TabStops?.Count ?? 0) > 0 || (right.TabStops?.Count ?? 0) > 0) && !Equals(left.TabStops, right.TabStops))
+            yield return "tab stops differ";
     }
 
     /// <summary>
