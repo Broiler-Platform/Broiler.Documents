@@ -11,7 +11,14 @@ dotnet run --project src/tests/Broiler.Documents.Office
 It prints `N/M passed, K failed.` as its last line and exits with the number of
 failures capped at 98; exit 99 is reserved for usage errors or harness failures. `eng/run-office-conformance.sh`
 provisions the tools first and then runs it; `.github/workflows/office-conformance.yml`
-runs that nightly.
+runs that nightly inside `ghcr.io/broiler-platform/broiler-sdk-office:latest`,
+built and published by [Broiler.Code](https://github.com/Broiler-Platform/Broiler.Code/tree/main/docker).
+The image supplies the .NET SDK, LibreOffice, poppler, fonts and a bundled
+`sw/qa/extras` corpus. CI uses `--skip-install` and the image's font directory
+and font-set stamp. The default corpus URL selects the bundled corpus through
+`--extras-dir`; dispatching with a different `extrasUrl` downloads that source.
+Updating the image can change the toolchain or corpus; seed baseline stamp
+checks still apply, and baseline regeneration remains an explicit dispatch option.
 
 ## Contents
 
@@ -558,10 +565,10 @@ not fail the job for individual upstream sample differences.
 
 ## Temporary storage in CI
 
-The workflow sets `TMPDIR` to GitHub's disk-backed `runner.temp` directory for
-.NET and its child tools. Ubuntu 26.04 uses a quota-limited RAM filesystem for
-`/tmp`; retaining corpus downloads and rasterized pages there can exhaust that
-quota and prevent LibreOffice from producing comparison output. Each run logs
+The workflow sets `TMPDIR` to GitHub's disk-backed runner temporary directory,
+mounted into the job container, for .NET and its child tools. Retaining corpus
+downloads and rasterized pages on a quota-limited temporary filesystem can
+exhaust that quota and prevent LibreOffice from producing comparison output. Each run logs
 filesystem capacity and mount information for both locations. The runner removes
 its workspace at the end unless `--keep` was requested.
 
