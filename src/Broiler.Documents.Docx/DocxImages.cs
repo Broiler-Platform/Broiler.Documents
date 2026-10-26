@@ -25,6 +25,7 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
     /// millions of units tall.
     /// </summary>
     private const double MaxDisplayExtent = 20000.0;
+    private readonly DocxDiagram.ReadState _diagrams = new();
     private readonly Dictionary<string, MediaPart?> _parts = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -51,6 +52,10 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
         return image.WithResourceId(id);
     }
 
+
+    /// <summary>Reads an embedded diagram cache through the package's existing XML limits.</summary>
+    public DocxDiagram.Cache? ReadDiagram(XElement references, XElement anchor, DocxRelationships relationships,
+        DocxDocumentBuilder builder, DocxTheme theme) => DocxDiagram.Load(archive, references, anchor, relationships, builder, theme, _diagrams);
 
     /// <summary>How many pictures this read turned into inline images.</summary>
     public int ImageCount { get; private set; }

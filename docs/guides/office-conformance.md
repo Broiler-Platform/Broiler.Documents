@@ -743,3 +743,7 @@ selection, native controls and mixed observations in the original files.
 The [DrawingML color follow-up](../notes/office-issue-154-drawing-colors.md)
 records 15 additional color behaviors, a reusable native-probe generator and
 before/after checks, including unchanged original cases and rounding limits.
+
+The [saved-diagram follow-up](../notes/office-issue-154-cached-diagrams.md)
+records 15 SmartArt cache-import behaviors, a newly passing original pixel check,
+the native PDF/TXT projection gap and reproducible derived controls.

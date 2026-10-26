@@ -223,6 +223,22 @@ internal sealed class DocxDocumentBuilder(
         _paragraphStyle = style;
     }
 
+    /// <summary>Reserves the line occupied by a diagram that is the paragraph's only content.</summary>
+    public double ReserveDiagramBlock(double width, double height, PageGeometry? page)
+    {
+        double left = _paragraphStyle.LeftIndentIn(), right = _paragraphStyle.RightIndentIn;
+        double available = page is null ? width : Math.Max(0, page.Width - page.MarginLeft - page.MarginRight - left - right);
+        double offset = left + (_paragraphStyle.Alignment switch
+        {
+            TextAlignment.Center => (available - width) / 2,
+            TextAlignment.Right => available - width,
+            _ => 0,
+        });
+        if (_paragraphStyle.LineHeightRule != LineHeightRule.Exact || _paragraphStyle.LineHeight <= 0)
+            _paragraphStyle = _paragraphStyle with { LineHeightRule = LineHeightRule.Exact, LineHeight = (float)Math.Max(height, _paragraphStyle.LineHeight) };
+        return offset;
+    }
+
     public void AppendText(string text, InlineStyle style)
     {
         if (string.IsNullOrEmpty(text))
