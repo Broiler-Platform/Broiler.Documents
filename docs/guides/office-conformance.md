@@ -739,3 +739,7 @@ export checks, including the tested LibreOffice importer's cache preference.
 The [issue #154 verification note](../notes/office-issue-154.md) records legacy
 RTF drawings and DOCX shape format-matrix references, a new hashed 30-case
 selection, native controls and mixed observations in the original files.
+
+The [DrawingML color follow-up](../notes/office-issue-154-drawing-colors.md)
+records 15 additional color behaviors, a reusable native-probe generator and
+before/after checks, including unchanged original cases and rounding limits.

@@ -528,14 +528,7 @@ internal sealed class DocxTheme
 
         foreach (XElement slot in scheme.Elements())
         {
-            XElement? value = slot.Elements().FirstOrDefault();
-            string? hex = value?.Name.LocalName switch
-            {
-                "srgbClr" => (string?)value.Attribute("val"),
-                "sysClr" => (string?)value.Attribute("lastClr"),
-                _ => null,
-            };
-            if (DocxValueReader.TryParseHexColor(hex, out BColor color))
+            if (DocxDrawingColor.TryRead(slot, Empty, out BColor color))
                 colors[slot.Name.LocalName] = color;
         }
 
