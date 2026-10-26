@@ -2,7 +2,7 @@ name: Office conformance
 
 # Uses the Broiler.Code office image's LibreOffice sw/qa/extras corpus,
 # renders them with LibreOffice headless and broilerdoc, compares the outputs,
-# and creates or updates a GitHub issue with the top x major differences
+# and creates a new GitHub issue for every run with the top x major differences
 # (default x = 3). See docs/guides/office-conformance.md for details.
 #
 # Nightly and dispatchable rather than a pull-request check, for four reasons in
@@ -70,11 +70,6 @@ on:
         description: Optional cap on the number of extras sample files to evaluate
         required: false
         default: ''
-      createIssue:
-        description: Create or update a GitHub issue with the top x major differences
-        type: boolean
-        required: false
-        default: true
       seedCorpus:
         description: Run the authored seed corpus instead of sw/qa/extras
         type: boolean
@@ -161,9 +156,6 @@ jobs:
           OFFICE_EXTRAS_URL: ${{ inputs.extrasUrl || 'https://github.com/LibreOffice/core/tree/master/sw/qa/extras' }}
           OFFICE_TOP_DIFFERENCES: ${{ inputs.topDifferences || '3' }}
           OFFICE_MAX_FILES: ${{ inputs.maxFiles || '' }}
-          # Scheduled runs have no inputs. Do not compare a missing input to
-          # false: Actions coerces the empty value to false as well.
-          OFFICE_CREATE_ISSUE: ${{ (github.event_name == 'schedule' || inputs.createIssue == true) && 'true' || 'false' }}
           OFFICE_SEED_CORPUS: ${{ inputs.seedCorpus && 'true' || 'false' }}
           OFFICE_UPDATE_BASELINE: ${{ inputs.updateBaseline || 'false' }}
         run: |
@@ -193,16 +185,6 @@ jobs:
           fi
           if [ -n "$OFFICE_MAX_FILES" ]; then
             ARGS+=(--max-files "$OFFICE_MAX_FILES")
-          fi
-          if [ "$OFFICE_CREATE_ISSUE" != "true" ]; then
-            echo "GitHub issue publication disabled by createIssue."
-          elif [ "$OFFICE_SEED_CORPUS" = "true" ] || [ "$OFFICE_UPDATE_BASELINE" = "true" ]; then
-            echo "GitHub issue publication disabled for seed corpus or baseline regeneration."
-          elif [[ "$OFFICE_ONLY" == @* ]]; then
-            echo "GitHub issue publication disabled for a sample-list replay."
-          else
-            echo "GitHub issue publication enabled; reportable failures will create or update an issue."
-            ARGS+=(--create-github-issue)
           fi
           if [ "$OFFICE_SEED_CORPUS" = "true" ]; then
             ARGS+=(--seed-corpus)
@@ -237,6 +219,41 @@ jobs:
           if grep -qE '^0/0 passed' ./test-results/office-results.log; then
             echo "::warning::The suite executed no checks. Either a tool could not be driven or the corpus is empty; the log names which."
           fi
+
+      # Publish independently of the harness, including clean runs, focused
+      # replays, seed/baseline runs and failures before a report was produced.
+      - name: Create a new issue for this run
+        if: always()
+        uses: actions/github-script@v8
+        env:
+          OFFICE_JOB_STATUS: ${{ job.status }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const attempt = process.env.GITHUB_RUN_ATTEMPT || '1';
+            const status = process.env.OFFICE_JOB_STATUS;
+            const reportPath = 'test-results/office-major-differences.md';
+            const report = fs.existsSync(reportPath)
+              ? fs.readFileSync(reportPath, 'utf8')
+              : 'No major-differences report was produced. See the run logs and uploaded artifacts for results or setup failures.';
+            const metadata = [
+              `Workflow run: ${runUrl} (attempt ${attempt})`,
+              `Status before issue publication: **${status}**`,
+              `Commit: ${context.sha}`,
+              `Trigger: ${context.eventName}`,
+            ].join('\n');
+            // Stay within GitHub's issue body limit, including large reports.
+            const body = `${metadata}\n\n${report}`;
+            const limit = 60000;
+            const suffix = '\n\nReport truncated; the full report is available in the workflow artifacts.';
+            const issue = await github.rest.issues.create({
+              ...context.repo,
+              title: `Office conformance: run ${context.runNumber}, attempt ${attempt} (${status})`,
+              body: body.length > limit ? body.slice(0, limit - suffix.length) + suffix : body,
+            });
+            core.info(`Created ${issue.data.html_url}`);
+            await core.summary.addLink('Office conformance issue', issue.data.html_url).write();
 
       # The dispatch input offers a regenerated baseline, so it has to arrive
       # somewhere a person can fetch it. It is deliberately not committed: a row
