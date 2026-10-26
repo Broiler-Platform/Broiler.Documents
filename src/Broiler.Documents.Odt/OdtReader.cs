@@ -280,8 +280,13 @@ internal static class OdtReader
                 if (context!.TableDepth > 0 || context.HiddenSectionDepth > 0)
                     return false;
                 string? name = styles.MasterPageName(family, style);
-                if (string.IsNullOrEmpty(name) || masters is null || !masters.TryGetValue(name, out XElement? master))
+                if (string.IsNullOrEmpty(name))
                     return false;
+                // Naming a master page implies a boundary even in an incomplete
+                // document whose master definition is absent. Keep the active
+                // paper/running content when there is no replacement to read.
+                if (masters is null || !masters.TryGetValue(name, out XElement? master))
+                    return index > 0;
                 PageGeometry? selected = ReadPageGeometry(master, styles, diagnostics) ?? page;
                 context!.ActivePage = selected;
                 if (index == 0)

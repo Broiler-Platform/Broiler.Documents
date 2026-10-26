@@ -711,3 +711,27 @@ explicit version to the official installer, bypassing the `aka.ms` redirect.
 The SDK supplies its matching runtime. The recovered installation is placed in
 runner temporary storage and exported through `GITHUB_PATH` and `DOTNET_ROOT`.
 If recovery fails too, the job fails; no conformance checks are reported as run.
+
+The [issue #152 verification note](../notes/office-issue-152.md) records inline
+DOCX boundary and ODT master-page fallback corrections, with a complete 30-case
+control list and before/after native-reference results.
+
+The [RTF shape-property follow-up](../notes/office-issue-152-rtf-shape-properties.md)
+records ten further import/export corrections, authored native comparisons and
+remaining LibreOffice consumer limitations.
+
+The [VML follow-up](../notes/office-issue-152-vml-shapes.md) records ten DOCX
+shape-reading corrections, group/type handling, native line/polyline distinctions,
+and the remaining mixed measurements in the original control group.
+
+The [RTF group/formatting follow-up](../notes/office-issue-152-rtf-groups-formatting.md)
+records retained graphics in a ranked original, ten reader corrections, native
+controls and the remaining paper-size, nested-group and decoration approximations.
+
+The [table grid/style follow-up](../notes/office-issue-152-table-grids-styles.md)
+records ten import/export corrections, a native sparse-cell export check and
+remaining native/autofit differences without a newly resolved ranked original.
+
+The [WordprocessingML theme-color follow-up](../notes/office-issue-152-word-theme-colors.md)
+records five corrected color contexts, cache-versus-theme precedence and native
+export checks, including the tested LibreOffice importer's cache preference.

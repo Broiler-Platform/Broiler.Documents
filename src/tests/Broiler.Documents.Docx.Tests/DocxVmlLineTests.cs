@@ -38,8 +38,8 @@ public sealed class DocxVmlLineTests
     {
         var shape = Assert.Single(Read("<v:polyline points='111.85pt,2.85pt,111.6pt,86.1pt' " +
             "coordsize='5,1665' style='margin-left:2pt;margin-top:3pt'/>").Document.Shapes);
-        Assert.Equal(111.6, shape.OffsetX, 3);
-        Assert.Equal(2.85, shape.OffsetY, 3);
+        Assert.Equal(113.6, shape.OffsetX, 3);
+        Assert.Equal(5.85, shape.OffsetY, 3);
         Assert.Equal(0.25, shape.Width, 3);
         Assert.Equal(83.25, shape.Height, 3);
         Assert.Equal(ShapeGeometry.LineAscending, shape.Geometry);

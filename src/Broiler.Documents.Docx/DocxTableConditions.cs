@@ -58,8 +58,10 @@ internal readonly struct DocxTableLook
     private const int NoVerticalBandBit = 0x400;
 
     private readonly int _look;
+    private readonly int _rowBandSize, _columnBandSize;
 
-    private DocxTableLook(int look) => _look = look;
+    private DocxTableLook(int look, int rowBandSize, int columnBandSize)
+    { _look = look; _rowBandSize = Math.Max(1, rowBandSize); _columnBandSize = Math.Max(1, columnBandSize); }
 
     /// <summary>
     /// The conditional formats in the order LibreOffice merges them, each later
@@ -88,7 +90,7 @@ internal readonly struct DocxTableLook
     /// </summary>
     /// <param name="properties">The table's <c>w:tblPr</c>.</param>
     /// <param name="defines">Whether the table's style defines a format of a type.</param>
-    public static DocxTableLook Read(XElement? properties, Func<string, bool> defines)
+    public static DocxTableLook Read(XElement? properties, Func<string, bool> defines, int rowBandSize = 1, int columnBandSize = 1)
     {
         int look = 0x4A0;
         XElement? element = properties?.Element(DocxNamespaces.Wordprocessing + "tblLook");
@@ -121,7 +123,7 @@ internal readonly struct DocxTableLook
         if ((look & LastRowBit) != 0 && !defines("lastRow")) look &= ~LastRowBit;
         if ((look & FirstColumnBit) != 0 && !defines("firstCol")) look &= ~FirstColumnBit;
         if ((look & LastColumnBit) != 0 && !defines("lastCol")) look &= ~LastColumnBit;
-        return new DocxTableLook(look);
+        return new DocxTableLook(look, rowBandSize, columnBandSize);
     }
 
     /// <summary>The conditions every cell of a row shares.</summary>
@@ -134,8 +136,8 @@ internal readonly struct DocxTableLook
         if ((_look & NoHorizontalBandBit) != 0)
             return TableConditions.None;
 
-        int band = row + 1 + ((_look & FirstRowBit) != 0 ? 1 : 0);
-        return (band & 1) != 0 ? TableConditions.Band1Horizontal : TableConditions.Band2Horizontal;
+        int band = Math.Max(0, row - ((_look & FirstRowBit) != 0 ? 1 : 0)) / _rowBandSize;
+        return (band & 1) == 0 ? TableConditions.Band1Horizontal : TableConditions.Band2Horizontal;
     }
 
     /// <summary>A cell's conditions, given those of its row.</summary>
@@ -148,8 +150,8 @@ internal readonly struct DocxTableLook
             column = TableConditions.LastColumn;
         else if ((_look & NoVerticalBandBit) == 0)
         {
-            int band = cell + 1 + ((_look & FirstColumnBit) != 0 ? 1 : 0);
-            column = (band & 1) != 0 ? TableConditions.Band1Vertical : TableConditions.Band2Vertical;
+            int band = Math.Max(0, cell - ((_look & FirstColumnBit) != 0 ? 1 : 0)) / _columnBandSize;
+            column = (band & 1) == 0 ? TableConditions.Band1Vertical : TableConditions.Band2Vertical;
         }
 
         TableConditions conditions = row | column;

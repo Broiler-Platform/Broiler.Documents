@@ -193,9 +193,10 @@ public sealed class DocxColumnTests
             "<w:p><w:r><w:t>one</w:t><w:br w:type=\"column\"/><w:t>two</w:t></w:r></w:p>" +
             DocxTestPackage.Paragraph("next"));
 
-        Assert.Equal("one" + LineBreak + "two", result.Document.Paragraphs[0].Text);
-        Assert.False(result.Document.Paragraphs[1].Style.PageBreakBefore);
-        Assert.True(Reports(result, "docx.pagebreak.split"));
+        Assert.Equal(new[] { "one", "two", "next" }, result.Document.Paragraphs.Select(p => p.Text));
+        Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.False(result.Document.Paragraphs[2].Style.PageBreakBefore);
+        Assert.False(Reports(result, "docx.pagebreak.split"));
     }
 
     [Fact]
@@ -224,14 +225,16 @@ public sealed class DocxColumnTests
     }
 
     [Fact]
-    public void A_Column_Break_Inside_A_Paragraph_In_Columns_Is_A_Line_Break_And_Says_So()
+    public void A_Column_Break_Inside_A_Paragraph_Preserves_The_Column_Boundary()
     {
         DocumentReadResult result = Read(
             "<w:p><w:r><w:t>one</w:t><w:br w:type=\"column\"/><w:t>two</w:t></w:r></w:p>" +
             Section("<w:cols w:num=\"2\"/>"));
 
-        Assert.Equal("one" + LineBreak + "two", result.Document.Paragraphs[0].Text);
-        Assert.True(Reports(result, "docx.break.column"));
+        Assert.Equal(new[] { "one", "two" }, result.Document.Paragraphs.Select(p => p.Text));
+        Assert.True(result.Document.Paragraphs[1].Style.ColumnBreakBefore);
+        Assert.False(result.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.False(Reports(result, "docx.break.column"));
     }
 
     [Fact]

@@ -20,6 +20,36 @@ public sealed class DocxPageBreakTests
     private const string LineBreak = "\u2028";
 
     [Fact]
+    public void Internal_Boundaries_Retain_Run_Formatting_And_Only_Outer_Paragraph_Spacing()
+    {
+        var result = DocxTestPackage.ReadBody(
+            "<w:p><w:pPr><w:spacing w:before='240' w:after='120'/><w:ind w:left='600' w:firstLine='200'/><w:keepNext/></w:pPr>" +
+            "<w:r><w:rPr><w:b/></w:rPr><w:t>before</w:t><w:br w:type='page'/><w:t>after</w:t></w:r></w:p>");
+        Assert.Equal(2, result.Document.ParagraphCount);
+        var first = result.Document.Paragraphs[0];
+        var last = result.Document.Paragraphs[1];
+        Assert.Equal(12, first.Style.SpacingBefore);
+        Assert.Equal(0, first.Style.SpacingAfter);
+        Assert.False(first.Style.KeepWithNext);
+        Assert.Equal(0, last.Style.SpacingBefore);
+        Assert.Equal(6, last.Style.SpacingAfter);
+        Assert.True(last.Style.KeepWithNext);
+        Assert.Equal(30, last.Style.LeftIndent);
+        Assert.Equal(0, last.Style.FirstLineIndent);
+        Assert.All(result.Document.Paragraphs, paragraph => Assert.True(paragraph.StyleAt(0).Bold));
+    }
+
+    [Fact]
+    public void An_Internal_Table_Cell_Break_Keeps_The_Existing_Line_Break_Approximation()
+    {
+        var result = DocxTestPackage.ReadBody(DocxTestPackage.Table(
+            [["<w:p><w:r><w:t>before</w:t><w:br w:type='page'/><w:t>after</w:t></w:r></w:p>"]]) + DocxTestPackage.Paragraph("body"));
+        Assert.Equal("before" + LineBreak + "after", result.Document.Paragraphs[0].Text);
+        Assert.False(result.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.split");
+    }
+
+    [Fact]
     public void Reads_The_Paragraph_Property()
     {
         DocumentReadResult result = DocxTestPackage.ReadBody(
@@ -130,32 +160,30 @@ public sealed class DocxPageBreakTests
     }
 
     [Fact]
-    public void A_Break_With_Text_After_It_Becomes_A_Line_Break_And_Says_So()
+    public void A_Break_With_Text_After_It_Preserves_A_Page_Boundary()
     {
-        // Word splits the paragraph across the boundary. One flag on one
-        // paragraph cannot say that, and carrying the break to the paragraph
-        // after would leave "after" on the page it does not belong to.
         DocumentReadResult result = DocxTestPackage.ReadBody(
             "<w:p><w:r><w:t>before</w:t><w:br w:type=\"page\"/><w:t>after</w:t></w:r></w:p>" +
             DocxTestPackage.Paragraph("next"));
 
-        Assert.Equal("before" + LineBreak + "after", result.Document.Paragraphs[0].Text);
-        Assert.False(result.Document.Paragraphs[1].Style.PageBreakBefore);
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.split");
+        Assert.Equal(new[] { "before", "after", "next" }, result.Document.Paragraphs.Select(p => p.Text));
+        Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.False(result.Document.Paragraphs[2].Style.PageBreakBefore);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.split");
     }
 
     [Fact]
     public void A_Break_With_Text_After_It_Does_Not_Consume_The_Next_Break()
     {
-        // The demoted break must not leave the paragraph latched: the second
-        // break here is trailing and is the one the next paragraph starts on.
+        // The internal boundary and the final boundary must both survive.
         DocumentReadResult result = DocxTestPackage.ReadBody(
             "<w:p><w:r><w:t>before</w:t><w:br w:type=\"page\"/><w:t>after</w:t>" +
             "<w:br w:type=\"page\"/></w:r></w:p>" +
             DocxTestPackage.Paragraph("next"));
 
-        Assert.Equal("before" + LineBreak + "after", result.Document.Paragraphs[0].Text);
+        Assert.Equal(new[] { "before", "after", "next" }, result.Document.Paragraphs.Select(p => p.Text));
         Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.True(result.Document.Paragraphs[2].Style.PageBreakBefore);
     }
 
     [Fact]
