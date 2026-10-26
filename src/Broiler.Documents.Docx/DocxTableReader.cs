@@ -45,11 +45,60 @@ internal static class DocxTableReader
         DocxStyles styles = context.Styles;
         string? styleId = styles.TableStyleFor(
             DocxValueReader.WordValue(properties?.Element(DocxNamespaces.Wordprocessing + "tblStyle")));
-        DocxTableLook look = DocxTableLook.Read(properties, type => styles.DefinesTableCondition(styleId, type));
         IReadOnlyList<XElement> styleTableParts = styles.TableStyleParts(styleId, TableConditions.None, "tblPr");
+        int BandSize(string name) => DocxValueReader.TryReadInt(TableProperty(styleTableParts, properties, name)?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int size)
+            ? Math.Clamp(size, 1, 4096) : 1;
+        DocxTableLook look = DocxTableLook.Read(properties, type => styles.DefinesTableCondition(styleId, type),
+            BandSize("tblStyleRowBandSize"), BandSize("tblStyleColBandSize"));
         Edges tableEdges = ReadTableEdges(styleTableParts, properties);
         BColor? tableShading = ReadTableShading(styleTableParts, properties);
         List<XElement> rowElements = [.. EnumerateTableChildren(table, "tr")];
+        List<double> grid = ReadTableGrid(table);
+        bool missingGrid = grid.Count == 0;
+        int Bounded(int value, int minimum)
+        {
+            if (value < minimum || value > 4096)
+                context.Builder.AddDiagnosticOnce("docx.table.grid", "A table grid count exceeded the supported range and was bounded.");
+            return Math.Clamp(value, minimum, 4096);
+        }
+        int GridGap(XElement row, string name) => Bounded(WordInt(row.Element(DocxNamespaces.Wordprocessing + "trPr"), name, 0), 0);
+        int Span(XElement cell) => Bounded(WordInt(cell.Element(DocxNamespaces.Wordprocessing + "tcPr"), "gridSpan", 1), 1);
+        int gridColumns = grid.Count;
+        bool hasTrailingGap = false;
+        foreach (XElement row in rowElements)
+        {
+            long columns = GridGap(row, "gridBefore") + (long)GridGap(row, "gridAfter");
+            foreach (XElement cell in EnumerateTableChildren(row, "tc")) columns += Span(cell);
+            if (columns > 4096) context.Builder.AddDiagnosticOnce("docx.table.grid", "A table grid count exceeded the supported range and was bounded.");
+            gridColumns = Math.Max(gridColumns, (int)Math.Min(4096, columns));
+            hasTrailingGap |= GridGap(row, "gridAfter") > 0;
+        }
+        if (missingGrid && gridColumns > 0)
+        {
+            var inferred = new double[gridColumns];
+            foreach (XElement row in rowElements)
+            {
+                XElement? rowProperties = row.Element(DocxNamespaces.Wordprocessing + "trPr");
+                int before = GridGap(row, "gridBefore"), after = GridGap(row, "gridAfter");
+                int column = before;
+                Fill(0, before, ReadPreferredWidth(rowProperties?.Element(DocxNamespaces.Wordprocessing + "wBefore"), false));
+                foreach (XElement cell in EnumerateTableChildren(row, "tc"))
+                {
+                    int span = Span(cell);
+                    Fill(column, span, ReadPreferredWidth(cell.Element(DocxNamespaces.Wordprocessing + "tcPr")?.Element(DocxNamespaces.Wordprocessing + "tcW"), false));
+                    column = Math.Min(4096, column + span);
+                }
+                Fill(column, after, ReadPreferredWidth(rowProperties?.Element(DocxNamespaces.Wordprocessing + "wAfter"), false));
+            }
+            if (inferred.Any(width => width > 0)) grid.AddRange(inferred);
+            void Fill(int first, int count, double? width)
+            {
+                if (count <= 0 || width is not > 0) return;
+                for (int i = Math.Max(0, first); i < Math.Min(gridColumns, (long)first + count); i++)
+                    if (inferred[i] == 0) inferred[i] = width.Value / count;
+            }
+        }
+        if (hasTrailingGap) while (grid.Count < gridColumns) grid.Add(0);
         // A malformed empty table contributes no block; leave the break for
         // the next real paragraph or table instead of swallowing it here.
         (bool pageBreak, bool columnBreak) = rowElements.Any(row => EnumerateTableChildren(row, "tc").Any())
@@ -68,20 +117,24 @@ internal static class DocxTableReader
             Edges rowEdges = Edges.Read(row
                 .Element(DocxNamespaces.Wordprocessing + "tblPrEx")?
                 .Element(DocxNamespaces.Wordprocessing + "tblBorders")).Over(tableEdges);
+            XElement? rowExceptions = row.Element(DocxNamespaces.Wordprocessing + "tblPrEx");
+            XElement? rowProperties = row.Element(DocxNamespaces.Wordprocessing + "trPr");
+            BColor? rowShading = ReadShading(rowExceptions) ?? tableShading;
             List<XElement> cellElements = [.. EnumerateTableChildren(row, "tc")];
             var cells = new List<CellDraft>();
-            int column = 0;
+            int column = GridGap(row, "gridBefore");
             for (int cellIndex = 0; cellIndex < cellElements.Count; cellIndex++)
             {
                 XElement cell = cellElements[cellIndex];
                 XElement? cellProperties = cell.Element(DocxNamespaces.Wordprocessing + "tcPr");
-                TableConditions conditions = look.ForCell(rowConditions, cellIndex, cellElements.Count);
+                int span = Span(cell);
+                TableConditions conditions = look.ForCell(rowConditions, cellIndex + GridGap(row, "gridBefore"),
+                    cellElements.Count + GridGap(row, "gridBefore") + GridGap(row, "gridAfter"));
                 DocxReadContext cellContext = context with
                 {
                     TableStyle = styleId,
                     TableConditions = conditions,
                 };
-                int span = Math.Max(1, WordInt(cellProperties, "gridSpan", 1));
                 int cellStart = context.Builder.CurrentParagraphIndex;
 
                 // Tables the cell's content opens belong to the cell, so they are
@@ -110,24 +163,24 @@ internal static class DocxTableReader
                     IsFirstInRow = cellIndex == 0,
                     IsLastInRow = cellIndex == cellElements.Count - 1,
                     TableEdges = rowEdges,
+                    TableShading = rowShading,
                     Tables = nested,
                     VerticalAlignment = ReadCellAlignment(styles.TableStyleParts(styleId, conditions, "tcPr"), cellProperties),
-                    Padding = ResolvePadding(styleTableParts, properties, styles.TableStyleParts(styleId, conditions, "tcPr"), cellProperties),
+                    Padding = ResolvePadding(styleTableParts, properties, rowExceptions, styles.TableStyleParts(styleId, conditions, "tcPr"), cellProperties),
                 });
-                column += span;
+                column = Math.Min(4096, column + span);
             }
 
             // A row the style's first-row format marks as a header repeats as one,
             // and a style's rows can be kept whole; the row's own switches win.
             rows.Add(new RowDraft(
                 cells,
-                ReadRowMinHeight(row, ref exactHeightSeen),
+                ReadRowMinHeight(rowProperties?.Element(DocxNamespaces.Wordprocessing + "trHeight"), ref exactHeightSeen),
                 !(ReadRowSwitchOrNull(row.Element(DocxNamespaces.Wordprocessing + "trPr"), "cantSplit") ??
                   StyleRowSwitch(styleRowParts, "cantSplit")),
                 ReadRowSwitchOrNull(row.Element(DocxNamespaces.Wordprocessing + "trPr"), "tblHeader") ??
                   ((rowConditions & TableConditions.FirstRow) != 0 && StyleRowSwitch(styleRowParts, "tblHeader")),
-                (string?)row.Element(DocxNamespaces.Wordprocessing + "trPr")?
-                    .Element(DocxNamespaces.Wordprocessing + "trHeight")?.Attribute(DocxNamespaces.Wordprocessing + "hRule") == "exact"));
+                (string?)rowProperties?.Element(DocxNamespaces.Wordprocessing + "trHeight")?.Attribute(DocxNamespaces.Wordprocessing + "hRule") == "exact"));
             if (rows.Count >= context.Builder.Limits.MaxParagraphCount)
                 break;
         }
@@ -146,7 +199,7 @@ internal static class DocxTableReader
             {
                 bool reachesEnd = cell.RowIndex + cell.RowSpan >= rows.Count;
                 cell.Borders = ResolveCellBorders(cell, cell.TableEdges, reachesEnd);
-                cell.Shading = ResolveCellShading(cell, tableShading);
+                cell.Shading = ResolveCellShading(cell, cell.TableShading);
             }
         }
 
@@ -154,7 +207,7 @@ internal static class DocxTableReader
             start,
             context.Builder.CurrentParagraphIndex - start,
             [.. rows.Select(BuildRow)],
-            ReadTableGrid(table),
+            grid,
             ReadCellPadding(styleTableParts, properties),
             depth <= 1 ? ReadPosition(properties) : null,
             preferredWidth: ReadPreferredWidth(TableProperty(styleTableParts, properties, "tblW"), percent: false),
@@ -200,8 +253,7 @@ internal static class DocxTableReader
                 bool applied = (kind, name) switch
                 {
                     ("tblPr", "tblBorders" or "shd" or "tblCellMar" or "tblInd" or "tblW" or "jc" or "tblLook" or "tblStyle") => true,
-                    ("tblPr", "tblStyleRowBandSize" or "tblStyleColBandSize") =>
-                        !DocxValueReader.TryReadInt(property.Attribute(DocxNamespaces.Wordprocessing + "val"), out int size) || size <= 1,
+                    ("tblPr", "tblStyleRowBandSize" or "tblStyleColBandSize") => true,
                     ("trPr", "cantSplit" or "tblHeader") => true,
                     ("tcPr", "tcBorders") => !property.Elements().Any(edge => edge.Name.LocalName is "tl2br" or "tr2bl"),
                     ("tcPr", "shd" or "tcW" or "tcMar" or "vAlign") => true,
@@ -345,6 +397,7 @@ internal static class DocxTableReader
         public int RowSpan = 1;
         public VerticalMerge Merge;
         public BColor Shading;
+        public BColor? TableShading;
         public CellBorders Borders;
         public TableCellPadding? Padding;
         public CellVerticalAlignment VerticalAlignment;
@@ -418,11 +471,8 @@ internal static class DocxTableReader
     /// the layout falls in on itself.
     /// </para>
     /// </remarks>
-    private static double ReadRowMinHeight(XElement row, ref bool exactHeightSeen)
+    private static double ReadRowMinHeight(XElement? height, ref bool exactHeightSeen)
     {
-        XElement? height = row
-            .Element(DocxNamespaces.Wordprocessing + "trPr")?
-            .Element(DocxNamespaces.Wordprocessing + "trHeight");
         if (height is null)
             return 0;
 
@@ -468,7 +518,7 @@ internal static class DocxTableReader
                 if (cell.Merge != VerticalMerge.Continue)
                     continue;
 
-                CellDraft? origin = FindMergeOrigin(rows, r, cell.ColumnIndex);
+                CellDraft? origin = FindMergeOrigin(rows, r, cell.ColumnIndex, cell.ColumnSpan);
                 if (origin is null)
                 {
                     // A continuation with no merge above it continues nothing.
@@ -489,7 +539,7 @@ internal static class DocxTableReader
     /// one that is not itself a continuation - and then only if it opened a
     /// merge. A column that stops before then has no merge to join.
     /// </summary>
-    private static CellDraft? FindMergeOrigin(List<List<CellDraft>> rows, int row, int columnIndex)
+    private static CellDraft? FindMergeOrigin(List<List<CellDraft>> rows, int row, int columnIndex, int columnSpan)
     {
         for (int r = row - 1; r >= 0; r--)
         {
@@ -503,7 +553,7 @@ internal static class DocxTableReader
                 }
             }
 
-            if (candidate is null)
+            if (candidate is null || candidate.ColumnSpan != columnSpan)
                 return null;
 
             if (candidate.Merge != VerticalMerge.Continue)
@@ -538,7 +588,7 @@ internal static class DocxTableReader
     /// Each cell edge, from table styles, table margins, conditional cell
     /// styles and direct cell margins, in increasing priority.
     /// </summary>
-    private static TableCellPadding? ResolvePadding(IReadOnlyList<XElement> tableStyles, XElement? table,
+    private static TableCellPadding? ResolvePadding(IReadOnlyList<XElement> tableStyles, XElement? table, XElement? rowExceptions,
         IReadOnlyList<XElement> cellStyles, XElement? cell)
     {
         double left = DocumentTable.DefaultCellPadding, right = left, top = 0, bottom = 0;
@@ -546,6 +596,7 @@ internal static class DocxTableReader
         foreach (XElement part in tableStyles)
             Apply(part.Element(DocxNamespaces.Wordprocessing + "tblCellMar"));
         Apply(table?.Element(DocxNamespaces.Wordprocessing + "tblCellMar"));
+        Apply(rowExceptions?.Element(DocxNamespaces.Wordprocessing + "tblCellMar"));
         foreach (XElement part in cellStyles)
             Apply(part.Element(DocxNamespaces.Wordprocessing + "tcMar"));
         Apply(cell?.Element(DocxNamespaces.Wordprocessing + "tcMar"));

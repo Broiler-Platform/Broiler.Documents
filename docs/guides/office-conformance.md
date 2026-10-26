@@ -727,3 +727,7 @@ and the remaining mixed measurements in the original control group.
 The [RTF group/formatting follow-up](../notes/office-issue-152-rtf-groups-formatting.md)
 records retained graphics in a ranked original, ten reader corrections, native
 controls and the remaining paper-size, nested-group and decoration approximations.
+
+The [table grid/style follow-up](../notes/office-issue-152-table-grids-styles.md)
+records ten import/export corrections, a native sparse-cell export check and
+remaining native/autofit differences without a newly resolved ranked original.
