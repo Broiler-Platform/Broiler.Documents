@@ -353,16 +353,19 @@ writes the top few as an issue (`--issue-out`, `--create-github-issue`). The
 nightly workflow runs it that way. There is no baseline: the ranking is a list
 of places to look, not a verdict.
 
-Scheduled runs enable GitHub issue publication. Manual runs follow the
-`createIssue` checkbox (default `true`); unchecking it disables publication.
-Seed-corpus runs, baseline regeneration and `@sample-list` replays suppress
-publication regardless of that checkbox. The workflow logs the decision.
-Even when enabled, publication requires a ranked failure or an unhandled
-crash-regression input. Passing or fully skipped runs do not publish an issue.
-The API updates an open issue with the same title when found among the first
-100 open issues; otherwise it creates one. The title includes the actual number
-of ranked findings, so different counts or a closed previous issue can result
-in a new issue. The local Markdown report is written independently of publication.
+Every scheduled or manually dispatched workflow run creates a **new** issue.
+A separate `always()` step publishes the local Markdown report, with the run
+link, attempt, commit and job status. It never searches for or edits an older
+issue. This also covers clean or fully skipped runs, exact-list replays,
+seed-corpus runs and baseline regeneration. If setup or execution failed before
+producing a report, the issue links to the logs and artifacts instead. Rerunning
+a workflow attempt creates another issue. Publication requires the job to start
+and GitHub's issue API to be available with `issues: write` permission.
+
+The workflow does not use the runner's `--create-github-issue` option, so it
+publishes once, after execution, independently of the findings. For local CLI
+use, that optional flag still updates a matching open issue when present;
+`--issue-out` only writes the Markdown report.
 
 The score is dominated by the page-count gap, and that is why one family of
 samples is kept out of it. **Fuzzer output is set aside.** LibreOffice keeps
@@ -711,10 +714,11 @@ native-tool probes for problems such as style retention and exported image URIs.
 For a manual GitHub Actions run, set the existing **only** input to
 `@tests/office/selections/issue-147.txt` (or another committed list). The workflow
 shows the triage Markdown in the job summary and uploads it with the existing
-results artifact. Exact-list runs have independent concurrency and never update
-the global ranking issue, even if **createIssue** retains its default. The CLI
-rejects `--sample-list --create-github-issue` for the same reason. Scheduled/full
-runs retain their serialized global issue reporting. To compare CI artifacts
+results artifact. Exact-list runs have independent concurrency and publish a
+new issue for their own run. The CLI still rejects
+`--sample-list --create-github-issue` because its legacy publisher updates the
+global ranking issue; the workflow's separate publisher has no such restriction.
+To compare CI artifacts
 locally, extract a previous `triage.json` and pass it via `--previous-triage`.
 
 ### Recovering a .NET download failure
