@@ -437,12 +437,14 @@ internal sealed class DocxStyles
 internal sealed class DocxTheme
 {
     private readonly Dictionary<string, BColor> _colors;
+    private readonly XElement? _formatScheme;
 
-    private DocxTheme(string? majorLatin, string? minorLatin, Dictionary<string, BColor> colors)
+    private DocxTheme(string? majorLatin, string? minorLatin, Dictionary<string, BColor> colors, XElement? formatScheme = null)
     {
         MajorLatin = majorLatin;
         MinorLatin = minorLatin;
         _colors = colors;
+        _formatScheme = formatScheme;
     }
 
     public static DocxTheme Empty { get; } = new(null, null, new Dictionary<string, BColor>(StringComparer.Ordinal));
@@ -477,7 +479,8 @@ internal sealed class DocxTheme
         return new DocxTheme(
             LatinTypeface(fontScheme?.Element(DocxNamespaces.Drawing + "majorFont")),
             LatinTypeface(fontScheme?.Element(DocxNamespaces.Drawing + "minorFont")),
-            ReadColorScheme(elements.Element(DocxNamespaces.Drawing + "clrScheme")));
+            ReadColorScheme(elements.Element(DocxNamespaces.Drawing + "clrScheme")),
+            elements.Element(DocxNamespaces.Drawing + "fmtScheme"));
     }
 
     /// <summary>
@@ -489,7 +492,8 @@ internal sealed class DocxTheme
     /// <c>w:clrSchemeMapping</c> in the settings can remap those, but Word writes
     /// the default mapping, and that is the one taken here: <c>bg1</c> is
     /// <c>lt1</c>, <c>tx1</c> is <c>dk1</c>, and so on. <c>phClr</c> stands for a
-    /// colour a style supplies, which this reader does not resolve.
+    /// colour a shape style supplies; its format-matrix substitution is resolved
+    /// separately by <see cref="DocxShapeStyle"/>.
     /// </remarks>
     public bool TryResolveColor(string? name, out BColor color)
     {
@@ -506,6 +510,14 @@ internal sealed class DocxTheme
 
         color = BColor.Empty;
         return false;
+    }
+
+    /// <summary>A one-based DrawingML format-matrix entry; background fills start at 1001.</summary>
+    public XElement? FormatStyle(bool line, int index)
+    {
+        string list = line ? "lnStyleLst" : index >= 1001 ? "bgFillStyleLst" : "fillStyleLst";
+        int offset = !line && index >= 1001 ? index - 1001 : index - 1;
+        return offset >= 0 ? _formatScheme?.Element(DocxNamespaces.Drawing + list)?.Elements().ElementAtOrDefault(offset) : null;
     }
 
     private static Dictionary<string, BColor> ReadColorScheme(XElement? scheme)

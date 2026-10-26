@@ -1387,7 +1387,7 @@ internal static class DocxReader
         if (width < 0 || height < 0 || (width == 0 && height == 0))
             return false;
 
-        XElement? spPr = wsp.Element(DocxNamespaces.WordShape + "spPr");
+        XElement spPr = DocxShapeStyle.Resolve(wsp, context.Styles.Theme);
         ShapeFill? fill = ReadFill(spPr, context);
         BColor outline = ReadOutline(spPr, context.Styles.Theme);
         string? preset = (string?)spPr?.Element(DocxNamespaces.Drawing + "prstGeom")?.Attribute("prst");

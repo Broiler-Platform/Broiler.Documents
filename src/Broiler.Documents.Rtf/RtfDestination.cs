@@ -51,6 +51,9 @@ internal enum RtfDestination
     /// <summary>A <c>\shp</c> drawing: its geometry and its properties.</summary>
     Shape,
 
+    /// <summary>A legacy drawing-object destination.</summary>
+    LegacyDrawing,
+
     /// <summary>One <c>\sp</c> property pair inside a shape.</summary>
     ShapeProperty,
 
