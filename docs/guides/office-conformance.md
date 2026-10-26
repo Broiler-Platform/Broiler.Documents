@@ -731,3 +731,7 @@ controls and the remaining paper-size, nested-group and decoration approximation
 The [table grid/style follow-up](../notes/office-issue-152-table-grids-styles.md)
 records ten import/export corrections, a native sparse-cell export check and
 remaining native/autofit differences without a newly resolved ranked original.
+
+The [WordprocessingML theme-color follow-up](../notes/office-issue-152-word-theme-colors.md)
+records five corrected color contexts, cache-versus-theme precedence and native
+export checks, including the tested LibreOffice importer's cache preference.

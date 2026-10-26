@@ -2054,9 +2054,9 @@ internal static class DocxReader
         ParagraphStyle style = ParagraphStyle.Default;
         IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions);
         foreach (XElement styleParagraphProperties in chain)
-            style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style);
+            style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style, context.Styles.Theme);
 
-        style = ApplyParagraphProperties(pPr, context.Numbering, style);
+        style = ApplyParagraphProperties(pPr, context.Numbering, style, context.Styles.Theme);
         return ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
     }
 
@@ -2153,25 +2153,11 @@ internal static class DocxReader
         return null;
     }
 
-    /// <summary>The colour a paragraph's <c>w:shd</c> shows, or empty for none.</summary>
-    private static BColor ReadParagraphShading(XElement shading)
-    {
-        string? pattern = DocxValueReader.WordValue(shading);
-        if (pattern is "nil")
-            return BColor.Empty;
-
-        string? attribute = pattern is "solid" ? "color" : "fill";
-        return DocxValueReader.TryParseHexColor(
-            (string?)shading.Attribute(DocxNamespaces.Wordprocessing + attribute),
-            out BColor color)
-            ? color
-            : BColor.Empty;
-    }
-
+    /// <summary>Applies paragraph properties, resolving shading against the document theme.</summary>
     private static ParagraphStyle ApplyParagraphProperties(
         XElement? pPr,
         DocxNumbering numbering,
-        ParagraphStyle style)
+        ParagraphStyle style, DocxTheme theme)
     {
         if (pPr is null)
             return style;
@@ -2241,7 +2227,7 @@ internal static class DocxReader
 
         XElement? shading = pPr.Element(DocxNamespaces.Wordprocessing + "shd");
         if (shading is not null)
-            style = style with { Background = ReadParagraphShading(shading) };
+            style = style with { Background = DocxWordColor.Shading(shading, theme) };
 
         XElement? spacing = pPr.Element(DocxNamespaces.Wordprocessing + "spacing");
         if (spacing is not null)
@@ -2402,7 +2388,7 @@ internal static class DocxReader
 
         XElement? color = rPr.Element(DocxNamespaces.Wordprocessing + "color");
         string? colorValue = DocxValueReader.WordValue(color);
-        if (DocxValueReader.TryParseHexColor(colorValue, out BColor foreground))
+        if (DocxWordColor.TryRead(color, theme, fill: false, out BColor foreground))
         {
             style = style with { Foreground = foreground };
         }
@@ -2416,9 +2402,8 @@ internal static class DocxReader
         }
 
         XElement? shade = rPr.Element(DocxNamespaces.Wordprocessing + "shd");
-        string? fill = (string?)shade?.Attribute(DocxNamespaces.Wordprocessing + "fill");
-        if (DocxValueReader.TryParseHexColor(fill, out BColor shadeColor))
-            style = style with { Background = shadeColor };
+        if (shade is not null)
+            style = style with { Background = DocxWordColor.Shading(shade, theme) };
 
         XElement? highlight = rPr.Element(DocxNamespaces.Wordprocessing + "highlight");
         string? highlightValue = DocxValueReader.WordValue(highlight);
