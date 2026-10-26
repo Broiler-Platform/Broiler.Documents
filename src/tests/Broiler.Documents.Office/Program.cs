@@ -525,6 +525,10 @@ internal static class Program
                 if (issueUrl is not null)
                     Console.WriteLine("issue       " + issueUrl);
             }
+            else if (options.CreateGitHubIssue)
+            {
+                Console.WriteLine("issue       not published: no reportable differences or crash-regression failures");
+            }
 
             if (options.JsonReport is not null)
                 OfficeReporting.WriteJson(options.JsonReport, results, readings, renders, header, top, options.Threshold);

@@ -161,7 +161,9 @@ jobs:
           OFFICE_EXTRAS_URL: ${{ inputs.extrasUrl || 'https://github.com/LibreOffice/core/tree/master/sw/qa/extras' }}
           OFFICE_TOP_DIFFERENCES: ${{ inputs.topDifferences || '3' }}
           OFFICE_MAX_FILES: ${{ inputs.maxFiles || '' }}
-          OFFICE_CREATE_ISSUE: ${{ inputs.createIssue == false && 'false' || 'true' }}
+          # Scheduled runs have no inputs. Do not compare a missing input to
+          # false: Actions coerces the empty value to false as well.
+          OFFICE_CREATE_ISSUE: ${{ (github.event_name == 'schedule' || inputs.createIssue == true) && 'true' || 'false' }}
           OFFICE_SEED_CORPUS: ${{ inputs.seedCorpus && 'true' || 'false' }}
           OFFICE_UPDATE_BASELINE: ${{ inputs.updateBaseline || 'false' }}
         run: |
@@ -192,7 +194,14 @@ jobs:
           if [ -n "$OFFICE_MAX_FILES" ]; then
             ARGS+=(--max-files "$OFFICE_MAX_FILES")
           fi
-          if [[ "$OFFICE_ONLY" != @* ]] && [ "$OFFICE_CREATE_ISSUE" = "true" ] && [ "$OFFICE_SEED_CORPUS" != "true" ] && [ "$OFFICE_UPDATE_BASELINE" != "true" ]; then
+          if [ "$OFFICE_CREATE_ISSUE" != "true" ]; then
+            echo "GitHub issue publication disabled by createIssue."
+          elif [ "$OFFICE_SEED_CORPUS" = "true" ] || [ "$OFFICE_UPDATE_BASELINE" = "true" ]; then
+            echo "GitHub issue publication disabled for seed corpus or baseline regeneration."
+          elif [[ "$OFFICE_ONLY" == @* ]]; then
+            echo "GitHub issue publication disabled for a sample-list replay."
+          else
+            echo "GitHub issue publication enabled; reportable failures will create or update an issue."
             ARGS+=(--create-github-issue)
           fi
           if [ "$OFFICE_SEED_CORPUS" = "true" ]; then

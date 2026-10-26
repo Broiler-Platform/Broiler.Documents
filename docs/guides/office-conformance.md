@@ -353,6 +353,17 @@ writes the top few as an issue (`--issue-out`, `--create-github-issue`). The
 nightly workflow runs it that way. There is no baseline: the ranking is a list
 of places to look, not a verdict.
 
+Scheduled runs enable GitHub issue publication. Manual runs follow the
+`createIssue` checkbox (default `true`); unchecking it disables publication.
+Seed-corpus runs, baseline regeneration and `@sample-list` replays suppress
+publication regardless of that checkbox. The workflow logs the decision.
+Even when enabled, publication requires a ranked failure or an unhandled
+crash-regression input. Passing or fully skipped runs do not publish an issue.
+The API updates an open issue with the same title when found among the first
+100 open issues; otherwise it creates one. The title includes the actual number
+of ranked findings, so different counts or a closed previous issue can result
+in a new issue. The local Markdown report is written independently of publication.
+
 The score is dominated by the page-count gap, and that is why one family of
 samples is kept out of it. **Fuzzer output is set aside.** LibreOffice keeps
 about two dozen fuzzed files in that tree as crash regressions (23 of the
