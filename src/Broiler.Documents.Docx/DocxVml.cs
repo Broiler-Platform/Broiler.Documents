@@ -108,6 +108,8 @@ internal static class DocxVml
             ? stated
             : TryColor((string?)fill?.Attribute("color"), out BColor own) ? own : BColor.FromArgb(255, 255, 255);
         BColor second = TryColor((string?)fill?.Attribute("color2"), out BColor other) ? other : first;
+        first = ApplyOpacity(first, (string?)fill?.Attribute("opacity"));
+        second = ApplyOpacity(second, (string?)fill?.Attribute("opacity2"));
         string type = ((string?)fill?.Attribute("type"))?.Trim() ?? "solid";
 
         switch (type)
@@ -290,6 +292,16 @@ internal static class DocxVml
         ["teal"] = 0x008080,
         ["aqua"] = 0x00FFFF,
     };
+
+    internal static BColor ApplyOpacity(BColor color, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return color;
+        string text = value.Trim();
+        double divisor = text.EndsWith('%') ? 100 : text.EndsWith('f') ? 65536 : 1;
+        if (divisor != 1) text = text[..^1];
+        if (!TryNumber(text, out double number)) return color;
+        return BColor.FromArgb((byte)Math.Round(color.A * Math.Clamp(number / divisor, 0, 1)), color.R, color.G, color.B);
+    }
 
     private static bool IsOff(string? value) =>
         value is not null && value.Trim() is "f" or "false" or "False" or "0";

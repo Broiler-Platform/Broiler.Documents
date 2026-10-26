@@ -1473,16 +1473,24 @@ internal static class DocxReader
         if (picture.Name != DocxNamespaces.Wordprocessing + "pict")
             return false;
 
-        XElement? shape = picture.Elements().FirstOrDefault(static element =>
-            element.Name == DocxNamespaces.Vml + "rect" ||
-            element.Name == DocxNamespaces.Vml + "roundrect" ||
-            element.Name == DocxNamespaces.Vml + "oval" ||
-            element.Name == DocxNamespaces.Vml + "shape" ||
-            element.Name == DocxNamespaces.Vml + "line" ||
-            element.Name == DocxNamespaces.Vml + "polyline");
-        if (shape is null || shape.Descendants(DocxNamespaces.Vml + "imagedata").Any())
-            return false;
+        bool read = false;
+        bool hasImages = false;
+        foreach (XElement shape in DocxVmlShapeWalker.Shapes(picture, context.Builder.Limits.MaxGroupDepth,
+            (code, message) => context.Builder.AddDiagnosticOnce(code, message)))
+        {
+            if (shape.Descendants(DocxNamespaces.Vml + "imagedata").Any())
+            {
+                hasImages = true;
+                continue;
+            }
+            read |= ReadVmlShapeElement(shape, context);
+        }
+        // Preserve the established first-image fallback for mixed blocks.
+        return read && !hasImages;
+    }
 
+    private static bool ReadVmlShapeElement(XElement shape, DocxReadContext context)
+    {
         Dictionary<string, string> style = DocxVml.ReadStyle((string?)shape.Attribute("style"));
         bool segment = shape.Name == DocxNamespaces.Vml + "line" || shape.Name == DocxNamespaces.Vml + "polyline";
         double lineLeft = 0, lineTop = 0, width, height;
@@ -1500,7 +1508,8 @@ internal static class DocxReader
             lineTop = Math.Min(points[1], points[3]);
             width = Math.Abs(points[2] - points[0]);
             height = Math.Abs(points[3] - points[1]);
-            geometry = (points[2] - points[0]) * (points[3] - points[1]) < 0
+            bool flip = style.GetValueOrDefault("flip")?.Contains('x') == true ^ style.GetValueOrDefault("flip")?.Contains('y') == true;
+            geometry = ((points[2] - points[0]) * (points[3] - points[1]) < 0) ^ flip
                 ? ShapeGeometry.LineAscending : ShapeGeometry.Line;
         }
         else if (!DocxVml.TryLength(style.GetValueOrDefault("width"), out width) ||
@@ -1533,7 +1542,7 @@ internal static class DocxReader
         DocxVml.TryLength(style.GetValueOrDefault("top"), out double top);
         DocxVml.TryLength(style.GetValueOrDefault("margin-top"), out double marginTop);
         // Across, every frame converts to the column, as a DrawingML anchor's does.
-        double offsetX = segment ? lineLeft : left + marginLeft;
+        double offsetX = segment ? lineLeft + (shape.Name.LocalName == "polyline" ? left + marginLeft : 0) : left + marginLeft;
         if (context.Page is PageGeometry page)
         {
             offsetX += style.GetValueOrDefault("mso-position-horizontal-relative") switch
@@ -1546,7 +1555,7 @@ internal static class DocxReader
 
         // VML names DrawingML's vertical frames in its own words; the paragraph
         // and the line stay where they are, the rest measure from the page.
-        double offsetY = segment ? lineTop : top + marginTop;
+        double offsetY = segment ? lineTop + (shape.Name.LocalName == "polyline" ? top + marginTop : 0) : top + marginTop;
         string? verticalFrom = style.GetValueOrDefault("mso-position-vertical-relative") switch
         {
             "page" => "page",
@@ -1574,10 +1583,30 @@ internal static class DocxReader
             }
         }
 
+        if (context.Page is PageGeometry alignmentPage)
+        {
+            string? horizontal = style.GetValueOrDefault("mso-position-horizontal");
+            string? horizontalFrame = style.GetValueOrDefault("mso-position-horizontal-relative");
+            double frameWidth = horizontalFrame == "page" ? alignmentPage.Width : alignmentPage.Width - alignmentPage.MarginLeft - alignmentPage.MarginRight;
+            double frameStart = horizontalFrame == "page" ? -alignmentPage.MarginLeft : 0;
+            if (horizontal is "left" or "center" or "right")
+                offsetX = frameStart + (horizontal == "center" ? (frameWidth - width) / 2 : horizontal == "right" ? frameWidth - width : 0);
+            string? vertical = style.GetValueOrDefault("mso-position-vertical");
+            string? verticalFrame = style.GetValueOrDefault("mso-position-vertical-relative");
+            if (vertical is "top" or "center" or "bottom" && verticalFrame is "page" or "margin")
+            {
+                double frameHeight = verticalFrame == "page" ? alignmentPage.Height : alignmentPage.Height - alignmentPage.MarginTop - alignmentPage.MarginBottom;
+                offsetY = (verticalFrame == "page" ? 0 : alignmentPage.MarginTop) +
+                    (vertical == "center" ? (frameHeight - height) / 2 : vertical == "bottom" ? frameHeight - height : 0);
+                fromPage = true;
+            }
+        }
+
         int zIndex = int.TryParse(style.GetValueOrDefault("z-index"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int z)
             ? z
             : 0;
-        ShapeWrap wrap = (string?)shape.Element(DocxNamespaces.VmlWord + "wrap")?.Attribute("type") switch
+        XElement? wrapping = shape.Element(DocxNamespaces.VmlWord + "wrap");
+        ShapeWrap wrap = (string?)wrapping?.Attribute("type") switch
         {
             "square" or "tight" or "through" => ShapeWrap.Square,
             "topAndBottom" => ShapeWrap.TopAndBottom,
@@ -1596,6 +1625,9 @@ internal static class DocxReader
             image: null,
             behindText: zIndex < 0,
             wrap: wrap,
+            wrapSide: (string?)wrapping?.Attribute("side") switch { "left" => WrapSide.Left, "right" => WrapSide.Right, _ => WrapSide.Largest },
+            wrapDistance: new[] { "mso-wrap-distance-left", "mso-wrap-distance-right", "mso-wrap-distance-top", "mso-wrap-distance-bottom" }
+                .Select(key => DocxVml.TryLength(style.GetValueOrDefault(key), out double distance) ? Math.Clamp(distance, 0, 20000) : 0).Max(),
             // Keep VML's signed order within the behind-text layer. Absolute
             // values reverse negative levels and paint backgrounds over shapes.
             zOrder: zIndex < 0 ? zIndex - int.MinValue : zIndex,
@@ -1637,6 +1669,8 @@ internal static class DocxReader
             if (!DocxVml.TryLength(coordinates[i], out points[i]) || Math.Abs(points[i]) > 10000 ||
                 (shape.Attribute("coordsize") is not null && points[i] != 0 && !char.IsAsciiLetter(coordinates[i][^1])))
                 return null;
+            if (shape.Name == DocxNamespaces.Vml + "line" && double.TryParse(coordinates[i], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                points[i] *= 72d / 96;
         }
         return points[0] == points[2] && points[1] == points[3] ? null : points;
     }
@@ -1657,9 +1691,9 @@ internal static class DocxReader
         if (stroked?.Trim() is "f" or "false" or "0")
             return BColor.Empty;
 
-        return DocxVml.TryColor((string?)shape.Attribute("strokecolor") ?? (string?)stroke?.Attribute("color"), out BColor color)
-            ? color
-            : BColor.FromArgb(0, 0, 0);
+        BColor color = DocxVml.TryColor((string?)shape.Attribute("strokecolor") ?? (string?)stroke?.Attribute("color"), out BColor stated)
+            ? stated : BColor.Black;
+        return DocxVml.ApplyOpacity(color, (string?)stroke?.Attribute("opacity"));
     }
 
     /// <summary>
