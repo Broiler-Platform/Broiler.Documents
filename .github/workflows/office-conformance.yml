@@ -199,7 +199,8 @@ jobs:
             ARGS+=(--update-baseline --restamp)
           fi
           RUNNER_STATUS=0
-          bash eng/run-office-conformance.sh "${ARGS[@]}" || RUNNER_STATUS=$?
+          bash eng/office-memory-diagnostics.sh -- \
+            bash eng/run-office-conformance.sh "${ARGS[@]}" || RUNNER_STATUS=$?
           if [ -f ./test-results/triage/triage.md ]; then
             cat ./test-results/triage/triage.md >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -224,6 +225,18 @@ jobs:
           fi
           if grep -qE '^0/0 passed' ./test-results/office-results.log; then
             echo "::warning::The suite executed no checks. Either a tool could not be driven or the corpus is empty; the log names which."
+          fi
+
+      - name: Final memory diagnostics
+        if: always()
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/test-results"
+          bash eng/office-memory-diagnostics.sh 2>&1 | tee "$GITHUB_WORKSPACE/test-results/office-memory-final.log"
+          # Inspect through the host daemon to reveal configured Docker limits.
+          # Select only resource fields; a full inspect includes environment secrets.
+          if command -v docker >/dev/null 2>&1; then
+            docker inspect --format 'Memory={{.HostConfig.Memory}} MemorySwap={{.HostConfig.MemorySwap}} NanoCpus={{.HostConfig.NanoCpus}} PidsLimit={{.HostConfig.PidsLimit}} OOMKilled={{.State.OOMKilled}}' "$HOSTNAME" \
+              2>&1 | tee -a "$GITHUB_WORKSPACE/test-results/office-memory-final.log" || true
           fi
 
       # Publish independently of the harness, including clean runs, focused

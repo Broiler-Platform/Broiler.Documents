@@ -599,6 +599,20 @@ not fail the job for individual upstream sample differences.
 
 ## Temporary storage in CI
 
+CI wraps the suite with `eng/office-memory-diagnostics.sh`. It records an initial
+snapshot, one snapshot every 60 seconds, and a final snapshot while preserving
+the suite's exit code. `test-results/office-memory.log` is uploaded with the
+conformance report; an `always()` step also saves `office-memory-final.log`.
+Snapshots include host available memory and swap, visible cgroup memory limits,
+current and peak usage, OOM counters, memory pressure, PID limits, and the largest
+processes by RSS (KiB). Process arguments and environment values are omitted.
+Cgroup byte values of `max` mean no limit at that visible level; host memory is
+shared, and ancestor limits outside the container's cgroup namespace may not be
+visible. If the Docker CLI is available, the final step also logs selected host
+Docker resource settings. A killed container or runner can prevent final output;
+earlier snapshots remain the available evidence. Compare counter values between
+snapshots to distinguish new OOM or PID-limit events from existing counts.
+
 The workflow sets `TMPDIR` to GitHub's disk-backed runner temporary directory,
 mounted into the job container, for .NET and its child tools. Retaining corpus
 downloads and rasterized pages on a quota-limited temporary filesystem can
