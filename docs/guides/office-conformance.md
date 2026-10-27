@@ -355,7 +355,11 @@ of places to look, not a verdict.
 
 Every scheduled or manually dispatched workflow run creates a **new** issue.
 A separate `always()` step publishes the local Markdown report, with the run
-link, attempt, commit and job status. It never searches for or edits an older
+link, attempt, commit, job status and actual passed/failed/skipped check counts.
+The issue title describes the conformance findings rather than the job status.
+Missing or invalid results, a missing expected extras report, or zero executed
+checks fail the publication step after creating the issue. A successful job
+status alone is not a conformance verdict; ranked failures remain informational. It never searches for or edits an older
 issue. This also covers clean or fully skipped runs, exact-list replays,
 seed-corpus runs and baseline regeneration. If setup or execution failed before
 producing a report, the issue links to the logs and artifacts instead. Rerunning
