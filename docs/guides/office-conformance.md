@@ -64,6 +64,11 @@ to consumers only after both archive and checksum are uploaded. If publication
 fails, remove the incomplete draft before retrying, or choose a new release tag.
 The generator has `contents: write` solely to publish the release; it does not
 push source changes. Conformance retains read-only contents permission.
+The data-release tag targets the current default branch at publication time;
+the release body separately records the exact generator commit and run URL.
+This avoids GitHub's workflow-write restriction when the branch advances during
+the long generation job. API failures print GitHub's response body in the normal
+workflow log.
 
 Before evaluating any selected sample, the runner validates its input SHA-256,
 recorded crash-regression family, output status and text/PDF hashes, together

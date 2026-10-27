@@ -112,6 +112,8 @@ class ReferenceArchiveTests(unittest.TestCase):
                 raise urllib.error.HTTPError(url, 404, "not found", {}, None)
             if url.endswith("/releases"):
                 self.assertTrue(data["draft"])
+                self.assertNotIn("target_commitish", data)
+                self.assertIn("Generator commit: commit", data["body"])
                 return {"id": 123, "upload_url": "https://uploads.github.com/assets{?name}"}
             if method == "POST":
                 content = data.read()
@@ -130,6 +132,18 @@ class ReferenceArchiveTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "already exists"):
                 references.publish(self.config, self.archive)
             api.assert_called_once()
+
+    def test_api_permission_failure_prints_githubs_reason(self):
+        output = io.StringIO()
+        failure = urllib.error.HTTPError("https://api.github.com/repos/owner/repo/releases", 403,
+            "Forbidden", {}, io.BytesIO(b'{"message":"Resource not accessible by integration"}'))
+        with patch.dict(os.environ, {"GH_TOKEN": "secret-test-token"}), \
+                patch.object(references.urllib.request, "urlopen", side_effect=failure), \
+                patch("sys.stderr", output):
+            with self.assertRaises(urllib.error.HTTPError):
+                references.api("POST", failure.url, {"tag_name": "office-references-v2"})
+        self.assertIn("Resource not accessible by integration", output.getvalue())
+        self.assertNotIn("secret-test-token", output.getvalue())
 
     def test_api_streams_asset_bytes_with_content_length(self):
         received = []
