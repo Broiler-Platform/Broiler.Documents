@@ -13,52 +13,99 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  configuration:
-    runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.reference.outputs.image }}
-      asset: ${{ steps.reference.outputs.asset }}
-    steps:
-      - uses: actions/checkout@v7
-      - id: reference
-        run: python3 eng/office-reference-archive.py config
-
   generate:
-    needs: configuration
-    runs-on: ubuntu-latest
+    # Reference preparation runs directly on a normal VM, without Docker.
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
       contents: write
-    container:
-      image: ${{ needs.configuration.outputs.image }}
-      options: --init
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+      - id: reference
+        run: python3 eng/office-reference-archive.py config
       - name: Refuse to overwrite an existing reference release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 eng/office-reference-archive.py check-release
       - name: Configure temporary storage
         run: printf 'TMPDIR=%s\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install LibreOffice and the reference fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libreoffice-writer libreoffice-calc poppler-utils fontconfig \
+            fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core
+          # Exclude the runner's unrelated preinstalled fonts. These exact files
+          # travel with the references and are reused by broilerdoc later.
+          FONT_ROOT="$RUNNER_TEMP/office-reference-fonts"
+          mkdir -p "$FONT_ROOT"
+          for package in fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core; do
+            while IFS= read -r font; do
+              case "$font" in
+                /usr/share/fonts/truetype/*.ttf)
+                  relative="${font#/usr/share/fonts/truetype/}"
+                  mkdir -p "$FONT_ROOT/$(dirname "$relative")"
+                  cp "$font" "$FONT_ROOT/$relative"
+                  ;;
+              esac
+            done < <(dpkg-query -L "$package")
+          done
+          test -n "$(find "$FONT_ROOT" -name '*.ttf' -print -quit)"
+          printf 'BROILER_OFFICE_FONT_DIR=%s\n' "$FONT_ROOT" >> "$GITHUB_ENV"
+          echo 'BROILER_OFFICE_FONT_SET=office-fonts-1' >> "$GITHUB_ENV"
+          python3 - "$FONT_ROOT" "$RUNNER_TEMP/office-fontconfig.xml" <<'PY'
+          from pathlib import Path
+          import sys
+          from xml.sax.saxutils import escape
+          fonts, output = sys.argv[1:]
+          Path(output).write_text('<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">'
+              '<fontconfig><include ignore_missing="yes">/etc/fonts/fonts.conf</include>'
+              '<reset-dirs/><dir>' + escape(fonts) + '</dir><cachedir>' + escape(fonts + '-cache') +
+              '</cachedir></fontconfig>', encoding='utf-8')
+          PY
+          printf 'FONTCONFIG_FILE=%s\n' "$RUNNER_TEMP/office-fontconfig.xml" >> "$GITHUB_ENV"
+          soffice --version
+          mkdir -p test-results
+          dpkg-query -W libreoffice-writer libreoffice-calc fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core \
+            | tee test-results/reference-packages.txt
+          cp "$RUNNER_TEMP/office-fontconfig.xml" test-results/reference-fontconfig.xml
+      - name: Fetch pinned LibreOffice corpus
+        env:
+          CORPUS_REVISION: ${{ steps.reference.outputs.corpusRevision }}
+        run: |
+          CORPUS_ROOT="$RUNNER_TEMP/libreoffice-corpus"
+          git init "$CORPUS_ROOT"
+          git -C "$CORPUS_ROOT" remote add origin https://github.com/LibreOffice/core.git
+          git -C "$CORPUS_ROOT" sparse-checkout init --cone
+          git -C "$CORPUS_ROOT" sparse-checkout set sw/qa/extras
+          git -C "$CORPUS_ROOT" -c protocol.version=2 fetch --depth=1 --filter=blob:none origin "$CORPUS_REVISION"
+          git -C "$CORPUS_ROOT" checkout --detach FETCH_HEAD
+          test "$(git -C "$CORPUS_ROOT" rev-parse HEAD)" = "$CORPUS_REVISION"
+          printf 'BROILER_OFFICE_EXTRAS_DIR=%s\n' "$CORPUS_ROOT/sw/qa/extras" >> "$GITHUB_ENV"
       - name: Build reference generator
         run: dotnet build src/tests/Broiler.Documents.Office/Broiler.Documents.Office.csproj -c Release --nologo
       - name: Generate LibreOffice text and PDF references
         env:
-          OFFICE_REFERENCE_IMAGE: ${{ needs.configuration.outputs.image }}
+          CORPUS_REVISION: ${{ steps.reference.outputs.corpusRevision }}
         run: |
           bash eng/office-memory-diagnostics.sh -- \
             dotnet run --project src/tests/Broiler.Documents.Office -c Release --no-build -- \
               --extras-dir "$BROILER_OFFICE_EXTRAS_DIR" \
+              --extras-url "https://github.com/LibreOffice/core/tree/$CORPUS_REVISION/sw/qa/extras" \
               --prepare-references "$RUNNER_TEMP/office-references" \
-              --reference-image "$OFFICE_REFERENCE_IMAGE" \
+              --reference-producer "github-hosted:ubuntu-24.04/${ImageVersion:-unknown}" \
               --font-dir "$BROILER_OFFICE_FONT_DIR" --font-set "$BROILER_OFFICE_FONT_SET" \
               --jobs 4
       - name: Package reference archive
         env:
-          REFERENCE_ASSET: ${{ needs.configuration.outputs.asset }}
+          REFERENCE_ASSET: ${{ steps.reference.outputs.asset }}
         run: |
           mkdir -p test-results/reference-release
           python3 eng/office-reference-archive.py package --directory "$RUNNER_TEMP/office-references" \
@@ -67,7 +114,7 @@ jobs:
       - name: Publish immutable reference release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REFERENCE_ASSET: ${{ needs.configuration.outputs.asset }}
+          REFERENCE_ASSET: ${{ steps.reference.outputs.asset }}
         run: |
           python3 eng/office-reference-archive.py publish \
             --archive "$GITHUB_WORKSPACE/test-results/reference-release/$REFERENCE_ASSET"

@@ -19,7 +19,6 @@
 #                              (default: https://github.com/LibreOffice/core/tree/master/sw/qa/extras)
 #     --extras-dir <dir>       Local directory of sw/qa/extras samples
 #     --references-dir <dir>   Reuse validated LibreOffice text/PDF references
-#     --reference-image <digest> Pinned image identity used for references
 #     --top-differences <n>    Number of major differences to report (default: 3)
 #     --issue-out <path>       Markdown file for the top major differences report
 #     --create-github-issue    Create or update a GitHub issue with the top differences
@@ -70,7 +69,6 @@ OUTPUT_DIR="$REPO_ROOT/test-results"
 EXTRAS_URL="https://github.com/LibreOffice/core/tree/master/sw/qa/extras"
 EXTRAS_DIR=""
 REFERENCES_DIR=""
-REFERENCE_IMAGE=""
 TOP_DIFFERENCES="3"
 ISSUE_OUT=""
 CREATE_GITHUB_ISSUE=false
@@ -121,7 +119,6 @@ while [[ $# -gt 0 ]]; do
         --extras-url) EXTRAS_URL="$2"; shift 2 ;;
         --extras-dir) EXTRAS_DIR="$2"; shift 2 ;;
         --references-dir) REFERENCES_DIR="$2"; shift 2 ;;
-        --reference-image) REFERENCE_IMAGE="$2"; shift 2 ;;
         --top-differences|-x) TOP_DIFFERENCES="$2"; shift 2 ;;
         --issue-out) ISSUE_OUT="$2"; shift 2 ;;
         --create-github-issue) CREATE_GITHUB_ISSUE=true; shift ;;
@@ -422,7 +419,6 @@ fi
 
 [[ -n "$ONLY" ]] && RUNNER_ARGS+=(--only "$ONLY")
 [[ -n "$REFERENCES_DIR" ]] && RUNNER_ARGS+=(--references-dir "$REFERENCES_DIR")
-[[ -n "$REFERENCE_IMAGE" ]] && RUNNER_ARGS+=(--reference-image "$REFERENCE_IMAGE")
 [[ -n "$JOBS" ]] && RUNNER_ARGS+=(--jobs "$JOBS")
 [[ -n "${BROILER_PDFTOPPM:-}" ]] && RUNNER_ARGS+=(--pdftoppm "$BROILER_PDFTOPPM")
 [[ "$ALLOW_PENDING" == "true" ]] && RUNNER_ARGS+=(--allow-pending-tools)

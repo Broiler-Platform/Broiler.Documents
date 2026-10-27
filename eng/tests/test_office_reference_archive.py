@@ -27,18 +27,25 @@ class ReferenceArchiveTests(unittest.TestCase):
         (self.data / "reference.pdf").write_bytes(b"generated PDF bytes")
         self.archive = self.root / "office-references.tar.gz"
         self.config = {"schemaVersion": 1, "releaseTag": "office-references-v1", "asset": self.archive.name,
+                       "corpusRevision": "b" * 40,
                        "image": "ghcr.io/broiler-platform/broiler-sdk-office@sha256:" + "a" * 64}
 
     def tearDown(self):
         self.temporary.cleanup()
 
     def test_archive_round_trip_and_checksum(self):
+        (self.data / "inputs/subdirectory").mkdir(parents=True)
+        (self.data / "inputs/subdirectory/sample.fodt").write_bytes(b"source bytes")
+        (self.data / "fonts/0").mkdir(parents=True)
+        (self.data / "fonts/0/font.ttf").write_bytes(b"font bytes")
         references.package(self.data, self.archive)
         checksum = Path(str(self.archive) + ".sha256").read_text().split()[0]
         self.assertEqual(hashlib.sha256(self.archive.read_bytes()).hexdigest(), checksum)
         target = self.root / "extracted"
         references.extract(self.archive, target)
         self.assertEqual((self.data / "reference.pdf").read_bytes(), (target / "reference.pdf").read_bytes())
+        self.assertEqual(b"source bytes", (target / "inputs/subdirectory/sample.fodt").read_bytes())
+        self.assertEqual(b"font bytes", (target / "fonts/0/font.ttf").read_bytes())
 
     def test_incomplete_generation_cannot_be_packaged(self):
         (self.data / "manifest.json").unlink()
@@ -79,6 +86,13 @@ class ReferenceArchiveTests(unittest.TestCase):
         self.config["image"] = "ghcr.io/broiler-platform/broiler-sdk-office:latest"
         path.write_text(json.dumps(self.config))
         with self.assertRaisesRegex(ValueError, "digest"):
+            references.configuration(path)
+
+    def test_configuration_requires_a_pinned_corpus_commit(self):
+        self.config["corpusRevision"] = "master"
+        path = self.root / "source.json"
+        path.write_text(json.dumps(self.config))
+        with self.assertRaisesRegex(ValueError, "commit SHA"):
             references.configuration(path)
 
     def test_corrupt_download_is_not_extracted(self):

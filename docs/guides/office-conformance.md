@@ -14,11 +14,9 @@ provisions the tools first and then runs it; `.github/workflows/office-conforman
 runs that nightly inside the digest-pinned `broiler-sdk-office` image selected by
 `tests/office/reference-source.json`,
 built and published by [Broiler.Code](https://github.com/Broiler-Platform/Broiler.Code/tree/main/docker).
-The image supplies the .NET SDK, LibreOffice, poppler, fonts and a bundled
-`sw/qa/extras` corpus. CI uses `--skip-install` and the image's font directory
-and font-set stamp. The default corpus URL selects the bundled corpus through
-`--extras-dir` and uses pre-generated LibreOffice text/PDF references from a pinned
-release. Dispatching with a different `extrasUrl` downloads that source and uses
+The image supplies the .NET SDK and Poppler for cached comparisons. Default-source
+runs use the corpus and fonts packaged with pre-generated LibreOffice text/PDF
+references from a pinned release. Dispatching with a different `extrasUrl` downloads that source and uses
 live conversions. Seed and baseline-regeneration runs also retain live conversions.
 Updating the image can change the toolchain or corpus; seed baseline stamp
 checks still apply, and baseline regeneration remains an explicit dispatch option.
@@ -26,29 +24,42 @@ checks still apply, and baseline regeneration remains an explicit dispatch optio
 ## Prepared LibreOffice references
 
 `.github/workflows/office-reference-data.yml` (**Office reference data**) runs
-LibreOffice once for the complete image-bundled extras corpus. It saves plain-text
-projections and PDFs, packages them with `manifest.json`, and publishes a versioned
+directly on a plain `ubuntu-24.04` GitHub runner VM, with no Docker container or
+`broiler-sdk-office` image. It installs .NET, LibreOffice, Poppler and the selected
+font packages, then fetches `sw/qa/extras` at the configured `corpusRevision` Git
+commit. LibreOffice runs once for the complete corpus. The workflow saves plain-text
+projections and PDFs, packages them with `manifest.json`, the original corpus
+(including sidecar files), and the exact font files, and publishes a versioned
 GitHub release archive plus its SHA-256 checksum. It never caches `broilerdoc`
 results. PDFs are rasterized by Poppler in every conformance run, so the same
 reference release can be compared at 96 or 144 DPI without regeneration.
 
+The VM's unrelated preinstalled fonts are excluded through a Fontconfig override;
+its matching rules remain available while font directories are restricted to the
+selected package files. The workflow saves installed package versions and that
+configuration with its diagnostics. Fontconfig supports this directory override
+through [`reset-dirs`](https://fontconfig.pages.freedesktop.org/fontconfig/fontconfig-user.html).
+
 Only the small `tests/office/reference-source.json` configuration is committed.
 Generated text/PDF binaries are release assets, avoiding binary Git history and
 the repository's existing no-document-fixture guards. The configuration pins both
-the release tag and the Docker image digest; neither workflow resolves `latest`.
+the release tag, upstream corpus Git commit and the conformance job's Docker
+image digest. The reference generator does not pull or run that image.
 
 To bootstrap after these changes reach the default branch:
 
 1. Dispatch **Office reference data**. The first configured release is
-   `office-references-v1`. Generation uses four workers and Docker `--init`.
+   `office-references-v2`. Generation uses four workers directly on the VM.
 2. Wait for generation, archive upload, and release publication to finish.
 3. Dispatch **Office conformance**, or let the nightly schedule run. Default-source
    extras runs download and verify the pinned archive before comparing documents.
 
 Missing releases fail with instructions to run the generator; they do not trigger
 an expensive or silent live fallback. To refresh references, commit a new
-`releaseTag` in the configuration, and a new image digest if changing the corpus,
-LibreOffice or fonts; then dispatch the generator before conformance. Existing
+`releaseTag` in the configuration, updating `corpusRevision` if changing the source
+corpus; then dispatch the generator before conformance. Installed LibreOffice and
+font package versions are recorded when generating, and their resulting data
+remains fixed in that release. Existing
 releases are never overwritten. Uploads go to a draft first and become visible
 to consumers only after both archive and checksum are uploaded. If publication
 fails, remove the incomplete draft before retrying, or choose a new release tag.
@@ -57,8 +68,11 @@ push source changes. Conformance retains read-only contents permission.
 
 Before evaluating any selected sample, the runner validates its input SHA-256,
 recorded crash-regression family, output status and text/PDF hashes, together
-with the reference schema, image digest, LibreOffice version, platform, font-set
-name, font-file content hashes and conversion timeout. Changing conversion
+with the reference schema, platform, font-set name, font-file content hashes and
+conversion timeout. Producer VM identity and LibreOffice version are provenance;
+they do not have to match the consumer's container or installed LibreOffice.
+Cached reports identify the LibreOffice version that generated the reference
+outputs. Changing conversion
 filters/fallbacks requires bumping the reference schema in `OfficeReferences.cs`
 and publishing a new release. Missing or incompatible entries are harness errors
 (exit 99). Expected conversion refusals/timeouts are explicit `unavailable`
@@ -74,20 +88,19 @@ uses Python's standard library, streams uploads/downloads, verifies archive
 checksums, and rejects archive links and traversal paths. Download currently
 targets this public repository's public releases.
 
-For local generation, use the pinned image with `--init` and mounted output
-storage outside the source checkout:
+For local generation, install LibreOffice and provide a source corpus and pinned
+font directory. Use output storage outside the source checkout:
 
 ```bash
 dotnet run --project src/tests/Broiler.Documents.Office -c Release -- \
   --extras-dir "$BROILER_OFFICE_EXTRAS_DIR" \
-  --prepare-references /reference-output \
-  --reference-image 'ghcr.io/broiler-platform/broiler-sdk-office@sha256:<digest>' \
+  --prepare-references /tmp/reference-output \
+  --reference-producer 'local-linux' \
   --font-dir "$BROILER_OFFICE_FONT_DIR" --font-set "$BROILER_OFFICE_FONT_SET" --jobs 4
 
 bash eng/run-office-conformance.sh --skip-install \
-  --extras-dir "$BROILER_OFFICE_EXTRAS_DIR" --references-dir /reference-output \
-  --reference-image 'ghcr.io/broiler-platform/broiler-sdk-office@sha256:<digest>' \
-  --font-dir "$BROILER_OFFICE_FONT_DIR" --font-set "$BROILER_OFFICE_FONT_SET" --dpi 96
+  --extras-dir /tmp/reference-output/inputs --references-dir /tmp/reference-output \
+  --font-dir /tmp/reference-output/fonts/0 --font-set "$BROILER_OFFICE_FONT_SET" --dpi 96
 ```
 
 Reference generation refuses a nonempty output directory and writes its manifest

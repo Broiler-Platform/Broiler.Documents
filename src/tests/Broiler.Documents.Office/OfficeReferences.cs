@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 namespace Broiler.Documents.Office;
 
 // Bump the schema when conversion filters or fallback semantics change.
-internal sealed record ReferenceEnvironment(int SchemaVersion, string Image, string LibreOffice,
+internal sealed record ReferenceEnvironment(int SchemaVersion, string Producer, string LibreOffice,
     string Platform, string? FontSet, string FontsSha256, double TimeoutSeconds);
 internal sealed record ReferenceOutput(string Status, string? File, string? Sha256,
     int ExitCode, bool TimedOut, string? Filter, string Error);
@@ -27,19 +27,19 @@ internal sealed class OfficeReferences
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
     private readonly string _root;
     private readonly Dictionary<string, ReferenceSample> _samples;
-    private OfficeReferences(string root, IEnumerable<ReferenceSample> samples)
+    public ReferenceEnvironment Environment { get; }
+    private OfficeReferences(string root, IEnumerable<ReferenceSample> samples, ReferenceEnvironment environment)
     {
         _root = root;
         _samples = samples.ToDictionary(sample => sample.Id, StringComparer.Ordinal);
+        Environment = environment;
     }
 
-    public static ReferenceEnvironment EnvironmentStamp(string image, string libreOffice,
+    public static ReferenceEnvironment EnvironmentStamp(string producer, string libreOffice,
         string platform, string? fontSet, IReadOnlyList<string> fontDirectories, TimeSpan timeout)
     {
-        int digestStart = image?.LastIndexOf("@sha256:", StringComparison.Ordinal) ?? -1;
-        if (digestStart < 1 || image!.Length != digestStart + 8 + 64 ||
-            !image[(digestStart + 8)..].All(Uri.IsHexDigit))
-            throw new InvalidDataException("References require --reference-image with a pinned image digest.");
+        if (string.IsNullOrWhiteSpace(producer))
+            throw new InvalidDataException("References require a producer identity.");
         if (fontDirectories.Count == 0)
             throw new InvalidDataException("References require explicit pinned font directories.");
         var fonts = new StringBuilder();
@@ -52,7 +52,7 @@ internal sealed class OfficeReferences
                 fonts.Append(Path.GetRelativePath(directory, file).Replace('\\', '/')).Append('\0')
                     .Append(HashFile(file)).Append('\n');
         }
-        return new ReferenceEnvironment(1, image, libreOffice, platform, fontSet,
+        return new ReferenceEnvironment(2, producer, libreOffice, platform, fontSet,
             HashBytes(Encoding.UTF8.GetBytes(fonts.ToString())), timeout.TotalSeconds);
     }
 
@@ -65,19 +65,45 @@ internal sealed class OfficeReferences
 
     public static async Task PrepareAsync(string directory, string workspace, string source,
         IReadOnlyList<ExtrasSample> samples, CrashRegressions crashRegressions,
-        ReferenceEnvironment environment, LibreOfficeTool tool, TimeSpan timeout, int jobs)
+        ReferenceEnvironment environment, LibreOfficeTool tool, TimeSpan timeout, int jobs,
+        IReadOnlyList<string> fontDirectories, string? corpusDirectory = null)
     {
         string root = Path.GetFullPath(directory);
         if (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
             throw new InvalidDataException("Reference output directory must be empty: " + root);
         if (samples.Count == 0)
             throw new InvalidDataException("Cannot prepare an empty reference corpus.");
+        if (corpusDirectory is not null && root.StartsWith(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(corpusDirectory)) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new InvalidDataException("Reference output must be outside the corpus directory.");
         Directory.CreateDirectory(root);
+        // Preserve sidecar images and other relative dependencies as well as the
+        // document files. Cached renders must see the same corpus layout.
+        if (corpusDirectory is not null)
+            foreach (string file in Directory.EnumerateFiles(corpusDirectory, "*", SearchOption.AllDirectories))
+            {
+                string target = Path.Combine(root, "inputs", Path.GetRelativePath(corpusDirectory, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target);
+            }
+        for (int index = 0; index < fontDirectories.Count; index++)
+            foreach (string file in Directory.EnumerateFiles(fontDirectories[index], "*", SearchOption.AllDirectories))
+            {
+                string target = Path.Combine(root, "fonts", index.ToString(CultureInfo.InvariantCulture),
+                    Path.GetRelativePath(fontDirectories[index], file));
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                File.Copy(file, target);
+            }
         var entries = new List<ReferenceSample>();
         int complete = 0;
         await Parallelism.ForEachAsync(samples, jobs, sample =>
         {
             string hash = HashFile(sample.LocalPath);
+            string input = Path.GetFullPath(Path.Combine(root, "inputs", sample.Id.Replace('/', Path.DirectorySeparatorChar)));
+            if (!input.StartsWith(Path.Combine(root, "inputs") + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                throw new InvalidDataException("Invalid sample path: " + sample.Id);
+            Directory.CreateDirectory(Path.GetDirectoryName(input)!);
+            if (!File.Exists(input)) File.Copy(sample.LocalPath, input);
             string? family = crashRegressions.FamilyOf(sample);
             ReferenceOutput? text = null, pdf = null;
             if (family is null)
@@ -132,11 +158,17 @@ internal sealed class OfficeReferences
         {
             manifest = JsonSerializer.Deserialize<ReferenceManifest>(File.ReadAllText(Path.Combine(root, "manifest.json")))
                 ?? throw new InvalidDataException("Empty reference manifest.");
-            if (manifest.Environment != expected)
-                throw new InvalidDataException("Reference toolchain mismatch (image, LibreOffice, platform, fonts, filters or timeout). Regenerate references.");
+            // Producer/LibreOffice are provenance, not consumer requirements:
+            // prepared text/PDFs are independent of the consumer's installation.
+            // Fonts and comparison/conversion contracts must still match.
+            if (manifest.Environment is null || manifest.Environment.SchemaVersion != expected.SchemaVersion ||
+                manifest.Environment.Platform != expected.Platform || manifest.Environment.FontSet != expected.FontSet ||
+                manifest.Environment.FontsSha256 != expected.FontsSha256 || manifest.Environment.TimeoutSeconds != expected.TimeoutSeconds ||
+                string.IsNullOrWhiteSpace(manifest.Environment.Producer) || string.IsNullOrWhiteSpace(manifest.Environment.LibreOffice))
+                throw new InvalidDataException("Reference toolchain mismatch (platform, fonts, filters or timeout). Regenerate references.");
             if (manifest.Samples is null || manifest.Samples.Count == 0)
                 throw new InvalidDataException("Reference manifest contains no samples.");
-            var store = new OfficeReferences(root, manifest.Samples);
+            var store = new OfficeReferences(root, manifest.Samples, manifest.Environment);
             foreach (ExtrasSample sample in samples)
             {
                 if (!store._samples.TryGetValue(sample.Id, out ReferenceSample? entry))

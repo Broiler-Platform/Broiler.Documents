@@ -27,7 +27,9 @@ def configuration(path):
     if not value["asset"].endswith(".tar.gz"):
         raise ValueError("Reference asset must be a .tar.gz archive")
     if not re.fullmatch(r"ghcr\.io/broiler-platform/broiler-sdk-office@sha256:[0-9a-f]{64}", value.get("image", "")):
-        raise ValueError("Reference image must be pinned by digest")
+        raise ValueError("Conformance image must be pinned by digest")
+    if not re.fullmatch(r"[0-9a-f]{40}", value.get("corpusRevision", "")):
+        raise ValueError("Reference corpusRevision must be a full Git commit SHA")
     return value
 
 
@@ -50,10 +52,10 @@ def package(directory, archive):
         raise ValueError("Reference generation is incomplete: invalid manifest")
     archive.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive, "w:gz") as output:
-        for path in sorted(directory.iterdir()):
-            if not path.is_file() or path.is_symlink():
+        for path in sorted(directory.rglob("*")):
+            if path.is_symlink() or not (path.is_file() or path.is_dir()):
                 raise ValueError("Unexpected reference directory entry: " + path.name)
-            output.add(path, arcname=path.name, recursive=False)
+            output.add(path, arcname=path.relative_to(directory).as_posix(), recursive=False)
     Path(str(archive) + ".sha256").write_text(sha256(archive) + "  " + archive.name + "\n", encoding="ascii")
 
 
@@ -65,15 +67,20 @@ def extract(archive, destination):
     with tarfile.open(archive, "r:gz") as source:
         seen = set()
         for member in source:
-            # Reference archives are flat: reject links, devices, duplicate files,
-            # absolute paths and traversal before writing anything outside root.
+            # Corpus/font snapshots use subdirectories. Reject links, devices,
+            # duplicate paths and traversal before writing outside the root.
             name = PurePosixPath(member.name)
-            if (not member.isfile() or len(name.parts) != 1 or
+            if (not (member.isfile() or member.isdir()) or ".." in name.parts or
                     member.name in (".", "..", "") or "\\" in member.name or
                     ":" in member.name or name.is_absolute() or member.name in seen):
                 raise ValueError("Invalid reference archive member: " + member.name)
             seen.add(member.name)
-            with source.extractfile(member) as incoming, (destination / member.name).open("xb") as outgoing:
+            target = destination.joinpath(*name.parts)
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with source.extractfile(member) as incoming, target.open("xb") as outgoing:
                 shutil.copyfileobj(incoming, outgoing)
     if not (destination / "manifest.json").is_file():
         raise ValueError("Archive has no reference manifest")
@@ -166,7 +173,7 @@ def main():
     config = configuration(args.config)
     if args.command == "config":
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-            for key in ("image", "releaseTag", "asset"):
+            for key in ("image", "releaseTag", "asset", "corpusRevision"):
                 output.write(key + "=" + config[key] + "\n")
     elif args.command == "package":
         package(args.directory, args.archive)

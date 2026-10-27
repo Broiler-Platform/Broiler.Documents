@@ -26,7 +26,7 @@ public sealed class ReferenceTests : IDisposable
         string fonts = Path.Combine(_root, "fonts");
         Directory.CreateDirectory(fonts);
         File.WriteAllText(Path.Combine(fonts, "font.ttf"), "pinned font bytes");
-        _environment = OfficeReferences.EnvironmentStamp("ghcr.io/example/office@sha256:" + new string('a', 64),
+        _environment = OfficeReferences.EnvironmentStamp("github-hosted:ubuntu-24.04",
             "LibreOffice test", "linux", "test-fonts", [fonts], TimeSpan.FromSeconds(120));
         var run = new LibreOfficeRun([], 0, "", "", TimeSpan.FromSeconds(1), "text filter", input);
         ReferenceOutput text = OfficeReferences.SaveOutput(_references, "expected.txt", run);
@@ -79,8 +79,6 @@ public sealed class ReferenceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("image")]
-    [InlineData("libreoffice")]
     [InlineData("fonts")]
     [InlineData("timeout")]
     [InlineData("schema")]
@@ -88,11 +86,9 @@ public sealed class ReferenceTests : IDisposable
     {
         ReferenceEnvironment changed = component switch
         {
-            "image" => _environment with { Image = "another image" },
-            "libreoffice" => _environment with { LibreOffice = "another LibreOffice" },
             "fonts" => _environment with { FontsSha256 = "another font hash" },
             "timeout" => _environment with { TimeoutSeconds = 60 },
-            _ => _environment with { SchemaVersion = 2 },
+            _ => _environment with { SchemaVersion = 99 },
         };
         Assert.Contains("toolchain mismatch", Assert.Throws<InvalidDataException>(() => Load(changed)).Message);
     }
@@ -102,7 +98,7 @@ public sealed class ReferenceTests : IDisposable
     {
         string fonts = Path.Combine(_root, "fonts");
         File.AppendAllText(Path.Combine(fonts, "font.ttf"), "new font version");
-        var changed = OfficeReferences.EnvironmentStamp(_environment.Image, _environment.LibreOffice,
+        var changed = OfficeReferences.EnvironmentStamp(_environment.Producer, _environment.LibreOffice,
             _environment.Platform, _environment.FontSet, [fonts], TimeSpan.FromSeconds(120));
         Assert.NotEqual(_environment.FontsSha256, changed.FontsSha256);
         Assert.Throws<InvalidDataException>(() => Load(changed));
@@ -162,12 +158,21 @@ public sealed class ReferenceTests : IDisposable
     }
 
     [Theory]
-    [InlineData("--seed-corpus", "--references-dir", "references", "--reference-image", "image")]
-    [InlineData("--prepare-references", "out", "--only", "one", "--reference-image", "image")]
-    [InlineData("--prepare-references", "out", "--axis", "pixel", "--reference-image", "image")]
-    [InlineData("--references-dir", "out")]
+    [InlineData("--seed-corpus", "--references-dir", "references")]
+    [InlineData("--prepare-references", "out", "--only", "one")]
+    [InlineData("--prepare-references", "out", "--axis", "pixel")]
     public void Invalid_Reference_Cli_Combinations_Are_Rejected(params string[] arguments) =>
         Assert.Throws<ArgumentException>(() => Program.Options.Parse(arguments));
+
+    [Fact]
+    public void Producer_Image_And_Installed_LibreOffice_Are_Not_Consumer_Requirements()
+    {
+        var consumer = _environment with { Producer = "a different container", LibreOffice = "different installed version" };
+        OfficeReferences references = Load(consumer);
+        Assert.Equal(_environment.Producer, references.Environment.Producer);
+        Assert.Equal(_environment.LibreOffice, references.Environment.LibreOffice);
+        Assert.True(Program.Options.Parse(["--references-dir", "references"]).IsExtrasRun);
+    }
 
     public void Dispose() => Directory.Delete(_root, recursive: true);
 }

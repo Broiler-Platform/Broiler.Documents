@@ -355,7 +355,7 @@ internal static class Program
         var readings = new List<SemanticReading>();
         var renders = new List<RenderRow>();
         var differences = new List<ExtrasDifference>();
-        string sourceLabel = options.ExtrasDirectory ?? options.ExtrasUrl ?? ExtrasConformance.DefaultExtrasUrl;
+        string sourceLabel = options.ExtrasUrl ?? options.ExtrasDirectory ?? ExtrasConformance.DefaultExtrasUrl;
 
         try
         {
@@ -381,18 +381,20 @@ internal static class Program
             OfficeReferences? references = null;
             if (options.ReferencesDirectory is not null || options.PrepareReferences is not null)
             {
-                ReferenceEnvironment stamp = OfficeReferences.EnvironmentStamp(options.ReferenceImage!, libreOffice.Version,
+                ReferenceEnvironment stamp = OfficeReferences.EnvironmentStamp(options.ReferenceProducer ?? "local", libreOffice.Version,
                     platform, options.FontSet, options.FontDirectories, options.LibreOfficeTimeout);
                 if (options.PrepareReferences is not null)
                 {
                     Guard(options.PrepareReferences, RepositoryRoot());
                     await OfficeReferences.PrepareAsync(options.PrepareReferences, workspace, sourceLabel, samples,
-                        crashRegressions, stamp, libreOffice, options.LibreOfficeTimeout, options.Jobs).ConfigureAwait(false);
+                        crashRegressions, stamp, libreOffice, options.LibreOfficeTimeout, options.Jobs,
+                        options.FontDirectories, options.ExtrasDirectory).ConfigureAwait(false);
                     Console.WriteLine("references  prepared " + options.PrepareReferences);
                     return 0;
                 }
                 references = OfficeReferences.Load(options.ReferencesDirectory!, stamp, samples, crashRegressions);
                 Console.WriteLine("references  validated " + options.ReferencesDirectory + "; LibreOffice conversions disabled");
+                Console.WriteLine("references  produced by " + references.Environment.Producer + "; " + references.Environment.LibreOffice);
             }
 
             int totalSamples = samples.Count;
@@ -419,7 +421,7 @@ internal static class Program
             Console.WriteLine("workspace   " + workspace);
 
             var header = new RunHeader(
-                tool.Description, libreOffice.Version, rasterizer?.Version, options.FontSet,
+                tool.Description, references?.Environment.LibreOffice ?? libreOffice.Version, rasterizer?.Version, options.FontSet,
                 platform, options.Dpi, true);
             void Checkpoint()
             {
@@ -837,7 +839,7 @@ internal static class Program
         string? PreviousTriage = null,
         string? ReferencesDirectory = null,
         string? PrepareReferences = null,
-        string? ReferenceImage = null)
+        string? ReferenceProducer = null)
     {
         public bool IsExtrasRun => !SeedCorpus && (ExtrasUrl is not null || ExtrasDirectory is not null ||
             SampleList is not null || TriageDirectory is not null || ReferencesDirectory is not null || PrepareReferences is not null);
@@ -848,7 +850,7 @@ internal static class Program
             string? tools = null, workspace = null, fontSet = null, only = null, json = null, junit = null;
             string? extrasUrl = null, extrasDir = null, issueOut = null, githubRepo = null;
             string? crashRegressions = null, sampleList = null, triageDirectory = null, previousTriage = null;
-            string? referencesDirectory = null, prepareReferences = null, referenceImage = null;
+            string? referencesDirectory = null, prepareReferences = null, referenceProducer = null;
             string axis = "all";
             var fontDirectories = new List<string>();
             bool keep = false, verbose = false, update = false, restamp = false;
@@ -901,7 +903,7 @@ internal static class Program
                     case "--extras-dir": extrasDir = Value(argument); break;
                     case "--references-dir": referencesDirectory = Value(argument); break;
                     case "--prepare-references": prepareReferences = Value(argument); break;
-                    case "--reference-image": referenceImage = Value(argument); break;
+                    case "--reference-producer": referenceProducer = Value(argument); break;
                     case "--issue-out": issueOut = Value(argument); break;
                     case "--github-repo": githubRepo = Value(argument); break;
                     case "--crash-regressions": crashRegressions = Value(argument); break;
@@ -956,8 +958,6 @@ internal static class Program
                     throw new ArgumentException("--references-dir and --prepare-references are mutually exclusive.");
                 if (seedCorpus || update)
                     throw new ArgumentException("Reference archives apply to extras runs only.");
-                if (string.IsNullOrWhiteSpace(referenceImage))
-                    throw new ArgumentException("Reference archives require --reference-image.");
                 if (prepareReferences is not null && (axis != "all" || only is not null || maxFiles is not null || sampleList is not null))
                     throw new ArgumentException("Reference generation requires the complete corpus and --axis all.");
             }
@@ -967,7 +967,7 @@ internal static class Program
                 axis, only, json, junit, extrasUrl, extrasDir, issueOut, githubRepo, crashRegressions, topDifferences,
                 maxFiles, createIssue, seedCorpus, keep, verbose, update, restamp, allowPending, help,
                 jobs, dpi, threshold, maxPages, TimeSpan.FromSeconds(timeout), sampleList, triageDirectory, previousTriage,
-                referencesDirectory, prepareReferences, referenceImage);
+                referencesDirectory, prepareReferences, referenceProducer);
         }
 
         public static void WriteUsage(TextWriter output)
@@ -985,7 +985,7 @@ internal static class Program
             output.WriteLine("  --extras-dir <dir>       Local directory of sw/qa/extras samples.");
             output.WriteLine("  --prepare-references <dir> Generate a complete immutable text/PDF reference set.");
             output.WriteLine("  --references-dir <dir>   Validate and reuse prepared LibreOffice references (no conversions).");
-            output.WriteLine("  --reference-image <digest> Pinned image identity required by reference generation/reuse.");
+            output.WriteLine("  --reference-producer <name> Generator identity recorded in the manifest (default local).");
             output.WriteLine("  --top-differences <n>    Number of major differences to report (default 3).");
             output.WriteLine("  --issue-out <path>       Write the Markdown GitHub issue report for the top differences.");
             output.WriteLine("  --create-github-issue    Create or update a GitHub issue with the top differences.");
