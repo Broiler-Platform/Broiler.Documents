@@ -599,6 +599,18 @@ not fail the job for individual upstream sample differences.
 
 ## Temporary storage in CI
 
+The job container uses Docker `--init` to reap orphaned child processes, including
+LibreOffice's GPG helpers. Without an init process, zombies can exhaust the
+container's task limit even with ample RAM available. Diagnostics include PID 1,
+process states, and zombie counts grouped by parent PID and command so the next
+run can confirm that process counts remain bounded. Increasing the PID limit or
+reducing DPI does not repair missing process reaping.
+
+The suite step fails immediately for abnormal harness exits (above 99), missing
+final results, or zero executed checks. Completed extras comparisons with
+rendering differences remain informational; partial checkpoints still feed the
+issue publication and artifact steps, which run even when the suite step fails.
+
 CI wraps the suite with `eng/office-memory-diagnostics.sh`. It records an initial
 snapshot, one snapshot every 60 seconds, and a final snapshot while preserving
 the suite's exit code. `test-results/office-memory.log` is uploaded with the

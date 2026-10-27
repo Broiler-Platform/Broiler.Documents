@@ -48,7 +48,13 @@ snapshot() {
     echo 'Resource limits:'
     cat /proc/self/limits 2>/dev/null || true
     echo 'Largest processes (RSS KiB; command names only):'
-    ps -eo pid,ppid,nlwp,rss,vsz,comm --sort=-rss | head -n 21 || true
+    ps -eo pid,ppid,stat,nlwp,rss,vsz,comm --sort=-rss | head -n 21 || true
+    echo 'PID 1 (verify an init process is reaping orphaned children):'
+    ps -p 1 -o pid,ppid,stat,comm || true
+    echo 'Process totals by state:'
+    ps -eo stat= | awk '{ counts[substr($1, 1, 1)]++ } END { for (state in counts) print state, counts[state] }' | sort || true
+    echo 'Zombie counts by parent PID and command (largest 20 groups):'
+    ps -eo ppid=,stat=,comm= | awk '$2 ~ /^Z/ { counts[$1 " " $3]++ } END { for (group in counts) print counts[group], group }' | sort -rn | head -n 20 || true
     echo 'Visible process and thread totals:'
     ps -e --no-headers | wc -l
     ps -eLf --no-headers | wc -l
@@ -79,7 +85,7 @@ trap cleanup EXIT
 # Waiting on a child sleep allows TERM to stop the monitor immediately.
 (
     sleeper=''
-    trap '[[ -z "$sleeper" ]] || kill "$sleeper" 2>/dev/null; exit 0' TERM INT
+    trap 'if [[ -n "$sleeper" ]]; then kill "$sleeper" 2>/dev/null; wait "$sleeper" 2>/dev/null; fi; exit 0' TERM INT
     while true; do
         sleep 60 & sleeper=$!
         wait "$sleeper" || break
@@ -90,7 +96,7 @@ monitor_pid=$!
 # Mirror periodic snapshots to the Actions log as well as the report artifact.
 tail -n 0 -f "$log" &
 tail_pid=$!
-trap 'kill "$tail_pid" 2>/dev/null || true; cleanup' EXIT
+trap 'kill "$tail_pid" 2>/dev/null || true; wait "$tail_pid" 2>/dev/null || true; cleanup' EXIT
 "$@"
 status=$?
 exit "$status"

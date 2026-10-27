@@ -102,6 +102,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/broiler-platform/broiler-sdk-office:latest
+      # LibreOffice spawns helpers that can outlive their parent. Reap them
+      # instead of accumulating zombies under GitHub's tail entrypoint.
+      options: --init
 
     # Linux only, and that is a limitation rather than a preference. On Windows
     # LibreOffice enumerates the system font store and there is no lever to
@@ -213,6 +216,16 @@ jobs:
             echo "::error::The suite could not run. Exit 99 is a defect in the harness."
             exit 1
           fi
+          # Only 0..98 are conformance verdicts. Signals/native crashes and
+          # missing final results must fail here, before issue publication.
+          if [ "$RUNNER_STATUS" -gt 99 ]; then
+            echo "::error::The office harness terminated abnormally (exit $RUNNER_STATUS)."
+            exit 1
+          fi
+          if [ ! -s ./test-results/office-results.json ]; then
+            echo "::error::The office harness did not produce final results; any checkpoint is incomplete."
+            exit 1
+          fi
           if [ "$OFFICE_SEED_CORPUS" = "true" ]; then
             # Both greps, for the reason ci.yml gives: the first says nothing
             # failed, the second says something actually ran. A suite that
@@ -224,7 +237,8 @@ jobs:
             fi
           fi
           if grep -qE '^0/0 passed' ./test-results/office-results.log; then
-            echo "::warning::The suite executed no checks. Either a tool could not be driven or the corpus is empty; the log names which."
+            echo "::error::The suite executed no checks. Either a tool could not be driven or the corpus is empty; the log names which."
+            exit 1
           fi
 
       - name: Final memory diagnostics
