@@ -366,6 +366,22 @@ producing a report, the issue links to the logs and artifacts instead. Rerunning
 a workflow attempt creates another issue. Publication requires the job to start
 and GitHub's issue API to be available with `issues: write` permission.
 
+The workflow defaults to **2 concurrent documents**, independently of the
+runner CPU count. Set the dispatch **jobs** input to `1` for lower peak memory.
+This reduces concurrent rendering memory; it does not guarantee that every
+individual document will fit in memory.
+
+Extras runs with `--report` save `office-partial-results.json` and
+`office-partial-differences.md` alongside the final report. A checkpoint is
+written before evaluation and at each progress interval (at most 40 completed
+documents), with passed/failed/skipped counts, completed/total document counts,
+and `runComplete: false`. Each file is replaced atomically so an interrupted
+write leaves its preceding version readable. A crash can lose results since
+the last checkpoint and the documents still in progress. Final report filenames
+remain separate. On an interrupted run, the issue includes the checkpoint's
+findings and progress, explicitly marks the run incomplete, and fails the job.
+Startup removes previous result files to avoid publishing stale results.
+
 The workflow does not use the runner's `--create-github-issue` option, so it
 publishes once, after execution, independently of the findings. For local CLI
 use, that optional flag still updates a matching open issue when present;

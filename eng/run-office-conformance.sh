@@ -164,7 +164,8 @@ FAILURE_MARKER="$OUTPUT_DIR/office-toolchain-failure.json"
 # Removed at startup so a marker left by an earlier run can never be attributed
 # to this one. A stale marker is worse than no marker: it names a cause that did
 # not happen.
-rm -f "$FAILURE_MARKER"
+rm -f "$FAILURE_MARKER" "$JSON_FILE" "$JUNIT_FILE" "$ISSUE_FILE" \
+    "$OUTPUT_DIR/office-partial-results.json" "$OUTPUT_DIR/office-partial-differences.md"
 
 echo "=== Broiler.Documents Office Conformance Runner ==="
 echo "Repository root : $REPO_ROOT"

@@ -401,6 +401,17 @@ internal static class Program
             Console.WriteLine("axis        " + options.Axis);
             Console.WriteLine("workspace   " + workspace);
 
+            var header = new RunHeader(
+                tool.Description, libreOffice.Version, rasterizer?.Version, options.FontSet,
+                platform, options.Dpi, true);
+            void Checkpoint()
+            {
+                if (options.JsonReport is not null)
+                    ExtrasCheckpoint.Write(options.JsonReport, sourceLabel, header, samples,
+                        differences, options.TopDifferences, options.Threshold);
+            }
+            Checkpoint();
+
             await Parallelism.ForEachAsync(samples, options.Jobs, async sample =>
             {
                 using var sampleArea = new OfficeSampleWorkspace(workspace, options.Keep);
@@ -441,6 +452,7 @@ internal static class Program
                 }
 
                 log.AddRange(sampleResults);
+                int current;
                 lock (differences)
                 {
                     differences.Add(diff);
@@ -450,10 +462,11 @@ internal static class Program
                         readings.Add(reading);
                     if (render is not null)
                         renders.Add(render);
+                    current = ++completedSamples;
+                    if (completedSamples % Math.Min(statusStep, 40) == 0 || completedSamples == totalSamples)
+                        Checkpoint();
                 }
 
-
-                int current = Interlocked.Increment(ref completedSamples);
                 if (current % statusStep == 0 || current == totalSamples)
                 {
                     int percent = (int)Math.Min(100, Math.Round(current * 100.0 / totalSamples));
@@ -466,9 +479,6 @@ internal static class Program
             }).ConfigureAwait(false);
 
             IReadOnlyList<CheckResult> results = Ordered(log.Results);
-            var header = new RunHeader(
-                tool.Description, libreOffice.Version, rasterizer?.Version, options.FontSet,
-                platform, options.Dpi, true);
 
             string issueMarkdown = ExtrasConformance.FormatIssueMarkdown(
                 sourceLabel, header, samples, differences, options.TopDifferences, options.Threshold);

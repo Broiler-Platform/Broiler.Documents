@@ -66,6 +66,10 @@ on:
         description: Number of major differences to report in the GitHub issue (default 3)
         required: false
         default: '3'
+      jobs:
+        description: Concurrent documents (use 1 to reduce peak memory further)
+        required: false
+        default: '2'
       maxFiles:
         description: Optional cap on the number of extras sample files to evaluate
         required: false
@@ -156,6 +160,7 @@ jobs:
           OFFICE_EXTRAS_URL: ${{ inputs.extrasUrl || 'https://github.com/LibreOffice/core/tree/master/sw/qa/extras' }}
           OFFICE_TOP_DIFFERENCES: ${{ inputs.topDifferences || '3' }}
           OFFICE_MAX_FILES: ${{ inputs.maxFiles || '' }}
+          OFFICE_JOBS: ${{ inputs.jobs || '2' }}
           OFFICE_SEED_CORPUS: ${{ inputs.seedCorpus && 'true' || 'false' }}
           OFFICE_UPDATE_BASELINE: ${{ inputs.updateBaseline || 'false' }}
         run: |
@@ -166,6 +171,7 @@ jobs:
           ARGS=(
             --output-dir "$GITHUB_WORKSPACE/test-results"
             --skip-install
+            --jobs "$OFFICE_JOBS"
             --axis "$OFFICE_AXIS"
             --dpi "$OFFICE_DPI"
             --threshold "$OFFICE_THRESHOLD"
@@ -237,7 +243,10 @@ jobs:
             const path = require('node:path');
             const resultsDir = path.join(process.env.GITHUB_WORKSPACE, 'test-results');
             const reportPath = path.join(resultsDir, 'office-major-differences.md');
-            const resultsPath = path.join(resultsDir, 'office-results.json');
+            const finalResultsPath = path.join(resultsDir, 'office-results.json');
+            const partialResultsPath = path.join(resultsDir, 'office-partial-results.json');
+            const partial = !fs.existsSync(finalResultsPath) && fs.existsSync(partialResultsPath);
+            const resultsPath = partial ? partialResultsPath : finalResultsPath;
             let results;
             try {
               results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
@@ -250,19 +259,22 @@ jobs:
               results = null;
             }
             const missingReport = process.env.OFFICE_REPORT_EXPECTED === 'true' && !fs.existsSync(reportPath);
-            const verdict = !results || missingReport ? 'results incomplete'
+            const verdict = !results || missingReport || partial ? 'results incomplete'
               : results.failed > 0 ? `${results.failed} failed checks`
               : results.passed === 0 ? 'no checks executed' : 'no failed checks';
             const counts = results
               ? `Checks: **${results.passed} passed, ${results.failed} failed, ${results.skipped} skipped**.`
               : '**No valid check counts available; conformance has not been established.**';
-            const report = fs.existsSync(reportPath)
-              ? fs.readFileSync(reportPath, 'utf8')
+            const partialReportPath = path.join(resultsDir, 'office-partial-differences.md');
+            const selectedReport = !partial && fs.existsSync(reportPath) ? reportPath : partialReportPath;
+            const report = fs.existsSync(selectedReport)
+              ? fs.readFileSync(selectedReport, 'utf8')
               : 'No major-differences report was produced. See the run logs and uploaded artifacts for results or setup failures.';
             const metadata = [
               `Workflow run: ${runUrl} (attempt ${attempt})`,
               `Conformance result: **${verdict}**`,
               counts,
+              ...(partial ? [`**Partial results: ${results?.completedSamples ?? '?'} / ${results?.totalSamples ?? '?'} documents completed.**`] : []),
               `Status before issue publication: **${status}**`,
               `Commit: ${context.sha}`,
               `Trigger: ${context.eventName}`,
@@ -278,7 +290,7 @@ jobs:
             });
             core.info(`Created ${issue.data.html_url}`);
             await core.summary.addLink('Office conformance issue', issue.data.html_url).write();
-            if (!results || missingReport || results.passed + results.failed === 0)
+            if (!results || missingReport || partial || results.passed + results.failed === 0)
               core.setFailed('Conformance results are missing, incomplete or contain no executed checks. See the issue and run logs.');
 
       # The dispatch input offers a regenerated baseline, so it has to arrive
