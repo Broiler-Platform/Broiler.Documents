@@ -2,6 +2,23 @@ namespace Broiler.Documents.Pagination.Tests;
 
 public sealed class DocumentLayoutParagraphKeepTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_Heading_Stays_With_The_First_Row_Of_A_Following_Table(bool tallRow)
+    {
+        using var images = new ImageStore();
+        var document = RichTextDocument.FromParagraphs([Para(7), Para(1, Style with { KeepWithNext = true }),
+                Para(tallRow ? 12 : 2)])
+            .WithTables([new DocumentTable(2, 1, [new TableRow([new TableCell(2, 1, 0)])], [180], cellPadding: 0)]);
+        var result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10));
+        Assert.Equal(7, result.Pages[0].Lines.Count);
+        Assert.Equal(1, result.Pages[1].Lines[0].ParagraphIndex);
+        Assert.Contains(result.Pages[1].Lines, line => line.ParagraphIndex == 2);
+        Assert.Equal(tallRow ? 20 : 10, result.Pages.Sum(page => page.Lines.Count));
+    }
+
     private static ParagraphStyle Style => ParagraphStyle.Default with
     { LineHeightRule = LineHeightRule.Exact, LineHeight = 10 };
     private static RichTextParagraph Para(int lines, ParagraphStyle? style = null) =>
@@ -11,6 +28,45 @@ public sealed class DocumentLayoutParagraphKeepTests
         using var images = new ImageStore();
         return new DocumentLayout(new LayoutSettings(), images).Layout(
             RichTextDocument.FromParagraphs(paragraphs), new DocumentPageBox(200, 100, 10, 10, 10, 10));
+    }
+
+    [Fact]
+    public void A_Heading_Can_Stay_With_The_Start_Of_A_Row_That_Continues_On_The_Next_Page()
+    {
+        using var images = new ImageStore();
+        var document = RichTextDocument.FromParagraphs([Para(6), Para(1, Style with { KeepWithNext = true }), Para(4)])
+            .WithTables([new DocumentTable(2, 1, [new TableRow([new TableCell(2, 1, 0)])], [180], cellPadding: 0)]);
+        var result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10));
+        Assert.Equal(new[] { 8, 3 }, result.Pages.Select(page => page.Lines.Count));
+        Assert.Contains(result.Pages[0].Lines, line => line.ParagraphIndex == 1);
+        Assert.Equal(2, result.Pages[0].Lines[^1].ParagraphIndex);
+    }
+
+    [Fact]
+    public void A_Table_Page_Break_Wins_Over_The_Preceding_Heading_Keep()
+    {
+        using var images = new ImageStore();
+        var document = RichTextDocument.FromParagraphs([Para(7), Para(1, Style with { KeepWithNext = true }), Para(2)])
+            .WithTables([new DocumentTable(2, 1, [new TableRow([new TableCell(2, 1, 0)])], [180],
+                cellPadding: 0, pageBreakBefore: true)]);
+        var result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10));
+        Assert.Equal(new[] { 8, 2 }, result.Pages.Select(page => page.Lines.Count));
+    }
+
+    [Fact]
+    public void Measuring_The_Following_Table_Does_Not_Consume_Its_List_Numbers()
+    {
+        using var images = new ImageStore();
+        var definition = new ListDefinition([new ListLevel { Format = ListNumberFormat.Decimal, Template = "%1." }]);
+        var numbered = Style with { List = new ListReference(definition, 0), ListKind = ListKind.Numbered };
+        var document = RichTextDocument.FromParagraphs([Para(7), Para(1, numbered with { KeepWithNext = true }), Para(2, numbered)])
+            .WithTables([new DocumentTable(2, 1, [new TableRow([new TableCell(2, 1, 0)])], [180], cellPadding: 0)]);
+        var result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10));
+        Assert.Equal(new[] { "1.", "2." }, result.Pages.SelectMany(page => page.Lines).SelectMany(line => line.Pieces)
+            .Select(piece => piece.Text).Where(text => text.EndsWith('.')));
     }
 
     [Fact]

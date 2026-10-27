@@ -11,6 +11,20 @@ namespace Broiler.Documents.Odt.Tests;
 public sealed class OdtShapeTests
 {
     [Fact]
+    public void A_Text_Frame_Keeps_Its_Cell_Alignment_On_Round_Trip()
+    {
+        string styles = "<style:style style:name=\"frame\" style:family=\"graphic\">" +
+            "<style:graphic-properties style:horizontal-rel=\"paragraph-content\" style:horizontal-pos=\"center\"/>" +
+            "</style:style>";
+        string frame = "<draw:frame draw:style-name=\"frame\" text:anchor-type=\"paragraph\" " +
+            "svg:width=\"30pt\" svg:height=\"20pt\"><draw:text-box><text:p>box</text:p></draw:text-box></draw:frame>";
+        var document = OdtTestPackage.ReadBody(OdtTestPackage.Table(["<text:p>" + frame + "</text:p>"]),
+            automaticStylesXml: styles).Document;
+        Assert.Equal(TextAlignment.Center, Assert.Single(document.Shapes).CellHorizontalAlignment);
+        Assert.Equal(TextAlignment.Center, Assert.Single(RoundTrip(document).Shapes).CellHorizontalAlignment);
+    }
+
+    [Fact]
     public void Linked_Frames_Keep_Their_Empty_Destination_On_Round_Trip()
     {
         var document = WithShapes(new DocumentShape(0, 0, 0, 100, 50, paragraphs: [RichTextParagraph.Plain("source")],

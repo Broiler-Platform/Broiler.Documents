@@ -8,6 +8,123 @@ namespace Broiler.Documents.Odt.Tests;
 /// </summary>
 public sealed class OdtTableTests
 {
+    [Fact]
+    public void Large_Relative_Weights_And_Repeated_Columns_Remain_Finite()
+    {
+        string styles = "<style:style style:name=\"relative\" style:family=\"table-column\">" +
+            "<style:table-column-properties style:rel-column-width=\"1e308*\"/></style:style>";
+        string body = Table("<table:table-column table:style-name=\"relative\" table:number-columns-repeated=\"3\"/>",
+            Row(Cell("one"), Cell("two"), Cell("three")));
+        var table = Assert.Single(OdtTestPackage.ReadStyled(body, styles).Document.Tables);
+        Assert.Equal(100, table.WidthPercent);
+        Assert.Equal(3, table.ColumnWidths.Count);
+        Assert.All(table.ColumnWidths, width => Assert.Equal(100d / 3, width, 6));
+    }
+
+    [Theory]
+    [InlineData("NaN*")]
+    [InlineData("Infinity*")]
+    [InlineData("0*")]
+    [InlineData("-2*")]
+    [InlineData("2")]
+    public void Invalid_Relative_Weights_Keep_The_Unspecified_Grid_Fallback(string weight)
+    {
+        string styles = "<style:style style:name=\"relative\" style:family=\"table-column\">" +
+            "<style:table-column-properties style:rel-column-width=\"" + weight + "\"/></style:style>";
+        var table = Assert.Single(OdtTestPackage.ReadStyled(Table(
+            "<table:table-column table:style-name=\"relative\"/>", Row(Cell("body"))), styles).Document.Tables);
+        Assert.Equal(0, Assert.Single(table.ColumnWidths));
+        Assert.Null(table.WidthPercent);
+    }
+
+    [Theory]
+    [InlineData("", 100d, 25, 75)]
+    [InlineData("style:width=\"240pt\"", null, 60, 180)]
+    public void Relative_Column_Widths_Keep_Their_Proportions(string tableProperties, double? percentage, double first, double second)
+    {
+        string styles = "<style:style style:name=\"table\" style:family=\"table\"><style:table-properties " +
+            tableProperties + "/></style:style>" +
+            "<style:style style:name=\"small\" style:family=\"table-column\"><style:table-column-properties style:rel-column-width=\"1*\"/></style:style>" +
+            "<style:style style:name=\"large\" style:family=\"table-column\"><style:table-column-properties style:rel-column-width=\"3*\"/></style:style>";
+        string body = "<table:table table:style-name=\"table\"><table:table-column table:style-name=\"small\"/>" +
+            "<table:table-column table:style-name=\"large\"/>" + Row(Cell("one"), Cell("two")) + "</table:table>";
+        var document = OdtTestPackage.ReadStyled(body, styles).Document;
+        var table = Assert.Single(document.Tables);
+        Assert.Equal(first, table.ColumnWidths[0], 3);
+        Assert.Equal(second, table.ColumnWidths[1], 3);
+        Assert.Equal(percentage, table.WidthPercent);
+        var restored = Assert.Single(RoundTrip(document).Tables);
+        Assert.Equal(3, restored.ColumnWidths[1] / restored.ColumnWidths[0], 3);
+        Assert.Equal(percentage, restored.WidthPercent);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void An_Explicitly_Disabled_Cell_Edge_Overrides_The_Uniform_Border(bool inherited)
+    {
+        string styles = "<style:style style:name=\"base\" style:family=\"table-cell\">" +
+            "<style:table-cell-properties fo:border=\"1pt solid #ff0000\"/></style:style>" +
+            "<style:style style:name=\"cell\" style:family=\"table-cell\"" +
+            (inherited ? " style:parent-style-name=\"base\"" : "") + ">" +
+            "<style:table-cell-properties " + (inherited ? "" : "fo:border=\"1pt solid #ff0000\" ") +
+            "fo:border-right=\"none\"/></style:style>";
+        var cell = Assert.Single(Assert.Single(Assert.Single(OdtTestPackage.ReadStyled(
+            Table(Columns(1), Row(Cell("body", "table:style-name=\"cell\""))), Styles() + styles).Document.Tables).Rows).Cells);
+        Assert.Equal(1, cell.Borders.Left.Width, 3);
+        Assert.Equal(0, cell.Borders.Right.Width, 3);
+        Assert.Equal(1, cell.Borders.Top.Width, 3);
+    }
+
+    [Fact]
+    public void A_Childs_Uniform_Border_Overrides_The_Parents_Specific_Edges()
+    {
+        string styles = "<style:style style:name=\"base\" style:family=\"table-cell\">" +
+            "<style:table-cell-properties fo:border-left=\"2pt solid #ff0000\"/></style:style>" +
+            "<style:style style:name=\"cell\" style:family=\"table-cell\" style:parent-style-name=\"base\">" +
+            "<style:table-cell-properties fo:border=\"none\" fo:border-bottom=\"1pt solid #000000\"/></style:style>";
+        var cell = Assert.Single(Assert.Single(Assert.Single(OdtTestPackage.ReadStyled(
+            Table(Columns(1), Row(Cell("body", "table:style-name=\"cell\""))), Styles() + styles).Document.Tables).Rows).Cells);
+        Assert.Equal(0, cell.Borders.Left.Width, 3);
+        Assert.Equal(0, cell.Borders.Right.Width, 3);
+        Assert.Equal(1, cell.Borders.Bottom.Width, 3);
+    }
+
+    [Theory]
+    [InlineData(false, 90, 30, false)]
+    [InlineData(true, 120, 40, true)]
+    public void Row_And_Column_Styles_Inherit_Their_Parents(bool overrides, double width, double height, bool canSplit)
+    {
+        string styles = "<style:style style:name=\"baseColumn\" style:family=\"table-column\">" +
+            "<style:table-column-properties style:column-width=\"90pt\"/></style:style>" +
+            "<style:style style:name=\"co1\" style:family=\"table-column\" style:parent-style-name=\"baseColumn\">" +
+            (overrides ? "<style:table-column-properties style:column-width=\"120pt\"/>" : "") + "</style:style>" +
+            "<style:style style:name=\"baseRow\" style:family=\"table-row\">" +
+            "<style:table-row-properties style:min-row-height=\"30pt\" fo:keep-together=\"always\"/></style:style>" +
+            "<style:style style:name=\"ro1\" style:family=\"table-row\" style:parent-style-name=\"baseRow\">" +
+            (overrides ? "<style:table-row-properties style:min-row-height=\"40pt\" fo:keep-together=\"auto\"/>" : "") + "</style:style>";
+        var table = Assert.Single(OdtTestPackage.ReadStyled(Table(Columns(1), StyledRow("ro1", Cell("body"))), styles).Document.Tables);
+        Assert.Equal(width, Assert.Single(table.ColumnWidths), 3);
+        var row = Assert.Single(table.Rows);
+        Assert.Equal(height, row.MinHeight, 3);
+        Assert.Equal(canSplit, row.CanSplit);
+    }
+
+    [Theory]
+    [InlineData("min-row-height", "row-height", true)]
+    [InlineData("row-height", "min-row-height", false)]
+    public void A_Child_Rows_Height_Replaces_The_Parents_Height_Rule(string parentRule, string childRule, bool exact)
+    {
+        string styles = "<style:style style:name=\"base\" style:family=\"table-row\">" +
+            "<style:table-row-properties style:" + parentRule + "=\"30pt\"/></style:style>" +
+            "<style:style style:name=\"child\" style:family=\"table-row\" style:parent-style-name=\"base\">" +
+            "<style:table-row-properties style:" + childRule + "=\"40pt\"/></style:style>";
+        var row = Assert.Single(Assert.Single(OdtTestPackage.ReadStyled(
+            Table(Columns(1), StyledRow("child", Cell("body"))), Styles() + styles).Document.Tables).Rows);
+        Assert.Equal(40, row.MinHeight, 3);
+        Assert.Equal(exact, row.ExactHeight);
+    }
+
     private static string Styles() =>
         "<style:style style:name=\"co1\" style:family=\"table-column\">" +
         "<style:table-column-properties style:column-width=\"90pt\"/></style:style>" +

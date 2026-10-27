@@ -75,7 +75,8 @@ public sealed class DocumentShape(
     string? nextFrameName = null,
     ShapeGeometry geometry = ShapeGeometry.Rectangle,
     double outlineWidth = 1,
-    bool offsetXFromCell = false)
+    bool offsetXFromCell = false,
+    TextAlignment? cellHorizontalAlignment = null)
 {
 
     /// <summary>The paragraph the shape is anchored to.</summary>
@@ -86,6 +87,15 @@ public sealed class DocumentShape(
 
     /// <summary>Measure OffsetX from the anchoring table cell's text area rather than the page's text area.</summary>
     public bool OffsetXFromCell { get; } = offsetXFromCell;
+
+    /// <summary>
+    /// Align the shape within its anchoring cell's text area instead of using
+    /// OffsetX. Null keeps the numeric offset; justification is not an alignment
+    /// for a positioned object.
+    /// </summary>
+    public TextAlignment? CellHorizontalAlignment { get; } = offsetXFromCell && anchorPage <= 0 &&
+        cellHorizontalAlignment is TextAlignment.Left or TextAlignment.Center or TextAlignment.Right
+            ? cellHorizontalAlignment : null;
 
     /// <summary>
     /// Points from the top of the anchoring paragraph, or of the page when

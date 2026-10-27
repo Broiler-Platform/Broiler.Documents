@@ -11,6 +11,28 @@ public sealed class DocumentTableImageClipTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void An_Explicitly_Sized_Image_Keeps_Its_Size_In_A_Narrow_Cell(bool nested)
+    {
+        var image = new InlineImage(BImageResource.FromPixels(new BPixelBuffer(1, 1, new byte[] { 0, 128, 0, 255 })),
+            width: 120, height: 60);
+        var paragraph = RichTextParagraph.Create(InlineImage.PlaceholderText, InlineStyle.Default with { Image = image });
+        var table = new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0)])], [40], cellPadding: 0);
+        if (nested)
+            table = new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0, tables: [table])])], [160], cellPadding: 0);
+        using var images = new ImageStore();
+        var document = RichTextDocument.FromParagraphs([paragraph]).WithTables([table]);
+        var page = Assert.Single(new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 120, 10, 10, 10, 10)).Pages);
+
+        var piece = Assert.Single(Assert.Single(page.Lines).Pieces);
+        Assert.Equal(120, piece.Width, 3);
+        Assert.Equal(60, piece.Ascent, 3);
+        Assert.Equal(40, page.Cells.Min(cell => cell.Bounds.Width), 3);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void An_Image_In_A_Fixed_Row_Remains_Visible_Up_To_The_Row_Edge(bool inFrame)
     {
         var image = new InlineImage(BImageResource.FromPixels(new BPixelBuffer(1, 1, new byte[] { 255, 0, 0, 255 })),

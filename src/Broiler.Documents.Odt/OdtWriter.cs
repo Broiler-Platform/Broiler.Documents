@@ -2237,7 +2237,13 @@ public static class OdtWriter
 
             if (shape.OffsetXFromCell)
             {
-                properties.SetAttributeValue(OdtNamespaces.Style + "horizontal-pos", "from-left");
+                properties.SetAttributeValue(OdtNamespaces.Style + "horizontal-pos", shape.CellHorizontalAlignment switch
+                {
+                    TextAlignment.Left => "left",
+                    TextAlignment.Center => "center",
+                    TextAlignment.Right => "right",
+                    _ => "from-left",
+                });
                 properties.SetAttributeValue(OdtNamespaces.Style + "horizontal-rel", "paragraph");
             }
 

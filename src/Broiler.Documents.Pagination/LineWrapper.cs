@@ -175,10 +175,12 @@ internal sealed class LineWrapper(double tabStopPoints)
         {
             if (piece.IsImage)
             {
-                // An image cannot be broken, so an over-wide one is scaled to the
-                // column instead. Letting it keep its size would put pixels past
-                // the right margin, where the page clip silently eats them.
-                yield return LayoutToken.Single(piece.Width > maxWidth ? ScaleToWidth(piece, maxWidth) : piece);
+                // Office frames can deliberately extend beyond a narrow cell.
+                // Their stated dimensions also determine the row's height and
+                // pagination. Only an intrinsically sized picture is fitted to
+                // the available width; an explicit extent must survive layout.
+                bool explicitSize = piece.Image!.Width.HasValue || piece.Image.Height.HasValue;
+                yield return LayoutToken.Single(!explicitSize && piece.Width > maxWidth ? ScaleToWidth(piece, maxWidth) : piece);
                 continue;
             }
 

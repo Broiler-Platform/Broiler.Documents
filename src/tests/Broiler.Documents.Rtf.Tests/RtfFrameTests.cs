@@ -11,6 +11,23 @@ namespace Broiler.Documents.Rtf.Tests;
 /// </summary>
 public sealed class RtfFrameTests
 {
+    [Theory]
+    [InlineData("\\page")]
+    [InlineData("\\column")]
+    public void A_Break_Between_Frames_Opens_A_New_Body_Page(string pageBreak)
+    {
+        var document = Read("{\\pard\\pvpg\\posy400\\absw2000 first\\par}" + pageBreak +
+            "{\\pard\\pvpg\\posy800\\absw2000 second\\par}");
+
+        Assert.Equal(2, document.Shapes.Count);
+        Assert.Equal(1, document.Shapes[0].ParagraphIndex);
+        Assert.Equal(1, document.Shapes[1].ParagraphIndex);
+        Assert.False(document.Paragraphs[0].Style.PageBreakBefore);
+        Assert.True(document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.Equal("first", Assert.Single(document.Shapes[0].Paragraphs).Text);
+        Assert.Equal("second", Assert.Single(document.Shapes[1].Paragraphs).Text);
+    }
+
     [Fact]
     public void A_Final_Frame_After_Body_Text_Keeps_Its_Empty_Anchor()
     {

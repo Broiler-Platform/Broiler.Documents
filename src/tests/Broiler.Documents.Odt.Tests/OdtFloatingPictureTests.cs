@@ -9,6 +9,42 @@ namespace Broiler.Documents.Odt.Tests;
 /// </summary>
 public sealed class OdtFloatingPictureTests
 {
+    [Theory]
+    [InlineData("left", TextAlignment.Left)]
+    [InlineData("center", TextAlignment.Center)]
+    [InlineData("right", TextAlignment.Right)]
+    public void Cell_Picture_Alignment_Is_Read_And_Round_Trips(string position, TextAlignment alignment)
+    {
+        string styles = OdtTestPackage.Style("image", "<style:graphic-properties style:horizontal-rel=\"paragraph\" " +
+            "style:horizontal-pos=\"" + position + "\"/>", family: "graphic");
+        var result = OdtTestPackage.ReadWithPictures(
+            "<table:table><table:table-row><table:table-cell><text:p>" + Frame(styleName: "image") +
+            "</text:p></table:table-cell></table:table-row></table:table>", Pictures(),
+            options: RoundTripReadOptions, automaticStylesXml: styles);
+        Assert.Equal(alignment, Assert.Single(result.Document.Shapes).CellHorizontalAlignment);
+        using var stream = new MemoryStream(OdtDocumentCodec.WriteToArray(result.Document,
+            new DocumentWriteOptions(resources: result.Resources)));
+        var restored = new OdtDocumentCodec().Read(stream, RoundTripReadOptions).Document;
+        Assert.Equal(alignment, Assert.Single(restored.Shapes).CellHorizontalAlignment);
+    }
+
+    [Theory]
+    [InlineData("paragraph", true)]
+    [InlineData("paragraph-content", true)]
+    [InlineData("page", false)]
+    [InlineData("page-content", false)]
+    public void A_Table_Pictures_Horizontal_Reference_Is_Preserved(string reference, bool fromCell)
+    {
+        string styles = OdtTestPackage.Style("image", "<style:graphic-properties style:horizontal-rel=\"" +
+            reference + "\"/>", family: "graphic");
+        var document = OdtTestPackage.ReadWithPictures(
+            "<table:table><table:table-row><table:table-cell><text:p>" + Frame(styleName: "image") +
+            "</text:p></table:table-cell></table:table-row></table:table>", Pictures(),
+            options: RoundTripReadOptions, automaticStylesXml: styles).Document;
+
+        Assert.Equal(fromCell, Assert.Single(document.Shapes).OffsetXFromCell);
+    }
+
     [Fact]
     public void Missing_And_Empty_Graphic_Styles_Default_To_Top_And_Bottom_Wrapping()
     {

@@ -1067,10 +1067,34 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     for (int next = paragraphIndex + 1; previous.KeepWithNext && next < document.ParagraphCount; next++)
                     {
                         RichTextParagraph following = document.Paragraphs[next];
-                        if (following.Style.PageBreakBefore || following.Style.ColumnBreakBefore ||
-                            DocumentTable.StartingAt(document.Tables, next) is not null ||
+                        DocumentTable? followingTable = DocumentTable.StartingAt(document.Tables, next);
+                        if ((followingTable is null && (following.Style.PageBreakBefore || following.Style.ColumnBreakBefore)) ||
                             !ReferenceEquals(DocumentSection.Containing(document.Sections, next), section))
                             break;
+                        if (followingTable is not null)
+                        {
+                            if (followingTable.IsFloating || followingTable.PageBreakBefore || followingTable.ColumnBreakBefore)
+                                break;
+                            ListNumberer saved = _lists;
+                            List<RowBox> rows;
+                            try
+                            {
+                                _lists = probe;
+                                rows = ComposeTable(followingTable, document, setup, setup.ContentLeftPoints, columns.Width);
+                            }
+                            finally { _lists = saved; }
+                            if (rows.Count > 0)
+                            {
+                                // Keep with the start of a splittable row, not
+                                // necessarily the entire row. Requiring a whole
+                                // row can move a heading that already has room
+                                // for the table's opening on its current page.
+                                double opening = rows[0].CanSplit
+                                    ? rows[0].NestedPieces().FirstOrDefault().Bottom : rows[0].Height;
+                                required += Math.Max(0, previous.SpacingAfter) + opening;
+                            }
+                            break;
+                        }
                         ParagraphLines measured = ComposeParagraph(following, probe.Advance(following.Style),
                             setup, next, columnWidthOverride: columns.Width);
                         double followingHeight = measured.Lines.Sum(line => line.Height);
@@ -1518,10 +1542,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         if (_documentShapes.Count == 0)
             return placed;
 
-        var cellTextLefts = new Dictionary<int, double>();
+        var cellTextAreas = new Dictionary<int, (double Left, double Width)>();
         if (_documentShapes.Any(shape => shape.OffsetXFromCell))
             foreach (LayoutLine line in sourceLines)
-                cellTextLefts.TryAdd(line.ParagraphIndex, line.TextAreaLeft);
+                cellTextAreas.TryAdd(line.ParagraphIndex, (line.TextAreaLeft, line.TextAreaWidth));
 
         foreach (DocumentShape shape in _documentShapes)
         {
@@ -1538,9 +1562,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 continue;
             }
 
-            double left = shape.OffsetXFromCell && cellTextLefts.TryGetValue(shape.ParagraphIndex, out double cellLeft)
-                ? cellLeft : setup.ContentLeftPoints;
-            var bounds = new BRect(left + shape.OffsetX, shape.TopOnPage(anchorTop),
+            var area = shape.OffsetXFromCell && cellTextAreas.TryGetValue(shape.ParagraphIndex, out var cellArea)
+                ? cellArea : (Left: setup.ContentLeftPoints, Width: setup.ContentWidthPoints);
+            double offset = shape.CellHorizontalAlignment switch
+            {
+                TextAlignment.Left => 0,
+                TextAlignment.Center => (area.Width - BoxWidth(shape)) / 2,
+                TextAlignment.Right => area.Width - BoxWidth(shape),
+                _ => shape.OffsetX,
+            };
+            var bounds = new BRect(area.Left + offset, shape.TopOnPage(anchorTop),
                 BoxWidth(shape), BoxHeight(shape));
 
             if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
@@ -1853,6 +1884,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             y += Math.Max(0, paragraph.Style.SpacingBefore);
 
+            double anchorTop = y;
             double capacity = setup.ContentHeightPoints;
             double height = composed.Lines.Sum(line => line.Height);
             int count = composed.Lines.Count;
@@ -1877,6 +1909,22 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     paragraphPieces.Add(new CutPiece(cutTop, y));
                     cutTop = y;
                 }
+            }
+            // A wrapping object anchored inside a cell belongs to that cell's
+            // flow. Reserve its height before the next paragraph (often its
+            // caption), and keep its anchor with the object at a page cut.
+            // Use this document's shapes: text boxes have their own paragraph
+            // indices and must not pick up the body's objects by coincidence.
+            double objectBottom = document.Shapes.Where(shape => shape.ParagraphIndex == index &&
+                    shape.OffsetXFromCell && shape.Wraps && !shape.IsPageAnchored && !shape.OffsetFromPage)
+                .Select(shape => anchorTop + shape.OffsetY + BoxHeight(shape)).DefaultIfEmpty(anchorTop).Max();
+            if (objectBottom > anchorTop && paragraphPieces.Count > 0)
+            {
+                int covered = paragraphPieces.FindLastIndex(piece => piece.Top < objectBottom) + 1;
+                double bottom = Math.Max(objectBottom, paragraphPieces[covered - 1].Bottom);
+                paragraphPieces.RemoveRange(0, covered);
+                paragraphPieces.Insert(0, new CutPiece(anchorTop, bottom));
+                y = Math.Max(y, objectBottom);
             }
             if (keepPrevious && pieces.Count > 0 && paragraphPieces.Count > 0 &&
                 paragraphPieces[0].Bottom - pieces[^1].Top <= capacity)
@@ -2636,6 +2684,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             line.TextAreaLeft = columnLeft - indent;
+            line.TextAreaWidth = columnWidthOverride ?? setup.ContentWidthPoints;
             lines.Add(line);
         }
 

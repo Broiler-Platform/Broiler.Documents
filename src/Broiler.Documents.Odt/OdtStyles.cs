@@ -295,8 +295,8 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
                 .LastOrDefault(properties => properties is not null),
             TableProperties = ResolvePropertyChains(styles, CollectTableProperties(stylesRoot, contentRoot), limits.MaxGroupDepth, TableFamily),
             TableCellProperties = ResolvePropertyChains(styles, cellProperties, limits.MaxGroupDepth, "table-cell"),
-            TableColumnProperties = columnProperties,
-            TableRowProperties = rowProperties,
+            TableColumnProperties = ResolvePropertyChains(styles, columnProperties, limits.MaxGroupDepth, "table-column"),
+            TableRowProperties = ResolvePropertyChains(styles, rowProperties, limits.MaxGroupDepth, "table-row"),
             SectionProperties = ResolvePropertyChains(styles, sectionProperties, limits.MaxGroupDepth, "section"),
             Gradients = gradients,
             FillDefinitions = new[] { stylesRoot, contentRoot }.Where(root => root is not null)
@@ -374,10 +374,18 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
             var merged = new XElement(chain[0].Name);
             for (int i = chain.Count - 1; i >= 0; i--)
             {
-                if (family == "table-cell" && chain[i].Attribute(OdtNamespaces.Fo + "padding") is XAttribute padding)
+                if (family == "table-row" && (chain[i].Attribute(OdtNamespaces.Style + "row-height") is not null ||
+                    chain[i].Attribute(OdtNamespaces.Style + "min-row-height") is not null))
                 {
-                    foreach (string edge in new[] { "left", "top", "right", "bottom" })
-                        merged.SetAttributeValue(OdtNamespaces.Fo + "padding-" + edge, padding.Value);
+                    merged.Attribute(OdtNamespaces.Style + "row-height")?.Remove();
+                    merged.Attribute(OdtNamespaces.Style + "min-row-height")?.Remove();
+                }
+                if (family == "table-cell")
+                {
+                    foreach (string shorthand in new[] { "padding", "border" })
+                        if (chain[i].Attribute(OdtNamespaces.Fo + shorthand) is XAttribute uniform)
+                            foreach (string edge in new[] { "left", "top", "right", "bottom" })
+                                merged.SetAttributeValue(OdtNamespaces.Fo + shorthand + "-" + edge, uniform.Value);
                 }
                 foreach (XAttribute attribute in chain[i].Attributes())
                     merged.SetAttributeValue(attribute.Name, attribute.Value);

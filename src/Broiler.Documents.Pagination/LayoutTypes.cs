@@ -133,6 +133,9 @@ public sealed class LayoutLine
     /// <summary>The column/cell text area's origin, before paragraph indent.</summary>
     internal double TextAreaLeft { get; set; }
 
+    /// <summary>The column/cell text width before paragraph indents.</summary>
+    internal double TextAreaWidth { get; set; }
+
     /// <summary>Moves every piece of the line <paramref name="dx"/> points across, into another text column.</summary>
     /// <summary>
     /// The colour the line's paragraph is shaded with, or <see cref="BColor.Empty"/>

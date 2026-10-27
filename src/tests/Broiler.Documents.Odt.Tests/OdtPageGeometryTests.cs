@@ -7,6 +7,27 @@ namespace Broiler.Documents.Odt.Tests;
 /// </summary>
 public sealed class OdtPageGeometryTests
 {
+    [Theory]
+    [InlineData(false, 12, 12)]
+    [InlineData(true, 4, 0)]
+    public void Uniform_Page_Margins_Apply_Below_Explicit_Side_Overrides(bool overrides, double left, double right)
+    {
+        string styles = "<office:automatic-styles><style:page-layout style:name=\"page\">" +
+            "<style:page-layout-properties fo:page-width=\"300pt\" fo:page-height=\"200pt\" fo:margin=\"12pt\" " +
+            (overrides ? "fo:margin-left=\"4pt\" fo:margin-right=\"0pt\" " : "") +
+            "/></style:page-layout></office:automatic-styles><office:master-styles>" +
+            "<style:master-page style:name=\"Standard\" style:page-layout-name=\"page\"/></office:master-styles>";
+        using var source = new MemoryStream(OdtTestPackage.FromBody("<text:p>body</text:p>", stylesPartInnerXml: styles));
+        var document = new OdtDocumentCodec().Read(source).Document;
+        var page = Assert.IsType<PageGeometry>(document.PageGeometry);
+        Assert.Equal(left, page.MarginLeft, 3);
+        Assert.Equal(right, page.MarginRight, 3);
+        Assert.Equal(12, page.MarginTop, 3);
+        Assert.Equal(12, page.MarginBottom, 3);
+        var restored = Assert.IsType<PageGeometry>(RoundTrip(document).PageGeometry);
+        Assert.Equal(page, restored);
+    }
+
     private static readonly PageGeometry A4Letterhead =
         new(595.276, 841.89, 127.55, 56.7, 56.7, 56.7);
 

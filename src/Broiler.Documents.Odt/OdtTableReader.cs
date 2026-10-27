@@ -129,15 +129,17 @@ internal static class OdtTableReader
                 exactHeight: IsFixedRow(row, context.Styles)));
         }
 
+        (List<double> widths, bool relativeGrid) = ReadColumnWidths(table, context.Styles, depth);
+        double? preferredWidth = TableLength(table, context.Styles, OdtNamespaces.Style + "width");
         context.Builder.AddTable(new DocumentTable(
             start,
             context.Builder.CurrentParagraphIndex - start,
             rows,
-            ReadColumnWidths(table, context.Styles, depth),
+            widths,
             DocumentTable.DefaultCellPadding,
             keepWithNext: (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "keep-with-next") == "always",
-            preferredWidth: TableLength(table, context.Styles, OdtNamespaces.Style + "width"),
-            widthPercent: TablePercent(table, context.Styles),
+            preferredWidth: preferredWidth,
+            widthPercent: TablePercent(table, context.Styles) ?? (relativeGrid && preferredWidth is not > 0 ? 100 : null),
             alignment: (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Table + "align") switch
             {
                 "center" => TableAlignment.Center,
@@ -219,29 +221,51 @@ internal static class OdtTableReader
 
     /// <summary>
     /// The grid's column widths in points, from each <c>table:table-column</c>'s
-    /// style. A column that states none contributes zero, which a renderer reads
+    /// style, or a proportional point basis for an exclusively relative grid.
+    /// A column that states neither contributes zero, which a renderer reads
     /// as "share what is left".
     /// </summary>
-    private static List<double> ReadColumnWidths(XElement table, OdtStyles styles, int depth)
+    private static (List<double> Widths, bool Relative) ReadColumnWidths(XElement table, OdtStyles styles, int depth)
     {
         var widths = new List<double>();
+        var relative = new List<double>();
         foreach (XElement column in EnumerateColumns(table, depth))
         {
             int repeat = Math.Clamp(TableInt(column, "number-columns-repeated", 1), 1, MaxColumnRepeat);
             string? styleName = (string?)column.Attribute(OdtNamespaces.Table + "style-name");
             double width = 0;
+            double weight = 0;
             if (styleName is not null &&
-                styles.TableColumnProperties.TryGetValue(styleName, out XElement? properties) &&
-                OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Style + "column-width"), out double points))
+                styles.TableColumnProperties.TryGetValue(styleName, out XElement? properties))
             {
-                width = points;
+                if (OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Style + "column-width"), out double points))
+                    width = points;
+                string? value = ((string?)properties.Attribute(OdtNamespaces.Style + "rel-column-width"))?.Trim();
+                if (value?.EndsWith('*') == true && double.TryParse(value[..^1], NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out double parsed) && double.IsFinite(parsed) && parsed > 0)
+                    weight = parsed;
             }
 
             for (int i = 0; i < repeat; i++)
+            {
                 widths.Add(width);
+                relative.Add(weight);
+            }
         }
 
-        return widths;
+        if (widths.Count == 0 || widths.Any(width => width > 0) || relative.Any(weight => weight <= 0))
+            return (widths, false);
+
+        // A grid expressed only as star weights still fills its table. Keep a
+        // proportional point basis and let the table's width/percentage scale
+        // it in its containing cell or page. Scaling by the maximum first keeps
+        // a sum of large finite weights from overflowing.
+        double maximum = relative.Max();
+        double total = relative.Sum(weight => weight / maximum);
+        double basis = TableLength(table, styles, OdtNamespaces.Style + "width") is double stated && stated > 0 ? stated : 100;
+        for (int i = 0; i < widths.Count; i++)
+            widths[i] = basis * (relative[i] / maximum) / total;
+        return (widths, true);
     }
 
     /// <summary>
@@ -347,14 +371,13 @@ internal static class OdtTableReader
 
         TableBorder all = ReadBorderEdge(properties, "border");
         return new CellBorders(
-            FirstStated(ReadBorderEdge(properties, "border-left"), all),
-            FirstStated(ReadBorderEdge(properties, "border-top"), all),
-            FirstStated(ReadBorderEdge(properties, "border-right"), all),
-            FirstStated(ReadBorderEdge(properties, "border-bottom"), all));
-    }
+            Edge("border-left"), Edge("border-top"), Edge("border-right"), Edge("border-bottom"));
 
-    private static TableBorder FirstStated(TableBorder edge, TableBorder fallback) =>
-        edge.Width > 0 || edge.Color.A > 0 ? edge : fallback;
+        // An explicit 'none' is a declaration too: falling back based on its
+        // zero width would resurrect the uniform border the author disabled.
+        TableBorder Edge(string name) => properties.Attribute(OdtNamespaces.Fo + name) is not null
+            ? ReadBorderEdge(properties, name) : all;
+    }
 
     /// <summary>
     /// One <c>fo:border</c> value: <c>0.5pt solid #000000</c>. The keyword

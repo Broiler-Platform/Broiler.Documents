@@ -1936,6 +1936,35 @@ public static class RtfReader
         private void PageBreak()
         {
             FlushPending();
+            // A positioned paragraph still belongs to the body's page. Its
+            // frame has no paginated flow of its own, so keeping the break in
+            // the frame would discard it when the shape is laid out. Frames
+            // awaiting their next unframed paragraph travel with that paragraph.
+            if (_state.Dest == RtfDestination.Normal && !_state.InTable)
+            {
+                FinishFrame();
+                if (!_builder.HasPendingText &&
+                    _shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _builder.ParagraphCount))
+                {
+                    int anchor = _builder.ParagraphCount;
+                    _builder.EndParagraph(_state.Para);
+                    for (int i = 0; i < _shapes.Count; i++)
+                    {
+                        DocumentShape shape = _shapes[i];
+                        if (shape.IsPageAnchored || shape.ParagraphIndex != anchor)
+                            continue;
+                        _shapes[i] = new DocumentShape(_builder.ParagraphCount, shape.OffsetX, shape.OffsetY,
+                            shape.Width, shape.Height, shape.Fill, shape.Outline, shape.Paragraphs, shape.Image,
+                            shape.BehindText, shape.Wrap, shape.WrapSide, shape.WrapDistance, shape.ZOrder,
+                            shape.AnchorPage, shape.OffsetFromPage, shape.GrowsToText, shape.Tables, shape.TextPadding,
+                            shape.TextVerticalAlignment, shape.TextOverflow, shape.GrowsWidthToText, shape.FrameName,
+                            shape.NextFrameName, shape.Geometry, shape.OutlineWidth, shape.OffsetXFromCell, shape.CellHorizontalAlignment);
+                    }
+                }
+                if (!_builder.BreakPage(_state.Para))
+                    ReportEmptyPage();
+                return;
+            }
             if (!Active.BreakPage(_state.Para))
                 ReportEmptyPage();
         }
@@ -2146,6 +2175,7 @@ public static class RtfReader
 
         /// <summary>The paragraph a shape met right now would be anchored to.</summary>
         public int ParagraphCount => _paragraphs.Count;
+        public bool HasPendingText => _current.Length > 0;
         private readonly int _maxParagraphs = maxParagraphs;
         private RichTextParagraph _current = RichTextParagraph.Create(string.Empty, InlineStyle.Default, ParagraphStyle.Default);
 

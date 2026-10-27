@@ -639,7 +639,10 @@ internal static class OdtReader
             return null;
         }
 
-        double outerTop = Length(properties, "margin-top");
+        double uniformMargin = Length(properties, "margin");
+        double Margin(string side) => OdtUnits.TryParseLength(
+            (string?)properties.Attribute(OdtNamespaces.Fo + side), out double value) ? value : uniformMargin;
+        double outerTop = Margin("margin-top");
         bool hasHeader = master?.Elements().Any(element =>
             (element.Name == OdtNamespaces.Style + "header" || element.Name == OdtNamespaces.Style + "header-left" ||
              element.Name == OdtNamespaces.Style + "header-first") &&
@@ -651,10 +654,10 @@ internal static class OdtReader
         var geometry = new PageGeometry(
             width,
             height,
-            Length(properties, "margin-left"),
-            Length(properties, "margin-right"),
+            Margin("margin-left"),
+            Margin("margin-right"),
             outerTop + Math.Max(0, headerHeight),
-            Length(properties, "margin-bottom"),
+            Margin("margin-bottom"),
             HeaderDistance: hasHeader ? Math.Max(0, outerTop) : 0);
 
         if (geometry.IsUsable)
@@ -864,7 +867,10 @@ internal static class OdtReader
             nextFrameName: nextFrameName,
             geometry: drawing.Name == OdtNamespaces.Draw + "ellipse" ||
                 (string?)drawing.Element(OdtNamespaces.Draw + "enhanced-geometry")?.Attribute(OdtNamespaces.Draw + "type") is "ellipse" ? ShapeGeometry.Ellipse : ShapeGeometry.Rectangle,
-            outlineWidth: outlineWidth));
+            outlineWidth: outlineWidth,
+            offsetXFromCell: context.TableDepth > 0 &&
+                ((string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph" or "paragraph-content"),
+            cellHorizontalAlignment: ReadCellHorizontalAlignment(graphic)));
         return true;
     }
 
@@ -2445,9 +2451,21 @@ internal static class OdtReader
             zOrder: ZIndex(frame),
             anchorPage: anchorPage,
             offsetFromPage: fromPage,
-            outlineWidth: outlineWidth));
+            outlineWidth: outlineWidth,
+            offsetXFromCell: context.TableDepth > 0 &&
+                ((string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph" or "paragraph-content"),
+            cellHorizontalAlignment: ReadCellHorizontalAlignment(graphic)));
         return true;
     }
+
+    private static TextAlignment? ReadCellHorizontalAlignment(XElement? properties) =>
+        (string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-pos") switch
+        {
+            "left" => TextAlignment.Left,
+            "center" => TextAlignment.Center,
+            "right" => TextAlignment.Right,
+            _ => null,
+        };
 
     /// <summary>
     /// Resolves a <c>text:a</c> into a link style: the anchor's own character

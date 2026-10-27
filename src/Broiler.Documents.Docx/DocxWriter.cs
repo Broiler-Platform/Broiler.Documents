@@ -1619,6 +1619,8 @@ public static class DocxWriter
         DocxWriteContext context,
         bool pageAnchored = false)
     {
+        if (shape.CellHorizontalAlignment is not null)
+            context.AddDiagnosticOnce("docx.shape.cell-alignment", "Cell-relative shape alignment was written using its numeric offset; dynamic alignment within the cell was not retained.");
         if (shape.NextFrameName is not null || shape.GrowsWidthToText)
             context.AddDiagnosticOnce("docx.shape.flow", "Linked text-frame flow and minimum-width auto-sizing were written as independent fixed-width boxes.");
         if (shape.Fill?.HasExtendedPaint == true)
