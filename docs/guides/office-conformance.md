@@ -36,8 +36,7 @@ reference release can be compared at 96 or 144 DPI without regeneration.
 
 The VM's unrelated preinstalled fonts are excluded through a Fontconfig override;
 its matching rules remain available while font directories are restricted to the
-selected package files. The workflow saves installed package versions and that
-configuration with its diagnostics. Fontconfig supports this directory override
+selected package files. Fontconfig supports this directory override
 through [`reset-dirs`](https://fontconfig.pages.freedesktop.org/fontconfig/fontconfig-user.html).
 
 Only the small `tests/office/reference-source.json` configuration is committed.
@@ -57,8 +56,8 @@ To bootstrap after these changes reach the default branch:
 Missing releases fail with instructions to run the generator; they do not trigger
 an expensive or silent live fallback. To refresh references, commit a new
 `releaseTag` in the configuration, updating `corpusRevision` if changing the source
-corpus; then dispatch the generator before conformance. Installed LibreOffice and
-font package versions are recorded when generating, and their resulting data
+corpus; then dispatch the generator before conformance. The LibreOffice version
+and font-file hashes are recorded in the reference manifest, and their resulting data
 remains fixed in that release. Existing
 releases are never overwritten. Uploads go to a draft first and become visible
 to consumers only after both archive and checksum are uploaded. If publication
@@ -105,7 +104,8 @@ bash eng/run-office-conformance.sh --skip-install \
 
 Reference generation refuses a nonempty output directory and writes its manifest
 last, so an interrupted generation cannot be packaged as a complete archive.
-Generation logs and reference metadata are also uploaded as workflow artifacts.
+Generation uses ordinary workflow logs, with no resource monitor or separate
+diagnostic artifacts. The reference manifest stays inside the published archive.
 
 ## Contents
 
