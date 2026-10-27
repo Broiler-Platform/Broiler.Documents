@@ -66,6 +66,10 @@ on:
         description: Number of major differences to report in the GitHub issue (default 3)
         required: false
         default: '3'
+      jobs:
+        description: Concurrent documents (use 1 to reduce peak memory further)
+        required: false
+        default: '2'
       maxFiles:
         description: Optional cap on the number of extras sample files to evaluate
         required: false
@@ -156,6 +160,7 @@ jobs:
           OFFICE_EXTRAS_URL: ${{ inputs.extrasUrl || 'https://github.com/LibreOffice/core/tree/master/sw/qa/extras' }}
           OFFICE_TOP_DIFFERENCES: ${{ inputs.topDifferences || '3' }}
           OFFICE_MAX_FILES: ${{ inputs.maxFiles || '' }}
+          OFFICE_JOBS: ${{ inputs.jobs || '2' }}
           OFFICE_SEED_CORPUS: ${{ inputs.seedCorpus && 'true' || 'false' }}
           OFFICE_UPDATE_BASELINE: ${{ inputs.updateBaseline || 'false' }}
         run: |
@@ -164,8 +169,9 @@ jobs:
           # so aborting here would kill the step before the output is printed
           # and a failing run would arrive with no failures in it.
           ARGS=(
-            --output-dir ./test-results
+            --output-dir "$GITHUB_WORKSPACE/test-results"
             --skip-install
+            --jobs "$OFFICE_JOBS"
             --axis "$OFFICE_AXIS"
             --dpi "$OFFICE_DPI"
             --threshold "$OFFICE_THRESHOLD"
@@ -227,18 +233,48 @@ jobs:
         uses: actions/github-script@v8
         env:
           OFFICE_JOB_STATUS: ${{ job.status }}
+          OFFICE_REPORT_EXPECTED: ${{ !inputs.seedCorpus && !inputs.updateBaseline }}
         with:
           script: |
             const fs = require('node:fs');
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const attempt = process.env.GITHUB_RUN_ATTEMPT || '1';
             const status = process.env.OFFICE_JOB_STATUS;
-            const reportPath = 'test-results/office-major-differences.md';
-            const report = fs.existsSync(reportPath)
-              ? fs.readFileSync(reportPath, 'utf8')
+            const path = require('node:path');
+            const resultsDir = path.join(process.env.GITHUB_WORKSPACE, 'test-results');
+            const reportPath = path.join(resultsDir, 'office-major-differences.md');
+            const finalResultsPath = path.join(resultsDir, 'office-results.json');
+            const partialResultsPath = path.join(resultsDir, 'office-partial-results.json');
+            const partial = !fs.existsSync(finalResultsPath) && fs.existsSync(partialResultsPath);
+            const resultsPath = partial ? partialResultsPath : finalResultsPath;
+            let results;
+            try {
+              results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+              for (const key of ['passed', 'failed', 'skipped']) {
+                if (!Number.isSafeInteger(results[key]) || results[key] < 0)
+                  throw new Error(`Invalid ${key} count`);
+              }
+            } catch (error) {
+              core.warning(`No valid conformance results: ${error.message}`);
+              results = null;
+            }
+            const missingReport = process.env.OFFICE_REPORT_EXPECTED === 'true' && !fs.existsSync(reportPath);
+            const verdict = !results || missingReport || partial ? 'results incomplete'
+              : results.failed > 0 ? `${results.failed} failed checks`
+              : results.passed === 0 ? 'no checks executed' : 'no failed checks';
+            const counts = results
+              ? `Checks: **${results.passed} passed, ${results.failed} failed, ${results.skipped} skipped**.`
+              : '**No valid check counts available; conformance has not been established.**';
+            const partialReportPath = path.join(resultsDir, 'office-partial-differences.md');
+            const selectedReport = !partial && fs.existsSync(reportPath) ? reportPath : partialReportPath;
+            const report = fs.existsSync(selectedReport)
+              ? fs.readFileSync(selectedReport, 'utf8')
               : 'No major-differences report was produced. See the run logs and uploaded artifacts for results or setup failures.';
             const metadata = [
               `Workflow run: ${runUrl} (attempt ${attempt})`,
+              `Conformance result: **${verdict}**`,
+              counts,
+              ...(partial ? [`**Partial results: ${results?.completedSamples ?? '?'} / ${results?.totalSamples ?? '?'} documents completed.**`] : []),
               `Status before issue publication: **${status}**`,
               `Commit: ${context.sha}`,
               `Trigger: ${context.eventName}`,
@@ -249,11 +285,13 @@ jobs:
             const suffix = '\n\nReport truncated; the full report is available in the workflow artifacts.';
             const issue = await github.rest.issues.create({
               ...context.repo,
-              title: `Office conformance: run ${context.runNumber}, attempt ${attempt} (${status})`,
+              title: `Office conformance: run ${context.runNumber}, attempt ${attempt} (${verdict})`,
               body: body.length > limit ? body.slice(0, limit - suffix.length) + suffix : body,
             });
             core.info(`Created ${issue.data.html_url}`);
             await core.summary.addLink('Office conformance issue', issue.data.html_url).write();
+            if (!results || missingReport || partial || results.passed + results.failed === 0)
+              core.setFailed('Conformance results are missing, incomplete or contain no executed checks. See the issue and run logs.');
 
       # The dispatch input offers a regenerated baseline, so it has to arrive
       # somewhere a person can fetch it. It is deliberately not committed: a row

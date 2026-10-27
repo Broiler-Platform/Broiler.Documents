@@ -355,12 +355,32 @@ of places to look, not a verdict.
 
 Every scheduled or manually dispatched workflow run creates a **new** issue.
 A separate `always()` step publishes the local Markdown report, with the run
-link, attempt, commit and job status. It never searches for or edits an older
+link, attempt, commit, job status and actual passed/failed/skipped check counts.
+The issue title describes the conformance findings rather than the job status.
+Missing or invalid results, a missing expected extras report, or zero executed
+checks fail the publication step after creating the issue. A successful job
+status alone is not a conformance verdict; ranked failures remain informational. It never searches for or edits an older
 issue. This also covers clean or fully skipped runs, exact-list replays,
 seed-corpus runs and baseline regeneration. If setup or execution failed before
 producing a report, the issue links to the logs and artifacts instead. Rerunning
 a workflow attempt creates another issue. Publication requires the job to start
 and GitHub's issue API to be available with `issues: write` permission.
+
+The workflow defaults to **2 concurrent documents**, independently of the
+runner CPU count. Set the dispatch **jobs** input to `1` for lower peak memory.
+This reduces concurrent rendering memory; it does not guarantee that every
+individual document will fit in memory.
+
+Extras runs with `--report` save `office-partial-results.json` and
+`office-partial-differences.md` alongside the final report. A checkpoint is
+written before evaluation and at each progress interval (at most 40 completed
+documents), with passed/failed/skipped counts, completed/total document counts,
+and `runComplete: false`. Each file is replaced atomically so an interrupted
+write leaves its preceding version readable. A crash can lose results since
+the last checkpoint and the documents still in progress. Final report filenames
+remain separate. On an interrupted run, the issue includes the checkpoint's
+findings and progress, explicitly marks the run incomplete, and fails the job.
+Startup removes previous result files to avoid publishing stale results.
 
 The workflow does not use the runner's `--create-github-issue` option, so it
 publishes once, after execution, independently of the findings. For local CLI
