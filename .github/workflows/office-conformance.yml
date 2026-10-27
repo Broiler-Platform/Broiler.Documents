@@ -144,25 +144,8 @@ jobs:
           cp tests/office/reference-source.json test-results/office-reference-source.json
           cp "$RUNNER_TEMP/office-references/manifest.json" test-results/office-reference-manifest.json
 
-      # Broiler.Code builds and publishes the SDK, tools, fonts and extras corpus.
-      - name: Verify the office container toolchain
-        run: |
-          dotnet --info
-          "$BROILER_SOFFICE" --version
-          "$BROILER_PDFTOPPM" -v
-          test -d "$BROILER_OFFICE_FONT_DIR"
-          test -d "$BROILER_OFFICE_EXTRAS_DIR"
-
-      - name: Report temporary storage
-        run: |
-          echo "Temporary files: $TMPDIR"
-          df -hT "$TMPDIR" /tmp
-          findmnt --target "$TMPDIR"
-          findmnt --target /tmp
-
       - name: Build
         run: |
-          echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starting step: Build"
           dotnet build src/tests/Broiler.Documents.Office/Broiler.Documents.Office.csproj \
             -c Release --nologo
 
@@ -185,7 +168,6 @@ jobs:
           OFFICE_SEED_CORPUS: ${{ inputs.seedCorpus && 'true' || 'false' }}
           OFFICE_UPDATE_BASELINE: ${{ inputs.updateBaseline || 'false' }}
         run: |
-          echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starting step: Run the office conformance suite"
           # Deliberately not `set -e`. The runner exits with its failure count,
           # so aborting here would kill the step before the output is printed
           # and a failing run would arrive with no failures in it.
@@ -229,8 +211,7 @@ jobs:
             ARGS+=(--update-baseline --restamp)
           fi
           RUNNER_STATUS=0
-          bash eng/office-memory-diagnostics.sh -- \
-            bash eng/run-office-conformance.sh "${ARGS[@]}" || RUNNER_STATUS=$?
+          bash eng/run-office-conformance.sh "${ARGS[@]}" || RUNNER_STATUS=$?
           if [ -f ./test-results/triage/triage.md ]; then
             cat ./test-results/triage/triage.md >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -266,18 +247,6 @@ jobs:
           if grep -qE '^0/0 passed' ./test-results/office-results.log; then
             echo "::error::The suite executed no checks. Either a tool could not be driven or the corpus is empty; the log names which."
             exit 1
-          fi
-
-      - name: Final memory diagnostics
-        if: always()
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/test-results"
-          bash eng/office-memory-diagnostics.sh 2>&1 | tee "$GITHUB_WORKSPACE/test-results/office-memory-final.log"
-          # Inspect through the host daemon to reveal configured Docker limits.
-          # Select only resource fields; a full inspect includes environment secrets.
-          if command -v docker >/dev/null 2>&1; then
-            docker inspect --format 'Memory={{.HostConfig.Memory}} MemorySwap={{.HostConfig.MemorySwap}} NanoCpus={{.HostConfig.NanoCpus}} PidsLimit={{.HostConfig.PidsLimit}} OOMKilled={{.State.OOMKilled}}' "$HOSTNAME" \
-              2>&1 | tee -a "$GITHUB_WORKSPACE/test-results/office-memory-final.log" || true
           fi
 
       # Publish independently of the harness, including clean runs, focused
