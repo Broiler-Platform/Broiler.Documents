@@ -11,14 +11,88 @@ dotnet run --project src/tests/Broiler.Documents.Office
 It prints `N/M passed, K failed.` as its last line and exits with the number of
 failures capped at 98; exit 99 is reserved for usage errors or harness failures. `eng/run-office-conformance.sh`
 provisions the tools first and then runs it; `.github/workflows/office-conformance.yml`
-runs that nightly inside `ghcr.io/broiler-platform/broiler-sdk-office:latest`,
+runs that nightly inside the digest-pinned `broiler-sdk-office` image selected by
+`tests/office/reference-source.json`,
 built and published by [Broiler.Code](https://github.com/Broiler-Platform/Broiler.Code/tree/main/docker).
 The image supplies the .NET SDK, LibreOffice, poppler, fonts and a bundled
 `sw/qa/extras` corpus. CI uses `--skip-install` and the image's font directory
 and font-set stamp. The default corpus URL selects the bundled corpus through
-`--extras-dir`; dispatching with a different `extrasUrl` downloads that source.
+`--extras-dir` and uses pre-generated LibreOffice text/PDF references from a pinned
+release. Dispatching with a different `extrasUrl` downloads that source and uses
+live conversions. Seed and baseline-regeneration runs also retain live conversions.
 Updating the image can change the toolchain or corpus; seed baseline stamp
 checks still apply, and baseline regeneration remains an explicit dispatch option.
+
+## Prepared LibreOffice references
+
+`.github/workflows/office-reference-data.yml` (**Office reference data**) runs
+LibreOffice once for the complete image-bundled extras corpus. It saves plain-text
+projections and PDFs, packages them with `manifest.json`, and publishes a versioned
+GitHub release archive plus its SHA-256 checksum. It never caches `broilerdoc`
+results. PDFs are rasterized by Poppler in every conformance run, so the same
+reference release can be compared at 96 or 144 DPI without regeneration.
+
+Only the small `tests/office/reference-source.json` configuration is committed.
+Generated text/PDF binaries are release assets, avoiding binary Git history and
+the repository's existing no-document-fixture guards. The configuration pins both
+the release tag and the Docker image digest; neither workflow resolves `latest`.
+
+To bootstrap after these changes reach the default branch:
+
+1. Dispatch **Office reference data**. The first configured release is
+   `office-references-v1`. Generation uses four workers and Docker `--init`.
+2. Wait for generation, archive upload, and release publication to finish.
+3. Dispatch **Office conformance**, or let the nightly schedule run. Default-source
+   extras runs download and verify the pinned archive before comparing documents.
+
+Missing releases fail with instructions to run the generator; they do not trigger
+an expensive or silent live fallback. To refresh references, commit a new
+`releaseTag` in the configuration, and a new image digest if changing the corpus,
+LibreOffice or fonts; then dispatch the generator before conformance. Existing
+releases are never overwritten. Uploads go to a draft first and become visible
+to consumers only after both archive and checksum are uploaded. If publication
+fails, remove the incomplete draft before retrying, or choose a new release tag.
+The generator has `contents: write` solely to publish the release; it does not
+push source changes. Conformance retains read-only contents permission.
+
+Before evaluating any selected sample, the runner validates its input SHA-256,
+recorded crash-regression family, output status and text/PDF hashes, together
+with the reference schema, image digest, LibreOffice version, platform, font-set
+name, font-file content hashes and conversion timeout. Changing conversion
+filters/fallbacks requires bumping the reference schema in `OfficeReferences.cs`
+and publishing a new release. Missing or incompatible entries are harness errors
+(exit 99). Expected conversion refusals/timeouts are explicit `unavailable`
+entries rather than missing files. Their exit code, timeout status and error
+message remain in the manifest; comparison preserves the corresponding skips.
+Crash-regression inputs are never converted by LibreOffice, and their robustness
+checks still run against `broilerdoc`. Substring filters and exact-list replays
+reuse matching entries from the full reference release.
+
+The source configuration and reference manifest are included in each cached
+run's artifact, and its issue identifies the release tag. `eng/office-reference-archive.py`
+uses Python's standard library, streams uploads/downloads, verifies archive
+checksums, and rejects archive links and traversal paths. Download currently
+targets this public repository's public releases.
+
+For local generation, use the pinned image with `--init` and mounted output
+storage outside the source checkout:
+
+```bash
+dotnet run --project src/tests/Broiler.Documents.Office -c Release -- \
+  --extras-dir "$BROILER_OFFICE_EXTRAS_DIR" \
+  --prepare-references /reference-output \
+  --reference-image 'ghcr.io/broiler-platform/broiler-sdk-office@sha256:<digest>' \
+  --font-dir "$BROILER_OFFICE_FONT_DIR" --font-set "$BROILER_OFFICE_FONT_SET" --jobs 4
+
+bash eng/run-office-conformance.sh --skip-install \
+  --extras-dir "$BROILER_OFFICE_EXTRAS_DIR" --references-dir /reference-output \
+  --reference-image 'ghcr.io/broiler-platform/broiler-sdk-office@sha256:<digest>' \
+  --font-dir "$BROILER_OFFICE_FONT_DIR" --font-set "$BROILER_OFFICE_FONT_SET" --dpi 96
+```
+
+Reference generation refuses a nonempty output directory and writes its manifest
+last, so an interrupted generation cannot be packaged as a complete archive.
+Generation logs and reference metadata are also uploaded as workflow artifacts.
 
 ## Contents
 

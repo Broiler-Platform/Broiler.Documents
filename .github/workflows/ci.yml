@@ -50,6 +50,12 @@ jobs:
       - name: Test release scripts
         run: node --test eng/resolve-preview-version.test.mjs eng/select-restore-feed.test.mjs
 
+      - name: Test reference archive tooling
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python3 -m unittest discover -s eng/tests -p test_office_reference_archive.py -v
+
       - name: Verify restore feed (NuGet.org)
         run: |
           node eng/select-restore-feed.mjs

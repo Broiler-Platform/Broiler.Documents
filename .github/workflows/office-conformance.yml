@@ -1,7 +1,7 @@
 name: Office conformance
 
 # Uses the Broiler.Code office image's LibreOffice sw/qa/extras corpus,
-# renders them with LibreOffice headless and broilerdoc, compares the outputs,
+# compares broilerdoc with the pinned, pre-generated LibreOffice text/PDF outputs,
 # and creates a new GitHub issue for every run with the top x major differences
 # (default x = 3). See docs/guides/office-conformance.md for details.
 #
@@ -97,11 +97,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  reference-configuration:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.reference.outputs.image }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: reference
+        run: python3 eng/office-reference-archive.py config
+
   conformance:
     name: Office conformance
+    needs: reference-configuration
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/broiler-platform/broiler-sdk-office:latest
+      image: ${{ needs.reference-configuration.outputs.image }}
       # LibreOffice spawns helpers that can outlive their parent. Reap them
       # instead of accumulating zombies under GitHub's tail entrypoint.
       options: --init
@@ -125,6 +135,14 @@ jobs:
 
       - name: Check out
         uses: actions/checkout@v7
+
+      - name: Download pinned LibreOffice references
+        if: ${{ !inputs.seedCorpus && !inputs.updateBaseline && (inputs.extrasUrl == '' || inputs.extrasUrl == 'https://github.com/LibreOffice/core/tree/master/sw/qa/extras') }}
+        run: |
+          python3 eng/office-reference-archive.py download --directory "$RUNNER_TEMP/office-references"
+          mkdir -p test-results
+          cp tests/office/reference-source.json test-results/office-reference-source.json
+          cp "$RUNNER_TEMP/office-references/manifest.json" test-results/office-reference-manifest.json
 
       # Broiler.Code builds and publishes the SDK, tools, fonts and extras corpus.
       - name: Verify the office container toolchain
@@ -166,6 +184,7 @@ jobs:
           OFFICE_JOBS: ${{ inputs.jobs || '2' }}
           OFFICE_SEED_CORPUS: ${{ inputs.seedCorpus && 'true' || 'false' }}
           OFFICE_UPDATE_BASELINE: ${{ inputs.updateBaseline || 'false' }}
+          OFFICE_REFERENCE_IMAGE: ${{ needs.reference-configuration.outputs.image }}
         run: |
           echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Starting step: Run the office conformance suite"
           # Deliberately not `set -e`. The runner exits with its failure count,
@@ -186,6 +205,9 @@ jobs:
           # alternative URLs still select the runner's download path.
           if [ "$OFFICE_EXTRAS_URL" = "$BROILER_OFFICE_EXTRAS_URL" ]; then
             ARGS+=(--extras-dir "$BROILER_OFFICE_EXTRAS_DIR")
+            if [ "$OFFICE_SEED_CORPUS" != "true" ] && [ "$OFFICE_UPDATE_BASELINE" != "true" ]; then
+              ARGS+=(--references-dir "$RUNNER_TEMP/office-references" --reference-image "$OFFICE_REFERENCE_IMAGE")
+            fi
           else
             ARGS+=(--extras-url "$OFFICE_EXTRAS_URL")
           fi
@@ -305,6 +327,9 @@ jobs:
               `Status before issue publication: **${status}**`,
               `Commit: ${context.sha}`,
               `Trigger: ${context.eventName}`,
+              ...(fs.existsSync(path.join(resultsDir, 'office-reference-source.json'))
+                ? [`Reference set: ${JSON.parse(fs.readFileSync(path.join(resultsDir, 'office-reference-source.json'), 'utf8')).releaseTag}`]
+                : []),
             ].join('\n');
             // Stay within GitHub's issue body limit, including large reports.
             const body = `${metadata}\n\n${report}`;

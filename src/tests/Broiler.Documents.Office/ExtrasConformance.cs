@@ -569,7 +569,8 @@ internal static class ExtrasConformance
         IReadOnlyList<string> fontArguments,
         TimeSpan libreOfficeTimeout,
         Func<string> nextProfile,
-        double threshold = 80)
+        double threshold = 80,
+        OfficeReferences? references = null)
     {
         var results = new List<CheckResult>();
         string safeKey = SanitizePath(sample.Id);
@@ -610,14 +611,9 @@ internal static class ExtrasConformance
                 results.Add(CheckResult.Pass("read", "read/" + sample.Id, info.Duration));
             }
 
-            string textDir = Path.Combine(workspace, "lo-text", safeKey);
-            LibreOfficeRun extracted = libreOffice.Convert(
-                sample.LocalPath,
-                LibreOfficeFilters.Text,
-                textDir,
-                nextProfile(),
-                libreOfficeTimeout,
-                LibreOfficeTool.InputFilterFor(sample.Extension));
+            LibreOfficeRun extracted = references is null
+                ? OfficeReferences.Text(libreOffice, sample, workspace, nextProfile, libreOfficeTimeout)
+                : references.Get(sample, pdf: false);
 
             if (extracted.TimedOut || extracted.ExitCode != 0 || extracted.OutputPath is null || !File.Exists(extracted.OutputPath))
             {
@@ -683,58 +679,16 @@ internal static class ExtrasConformance
             }
             else
             {
-                string? pdfPath = null;
-                if (string.Equals(sample.Extension, ".pdf", StringComparison.OrdinalIgnoreCase))
+                LibreOfficeRun loPdf = references is null
+                    ? OfficeReferences.Pdf(libreOffice, sample, workspace, nextProfile, libreOfficeTimeout)
+                    : references.Get(sample, pdf: true);
+                string? pdfPath = !loPdf.TimedOut && loPdf.ExitCode == 0 && loPdf.OutputPath is not null && File.Exists(loPdf.OutputPath)
+                    ? loPdf.OutputPath : null;
+                if (pdfPath is null)
                 {
-                    // For a PDF sample, try LibreOffice headless PDF export first; if LibreOffice
-                    // does not use a Writer filter on PDF, rasterise the PDF sample directly so the
-                    // visual comparison against broilerdoc render still runs.
-                    string loPdfDir = Path.Combine(workspace, "lo-pdf", safeKey);
-                    LibreOfficeRun loPdf = libreOffice.Convert(
-                        sample.LocalPath,
-                        "pdf",
-                        loPdfDir,
-                        nextProfile(),
-                        libreOfficeTimeout);
-                    pdfPath = loPdf.ExitCode == 0 && loPdf.OutputPath is not null && File.Exists(loPdf.OutputPath)
-                        ? loPdf.OutputPath
-                        : sample.LocalPath;
-                }
-                else
-                {
-                    string loPdfDir = Path.Combine(workspace, "lo-pdf", safeKey);
-                    LibreOfficeRun loPdf = libreOffice.Convert(
-                        sample.LocalPath,
-                        LibreOfficeFilters.Pdf,
-                        loPdfDir,
-                        nextProfile(),
-                        libreOfficeTimeout,
-                        LibreOfficeTool.InputFilterFor(sample.Extension));
-
-                    if (loPdf.TimedOut || loPdf.ExitCode != 0 || loPdf.OutputPath is null || !File.Exists(loPdf.OutputPath))
-                    {
-                        // Retry with generic pdf filter (e.g. for .csv or Draw/Calc fallback)
-                        loPdf = libreOffice.Convert(
-                            sample.LocalPath,
-                            "pdf",
-                            loPdfDir,
-                            nextProfile(),
-                            libreOfficeTimeout,
-                            LibreOfficeTool.InputFilterFor(sample.Extension));
-                    }
-
-                    if (!loPdf.TimedOut && loPdf.ExitCode == 0 && loPdf.OutputPath is not null && File.Exists(loPdf.OutputPath))
-                    {
-                        pdfPath = loPdf.OutputPath;
-                    }
-                    else
-                    {
-                        libreOfficeFailed = true;
-                        results.Add(CheckResult.Skip(
-                            "pixel",
-                            "pixel/" + sample.Id,
-                            "LibreOffice headless produced no PDF for this sample."));
-                    }
+                    libreOfficeFailed = true;
+                    results.Add(CheckResult.Skip("pixel", "pixel/" + sample.Id,
+                        "LibreOffice headless produced no PDF for this sample."));
                 }
 
                 if (pdfPath is not null)

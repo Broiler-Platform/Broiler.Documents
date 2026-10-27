@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "releaseTag": "office-references-v1",
+  "asset": "office-references.tar.gz",
+  "image": "ghcr.io/broiler-platform/broiler-sdk-office@sha256:aa5a1e241767251047f18553423da2203c3d9742d42142091983a0cedbdbaf24"
+}
