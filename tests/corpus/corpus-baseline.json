@@ -1,1327 +1,1531 @@
 {
-  "$schema": "corpus-baseline.schema.json",
-  "schemaVersion": 1,
-  "updated": "2026-10-25",
-  "policy": {
-    "records": "Only the round trips that lose something or warn about something. Everything this corpus can do that is absent from the list below is asserted to round trip clean, so a new loss fails by not being listed.",
-    "reproduce": "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at.",
-    "states": "documented - a limitation one of the conformance documents states. suspected-defect - a difference nobody decided on, which is what the CLI guide says round-tripping is actually good for. accepted - the normalized model's own behaviour, looked at and accepted.",
-    "reviewer": "A row is not classified by being written down. documented and accepted both need a reviewer and a date, and a documented row needs a reference to the document that states the limitation. CorpusBaselineGuardTests enforces it, the way PdfTestControlGuardTests does for the tool manifest.",
-    "regenerate": "dotnet run --project src/tests/Broiler.Documents.Corpus -- --update-baseline"
-  },
-  "roundTrips": [
-    {
-      "sample": "alignment",
-      "source": "docx",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p1: alignment Center vs Left",
-        "paragraph-style@p2: alignment Right vs Left",
-        "paragraph-style@p3: alignment Justify vs Left"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "alignment",
-      "source": "html",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p1: alignment Center vs Left",
-        "paragraph-style@p2: alignment Right vs Left",
-        "paragraph-style@p3: alignment Justify vs Left"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "alignment",
-      "source": "odt",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p1: alignment Center vs Left",
-        "paragraph-style@p2: alignment Right vs Left",
-        "paragraph-style@p3: alignment Justify vs Left"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "alignment",
-      "source": "rtf",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p1: alignment Center vs Left",
-        "paragraph-style@p2: alignment Right vs Left",
-        "paragraph-style@p3: alignment Justify vs Left"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "colour",
-      "source": "docx",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 0: foreground #B71C1CFF vs default"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "colour",
-      "source": "html",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 0: foreground #B71C1CFF vs default"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "colour",
-      "source": "odt",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 0: foreground #B71C1CFF vs default"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "colour",
-      "source": "rtf",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 0: foreground #B71C1CFF vs default"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "control-characters",
-      "source": "html",
-      "via": "docx",
-      "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
-        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
-        "extra@p?: paragraph only in the right document: \"Unit separator  and start of heading  here.\""
-      ],
-      "diagnostics": [
-        "docx.text.control"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/docx.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
-      "reviewer": "Claude Opus 5, on the control-character pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "control-characters",
-      "source": "html",
-      "via": "odt",
-      "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
-        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
-        "extra@p?: paragraph only in the right document: \"Unit separator and start of heading here.\""
-      ],
-      "diagnostics": [
-        "odt.text.control"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/odt.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
-      "reviewer": "Claude Opus 5, on the control-character pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "control-characters",
-      "source": "markdown",
-      "via": "docx",
-      "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
-        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
-        "extra@p?: paragraph only in the right document: \"Unit separator  and start of heading  here.\""
-      ],
-      "diagnostics": [
-        "docx.text.control"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/docx.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
-      "reviewer": "Claude Opus 5, on the control-character pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "control-characters",
-      "source": "markdown",
-      "via": "odt",
-      "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
-        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
-        "extra@p?: paragraph only in the right document: \"Unit separator and start of heading here.\""
-      ],
-      "diagnostics": [
-        "odt.text.control"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/odt.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
-      "reviewer": "Claude Opus 5, on the control-character pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "control-characters",
-      "source": "rtf",
-      "via": "docx",
-      "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
-        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
-        "extra@p?: paragraph only in the right document: \"Unit separator  and start of heading  here.\""
-      ],
-      "diagnostics": [
-        "docx.text.control"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/docx.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
-      "reviewer": "Claude Opus 5, on the control-character pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "control-characters",
-      "source": "rtf",
-      "via": "odt",
-      "differences": [
-        "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
-        "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
-        "extra@p?: paragraph only in the right document: \"Unit separator and start of heading here.\""
-      ],
-      "diagnostics": [
-        "odt.text.control"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/odt.md",
-      "why": "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes &#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
-      "reviewer": "Claude Opus 5, on the control-character pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "docx-package",
-      "source": "docx",
-      "via": "docx",
-      "differences": [
-        "paragraph-style@p1: indent level 2 vs 1",
-        "paragraph-style@p1: first line indent 0 vs -18"
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "docx-package",
-      "source": "docx",
-      "via": "html",
-      "differences": [
-        "paragraph-style@p1: list Bullet vs None"
-      ],
-      "diagnostics": [
-        "html.list",
-        "html.table.flattened"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "docx-package",
-      "source": "docx",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p0: alignment Center vs Left",
-        "paragraph-style@p0: line spacing 1.5 vs 1",
-        "paragraph-style@p0: spacing before 12 vs 0",
-        "paragraph-style@p0: spacing after 12 vs 0",
-        "inline-style@p0: formatting differs from character 0: font family \"Georgia\" vs default",
-        "inline-style@p6: formatting differs from character 0: underline True vs False",
-        "missing@p7: paragraph only in the left document: \"  leading and trailing spaces preserved  \"",
-        "text@p8: text differs: \"\" vs \"leading and trailing spaces preserved\""
-      ],
-      "diagnostics": [
-        "markdown.inline-style",
-        "markdown.paragraph-style",
-        "markdown.table.flattened"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. A paragraph aligns against a different one once its neighbour loses its leading spaces, so the comparison reports an insertion and a removal. A consequence of the row above rather than a separate finding. Leading and repeated spaces are structural in Markdown - indentation and code blocks are spelled with them - so a paragraph that begins with them cannot be written as ordinary text. The writer reports what it dropped from the style; the text itself is the format speaking.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "docx-package",
-      "source": "docx",
-      "via": "odt",
-      "differences": [],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "docx-package",
-      "source": "docx",
-      "via": "rtf",
-      "differences": [
-        "paragraph-style@p1: list Bullet vs None"
-      ],
-      "diagnostics": [
-        "rtf.table.flattened"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "emphasis",
-      "source": "docx",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 12: underline True vs False"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "emphasis",
-      "source": "html",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 12: underline True vs False"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "emphasis",
-      "source": "odt",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 12: underline True vs False"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "emphasis",
-      "source": "rtf",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 12: underline True vs False"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "empty-paragraphs",
-      "source": "docx",
-      "via": "markdown",
-      "differences": [
-        "missing@p1: paragraph only in the left document: \"\"",
-        "missing@p3: paragraph only in the left document: \"\""
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "empty-paragraphs",
-      "source": "html",
-      "via": "markdown",
-      "differences": [
-        "missing@p1: paragraph only in the left document: \"\"",
-        "missing@p3: paragraph only in the left document: \"\""
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "empty-paragraphs",
-      "source": "odt",
-      "via": "markdown",
-      "differences": [
-        "missing@p1: paragraph only in the left document: \"\"",
-        "missing@p3: paragraph only in the left document: \"\""
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "empty-paragraphs",
-      "source": "rtf",
-      "via": "markdown",
-      "differences": [
-        "missing@p1: paragraph only in the left document: \"\"",
-        "missing@p3: paragraph only in the left document: \"\""
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "html-structure",
-      "source": "html",
-      "via": "docx",
-      "differences": [
-        "paragraph-style@p2: left indent 18 vs 36",
-        "paragraph-style@p2: first line indent 0 vs -18",
-        "paragraph-style@p3: left indent 18 vs 36",
-        "paragraph-style@p3: first line indent 0 vs -18",
-        "paragraph-style@p4: left indent 36 vs 54",
-        "paragraph-style@p4: first line indent 0 vs -18",
-        "paragraph-style@p5: left indent 18 vs 36",
-        "paragraph-style@p5: first line indent 0 vs -18",
-        "paragraph-style@p6: left indent 18 vs 36",
-        "paragraph-style@p6: first line indent 0 vs -18"
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "html-structure",
-      "source": "html",
-      "via": "html",
-      "differences": [
-        "paragraph-style@p2: list Bullet vs None",
-        "paragraph-style@p3: list Bullet vs None",
-        "paragraph-style@p4: list Bullet vs None",
-        "paragraph-style@p5: list Numbered vs None",
-        "paragraph-style@p6: list Numbered vs None"
-      ],
-      "diagnostics": [
-        "html.list",
-        "html.table.flattened"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "html-structure",
-      "source": "html",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 0: font size 24 vs default",
-        "inline-style@p1: formatting differs from character 0: font size 17 vs default",
-        "paragraph-style@p7: alignment Center vs Left",
-        "paragraph-style@p8: alignment Right vs Left",
-        "paragraph-style@p8: indent level 2 vs 0",
-        "paragraph-style@p8: left indent 30 vs 0",
-        "paragraph-style@p8: line spacing 1.5 vs 1",
-        "inline-style@p9: formatting differs from character 14: underline True vs False",
-        "inline-style@p10: formatting differs from character 0: font family \"Courier\" vs default",
-        "paragraph-style@p12: indent level 1 vs 0",
-        "paragraph-style@p12: left indent 18 vs 0"
-      ],
-      "diagnostics": [
-        "markdown.inline-style",
-        "markdown.paragraph-style",
-        "markdown.table.flattened"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. The source left margin is now read as its stated 30 points instead of rounded to 36; Markdown still loses that indent to zero.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "html-structure",
-      "source": "html",
-      "via": "rtf",
-      "differences": [
-        "paragraph-style@p2: list Bullet vs None",
-        "paragraph-style@p3: list Bullet vs None",
-        "paragraph-style@p4: list Bullet vs None",
-        "paragraph-style@p5: list Numbered vs None",
-        "paragraph-style@p6: list Numbered vs None"
-      ],
-      "diagnostics": [
-        "rtf.table.flattened"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "image",
-      "source": "docx",
-      "via": "html",
-      "differences": [
-        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around the image here.\""
-      ],
-      "diagnostics": [
-        "html.image.datauri",
-        "html.skip.external"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "The HTML writer embeds the picture as a data URI and says so (html.image.datauri); the reader does not turn a data URI back into a model image, so the placeholder character has nothing to attach to and goes. An image does not survive an HTML round trip, which the conformance document states.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "image",
-      "source": "docx",
-      "via": "markdown",
-      "differences": [
-        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around a generated square the image here.\""
-      ],
-      "diagnostics": [
-        "markdown.image.datauri",
-        "markdown.image.dropped"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "An image does not survive a Markdown round trip, which docs/notes/markdown.md states and the writer reports (markdown.image.datauri). What it comes back as is now decided too: the reader recognizes the syntax and replaces it with the description CommonMark nominates as the fallback, reporting markdown.image.dropped. It used to leave the exclamation mark in the prose and report the loss as a dropped hyperlink, because `!` was not a character the inline parser knew.",
-      "reviewer": "Claude Opus 5, on the Markdown image pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "image",
-      "source": "docx",
-      "via": "rtf",
-      "differences": [
-        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\""
-      ],
-      "diagnostics": [
-        "rtf.embedded"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF writer emits the picture correctly, as a \\pict destination carrying the PNG. The RTF *reader* skips it: docs/notes/rtf.md lists \\pict among the skipped destinations and it is reported as rtf.embedded, which escalates to the shared capability code when a caller asks for embedded decoding. Both halves are covered by RtfWriterTests and RtfEmbeddedObjectReportTests. This row was previously recorded as a silent writer defect, which was wrong on every count - the baseline was filtering info diagnostics out, so the report it makes was invisible here.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "image",
-      "source": "odt",
-      "via": "html",
-      "differences": [
-        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around the image here.\""
-      ],
-      "diagnostics": [
-        "html.image.datauri",
-        "html.skip.external"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "The HTML writer embeds the picture as a data URI and says so (html.image.datauri); the reader does not turn a data URI back into a model image, so the placeholder character has nothing to attach to and goes. An image does not survive an HTML round trip, which the conformance document states.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "image",
-      "source": "odt",
-      "via": "markdown",
-      "differences": [
-        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around a generated square the image here.\""
-      ],
-      "diagnostics": [
-        "markdown.image.datauri",
-        "markdown.image.dropped"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "An image does not survive a Markdown round trip, which docs/notes/markdown.md states and the writer reports (markdown.image.datauri). What it comes back as is now decided too: the reader recognizes the syntax and replaces it with the description CommonMark nominates as the fallback, reporting markdown.image.dropped. It used to leave the exclamation mark in the prose and report the loss as a dropped hyperlink, because `!` was not a character the inline parser knew.",
-      "reviewer": "Claude Opus 5, on the Markdown image pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "image",
-      "source": "odt",
-      "via": "rtf",
-      "differences": [
-        "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\""
-      ],
-      "diagnostics": [
-        "rtf.embedded"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF writer emits the picture correctly, as a \\pict destination carrying the PNG. The RTF *reader* skips it: docs/notes/rtf.md lists \\pict among the skipped destinations and it is reported as rtf.embedded, which escalates to the shared capability code when a caller asks for embedded decoding. Both halves are covered by RtfWriterTests and RtfEmbeddedObjectReportTests. This row was previously recorded as a silent writer defect, which was wrong on every count - the baseline was filtering info diagnostics out, so the report it makes was invisible here.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "indent-spacing",
-      "source": "docx",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p1: indent level 1 vs 0",
-        "paragraph-style@p1: left indent 18 vs 0",
-        "paragraph-style@p2: indent level 2 vs 0",
-        "paragraph-style@p2: left indent 36 vs 0",
-        "paragraph-style@p3: line spacing 1.5 vs 1",
-        "paragraph-style@p3: spacing before 12 vs 0",
-        "paragraph-style@p3: spacing after 12 vs 0"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "indent-spacing",
-      "source": "html",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p1: indent level 1 vs 0",
-        "paragraph-style@p1: left indent 18 vs 0",
-        "paragraph-style@p2: indent level 2 vs 0",
-        "paragraph-style@p2: left indent 36 vs 0",
-        "paragraph-style@p3: line spacing 1.5 vs 1",
-        "paragraph-style@p3: spacing before 12 vs 0",
-        "paragraph-style@p3: spacing after 12 vs 0"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "indent-spacing",
-      "source": "odt",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p1: indent level 1 vs 0",
-        "paragraph-style@p1: left indent 18 vs 0",
-        "paragraph-style@p2: indent level 2 vs 0",
-        "paragraph-style@p2: left indent 36 vs 0",
-        "paragraph-style@p3: line spacing 1.5 vs 1",
-        "paragraph-style@p3: spacing before 12 vs 0",
-        "paragraph-style@p3: spacing after 12 vs 0"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "indent-spacing",
-      "source": "rtf",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p1: indent level 1 vs 0",
-        "paragraph-style@p1: left indent 18 vs 0",
-        "paragraph-style@p2: indent level 2 vs 0",
-        "paragraph-style@p2: left indent 36 vs 0",
-        "paragraph-style@p3: line spacing 1.5 vs 1",
-        "paragraph-style@p3: spacing before 12 vs 0",
-        "paragraph-style@p3: spacing after 12 vs 0"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "lists",
-      "source": "docx",
-      "via": "html",
-      "differences": [
-        "paragraph-style@p1: list Bullet vs None",
-        "paragraph-style@p1: first line indent -18 vs 0",
-        "paragraph-style@p2: list Bullet vs None",
-        "paragraph-style@p2: first line indent -18 vs 0",
-        "paragraph-style@p3: list Numbered vs None",
-        "paragraph-style@p3: first line indent -18 vs 0",
-        "paragraph-style@p4: list Numbered vs None",
-        "paragraph-style@p4: first line indent -18 vs 0"
-      ],
-      "diagnostics": [
-        "html.list"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "lists",
-      "source": "docx",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p1: first line indent -18 vs 0",
-        "paragraph-style@p2: first line indent -18 vs 0",
-        "paragraph-style@p3: first line indent -18 vs 0",
-        "paragraph-style@p4: first line indent -18 vs 0"
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "lists",
-      "source": "docx",
-      "via": "odt",
-      "differences": [
-        "paragraph-style@p1: first line indent -18 vs 0",
-        "paragraph-style@p2: first line indent -18 vs 0",
-        "paragraph-style@p3: first line indent -18 vs 0",
-        "paragraph-style@p4: first line indent -18 vs 0"
-      ],
-      "diagnostics": [
-        "odt.list.indent"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "lists",
-      "source": "docx",
-      "via": "rtf",
-      "differences": [
-        "paragraph-style@p1: list Bullet vs None",
-        "paragraph-style@p1: first line indent -18 vs 0",
-        "paragraph-style@p2: list Bullet vs None",
-        "paragraph-style@p2: first line indent -18 vs 0",
-        "paragraph-style@p3: list Numbered vs None",
-        "paragraph-style@p3: first line indent -18 vs 0",
-        "paragraph-style@p4: list Numbered vs None",
-        "paragraph-style@p4: first line indent -18 vs 0"
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "lists",
-      "source": "markdown",
-      "via": "docx",
-      "differences": [
-        "paragraph-style@p1: left indent 18 vs 36",
-        "paragraph-style@p1: first line indent 0 vs -18",
-        "paragraph-style@p2: left indent 18 vs 36",
-        "paragraph-style@p2: first line indent 0 vs -18",
-        "paragraph-style@p3: left indent 18 vs 36",
-        "paragraph-style@p3: first line indent 0 vs -18",
-        "paragraph-style@p4: left indent 18 vs 36",
-        "paragraph-style@p4: first line indent 0 vs -18"
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "lists",
-      "source": "markdown",
-      "via": "html",
-      "differences": [
-        "paragraph-style@p1: list Bullet vs None",
-        "paragraph-style@p2: list Bullet vs None",
-        "paragraph-style@p3: list Numbered vs None",
-        "paragraph-style@p4: list Numbered vs None"
-      ],
-      "diagnostics": [
-        "html.list"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "lists",
-      "source": "markdown",
-      "via": "rtf",
-      "differences": [
-        "paragraph-style@p1: list Bullet vs None",
-        "paragraph-style@p2: list Bullet vs None",
-        "paragraph-style@p3: list Numbered vs None",
-        "paragraph-style@p4: list Numbered vs None"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "lists",
-      "source": "odt",
-      "via": "html",
-      "differences": [
-        "paragraph-style@p1: list Bullet vs None",
-        "paragraph-style@p2: list Bullet vs None",
-        "paragraph-style@p3: list Numbered vs None",
-        "paragraph-style@p4: list Numbered vs None"
-      ],
-      "diagnostics": [
-        "html.list"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "lists",
-      "source": "odt",
-      "via": "rtf",
-      "differences": [
-        "paragraph-style@p1: list Bullet vs None",
-        "paragraph-style@p2: list Bullet vs None",
-        "paragraph-style@p3: list Numbered vs None",
-        "paragraph-style@p4: list Numbered vs None"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "long-flow",
-      "source": "docx",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p0: alignment Center vs Left"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "long-flow",
-      "source": "html",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p0: alignment Center vs Left"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "long-flow",
-      "source": "odt",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p0: alignment Center vs Left"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "long-flow",
-      "source": "rtf",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p0: alignment Center vs Left"
-      ],
-      "diagnostics": [
-        "markdown.paragraph-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "markdown-blocks",
-      "source": "markdown",
-      "via": "docx",
-      "differences": [
-        "paragraph-style@p7: left indent 18 vs 36",
-        "paragraph-style@p7: first line indent 0 vs -18",
-        "paragraph-style@p8: left indent 18 vs 36",
-        "paragraph-style@p8: first line indent 0 vs -18",
-        "paragraph-style@p9: left indent 18 vs 36",
-        "paragraph-style@p9: first line indent 0 vs -18",
-        "paragraph-style@p10: left indent 18 vs 36",
-        "paragraph-style@p10: first line indent 0 vs -18",
-        "paragraph-style@p11: left indent 18 vs 36",
-        "paragraph-style@p11: first line indent 0 vs -18",
-        "paragraph-style@p12: left indent 36 vs 54",
-        "paragraph-style@p12: first line indent 0 vs -18",
-        "paragraph-style@p13: left indent 18 vs 36",
-        "paragraph-style@p13: first line indent 0 vs -18",
-        "paragraph-style@p14: left indent 18 vs 36",
-        "paragraph-style@p14: first line indent 0 vs -18"
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "markdown-blocks",
-      "source": "markdown",
-      "via": "html",
-      "differences": [
-        "paragraph-style@p7: list Numbered vs None",
-        "paragraph-style@p8: list Numbered vs None",
-        "paragraph-style@p9: list Numbered vs None",
-        "paragraph-style@p10: list Numbered vs None",
-        "paragraph-style@p11: list Bullet vs None",
-        "paragraph-style@p12: list Bullet vs None",
-        "paragraph-style@p13: list Bullet vs None",
-        "paragraph-style@p14: list Bullet vs None"
-      ],
-      "diagnostics": [
-        "html.list"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "markdown-blocks",
-      "source": "markdown",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 0: font size 24 vs default",
-        "inline-style@p1: formatting differs from character 0: font size 12 vs default",
-        "paragraph-style@p3: indent level 1 vs 0",
-        "paragraph-style@p3: left indent 18 vs 0",
-        "paragraph-style@p4: indent level 1 vs 0",
-        "paragraph-style@p4: left indent 18 vs 0",
-        "paragraph-style@p5: indent level 2 vs 0",
-        "paragraph-style@p5: left indent 36 vs 0",
-        "text@p6: text differs: \"fenced code, which is monospace   and keeps its own secon...\" vs \"fenced code, which is monospace and keeps its own second ...\""
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Leading and repeated spaces are structural in Markdown - indentation and code blocks are spelled with them - so a paragraph that begins with them cannot be written as ordinary text. The writer reports what it dropped from the style; the text itself is the format speaking.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "markdown-blocks",
-      "source": "markdown",
-      "via": "rtf",
-      "differences": [
-        "paragraph-style@p7: list Numbered vs None",
-        "paragraph-style@p8: list Numbered vs None",
-        "paragraph-style@p9: list Numbered vs None",
-        "paragraph-style@p10: list Numbered vs None",
-        "paragraph-style@p11: list Bullet vs None",
-        "paragraph-style@p12: list Bullet vs None",
-        "paragraph-style@p13: list Bullet vs None",
-        "paragraph-style@p14: list Bullet vs None"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "odt-package",
-      "source": "odt",
-      "via": "docx",
-      "differences": [
-        "paragraph-style@p1: left indent 28.346 vs 28.35",
-        "paragraph-style@p1: spacing before 5.669 vs 5.65",
-        "paragraph-style@p2: left indent 18 vs 36",
-        "paragraph-style@p2: first line indent 0 vs -18",
-        "paragraph-style@p3: left indent 18 vs 36",
-        "paragraph-style@p3: first line indent 0 vs -18",
-        "paragraph-style@p4: left indent 36 vs 54",
-        "paragraph-style@p4: first line indent 0 vs -18"
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "odt-package",
-      "source": "odt",
-      "via": "html",
-      "differences": [
-        "paragraph-style@p2: list Bullet vs None",
-        "paragraph-style@p3: list Bullet vs None",
-        "paragraph-style@p4: list Bullet vs None"
-      ],
-      "diagnostics": [
-        "html.list",
-        "html.table.flattened"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. The exact left-indent loss was removed after the HTML writer began preserving point offsets; remaining list/table limitations are unchanged.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "odt-package",
-      "source": "odt",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p1: alignment Center vs Left",
-        "paragraph-style@p1: indent level 2 vs 0",
-        "paragraph-style@p1: left indent 28.346 vs 0",
-        "paragraph-style@p1: line spacing 1.5 vs 1",
-        "paragraph-style@p1: spacing before 5.669 vs 0",
-        "inline-style@p1: formatting differs from character 0: font size 18 vs default",
-        "inline-style@p6: formatting differs from character 0: underline True vs False"
-      ],
-      "diagnostics": [
-        "markdown.inline-style",
-        "markdown.paragraph-style",
-        "markdown.table.flattened"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "odt-package",
-      "source": "odt",
-      "via": "odt",
-      "differences": [
-        "paragraph-style@p1: left indent 28.346 vs 28.347"
-      ],
-      "diagnostics": [],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "odt-package",
-      "source": "odt",
-      "via": "rtf",
-      "differences": [
-        "paragraph-style@p1: left indent 28.346 vs 28.35",
-        "paragraph-style@p1: spacing before 5.669 vs 5.65",
-        "paragraph-style@p2: list Bullet vs None",
-        "paragraph-style@p3: list Bullet vs None",
-        "paragraph-style@p4: list Bullet vs None"
-      ],
-      "diagnostics": [
-        "rtf.table.flattened"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. Left-indent rounding to an 18-point level is fixed; only native RTF twip quantization (28.346 to 28.35 points) remains for that offset.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "page-break",
-      "source": "docx",
-      "via": "markdown",
-      "differences": [],
-      "diagnostics": [
-        "markdown.page-break"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
-      "reviewer": "Claude Opus 5, on the page-break pass",
-      "decided": "2026-09-06"
-    },
-    {
-      "sample": "page-break",
-      "source": "html",
-      "via": "markdown",
-      "differences": [],
-      "diagnostics": [
-        "markdown.page-break"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
-      "reviewer": "Claude Opus 5, on the page-break pass",
-      "decided": "2026-09-06"
-    },
-    {
-      "sample": "page-break",
-      "source": "odt",
-      "via": "markdown",
-      "differences": [],
-      "diagnostics": [
-        "markdown.page-break"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
-      "reviewer": "Claude Opus 5, on the page-break pass",
-      "decided": "2026-09-06"
-    },
-    {
-      "sample": "page-break",
-      "source": "rtf",
-      "via": "markdown",
-      "differences": [],
-      "diagnostics": [
-        "markdown.page-break"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
-      "reviewer": "Claude Opus 5, on the page-break pass",
-      "decided": "2026-09-06"
-    },
-    {
-      "sample": "rtf-control-words",
-      "source": "rtf",
-      "via": "markdown",
-      "differences": [
-        "paragraph-style@p0: alignment Justify vs Left",
-        "paragraph-style@p0: indent level 2 vs 0",
-        "paragraph-style@p0: left indent 36 vs 0",
-        "paragraph-style@p0: spacing before 6 vs 0",
-        "paragraph-style@p0: spacing after 6 vs 0",
-        "inline-style@p1: formatting differs from character 12: underline True vs False",
-        "inline-style@p2: formatting differs from character 0: foreground #B71C1CFF vs default",
-        "inline-style@p3: formatting differs from character 0: font family \"Helvetica\" vs default",
-        "inline-style@p4: formatting differs from character 0: font family \"Helvetica\" vs default",
-        "inline-style@p5: formatting differs from character 0: font family \"Helvetica\" vs default",
-        "missing@p6: paragraph only in the left document: \"\"",
-        "inline-style@p7: formatting differs from character 0: font family \"Helvetica\" vs default"
-      ],
-      "diagnostics": [
-        "markdown.inline-style",
-        "markdown.paragraph-style"
-      ],
-      "state": "suspected-defect",
-      "reference": "docs/guides/corpus-suite.md",
-      "why": "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "sample": "typography",
-      "source": "docx",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 11: font size 18 vs default"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "typography",
-      "source": "html",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 11: font size 18 vs default"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "typography",
-      "source": "odt",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 11: font size 18 vs default"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    },
-    {
-      "sample": "typography",
-      "source": "rtf",
-      "via": "markdown",
-      "differences": [
-        "inline-style@p0: formatting differs from character 11: font size 18 vs default"
-      ],
-      "diagnostics": [
-        "markdown.inline-style"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/markdown.md",
-      "why": "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
-      "reviewer": "Claude Opus 5, on the writer-losses pass",
-      "decided": "2026-09-05"
-    }
-  ]
+    "$schema":  "corpus-baseline.schema.json",
+    "schemaVersion":  1,
+    "updated":  "2026-10-28",
+    "policy":  {
+                   "records":  "Only the round trips that lose something or warn about something. Everything this corpus can do that is absent from the list below is asserted to round trip clean, so a new loss fails by not being listed.",
+                   "reproduce":  "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at.",
+                   "states":  "documented - a limitation one of the conformance documents states. suspected-defect - a difference nobody decided on, which is what the CLI guide says round-tripping is actually good for. accepted - the normalized model\u0027s own behaviour, looked at and accepted.",
+                   "reviewer":  "A row is not classified by being written down. documented and accepted both need a reviewer and a date, and a documented row needs a reference to the document that states the limitation. CorpusBaselineGuardTests enforces it, the way PdfTestControlGuardTests does for the tool manifest.",
+                   "regenerate":  "dotnet run --project src/tests/Broiler.Documents.Corpus -- --update-baseline"
+               },
+    "roundTrips":  [
+                       {
+                           "sample":  "alignment",
+                           "source":  "docx",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p1: alignment Center vs Left",
+                                               "paragraph-style@p2: alignment Right vs Left",
+                                               "paragraph-style@p3: alignment Justify vs Left"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "alignment",
+                           "source":  "html",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p1: alignment Center vs Left",
+                                               "paragraph-style@p2: alignment Right vs Left",
+                                               "paragraph-style@p3: alignment Justify vs Left"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "alignment",
+                           "source":  "odt",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p1: alignment Center vs Left",
+                                               "paragraph-style@p2: alignment Right vs Left",
+                                               "paragraph-style@p3: alignment Justify vs Left"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "alignment",
+                           "source":  "rtf",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p1: alignment Center vs Left",
+                                               "paragraph-style@p2: alignment Right vs Left",
+                                               "paragraph-style@p3: alignment Justify vs Left"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "colour",
+                           "source":  "docx",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: foreground #B71C1CFF vs default"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "colour",
+                           "source":  "html",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: foreground #B71C1CFF vs default"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "colour",
+                           "source":  "odt",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: foreground #B71C1CFF vs default"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "colour",
+                           "source":  "rtf",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: foreground #B71C1CFF vs default"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "control-characters",
+                           "source":  "html",
+                           "via":  "docx",
+                           "differences":  [
+                                               "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+                                               "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
+                                               "extra@p?: paragraph only in the right document: \"Unit separator  and start of heading  here.\""
+                                           ],
+                           "diagnostics":  [
+                                               "docx.text.control"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/docx.md",
+                           "why":  "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes \u0026#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
+                           "reviewer":  "Claude Opus 5, on the control-character pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "control-characters",
+                           "source":  "html",
+                           "via":  "odt",
+                           "differences":  [
+                                               "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+                                               "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
+                                               "extra@p?: paragraph only in the right document: \"Unit separator and start of heading here.\""
+                                           ],
+                           "diagnostics":  [
+                                               "odt.text.control"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/odt.md",
+                           "why":  "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes \u0026#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
+                           "reviewer":  "Claude Opus 5, on the control-character pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "control-characters",
+                           "source":  "markdown",
+                           "via":  "docx",
+                           "differences":  [
+                                               "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+                                               "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
+                                               "extra@p?: paragraph only in the right document: \"Unit separator  and start of heading  here.\""
+                                           ],
+                           "diagnostics":  [
+                                               "docx.text.control"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/docx.md",
+                           "why":  "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes \u0026#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
+                           "reviewer":  "Claude Opus 5, on the control-character pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "control-characters",
+                           "source":  "markdown",
+                           "via":  "odt",
+                           "differences":  [
+                                               "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+                                               "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
+                                               "extra@p?: paragraph only in the right document: \"Unit separator and start of heading here.\""
+                                           ],
+                           "diagnostics":  [
+                                               "odt.text.control"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/odt.md",
+                           "why":  "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes \u0026#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
+                           "reviewer":  "Claude Opus 5, on the control-character pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "control-characters",
+                           "source":  "rtf",
+                           "via":  "docx",
+                           "differences":  [
+                                               "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+                                               "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell  and vertical tab  here.\"",
+                                               "extra@p?: paragraph only in the right document: \"Unit separator  and start of heading  here.\""
+                                           ],
+                           "diagnostics":  [
+                                               "docx.text.control"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/docx.md",
+                           "why":  "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes \u0026#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
+                           "reviewer":  "Claude Opus 5, on the control-character pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "control-characters",
+                           "source":  "rtf",
+                           "via":  "odt",
+                           "differences":  [
+                                               "missing@p0: paragraph only in the left document: \"Bell \u0007 and vertical tab \u000b here.\"",
+                                               "text@p1: text differs: \"Unit separator \u001f and start of heading \u0001 here.\" vs \"Bell and vertical tab here.\"",
+                                               "extra@p?: paragraph only in the right document: \"Unit separator and start of heading here.\""
+                                           ],
+                           "diagnostics":  [
+                                               "odt.text.control"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/odt.md",
+                           "why":  "XML 1.0 has no representation for most control characters, not even an escape, so the two package writers drop them and report it - docx.text.control and odt.text.control. The character reaches the model from ordinary input: the HTML reader decodes \u0026#7; and the RTF reader passes \\u7 through. The DOCX writer used to hand them to the serializer instead, and the tool reported an internal error, which docs/guides/cli.md defines as always a defect in it.",
+                           "reviewer":  "Claude Opus 5, on the control-character pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "docx-package",
+                           "source":  "docx",
+                           "via":  "docx",
+                           "differences":  [
+                                               "paragraph-style@p1: indent level 2 vs 1",
+                                               "paragraph-style@p1: first line indent 0 vs -18"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "docx-package",
+                           "source":  "docx",
+                           "via":  "html",
+                           "differences":  [
+                                               "paragraph-style@p1: list Bullet vs None",
+                                               "table.grid-mismatch@p?: table count differs: 1 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "html.list",
+                                               "html.table.flattened"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/html.md",
+                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "docx-package",
+                           "source":  "docx",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p0: alignment Center vs Left",
+                                               "paragraph-style@p0: line spacing 1.5 vs 1",
+                                               "paragraph-style@p0: spacing before 12 vs 0",
+                                               "paragraph-style@p0: spacing after 12 vs 0",
+                                               "inline-style@p0: formatting differs from character 0: font family \"Georgia\" vs default",
+                                               "inline-style@p6: formatting differs from character 0: underline True vs False",
+                                               "missing@p7: paragraph only in the left document: \"  leading and trailing spaces preserved  \"",
+                                               "text@p8: text differs: \"\" vs \"leading and trailing spaces preserved\"",
+                                               "table.grid-mismatch@p?: table count differs: 1 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style",
+                                               "markdown.paragraph-style",
+                                               "markdown.table.flattened"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. A paragraph aligns against a different one once its neighbour loses its leading spaces, so the comparison reports an insertion and a removal. A consequence of the row above rather than a separate finding. Leading and repeated spaces are structural in Markdown - indentation and code blocks are spelled with them - so a paragraph that begins with them cannot be written as ordinary text. The writer reports what it dropped from the style; the text itself is the format speaking.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "docx-package",
+                           "source":  "docx",
+                           "via":  "odt",
+                           "differences":  [
+                                               "table.cell-layout@p2: column width count 0 vs 2"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "docx-package",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "paragraph-style@p1: list Bullet vs None",
+                                               "table.cell-layout@p2: column width count 0 vs 2"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "emphasis",
+                           "source":  "docx",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 12: underline True vs False"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "emphasis",
+                           "source":  "html",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 12: underline True vs False"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "emphasis",
+                           "source":  "odt",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 12: underline True vs False"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "emphasis",
+                           "source":  "rtf",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 12: underline True vs False"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "empty-paragraphs",
+                           "source":  "docx",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "missing@p1: paragraph only in the left document: \"\"",
+                                               "missing@p3: paragraph only in the left document: \"\""
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "empty-paragraphs",
+                           "source":  "html",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "missing@p1: paragraph only in the left document: \"\"",
+                                               "missing@p3: paragraph only in the left document: \"\""
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "empty-paragraphs",
+                           "source":  "odt",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "missing@p1: paragraph only in the left document: \"\"",
+                                               "missing@p3: paragraph only in the left document: \"\""
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "empty-paragraphs",
+                           "source":  "rtf",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "missing@p1: paragraph only in the left document: \"\"",
+                                               "missing@p3: paragraph only in the left document: \"\""
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "html-structure",
+                           "source":  "html",
+                           "via":  "docx",
+                           "differences":  [
+                                               "paragraph-style@p2: left indent 18 vs 36",
+                                               "paragraph-style@p2: first line indent 0 vs -18",
+                                               "paragraph-style@p3: left indent 18 vs 36",
+                                               "paragraph-style@p3: first line indent 0 vs -18",
+                                               "paragraph-style@p4: left indent 36 vs 54",
+                                               "paragraph-style@p4: first line indent 0 vs -18",
+                                               "paragraph-style@p5: left indent 18 vs 36",
+                                               "paragraph-style@p5: first line indent 0 vs -18",
+                                               "paragraph-style@p6: left indent 18 vs 36",
+                                               "paragraph-style@p6: first line indent 0 vs -18",
+                                               "table.cell-layout@p14: borders differ",
+                                               "table.cell-layout@p15: borders differ",
+                                               "table.cell-layout@p16: borders differ",
+                                               "table.cell-layout@p17: borders differ"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "html-structure",
+                           "source":  "html",
+                           "via":  "html",
+                           "differences":  [
+                                               "paragraph-style@p2: list Bullet vs None",
+                                               "paragraph-style@p3: list Bullet vs None",
+                                               "paragraph-style@p4: list Bullet vs None",
+                                               "paragraph-style@p5: list Numbered vs None",
+                                               "paragraph-style@p6: list Numbered vs None",
+                                               "table.grid-mismatch@p?: table count differs: 1 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "html.list",
+                                               "html.table.flattened"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/html.md",
+                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "html-structure",
+                           "source":  "html",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size 24 vs default",
+                                               "inline-style@p1: formatting differs from character 0: font size 17 vs default",
+                                               "paragraph-style@p7: alignment Center vs Left",
+                                               "paragraph-style@p8: alignment Right vs Left",
+                                               "paragraph-style@p8: indent level 2 vs 0",
+                                               "paragraph-style@p8: left indent 30 vs 0",
+                                               "paragraph-style@p8: line spacing 1.5 vs 1",
+                                               "inline-style@p9: formatting differs from character 14: underline True vs False",
+                                               "inline-style@p10: formatting differs from character 0: font family \"Courier\" vs default",
+                                               "paragraph-style@p12: indent level 1 vs 0",
+                                               "paragraph-style@p12: left indent 18 vs 0",
+                                               "table.grid-mismatch@p?: table count differs: 1 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style",
+                                               "markdown.paragraph-style",
+                                               "markdown.table.flattened"
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. The source left margin is now read as its stated 30 points instead of rounded to 36; Markdown still loses that indent to zero.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "html-structure",
+                           "source":  "html",
+                           "via":  "odt",
+                           "differences":  [
+                                               "table.cell-layout@p14: column width count 0 vs 2",
+                                               "table.cell-layout@p14: borders differ",
+                                               "table.cell-layout@p15: borders differ",
+                                               "table.cell-layout@p16: borders differ",
+                                               "table.cell-layout@p17: borders differ"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/odt.md",
+                           "why":  "The authored HTML sample defines a table without explicit column widths or cell borders; ODT synthesizes default column widths and borders on write.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-10-25"
+                       },
+                       {
+                           "sample":  "html-structure",
+                           "source":  "html",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "paragraph-style@p2: list Bullet vs None",
+                                               "paragraph-style@p3: list Bullet vs None",
+                                               "paragraph-style@p4: list Bullet vs None",
+                                               "paragraph-style@p5: list Numbered vs None",
+                                               "paragraph-style@p6: list Numbered vs None",
+                                               "table.cell-layout@p14: column width count 0 vs 2",
+                                               "table.cell-layout@p14: borders differ",
+                                               "table.cell-layout@p15: borders differ",
+                                               "table.cell-layout@p16: borders differ",
+                                               "table.cell-layout@p17: borders differ"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "docx",
+                           "via":  "html",
+                           "differences":  [
+
+                                           ],
+                           "diagnostics":  [
+                                               "html.image.datauri"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/html.md",
+                           "why":  "The HTML writer embeds the picture as a data URI and says so (html.image.datauri); the reader does not turn a data URI back into a model image, so the placeholder character has nothing to attach to and goes. An image does not survive an HTML round trip, which the conformance document states.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "docx",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 12: image size 36x36 vs autoxauto"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.image.datauri"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "An image does not survive a Markdown round trip, which docs/notes/markdown.md states and the writer reports (markdown.image.datauri). What it comes back as is now decided too: the reader recognizes the syntax and replaces it with the description CommonMark nominates as the fallback, reporting markdown.image.dropped. It used to leave the exclamation mark in the prose and report the loss as a dropped hyperlink, because `!` was not a character the inline parser knew.",
+                           "reviewer":  "Claude Opus 5, on the Markdown image pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\""
+                                           ],
+                           "diagnostics":  [
+                                               "rtf.embedded"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "The RTF writer emits the picture correctly, as a \\pict destination carrying the PNG. The RTF *reader* skips it: docs/notes/rtf.md lists \\pict among the skipped destinations and it is reported as rtf.embedded, which escalates to the shared capability code when a caller asks for embedded decoding. Both halves are covered by RtfWriterTests and RtfEmbeddedObjectReportTests. This row was previously recorded as a silent writer defect, which was wrong on every count - the baseline was filtering info diagnostics out, so the report it makes was invisible here.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "html",
+                           "via":  "html",
+                           "differences":  [
+
+                                           ],
+                           "diagnostics":  [
+                                               "html.image.datauri"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/html.md",
+                           "why":  "The HTML writer embeds the picture as a data URI and reports html.image.datauri, as documented in docs/notes/html.md.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-10-25"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "html",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 12: image size 36x36 vs autoxauto"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.image.datauri"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "The Markdown writer embeds the picture as a data URI and reports markdown.image.datauri; Markdown syntax does not specify image dimensions, which read back as auto.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-10-25"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "html",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\""
+                                           ],
+                           "diagnostics":  [
+                                               "rtf.embedded"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "The RTF reader skips the \\pict destination and reports rtf.embedded, as documented in docs/notes/rtf.md.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-10-25"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "markdown",
+                           "via":  "docx",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 12: image size autoxauto vs 72x72"
+                                           ],
+                           "diagnostics":  [
+                                               "docx.image.size"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/docx.md",
+                           "why":  "Markdown has no image dimensions (autoxauto); the DOCX writer defaults unspecified image dimensions to 1 inch (72x72 pt) and reports docx.image.size.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-10-25"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "markdown",
+                           "via":  "html",
+                           "differences":  [
+
+                                           ],
+                           "diagnostics":  [
+                                               "html.image.datauri"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/html.md",
+                           "why":  "The HTML writer embeds the picture as a data URI and reports html.image.datauri, as documented in docs/notes/html.md.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-10-25"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "markdown",
+                           "via":  "markdown",
+                           "differences":  [
+
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.image.datauri"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "The Markdown writer embeds the picture as a data URI and reports markdown.image.datauri, as documented in docs/notes/markdown.md.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-10-25"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "markdown",
+                           "via":  "odt",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 12: image size autoxauto vs 72x72"
+                                           ],
+                           "diagnostics":  [
+                                               "odt.image.size"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/odt.md",
+                           "why":  "Markdown has no image dimensions (autoxauto); the ODT writer defaults unspecified image dimensions to 1 inch (72x72 pt) and reports odt.image.size.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-10-25"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "markdown",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\""
+                                           ],
+                           "diagnostics":  [
+                                               "rtf.embedded"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "The RTF reader skips the \\pict destination and reports rtf.embedded, as documented in docs/notes/rtf.md.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-10-25"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "odt",
+                           "via":  "html",
+                           "differences":  [
+
+                                           ],
+                           "diagnostics":  [
+                                               "html.image.datauri"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/html.md",
+                           "why":  "The HTML writer embeds the picture as a data URI and says so (html.image.datauri); the reader does not turn a data URI back into a model image, so the placeholder character has nothing to attach to and goes. An image does not survive an HTML round trip, which the conformance document states.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "odt",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 12: image size 36x36 vs autoxauto"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.image.datauri"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "An image does not survive a Markdown round trip, which docs/notes/markdown.md states and the writer reports (markdown.image.datauri). What it comes back as is now decided too: the reader recognizes the syntax and replaces it with the description CommonMark nominates as the fallback, reporting markdown.image.dropped. It used to leave the exclamation mark in the prose and report the loss as a dropped hyperlink, because `!` was not a character the inline parser knew.",
+                           "reviewer":  "Claude Opus 5, on the Markdown image pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "image",
+                           "source":  "odt",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "text@p0: text differs: \"Text around ￼ the image here.\" vs \"Text around  the image here.\""
+                                           ],
+                           "diagnostics":  [
+                                               "rtf.embedded"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "The RTF writer emits the picture correctly, as a \\pict destination carrying the PNG. The RTF *reader* skips it: docs/notes/rtf.md lists \\pict among the skipped destinations and it is reported as rtf.embedded, which escalates to the shared capability code when a caller asks for embedded decoding. Both halves are covered by RtfWriterTests and RtfEmbeddedObjectReportTests. This row was previously recorded as a silent writer defect, which was wrong on every count - the baseline was filtering info diagnostics out, so the report it makes was invisible here.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "indent-spacing",
+                           "source":  "docx",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p1: indent level 1 vs 0",
+                                               "paragraph-style@p1: left indent 18 vs 0",
+                                               "paragraph-style@p2: indent level 2 vs 0",
+                                               "paragraph-style@p2: left indent 36 vs 0",
+                                               "paragraph-style@p3: line spacing 1.5 vs 1",
+                                               "paragraph-style@p3: spacing before 12 vs 0",
+                                               "paragraph-style@p3: spacing after 12 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "indent-spacing",
+                           "source":  "html",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p1: indent level 1 vs 0",
+                                               "paragraph-style@p1: left indent 18 vs 0",
+                                               "paragraph-style@p2: indent level 2 vs 0",
+                                               "paragraph-style@p2: left indent 36 vs 0",
+                                               "paragraph-style@p3: line spacing 1.5 vs 1",
+                                               "paragraph-style@p3: spacing before 12 vs 0",
+                                               "paragraph-style@p3: spacing after 12 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "indent-spacing",
+                           "source":  "odt",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p1: indent level 1 vs 0",
+                                               "paragraph-style@p1: left indent 18 vs 0",
+                                               "paragraph-style@p2: indent level 2 vs 0",
+                                               "paragraph-style@p2: left indent 36 vs 0",
+                                               "paragraph-style@p3: line spacing 1.5 vs 1",
+                                               "paragraph-style@p3: spacing before 12 vs 0",
+                                               "paragraph-style@p3: spacing after 12 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "indent-spacing",
+                           "source":  "rtf",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p1: indent level 1 vs 0",
+                                               "paragraph-style@p1: left indent 18 vs 0",
+                                               "paragraph-style@p2: indent level 2 vs 0",
+                                               "paragraph-style@p2: left indent 36 vs 0",
+                                               "paragraph-style@p3: line spacing 1.5 vs 1",
+                                               "paragraph-style@p3: spacing before 12 vs 0",
+                                               "paragraph-style@p3: spacing after 12 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "lists",
+                           "source":  "docx",
+                           "via":  "html",
+                           "differences":  [
+                                               "paragraph-style@p1: list Bullet vs None",
+                                               "paragraph-style@p1: first line indent -18 vs 0",
+                                               "paragraph-style@p2: list Bullet vs None",
+                                               "paragraph-style@p2: first line indent -18 vs 0",
+                                               "paragraph-style@p3: list Numbered vs None",
+                                               "paragraph-style@p3: first line indent -18 vs 0",
+                                               "paragraph-style@p4: list Numbered vs None",
+                                               "paragraph-style@p4: first line indent -18 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "html.list"
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "lists",
+                           "source":  "docx",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p1: first line indent -18 vs 0",
+                                               "paragraph-style@p2: first line indent -18 vs 0",
+                                               "paragraph-style@p3: first line indent -18 vs 0",
+                                               "paragraph-style@p4: first line indent -18 vs 0"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "lists",
+                           "source":  "docx",
+                           "via":  "odt",
+                           "differences":  [
+                                               "paragraph-style@p1: first line indent -18 vs 0",
+                                               "paragraph-style@p2: first line indent -18 vs 0",
+                                               "paragraph-style@p3: first line indent -18 vs 0",
+                                               "paragraph-style@p4: first line indent -18 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "odt.list.indent"
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "lists",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "paragraph-style@p1: list Bullet vs None",
+                                               "paragraph-style@p1: first line indent -18 vs 0",
+                                               "paragraph-style@p2: list Bullet vs None",
+                                               "paragraph-style@p2: first line indent -18 vs 0",
+                                               "paragraph-style@p3: list Numbered vs None",
+                                               "paragraph-style@p3: first line indent -18 vs 0",
+                                               "paragraph-style@p4: list Numbered vs None",
+                                               "paragraph-style@p4: first line indent -18 vs 0"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "lists",
+                           "source":  "markdown",
+                           "via":  "docx",
+                           "differences":  [
+                                               "paragraph-style@p1: left indent 18 vs 36",
+                                               "paragraph-style@p1: first line indent 0 vs -18",
+                                               "paragraph-style@p2: left indent 18 vs 36",
+                                               "paragraph-style@p2: first line indent 0 vs -18",
+                                               "paragraph-style@p3: left indent 18 vs 36",
+                                               "paragraph-style@p3: first line indent 0 vs -18",
+                                               "paragraph-style@p4: left indent 18 vs 36",
+                                               "paragraph-style@p4: first line indent 0 vs -18"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "lists",
+                           "source":  "markdown",
+                           "via":  "html",
+                           "differences":  [
+                                               "paragraph-style@p1: list Bullet vs None",
+                                               "paragraph-style@p2: list Bullet vs None",
+                                               "paragraph-style@p3: list Numbered vs None",
+                                               "paragraph-style@p4: list Numbered vs None"
+                                           ],
+                           "diagnostics":  [
+                                               "html.list"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/html.md",
+                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "lists",
+                           "source":  "markdown",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "paragraph-style@p1: list Bullet vs None",
+                                               "paragraph-style@p2: list Bullet vs None",
+                                               "paragraph-style@p3: list Numbered vs None",
+                                               "paragraph-style@p4: list Numbered vs None"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "lists",
+                           "source":  "odt",
+                           "via":  "html",
+                           "differences":  [
+                                               "paragraph-style@p1: list Bullet vs None",
+                                               "paragraph-style@p2: list Bullet vs None",
+                                               "paragraph-style@p3: list Numbered vs None",
+                                               "paragraph-style@p4: list Numbered vs None"
+                                           ],
+                           "diagnostics":  [
+                                               "html.list"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/html.md",
+                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "lists",
+                           "source":  "odt",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "paragraph-style@p1: list Bullet vs None",
+                                               "paragraph-style@p2: list Bullet vs None",
+                                               "paragraph-style@p3: list Numbered vs None",
+                                               "paragraph-style@p4: list Numbered vs None"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "long-flow",
+                           "source":  "docx",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p0: alignment Center vs Left"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "long-flow",
+                           "source":  "html",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p0: alignment Center vs Left"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "long-flow",
+                           "source":  "odt",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p0: alignment Center vs Left"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "long-flow",
+                           "source":  "rtf",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p0: alignment Center vs Left"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "markdown-blocks",
+                           "source":  "markdown",
+                           "via":  "docx",
+                           "differences":  [
+                                               "paragraph-style@p7: left indent 18 vs 36",
+                                               "paragraph-style@p7: first line indent 0 vs -18",
+                                               "paragraph-style@p8: left indent 18 vs 36",
+                                               "paragraph-style@p8: first line indent 0 vs -18",
+                                               "paragraph-style@p9: left indent 18 vs 36",
+                                               "paragraph-style@p9: first line indent 0 vs -18",
+                                               "paragraph-style@p10: left indent 18 vs 36",
+                                               "paragraph-style@p10: first line indent 0 vs -18",
+                                               "paragraph-style@p11: left indent 18 vs 36",
+                                               "paragraph-style@p11: first line indent 0 vs -18",
+                                               "paragraph-style@p12: left indent 36 vs 54",
+                                               "paragraph-style@p12: first line indent 0 vs -18",
+                                               "paragraph-style@p13: left indent 18 vs 36",
+                                               "paragraph-style@p13: first line indent 0 vs -18",
+                                               "paragraph-style@p14: left indent 18 vs 36",
+                                               "paragraph-style@p14: first line indent 0 vs -18"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "markdown-blocks",
+                           "source":  "markdown",
+                           "via":  "html",
+                           "differences":  [
+                                               "paragraph-style@p7: list Numbered vs None",
+                                               "paragraph-style@p8: list Numbered vs None",
+                                               "paragraph-style@p9: list Numbered vs None",
+                                               "paragraph-style@p10: list Numbered vs None",
+                                               "paragraph-style@p11: list Bullet vs None",
+                                               "paragraph-style@p12: list Bullet vs None",
+                                               "paragraph-style@p13: list Bullet vs None",
+                                               "paragraph-style@p14: list Bullet vs None"
+                                           ],
+                           "diagnostics":  [
+                                               "html.list"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/html.md",
+                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "markdown-blocks",
+                           "source":  "markdown",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size 24 vs default",
+                                               "inline-style@p1: formatting differs from character 0: font size 12 vs default",
+                                               "paragraph-style@p3: indent level 1 vs 0",
+                                               "paragraph-style@p3: left indent 18 vs 0",
+                                               "paragraph-style@p4: indent level 1 vs 0",
+                                               "paragraph-style@p4: left indent 18 vs 0",
+                                               "paragraph-style@p5: indent level 2 vs 0",
+                                               "paragraph-style@p5: left indent 36 vs 0",
+                                               "text@p6: text differs: \"fenced code, which is monospace\u2028  and keeps its own secon...\" vs \"fenced code, which is monospace\u2028and keeps its own second ...\""
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Leading and repeated spaces are structural in Markdown - indentation and code blocks are spelled with them - so a paragraph that begins with them cannot be written as ordinary text. The writer reports what it dropped from the style; the text itself is the format speaking.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "markdown-blocks",
+                           "source":  "markdown",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "paragraph-style@p7: list Numbered vs None",
+                                               "paragraph-style@p8: list Numbered vs None",
+                                               "paragraph-style@p9: list Numbered vs None",
+                                               "paragraph-style@p10: list Numbered vs None",
+                                               "paragraph-style@p11: list Bullet vs None",
+                                               "paragraph-style@p12: list Bullet vs None",
+                                               "paragraph-style@p13: list Bullet vs None",
+                                               "paragraph-style@p14: list Bullet vs None"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "odt-package",
+                           "source":  "odt",
+                           "via":  "docx",
+                           "differences":  [
+                                               "paragraph-style@p1: left indent 28.346 vs 28.35",
+                                               "paragraph-style@p1: spacing before 5.669 vs 5.65",
+                                               "paragraph-style@p2: left indent 18 vs 36",
+                                               "paragraph-style@p2: first line indent 0 vs -18",
+                                               "paragraph-style@p3: left indent 18 vs 36",
+                                               "paragraph-style@p3: first line indent 0 vs -18",
+                                               "paragraph-style@p4: left indent 36 vs 54",
+                                               "paragraph-style@p4: first line indent 0 vs -18"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "odt-package",
+                           "source":  "odt",
+                           "via":  "html",
+                           "differences":  [
+                                               "paragraph-style@p2: list Bullet vs None",
+                                               "paragraph-style@p3: list Bullet vs None",
+                                               "paragraph-style@p4: list Bullet vs None",
+                                               "table.grid-mismatch@p?: table count differs: 1 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "html.list",
+                                               "html.table.flattened"
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. The exact left-indent loss was removed after the HTML writer began preserving point offsets; remaining list/table limitations are unchanged.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "odt-package",
+                           "source":  "odt",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p1: alignment Center vs Left",
+                                               "paragraph-style@p1: indent level 2 vs 0",
+                                               "paragraph-style@p1: left indent 28.346 vs 0",
+                                               "paragraph-style@p1: line spacing 1.5 vs 1",
+                                               "paragraph-style@p1: spacing before 5.669 vs 0",
+                                               "inline-style@p1: formatting differs from character 0: font size 18 vs default",
+                                               "inline-style@p6: formatting differs from character 0: underline True vs False",
+                                               "table.grid-mismatch@p?: table count differs: 1 vs 0"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style",
+                                               "markdown.paragraph-style",
+                                               "markdown.table.flattened"
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "odt-package",
+                           "source":  "odt",
+                           "via":  "odt",
+                           "differences":  [
+                                               "paragraph-style@p1: left indent 28.346 vs 28.347",
+                                               "table.cell-layout@p8: column width count 0 vs 2"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. List geometry, indent precision, or the odt.list.indent diagnostic needs codec-level review.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "odt-package",
+                           "source":  "odt",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "paragraph-style@p1: left indent 28.346 vs 28.35",
+                                               "paragraph-style@p1: spacing before 5.669 vs 5.65",
+                                               "paragraph-style@p2: list Bullet vs None",
+                                               "paragraph-style@p3: list Bullet vs None",
+                                               "paragraph-style@p4: list Bullet vs None",
+                                               "table.cell-layout@p8: column width count 0 vs 2"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Unit precision, not loss. 5.669pt is 0.2cm, which the RTF writer expresses in whole twips and reads back as 5.65pt. A format that measures in twips cannot carry a centimetre exactly. The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. Left-indent rounding to an 18-point level is fixed; only native RTF twip quantization (28.346 to 28.35 points) remains for that offset.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "page-break",
+                           "source":  "docx",
+                           "via":  "markdown",
+                           "differences":  [
+
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.page-break"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
+                           "reviewer":  "Claude Opus 5, on the page-break pass",
+                           "decided":  "2026-09-06"
+                       },
+                       {
+                           "sample":  "page-break",
+                           "source":  "html",
+                           "via":  "markdown",
+                           "differences":  [
+
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.page-break"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
+                           "reviewer":  "Claude Opus 5, on the page-break pass",
+                           "decided":  "2026-09-06"
+                       },
+                       {
+                           "sample":  "page-break",
+                           "source":  "odt",
+                           "via":  "markdown",
+                           "differences":  [
+
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.page-break"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
+                           "reviewer":  "Claude Opus 5, on the page-break pass",
+                           "decided":  "2026-09-06"
+                       },
+                       {
+                           "sample":  "page-break",
+                           "source":  "rtf",
+                           "via":  "markdown",
+                           "differences":  [
+
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.page-break"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
+                           "reviewer":  "Claude Opus 5, on the page-break pass",
+                           "decided":  "2026-09-06"
+                       },
+                       {
+                           "sample":  "rtf-control-words",
+                           "source":  "rtf",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "paragraph-style@p0: alignment Justify vs Left",
+                                               "paragraph-style@p0: indent level 2 vs 0",
+                                               "paragraph-style@p0: left indent 36 vs 0",
+                                               "paragraph-style@p0: spacing before 6 vs 0",
+                                               "paragraph-style@p0: spacing after 6 vs 0",
+                                               "inline-style@p1: formatting differs from character 12: underline True vs False",
+                                               "inline-style@p2: formatting differs from character 0: foreground #B71C1CFF vs default",
+                                               "inline-style@p3: formatting differs from character 0: font family \"Helvetica\" vs default",
+                                               "inline-style@p4: formatting differs from character 0: font family \"Helvetica\" vs default",
+                                               "inline-style@p5: formatting differs from character 0: font family \"Helvetica\" vs default",
+                                               "missing@p6: paragraph only in the left document: \"\"",
+                                               "inline-style@p7: formatting differs from character 0: font family \"Helvetica\" vs default"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style",
+                                               "markdown.paragraph-style"
+                                           ],
+                           "state":  "suspected-defect",
+                           "reference":  "docs/guides/corpus-suite.md",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently. Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
+                           "reviewer":  null,
+                           "decided":  null
+                       },
+                       {
+                           "sample":  "typography",
+                           "source":  "docx",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 11: font size 18 vs default"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "typography",
+                           "source":  "html",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 11: font size 18 vs default"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "typography",
+                           "source":  "odt",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 11: font size 18 vs default"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "typography",
+                           "source":  "rtf",
+                           "via":  "markdown",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 11: font size 18 vs default"
+                                           ],
+                           "diagnostics":  [
+                                               "markdown.inline-style"
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/markdown.md",
+                           "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
+                           "reviewer":  "Claude Opus 5, on the writer-losses pass",
+                           "decided":  "2026-09-05"
+                       }
+                   ]
 }
