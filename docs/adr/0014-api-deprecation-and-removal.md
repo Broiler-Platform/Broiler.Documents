@@ -60,10 +60,9 @@ libraries, even while application integration remains gated.
 
 ## Consequences
 
-- `DecodeEmbeddedObjects` is announced now and removable in a later release. Its
-  replacement, `DocumentReadOptions.ResourcePolicy`, is not a like-for-like swap
-  — a boolean asks "may images happen", a policy answers per resource and per
-  operation — so the message says so rather than pointing at a type name alone.
+- `DecodeEmbeddedObjects` was announced under this policy and has now been removed
+  in a subsequent release. Its replacement, `DocumentReadOptions.ResourcePolicy`,
+  answers per resource and per operation rather than a single boolean.
 - `DocumentWriteOptions.AsciiOnly` is **not** announced, under the
   no-replacement rule. It is narrow rather than superseded: the RTF writer
   implements it and the other codecs do not consult it. Telling callers to stop

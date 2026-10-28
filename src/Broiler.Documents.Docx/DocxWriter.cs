@@ -230,6 +230,7 @@ public static class DocxWriter
         RunningContent running,
         PageGeometry? geometry,
         (int Count, double Gap)? columns = null,
+        SectionBreakType? breakType = null,
         bool continuous = false)
     {
         var sectPr = new XElement(DocxNamespaces.Wordprocessing + "sectPr");
@@ -256,16 +257,25 @@ public static class DocxWriter
         // margins, then the columns, then w:titlePg. A consumer that validates
         // the order rejects the part otherwise, so the flag is held until the
         // geometry is written.
-        if (continuous)
+        if (breakType == SectionBreakType.OddPage)
+            sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "type", WordAttribute("val", "oddPage")));
+        else if (breakType == SectionBreakType.EvenPage)
+            sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "type", WordAttribute("val", "evenPage")));
+        else if (breakType == SectionBreakType.NextColumn)
+            sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "type", WordAttribute("val", "nextColumn")));
+        else if (continuous || breakType == SectionBreakType.Continuous)
             sectPr.Add(new XElement(DocxNamespaces.Wordprocessing + "type", WordAttribute("val", "continuous")));
 
         (int Count, double Gap) stated = columns ?? (geometry?.ColumnCount ?? 1, geometry?.ColumnGap ?? 0);
         if (geometry is not null && geometry.IsUsable)
         {
-            sectPr.Add(new XElement(
+            var pgSz = new XElement(
                 DocxNamespaces.Wordprocessing + "pgSz",
                 WordAttribute("w", Twips(geometry.Width)),
-                WordAttribute("h", Twips(geometry.Height))));
+                WordAttribute("h", Twips(geometry.Height)));
+            if (geometry.Width > geometry.Height)
+                pgSz.Add(WordAttribute("orient", "landscape"));
+            sectPr.Add(pgSz);
             sectPr.Add(new XElement(
                 DocxNamespaces.Wordprocessing + "pgMar",
                 WordAttribute("left", Twips(geometry.MarginLeft)),
@@ -305,12 +315,15 @@ public static class DocxWriter
         (int Count, double Gap)? lastColumns = document.Sections.Count == 0
             ? null
             : ColumnsAt(document, document.ParagraphCount - 1);
+        DocumentSection? lastSection = DocumentSection.Containing(document.Sections, document.ParagraphCount - 1);
+        SectionBreakType? lastBreak = lastSection?.BreakType;
         body.Add(BuildSectionProperties(
             context,
             RunningAt(document, document.ParagraphCount - 1),
             PageAt(document, document.ParagraphCount - 1),
             lastColumns,
-            continuous: document.Sections.Count > 0));
+            breakType: lastBreak,
+            continuous: lastBreak == SectionBreakType.Continuous || (lastBreak == null && document.Sections.Count > 0)));
 
         var root = new XElement(
             DocxNamespaces.Wordprocessing + "document",
@@ -462,9 +475,30 @@ public static class DocxWriter
     /// <c>w:pageBreakBefore</c>, which is where the model keeps it, so stating
     /// it here as well would start two.
     /// </summary>
-    private static XElement SectionBreak(RichTextDocument document, int index, DocxWriteContext context) =>
-        BuildSectionProperties(
-            context, RunningAt(document, index), PageAt(document, index), ColumnsAt(document, index), continuous: true);
+    private static XElement SectionBreak(RichTextDocument document, int index, DocxWriteContext context)
+    {
+        DocumentSection? section = DocumentSection.Containing(document.Sections, index);
+        SectionBreakType? breakType = section?.BreakType;
+        bool startsNextPage = index + 1 < document.ParagraphCount && document.Paragraphs[index + 1].Style.PageBreakBefore;
+
+        SectionBreakType effectiveBreak = breakType switch
+        {
+            SectionBreakType.OddPage => SectionBreakType.OddPage,
+            SectionBreakType.EvenPage => SectionBreakType.EvenPage,
+            SectionBreakType.NextColumn => SectionBreakType.NextColumn,
+            SectionBreakType.NextPage => SectionBreakType.NextPage,
+            SectionBreakType.Continuous => startsNextPage ? SectionBreakType.NextPage : SectionBreakType.Continuous,
+            _ => startsNextPage ? SectionBreakType.NextPage : SectionBreakType.Continuous,
+        };
+
+        return BuildSectionProperties(
+            context,
+            RunningAt(document, index),
+            PageAt(document, index),
+            ColumnsAt(document, index),
+            breakType: effectiveBreak,
+            continuous: effectiveBreak == SectionBreakType.Continuous);
+    }
 
     /// <summary>A paragraph's <c>w:pPr</c>, made when it has none, and kept first among its children.</summary>
     private static XElement PropertiesOf(XElement paragraph)
@@ -644,6 +678,11 @@ public static class DocxWriter
         else
             element.Add(WordAttribute("tblpY", Twips(position.Y)));
 
+        if (position.ZOrder != 0)
+            element.Add(WordAttribute("zOrder", position.ZOrder.ToString(CultureInfo.InvariantCulture)));
+        if (position.BehindText)
+            element.Add(WordAttribute("behindText", "1"));
+
         return element;
 
         static string AnchorName(TableAnchor anchor) => anchor switch
@@ -772,13 +811,20 @@ public static class DocxWriter
         return width;
     }
 
-    private static XElement BuildCellBorders(CellBorders borders) =>
-        new(
+    private static XElement BuildCellBorders(CellBorders borders)
+    {
+        var element = new XElement(
             DocxNamespaces.Wordprocessing + "tcBorders",
             BuildBorderEdge("top", borders.Top),
             BuildBorderEdge("left", borders.Left),
             BuildBorderEdge("bottom", borders.Bottom),
             BuildBorderEdge("right", borders.Right));
+        if (borders.DiagonalDown.IsVisible)
+            element.Add(BuildBorderEdge("tl2br", borders.DiagonalDown));
+        if (borders.DiagonalUp.IsVisible)
+            element.Add(BuildBorderEdge("tr2bl", borders.DiagonalUp));
+        return element;
+    }
 
     /// <summary>
     /// One border edge. <c>w:sz</c> is in eighths of a point, and an edge that
@@ -790,9 +836,22 @@ public static class DocxWriter
         if (!border.IsVisible)
             return new XElement(DocxNamespaces.Wordprocessing + edge, WordAttribute("val", "none"));
 
+        string val = border.Style switch
+        {
+            TableBorderStyle.Dashed => "dashed",
+            TableBorderStyle.Dotted => "dotted",
+            TableBorderStyle.Double => "double",
+            TableBorderStyle.Groove => "groove",
+            TableBorderStyle.Ridge => "ridge",
+            TableBorderStyle.Inset => "inset",
+            TableBorderStyle.Outset => "outset",
+            TableBorderStyle.None => "none",
+            _ => "single",
+        };
+
         return new XElement(
             DocxNamespaces.Wordprocessing + edge,
-            WordAttribute("val", "single"),
+            WordAttribute("val", val),
             WordAttribute("sz", Math.Max(1, (int)Math.Round(border.Width * 8)).ToString(CultureInfo.InvariantCulture)),
             WordAttribute("space", "0"),
             WordAttribute("color", HexColor(border.Color)));
@@ -1623,8 +1682,8 @@ public static class DocxWriter
             context.AddDiagnosticOnce("docx.shape.cell-alignment", "Cell-relative shape alignment was written using its numeric offset; dynamic alignment within the cell was not retained.");
         if (shape.NextFrameName is not null || shape.GrowsWidthToText)
             context.AddDiagnosticOnce("docx.shape.flow", "Linked text-frame flow and minimum-width auto-sizing were written as independent fixed-width boxes.");
-        if (shape.Fill?.HasExtendedPaint == true)
-            context.AddDiagnosticOnce("docx.fill.extended", "Bitmap and hatch fills, centred gradient geometry, gradient borders and page-fill bounds were approximated by their base colours or linear gradients.");
+        if (shape.Fill is { } targetFill && (targetFill.Border != 0 || targetFill.ContentOnly))
+            context.AddDiagnosticOnce("docx.fill.extended", "Gradient borders and page-fill bounds were approximated by their base colours or linear gradients.");
         if (shape.Image is InlineImage image)
         {
             if (!DocumentResourceGate.TryTakeEncodedBytes(
@@ -1670,7 +1729,7 @@ public static class DocxWriter
                 new XElement(DocxNamespaces.Drawing + "avLst")));
 
         if (shape.Fill is ShapeFill fill)
-            properties.Add(BuildShapeFill(fill));
+            properties.Add(BuildShapeFill(fill, context));
         else properties.Add(new XElement(DocxNamespaces.Drawing + "noFill"));
 
         properties.Add(shape.Outline.IsEmpty
@@ -1804,29 +1863,128 @@ public static class DocxWriter
         _ => new XElement(DocxNamespaces.WordDrawing + "wrapNone"),
     };
 
-    private static XElement BuildShapeFill(ShapeFill fill)
+    private static XElement BuildShapeFill(ShapeFill fill, DocxWriteContext context)
     {
-        if (!fill.IsGradient)
+        if (fill.Image is ImageFill imageFill)
         {
-            return new XElement(DocxNamespaces.Drawing + "solidFill", DrawingColor(fill.Start));
+            if (DocumentResourceGate.TryTakeEncodedBytes(
+                    imageFill.Picture,
+                    context.Resources,
+                    DocumentResourceOperations.ByteTransfer,
+                    out ReadOnlyMemory<byte> data,
+                    out string? contentType,
+                    out string? denial))
+            {
+                DocxImagePart part = context.GetImagePart(imageFill.Picture, data, contentType);
+                var blipFill = new XElement(
+                    DocxNamespaces.Drawing + "blipFill",
+                    new XElement(
+                        DocxNamespaces.Drawing + "blip",
+                        new XAttribute(DocxNamespaces.Relationships + "embed", part.RelationshipId)),
+                    BuildSourceRect(imageFill.Picture.Presentation));
+
+                if (imageFill.Repeat == ImageFillRepeat.Tile)
+                {
+                    blipFill.Add(new XElement(DocxNamespaces.Drawing + "tile"));
+                }
+                else
+                {
+                    blipFill.Add(new XElement(
+                        DocxNamespaces.Drawing + "stretch",
+                        new XElement(DocxNamespaces.Drawing + "fillRect")));
+                }
+                return blipFill;
+            }
+
+            context.AddDiagnosticOnce(
+                "docx.image.omitted",
+                "A shape bitmap fill was left out of the DOCX output because " + denial + ".");
+            return new XElement(DocxNamespaces.Drawing + "noFill");
         }
 
-        // DrawingML has no mirrored gradient; it states one as three stops, the
-        // first and last the same, which is how Word writes it.
-        var stops = new XElement(DocxNamespaces.Drawing + "gsLst", GradientStop(0, fill.Start));
-        if (fill.Axial)
-            stops.Add(GradientStop(50000, fill.End), GradientStop(100000, fill.Start));
-        else
-            stops.Add(GradientStop(100000, fill.End));
+        if (fill.Hatch is HatchFill hatch)
+        {
+            string preset = hatch.Directions switch
+            {
+                2 => IsDiagonalHatch(hatch.AngleDegrees) ? "diagCross" : "cross",
+                3 => "diagCross",
+                _ => IsHorizontalHatch(hatch.AngleDegrees) ? "horz" :
+                     IsVerticalHatch(hatch.AngleDegrees) ? "vert" :
+                     IsNegativeDiagonalHatch(hatch.AngleDegrees) ? "dnDiag" : "upDiag"
+            };
 
-        return new XElement(
-            DocxNamespaces.Drawing + "gradFill",
-            stops,
-            new XElement(
-                DocxNamespaces.Drawing + "lin",
-                new XAttribute(
-                    "ang",
-                    ((long)Math.Round(fill.AngleDegrees * 60000)).ToString(CultureInfo.InvariantCulture))));
+            return new XElement(
+                DocxNamespaces.Drawing + "pattFill",
+                new XAttribute("prst", preset),
+                new XElement(DocxNamespaces.Drawing + "fgClr", DrawingColor(hatch.Color)),
+                new XElement(DocxNamespaces.Drawing + "bgClr", DrawingColor(fill.Start)));
+        }
+
+        if (fill.IsGradient || fill.Geometry != GradientGeometry.Linear)
+        {
+            var stops = new XElement(DocxNamespaces.Drawing + "gsLst", GradientStop(0, fill.Start));
+            if (fill.Axial)
+                stops.Add(GradientStop(50000, fill.End), GradientStop(100000, fill.Start));
+            else
+                stops.Add(GradientStop(100000, fill.End));
+
+            var gradFill = new XElement(DocxNamespaces.Drawing + "gradFill", stops);
+            if (fill.Geometry == GradientGeometry.Linear)
+            {
+                gradFill.Add(new XElement(
+                    DocxNamespaces.Drawing + "lin",
+                    new XAttribute(
+                        "ang",
+                        ((long)Math.Round(fill.AngleDegrees * 60000)).ToString(CultureInfo.InvariantCulture))));
+            }
+            else
+            {
+                string pathType = fill.Geometry == GradientGeometry.Radial ? "circle" : "rect";
+                long l = (long)Math.Round(Math.Clamp(fill.CenterX, 0, 1) * 100000);
+                long r = 100000 - l;
+                long t = (long)Math.Round(Math.Clamp(fill.CenterY, 0, 1) * 100000);
+                long b = 100000 - t;
+                gradFill.Add(new XElement(
+                    DocxNamespaces.Drawing + "path",
+                    new XAttribute("path", pathType),
+                    new XElement(
+                        DocxNamespaces.Drawing + "fillToRect",
+                        new XAttribute("l", l.ToString(CultureInfo.InvariantCulture)),
+                        new XAttribute("t", t.ToString(CultureInfo.InvariantCulture)),
+                        new XAttribute("r", r.ToString(CultureInfo.InvariantCulture)),
+                        new XAttribute("b", b.ToString(CultureInfo.InvariantCulture)))));
+            }
+            return gradFill;
+        }
+
+        if (fill.Start.A == 0)
+            return new XElement(DocxNamespaces.Drawing + "noFill");
+
+        return new XElement(DocxNamespaces.Drawing + "solidFill", DrawingColor(fill.Start));
+    }
+
+    private static bool IsHorizontalHatch(double angle)
+    {
+        double norm = ((angle % 180) + 180) % 180;
+        return norm is <= 15 or >= 165;
+    }
+
+    private static bool IsVerticalHatch(double angle)
+    {
+        double norm = ((angle % 180) + 180) % 180;
+        return norm is >= 75 and <= 105;
+    }
+
+    private static bool IsDiagonalHatch(double angle)
+    {
+        double norm = ((angle % 180) + 180) % 180;
+        return norm is >= 30 and <= 60 or >= 120 and <= 150;
+    }
+
+    private static bool IsNegativeDiagonalHatch(double angle)
+    {
+        double norm = ((angle % 180) + 180) % 180;
+        return norm is >= 120 and <= 150;
     }
 
     private static XElement GradientStop(int position, BColor color) =>
@@ -2091,20 +2249,54 @@ public static class DocxWriter
         // After w:evenAndOddHeaders in CT_Settings, footnotes before endnotes.
         if (context.NoteNumbering is NoteNumbering numbering)
         {
-            settings.Add(NoteProperties("footnotePr", numbering.FootnoteFormat, numbering.FootnoteStart));
+            settings.Add(NoteProperties("footnotePr", numbering.FootnoteFormat, numbering.FootnoteStart, numbering.FootnoteRestart, numbering.FootnotePosition));
             settings.Add(NoteProperties("endnotePr", numbering.EndnoteFormat, numbering.EndnoteStart));
         }
 
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), settings);
     }
 
-    private static XElement NoteProperties(string name, ListNumberFormat format, int start) =>
-        new(
+    private static XElement NoteProperties(
+        string name,
+        ListNumberFormat format,
+        int start,
+        NoteNumberingRestart restart = NoteNumberingRestart.Continuous,
+        FootnotePosition position = FootnotePosition.PageBottom)
+    {
+        var element = new XElement(
             DocxNamespaces.Wordprocessing + name,
             new XElement(DocxNamespaces.Wordprocessing + "numFmt", WordAttribute("val", NumberFormat(format))),
             new XElement(
                 DocxNamespaces.Wordprocessing + "numStart",
                 WordAttribute("val", start.ToString(CultureInfo.InvariantCulture))));
+
+        if (name == "footnotePr")
+        {
+            if (position != FootnotePosition.PageBottom)
+            {
+                string posVal = position switch
+                {
+                    FootnotePosition.BeneathText => "beneathText",
+                    FootnotePosition.DocumentEnd => "docEnd",
+                    _ => "pageBottom",
+                };
+                element.Add(new XElement(DocxNamespaces.Wordprocessing + "pos", WordAttribute("val", posVal)));
+            }
+
+            if (restart != NoteNumberingRestart.Continuous)
+            {
+                string restartVal = restart switch
+                {
+                    NoteNumberingRestart.EachPage => "eachPage",
+                    NoteNumberingRestart.EachSection => "eachSect",
+                    _ => "continuous",
+                };
+                element.Add(new XElement(DocxNamespaces.Wordprocessing + "numRestart", WordAttribute("val", restartVal)));
+            }
+        }
+
+        return element;
+    }
 
     /// <summary>
     /// The numbering part: an abstract numbering and a <c>w:num</c> for each

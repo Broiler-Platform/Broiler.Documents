@@ -65,7 +65,7 @@ Cross-repository dependencies are pinned in `Directory.Packages.props` and resto
 
 ## Packages
 
-Thirteen preview packages are generated. All target `net10.0`, ship XML
+Fifteen preview packages are generated. All target `net10.0`, ship XML
 documentation and a `.snupkg` symbol package, and are built deterministically
 with SourceLink.
 
@@ -81,6 +81,8 @@ with SourceLink.
 | `Broiler.Documents.Html` | HTML document/fragment codec over `Broiler.Dom` and `Broiler.Dom.Html`. |
 | `Broiler.Documents.Markdown` | Markdown codec for a safe CommonMark-oriented subset. |
 | `Broiler.Documents.Csv` | CSV codec: reads comma-separated values into a table in the model and writes tables back out. |
+| `Broiler.Documents.Xlsx` | XLSX codec: reads and writes Open XML SpreadsheetML workbooks into and from the model. |
+| `Broiler.Documents.Ods` | ODS codec: reads and writes OASIS OpenDocument spreadsheets into and from the model. |
 | `Broiler.Documents.Pdf` | Preview PDF codec for logical text import and deterministic PDF 1.7 writing, plus `PdfRasterPageWriter`, the image-per-page spool writer print paths hand to a spooler. |
 | `Broiler.Documents.Pdf.Fonts` | Optional PDF font-program reader over `Broiler.Graphics`. |
 | `Broiler.Documents.Pdf.Images` | Optional PDF image filters over the managed `Broiler.Media` image codecs. |
@@ -104,6 +106,8 @@ Broiler.Documents.Docx     -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Odt      -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Markdown -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Csv      -> Broiler.Documents -> Broiler.Documents.Model
+Broiler.Documents.Xlsx     -> Broiler.Documents -> Broiler.Documents.Model
+Broiler.Documents.Ods      -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Html     -> Broiler.Documents -> Broiler.Documents.Model
 Broiler.Documents.Html     -> Broiler.Dom, Broiler.Dom.Html
 Broiler.Documents.FormatCodes                   -> Broiler.Documents.Model

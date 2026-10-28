@@ -32,6 +32,9 @@ internal static class CsvSniffer
     /// </remarks>
     public static char DetectDelimiter(string text)
     {
+        if (CsvSepDirective.TryExtract(text, out char sep, out _))
+            return sep;
+
         char best = ',';
         int bestShare = 0;
         int bestTotal = 1;
@@ -82,7 +85,18 @@ internal static class CsvSniffer
     /// </summary>
     public static bool LooksTabular(string text)
     {
+        if (CsvSepDirective.TryExtract(text, out char sep, out string remaining))
+            text = remaining;
+
         char delimiter = DetectDelimiter(text);
+        return LooksTabularWith(text, delimiter);
+    }
+
+    /// <summary>
+    /// True when the text reads as a grid under the specified delimiter.
+    /// </summary>
+    public static bool LooksTabularWith(string text, char delimiter)
+    {
         List<int> counts = FieldCounts(text, delimiter, SampleRecords, out bool unterminated);
         if (unterminated || counts.Count < 2 || counts[0] < 2)
             return false;

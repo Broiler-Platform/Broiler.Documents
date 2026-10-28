@@ -36,6 +36,10 @@ public sealed class DocumentFontSet
 {
     private readonly ReadOnlyCollection<DocumentFontResource> _fonts;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="DocumentFontSet"/> with provisioned fonts.
+    /// </summary>
+    /// <param name="fonts">The caller-provisioned fonts for writing.</param>
     public DocumentFontSet(IEnumerable<DocumentFontResource> fonts)
     {
         ArgumentNullException.ThrowIfNull(fonts);

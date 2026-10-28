@@ -310,11 +310,11 @@ public static class OdtWriter
         // A section with columns of its own is a text:section around its
         // paragraphs, named after the columns it states; the stretches between
         // sections are the body as it always was.
-        if (document.Sections.Any(section => section.Page is not null || section.PageStyles is not null))
+        if (document.Sections.Any(section => HasUnsupportedPageGeometry(section, document.PageGeometry) || section.PageStyles is not null))
         {
             context.AddDiagnosticOnce(
                 "odt.section.page",
-                "A section's own page and margins were not written; its text is written within the document's page.");
+                "A section's own page size and top/bottom margins were not written; its text is written within the document's page.");
         }
         if (document.Paragraphs.Any(paragraph => paragraph.Style.List is ListReference list &&
             !ReferenceEquals(list.Definition, list.Definition.CounterGroup)))
@@ -331,7 +331,7 @@ public static class OdtWriter
                 OdtNamespaces.Text + "section",
                 new XAttribute(
                     OdtNamespaces.Text + "style-name",
-                    context.GetSectionStyleName(section.ColumnCount, section.ColumnGap, section.Background)),
+                    context.GetSectionStyleName(section, document.PageGeometry)),
                 new XAttribute(
                     OdtNamespaces.Text + "name",
                     "Section" + (++written).ToString(CultureInfo.InvariantCulture)));
@@ -424,9 +424,25 @@ public static class OdtWriter
         // Cell-local visibility belongs inside the cell, not around a slice of
         // its containing table: doing the latter would write the table twice.
         written.RemoveAll(section => section.Hidden && InsideTable(section, document.Tables));
-        written.RemoveAll(section => !section.Hidden && section.ColumnCount <= 1 && (section.Background.IsEmpty || section.Background.A == 0));
+        written.RemoveAll(section => !section.Hidden && section.ColumnCount <= 1 && (section.Background.IsEmpty || section.Background.A == 0) && !HasSectionMargins(section, document.PageGeometry) && !section.DontBalanceColumns);
         return written;
     }
+
+    private static bool HasUnsupportedPageGeometry(DocumentSection section, PageGeometry? docPage)
+    {
+        if (section.Page is not PageGeometry page)
+            return false;
+        if (docPage is null)
+            return true;
+        return Math.Abs(page.Width - docPage.Width) > 0.01 ||
+               Math.Abs(page.Height - docPage.Height) > 0.01 ||
+               Math.Abs(page.MarginTop - docPage.MarginTop) > 0.01 ||
+               Math.Abs(page.MarginBottom - docPage.MarginBottom) > 0.01;
+    }
+
+    private static bool HasSectionMargins(DocumentSection section, PageGeometry? docPage) =>
+        section.Page is PageGeometry page && docPage is not null &&
+        (page.MarginLeft > docPage.MarginLeft + 0.01 || page.MarginRight > docPage.MarginRight + 0.01);
 
     private static bool InsideTable(DocumentSection section, IReadOnlyList<DocumentTable> tables) =>
         tables.Any(table => section.ParagraphIndex >= table.ParagraphIndex && section.ParagraphEnd <= table.ParagraphEnd &&
@@ -562,10 +578,10 @@ public static class OdtWriter
         foreach (TableRow row in table.Rows)
         {
             var tr = new XElement(OdtNamespaces.Table + "table-row");
-            if (row.MinHeight > 0 || !row.CanSplit)
+            if (row.MinHeight > 0 || !row.CanSplit || row.KeepWithNext)
             {
                 tr.Add(new XAttribute(
-                    OdtNamespaces.Table + "style-name", context.GetRowStyleName(row.MinHeight, row.CanSplit, row.ExactHeight)));
+                    OdtNamespaces.Table + "style-name", context.GetRowStyleName(row.MinHeight, row.CanSplit, row.ExactHeight, row.KeepWithNext)));
             }
 
             int column = 0;
@@ -592,6 +608,24 @@ public static class OdtWriter
                 tr.Add(new XElement(OdtNamespaces.Table + "table-cell"));
 
             element.Add(tr);
+        }
+
+        if (table.Position is TablePosition pos)
+        {
+            string frameStyle = context.GetTableFrameStyleName(pos);
+            string anchorType = pos.VerticalAnchor == TableAnchor.Page ? "page" : "paragraph";
+            double totalWidth = table.ColumnWidths.Count > 0 ? table.ColumnWidths.Sum() : (table.PreferredWidth ?? 200);
+            var frame = new XElement(
+                OdtNamespaces.Draw + "frame",
+                new XAttribute(OdtNamespaces.Draw + "style-name", frameStyle),
+                new XAttribute(OdtNamespaces.Draw + "name", "TableFrame" + context.NextTableName()),
+                new XAttribute(OdtNamespaces.Text + "anchor-type", anchorType),
+                new XAttribute(OdtNamespaces.Draw + "z-index", pos.ZOrder.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute(OdtNamespaces.Svg + "x", OdtUnits.FormatPoints(pos.X)),
+                new XAttribute(OdtNamespaces.Svg + "y", OdtUnits.FormatPoints(pos.Y)),
+                new XAttribute(OdtNamespaces.Svg + "width", OdtUnits.FormatPoints(totalWidth)),
+                element);
+            return frame;
         }
 
         return element;
@@ -1238,9 +1272,9 @@ public static class OdtWriter
         }
 
         if (numbering.FootnoteFormat != standard.FootnoteFormat || numbering.FootnoteStart != standard.FootnoteStart ||
-            numbering.RaisedLabels)
+            numbering.RaisedLabels || numbering.FootnoteRestart != standard.FootnoteRestart || numbering.FootnotePosition != standard.FootnotePosition)
         {
-            yield return NotesConfiguration("footnote", numbering.FootnoteFormat, numbering.FootnoteStart, numbering.RaisedLabels, context);
+            yield return NotesConfiguration("footnote", numbering.FootnoteFormat, numbering.FootnoteStart, numbering.RaisedLabels, context, numbering.FootnoteRestart, numbering.FootnotePosition);
         }
 
         if (numbering.EndnoteFormat != standard.EndnoteFormat || numbering.EndnoteStart != standard.EndnoteStart ||
@@ -1252,11 +1286,20 @@ public static class OdtWriter
 
     private const string RaisedNoteLabelStyle = "Raised_20_Note_20_Label";
 
-    private static XElement NotesConfiguration(string noteClass, ListNumberFormat format, int start, bool raised, OdtWriteContext context) =>
+    private static XElement NotesConfiguration(
+        string noteClass,
+        ListNumberFormat format,
+        int start,
+        bool raised,
+        OdtWriteContext context,
+        NoteNumberingRestart restart = NoteNumberingRestart.Continuous,
+        FootnotePosition position = FootnotePosition.PageBottom) =>
         new(
             OdtNamespaces.Text + "notes-configuration",
             new XAttribute(OdtNamespaces.Text + "note-class", noteClass),
             raised ? new XAttribute(OdtNamespaces.Text + "citation-style-name", RaisedNoteLabelStyle) : null,
+            restart != NoteNumberingRestart.Continuous ? new XAttribute(OdtNamespaces.Text + "start-numbering-at", restart == NoteNumberingRestart.EachPage ? "page" : "chapter") : null,
+            position == FootnotePosition.DocumentEnd ? new XAttribute(OdtNamespaces.Text + "footnotes-position", "document") : null,
             new XAttribute(OdtNamespaces.Style + "num-format", NumberFormat(format, context)),
             new XAttribute(OdtNamespaces.Text + "start-value", Math.Max(0, start - 1).ToString(CultureInfo.InvariantCulture)));
 
@@ -2196,7 +2239,70 @@ public static class OdtWriter
         /// trip from resting on that reading - and what tells a consumer which
         /// side of the text the shape was authored on.
         /// </remarks>
-        public string GetShapeStyleName(DocumentShape shape)
+        public string GetTableFrameStyleName(TablePosition pos)
+        {
+            string name = "gr" + (_shapeStyles.Count + 1).ToString(CultureInfo.InvariantCulture);
+            var properties = new XElement(
+                OdtNamespaces.Style + "graphic-properties",
+                new XAttribute(OdtNamespaces.Style + "run-through", pos.BehindText ? "background" : "foreground"),
+                new XAttribute(OdtNamespaces.Style + "wrap", pos.AllowOverlap ? "parallel" : "none"));
+
+            string hRel = pos.HorizontalAnchor switch
+            {
+                TableAnchor.Page => "page",
+                TableAnchor.Margin => "page-content",
+                _ => "paragraph"
+            };
+            string vRel = pos.VerticalAnchor switch
+            {
+                TableAnchor.Page => "page",
+                TableAnchor.Margin => "page-content",
+                _ => "paragraph"
+            };
+
+            string hPos = pos.HorizontalAlignment switch
+            {
+                TableAlignment.Start => "left",
+                TableAlignment.Center => "center",
+                TableAlignment.End => "right",
+                TableAlignment.Inside => "inside",
+                TableAlignment.Outside => "outside",
+                _ => "from-left"
+            };
+            string vPos = pos.VerticalAlignment switch
+            {
+                TableAlignment.Start => "top",
+                TableAlignment.Center => "middle",
+                TableAlignment.End => "bottom",
+                TableAlignment.Inside => "inside",
+                TableAlignment.Outside => "outside",
+                _ => "from-top"
+            };
+
+            properties.Add(new XAttribute(OdtNamespaces.Style + "horizontal-pos", hPos));
+            properties.Add(new XAttribute(OdtNamespaces.Style + "horizontal-rel", hRel));
+            properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-pos", vPos));
+            properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-rel", vRel));
+
+            if (pos.LeftFromText > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "margin-left", OdtUnits.FormatPoints(pos.LeftFromText)));
+            if (pos.RightFromText > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "margin-right", OdtUnits.FormatPoints(pos.RightFromText)));
+            if (pos.TopFromText > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "margin-top", OdtUnits.FormatPoints(pos.TopFromText)));
+            if (pos.BottomFromText > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "margin-bottom", OdtUnits.FormatPoints(pos.BottomFromText)));
+
+            _shapeStyles.Add(new XElement(
+                OdtNamespaces.Style + "style",
+                new XAttribute(OdtNamespaces.Style + "name", name),
+                new XAttribute(OdtNamespaces.Style + "family", "graphic"),
+                properties));
+
+            return name;
+        }
+
+                public string GetShapeStyleName(DocumentShape shape)
         {
             string name = "gr" + (_shapeStyles.Count + 1).ToString(CultureInfo.InvariantCulture);
             var properties = new XElement(
@@ -2293,29 +2399,58 @@ public static class OdtWriter
         /// The section style for one set of columns, created on first use and
         /// kept with the table styles in the automatic styles.
         /// </summary>
-        public string GetSectionStyleName(int count, double gap, BColor background)
+        public string GetSectionStyleName(DocumentSection section, PageGeometry? docPage)
         {
-            string key = count.ToString(CultureInfo.InvariantCulture) + "|" + OdtUnits.FormatPoints(gap) + "|" + background;
+            double extraLeft = (section.Page is not null && docPage is not null && section.Page.MarginLeft > docPage.MarginLeft + 0.01)
+                ? section.Page.MarginLeft - docPage.MarginLeft : 0;
+            double extraRight = (section.Page is not null && docPage is not null && section.Page.MarginRight > docPage.MarginRight + 0.01)
+                ? section.Page.MarginRight - docPage.MarginRight : 0;
+
+            string key = section.ColumnCount.ToString(CultureInfo.InvariantCulture) + "|" +
+                         OdtUnits.FormatPoints(section.ColumnGap) + "|" +
+                         section.Background + "|" +
+                         OdtUnits.FormatPoints(extraLeft) + "|" +
+                         OdtUnits.FormatPoints(extraRight) + "|" +
+                         section.DontBalanceColumns;
+
             if (_sectionStyleNames.TryGetValue(key, out string? existing))
                 return existing;
 
             string name = "Sect" + (_sectionStyleNames.Count + 1).ToString(CultureInfo.InvariantCulture);
+            var properties = new XElement(OdtNamespaces.Style + "section-properties");
+
+            if (!section.Background.IsEmpty && section.Background.A > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "background-color", OdtUnits.FormatColor(section.Background)));
+
+            if (extraLeft > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "margin-left", OdtUnits.FormatPoints(extraLeft)));
+
+            if (extraRight > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "margin-right", OdtUnits.FormatPoints(extraRight)));
+
+            if (section.DontBalanceColumns)
+                properties.Add(new XAttribute(OdtNamespaces.Text + "dont-balance-text-columns", "true"));
+
+            if (section.ColumnCount > 1)
+            {
+                properties.Add(new XElement(
+                    OdtNamespaces.Style + "columns",
+                    new XAttribute(OdtNamespaces.Fo + "column-count", section.ColumnCount.ToString(CultureInfo.InvariantCulture)),
+                    new XAttribute(OdtNamespaces.Fo + "column-gap", OdtUnits.FormatPoints(section.ColumnGap))));
+            }
+
             _tableStyles.Add(new XElement(
                 OdtNamespaces.Style + "style",
                 new XAttribute(OdtNamespaces.Style + "name", name),
                 new XAttribute(OdtNamespaces.Style + "family", "section"),
-                new XElement(
-                    OdtNamespaces.Style + "section-properties",
-                    !background.IsEmpty && background.A > 0
-                        ? new XAttribute(OdtNamespaces.Fo + "background-color", OdtUnits.FormatColor(background)) : null,
-                    new XElement(
-                        OdtNamespaces.Style + "columns",
-                        new XAttribute(OdtNamespaces.Fo + "column-count", count.ToString(CultureInfo.InvariantCulture)),
-                        new XAttribute(OdtNamespaces.Fo + "column-gap", OdtUnits.FormatPoints(gap))))));
+                properties));
 
             _sectionStyleNames[key] = name;
             return name;
         }
+
+        public string GetSectionStyleName(int count, double gap, BColor background) =>
+            GetSectionStyleName(new DocumentSection(0, 1, count, gap, background: background), null);
 
         private readonly Dictionary<string, string> _tableStyleNames = new(StringComparer.Ordinal);
 
@@ -2326,6 +2461,8 @@ public static class OdtWriter
                 properties.Add(new XAttribute(OdtNamespaces.Fo + "break-before", table.PageBreakBefore ? "page" : "column"));
             if (table.KeepWithNext)
                 properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always"));
+            if (table.KeepTogether)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-together", "always"));
             double fixedWidth = table.PreferredWidth ??
                 (table.Alignment != TableAlignment.Start || table.LeftIndent != 0 || table.WidthPercent is > 0 ? table.TotalWidth : 0);
             if (fixedWidth > 0)
@@ -2391,9 +2528,9 @@ public static class OdtWriter
         /// according to the row's height rule. A row that may break says nothing,
         /// because <c>fo:keep-together</c>'s default lets it.
         /// </remarks>
-        public string GetRowStyleName(double height, bool canSplit = true, bool exactHeight = false)
+        public string GetRowStyleName(double height, bool canSplit = true, bool exactHeight = false, bool keepWithNext = false)
         {
-            string key = (height > 0 ? OdtUnits.FormatPoints(height) : string.Empty) + (canSplit ? string.Empty : "|keep") + (exactHeight ? "|exact" : "");
+            string key = (height > 0 ? OdtUnits.FormatPoints(height) : string.Empty) + (canSplit ? string.Empty : "|keep") + (exactHeight ? "|exact" : "") + (keepWithNext ? "|keepnext" : "");
             if (_rowStyleNames.TryGetValue(key, out string? existing))
                 return existing;
 
@@ -2402,6 +2539,8 @@ public static class OdtWriter
                 properties.Add(new XAttribute(OdtNamespaces.Style + (exactHeight ? "row-height" : "min-row-height"), OdtUnits.FormatPoints(height)));
             if (!canSplit)
                 properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-together", "always"));
+            if (keepWithNext)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "keep-with-next", "always"));
 
             string name = "ro" + (_rowStyleNames.Count + 1).ToString(CultureInfo.InvariantCulture);
             _tableStyles.Add(new XElement(
@@ -2472,9 +2611,21 @@ public static class OdtWriter
             if (!border.IsVisible)
                 return;
 
+            string styleName = border.Style switch
+            {
+                TableBorderStyle.Dashed => "dashed",
+                TableBorderStyle.Dotted => "dotted",
+                TableBorderStyle.Double => "double",
+                TableBorderStyle.Groove => "groove",
+                TableBorderStyle.Ridge => "ridge",
+                TableBorderStyle.Inset => "inset",
+                TableBorderStyle.Outset => "outset",
+                _ => "solid",
+            };
+
             properties.Add(new XAttribute(
                 OdtNamespaces.Fo + attribute,
-                OdtUnits.FormatPoints(border.Width) + " solid " + OdtUnits.FormatColor(border.Color)));
+                OdtUnits.FormatPoints(border.Width) + " " + styleName + " " + OdtUnits.FormatColor(border.Color)));
         }
 
         /// <summary>The <c>style:style</c> elements to declare, in the order they were first needed.</summary>

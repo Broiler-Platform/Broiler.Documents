@@ -160,7 +160,11 @@ public sealed class OdtFlatDocumentTests
         DocumentReadResult result = Read(Flat("<text:p>a" + frame + "b</text:p>"));
 
         Assert.Contains(result.Diagnostics, d => d.Code == "odt.image.external");
-        Assert.Equal("ab", result.Document.Paragraphs[0].Text);
+        Assert.Equal("a" + InlineImage.PlaceholderText + "b", result.Document.Paragraphs[0].Text);
+        InlineImage image = result.Document.Paragraphs[0].StyleAt(1).Image!;
+        Assert.True(image.IsMissingPayload);
+        Assert.Equal(72, image.Width);
+        Assert.Equal(36, image.Height);
     }
 
     [Fact]

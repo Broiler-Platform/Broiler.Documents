@@ -26,13 +26,12 @@ namespace Broiler.Documents;
 /// the caller still owns.
 /// </para>
 /// <para>
-/// <b>There is no ambient spooling.</b> Materialization is memory-only and always
-/// bounded by an explicit ceiling; nothing here opens a temporary file, consults
-/// a temp directory, or writes to disk. That keeps the type usable in a
-/// memory-only WebAssembly host, and it keeps document bytes from landing in a
-/// location with no agreed retention or privacy policy. A host that wants
-/// spooling supplies it above this type, with its own directory, quota,
-/// permission, cleanup, and crash-recovery policy.
+/// <b>There is no ambient spooling.</b> By default, materialization is memory-only and
+/// bounded by an explicit ceiling; nothing here opens a temporary file, consults an
+/// ambient temp directory, or writes to disk without authorization. A host that wants
+/// spooling supplies an explicit <see cref="DocumentSpoolPolicy"/> via
+/// <see cref="SpoolFromStream"/> with its own directory, quota, permission, cleanup,
+/// and crash-recovery policy.
 /// </para>
 /// </remarks>
 public abstract class DocumentInput : IDisposable
@@ -128,9 +127,60 @@ public abstract class DocumentInput : IDisposable
         return new StreamDocumentInput(source, leaveOpen);
     }
 
+    /// <summary>
+    /// Creates a spooling document input over <paramref name="source"/> governed by the host-supplied
+    /// <paramref name="policy"/>.
+    /// </summary>
+    /// <param name="source">The source stream to read and spool.</param>
+    /// <param name="policy">The host-supplied spool policy defining directory, quota, and cleanup.</param>
+    /// <param name="leaveOpen">When true, disposing this input does not dispose <paramref name="source"/>.</param>
+    public static DocumentInput SpoolFromStream(Stream source, DocumentSpoolPolicy policy, bool leaveOpen = true)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(policy);
+        if (!source.CanRead)
+            throw new ArgumentException("A document input needs a readable stream.", nameof(source));
+        return new SpoolingDocumentInput(source, policy, leaveOpen);
+    }
+
+    /// <summary>
+    /// Creates a spooling document input over <paramref name="source"/> governed by the host-supplied
+    /// <paramref name="policy"/>. Alias for <see cref="SpoolFromStream"/>.
+    /// </summary>
+    /// <param name="source">The source stream to read and spool.</param>
+    /// <param name="policy">The host-supplied spool policy defining directory, quota, and cleanup.</param>
+    /// <param name="leaveOpen">When true, disposing this input does not dispose <paramref name="source"/>.</param>
+    public static DocumentInput FromStream(Stream source, DocumentSpoolPolicy policy, bool leaveOpen = true) =>
+        SpoolFromStream(source, policy, leaveOpen);
+
+    /// <summary>
+    /// Asynchronously spools <paramref name="source"/> according to <paramref name="policy"/>, returning
+    /// a seekable, spooled document input.
+    /// </summary>
+    /// <param name="source">The source stream to read and spool.</param>
+    /// <param name="policy">The host-supplied spool policy defining directory, quota, and cleanup.</param>
+    /// <param name="leaveOpen">When true, disposing this input does not dispose <paramref name="source"/>.</param>
+    /// <param name="cancellationToken">Cancellation token to abort spooling.</param>
+    public static async Task<DocumentInput> SpoolFromStreamAsync(
+        Stream source,
+        DocumentSpoolPolicy policy,
+        bool leaveOpen = true,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(policy);
+        if (!source.CanRead)
+            throw new ArgumentException("A document input needs a readable stream.", nameof(source));
+
+        var input = new SpoolingDocumentInput(source, policy, leaveOpen);
+        await input.EnsureSpooledAsync(cancellationToken).ConfigureAwait(false);
+        return input;
+    }
+
     internal static DocumentException TooLarge(long maxBytes) =>
         new($"The document source is larger than the {maxBytes}-byte limit for this read.");
 
+    /// <summary>Releases resources held by the document input.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -469,5 +519,426 @@ public abstract class DocumentInput : IDisposable
         public override void SetLength(long value) => throw new NotSupportedException();
 
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+    private sealed class SpoolingDocumentInput(Stream source, DocumentSpoolPolicy policy, bool leaveOpen) : DocumentInput
+    {
+        private byte[] _prefix = [];
+        private int _prefixLength;
+        private int _prefixConsumed;
+
+        private bool _isSpooled;
+        private ReadOnlyMemory<byte>? _memoryBytes;
+        private string? _spoolFilePath;
+        private long _spooledLength;
+        private readonly object _syncLock = new();
+
+        public override long? KnownLength
+        {
+            get
+            {
+                if (_isSpooled)
+                    return _spooledLength;
+
+                if (source.CanSeek)
+                {
+                    try
+                    {
+                        return source.Length - source.Position + (_prefixLength - _prefixConsumed);
+                    }
+                    catch (NotSupportedException) { }
+                }
+
+                return null;
+            }
+        }
+
+        public override bool CanSeek => true;
+
+        protected override ReadOnlyMemory<byte> PeekCore(int byteCount)
+        {
+            lock (_syncLock)
+            {
+                if (_isSpooled)
+                {
+                    if (_memoryBytes is { } mem)
+                        return mem[..Math.Min(byteCount, mem.Length)];
+
+                    if (_prefixLength >= byteCount)
+                        return _prefix.AsMemory(0, Math.Min(byteCount, _prefixLength));
+
+                    using var fs = new FileStream(_spoolFilePath!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    int toRead = (int)Math.Min(byteCount, fs.Length);
+                    byte[] buf = new byte[toRead];
+                    int read = fs.Read(buf, 0, toRead);
+                    return buf.AsMemory(0, read);
+                }
+
+                EnsurePrefixBuffered(byteCount);
+                return _prefix.AsMemory(_prefixConsumed, Math.Min(byteCount, _prefixLength - _prefixConsumed));
+            }
+        }
+
+        private void EnsurePrefixBuffered(int byteCount)
+        {
+            int available = _prefixLength - _prefixConsumed;
+            if (available >= byteCount)
+                return;
+
+            int needed = byteCount - available;
+            if (_prefix.Length < _prefixLength + needed)
+                Array.Resize(ref _prefix, _prefixLength + needed);
+
+            while (needed > 0)
+            {
+                int read = source.Read(_prefix, _prefixLength, needed);
+                if (read == 0)
+                    break;
+                _prefixLength += read;
+                needed -= read;
+            }
+        }
+
+        internal void EnsureSpooled()
+        {
+            lock (_syncLock)
+            {
+                if (_isSpooled)
+                    return;
+
+                int unconsumedPrefix = _prefixLength - _prefixConsumed;
+                var memoryBuffer = new MemoryStream();
+                if (unconsumedPrefix > 0)
+                {
+                    memoryBuffer.Write(_prefix, _prefixConsumed, unconsumedPrefix);
+                    _prefixConsumed = _prefixLength;
+                }
+
+                long totalBytes = memoryBuffer.Length;
+                if (totalBytes > policy.MaxSpoolBytes)
+                    throw new DocumentLimitExceededException($"The spooled document exceeded the quota of {policy.MaxSpoolBytes} bytes.");
+
+                byte[] chunk = ArrayPool<byte>.Shared.Rent(81920);
+                string? tempFile = null;
+                FileStream? diskStream = null;
+
+                try
+                {
+                    if (policy.MemoryThresholdBytes == 0)
+                    {
+                        tempFile = CreateSpoolFilePath(policy);
+                        diskStream = CreateSpoolFileStream(tempFile);
+                        if (memoryBuffer.Length > 0)
+                        {
+                            memoryBuffer.Position = 0;
+                            memoryBuffer.CopyTo(diskStream);
+                            memoryBuffer.SetLength(0);
+                        }
+                    }
+
+                    while (true)
+                    {
+                        if (diskStream is null)
+                        {
+                            if (totalBytes <= policy.MemoryThresholdBytes)
+                            {
+                                int toRead = (int)Math.Min(chunk.Length, (long)policy.MemoryThresholdBytes - totalBytes + 1);
+                                if (toRead <= 0) toRead = chunk.Length;
+                                int read = source.Read(chunk, 0, toRead);
+                                if (read == 0)
+                                {
+                                    _memoryBytes = memoryBuffer.ToArray();
+                                    _spooledLength = _memoryBytes.Value.Length;
+                                    _isSpooled = true;
+                                    return;
+                                }
+
+                                totalBytes += read;
+                                if (totalBytes > policy.MaxSpoolBytes)
+                                    throw new DocumentLimitExceededException($"The spooled document exceeded the quota of {policy.MaxSpoolBytes} bytes.");
+
+                                memoryBuffer.Write(chunk, 0, read);
+                                if (totalBytes > policy.MemoryThresholdBytes)
+                                {
+                                    tempFile = CreateSpoolFilePath(policy);
+                                    diskStream = CreateSpoolFileStream(tempFile);
+                                    memoryBuffer.Position = 0;
+                                    memoryBuffer.CopyTo(diskStream);
+                                    memoryBuffer.SetLength(0);
+                                }
+                            }
+                            else
+                            {
+                                tempFile = CreateSpoolFilePath(policy);
+                                diskStream = CreateSpoolFileStream(tempFile);
+                                memoryBuffer.Position = 0;
+                                memoryBuffer.CopyTo(diskStream);
+                                memoryBuffer.SetLength(0);
+                            }
+                        }
+                        else
+                        {
+                            int read = source.Read(chunk, 0, chunk.Length);
+                            if (read == 0)
+                                break;
+
+                            totalBytes += read;
+                            if (totalBytes > policy.MaxSpoolBytes)
+                                throw new DocumentLimitExceededException($"The spooled document exceeded the quota of {policy.MaxSpoolBytes} bytes.");
+
+                            diskStream.Write(chunk, 0, read);
+                        }
+                    }
+
+                    if (diskStream is not null)
+                    {
+                        diskStream.Flush();
+                        diskStream.Dispose();
+                        diskStream = null;
+
+                        _spoolFilePath = tempFile;
+                        _spooledLength = totalBytes;
+                        _isSpooled = true;
+                    }
+                    else
+                    {
+                        _memoryBytes = memoryBuffer.ToArray();
+                        _spooledLength = _memoryBytes.Value.Length;
+                        _isSpooled = true;
+                    }
+                }
+                catch
+                {
+                    diskStream?.Dispose();
+                    if (tempFile is not null)
+                    {
+                        try { File.Delete(tempFile); } catch { }
+                    }
+                    throw;
+                }
+                finally
+                {
+                    ArrayPool<byte>.Shared.Return(chunk);
+                    memoryBuffer.Dispose();
+                }
+            }
+        }
+
+        internal async Task EnsureSpooledAsync(CancellationToken cancellationToken)
+        {
+            if (_isSpooled)
+                return;
+
+            int unconsumedPrefix = _prefixLength - _prefixConsumed;
+            var memoryBuffer = new MemoryStream();
+            if (unconsumedPrefix > 0)
+            {
+                memoryBuffer.Write(_prefix, _prefixConsumed, unconsumedPrefix);
+                _prefixConsumed = _prefixLength;
+            }
+
+            long totalBytes = memoryBuffer.Length;
+            if (totalBytes > policy.MaxSpoolBytes)
+                throw new DocumentLimitExceededException($"The spooled document exceeded the quota of {policy.MaxSpoolBytes} bytes.");
+
+            byte[] chunk = ArrayPool<byte>.Shared.Rent(81920);
+            string? tempFile = null;
+            FileStream? diskStream = null;
+
+            try
+            {
+                if (policy.MemoryThresholdBytes == 0)
+                {
+                    tempFile = CreateSpoolFilePath(policy);
+                    diskStream = CreateSpoolFileStream(tempFile);
+                    if (memoryBuffer.Length > 0)
+                    {
+                        memoryBuffer.Position = 0;
+                        await memoryBuffer.CopyToAsync(diskStream, cancellationToken).ConfigureAwait(false);
+                        memoryBuffer.SetLength(0);
+                    }
+                }
+
+                while (true)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (diskStream is null)
+                    {
+                        if (totalBytes <= policy.MemoryThresholdBytes)
+                        {
+                            int toRead = (int)Math.Min(chunk.Length, (long)policy.MemoryThresholdBytes - totalBytes + 1);
+                            if (toRead <= 0) toRead = chunk.Length;
+                            int read = await source.ReadAsync(chunk.AsMemory(0, toRead), cancellationToken).ConfigureAwait(false);
+                            if (read == 0)
+                            {
+                                _memoryBytes = memoryBuffer.ToArray();
+                                _spooledLength = _memoryBytes.Value.Length;
+                                _isSpooled = true;
+                                return;
+                            }
+
+                            totalBytes += read;
+                            if (totalBytes > policy.MaxSpoolBytes)
+                                throw new DocumentLimitExceededException($"The spooled document exceeded the quota of {policy.MaxSpoolBytes} bytes.");
+
+                            memoryBuffer.Write(chunk, 0, read);
+                            if (totalBytes > policy.MemoryThresholdBytes)
+                            {
+                                tempFile = CreateSpoolFilePath(policy);
+                                diskStream = CreateSpoolFileStream(tempFile);
+                                memoryBuffer.Position = 0;
+                                await memoryBuffer.CopyToAsync(diskStream, cancellationToken).ConfigureAwait(false);
+                                memoryBuffer.SetLength(0);
+                            }
+                        }
+                        else
+                        {
+                            tempFile = CreateSpoolFilePath(policy);
+                            diskStream = CreateSpoolFileStream(tempFile);
+                            memoryBuffer.Position = 0;
+                            await memoryBuffer.CopyToAsync(diskStream, cancellationToken).ConfigureAwait(false);
+                            memoryBuffer.SetLength(0);
+                        }
+                    }
+                    else
+                    {
+                        int read = await source.ReadAsync(chunk.AsMemory(0, chunk.Length), cancellationToken).ConfigureAwait(false);
+                        if (read == 0)
+                            break;
+
+                        totalBytes += read;
+                        if (totalBytes > policy.MaxSpoolBytes)
+                            throw new DocumentLimitExceededException($"The spooled document exceeded the quota of {policy.MaxSpoolBytes} bytes.");
+
+                        await diskStream.WriteAsync(chunk.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                    }
+                }
+
+                if (diskStream is not null)
+                {
+                    await diskStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    await diskStream.DisposeAsync().ConfigureAwait(false);
+                    diskStream = null;
+
+                    _spoolFilePath = tempFile;
+                    _spooledLength = totalBytes;
+                    _isSpooled = true;
+                }
+                else
+                {
+                    _memoryBytes = memoryBuffer.ToArray();
+                    _spooledLength = _memoryBytes.Value.Length;
+                    _isSpooled = true;
+                }
+            }
+            catch
+            {
+                if (diskStream is not null)
+                    await diskStream.DisposeAsync().ConfigureAwait(false);
+                if (tempFile is not null)
+                {
+                    try { File.Delete(tempFile); } catch { }
+                }
+                throw;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(chunk);
+                memoryBuffer.Dispose();
+            }
+        }
+
+        private static string CreateSpoolFilePath(DocumentSpoolPolicy policy)
+        {
+            string fileName = $"{policy.FilePrefix}{Environment.ProcessId}-{Guid.NewGuid():N}.spool";
+            return Path.Combine(policy.DirectoryPath, fileName);
+        }
+
+        private static FileStream CreateSpoolFileStream(string filePath)
+        {
+            var stream = new FileStream(
+                filePath,
+                FileMode.CreateNew,
+                FileAccess.ReadWrite,
+                FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 81920,
+                FileOptions.Asynchronous);
+
+            if (OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    File.SetAttributes(filePath, FileAttributes.Temporary);
+                }
+                catch { }
+            }
+            else
+            {
+                try
+                {
+                    File.SetUnixFileMode(filePath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+                catch { }
+            }
+
+            return stream;
+        }
+
+        protected override Stream OpenStreamCore()
+        {
+            EnsureSpooled();
+
+            if (_memoryBytes is { } mem)
+                return new ReadOnlyMemoryStream(mem);
+
+            return new FileStream(
+                _spoolFilePath!,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 81920);
+        }
+
+        protected override ReadOnlyMemory<byte> MaterializeCore(long maxBytes)
+        {
+            EnsureSpooled();
+
+            if (_spooledLength > maxBytes)
+                throw TooLarge(maxBytes);
+
+            if (_memoryBytes is { } mem)
+                return mem;
+
+            return File.ReadAllBytes(_spoolFilePath!);
+        }
+
+        protected override async ValueTask<ReadOnlyMemory<byte>> MaterializeAsyncCore(long maxBytes, CancellationToken cancellationToken)
+        {
+            await EnsureSpooledAsync(cancellationToken).ConfigureAwait(false);
+
+            if (_spooledLength > maxBytes)
+                throw TooLarge(maxBytes);
+
+            if (_memoryBytes is { } mem)
+                return mem;
+
+            return await File.ReadAllBytesAsync(_spoolFilePath!, cancellationToken).ConfigureAwait(false);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                if (_spoolFilePath is not null && policy.DeleteOnDispose)
+                {
+                    try { File.Delete(_spoolFilePath); } catch { }
+                    _spoolFilePath = null;
+                }
+
+                if (!leaveOpen)
+                    source.Dispose();
+            }
+        }
     }
+
 }

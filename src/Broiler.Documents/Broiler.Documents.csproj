@@ -27,6 +27,8 @@
     <InternalsVisibleTo Include="Broiler.Documents.Odt" />
     <InternalsVisibleTo Include="Broiler.Documents.Rtf" />
     <InternalsVisibleTo Include="Broiler.Documents.Csv" />
+    <InternalsVisibleTo Include="Broiler.Documents.Xlsx" />
+    <InternalsVisibleTo Include="Broiler.Documents.Ods" />
   </ItemGroup>
 
 </Project>

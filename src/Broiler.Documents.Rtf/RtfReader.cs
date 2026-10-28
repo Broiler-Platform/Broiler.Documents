@@ -67,6 +67,15 @@ public static class RtfReader
         /// background, not a shape on it.
         /// </summary>
         public bool InBackground;
+
+        /// <summary>The currently active paragraph style ID (\sN), or null if none.</summary>
+        public int? ActiveParaStyleId;
+
+        /// <summary>The currently active character style ID (\csN), or null if none.</summary>
+        public int? ActiveCharStyleId;
+
+        /// <summary>True if direct character formatting was applied to Char after \plain or paragraph style start.</summary>
+        public bool HasDirectCharFormatting;
     }
 
     private sealed class ShapeScope
@@ -212,22 +221,18 @@ public static class RtfReader
         private bool _reportedListTable;
         private bool _titlePage;
         private bool _reportedEmptyPage;
-        private readonly bool _embeddedDecodingRequested;
+
+        private readonly RtfStyleSheet _styleSheet = new();
+        private RtfStyle? _currentStyle;
+        private readonly StringBuilder _styleName = new();
+        private bool _styleSemicolonSeen;
+        private int _stylesheetDepth = -1;
 
         private State _state;
 
         public Worker(DocumentReadOptions options, IReadOnlyList<DocumentDiagnostic> tokenizerDiagnostics)
         {
             _diagnostics.AddRange(tokenizerDiagnostics);
-            // Reading a member announced for removal (ADR 0014), suppressed here
-            // rather than project-wide so the next deprecation still warns. This
-            // call is what escalates the embedded-object note to
-            // document.capability.not-composed when a caller asked for decoding
-            // and the document really carries an object; it goes when the member
-            // does, and the note stays at its unescalated severity.
-#pragma warning disable CS0618 // Type or member is obsolete
-            _embeddedDecodingRequested = options.DecodeEmbeddedObjects;
-#pragma warning restore CS0618
             _builder = new Accumulator(options.Limits.MaxParagraphCount);
             _table = new RtfTableBuilder(_colors);
             _maxParagraphs = options.Limits.MaxParagraphCount;
@@ -261,6 +266,12 @@ public static class RtfReader
                         // accumulator; now a header's text would be attributed to
                         // whatever destination happened to be current at flush time.
                         FlushPending();
+                        if (_state.Dest == RtfDestination.StyleSheet && _stack.Count == _stylesheetDepth)
+                        {
+                            _currentStyle = new RtfStyle();
+                            _styleName.Clear();
+                            _styleSemicolonSeen = false;
+                        }
                         _stack.Push(_state);
                         break;
                     case RtfTokenType.GroupEnd:
@@ -362,6 +373,22 @@ public static class RtfReader
             // text before popping the paragraph properties back to defaults.
             if (_stack.Count == 1 && closing.Dest == RtfDestination.Normal)
                 _builder.EndPendingParagraph(closing.Para);
+            if (closing.Dest == RtfDestination.StyleSheet && _stack.Count == _stylesheetDepth + 1 && _currentStyle is not null)
+            {
+                string raw = _styleName.ToString().Trim();
+                int comma = raw.IndexOf(',');
+                _currentStyle.Name = (comma >= 0 ? raw[..comma] : raw).Trim();
+
+                if (_currentStyle.Kind == RtfStyleKind.Character)
+                    _styleSheet.AddCharacterStyle(_currentStyle);
+                else
+                    _styleSheet.AddParagraphStyle(_currentStyle);
+
+                _currentStyle = null;
+                _styleName.Clear();
+                _styleSemicolonSeen = false;
+            }
+
             if (closing.Dest == RtfDestination.ShapeProperty)
                 ApplyShapeProperty();
             else if (closing.Dest == RtfDestination.Shape && closing.ShapeOwnerDepth == _stack.Count)
@@ -378,6 +405,26 @@ public static class RtfReader
                 return false;
 
             _state = _stack.Pop();
+            if (_stylesheetDepth >= 0 && _stack.Count < _stylesheetDepth)
+            {
+                _styleSheet.ResolveInheritance(_fonts, _colors);
+                _stylesheetDepth = -1;
+                if (_styleSheet.TryGetParagraphStyle(0, out RtfStyle? normalStyle))
+                {
+                    if (_state.Para.Equals(ParagraphStyle.Default))
+                    {
+                        _state.Para = normalStyle.ResolvedParagraph;
+                        _state.LineSpacing = normalStyle.LineSpacing ?? 0;
+                        _state.MultipleLineSpacing = normalStyle.MultipleLineSpacing ?? false;
+                    }
+                    if (_state.Char.Equals(InlineStyle.Default))
+                    {
+                        _state.Char = normalStyle.ResolvedInline;
+                    }
+                    _state.ActiveParaStyleId = 0;
+                }
+            }
+
             if (closing.Dest == RtfDestination.Field && closing.Field is not null && _state.Field is not null && closing.Field != _state.Field)
                 _state.Field.Characters += closing.Field.Characters;
             if (closing.Dest == RtfDestination.Note && _state.Dest != RtfDestination.Note)
@@ -507,6 +554,30 @@ public static class RtfReader
             // shape stated inside it would escape into the document, so each is
             // skipped there with everything inside it, as a skipped destination
             // skips them.
+            if (_state.Dest == RtfDestination.StyleSheet)
+            {
+                if (star && kw is not "cs")
+                {
+                    _state.Dest = RtfDestination.Skip;
+                    return;
+                }
+
+                if (kw is "header" or "headerf" or "headerl" or "headerr" or
+                    "footer" or "footerf" or "footerl" or "footerr" or
+                    "fonttbl" or "colortbl" or "shp" or "do" or "field" or
+                    "fldinst" or "fldrslt" or "pict" or "object" or
+                    "listtable" or "listoverridetable" or "annotation" or
+                    "info" or "colorschememapping" or "latentstyles" or
+                    "datastore" or "themedata" or "pntext")
+                {
+                    _state.Dest = RtfDestination.Skip;
+                    return;
+                }
+
+                HandleStyleSheetControlWord(kw, token.Parameter, token.HasParameter);
+                return;
+            }
+
             if (_state.Dest == RtfDestination.Note &&
                 kw is "header" or "headerf" or "headerl" or "headerr" or
                     "footer" or "footerf" or "footerl" or "footerr" or
@@ -624,8 +695,11 @@ public static class RtfReader
                 case "revtbl":
                     _state.Dest = RtfDestination.RevisionTable;
                     return;
-                case "info":
                 case "stylesheet":
+                    _state.Dest = RtfDestination.StyleSheet;
+                    _stylesheetDepth = _stack.Count;
+                    return;
+                case "info":
                 case "annotation":
                 case "colorschememapping":
                 case "latentstyles":
@@ -684,21 +758,23 @@ public static class RtfReader
                 // \dntblnsbdb (tdf#128428). The third is the generator's name.
                 case "stshfdbch": if (p != 31505) _widensSpaceRuns = false; break;
                 case "dntblnsbdb": _widensSpaceRuns = false; break;
-                case "b": _state.Char = _state.Char with { Bold = !(has && p == 0) }; break;
-                case "i": _state.Char = _state.Char with { Italic = !(has && p == 0) }; break;
-                case "strike": _state.Char = _state.Char with { Strikethrough = !(has && p == 0) }; break;
-                case "v": _state.Char = _state.Char with { Hidden = !(has && p == 0) }; break;
-                case "ul": _state.Char = _state.Char with { Underline = !(has && p == 0) }; break;
+                case "b": _state.Char = _state.Char with { Bold = !(has && p == 0) }; _state.HasDirectCharFormatting = true; break;
+                case "i": _state.Char = _state.Char with { Italic = !(has && p == 0) }; _state.HasDirectCharFormatting = true; break;
+                case "strike": _state.Char = _state.Char with { Strikethrough = !(has && p == 0) }; _state.HasDirectCharFormatting = true; break;
+                case "v": _state.Char = _state.Char with { Hidden = !(has && p == 0) }; _state.HasDirectCharFormatting = true; break;
+                case "ul": _state.Char = _state.Char with { Underline = !(has && p == 0) }; _state.HasDirectCharFormatting = true; break;
                 case "uldb": case "uld": case "uldash": case "uldashd": case "uldashdd":
                 case "ulth": case "ulwave": case "ulw":
                     _state.Char = _state.Char with { Underline = !(has && p == 0) };
+                    _state.HasDirectCharFormatting = true;
                     if (!(has && p == 0)) ReportApproximation("rtf.underline.pattern", "An RTF underline pattern was retained as a single continuous underline.");
                     break;
                 case "striked":
                     _state.Char = _state.Char with { Strikethrough = !(has && p == 0) };
+                    _state.HasDirectCharFormatting = true;
                     if (!(has && p == 0)) ReportApproximation("rtf.strike.double", "An RTF double strikethrough was retained as a single rule.");
                     break;
-                case "ulnone": _state.Char = _state.Char with { Underline = false }; break;
+                case "ulnone": _state.Char = _state.Char with { Underline = false }; _state.HasDirectCharFormatting = true; break;
 
                 // Tracked changes: \revised marks inserted text and \deleted
                 // deleted text, each naming its author by index into \revtbl and
@@ -723,26 +799,54 @@ public static class RtfReader
                 case "revdttmdel" when _state.Char.Revision is { Kind: RevisionKind.Deletion } deleted:
                     _state.Char = _state.Char with { Revision = deleted with { Date = RtfDateTime.FromDttm(p) } };
                     break;
-                case "caps": _state.Char = ApplyCapitalization(_state.Char, TextCapitalization.AllCaps, !(has && p == 0)); break;
-                case "scaps": _state.Char = ApplyCapitalization(_state.Char, TextCapitalization.SmallCaps, !(has && p == 0)); break;
+                case "caps": _state.Char = ApplyCapitalization(_state.Char, TextCapitalization.AllCaps, !(has && p == 0)); _state.HasDirectCharFormatting = true; break;
+                case "scaps": _state.Char = ApplyCapitalization(_state.Char, TextCapitalization.SmallCaps, !(has && p == 0)); _state.HasDirectCharFormatting = true; break;
                 case "plain":
-                    _state.Char = InlineStyle.Default;
+                    _state.ActiveCharStyleId = null;
+                    _state.HasDirectCharFormatting = false;
+                    int activeStyleId = _state.ActiveParaStyleId ?? 0;
+                    if (_styleSheet.TryGetParagraphStyle(activeStyleId, out RtfStyle? activePara))
+                        _state.Char = activePara.ResolvedInline;
+                    else
+                        _state.Char = InlineStyle.Default;
                     int defaultCharset = _defaultFont is int defaultIndex ? _fonts.GetCharset(defaultIndex) : -1;
                     _state.CodePage = defaultCharset >= 0
                         ? RtfCodePage.CharsetToCodePage(defaultCharset)
                         : _state.DocumentCodePage;
                     break;
-                case "fs": _state.Char = _state.Char with { FontSize = has ? p / 2f : null }; break;
+                case "fs": _state.Char = _state.Char with { FontSize = has ? p / 2f : null }; _state.HasDirectCharFormatting = true; break;
                 case "f":
                     int charset = _fonts.GetCharset(p);
                     if (charset >= 0)
                         _state.CodePage = RtfCodePage.CharsetToCodePage(charset);
                     _state.Char = _state.Char with { FontFamily = _fonts.GetName(p) };
+                    _state.HasDirectCharFormatting = true;
                     break;
-                case "cf": _state.Char = _state.Char with { Foreground = _colors.Get(p) }; break;
+                case "cf": _state.Char = _state.Char with { Foreground = _colors.Get(p) }; _state.HasDirectCharFormatting = true; break;
                 case "cb":
                 case "chcbpat":
-                case "highlight": _state.Char = _state.Char with { Background = _colors.Get(p) }; break;
+                case "highlight": _state.Char = _state.Char with { Background = _colors.Get(p) }; _state.HasDirectCharFormatting = true; break;
+                case "s":
+                    if (has && _styleSheet.TryGetParagraphStyle(p, out RtfStyle? paraStyle))
+                    {
+                        _state.ActiveParaStyleId = p;
+                        _state.Para = paraStyle.ResolvedParagraph;
+                        if (paraStyle.LineSpacing.HasValue)
+                        {
+                            _state.LineSpacing = paraStyle.LineSpacing.Value;
+                            _state.MultipleLineSpacing = paraStyle.MultipleLineSpacing ?? false;
+                        }
+                        if (!_state.HasDirectCharFormatting)
+                            _state.Char = paraStyle.ResolvedInline;
+                    }
+                    break;
+                case "cs":
+                    if (has && _styleSheet.TryGetCharacterStyle(p, out RtfStyle? charStyle))
+                    {
+                        _state.ActiveCharStyleId = p;
+                        _state.Char = ApplyCharacterStyle(_state.Char, charStyle);
+                    }
+                    break;
 
                 // The paragraph's shading: the colour behind its pattern, which
                 // with no \shading is all that shows. A paragraph property, so
@@ -878,9 +982,19 @@ public static class RtfReader
                 case "shptxt": _state.Dest = RtfDestination.ShapeText; return;
 
                 case "pard":
-                    _state.Para = ParagraphStyle.Default;
-                    _state.LineSpacing = 0;
-                    _state.MultipleLineSpacing = false;
+                    _state.ActiveParaStyleId = 0;
+                    if (_styleSheet.TryGetParagraphStyle(0, out RtfStyle? normalPara))
+                    {
+                        _state.Para = normalPara.ResolvedParagraph;
+                        _state.LineSpacing = normalPara.LineSpacing ?? 0;
+                        _state.MultipleLineSpacing = normalPara.MultipleLineSpacing ?? false;
+                    }
+                    else
+                    {
+                        _state.Para = ParagraphStyle.Default;
+                        _state.LineSpacing = 0;
+                        _state.MultipleLineSpacing = false;
+                    }
                     _state.InTable = false;
                     _state.Frame = default;
                     break;
@@ -1112,6 +1226,22 @@ public static class RtfReader
 
         private void HandleByte(byte value)
         {
+            if (_state.Dest == RtfDestination.StyleSheet)
+            {
+                if (_pendingUnicodeSkip > 0)
+                    _pendingUnicodeSkip--;
+                else
+                {
+                    ReportCodePageIfNeeded(value);
+                    char ch = (char)RtfCodePage.DecodeByte(value, _state.CodePage);
+                    if (ch == ';')
+                        _styleSemicolonSeen = true;
+                    else if (!_styleSemicolonSeen)
+                        _styleName.Append(ch);
+                }
+                return;
+            }
+
             if (_state.Dest == RtfDestination.FieldInstruction)
             {
                 if (_pendingUnicodeSkip > 0) _pendingUnicodeSkip--;
@@ -1179,6 +1309,7 @@ public static class RtfReader
             {
                 case RtfDestination.FontTable: HandleFontTableText(text); break;
                 case RtfDestination.ColorTable: HandleColorTableText(text); break;
+                case RtfDestination.StyleSheet: HandleStyleSheetText(text); break;
                 case RtfDestination.FieldInstruction:
                     int skipped = Math.Min(_pendingUnicodeSkip, text.Length);
                     _pendingUnicodeSkip -= skipped;
@@ -1235,6 +1366,18 @@ public static class RtfReader
 
         private void HandleUnicode(int parameter)
         {
+            if (_state.Dest == RtfDestination.StyleSheet)
+            {
+                int codePoint = parameter < 0 ? parameter + 65536 : parameter;
+                char ch = (char)(codePoint is >= 0 and <= 0xFFFF ? codePoint : 0xFFFD);
+                if (ch == ';')
+                    _styleSemicolonSeen = true;
+                else if (!_styleSemicolonSeen)
+                    _styleName.Append(ch);
+                _pendingUnicodeSkip = _state.UnicodeSkip;
+                return;
+            }
+
             if (_state.Dest == RtfDestination.FieldInstruction)
             {
                 int value = parameter < 0 ? parameter + 65536 : parameter;
@@ -1301,6 +1444,112 @@ public static class RtfReader
 
             if (semicolon >= 0)
                 CommitFont();
+        }
+
+        private void HandleStyleSheetControlWord(string kw, int p, bool has)
+        {
+            _currentStyle ??= new RtfStyle();
+
+            switch (kw)
+            {
+                case "s":
+                    _currentStyle.Kind = RtfStyleKind.Paragraph;
+                    _currentStyle.Id = has ? p : 0;
+                    break;
+                case "cs":
+                    _currentStyle.Kind = RtfStyleKind.Character;
+                    _currentStyle.Id = has ? p : 0;
+                    break;
+                case "sbasedon":
+                    _currentStyle.BasedOn = has ? p : null;
+                    break;
+                case "snext":
+                    _currentStyle.Next = has ? p : null;
+                    break;
+                case "additive":
+                    _currentStyle.Additive = true;
+                    break;
+
+                // Paragraph formatting
+                case "ql": _currentStyle.Alignment = TextAlignment.Left; break;
+                case "qc": _currentStyle.Alignment = TextAlignment.Center; break;
+                case "qr": _currentStyle.Alignment = TextAlignment.Right; break;
+                case "qj": _currentStyle.Alignment = TextAlignment.Justify; break;
+                case "li":
+                    int indent = TwipsToLevel(p);
+                    float exactLeft = Math.Clamp(p / 20f, -20000, 20000);
+                    _currentStyle.IndentLevel = indent;
+                    _currentStyle.LeftIndent = Math.Abs(exactLeft - indent * 18f) < 0.001f ? null : exactLeft;
+                    break;
+                case "sb": _currentStyle.SpacingBefore = has ? p / 20f : 0f; break;
+                case "sa": _currentStyle.SpacingAfter = has ? p / 20f : 0f; break;
+                case "sl": if (has) _currentStyle.LineSpacing = p; break;
+                case "slmult": if (has) _currentStyle.MultipleLineSpacing = p == 1; break;
+                case "pagebb": _currentStyle.PageBreakBefore = !(has && p == 0); break;
+                case "cbpat": if (has) _currentStyle.ParagraphBackgroundIndex = p; break;
+
+                // Character formatting
+                case "b": _currentStyle.Bold = !(has && p == 0); break;
+                case "i": _currentStyle.Italic = !(has && p == 0); break;
+                case "ul": _currentStyle.Underline = !(has && p == 0); break;
+                case "uldb": case "uld": case "uldash": case "uldashd": case "uldashdd":
+                case "ulth": case "ulwave": case "ulw":
+                    _currentStyle.Underline = !(has && p == 0);
+                    break;
+                case "ulnone": _currentStyle.Underline = false; break;
+                case "strike": case "striked": _currentStyle.Strikethrough = !(has && p == 0); break;
+                case "v": _currentStyle.Hidden = !(has && p == 0); break;
+                case "caps": _currentStyle.Capitalization = !(has && p == 0) ? TextCapitalization.AllCaps : TextCapitalization.None; break;
+                case "scaps": _currentStyle.Capitalization = !(has && p == 0) ? TextCapitalization.SmallCaps : TextCapitalization.None; break;
+                case "fs": if (has) _currentStyle.FontSize = p / 2f; break;
+                case "f": if (has) _currentStyle.FontIndex = p; break;
+                case "cf": if (has) _currentStyle.ForegroundColorIndex = p; break;
+                case "cb":
+                case "chcbpat":
+                case "highlight": if (has) _currentStyle.BackgroundColorIndex = p; break;
+                case "uc": if (has) _state.UnicodeSkip = Math.Max(0, p); break;
+                case "u": HandleUnicode(p); break;
+
+                default:
+                    break;
+            }
+        }
+
+        private void HandleStyleSheetText(string text)
+        {
+            if (_currentStyle is null || _styleSemicolonSeen)
+                return;
+
+            int skip = Math.Min(_pendingUnicodeSkip, text.Length);
+            _pendingUnicodeSkip -= skip;
+            text = text[skip..];
+
+            int semicolon = text.IndexOf(';');
+            if (semicolon >= 0)
+            {
+                _styleName.Append(text[..semicolon]);
+                _styleSemicolonSeen = true;
+            }
+            else
+            {
+                _styleName.Append(text);
+            }
+        }
+
+        private static InlineStyle ApplyCharacterStyle(InlineStyle current, RtfStyle charStyle)
+        {
+            InlineStyle result = current;
+            if (charStyle.FontFamily is not null) result = result with { FontFamily = charStyle.FontFamily };
+            if (charStyle.FontSize.HasValue) result = result with { FontSize = charStyle.FontSize.Value };
+            if (charStyle.Bold.HasValue) result = result with { Bold = charStyle.Bold.Value };
+            if (charStyle.Italic.HasValue) result = result with { Italic = charStyle.Italic.Value };
+            if (charStyle.Underline.HasValue) result = result with { Underline = charStyle.Underline.Value };
+            if (charStyle.Strikethrough.HasValue) result = result with { Strikethrough = charStyle.Strikethrough.Value };
+            if (charStyle.Foreground.HasValue && !charStyle.Foreground.Value.IsEmpty) result = result with { Foreground = charStyle.Foreground.Value };
+            if (charStyle.Background.HasValue && !charStyle.Background.Value.IsEmpty) result = result with { Background = charStyle.Background.Value };
+            if (charStyle.Capitalization.HasValue && charStyle.Capitalization.Value != TextCapitalization.None) result = result with { Capitalization = charStyle.Capitalization.Value };
+            if (charStyle.Hidden.HasValue) result = result with { Hidden = charStyle.Hidden.Value };
+            return result;
         }
 
         private void CommitFont()
@@ -2014,17 +2263,9 @@ public static class RtfReader
             if (_reportedEmbedded)
                 return;
 
-            // A caller that asked for image decoding gets a warning under
-            // the shared capability code, not the bland note: it asked for
-            // something this reader cannot do, and the document it receives
-            // is missing content it expected.
-            _diagnostics.Add(_embeddedDecodingRequested
-                ? DocumentDiagnostic.Warning(
-                    DocumentDiagnosticCodes.CapabilityNotComposed,
-                    "Embedded image decoding was requested, but this reader composes no image service; pictures and objects were skipped.")
-                : DocumentDiagnostic.Info(
-                    "rtf.embedded",
-                    "Embedded pictures/objects are not imported and were skipped."));
+            _diagnostics.Add(DocumentDiagnostic.Info(
+                "rtf.embedded",
+                "Embedded pictures/objects are not imported and were skipped."));
             _reportedEmbedded = true;
         }
 

@@ -90,21 +90,15 @@ public static class RtfWriter
                 "RTF is written here with one page and one set of columns for the whole document.");
         }
 
-        if (document.Tables.Count > 0)
-        {
-            // RTF states a table as \trowd and \cellx runs. The reader takes
-            // them now; writing them is not done yet, and until it is the text
-            // is worth more than the grid.
-            AddOnce(
-                diagnostics,
-                reported,
-                "rtf.table.flattened",
-                "A table was written as its cell paragraphs, in row order; " +
-                "this codec carries no table structure.");
-        }
-
         for (int i = 0; i < document.Paragraphs.Count; i++)
         {
+            if (DocumentTable.StartingAt(document.Tables, i) is DocumentTable table)
+            {
+                WriteTable(sb, document, table, document.StyleDefaults, fonts, colors, resources, diagnostics, reported);
+                i = table.ParagraphEnd - 1;
+                continue;
+            }
+
             RichTextParagraph paragraph = document.Paragraphs[i];
             sb.Append("\\pard\\plain");
             WriteParagraphProperties(sb, paragraph.Style, colors);
@@ -149,6 +143,26 @@ public static class RtfWriter
             CollectParagraphResources(isHeader
                 ? document.RunningContent.Header(selection)
                 : document.RunningContent.Footer(selection), fonts, colors);
+        }
+
+        foreach (DocumentTable table in document.Tables)
+        {
+            foreach (TableRow row in table.Rows)
+            {
+                foreach (TableCell cell in row.Cells)
+                {
+                    if (!cell.Shading.IsEmpty && cell.Shading.A > 0)
+                        colors.Intern(cell.Shading);
+                    if (cell.Borders.Top.IsVisible && !cell.Borders.Top.Color.IsEmpty && cell.Borders.Top.Color.A > 0)
+                        colors.Intern(cell.Borders.Top.Color);
+                    if (cell.Borders.Bottom.IsVisible && !cell.Borders.Bottom.Color.IsEmpty && cell.Borders.Bottom.Color.A > 0)
+                        colors.Intern(cell.Borders.Bottom.Color);
+                    if (cell.Borders.Left.IsVisible && !cell.Borders.Left.Color.IsEmpty && cell.Borders.Left.Color.A > 0)
+                        colors.Intern(cell.Borders.Left.Color);
+                    if (cell.Borders.Right.IsVisible && !cell.Borders.Right.Color.IsEmpty && cell.Borders.Right.Color.A > 0)
+                        colors.Intern(cell.Borders.Right.Color);
+                }
+            }
         }
     }
 
@@ -440,6 +454,186 @@ public static class RtfWriter
         ("footerf", false, PageSelection.First),
         ("footerl", false, PageSelection.Even),
     ];
+
+    private static void WriteTable(
+        StringBuilder sb,
+        RichTextDocument document,
+        DocumentTable table,
+        DocumentStyleDefaults defaults,
+        ResourceTable<string> fonts,
+        ResourceTable<BColor> colors,
+        DocumentConversionContext resources,
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> reported)
+    {
+        int leftTwips = (int)Math.Round(table.LeftIndent * 20);
+
+        foreach (TableRow row in table.Rows)
+        {
+            sb.Append("\\trowd");
+            if (row.IsHeader) sb.Append("\\trhdr");
+            if (!row.CanSplit) sb.Append("\\trkeep");
+            if (row.MinHeight > 0)
+            {
+                int twipsH = (int)Math.Round(row.MinHeight * 20);
+                if (row.ExactHeight) twipsH = -twipsH;
+                sb.Append($"\\trrh{twipsH}");
+            }
+            if (leftTwips != 0) sb.Append($"\\trleft{leftTwips}");
+            if (table.CellPadding > 0)
+            {
+                int gapTwips = (int)Math.Round(table.CellPadding * 20);
+                sb.Append($"\\trgaph{gapTwips}");
+            }
+
+            if (table.Position is TablePosition pos)
+            {
+                switch (pos.HorizontalAnchor)
+                {
+                    case TableAnchor.Page: sb.Append("\\tphpg"); break;
+                    case TableAnchor.Margin: sb.Append("\\tphmrg"); break;
+                    default: sb.Append("\\tphcol"); break;
+                }
+                switch (pos.VerticalAnchor)
+                {
+                    case TableAnchor.Page: sb.Append("\\tpvpg"); break;
+                    case TableAnchor.Margin: sb.Append("\\tpvmrg"); break;
+                    default: sb.Append("\\tpvpara"); break;
+                }
+                switch (pos.HorizontalAlignment)
+                {
+                    case TableAlignment.Start: sb.Append("\\tposxl"); break;
+                    case TableAlignment.Center: sb.Append("\\tposxc"); break;
+                    case TableAlignment.End: sb.Append("\\tposxr"); break;
+                    case TableAlignment.Inside: sb.Append("\\tposxi"); break;
+                    case TableAlignment.Outside: sb.Append("\\tposxo"); break;
+                    default: sb.Append($"\\tposx{(int)Math.Round(pos.X * 20)}"); break;
+                }
+                switch (pos.VerticalAlignment)
+                {
+                    case TableAlignment.Start: sb.Append("\\tposyt"); break;
+                    case TableAlignment.Center: sb.Append("\\tposyc"); break;
+                    case TableAlignment.End: sb.Append("\\tposyb"); break;
+                    case TableAlignment.Inside: sb.Append("\\tposyin"); break;
+                    case TableAlignment.Outside: sb.Append("\\tposyout"); break;
+                    default: sb.Append($"\\tposy{(int)Math.Round(pos.Y * 20)}"); break;
+                }
+                if (pos.LeftFromText > 0) sb.Append($"\\tdfrmtxtl{(int)Math.Round(pos.LeftFromText * 20)}");
+                if (pos.RightFromText > 0) sb.Append($"\\tdfrmtxtr{(int)Math.Round(pos.RightFromText * 20)}");
+                if (pos.TopFromText > 0) sb.Append($"\\tdfrmtxtt{(int)Math.Round(pos.TopFromText * 20)}");
+                if (pos.BottomFromText > 0) sb.Append($"\\tdfrmtxtb{(int)Math.Round(pos.BottomFromText * 20)}");
+                if (!pos.AllowOverlap) sb.Append("\\ttbloverlap0");
+            }
+
+            // Cell definitions
+            foreach (TableCell cell in row.Cells)
+            {
+                if (cell.RowSpan > 1 && !cell.IsRowSpanContinuation) sb.Append("\\clvmgf");
+                else if (cell.IsRowSpanContinuation) sb.Append("\\clvmrg");
+                if (cell.ColumnSpan > 1) sb.Append("\\clmgf");
+
+                if (!cell.Shading.IsEmpty && cell.Shading.A > 0)
+                    sb.Append($"\\clcbpat{colors.IndexOf(cell.Shading)}");
+
+                WriteCellBorder(sb, "clbrdrt", cell.Borders.Top, colors);
+                WriteCellBorder(sb, "clbrdrb", cell.Borders.Bottom, colors);
+                WriteCellBorder(sb, "clbrdrl", cell.Borders.Left, colors);
+                WriteCellBorder(sb, "clbrdrr", cell.Borders.Right, colors);
+
+                if (cell.Padding is TableCellPadding p)
+                {
+                    sb.Append($"\\clpadt{(int)Math.Round(p.Top * 20)}\\clpadft3");
+                    sb.Append($"\\clpadb{(int)Math.Round(p.Bottom * 20)}\\clpadfb3");
+                    sb.Append($"\\clpadl{(int)Math.Round(p.Left * 20)}\\clpadfl3");
+                    sb.Append($"\\clpadr{(int)Math.Round(p.Right * 20)}\\clpadfr3");
+                }
+
+                int rightTwips = CalculateRightTwips(table, leftTwips, cell.ColumnIndex + (cell.ColumnSpan > 1 ? 1 : cell.ColumnSpan));
+                sb.Append($"\\cellx{rightTwips}");
+
+                if (cell.ColumnSpan > 1)
+                {
+                    for (int i = 1; i < cell.ColumnSpan; i++)
+                    {
+                        sb.Append("\\clmrg");
+                        int colRight = CalculateRightTwips(table, leftTwips, cell.ColumnIndex + i + 1);
+                        sb.Append($"\\cellx{colRight}");
+                    }
+                }
+            }
+
+            // Cell contents
+            foreach (TableCell cell in row.Cells)
+            {
+                if (cell.ParagraphCount == 0 || cell.IsRowSpanContinuation)
+                {
+                    sb.Append("\\pard\\plain\\intbl \\cell\n");
+                }
+                else
+                {
+                    for (int p = cell.ParagraphIndex; p < cell.ParagraphEnd; p++)
+                    {
+                        RichTextParagraph paragraph = document.Paragraphs[p];
+                        sb.Append("\\pard\\plain\\intbl");
+                        WriteParagraphProperties(sb, paragraph.Style, colors);
+                        sb.Append(' ');
+                        foreach (DocumentShape shape in document.Shapes)
+                        {
+                            if (shape.ParagraphIndex == p)
+                                WriteShape(sb, shape, defaults, fonts, colors, resources, diagnostics, reported);
+                        }
+                        WriteRuns(sb, paragraph, defaults, fonts, colors, resources, diagnostics, reported);
+                        if (p < cell.ParagraphEnd - 1)
+                            sb.Append("\\par\n");
+                        else
+                            sb.Append("\\cell\n");
+                    }
+                }
+
+                if (cell.ColumnSpan > 1)
+                {
+                    for (int i = 1; i < cell.ColumnSpan; i++)
+                        sb.Append("\\pard\\plain\\intbl \\cell\n");
+                }
+            }
+
+            sb.Append("\\row\n");
+        }
+    }
+
+    private static void WriteCellBorder(StringBuilder sb, string sideWord, TableBorder border, ResourceTable<BColor> colors)
+    {
+        if (!border.IsVisible)
+        {
+            sb.Append($"\\{sideWord}\\brdrnone");
+            return;
+        }
+
+        string styleWord = border.Style switch
+        {
+            TableBorderStyle.Dashed => "\\brdrdash",
+            TableBorderStyle.Dotted => "\\brdrdot",
+            TableBorderStyle.Double => "\\brdrdb",
+            _ => "\\brdrs",
+        };
+        int widthTwips = Math.Max(1, (int)Math.Round(border.Width * 20));
+        sb.Append($"\\{sideWord}{styleWord}\\brdrw{widthTwips}");
+        if (!border.Color.IsEmpty && border.Color.A > 0)
+            sb.Append($"\\brdrcf{colors.IndexOf(border.Color)}");
+    }
+
+    private static int CalculateRightTwips(DocumentTable table, int leftTwips, int columnEnd)
+    {
+        if (table.ColumnWidths.Count > 0)
+        {
+            double widthSum = 0;
+            for (int i = 0; i < columnEnd && i < table.ColumnWidths.Count; i++)
+                widthSum += table.ColumnWidths[i];
+            return leftTwips + (int)Math.Round(widthSum * 20);
+        }
+
+        return leftTwips + (columnEnd * 2000);
+    }
 
     private static void WriteFontTable(StringBuilder sb, ResourceTable<string> fonts)
     {

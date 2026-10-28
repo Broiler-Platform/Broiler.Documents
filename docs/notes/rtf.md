@@ -58,6 +58,7 @@ than its `\ucN` count.
 | Drawings | `\shp` `\*\shpinst` `\shpleftN` `\shptopN` `\shprightN` `\shpbottomN` `\shpzN` `\shpbypara` `\shpbypage` `\shpbymargin` `\shpbxpage` `\shpbxmargin` `\shpbxcolumn` `\shptxt`, and the `{\sp{\sn name}{\sv value}}` pairs `shapeType` `fFilled` `fillColor` `fillBackColor` `fillType` `fillAngle` `fillFocus` `fLine` `lineColor` `posrelv` `fFitShapeToText` (→ `DocumentShape`) |
 | Frames | `\abswN` `\abshN` `\posxN` `\posyN` `\posxl` `\posxc` `\posxr` `\posxi` `\posxo` `\posyil` `\posyt` `\posyc` `\posyb` `\posyin` `\posyout` `\phcol` `\phmrg` `\phpg` `\pvmrg` `\pvpg` `\pvpara` `\wraparound` `\nowrap` `\overlay` `\wrapthrough` `\dxfrtextN` `\dfrmtxtxN` `\dfrmtxtyN` (→ a `DocumentShape` holding the framed paragraphs; see Drawings) |
 | Page background | The shape in `{\*ackground}`, read where `iewbksp1` shows it, as LibreOffice takes `iewbksp` for Word's `w:displayBackgroundShape`; its fill is a shape's (→ `RichTextDocument.PageBackground`). A write states both. A `fillFocus` near 50 is an axial gradient, on a page or a shape. |
+| Style sheets | `\stylesheet`, `\sN`, `\csN` (including `\*\csN`), `\sbasedonN`, `\snextN`, `\additive`, paragraph and character formatting within style definitions, style names. In body: `\sN` sets paragraph style formatting and character defaults, `\csN` applies character style properties additively to runs, `\pard` restores `\s0` defaults, `\plain` resets run formatting to the active paragraph style's character defaults |
 
 ## Notes
 
@@ -113,6 +114,41 @@ text.
 A semicolon within a font name is emitted as `\u59?`, keeping it distinct from
 the raw semicolon that terminates the table entry. Both the default family and
 explicit run families preserve it on read-back.
+
+## Style sheets
+
+A `\stylesheet` destination is read into document styles rather than skipped.
+Each child group declares either a paragraph style (`\sN`, with `\s0` defining
+the default Normal paragraph style) or a character style (`\csN`, often marked
+`\*\csN` for legacy reader compatibility). An `\additive` character style is
+applied over the active paragraph style rather than replacing it.
+
+A style declaration consists of:
+- An optional base style reference `\sbasedonN`, resolved transitively with cycle
+  protection (circular references degrade gracefully without infinite recursion).
+- An optional next-paragraph style reference `\snextN`.
+- Paragraph formatting keywords (`\ql`, `\qc`, `\qr`, `\qj`, `\liN`, `\sbN`,
+  `\saN`, `\slN`, `\slmult1`, `\cbpatN`), resolved into `ParagraphStyle`.
+- Character formatting keywords (`\b`, `\i`, `\ul`, `\strike`, `\v`, `\caps`,
+  `\scaps`, `\fsN`, `\fN`, `\cfN`, `\cbN`, `\highlightN`), resolved into
+  `InlineStyle` and matching font names and colors from `\fonttbl` and `\colortbl`.
+- The style name, terminated by a semicolon `;`. Optional alias names are
+  separated by commas `,`, with the primary name preceding the comma. Unicode
+  sequences (`\uN`), escaped hex bytes (`\'hh`), and escaped characters within
+  the name are decoded.
+
+In the document body:
+- `\sN` sets the active paragraph style, establishing its alignment, margins,
+  spacing, background, and character defaults for following runs.
+- `\csN` applies character style properties additively to text runs.
+- `\pard` resets paragraph formatting and active style back to `\s0` (Normal) defaults.
+- `\plain` resets character formatting back to the active paragraph style's
+  character defaults (or `\s0` defaults if no style was explicitly set).
+- Direct formatting keywords override style defaults on paragraphs and runs.
+
+Unknown or non-style destinations nested within a `\stylesheet` (such as headers,
+footers, shapes, or annotations) remain opaque and cannot escape into the stylesheet
+or body.
 
 ## Line spacing
 
@@ -306,11 +342,13 @@ is fixed. Fixed rows keep their editable text while rendered overflow is clipped
 kind but `\brdrnone` draws it - as a single line, because the model has one
 kind, so a double border is drawn single. `\clcbpat` is the cell's background.
 
-Not read: merged cells (`\clmgf`, `\clmrg`, `\clvmgf`, `\clvmrg`), whose cells
-are drawn as the separate cells the file writes; the row's own borders
-(`\trbrdr*`); `\trleft`'s offset of the table from the margin, beyond placing
-rows against one another; padding stated as `\trpadd*`; and nested tables, whose
-text joins the outer cell's with `\nestcell` read as a tab. A cell mark in a
+Merged cells (`\clmgf`, `\clmrg`, `\clvmgf`, `\clvmrg`) are resolved into
+spanned opening cells and continuation cells; the row's own borders
+(`\trbrdr*`) are inherited when cell borders are unstated; `\trleft`'s offset of the
+table from the margin is kept; cell and row padding stated as `\trpadd*` or `\clpad*`
+is read into `TableCellPadding`; and positioned floating tables (`\tpos*`, `\tdfrmtxt*`,
+`\tpv*`, `\tph*`, `\tbloverlap`) are read into `TablePosition`. Nested tables join the
+outer cell's text with `\nestcell` read as a tab. A cell mark in a
 header, footer or shape's text is a tab and a row mark a paragraph, as before:
 those hold paragraphs and nothing beside them.
 
@@ -418,6 +456,16 @@ List markup does not set `ListKind` in this release (it stays `None`); list
 tables are detected and skipped as described below. Numbering, restarts and
 nested marker reconstruction are not implemented.
 
+In the office suite, LibreOffice's plain text export and `broilerdoc dump` were
+observed to use different markers for nested list levels. Investigation of
+LibreOffice Writer's text projection (`ascatr.cxx`: `GetBulletChar`) confirms that
+Writer specifies hierarchical bullet characters: outer level 0 uses `•` (`U+2022
+BULLET`), nested level 1 uses `◦` (`U+25E6 WHITE BULLET`), and level 2 uses `▪`
+(`U+25AA BLACK SMALL SQUARE`). LibreOffice is right regarding bullet hierarchy
+conventions. In `Broiler.Documents.Rtf`, `\listtable` and `\listoverridetable`
+destinations are detected and skipped (`rtf.list`), preserving `ListKind.None` in
+the document model without generating synthetic text bullet markers.
+
 ## Skipped destinations — content dropped
 
 `\pict` and `\object`/`\*\objdata` are skipped and reported once as
@@ -425,7 +473,7 @@ nested marker reconstruction are not implemented.
 asked for embedded decoding, because a caller that asked for something this
 reader does not compose is owed an answer to the question rather than a note
 about the document. Skipped with them are the following non-content
-destinations: `\info` `\stylesheet` `\annotation`
+destinations: `\info` `\annotation` (`\stylesheet` is read into the model as described above)
 `\colorschememapping` `\latentstyles` `\datastore` `\themedata` `\generator`
 `\pntext`, plus any unknown
 ignorable destination introduced by `\*` - `\*\shpinst` excepted, since the
@@ -548,10 +596,9 @@ picture the caller's resource policy does not permit into an output is left out
 with `rtf.image.omitted`, whose message names the denial. Because `\pict` is a
 skipped destination on the read side, an image does **not** survive a model → RTF
 → model round-trip; DOCX is the format that round-trips pictures. A table is
-written as its cell paragraphs in row order, with `rtf.table.flattened`: RTF
-states a table as `\trowd` and `\cellx` runs, which the reader now takes but
-the writer does not yet write, so a table read from RTF comes back from a round
-trip as its paragraphs without the grid. A shape
+written as a native RTF table (`\trowd ... \cell ... \row`), preserving cell
+grid, column widths, borders, shading, cell padding, horizontal/vertical merges,
+and floating table positioning. A shape
 is written as a `\shp` group at the head of the paragraph it is anchored to,
 carrying its box, its fill, its outline and its text, which is the whole of what
 the reader takes back out of one. A floating picture is the exception: it is
@@ -606,7 +653,7 @@ anything a caller asked for that this codec does not do.
 | `rtf.image.omitted` | Warning | Write | The caller's resource policy did not permit a picture into the output; the message names the denial. |
 | `rtf.image.anchored` | Warning | Write | A floating picture was written into its paragraph; its position beside the text was not kept. |
 | `rtf.shape.page` | Warning | Write | A shape anchored to a page by number was written beside its paragraph with `\shpbypage`; RTF can measure from the page but not name it. A shape measured from the page its paragraph is on (`DocumentShape.OffsetFromPage`) is written with `\shpbypage` too, and is not reported: that is exactly what RTF says. |
-| `document.capability.not-composed` | Warning | Read, write | Something the caller asked for that this codec does not compose: `DecodeEmbeddedObjects` on a document that carries a picture or object, or `AsciiOnly=false` on a write. |
+| `document.capability.not-composed` | Warning | Write | Something the caller asked for that this codec does not compose: `AsciiOnly=false` on a write. |
 
 ## Standards and rights
 

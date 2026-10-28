@@ -106,14 +106,39 @@ public sealed class DocumentPagePainter
                 DrawShape(list, shape, resolveImage);
         }
 
-        foreach (LayoutCell cell in page.Cells)
-            DrawCell(list, cell);
+        if (page.FloatingTables.Count == 0)
+        {
+            DrawCells(list, page.Cells);
+            DrawParagraphShading(list, page.Lines);
+            foreach (LayoutLine line in page.Lines)
+                DrawLine(list, line, resolveImage);
+        }
+        else
+        {
+            // Behind-text floating tables
+            foreach (LayoutFloatingTable table in page.FloatingTables.Where(t => t.BehindText).OrderBy(t => t.ZOrder))
+            {
+                DrawCells(list, table.Cells);
+                DrawParagraphShading(list, table.Lines);
+                foreach (LayoutLine line in table.Lines)
+                    DrawLine(list, line, resolveImage);
+            }
 
-        // Over a cell's shading, so a shaded paragraph in a shaded cell shows.
-        DrawParagraphShading(list, page.Lines);
+            // Body text & inline table cells
+            DrawCells(list, page.InlineCells);
+            DrawParagraphShading(list, page.InlineLines);
+            foreach (LayoutLine line in page.InlineLines)
+                DrawLine(list, line, resolveImage);
 
-        foreach (LayoutLine line in page.Lines)
-            DrawLine(list, line, resolveImage);
+            // In-front floating tables
+            foreach (LayoutFloatingTable table in page.FloatingTables.Where(t => !t.BehindText).OrderBy(t => t.ZOrder))
+            {
+                DrawCells(list, table.Cells);
+                DrawParagraphShading(list, table.Lines);
+                foreach (LayoutLine line in table.Lines)
+                    DrawLine(list, line, resolveImage);
+            }
+        }
 
         // Last: the shapes the document stacks in front of its text. A stamp over
         // a letter is the case, and drawing it under the text would leave the
@@ -180,8 +205,7 @@ public sealed class DocumentPagePainter
             else list.StrokeRect(shape.Bounds, shape.Outline, thickness);
         }
 
-        foreach (LayoutCell cell in shape.Cells)
-            DrawCell(list, cell);
+        DrawCells(list, shape.Cells);
         DrawParagraphShading(list, shape.Lines);
         foreach (LayoutLine line in shape.Lines)
             DrawLine(list, line, resolveImage);
@@ -272,33 +296,435 @@ public sealed class DocumentPagePainter
         }
     }
 
+    private enum BorderEdge { Top, Bottom, Left, Right, SharedH, SharedV }
+
     /// <summary>
-    /// Paints one table cell: its background, then the edges it states. Each edge
-    /// is a filled rectangle rather than a stroked box, because a cell states its
-    /// four sides separately and three of them may be turned off.
+    /// Paints table cells: their backgrounds, diagonal dividing lines, and borders with
+    /// border-collapse and half-width arbitration for shared edges between adjacent cells.
     /// </summary>
-    private static void DrawCell(BRenderList list, LayoutCell cell)
+    private static void DrawCells(BRenderList list, IReadOnlyList<LayoutCell> cells)
     {
-        BRect bounds = cell.Bounds;
-        if (bounds.Width <= 0 || bounds.Height <= 0)
+        if (cells.Count == 0)
             return;
 
-        if (!cell.Shading.IsEmpty && cell.Shading.A > 0)
-            list.FillRect(bounds, cell.Shading);
+        // 1. Shading fills under borders so overlapping or shared edges are never occluded.
+        foreach (LayoutCell cell in cells)
+        {
+            BRect bounds = cell.Bounds;
+            if (bounds.Width > 0 && bounds.Height > 0 && !cell.Shading.IsEmpty && cell.Shading.A > 0)
+                list.FillRect(bounds, cell.Shading);
+        }
 
-        CellBorders borders = cell.Borders;
-        if (borders.Top.IsVisible)
-            list.FillRect(new BRect(bounds.Left, bounds.Top, bounds.Width, borders.Top.Width), borders.Top.Color);
+        // 2. Diagonal lines clipped to each cell's box.
+        foreach (LayoutCell cell in cells)
+        {
+            BRect bounds = cell.Bounds;
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                continue;
 
-        if (borders.Bottom.IsVisible)
-            list.FillRect(new BRect(bounds.Left, bounds.Bottom - borders.Bottom.Width, bounds.Width, borders.Bottom.Width), borders.Bottom.Color);
+            CellBorders borders = cell.Borders;
+            if (borders.DiagonalDown.IsVisible)
+            {
+                list.PushClip(bounds);
+                DrawStyledSegment(list, new BPoint(bounds.Left, bounds.Top), new BPoint(bounds.Right, bounds.Bottom), borders.DiagonalDown);
+                list.PopClip();
+            }
 
-        if (borders.Left.IsVisible)
-            list.FillRect(new BRect(bounds.Left, bounds.Top, borders.Left.Width, bounds.Height), borders.Left.Color);
+            if (borders.DiagonalUp.IsVisible)
+            {
+                list.PushClip(bounds);
+                DrawStyledSegment(list, new BPoint(bounds.Left, bounds.Bottom), new BPoint(bounds.Right, bounds.Top), borders.DiagonalUp);
+                list.PopClip();
+            }
+        }
 
-        if (borders.Right.IsVisible)
-            list.FillRect(new BRect(bounds.Right - borders.Right.Width, bounds.Top, borders.Right.Width, bounds.Height), borders.Right.Color);
+        // 3. Four-sided borders with half-width collapse for shared boundaries.
+        DrawCellBorders(list, cells);
     }
+
+    private static void DrawCell(BRenderList list, LayoutCell cell)
+    {
+        DrawCells(list, [cell]);
+    }
+
+    private static void DrawCellBorders(BRenderList list, IReadOnlyList<LayoutCell> cells)
+    {
+        for (int i = 0; i < cells.Count; i++)
+        {
+            LayoutCell cell = cells[i];
+            BRect bounds = cell.Bounds;
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+                continue;
+
+            double left = bounds.Left;
+            double top = bounds.Top;
+            double right = bounds.Right;
+            double bottom = bounds.Bottom;
+            CellBorders borders = cell.Borders;
+
+            // 1. Right edge and right-hand shared seams
+            var rightNeighborIntervals = new List<(double Start, double End)>();
+            for (int j = 0; j < cells.Count; j++)
+            {
+                if (i == j) continue;
+                LayoutCell other = cells[j];
+                if (Math.Abs(other.Bounds.Left - right) < 0.05)
+                {
+                    double y0 = Math.Max(top, other.Bounds.Top);
+                    double y1 = Math.Min(bottom, other.Bounds.Bottom);
+                    if (y1 > y0 + 0.05)
+                    {
+                        rightNeighborIntervals.Add((y0, y1));
+                        TableBorder winner = ArbitrateBorders(borders.Right, other.Borders.Left);
+                        if (winner.IsVisible)
+                        {
+                            double w = winner.Width;
+                            BRect seamRect = new(right - (w / 2.0), y0, w, y1 - y0);
+                            DrawBorderEdge(list, seamRect, winner, isHorizontal: false, BorderEdge.SharedV);
+                        }
+                    }
+                }
+            }
+
+            if (borders.Right.IsVisible)
+            {
+                foreach (var (y0, y1) in SubtractIntervals(top, bottom, rightNeighborIntervals))
+                {
+                    BRect unsharedRect = new(right - borders.Right.Width, y0, borders.Right.Width, y1 - y0);
+                    DrawBorderEdge(list, unsharedRect, borders.Right, isHorizontal: false, BorderEdge.Right);
+                }
+            }
+
+            // 2. Left edge unshared portions (shared portions drawn by left neighbor as its Right edge)
+            if (borders.Left.IsVisible)
+            {
+                var leftNeighborIntervals = new List<(double Start, double End)>();
+                for (int j = 0; j < cells.Count; j++)
+                {
+                    if (i == j) continue;
+                    LayoutCell other = cells[j];
+                    if (Math.Abs(other.Bounds.Right - left) < 0.05)
+                    {
+                        double y0 = Math.Max(top, other.Bounds.Top);
+                        double y1 = Math.Min(bottom, other.Bounds.Bottom);
+                        if (y1 > y0 + 0.05)
+                            leftNeighborIntervals.Add((y0, y1));
+                    }
+                }
+
+                foreach (var (y0, y1) in SubtractIntervals(top, bottom, leftNeighborIntervals))
+                {
+                    BRect unsharedRect = new(left, y0, borders.Left.Width, y1 - y0);
+                    DrawBorderEdge(list, unsharedRect, borders.Left, isHorizontal: false, BorderEdge.Left);
+                }
+            }
+
+            // 3. Bottom edge and bottom shared seams
+            var bottomNeighborIntervals = new List<(double Start, double End)>();
+            for (int j = 0; j < cells.Count; j++)
+            {
+                if (i == j) continue;
+                LayoutCell other = cells[j];
+                if (Math.Abs(other.Bounds.Top - bottom) < 0.05)
+                {
+                    double x0 = Math.Max(left, other.Bounds.Left);
+                    double x1 = Math.Min(right, other.Bounds.Right);
+                    if (x1 > x0 + 0.05)
+                    {
+                        bottomNeighborIntervals.Add((x0, x1));
+                        TableBorder winner = ArbitrateBorders(borders.Bottom, other.Borders.Top);
+                        if (winner.IsVisible)
+                        {
+                            double w = winner.Width;
+                            BRect seamRect = new(x0, bottom - (w / 2.0), x1 - x0, w);
+                            DrawBorderEdge(list, seamRect, winner, isHorizontal: true, BorderEdge.SharedH);
+                        }
+                    }
+                }
+            }
+
+            if (borders.Bottom.IsVisible)
+            {
+                foreach (var (x0, x1) in SubtractIntervals(left, right, bottomNeighborIntervals))
+                {
+                    BRect unsharedRect = new(x0, bottom - borders.Bottom.Width, x1 - x0, borders.Bottom.Width);
+                    DrawBorderEdge(list, unsharedRect, borders.Bottom, isHorizontal: true, BorderEdge.Bottom);
+                }
+            }
+
+            // 4. Top edge unshared portions (shared portions drawn by top neighbor as its Bottom edge)
+            if (borders.Top.IsVisible)
+            {
+                var topNeighborIntervals = new List<(double Start, double End)>();
+                for (int j = 0; j < cells.Count; j++)
+                {
+                    if (i == j) continue;
+                    LayoutCell other = cells[j];
+                    if (Math.Abs(other.Bounds.Bottom - top) < 0.05)
+                    {
+                        double x0 = Math.Max(left, other.Bounds.Left);
+                        double x1 = Math.Min(right, other.Bounds.Right);
+                        if (x1 > x0 + 0.05)
+                            topNeighborIntervals.Add((x0, x1));
+                    }
+                }
+
+                foreach (var (x0, x1) in SubtractIntervals(left, right, topNeighborIntervals))
+                {
+                    BRect unsharedRect = new(x0, top, x1 - x0, borders.Top.Width);
+                    DrawBorderEdge(list, unsharedRect, borders.Top, isHorizontal: true, BorderEdge.Top);
+                }
+            }
+        }
+    }
+
+    private static List<(double Start, double End)> SubtractIntervals(double start, double end, List<(double Start, double End)> toSubtract)
+    {
+        var result = new List<(double Start, double End)>();
+        if (end <= start)
+            return result;
+
+        var clamped = toSubtract
+            .Select(i => (Start: Math.Max(start, i.Start), End: Math.Min(end, i.End)))
+            .Where(i => i.End > i.Start + 0.05)
+            .OrderBy(i => i.Start)
+            .ToList();
+
+        double current = start;
+        foreach (var (subStart, subEnd) in clamped)
+        {
+            if (subStart > current + 0.05)
+                result.Add((current, subStart));
+            current = Math.Max(current, subEnd);
+        }
+
+        if (current < end - 0.05)
+            result.Add((current, end));
+
+        return result;
+    }
+
+    private static TableBorder ArbitrateBorders(TableBorder a, TableBorder b) => TableBorder.Arbitrate(a, b);
+
+    private static void DrawBorderEdge(BRenderList list, BRect rect, TableBorder border, bool isHorizontal, BorderEdge edge)
+    {
+        if (rect.Width <= 0 || rect.Height <= 0 || !border.IsVisible)
+            return;
+
+        switch (border.Style)
+        {
+            case TableBorderStyle.Dashed:
+                if (isHorizontal)
+                {
+                    double dash = Math.Max(3.0, border.Width * 3.0);
+                    double gap = Math.Max(2.0, border.Width * 2.0);
+                    double x = rect.Left;
+                    while (x < rect.Right)
+                    {
+                        double w = Math.Min(dash, rect.Right - x);
+                        list.FillRect(new BRect(x, rect.Top, w, rect.Height), border.Color);
+                        x += dash + gap;
+                    }
+                }
+                else
+                {
+                    double dash = Math.Max(3.0, border.Width * 3.0);
+                    double gap = Math.Max(2.0, border.Width * 2.0);
+                    double y = rect.Top;
+                    while (y < rect.Bottom)
+                    {
+                        double h = Math.Min(dash, rect.Bottom - y);
+                        list.FillRect(new BRect(rect.Left, y, rect.Width, h), border.Color);
+                        y += dash + gap;
+                    }
+                }
+                break;
+
+            case TableBorderStyle.Dotted:
+                if (isHorizontal)
+                {
+                    double dot = Math.Max(1.0, border.Width);
+                    double gap = dot;
+                    double x = rect.Left;
+                    while (x < rect.Right)
+                    {
+                        double w = Math.Min(dot, rect.Right - x);
+                        list.FillRect(new BRect(x, rect.Top, w, rect.Height), border.Color);
+                        x += dot + gap;
+                    }
+                }
+                else
+                {
+                    double dot = Math.Max(1.0, border.Width);
+                    double gap = dot;
+                    double y = rect.Top;
+                    while (y < rect.Bottom)
+                    {
+                        double h = Math.Min(dot, rect.Bottom - y);
+                        list.FillRect(new BRect(rect.Left, y, rect.Width, h), border.Color);
+                        y += dot + gap;
+                    }
+                }
+                break;
+
+            case TableBorderStyle.Double:
+                if (isHorizontal)
+                {
+                    double stripe = rect.Height / 3.0;
+                    list.FillRect(new BRect(rect.Left, rect.Top, rect.Width, stripe), border.Color);
+                    list.FillRect(new BRect(rect.Left, rect.Bottom - stripe, rect.Width, stripe), border.Color);
+                }
+                else
+                {
+                    double stripe = rect.Width / 3.0;
+                    list.FillRect(new BRect(rect.Left, rect.Top, stripe, rect.Height), border.Color);
+                    list.FillRect(new BRect(rect.Right - stripe, rect.Top, stripe, rect.Height), border.Color);
+                }
+                break;
+
+            case TableBorderStyle.Groove:
+                if (isHorizontal)
+                {
+                    double half = rect.Height / 2.0;
+                    bool topDark = edge is BorderEdge.Top or BorderEdge.SharedH;
+                    BColor c1 = topDark ? Darken(border.Color) : Lighten(border.Color);
+                    BColor c2 = topDark ? Lighten(border.Color) : Darken(border.Color);
+                    list.FillRect(new BRect(rect.Left, rect.Top, rect.Width, half), c1);
+                    list.FillRect(new BRect(rect.Left, rect.Top + half, rect.Width, half), c2);
+                }
+                else
+                {
+                    double half = rect.Width / 2.0;
+                    bool leftDark = edge is BorderEdge.Left or BorderEdge.SharedV;
+                    BColor c1 = leftDark ? Darken(border.Color) : Lighten(border.Color);
+                    BColor c2 = leftDark ? Lighten(border.Color) : Darken(border.Color);
+                    list.FillRect(new BRect(rect.Left, rect.Top, half, rect.Height), c1);
+                    list.FillRect(new BRect(rect.Left + half, rect.Top, half, rect.Height), c2);
+                }
+                break;
+
+            case TableBorderStyle.Ridge:
+                if (isHorizontal)
+                {
+                    double half = rect.Height / 2.0;
+                    bool topLight = edge is BorderEdge.Top or BorderEdge.SharedH;
+                    BColor c1 = topLight ? Lighten(border.Color) : Darken(border.Color);
+                    BColor c2 = topLight ? Darken(border.Color) : Lighten(border.Color);
+                    list.FillRect(new BRect(rect.Left, rect.Top, rect.Width, half), c1);
+                    list.FillRect(new BRect(rect.Left, rect.Top + half, rect.Width, half), c2);
+                }
+                else
+                {
+                    double half = rect.Width / 2.0;
+                    bool leftLight = edge is BorderEdge.Left or BorderEdge.SharedV;
+                    BColor c1 = leftLight ? Lighten(border.Color) : Darken(border.Color);
+                    BColor c2 = leftLight ? Darken(border.Color) : Lighten(border.Color);
+                    list.FillRect(new BRect(rect.Left, rect.Top, half, rect.Height), c1);
+                    list.FillRect(new BRect(rect.Left + half, rect.Top, half, rect.Height), c2);
+                }
+                break;
+
+            case TableBorderStyle.Inset:
+                BColor cinset = (edge is BorderEdge.Top or BorderEdge.Left or BorderEdge.SharedH or BorderEdge.SharedV)
+                    ? Darken(border.Color) : Lighten(border.Color);
+                list.FillRect(rect, cinset);
+                break;
+
+            case TableBorderStyle.Outset:
+                BColor coutset = (edge is BorderEdge.Top or BorderEdge.Left or BorderEdge.SharedH or BorderEdge.SharedV)
+                    ? Lighten(border.Color) : Darken(border.Color);
+                list.FillRect(rect, coutset);
+                break;
+
+            case TableBorderStyle.Solid:
+            default:
+                list.FillRect(rect, border.Color);
+                break;
+        }
+    }
+
+    private static void DrawStyledSegment(BRenderList list, BPoint start, BPoint end, TableBorder border)
+    {
+        if (!border.IsVisible) return;
+        double dx = end.X - start.X, dy = end.Y - start.Y, length = Math.Sqrt(dx * dx + dy * dy);
+        if (length <= 0) return;
+        double width = border.Width <= 0 ? 0.5 : border.Width;
+        double half = width / 2.0;
+
+        list.PushTransform(new BMatrix3x2(dx / length, dy / length, -dy / length, dx / length, start.X, start.Y));
+
+        switch (border.Style)
+        {
+            case TableBorderStyle.Dashed:
+                double dash = Math.Max(3.0, width * 3.0);
+                double gap = Math.Max(2.0, width * 2.0);
+                double x = 0;
+                while (x < length)
+                {
+                    double w = Math.Min(dash, length - x);
+                    list.FillRect(new BRect(x, -half, w, width), border.Color);
+                    x += dash + gap;
+                }
+                break;
+
+            case TableBorderStyle.Dotted:
+                double dot = Math.Max(1.0, width);
+                double dotGap = dot;
+                double xd = 0;
+                while (xd < length)
+                {
+                    double w = Math.Min(dot, length - xd);
+                    list.FillRect(new BRect(xd, -half, w, width), border.Color);
+                    xd += dot + dotGap;
+                }
+                break;
+
+            case TableBorderStyle.Double:
+                double stripe = width / 3.0;
+                list.FillRect(new BRect(0, -half, length, stripe), border.Color);
+                list.FillRect(new BRect(0, half - stripe, length, stripe), border.Color);
+                break;
+
+            case TableBorderStyle.Groove:
+                double gh = width / 2.0;
+                list.FillRect(new BRect(0, -half, length, gh), Darken(border.Color));
+                list.FillRect(new BRect(0, 0, length, gh), Lighten(border.Color));
+                break;
+
+            case TableBorderStyle.Ridge:
+                double rh = width / 2.0;
+                list.FillRect(new BRect(0, -half, length, rh), Lighten(border.Color));
+                list.FillRect(new BRect(0, 0, length, rh), Darken(border.Color));
+                break;
+
+            case TableBorderStyle.Inset:
+                list.FillRect(new BRect(0, -half, length, width), Darken(border.Color));
+                break;
+
+            case TableBorderStyle.Outset:
+                list.FillRect(new BRect(0, -half, length, width), Lighten(border.Color));
+                break;
+
+            case TableBorderStyle.Solid:
+            default:
+                list.FillRect(new BRect(0, -half, length, width), border.Color);
+                break;
+        }
+
+        list.PopTransform();
+    }
+
+    private static BColor Darken(BColor color, double factor = 0.6) =>
+        new((byte)Math.Clamp((int)Math.Round(color.R * factor), 0, 255),
+            (byte)Math.Clamp((int)Math.Round(color.G * factor), 0, 255),
+            (byte)Math.Clamp((int)Math.Round(color.B * factor), 0, 255),
+            color.A);
+
+    private static BColor Lighten(BColor color, double factor = 0.6) =>
+        new((byte)Math.Clamp((int)Math.Round(color.R + (255 - color.R) * factor), 0, 255),
+            (byte)Math.Clamp((int)Math.Round(color.G + (255 - color.G) * factor), 0, 255),
+            (byte)Math.Clamp((int)Math.Round(color.B + (255 - color.B) * factor), 0, 255),
+            color.A);
 
     /// <summary>
     /// Draws a floating picture into its box, or marks the box when the image did
@@ -502,7 +928,7 @@ public sealed class DocumentPagePainter
 
             if (piece.IsTab && piece.TabLeader is string leader)
             {
-                double advance = BTextMeasurer.MeasureAdvance(leader, piece.Font);
+                double advance = _settings.TextMeasurer is not null ? _settings.TextMeasurer.MeasureAdvance(leader, piece.Font) : BTextMeasurer.MeasureAdvance(leader, piece.Font);
                 if (advance > 0 && double.IsFinite(advance))
                 {
                     int count = (int)Math.Min(2000, Math.Floor(piece.Width / advance));

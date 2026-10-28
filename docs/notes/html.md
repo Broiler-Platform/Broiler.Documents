@@ -26,6 +26,7 @@ for parsing and writes deterministic UTF-8 HTML with `HtmlSerializer`.
 | `<s>`, `<strike>`, `<del>` | `InlineStyle.Strikethrough` | CSS `line-through` also maps. |
 | CSS `text-transform: uppercase`, `font-variant: small-caps` | `InlineStyle.Capitalization` | Display only; the markup keeps the author's casing. |
 | `<a href>` | `InlineStyle.LinkHref` | Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried. Refusals are reported as `html.link`. |
+| `<img>` with `data:` URI | `InlineStyle.Image` (`InlineImage`) | Embedded base64 or percent-encoded data URI payloads are decoded and admitted via caller resource policy. CSS or attribute `width`/`height` map to points; `alt` maps to `AltText`, `title` to `Name`. Images inside `<a>` links retain `LinkHref`. Payloads exceeding `MaxBinBytes` report `html.image.limit`, malformed URIs report `html.image.malformed`, and policy denials report `html.image.denied`. External/relative images remain skipped with `html.skip.external`. |
 | `<font face color>` | `FontFamily`, `Foreground` | Legacy compatibility only. |
 | CSS `color`, `background-color` | `Foreground`, `Background` | Named colors, `#rgb`, `#rrggbb`, and `rgb(...)`. A background whose alpha is zero — `transparent`, or an `rgba(...)` that resolves to it — is read as *no* background rather than as an invisible one, because the model spells "no background" as a distinct sentinel and storing the colour instead made every such run a highlighted run. `color: transparent` is not reinterpreted: invisible text is something a document can genuinely mean, and a background that is not there is not a colour at all. |
 | CSS `font-family`, `font-size` | `FontFamily`, `FontSize` | Points are preserved; px converts using 96 DPI. |
@@ -101,7 +102,7 @@ it.
 | `LinkHref` | `<a href="...">` |
 | `InlineStyle.Image` | `<img src="data:...;base64,...">` with `alt` and a CSS size |
 | `InlineStyle.Revision` | Inserted text in `<ins>` and deleted text in `<del>`, with a `datetime` where the change states one. A document that hides its changes is written as it is drawn, its deletions left out. A change of formatting, and a deleted paragraph break, have no element and are not written. |
-| `InlineStyle.Note` | The note's label in `<sup>`, and the note's paragraphs after the body, under an `<hr>`, the first opened with the label. HTML has no notes; reported once as `html.note`. The reader reads such a page back as text. |
+| `InlineStyle.Note` | The note's label in `<sup>`, and the note's paragraphs after the body, under an `<hr>`, the first opened with the label. HTML has no notes; reported once as `html.note`. The reader reads back notes written by this codec as well as semantic footnote containers into `DocumentNote` and `InlineStyle.Note`. |
 | Paragraph alignment, line spacing, indent, spacing | CSS on `<p>`. A stated line height is written as a `line-height` length, which reads back as the least a line is; an exact one is reported once as `html.lineheight.exact`. |
 | `ParagraphStyle.ColumnBreakBefore` | `break-before: column`, where the paragraph starts no page. There is no CSS2 spelling to prefer for it. |
 | `ParagraphStyle.PageBreakBefore` | `page-break-before: always`, in the paragraph's own `style` attribute beside whatever else that paragraph declares. The CSS2 property rather than the CSS3 `break-before: page`, even though the reader takes either: what is written has to be understood by whoever opens the file, and this is the spelling every browser and every word processor has read for twenty years — CSS Fragmentation keeps it as an alias for exactly that reason. Writing both spellings was the other option and was rejected, because it states one break twice and a consumer resolving them in the wrong order would be entitled to honour the second. |
@@ -114,15 +115,15 @@ another layout than the document's.
 `ListKind` is not written in the first subset; the writer preserves exact left indentation
 and emits an `html.list` diagnostic. An embedded image is written inline as a
 base64 data URI (`html.image.datauri`), which keeps an exported page a single
-file; the reader does not turn `<img>` back into a model image, so an image does
-not survive an HTML round-trip. Tables are written as cell paragraphs with `html.table.flattened`; their grid
+file; the reader decodes embedded `data:` URIs back into model `InlineImage` instances
+when permitted by the caller's resource policy, preserving the image on round-trip. Tables are written as cell paragraphs with `html.table.flattened`; their grid
 does not survive an HTML round-trip. Embedded objects, scripts, stylesheets,
 forms, and metadata are not serialized from the model.
 
 ## Security And Limits
 
 - The reader never fetches external resources.
-- `script`, `style`, `iframe`, `object`, `embed`, `img`, SVG/canvas, form inputs,
+- `script`, `style`, `iframe`, `object`, `embed`, SVG/canvas, form inputs,
   metadata, and templates are skipped as non-model content. The text of a `style`
   element is never prose and that skip stays; the element is read separately, for
   its `@page` rule and its type-selector rules and nothing else.

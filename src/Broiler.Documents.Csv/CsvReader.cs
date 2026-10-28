@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using System.Threading;
 using Broiler.Documents.Model;
 
@@ -29,11 +30,12 @@ internal static class CsvReader
     /// <summary>How many records are read between cancellation checks.</summary>
     private const int CancellationStride = 1024;
 
-    public static DocumentReadResult Read(
+    public static CsvReadResult Read(
         ReadOnlySpan<byte> bytes,
         bool truncated,
         CsvReadOptions options,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Encoding? explicitEncoding = null)
     {
         var diagnostics = new List<DocumentDiagnostic>();
         if (truncated)
@@ -43,8 +45,16 @@ internal static class CsvReader
                 "The input exceeded MaxDocumentBytes; only the records before the limit were read."));
         }
 
-        string text = CsvTextDecoder.Decode(bytes, truncated, diagnostics);
-        char delimiter = options.Delimiter ?? CsvSniffer.DetectDelimiter(text);
+        (string text, Encoding encoding) = CsvTextDecoder.Decode(bytes, truncated, diagnostics, explicitEncoding);
+
+        char? sepDelimiter = null;
+        if (CsvSepDirective.TryExtract(text, out char sep, out string remainingText))
+        {
+            sepDelimiter = sep;
+            text = remainingText;
+        }
+
+        char delimiter = options.Delimiter ?? sepDelimiter ?? CsvSniffer.DetectDelimiter(text);
 
         var parser = new CsvParser(text, delimiter);
         var records = new List<List<string>>();
@@ -74,7 +84,7 @@ internal static class CsvReader
         }
 
         RichTextDocument document = BuildTable(records, columns, options, diagnostics, cancellationToken);
-        return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
+        return new CsvReadResult(document, delimiter, encoding, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
     }
 
     private static RichTextDocument BuildTable(

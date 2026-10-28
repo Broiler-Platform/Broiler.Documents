@@ -321,10 +321,14 @@ internal static class OdtReader
             int index = edges[i];
             var selected = starts.Last(start => start.Index <= index);
             DocumentSection? textSection = DocumentSection.Containing(built.Sections, index);
+            PageGeometry? sectionGeometry = textSection?.Page ?? selected.Page;
             sections.Add(new DocumentSection(index, edges[i + 1] - index,
                 textSection?.ColumnCount ?? selected.Page?.ColumnCount ?? 1,
                 textSection?.ColumnGap ?? selected.Page?.ColumnGap ?? 0,
-                selected.Page, selected.Running, textSection?.Background ?? default, selected.Sequence, textSection?.Hidden ?? false));
+                sectionGeometry, selected.Running, textSection?.Background ?? default, selected.Sequence,
+                textSection?.Hidden ?? false,
+                textSection?.DontBalanceColumns ?? false,
+                textSection?.BreakType ?? SectionBreakType.NextPage));
         }
         return built.WithSections(sections);
     }
@@ -1518,8 +1522,32 @@ internal static class OdtReader
                 {
                     (int count, double gap) = TryReadColumns(sectionProperties, builder.AddDiagnosticOnce) ?? (1, 0);
                     TryColor((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "background-color"), out BColor background);
-                    builder.AddSection(new DocumentSection(
-                        sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap, background: background, hidden: hidden));
+                    bool dontBalance = string.Equals((string?)sectionProperties.Attribute(OdtNamespaces.Text + "dont-balance-text-columns"), "true", StringComparison.OrdinalIgnoreCase);
+
+                    PageGeometry? sectionPage = null;
+                    double uniformMargin = Length(sectionProperties, "margin");
+                    double ml = OdtUnits.TryParseLength((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "margin-left"), out double leftVal) ? leftVal : uniformMargin;
+                    double mr = OdtUnits.TryParseLength((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "margin-right"), out double rightVal) ? rightVal : uniformMargin;
+                    PageGeometry basePage = context.ActivePage ?? PageGeometry.A4;
+                    if (ml > 0 || mr > 0)
+                    {
+                        sectionPage = basePage with
+                        {
+                            MarginLeft = basePage.MarginLeft + ml,
+                            MarginRight = basePage.MarginRight + mr,
+                        };
+                    }
+
+
+                    if (count > 1 || (!background.IsEmpty && background.A > 0) || sectionPage is not null || dontBalance || hidden)
+                    {
+                        builder.AddSection(new DocumentSection(
+                            sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap,
+                            page: sectionPage,
+                            background: background,
+                            hidden: hidden,
+                            dontBalanceColumns: dontBalance));
+                    }
                 }
                 else if (hidden)
                     builder.AddSection(new DocumentSection(sectionStart, builder.CurrentParagraphIndex - sectionStart, 1, 0, hidden: true));
@@ -1554,10 +1582,13 @@ internal static class OdtReader
                     continue;
             }
 
-            // A frame at block level is a text box, an image floating on the page,
-            // or an embedded object. Only the text box holds body content.
+            // A frame at block level is a floating table, a text box, an image floating on the page,
+            // or an embedded object. Only the table or text box holds body content.
             if (name == OdtNamespaces.Draw + "frame")
             {
+                if (ReadFloatingTable(element, context, depth))
+                    continue;
+
                 XElement? textBox = element.Element(OdtNamespaces.Draw + "text-box");
                 if (textBox is not null)
                 {
@@ -1931,6 +1962,9 @@ internal static class OdtReader
 
             if (name == OdtNamespaces.Draw + "frame")
             {
+                if (ReadFloatingTable(element, context, depth: 0))
+                    continue;
+
                 // A frame holding a text box is a shape; one holding an image is
                 // a picture. Try the shape first and fall through when it is not.
                 if (element.Element(OdtNamespaces.Draw + "text-box") is not null &&
@@ -2275,11 +2309,26 @@ internal static class OdtReader
             }
             else
             {
+                string? startNumberingAt = (string?)configuration.Attribute(OdtNamespaces.Text + "start-numbering-at");
+                NoteNumberingRestart restart = startNumberingAt switch
+                {
+                    "page" => NoteNumberingRestart.EachPage,
+                    "chapter" => NoteNumberingRestart.EachSection,
+                    _ => NoteNumberingRestart.Continuous,
+                };
+                string? footPos = (string?)configuration.Attribute(OdtNamespaces.Text + "footnotes-position");
+                FootnotePosition position = footPos switch
+                {
+                    "document" => FootnotePosition.DocumentEnd,
+                    _ => FootnotePosition.PageBottom,
+                };
                 numbering = numbering with
                 {
                     FootnoteFormat = numFormat is null ? numbering.FootnoteFormat : OdtStyles.NumberFormat(numFormat),
                     FootnoteStart = start ?? numbering.FootnoteStart,
                     RaisedLabels = IsRaised(styles, (string?)configuration.Attribute(OdtNamespaces.Text + "citation-style-name")),
+                    FootnoteRestart = restart,
+                    FootnotePosition = position,
                 };
             }
         }
@@ -2365,6 +2414,87 @@ internal static class OdtReader
     /// carrying the image on its style. The run's own character formatting is
     /// kept on it, so a picture inside a hyperlink stays inside that link.
     /// </summary>
+    private static bool ReadFloatingTable(XElement frame, OdtReadContext context, int depth)
+    {
+        XElement? tableElement = frame.Element(OdtNamespaces.Table + "table");
+        if (tableElement is null)
+            return false;
+
+        string? styleName = (string?)frame.Attribute(OdtNamespaces.Draw + "style-name");
+        XElement? graphic = context.Styles.GraphicPropertiesFor(styleName);
+        string? anchorType = (string?)frame.Attribute(OdtNamespaces.Text + "anchor-type");
+        string? hRel = (string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-rel");
+        string? vRel = (string?)graphic?.Attribute(OdtNamespaces.Style + "vertical-rel");
+
+        TableAnchor hAnchor = hRel switch
+        {
+            "page" => TableAnchor.Page,
+            "page-content" => TableAnchor.Margin,
+            _ => anchorType == "page" ? TableAnchor.Page : TableAnchor.Text
+        };
+        TableAnchor vAnchor = vRel switch
+        {
+            "page" => TableAnchor.Page,
+            "page-content" => TableAnchor.Margin,
+            _ => anchorType == "page" ? TableAnchor.Page : TableAnchor.Text
+        };
+
+        string? hPos = (string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-pos");
+        string? vPos = (string?)graphic?.Attribute(OdtNamespaces.Style + "vertical-pos");
+
+        TableAlignment hAlign = hPos switch
+        {
+            "left" => TableAlignment.Start,
+            "center" => TableAlignment.Center,
+            "right" => TableAlignment.End,
+            "inside" => TableAlignment.Inside,
+            "outside" => TableAlignment.Outside,
+            _ => TableAlignment.None
+        };
+        TableAlignment vAlign = vPos switch
+        {
+            "top" => TableAlignment.Start,
+            "middle" => TableAlignment.Center,
+            "bottom" => TableAlignment.End,
+            "inside" => TableAlignment.Inside,
+            "outside" => TableAlignment.Outside,
+            _ => TableAlignment.None
+        };
+
+        double x = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "x"), out double left) ? left : 0;
+        double y = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "y"), out double top) ? top : 0;
+
+        double leftFromText = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Fo + "margin-left"), out double ml) ? ml : 0;
+        double rightFromText = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Fo + "margin-right"), out double mr) ? mr : 0;
+        double topFromText = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Fo + "margin-top"), out double mt) ? mt : 0;
+        double bottomFromText = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Fo + "margin-bottom"), out double mb) ? mb : 0;
+
+        string? wrap = (string?)graphic?.Attribute(OdtNamespaces.Style + "wrap");
+        bool allowOverlap = wrap != "none";
+
+        var position = new TablePosition(
+            hAnchor,
+            x,
+            vAnchor,
+            y,
+            hAlign,
+            vAlign,
+            leftFromText,
+            rightFromText,
+            topFromText,
+            bottomFromText,
+            allowOverlap,
+            ZIndex(frame));
+
+        OdtBreak precedingBreak = context.TakeBreak();
+        OdtTableReader.Read(tableElement, context, depth + 1,
+            (children, childDepth) => ReadBlockContent(children, context, list: null, childDepth),
+            precedingBreak,
+            position: position);
+
+        return true;
+    }
+
     private static void ReadPicture(XElement frame, OdtReadContext context, InlineStyle style)
     {
         if (!IsAnchoredInText(frame))

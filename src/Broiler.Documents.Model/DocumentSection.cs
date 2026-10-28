@@ -34,7 +34,9 @@ public sealed class DocumentSection(
     RunningContent? runningContent = null,
     BColor background = default,
     PageStyleSequence? pageStyles = null,
-    bool hidden = false)
+    bool hidden = false,
+    bool dontBalanceColumns = false,
+    SectionBreakType breakType = SectionBreakType.Continuous)
 {
     /// <summary>The first paragraph the section holds.</summary>
     public int ParagraphIndex { get; } = Math.Max(0, paragraphIndex);
@@ -92,10 +94,17 @@ public sealed class DocumentSection(
     /// <summary>The colour behind this section's text area; empty means transparent.</summary>
     public BColor Background { get; } = background;
 
+    /// <summary>The page style sequence applying to this section, or null when uniform.</summary>
     public PageStyleSequence? PageStyles { get; } = pageStyles;
 
     /// <summary>Retain this section in the model without displaying its body content.</summary>
     public bool Hidden { get; } = hidden;
+
+    /// <summary>True when text columns in this section should not be balanced at the end of the section.</summary>
+    public bool DontBalanceColumns { get; } = dontBalanceColumns;
+
+    /// <summary>How this section starts relative to the preceding content.</summary>
+    public SectionBreakType BreakType { get; } = breakType;
 
     /// <summary>True when <paramref name="paragraphIndex"/> is one of the section's paragraphs.</summary>
     public bool Contains(int paragraphIndex) => paragraphIndex >= ParagraphIndex && paragraphIndex < ParagraphEnd;
@@ -122,12 +131,54 @@ public sealed class DocumentSection(
     /// <paramref name="inserted"/>, or null when the edit removed every paragraph
     /// it held.
     /// </summary>
-    public DocumentSection? Shifted(int at, int removed, int inserted)
+    public DocumentSection? Shifted(int at, int removed, int inserted) =>
+        Shifted(at, removed, inserted, RangeAffinity.Default);
+
+    /// <summary>
+    /// This section with its range moved for an edit that replaced
+    /// <paramref name="removed"/> paragraphs at <paramref name="at"/> with
+    /// <paramref name="inserted"/>, taking <paramref name="affinity"/> into account
+    /// for insertions directly on section boundaries.
+    /// </summary>
+    public DocumentSection? Shifted(int at, int removed, int inserted, RangeAffinity affinity)
     {
-        if (removed == inserted)
+        if (removed == inserted && removed == 0)
             return this;
 
-        (int index, int count) = DocumentTable.ShiftRange(ParagraphIndex, ParagraphCount, at, removed, inserted);
-        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden);
+        (int index, int count) = DocumentTable.ShiftRange(ParagraphIndex, ParagraphCount, at, removed, inserted, affinity);
+        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType);
+    }
+
+    /// <summary>
+    /// Returns this section with its paragraph range shifted by a fixed offset.
+    /// </summary>
+    public DocumentSection ShiftedBy(int paragraphOffset)
+    {
+        if (paragraphOffset == 0)
+            return this;
+
+        return new DocumentSection(
+            ParagraphIndex + paragraphOffset,
+            ParagraphCount,
+            ColumnCount,
+            ColumnGap,
+            Page,
+            RunningContent,
+            Background,
+            PageStyles,
+            Hidden,
+            DontBalanceColumns,
+            BreakType);
+    }
+
+    /// <summary>
+    /// Relocates this section's paragraph range when a block of paragraphs is moved.
+    /// </summary>
+    public DocumentSection? RelocateParagraphs(int sourceStart, int sourceCount, int destinationIndex)
+    {
+        (int index, int count) = DocumentTable.RelocateRange(ParagraphIndex, ParagraphCount, sourceStart, sourceCount, destinationIndex);
+        return count <= 0
+            ? null
+            : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType);
     }
 }

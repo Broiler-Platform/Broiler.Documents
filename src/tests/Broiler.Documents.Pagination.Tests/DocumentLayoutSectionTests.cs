@@ -403,4 +403,101 @@ public sealed class DocumentLayoutSectionTests
             before.Pages.SelectMany(page => page.Lines).Select(line => (line.Top, LeftOf(line))),
             after.Pages.SelectMany(page => page.Lines).Select(line => (line.Top, LeftOf(line))));
     }
+
+    [Fact]
+    public void A_Section_With_DontBalanceColumns_Does_Not_Balance_When_Followed_On_Same_Page()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+            [Line("above"), .. Lines("in", 10), Line("below")])
+            .WithSections(
+            [
+                new DocumentSection(0, 1, 1, 0),
+                new DocumentSection(1, 10, 2, 36, dontBalanceColumns: true),
+                new DocumentSection(11, 1, 1, 0),
+            ]);
+
+        LayoutPage page = Assert.Single(Layout(document).Pages);
+
+        List<LayoutLine> section = [.. page.Lines.Where(line => line.ParagraphIndex is >= 1 and <= 10)];
+        // Without balancing, all 10 lines fill the first column sequentially.
+        Assert.Equal(10, section.Count(line => LeftOf(line) == 72));
+        Assert.Equal(0, section.Count(line => LeftOf(line) == SecondColumn));
+    }
+
+    [Fact]
+    public void Section_Break_Odd_Page_Creates_Blank_Page_When_Landing_On_Even_Page()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs([Line("first"), Line("second")])
+            .WithSections(
+            [
+                new DocumentSection(0, 1, 1, 0, breakType: SectionBreakType.NextPage),
+                new DocumentSection(1, 1, 1, 0, breakType: SectionBreakType.OddPage),
+            ]);
+
+        IReadOnlyList<LayoutPage> pages = Layout(document).Pages;
+
+        Assert.Equal(3, pages.Count);
+        Assert.NotEmpty(pages[0].Lines);
+        Assert.Empty(pages[1].Lines);
+        Assert.NotEmpty(pages[2].Lines);
+        Assert.Equal(0, pages[0].Lines[0].ParagraphIndex);
+        Assert.Equal(1, pages[2].Lines[0].ParagraphIndex);
+    }
+
+    [Fact]
+    public void Section_Break_Odd_Page_Does_Not_Create_Blank_Page_When_Landing_On_Odd_Page()
+    {
+        int perColumn = PerColumn();
+        RichTextDocument document = RichTextDocument.FromParagraphs([.. Lines("p", perColumn + 5), Line("oddSection")])
+            .WithSections(
+            [
+                new DocumentSection(0, perColumn + 5, 1, 0, breakType: SectionBreakType.NextPage),
+                new DocumentSection(perColumn + 5, 1, 1, 0, breakType: SectionBreakType.OddPage),
+            ]);
+
+        IReadOnlyList<LayoutPage> pages = Layout(document).Pages;
+
+        // Section 0 naturally spans page 1 and page 2, so Section 1 lands on page 3 (odd).
+        Assert.Equal(3, pages.Count);
+        Assert.NotEmpty(pages[0].Lines);
+        Assert.NotEmpty(pages[1].Lines);
+        Assert.NotEmpty(pages[2].Lines);
+        Assert.Equal(perColumn + 5, pages[2].Lines[0].ParagraphIndex);
+    }
+
+    [Fact]
+    public void Section_Break_Even_Page_Creates_Blank_Page_When_Landing_On_Odd_Page()
+    {
+        int perColumn = PerColumn();
+        RichTextDocument document = RichTextDocument.FromParagraphs([.. Lines("p", perColumn + 5), Line("evenSection")])
+            .WithSections(
+            [
+                new DocumentSection(0, perColumn + 5, 1, 0, breakType: SectionBreakType.NextPage),
+                new DocumentSection(perColumn + 5, 1, 1, 0, breakType: SectionBreakType.EvenPage),
+            ]);
+
+        IReadOnlyList<LayoutPage> pages = Layout(document).Pages;
+
+        // Section 0 spans pages 1 and 2. Next page would be 3 (odd), but Section 1 requires EvenPage -> blank page 3!
+        Assert.Equal(4, pages.Count);
+        Assert.NotEmpty(pages[0].Lines);
+        Assert.NotEmpty(pages[1].Lines);
+        Assert.Empty(pages[2].Lines);
+        Assert.NotEmpty(pages[3].Lines);
+        Assert.Equal(perColumn + 5, pages[3].Lines[0].ParagraphIndex);
+    }
+
+    [Fact]
+    public void Document_Starting_With_Even_Page_Section_Inserts_Blank_First_Page()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs([Line("evenStart")])
+            .WithSections([new DocumentSection(0, 1, 1, 0, breakType: SectionBreakType.EvenPage)]);
+
+        IReadOnlyList<LayoutPage> pages = Layout(document).Pages;
+
+        Assert.Equal(2, pages.Count);
+        Assert.Empty(pages[0].Lines);
+        Assert.NotEmpty(pages[1].Lines);
+        Assert.Equal(0, pages[1].Lines[0].ParagraphIndex);
+    }
 }

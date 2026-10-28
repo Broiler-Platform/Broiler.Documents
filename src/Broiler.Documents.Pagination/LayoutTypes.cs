@@ -1,3 +1,5 @@
+using Broiler.Documents.Model.Fonts;
+using Broiler.Documents.Model.Pagination;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -20,8 +22,12 @@ namespace Broiler.Documents.Pagination;
 /// </remarks>
 public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BColor highlight, bool underline, bool strikethrough,
     string? link, InlineImage? image, double width, double ascent, double descent, bool oblique = false, bool isTab = false,
-    double lineGap = 0)
+    double lineGap = 0) : IPaginatedPieceArtifact
 {
+    public string FontFamily => Font.FamilyName;
+    public double FontSizePoints => Font.Size;
+    public bool Bold => Font.Weight >= BFontWeight.Bold;
+    public bool Italic => Font.Slant is BFontSlant.Italic or BFontSlant.Oblique;
     public string Text { get; } = text;
 
     /// <summary>The repeating character painted in an explicitly styled tab gap.</summary>
@@ -90,7 +96,7 @@ public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BCol
 }
 
 /// <summary>One laid-out line, positioned on its page.</summary>
-public sealed class LayoutLine
+public sealed class LayoutLine : IPaginatedLineArtifact
 {
     private readonly List<LayoutPiece> _pieces;
 
@@ -104,6 +110,8 @@ public sealed class LayoutLine
     }
 
     public IReadOnlyList<LayoutPiece> Pieces => _pieces;
+    IReadOnlyList<IPaginatedPieceArtifact> IPaginatedLineArtifact.Pieces => _pieces;
+    double IPaginatedLineArtifact.Baseline => Top + Baseline;
 
     /// <summary>Distance from the page's top edge to the line box, in points.</summary>
     public double Top { get; internal set; }
@@ -174,7 +182,7 @@ public sealed class LayoutLine
 /// A floating shape placed on a page: its box in page points, how it is painted,
 /// and any text or picture it carries.
 /// </summary>
-public sealed class LayoutShape
+public sealed class LayoutShape : IPaginatedShapeArtifact
 {
     internal LayoutShape(BRect bounds, ShapeFill? fill, BColor outline, IReadOnlyList<LayoutLine> lines,
         InlineImage? image = null, bool behindText = true, int zOrder = 0, IReadOnlyList<LayoutCell>? cells = null,
@@ -202,6 +210,11 @@ public sealed class LayoutShape
     public BColor Outline { get; }
 
     public ShapeGeometry Geometry { get; }
+    double IPaginatedShapeArtifact.X => Bounds.Left;
+    double IPaginatedShapeArtifact.Y => Bounds.Top;
+    double IPaginatedShapeArtifact.Width => Bounds.Width;
+    double IPaginatedShapeArtifact.Height => Bounds.Height;
+    double IPaginatedShapeArtifact.OutlineWidth => OutlineWidth;
     public double OutlineWidth { get; }
 
     /// <summary>The picture the box draws, filling <see cref="Bounds"/>, or null.</summary>
@@ -243,7 +256,23 @@ public sealed class LayoutCell
     public CellBorders Borders { get; }
 }
 
-public sealed class LayoutPage
+public sealed class LayoutFloatingTable(
+    BRect bounds,
+    IReadOnlyList<LayoutCell> cells,
+    IReadOnlyList<LayoutLine> lines,
+    int zOrder,
+    bool behindText,
+    bool allowOverlap)
+{
+    public BRect Bounds { get; } = bounds;
+    public IReadOnlyList<LayoutCell> Cells { get; } = cells;
+    public IReadOnlyList<LayoutLine> Lines { get; } = lines;
+    public int ZOrder { get; } = zOrder;
+    public bool BehindText { get; } = behindText;
+    public bool AllowOverlap { get; } = allowOverlap;
+}
+
+public sealed class LayoutPage : IPaginatedPageArtifact
 {
     private readonly List<LayoutLine> _lines;
     private readonly List<LayoutShape> _shapes;
@@ -251,7 +280,10 @@ public sealed class LayoutPage
 
     internal LayoutPage(int number, double widthPoints, double heightPoints,
         List<LayoutLine> lines, List<LayoutShape>? shapes = null, List<LayoutCell>? cells = null,
-        ShapeFill? background = null, BRect? backgroundBounds = null)
+        ShapeFill? background = null, BRect? backgroundBounds = null,
+        IReadOnlyList<LayoutFloatingTable>? floatingTables = null,
+        IReadOnlyList<LayoutLine>? inlineLines = null,
+        IReadOnlyList<LayoutCell>? inlineCells = null)
     {
         Number = number;
         Background = background;
@@ -261,10 +293,14 @@ public sealed class LayoutPage
         _lines = lines;
         _shapes = shapes ?? [];
         _cells = cells ?? [];
+        FloatingTables = floatingTables ?? [];
+        InlineLines = inlineLines ?? lines;
+        InlineCells = inlineCells ?? cells ?? [];
     }
 
     /// <summary>The floating shapes on this page, drawn under its text.</summary>
     public IReadOnlyList<LayoutShape> Shapes => _shapes;
+    IReadOnlyList<IPaginatedShapeArtifact> IPaginatedPageArtifact.Shapes => _shapes;
 
     /// <summary>The table cells on this page, drawn under its text.</summary>
     public IReadOnlyList<LayoutCell> Cells => _cells;
@@ -278,16 +314,23 @@ public sealed class LayoutPage
 
     /// <summary>One-based page number.</summary>
     public int Number { get; }
+    int IPaginatedPageArtifact.PageNumber => Number;
 
     public double WidthPoints { get; }
 
     public double HeightPoints { get; }
 
     public IReadOnlyList<LayoutLine> Lines => _lines;
+    IReadOnlyList<IPaginatedLineArtifact> IPaginatedPageArtifact.Lines => _lines;
+
+    public IReadOnlyList<LayoutFloatingTable> FloatingTables { get; }
+
+    public IReadOnlyList<LayoutLine> InlineLines { get; }
+
+    public IReadOnlyList<LayoutCell> InlineCells { get; }
 }
 
-/// <summary>A document laid out onto pages, ready to rasterize.</summary>
-public sealed class LayoutResult
+public sealed class LayoutResult : IPaginatedDocumentArtifact
 {
     internal LayoutResult(IReadOnlyList<LayoutPage> pages, DocumentPageBox setup, LayoutSettings settings, 
         IReadOnlyList<string> notes, bool truncated)
@@ -300,6 +343,7 @@ public sealed class LayoutResult
     }
 
     public IReadOnlyList<LayoutPage> Pages { get; }
+    IReadOnlyList<IPaginatedPageArtifact> IPaginatedDocumentArtifact.Pages => Pages;
 
     /// <summary>The page box the layout used, with the final height for a continuous render.</summary>
     public DocumentPageBox Setup { get; }
@@ -334,6 +378,8 @@ public sealed class LayoutResult
 /// </remarks>
 public sealed record LayoutSettings
 {
+    public IDocumentTextMeasurer? TextMeasurer { get; init; }
+
     /// <summary>The family used by runs that name none.</summary>
     public string DefaultFontFamily { get; init; } = "sans-serif";
 

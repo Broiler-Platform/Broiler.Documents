@@ -26,7 +26,8 @@ internal static class OdtTableReader
     internal static void Read(
         XElement table, OdtReadContext context, int depth,
         Action<IEnumerable<XElement>, int> readBlocks,
-        OdtBreak precedingBreak = OdtBreak.None)
+        OdtBreak precedingBreak = OdtBreak.None,
+        TablePosition? position = null)
     {
         int start = context.Builder.CurrentParagraphIndex;
         var rows = new List<TableRow>();
@@ -126,7 +127,8 @@ internal static class OdtTableReader
                 row.Parent?.Name == OdtNamespaces.Table + "table-header-rows",
                 ReadRowMinHeight(row, context.Styles),
                 ReadRowCanSplit(row, context.Styles),
-                exactHeight: IsFixedRow(row, context.Styles)));
+                exactHeight: IsFixedRow(row, context.Styles),
+                keepWithNext: (string?)rowProperties?.Attribute(OdtNamespaces.Fo + "keep-with-next") == "always"));
         }
 
         (List<double> widths, bool relativeGrid) = ReadColumnWidths(table, context.Styles, depth);
@@ -137,7 +139,9 @@ internal static class OdtTableReader
             rows,
             widths,
             DocumentTable.DefaultCellPadding,
+            position: position,
             keepWithNext: (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "keep-with-next") == "always",
+            keepTogether: (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "keep-together") == "always",
             preferredWidth: preferredWidth,
             widthPercent: TablePercent(table, context.Styles) ?? (relativeGrid && preferredWidth is not > 0 ? 100 : null),
             alignment: (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Table + "align") switch
@@ -392,15 +396,35 @@ internal static class OdtTableReader
 
         double width = 0;
         BColor color = BColor.Black;
+        TableBorderStyle style = TableBorderStyle.Solid;
         foreach (string part in value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             if (OdtUnits.TryParseLength(part, out double points))
                 width = points;
             else if (OdtUnits.TryParseColor(part, out BColor parsed))
                 color = parsed;
+            else if (TryParseStyle(part, out TableBorderStyle parsedStyle))
+                style = parsedStyle;
         }
 
-        return width > 0 ? new TableBorder(color, width) : TableBorder.None;
+        return width > 0 && style != TableBorderStyle.None ? new TableBorder(color, width, style) : TableBorder.None;
+    }
+
+    private static bool TryParseStyle(string text, out TableBorderStyle style)
+    {
+        switch (text.ToLowerInvariant())
+        {
+            case "solid": style = TableBorderStyle.Solid; return true;
+            case "dashed": style = TableBorderStyle.Dashed; return true;
+            case "dotted": style = TableBorderStyle.Dotted; return true;
+            case "double": style = TableBorderStyle.Double; return true;
+            case "groove": style = TableBorderStyle.Groove; return true;
+            case "ridge": style = TableBorderStyle.Ridge; return true;
+            case "inset": style = TableBorderStyle.Inset; return true;
+            case "outset": style = TableBorderStyle.Outset; return true;
+            case "none": style = TableBorderStyle.None; return true;
+            default: style = TableBorderStyle.Solid; return false;
+        }
     }
 
     /// <summary>

@@ -304,7 +304,10 @@ internal static class DocxTableReader
             Math.Max(0, DocxValueReader.Twips(position, "rightFromText")),
             Math.Max(0, DocxValueReader.Twips(position, "topFromText")),
             Math.Max(0, DocxValueReader.Twips(position, "bottomFromText")),
-            AllowOverlap: !string.Equals(overlap, "never", StringComparison.Ordinal));
+            AllowOverlap: !string.Equals(overlap, "never", StringComparison.Ordinal),
+            ZOrder: int.TryParse(Attribute(position, "zOrder"), out int z) ? z : 0,
+            BehindText: string.Equals(Attribute(position, "behindText"), "1", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(Attribute(position, "behindText"), "true", StringComparison.OrdinalIgnoreCase));
 
         static string? Attribute(XElement element, string name) =>
             (string?)element.Attribute(DocxNamespaces.Wordprocessing + name);
@@ -725,12 +728,14 @@ internal static class DocxTableReader
     /// </summary>
     private readonly record struct Edges(
         TableBorder? Left, TableBorder? Top, TableBorder? Right, TableBorder? Bottom,
-        TableBorder? InsideH, TableBorder? InsideV)
+        TableBorder? InsideH, TableBorder? InsideV,
+        TableBorder? DiagonalDown = null, TableBorder? DiagonalUp = null)
     {
         /// <summary>These edges over <paramref name="lower"/>: each stated one wins.</summary>
         public Edges Over(Edges lower) => new(
             Left ?? lower.Left, Top ?? lower.Top, Right ?? lower.Right, Bottom ?? lower.Bottom,
-            InsideH ?? lower.InsideH, InsideV ?? lower.InsideV);
+            InsideH ?? lower.InsideH, InsideV ?? lower.InsideV,
+            DiagonalDown ?? lower.DiagonalDown, DiagonalUp ?? lower.DiagonalUp);
 
         public static Edges Read(XElement? borders, DocxTheme theme) => borders is null
             ? default
@@ -740,7 +745,9 @@ internal static class DocxTableReader
                 ReadBorderEdge(borders, "right", theme) ?? ReadBorderEdge(borders, "end", theme),
                 ReadBorderEdge(borders, "bottom", theme),
                 ReadBorderEdge(borders, "insideH", theme),
-                ReadBorderEdge(borders, "insideV", theme));
+                ReadBorderEdge(borders, "insideV", theme),
+                ReadBorderEdge(borders, "tl2br", theme),
+                ReadBorderEdge(borders, "tr2bl", theme));
     }
 
     /// <summary>
@@ -791,7 +798,9 @@ internal static class DocxTableReader
             Resolve(own.Left, styled.Left, table.Left) ?? (cell.IsFirstInRow ? table.Left : insideV) ?? TableBorder.None,
             Resolve(own.Top, styled.Top, table.Top) ?? (cell.RowIndex == 0 ? table.Top : insideH) ?? TableBorder.None,
             Resolve(own.Right, styled.Right, table.Right) ?? (cell.IsLastInRow ? table.Right : insideV) ?? TableBorder.None,
-            Resolve(own.Bottom, styled.Bottom, table.Bottom) ?? (reachesEnd ? table.Bottom : insideH) ?? TableBorder.None);
+            Resolve(own.Bottom, styled.Bottom, table.Bottom) ?? (reachesEnd ? table.Bottom : insideH) ?? TableBorder.None,
+            Resolve(own.DiagonalDown, styled.DiagonalDown, null) ?? TableBorder.None,
+            Resolve(own.DiagonalUp, styled.DiagonalUp, null) ?? TableBorder.None);
 
         static TableBorder? Resolve(TableBorder? own, TableBorder? styled, TableBorder? tableEdge)
         {
@@ -828,10 +837,24 @@ internal static class DocxTableReader
             ? Math.Min(eighths / 8.0, MaxBorderWidth)
             : DefaultBorderWidth;
 
+        TableBorderStyle style = kind?.ToLowerInvariant() switch
+        {
+            "dashed" or "dashsmalldap" or "dashdotstroked" or "dashedheavy" => TableBorderStyle.Dashed,
+            "dotted" or "dotdash" or "dotdotdash" => TableBorderStyle.Dotted,
+            "double" or "triple" or "thinthicksmallgap" or "thickthinsmallgap" => TableBorderStyle.Double,
+            "groove" => TableBorderStyle.Groove,
+            "ridge" => TableBorderStyle.Ridge,
+            "inset" => TableBorderStyle.Inset,
+            "outset" => TableBorderStyle.Outset,
+            "none" or "nil" => TableBorderStyle.None,
+            _ => TableBorderStyle.Solid,
+        };
+
         // "auto" is the format's way of saying the reader chooses; Word draws black.
         return new TableBorder(
             DocxWordColor.TryRead(element, theme, fill: false, out BColor parsed) ? parsed : BColor.Black,
-            width);
+            width,
+            style);
     }
 
     /// <summary>A border thicker than this is a rule, not a border, and would swallow the cell.</summary>

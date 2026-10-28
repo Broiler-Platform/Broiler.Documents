@@ -27,6 +27,11 @@ namespace Broiler.Documents;
 /// still be missing a page.
 /// </para>
 /// </remarks>
+/// <param name="document">The parsed document, or an empty document when rejected.</param>
+/// <param name="diagnostics">Diagnostics produced during reading.</param>
+/// <param name="status">Overall status of the read operation.</param>
+/// <param name="resources">Conversion context recording decisions about resources met during reading.</param>
+/// <param name="metadata">Normalized document metadata discovered in the source.</param>
 public class DocumentReadResult(RichTextDocument document, IEnumerable<DocumentDiagnostic>? diagnostics = null,
     DocumentResultStatus status = DocumentResultStatus.Success, DocumentConversionContext? resources = null,
     DocumentMetadata? metadata = null)
@@ -34,6 +39,7 @@ public class DocumentReadResult(RichTextDocument document, IEnumerable<DocumentD
     private static readonly ReadOnlyCollection<DocumentDiagnostic> EmptyDiagnostics =
         Array.AsReadOnly(Array.Empty<DocumentDiagnostic>());
 
+    /// <summary>The parsed document, or an empty document when rejected.</summary>
     public RichTextDocument Document { get; } = document ?? throw new ArgumentNullException(nameof(document));
 
     /// <summary>
@@ -59,6 +65,7 @@ public class DocumentReadResult(RichTextDocument document, IEnumerable<DocumentD
     /// </remarks>
     public DocumentMetadata Metadata { get; } = metadata ?? DocumentMetadata.Empty;
 
+    /// <summary>The diagnostics produced during reading.</summary>
     public IReadOnlyList<DocumentDiagnostic> Diagnostics { get; } = diagnostics is null
             ? EmptyDiagnostics
             : Array.AsReadOnly(diagnostics.ToArray());
@@ -69,6 +76,7 @@ public class DocumentReadResult(RichTextDocument document, IEnumerable<DocumentD
     /// <summary>True when a host may present the document at all.</summary>
     public bool IsUsable => Status != DocumentResultStatus.Rejected;
 
+    /// <summary>True when any diagnostic has error severity.</summary>
     public bool HasErrors => Diagnostics.Any(static d => d.Severity == DocumentDiagnosticSeverity.Error);
 
     /// <summary>

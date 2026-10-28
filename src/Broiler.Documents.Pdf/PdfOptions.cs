@@ -1,4 +1,5 @@
 using System;
+using Broiler.Documents.Model.Pagination;
 using Broiler.Documents.Pdf.Text;
 using Broiler.Documents.Resources;
 
@@ -146,6 +147,18 @@ public sealed class PdfWriteOptions : DocumentWriteOptions
 
     /// <summary>When true, content streams are Flate-compressed.</summary>
     public bool CompressStreams { get; }
+
+    /// <summary>
+    /// When specified, the writer uses this pre-paginated document artifact
+    /// rather than independently measuring and breaking lines.
+    /// </summary>
+    public IPaginatedDocumentArtifact? PaginatedArtifact { get; init; }
+
+    public PdfWriteOptions WithPaginatedArtifact(IPaginatedDocumentArtifact artifact) =>
+        new(PageSetup, Metadata, PdfLimits, CompressStreams, DefaultFamily, DefaultFontSize, FileIdentifier, UriPolicy, Fonts)
+        {
+            PaginatedArtifact = artifact
+        };
 
     /// <summary>The logical family used for runs that name no font family.</summary>
     public PdfFontFamilyKind DefaultFamily { get; }

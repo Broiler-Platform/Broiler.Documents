@@ -13,6 +13,15 @@ namespace Broiler.Documents.Resources;
 /// </summary>
 public sealed class DocumentResourceEntry
 {
+    /// <summary>
+    /// Initializes a new instance of <see cref="DocumentResourceEntry"/>.
+    /// </summary>
+    /// <param name="id">The unique resource identifier assigned in this context.</param>
+    /// <param name="binding">What the decision was made about.</param>
+    /// <param name="provenance">Where the resource came from.</param>
+    /// <param name="disposition">How the source held the resource.</param>
+    /// <param name="permitted">Operations permitted on this resource.</param>
+    /// <param name="obligations">Duties a document emitting this resource takes on.</param>
     public DocumentResourceEntry(
         DocumentResourceId id,
         DocumentResourceBinding binding,
@@ -32,15 +41,19 @@ public sealed class DocumentResourceEntry
         Obligations = obligations ?? throw new ArgumentNullException(nameof(obligations));
     }
 
+    /// <summary>The unique resource identifier assigned in this context.</summary>
     public DocumentResourceId Id { get; }
 
     /// <summary>What the decision was made about; checked before it is honoured.</summary>
     public DocumentResourceBinding Binding { get; }
 
+    /// <summary>Where the resource came from.</summary>
     public DocumentResourceProvenance Provenance { get; }
 
+    /// <summary>How the source document held the resource.</summary>
     public DocumentResourceDisposition Disposition { get; }
 
+    /// <summary>The operations permitted on this resource.</summary>
     public DocumentResourceOperations Permitted { get; }
 
     /// <summary>Duties a document emitting this resource takes on.</summary>

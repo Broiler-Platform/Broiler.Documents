@@ -25,6 +25,7 @@ public readonly struct XmpDate : IEquatable<XmpDate>
         HasUtcOffset = hasUtcOffset;
     }
 
+    /// <summary>The underlying timestamp value.</summary>
     public DateTimeOffset Value { get; }
 
     /// <summary>True when the source stated a UTC offset.</summary>
@@ -37,16 +38,20 @@ public readonly struct XmpDate : IEquatable<XmpDate>
     public static XmpDate WithoutOffset(DateTime value) =>
         new(new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Unspecified), TimeSpan.Zero), false);
 
+    /// <summary>Indicates whether this timestamp equals another timestamp.</summary>
     public bool Equals(XmpDate other) => Value == other.Value && HasUtcOffset == other.HasUtcOffset;
 
+    /// <summary>Indicates whether this timestamp equals a specified object.</summary>
     public override bool Equals(object? obj) => obj is XmpDate other && Equals(other);
 
+    /// <summary>Returns the hash code for this timestamp.</summary>
     public override int GetHashCode() => HashCode.Combine(Value, HasUtcOffset);
 
     public static bool operator ==(XmpDate left, XmpDate right) => left.Equals(right);
 
     public static bool operator !=(XmpDate left, XmpDate right) => !left.Equals(right);
 
+    /// <summary>Returns an ISO-8601 string representation of the timestamp.</summary>
     public override string ToString() => Value.ToString(
         HasUtcOffset ? "yyyy-MM-ddTHH:mm:sszzz" : "yyyy-MM-ddTHH:mm:ss",
         CultureInfo.InvariantCulture);
@@ -176,6 +181,7 @@ public sealed class XmpReadResult
         Failure = failure;
     }
 
+    /// <summary>How the attempt to read the XMP packet concluded.</summary>
     public XmpReadOutcome Outcome { get; }
 
     /// <summary>What the packet supplied; <see cref="XmpMetadata.Empty"/> unless <see cref="Outcome"/> is <see cref="XmpReadOutcome.Read"/>.</summary>

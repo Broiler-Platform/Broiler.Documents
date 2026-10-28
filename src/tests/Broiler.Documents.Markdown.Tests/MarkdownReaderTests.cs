@@ -106,15 +106,25 @@ public sealed class MarkdownReaderTests
     }
 
     [Fact]
-    public void The_Writers_Own_Data_Uri_Image_Reads_Back_As_Its_Description()
+    public void The_Writers_Own_Data_Uri_Image_Reads_Back_As_An_Inline_Image()
     {
-        // The round trip this codec actually performs on itself: the writer
-        // emits the picture as a data URI, and the reader will not build an
-        // image from it. What it must not do is leave half the syntax in the
-        // text.
         DocumentReadResult result = ReadResult("a ![square](data:image/png;base64,iVBORw0KGgo=) b");
 
+        Assert.Equal("a " + InlineImage.PlaceholderText + " b", result.Document.Paragraphs[0].Text);
+        Assert.NotNull(result.Document.Paragraphs[0].StyleAt(2).Image);
+        Assert.Equal("square", result.Document.Paragraphs[0].StyleAt(2).Image!.AltText);
+    }
+
+    [Fact]
+    public void An_Embedded_Image_Denied_By_Policy_Reads_Back_As_Its_Description()
+    {
+        var options = new DocumentReadOptions(resourcePolicy: DocumentResourcePolicy.DenyAll);
+        var codec = new MarkdownDocumentCodec();
+        using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("a ![square](data:image/png;base64,iVBORw0KGgo=) b"));
+        DocumentReadResult result = codec.Read(stream, options);
+
         Assert.Equal("a square b", result.Document.Paragraphs[0].Text);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.image.denied");
     }
 
     [Theory]
@@ -131,4 +141,20 @@ public sealed class MarkdownReaderTests
         Assert.Equal(expected, result.Document.Paragraphs[0].Text);
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "markdown.image.dropped");
     }
+    [Fact]
+    public void Reads_Footnotes_And_Round_Trips_Them()
+    {
+        string md = "Paragraph with note[^1].\n\n[^1]: First note line.";
+        RichTextDocument document = Read(md);
+
+        DocumentNote note = Assert.Single(document.Notes);
+        Assert.Equal("1", note.CustomMark);
+        Assert.Equal("First note line.", note.Paragraphs[0].Text);
+
+        byte[] written = MarkdownWriter.WriteToArray(document);
+        string writtenText = System.Text.Encoding.UTF8.GetString(written);
+        Assert.Contains("[^1]", writtenText);
+        Assert.Contains("[^1]: First note line\\.", writtenText);
+    }
+
 }

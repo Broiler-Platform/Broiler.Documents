@@ -13,6 +13,14 @@ namespace Broiler.Documents;
 /// </summary>
 public sealed class DocumentResourceRequest
 {
+    /// <summary>
+    /// Initializes a new image resource request.
+    /// </summary>
+    /// <param name="resource">The image payload.</param>
+    /// <param name="provenance">Where the resource came from.</param>
+    /// <param name="disposition">How the source held the resource.</param>
+    /// <param name="name">Optional short name from source.</param>
+    /// <param name="sourceFormat">Optional format name where found.</param>
     public DocumentResourceRequest(BImageResource resource, DocumentResourceProvenance provenance, DocumentResourceDisposition disposition,
         string? name = null, string? sourceFormat = null)
     {
@@ -24,6 +32,13 @@ public sealed class DocumentResourceRequest
         SourceFormat = sourceFormat;
     }
 
+    /// <summary>
+    /// Initializes a new font resource request.
+    /// </summary>
+    /// <param name="font">The font program.</param>
+    /// <param name="provenance">Where the font came from.</param>
+    /// <param name="disposition">How the source held the font.</param>
+    /// <param name="sourceFormat">Optional format name where found.</param>
     public DocumentResourceRequest(DocumentFontResource font, DocumentResourceProvenance provenance, DocumentResourceDisposition disposition,
         string? sourceFormat = null)
     {
@@ -51,8 +66,10 @@ public sealed class DocumentResourceRequest
     /// </remarks>
     public DocumentFontResource? Font { get; }
 
+    /// <summary>Where the resource came from.</summary>
     public DocumentResourceProvenance Provenance { get; }
 
+    /// <summary>How the source document held the resource.</summary>
     public DocumentResourceDisposition Disposition { get; }
 
     /// <summary>A short name from the source, where it had one. Never required.</summary>
@@ -76,6 +93,7 @@ public sealed class DocumentResourceDecision(DocumentResourceOperations permitte
     public static DocumentResourceDecision Denied(string? reason = null) =>
         new(DocumentResourceOperations.None, null, reason);
 
+    /// <summary>The permitted operations on the resource.</summary>
     public DocumentResourceOperations Permitted { get; } = permitted;
 
     /// <summary>

@@ -8,10 +8,12 @@ using Broiler.Documents.Docx;
 using Broiler.Documents.Html;
 using Broiler.Documents.Markdown;
 using Broiler.Documents.Model;
+using Broiler.Documents.Ods;
 using Broiler.Documents.Odt;
 using Broiler.Documents.Pdf;
 using Broiler.Documents.Pdf.Images;
 using Broiler.Documents.Rtf;
+using Broiler.Documents.Xlsx;
 using Broiler.Graphics.Imaging;
 using Broiler.Media;
 using Broiler.Media.Image.Managed;
@@ -72,6 +74,9 @@ public static class CodecComposition
             new HtmlDocumentCodec(),
             new MarkdownDocumentCodec(),
             new ConfiguredCsvCodec(csvReadOptions ?? CsvReadOptions.Default, csvWriteOptions ?? CsvWriteOptions.Default),
+            new TsvDocumentCodec(),
+            new XlsxDocumentCodec(),
+            new OdsDocumentCodec(),
             pdf,
         ]);
     }
@@ -153,10 +158,10 @@ public static class CodecComposition
             inner.Read(source, WithCredentials(options));
 
         public override DocumentReadResult Read(DocumentReadRequest request) =>
-            inner.Read(new DocumentReadRequest(request.Input, WithCredentials(request.Options), request.CancellationToken));
+            inner.Read(new DocumentReadRequest(request.Input, WithCredentials(request.Options), request.CancellationToken, request.Hints));
 
         public override ValueTask<DocumentReadResult> ReadAsync(DocumentReadRequest request) =>
-            inner.ReadAsync(new DocumentReadRequest(request.Input, WithCredentials(request.Options), request.CancellationToken));
+            inner.ReadAsync(new DocumentReadRequest(request.Input, WithCredentials(request.Options), request.CancellationToken, request.Hints));
 
         public override DocumentWriteResult Write(RichTextDocument document, Stream destination, DocumentWriteOptions? options = null) =>
             inner.Write(document, destination, options);
@@ -184,6 +189,7 @@ public static class CodecComposition
             "commonmark" => ".md",
             "odf" => ".odt",
             "opendocument" => ".odt",
+
             _ => string.Empty,
         };
 

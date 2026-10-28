@@ -32,7 +32,7 @@ is intentionally conservative.
 | `` `code` `` | `FontFamily = "monospace"` | |
 | `~~strike~~` | `InlineStyle.Strikethrough` | GitHub-flavored extension included for model symmetry. |
 | `[label](href)` | `InlineStyle.LinkHref` | `http`, `https`, and `mailto` only; other schemes are dropped with `markdown.link`. |
-| `![description](src)` | The description, as text | No image is built. The description is what CommonMark nominates as the fallback, so it stands in for the picture and the rest of the syntax goes, reported as `markdown.image.dropped`. An empty description is valid and leaves nothing behind. |
+| `![description](data:...)` | `InlineStyle.Image` (`InlineImage`) | Embedded base64 or percent-encoded `data:` URIs are decoded and admitted via caller resource policy, setting `AltText` and `Name`. Payloads exceeding `MaxBinBytes` report `markdown.image.limit`, malformed URIs report `markdown.image.malformed`, and policy denials report `markdown.image.denied` (falling back to description text). External or relative image targets are not fetched, reporting `markdown.image.dropped` with description fallback. |
 
 ## Writer Mapping
 
@@ -45,7 +45,7 @@ is intentionally conservative.
 | Bold / italic / strike | `**` / `*` / `~~` |
 | Monospace font family | Code span |
 | `LinkHref` | Inline link |
-| `InlineStyle.Note` | `[^label]` in the text, and `[^label]: text` after the body, the note's later paragraphs indented, as GitHub and most dialects write a footnote. The reader does not read the syntax back. |
+| `InlineStyle.Note` | `[^label]` in the text, and `[^label]: text` after the body, the note's later paragraphs indented, as GitHub and most dialects write a footnote. The reader reads `[^label]` inline citations and `[^label]: text` footnote definitions back into `DocumentNote` and `InlineStyle.Note`. |
 | `PageBreakBefore` | Nothing, reported as `markdown.page-break` |
 | `ColumnBreakBefore` | Nothing, reported as `markdown.column-break` |
 
@@ -56,10 +56,9 @@ matters because doubled it is this reader's own strikethrough.
 The writer emits UTF-8 Markdown with a trailing newline. Unsupported paragraph
 style fields (alignment, line spacing or a stated line height, spacing before/after) produce
 `markdown.paragraph-style`. An embedded image is written as CommonMark image
-syntax with a base64 data URI (`markdown.image.datauri`); the reader does not
-turn it back into a model image, so an image does not survive a Markdown
-round-trip — it comes back as its description, and nothing of the syntax is left
-in the text. Unsupported inline style fields (underline, size,
+syntax with a base64 data URI (`markdown.image.datauri`); the reader decodes
+embedded `data:` URIs back into model `InlineImage` instances when permitted by
+the caller's resource policy, preserving the image on round-trip. Unsupported inline style fields (underline, size,
 foreground/background color, and non-monospace font family) produce
 `markdown.inline-style`.
 

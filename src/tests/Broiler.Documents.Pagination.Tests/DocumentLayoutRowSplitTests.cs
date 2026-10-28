@@ -259,4 +259,127 @@ public sealed class DocumentLayoutRowSplitTests
         Assert.Single(result.Pages);
         Assert.Equal(2, result.Pages[0].Cells.Count);
     }
+    [Fact]
+    public void A_Row_Does_Not_Strand_A_Cell_When_Only_Its_Neighbor_Fits_Under_Body()
+    {
+        int perPage = PerPage();
+        var paragraphs = new List<RichTextParagraph>();
+        for (int i = 0; i < perPage - 3; i++)
+            paragraphs.Add(RichTextParagraph.Plain("Body " + i));
+
+        int start = paragraphs.Count;
+        for (int i = 0; i < 10; i++)
+            paragraphs.Add(RichTextParagraph.Plain("Left " + i));
+
+        // Right cell has a tall first block (80pt) that exceeds the 3 lines of room (~43pt)
+        paragraphs.Add(RichTextParagraph.Create("Right tall", InlineStyle.Default,
+            ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 80 }));
+
+        var row = new TableRow(
+            [new TableCell(start, 10, 0), new TableCell(start + 10, 1, 1)],
+            canSplit: true);
+        var table = new DocumentTable(start, 11, [row], [200.0, 200.0], cellPadding: 0);
+        var document = RichTextDocument.FromParagraphs(paragraphs).WithTables([table]);
+
+        LayoutResult result = Layout(document);
+
+        // Under the body on page 0, the row moves whole to page 1 rather than stranding
+        // the right cell with an empty box on page 0.
+        Assert.Empty(LinesStarting(result.Pages[0], "Left", document));
+        Assert.Empty(LinesStarting(result.Pages[0], "Right", document));
+        Assert.Equal(10, LinesStarting(result.Pages[1], "Left", document).Count());
+        Assert.Single(LinesStarting(result.Pages[1], "Right", document));
+    }
+
+    [Theory]
+    [InlineData(CellVerticalAlignment.Bottom)]
+    [InlineData(CellVerticalAlignment.Center)]
+    public void A_Split_Cell_With_Vertical_Alignment_Does_Not_Push_Continuation_Lines_Down(CellVerticalAlignment alignment)
+    {
+        int perPage = PerPage();
+        var paragraphs = new List<RichTextParagraph>();
+        for (int i = 0; i < perPage - 4; i++)
+            paragraphs.Add(RichTextParagraph.Plain("Body " + i));
+
+        int start = paragraphs.Count;
+        for (int i = 0; i < 6; i++)
+            paragraphs.Add(RichTextParagraph.Plain("Left " + i));
+        for (int i = 0; i < 15; i++)
+            paragraphs.Add(RichTextParagraph.Plain("Right " + i));
+
+        var row = new TableRow(
+            [new TableCell(start, 6, 0, verticalAlignment: alignment), new TableCell(start + 6, 15, 1)],
+            canSplit: true);
+        var table = new DocumentTable(start, 21, [row], [200.0, 200.0], cellPadding: 0);
+        var document = RichTextDocument.FromParagraphs(paragraphs).WithTables([table]);
+
+        LayoutResult result = Layout(document);
+
+        // Left cell splits (4 lines fit on page 0, 2 lines carry over to page 1).
+        // Right cell also splits (4 lines on page 0, 11 lines on page 1).
+        // On page 1, Left cell has 2 lines while Right cell has 11 lines (leaving huge spare height).
+        // Left cell's continuation lines must start at the cell's top (72) without being shifted down.
+        Assert.Equal(4, LinesStarting(result.Pages[0], "Left", document).Count());
+        Assert.Equal(2, LinesStarting(result.Pages[1], "Left", document).Count());
+
+        LayoutLine firstContinuationLine = LinesStarting(result.Pages[1], "Left", document).First();
+        Assert.Equal(72, firstContinuationLine.Top, 3);
+    }
+
+    [Fact]
+    public void Continuation_Cell_Pieces_Across_Multi_Page_Splits_Preserve_Height_Bounds()
+    {
+        int perPage = PerPage();
+        // A row spanning across 3 pages: 2 full pages + 10 lines
+        int totalLines = perPage * 2 + 10;
+        RichTextDocument document = TableAfter(0, totalLines, 2);
+
+        LayoutResult result = Layout(document);
+
+        Assert.True(result.Pages.Count >= 3);
+        Assert.Equal(perPage, LinesStarting(result.Pages[0], "Left", document).Count());
+        Assert.Equal(perPage, LinesStarting(result.Pages[1], "Left", document).Count());
+        Assert.Equal(10, LinesStarting(result.Pages[2], "Left", document).Count());
+
+        // Each page keeps all lines within bounds
+        foreach (LayoutPage page in result.Pages.Take(3))
+        {
+            Assert.All(page.Lines, line => Assert.True(line.Top + line.Height <= 72 + 648 + 0.001));
+        }
+
+        // Page 1 is an intermediate continuation page: cell starts at top (72) and ends at bottom (72 + 648)
+        LayoutCell page1Cell = result.Pages[1].Cells.First();
+        Assert.Equal(72, page1Cell.Bounds.Top, 3);
+        Assert.Equal(72 + 648, page1Cell.Bounds.Bottom, 3);
+
+        // Page 2 is final continuation page: cell starts at top (72)
+        LayoutCell page2Cell = result.Pages[2].Cells.First();
+        Assert.Equal(72, page2Cell.Bounds.Top, 3);
+    }
+
+    [Fact]
+    public void A_Row_Holding_Cell_With_No_Content_Does_Not_Trigger_Stranded_Cell_Check()
+    {
+        int perPage = PerPage();
+        var paragraphs = new List<RichTextParagraph>();
+        for (int i = 0; i < perPage - 4; i++)
+            paragraphs.Add(RichTextParagraph.Plain("Body " + i));
+
+        int start = paragraphs.Count;
+        for (int i = 0; i < 10; i++)
+            paragraphs.Add(RichTextParagraph.Plain("Left " + i));
+
+        // Right cell is completely empty (paragraph count = 0)
+        var row = new TableRow(
+            [new TableCell(start, 10, 0), new TableCell(start + 10, 0, 1)],
+            canSplit: true);
+        var table = new DocumentTable(start, 10, [row], [200.0, 200.0], cellPadding: 0);
+        var document = RichTextDocument.FromParagraphs(paragraphs).WithTables([table]);
+
+        LayoutResult result = Layout(document);
+
+        // Left cell splits cleanly: 4 lines under the body on page 0, 6 on page 1
+        Assert.Equal(4, LinesStarting(result.Pages[0], "Left", document).Count());
+        Assert.Equal(6, LinesStarting(result.Pages[1], "Left", document).Count());
+    }
 }

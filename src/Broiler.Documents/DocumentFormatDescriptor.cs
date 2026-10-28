@@ -12,6 +12,12 @@ namespace Broiler.Documents;
 /// </summary>
 public sealed class DocumentFormatDescriptor
 {
+    /// <summary>
+    /// Initializes a new instance of <see cref="DocumentFormatDescriptor"/>.
+    /// </summary>
+    /// <param name="name">The format name.</param>
+    /// <param name="mimeTypes">MIME types recognized for this format.</param>
+    /// <param name="fileExtensions">File extensions recognized for this format.</param>
     public DocumentFormatDescriptor(string name, IEnumerable<string>? mimeTypes = null, IEnumerable<string>? fileExtensions = null)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -22,10 +28,13 @@ public sealed class DocumentFormatDescriptor
         FileExtensions = NormalizeList(fileExtensions, nameof(fileExtensions), NormalizeExtension);
     }
 
+    /// <summary>The uppercase format name (for example, "RTF", "PDF", "DOCX").</summary>
     public string Name { get; }
 
+    /// <summary>The MIME media types recognized for this format.</summary>
     public IReadOnlyList<string> MimeTypes { get; }
 
+    /// <summary>The file extensions recognized for this format, normalized with a leading dot.</summary>
     public IReadOnlyList<string> FileExtensions { get; }
 
     /// <summary>True when <paramref name="extension"/> (with or without a dot) is one of ours.</summary>

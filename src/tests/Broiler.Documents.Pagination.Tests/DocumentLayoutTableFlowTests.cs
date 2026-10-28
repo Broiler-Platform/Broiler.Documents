@@ -120,4 +120,137 @@ public sealed class DocumentLayoutTableFlowTests
         Assert.Equal(14, result.Pages.Sum(page => page.Lines.Count));
         Assert.All(result.Pages.SelectMany(page => page.Lines), line => Assert.InRange(line.Top, 10, 80));
     }
+    [Fact]
+    public void Table_KeepTogether_Moves_Entire_Table_To_Fresh_Page_When_Fitting_A_Page()
+    {
+        RichTextParagraph filler = Para(5);
+        RichTextParagraph r0 = Para(2);
+        RichTextParagraph r1 = Para(2);
+        var tableOrdinary = new DocumentTable(1, 2,
+            [new TableRow([new TableCell(1, 1, 0)]), new TableRow([new TableCell(2, 1, 0)])],
+            [180], cellPadding: 0, keepTogether: false);
+        var tableKept = new DocumentTable(1, 2,
+            [new TableRow([new TableCell(1, 1, 0)]), new TableRow([new TableCell(2, 1, 0)])],
+            [180], cellPadding: 0, keepTogether: true);
+
+        LayoutResult ordinaryResult = Layout(RichTextDocument.FromParagraphs([filler, r0, r1]).WithTables([tableOrdinary]));
+        LayoutResult keptResult = Layout(RichTextDocument.FromParagraphs([filler, r0, r1]).WithTables([tableKept]));
+
+        Assert.Equal(2, ordinaryResult.Pages.Count);
+        Assert.Equal(8, ordinaryResult.Pages[0].Lines.Count); // 5 filler + 2 row 0 + 1 line of split row 1
+        Assert.Single(ordinaryResult.Pages[1].Lines); // 1 remaining line of row 1
+
+        Assert.Equal(2, keptResult.Pages.Count);
+        Assert.Equal(5, keptResult.Pages[0].Lines.Count);
+        Assert.Empty(keptResult.Pages[0].Cells);
+        Assert.Equal(4, keptResult.Pages[1].Lines.Count);
+        Assert.Equal(2, keptResult.Pages[1].Cells.Count);
+    }
+
+    [Fact]
+    public void Table_KeepTogether_Taller_Than_Page_Splits_Across_Pages_Without_Freezing()
+    {
+        RichTextParagraph filler = Para(3);
+        RichTextParagraph r0 = Para(6);
+        RichTextParagraph r1 = Para(6);
+        var table = new DocumentTable(1, 2,
+            [new TableRow([new TableCell(1, 1, 0)]), new TableRow([new TableCell(2, 1, 0)])],
+            [180], cellPadding: 0, keepTogether: true);
+
+        LayoutResult result = Layout(RichTextDocument.FromParagraphs([filler, r0, r1]).WithTables([table]));
+
+        Assert.True(result.Pages.Count >= 2);
+        Assert.Equal(15, result.Pages.Sum(p => p.Lines.Count));
+    }
+
+    [Fact]
+    public void TableRow_KeepWithNext_Moves_Row_To_Next_Page_When_Subsequent_Row_Cannot_Fit()
+    {
+        RichTextParagraph filler = Para(5);
+        RichTextParagraph r0 = Para(2);
+        RichTextParagraph r1 = Para(2);
+
+        var tableWithoutKeep = new DocumentTable(1, 2,
+            [new TableRow([new TableCell(1, 1, 0)], keepWithNext: false),
+             new TableRow([new TableCell(2, 1, 0)])],
+            [180], cellPadding: 0);
+
+        var tableWithKeep = new DocumentTable(1, 2,
+            [new TableRow([new TableCell(1, 1, 0)], keepWithNext: true),
+             new TableRow([new TableCell(2, 1, 0)])],
+            [180], cellPadding: 0);
+
+        LayoutResult withoutKeepResult = Layout(RichTextDocument.FromParagraphs([filler, r0, r1]).WithTables([tableWithoutKeep]));
+        LayoutResult withKeepResult = Layout(RichTextDocument.FromParagraphs([filler, r0, r1]).WithTables([tableWithKeep]));
+
+        Assert.Equal(8, withoutKeepResult.Pages[0].Lines.Count); // 5 filler + 2 row 0 + 1 line of split row 1
+        Assert.Single(withoutKeepResult.Pages[1].Lines); // 1 remaining line of row 1
+
+        Assert.Equal(5, withKeepResult.Pages[0].Lines.Count);
+        Assert.Equal(4, withKeepResult.Pages[1].Lines.Count);
+    }
+
+    [Fact]
+    public void TableRow_KeepWithNext_Chain_Keeps_Multiple_Rows_Together()
+    {
+        RichTextParagraph filler = Para(3);
+        RichTextParagraph r0 = Para(2);
+        RichTextParagraph r1 = Para(2);
+        RichTextParagraph r2 = Para(2);
+
+        var table = new DocumentTable(1, 3,
+            [new TableRow([new TableCell(1, 1, 0)], keepWithNext: true),
+             new TableRow([new TableCell(2, 1, 0)], keepWithNext: true),
+             new TableRow([new TableCell(3, 1, 0)])],
+            [180], cellPadding: 0);
+
+        LayoutResult result = Layout(RichTextDocument.FromParagraphs([filler, r0, r1, r2]).WithTables([table]));
+
+        Assert.Equal(2, result.Pages.Count);
+        Assert.Equal(3, result.Pages[0].Lines.Count);
+        Assert.Equal(6, result.Pages[1].Lines.Count);
+    }
+
+    [Fact]
+    public void Heading_KeepWithNext_Moves_With_KeepTogether_Table()
+    {
+        RichTextParagraph filler = Para(4);
+        RichTextParagraph heading = Para(1).WithParagraphStyle(ParagraphStyle.Default with { LineHeightRule = LineHeightRule.Exact, LineHeight = 10, KeepWithNext = true });
+        RichTextParagraph r0 = Para(2);
+        RichTextParagraph r1 = Para(2);
+
+        var table = new DocumentTable(2, 2,
+            [new TableRow([new TableCell(2, 1, 0)]),
+             new TableRow([new TableCell(3, 1, 0)])],
+            [180], cellPadding: 0, keepTogether: true);
+
+        LayoutResult result = Layout(RichTextDocument.FromParagraphs([filler, heading, r0, r1]).WithTables([table]));
+
+        Assert.Equal(2, result.Pages.Count);
+        Assert.Equal(4, result.Pages[0].Lines.Count);
+        Assert.Equal(5, result.Pages[1].Lines.Count);
+    }
+
+    [Fact]
+    public void Nested_Table_With_KeepTogether_Is_Not_Cut_By_Outer_Row()
+    {
+        RichTextParagraph filler = Para(5);
+        RichTextParagraph n0 = Para(2);
+        RichTextParagraph n1 = Para(2);
+
+        var innerTable = new DocumentTable(1, 2,
+            [new TableRow([new TableCell(1, 1, 0)]),
+             new TableRow([new TableCell(2, 1, 0)])],
+            [160], cellPadding: 0, keepTogether: true);
+
+        var outerTable = new DocumentTable(1, 2,
+            [new TableRow([new TableCell(1, 2, 0, tables: [innerTable])], canSplit: true)],
+            [180], cellPadding: 0);
+
+        LayoutResult result = Layout(RichTextDocument.FromParagraphs([filler, n0, n1]).WithTables([outerTable]));
+
+        Assert.Equal(2, result.Pages.Count);
+        Assert.Equal(5, result.Pages[0].Lines.Count);
+        Assert.Equal(4, result.Pages[1].Lines.Count);
+    }
 }

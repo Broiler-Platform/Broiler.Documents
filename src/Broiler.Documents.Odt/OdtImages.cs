@@ -31,7 +31,8 @@ internal sealed class OdtImageLoader(
     private readonly OdtManifest _manifest = manifest;
     private readonly DocumentLimits _limits = limits;
     private readonly DocumentConversionContextBuilder _resources = resources;
-    private readonly Dictionary<string, PicturePart?> _parts = new(StringComparer.OrdinalIgnoreCase);
+    private enum LoadResult { Success, Missing, Limit, Format, External }
+    private readonly Dictionary<string, (PicturePart? Part, LoadResult Result)> _parts = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>How many pictures this read turned into inline images.</summary>
     public int ImageCount { get; private set; }
@@ -44,13 +45,18 @@ internal sealed class OdtImageLoader(
     {
         PicturePart? part = null;
         bool foundImage = false;
+        LoadResult lastResult = LoadResult.Missing;
         foreach (XElement image in ImageAlternatives(frame))
         {
             foundImage = true;
-            part = ReadPicture(image, diagnostics);
+            part = ReadPicture(image, diagnostics, out lastResult);
             if (part is not null)
                 break;
         }
+
+        (double width, double height) = ReadExtent(frame);
+        (string? altText, string? name) = ReadDescription(frame);
+
         if (part is null)
         {
             if (!foundImage)
@@ -58,12 +64,35 @@ internal sealed class OdtImageLoader(
                 diagnostics.AddDiagnosticOnce(
                     "odt.image.shape",
                     "An ODT frame held no embedded picture and was skipped.");
+                return null;
             }
+
+            if (lastResult is LoadResult.Missing or LoadResult.External or LoadResult.Format && width > 0 && height > 0)
+            {
+                var placeholder = InlineImage.CreateMissingPayload(width, height, altText, name);
+                if (!_resources.TryAdmit(
+                        new DocumentResourceRequest(
+                            placeholder.Resource,
+                            DocumentResourceProvenance.ReadFromSource,
+                            lastResult == LoadResult.External ? DocumentResourceDisposition.Linked : DocumentResourceDisposition.Embedded,
+                            placeholder.Name,
+                            "ODT"),
+                        DocumentResourceOperations.ExtractToModel,
+                        out DocumentResourceId id,
+                        out string? denial))
+                {
+                    diagnostics.AddDiagnosticOnce(
+                        "odt.image.denied",
+                        "A picture was not read into the document because " + denial + ".");
+                    return null;
+                }
+
+                ImageCount++;
+                return placeholder.WithResourceId(id);
+            }
+
             return null;
         }
-
-        (double width, double height) = ReadExtent(frame);
-        (string? altText, string? name) = ReadDescription(frame);
 
         var picture = new InlineImage(
             part.Data,
@@ -83,17 +112,17 @@ internal sealed class OdtImageLoader(
                     picture.Name,
                     "ODT"),
                 DocumentResourceOperations.ExtractToModel,
-                out DocumentResourceId id,
-                out string? denial))
+                out DocumentResourceId id2,
+                out string? denial2))
         {
             diagnostics.AddDiagnosticOnce(
                 "odt.image.denied",
-                "A picture was not read into the document because " + denial + ".");
+                "A picture was not read into the document because " + denial2 + ".");
             return null;
         }
 
         ImageCount++;
-        return picture.WithResourceId(id);
+        return picture.WithResourceId(id2);
     }
 
     /// <summary>
@@ -116,19 +145,20 @@ internal sealed class OdtImageLoader(
         }
     }
 
-    private PicturePart? ReadPicture(XElement image, IOdtImageDiagnostics diagnostics)
+    private PicturePart? ReadPicture(XElement image, IOdtImageDiagnostics diagnostics, out LoadResult result)
     {
         string? href = (string?)image.Attribute(OdtNamespaces.XLink + "href");
         if (!string.IsNullOrWhiteSpace(href))
-            return LoadFromPackage(href, diagnostics);
+            return LoadFromPackage(href, diagnostics, out result);
 
         XElement? binary = image.Element(OdtNamespaces.Office + "binary-data");
         if (binary is not null)
-            return LoadFromBinaryData(binary, diagnostics);
+            return LoadFromBinaryData(binary, diagnostics, out result);
 
         diagnostics.AddDiagnosticOnce(
             "odt.image.shape",
             "An ODT frame held no embedded picture and was skipped.");
+        result = LoadResult.Missing;
         return null;
     }
 
@@ -137,7 +167,7 @@ internal sealed class OdtImageLoader(
     /// is cached as a failure, so a document that shows the same picture a
     /// hundred times reports once and re-reads nothing.
     /// </summary>
-    private PicturePart? LoadFromPackage(string href, IOdtImageDiagnostics diagnostics)
+    private PicturePart? LoadFromPackage(string href, IOdtImageDiagnostics diagnostics, out LoadResult result)
     {
         if (_archive is null ||
             (Uri.TryCreate(href, UriKind.Absolute, out Uri? absolute) && !absolute.IsFile))
@@ -149,6 +179,7 @@ internal sealed class OdtImageLoader(
             diagnostics.AddDiagnosticOnce(
                 "odt.image.external",
                 "An ODT picture linked to an image outside the package, which is not fetched.");
+            result = LoadResult.External;
             return null;
         }
 
@@ -158,18 +189,22 @@ internal sealed class OdtImageLoader(
             diagnostics.AddDiagnosticOnce(
                 "odt.image.missing",
                 "An ODT picture referenced an entry the package does not contain.");
+            result = LoadResult.Missing;
             return null;
         }
 
-        if (_parts.TryGetValue(path, out PicturePart? cached))
-            return cached;
+        if (_parts.TryGetValue(path, out (PicturePart? Part, LoadResult Result) cached))
+        {
+            result = cached.Result;
+            return cached.Part;
+        }
 
-        PicturePart? part = ReadPackageEntry(_archive, path, diagnostics);
-        _parts[path] = part;
+        PicturePart? part = ReadPackageEntry(_archive, path, diagnostics, out result);
+        _parts[path] = (part, result);
         return part;
     }
 
-    private PicturePart? ReadPackageEntry(ZipArchive archive, string path, IOdtImageDiagnostics diagnostics)
+    private PicturePart? ReadPackageEntry(ZipArchive archive, string path, IOdtImageDiagnostics diagnostics, out LoadResult result)
     {
         ZipArchiveEntry? entry = OdtPackage.FindEntry(archive, path);
         if (entry is null)
@@ -177,6 +212,7 @@ internal sealed class OdtImageLoader(
             diagnostics.AddDiagnosticOnce(
                 "odt.image.missing",
                 "An ODT picture referenced an entry the package does not contain.");
+            result = LoadResult.Missing;
             return null;
         }
 
@@ -186,10 +222,11 @@ internal sealed class OdtImageLoader(
             diagnostics.AddDiagnosticOnce(
                 "odt.image.limit",
                 "An ODT picture exceeded MaxBinBytes and was skipped.");
+            result = LoadResult.Limit;
             return null;
         }
 
-        string? contentType =
+        string? contentType = 
             OdtImageFormats.ContentTypeForMediaType(_manifest.MediaTypeFor(path)) ??
             DocumentImageFormats.ContentTypeForExtension(Path.GetExtension(path)) ??
             DocumentImageFormats.ContentTypeForSignature(data);
@@ -200,9 +237,11 @@ internal sealed class OdtImageLoader(
             diagnostics.AddDiagnosticOnce(
                 "odt.image.format",
                 "An ODT picture used an image format this codec does not carry and was skipped.");
+            result = LoadResult.Format;
             return null;
         }
 
+        result = LoadResult.Success;
         return new PicturePart(data, contentType, Path.GetFileNameWithoutExtension(path));
     }
 
@@ -210,7 +249,7 @@ internal sealed class OdtImageLoader(
     /// Decodes an <c>office:binary-data</c> payload. The size is checked from the
     /// encoded length before decoding, so an oversized payload never allocates.
     /// </summary>
-    private PicturePart? LoadFromBinaryData(XElement binary, IOdtImageDiagnostics diagnostics)
+    private PicturePart? LoadFromBinaryData(XElement binary, IOdtImageDiagnostics diagnostics, out LoadResult result)
     {
         string encoded = binary.Value;
         if ((long)encoded.Length / 4 * 3 > _limits.MaxBinBytes)
@@ -218,6 +257,7 @@ internal sealed class OdtImageLoader(
             diagnostics.AddDiagnosticOnce(
                 "odt.image.limit",
                 "An ODT picture exceeded MaxBinBytes and was skipped.");
+            result = LoadResult.Limit;
             return null;
         }
 
@@ -231,6 +271,7 @@ internal sealed class OdtImageLoader(
             diagnostics.AddDiagnosticOnce(
                 "odt.image.binary",
                 "An ODT picture carried inline data that is not valid base64 and was skipped.");
+            result = LoadResult.Format;
             return null;
         }
 
@@ -239,6 +280,7 @@ internal sealed class OdtImageLoader(
             diagnostics.AddDiagnosticOnce(
                 "odt.image.limit",
                 "An ODT picture exceeded MaxBinBytes and was skipped.");
+            result = LoadResult.Limit;
             return null;
         }
 
@@ -248,9 +290,11 @@ internal sealed class OdtImageLoader(
             diagnostics.AddDiagnosticOnce(
                 "odt.image.format",
                 "An ODT picture used an image format this codec does not carry and was skipped.");
+            result = LoadResult.Format;
             return null;
         }
 
+        result = LoadResult.Success;
         return new PicturePart(data, contentType, "image");
     }
 

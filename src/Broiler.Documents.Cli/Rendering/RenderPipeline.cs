@@ -175,6 +175,7 @@ public sealed class RenderPipeline
             DecorateLinks = !line.Has("no-link-style"),
             SynthesizeItalic = !line.Has("no-synthetic-italic"),
             ItalicFaceAvailable = fonts.HasItalicFace,
+            TextMeasurer = fonts.TextMeasurer,
             FontVerticalMetrics = fonts.VerticalMetrics,
             FontLineGap = fonts.LineGap,
         };

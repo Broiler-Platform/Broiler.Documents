@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>Broiler.Documents.Ods</RootNamespace>
+    <AssemblyName>Broiler.Documents.Ods</AssemblyName>
+    <PackageId>Broiler.Documents.Ods</PackageId>
+    <Description>OASIS OpenDocument Spreadsheet (.ods) document codec for Broiler.Documents: reads worksheets into tables in the rich-text model and writes tables back out.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Broiler.Documents\Broiler.Documents.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Model\Broiler.Documents.Model.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Broiler.Documents.Ods.Tests" />
+  </ItemGroup>
+
+</Project>

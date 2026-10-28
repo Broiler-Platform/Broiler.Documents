@@ -247,17 +247,22 @@ public sealed class DocxShapeGroupTests
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.denied");
     }
 
-    [Theory]
-    [InlineData(false, "docx.image.relationship")]
-    [InlineData(true, "docx.image.external")]
-    public void Missing_And_External_Grouped_Pictures_Are_Diagnosed(bool external, string code)
+    [Fact]
+    public void Missing_Grouped_Picture_Relationship_Is_Diagnosed()
     {
-        string relationship = external
-            ? DocxTestPackage.ImageRelationship("rId7", "https://example.test/logo.png").Replace("/>", " TargetMode='External'/>")
-            : "";
-        var result = ReadPictureGroup(Picture(), relationship: relationship);
+        var result = ReadPictureGroup(Picture(), relationship: "");
         Assert.DoesNotContain(result.Document.Shapes, shape => shape.Image is not null);
-        Assert.Contains(result.Diagnostics, d => d.Code == code);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.relationship");
+    }
+
+    [Fact]
+    public void External_Grouped_Pictures_Retain_Placeholder_And_Are_Diagnosed()
+    {
+        string relationship = DocxTestPackage.ImageRelationship("rId7", "https://example.test/logo.png").Replace("/>", " TargetMode='External'/>");
+        var result = ReadPictureGroup(Picture(), relationship: relationship);
+        DocumentShape shape = Assert.Single(result.Document.Shapes.Where(s => s.Image is not null));
+        Assert.True(shape.Image!.IsMissingPayload);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.external");
     }
 
     [Fact]

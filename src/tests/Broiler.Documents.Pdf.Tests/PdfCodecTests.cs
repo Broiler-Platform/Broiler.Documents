@@ -243,4 +243,24 @@ public sealed class PdfRoundTripTests
         Assert.Contains("Paragraph number 0 ", read.Document.PlainText);
         Assert.Contains("Paragraph number 119 ", read.Document.PlainText);
     }
+
+    [Fact]
+    public void Write_Request_Enforces_RequireAtomic_Without_Staging()
+    {
+        var codec = new PdfDocumentCodec();
+        using var destination = new MemoryStream();
+        var request = new DocumentWriteRequest(
+            RichTextDocument.FromPlainText("PDF text"),
+            destination,
+            requireAtomic: true,
+            isStaged: false);
+
+        DocumentWriteResult result = codec.Write(request);
+
+        Assert.Equal(DocumentResultStatus.Rejected, result.Status);
+        Assert.Equal(DocumentDestinationState.NotStarted, result.DestinationState);
+        Assert.Equal(0, result.BytesWritten);
+        Assert.Equal(0, destination.Length);
+        Assert.Contains(result.Diagnostics, d => d.Code == DocumentDiagnosticCodes.CommitAtomicRequired);
+    }
 }

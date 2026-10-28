@@ -1,9 +1,10 @@
 using System;
+using System.Text;
 
 namespace Broiler.Documents.Text;
 
 /// <summary>
-/// Decodes Windows-1252 bytes without an encoding provider.
+/// Decodes and encodes Windows-1252 bytes without an encoding provider.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -35,9 +36,28 @@ internal static class Windows1252
         (char)0x0153, (char)0x009D, (char)0x017E, (char)0x0178,
     ];
 
+    /// <summary>An <see cref="Encoding"/> instance representing Windows-1252.</summary>
+    public static readonly Encoding Instance = new Windows1252Encoding();
+
     /// <summary>The character one Windows-1252 byte stands for.</summary>
     public static char Decode(byte value) =>
         value is >= 0x80 and <= 0x9F ? High[value - 0x80] : (char)value;
+
+    /// <summary>The Windows-1252 byte for a character, or '?' if unrepresentable.</summary>
+    public static byte Encode(char c)
+    {
+        if (c <= 0x7F)
+            return (byte)c;
+
+        int index = Array.IndexOf(High, c);
+        if (index >= 0)
+            return (byte)(0x80 + index);
+
+        if (c <= 0xFF)
+            return (byte)c;
+
+        return (byte)'?';
+    }
 
     /// <summary>A run of Windows-1252 bytes as text.</summary>
     public static string Decode(ReadOnlySpan<byte> bytes)
@@ -50,5 +70,37 @@ internal static class Windows1252
             for (int i = 0; i < source.Length; i++)
                 chars[i] = Decode(source[i]);
         });
+    }
+
+    private sealed class Windows1252Encoding : Encoding
+    {
+        public override string WebName => "windows-1252";
+        public override string EncodingName => "Western European (Windows)";
+        public override int CodePage => 1252;
+
+        public override int GetByteCount(char[] chars, int index, int count) => count;
+
+        public override int GetBytes(char[] chars, int charIndex, int charCount, byte[] bytes, int byteIndex)
+        {
+            ArgumentNullException.ThrowIfNull(chars);
+            ArgumentNullException.ThrowIfNull(bytes);
+            for (int i = 0; i < charCount; i++)
+                bytes[byteIndex + i] = Encode(chars[charIndex + i]);
+            return charCount;
+        }
+
+        public override int GetCharCount(byte[] bytes, int index, int count) => count;
+
+        public override int GetChars(byte[] bytes, int byteIndex, int byteCount, char[] chars, int charIndex)
+        {
+            ArgumentNullException.ThrowIfNull(bytes);
+            ArgumentNullException.ThrowIfNull(chars);
+            for (int i = 0; i < byteCount; i++)
+                chars[charIndex + i] = Decode(bytes[byteIndex + i]);
+            return byteCount;
+        }
+
+        public override int GetMaxByteCount(int charCount) => charCount;
+        public override int GetMaxCharCount(int byteCount) => byteCount;
     }
 }

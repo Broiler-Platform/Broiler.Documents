@@ -117,17 +117,47 @@ public sealed class DocumentNote
 /// <param name="FootnoteStart">The first footnote's number.</param>
 /// <param name="EndnoteFormat">The format an endnote's number is written in.</param>
 /// <param name="EndnoteStart">The first endnote's number.</param>
+/// <summary>Where footnote numbering restarts.</summary>
+public enum NoteNumberingRestart
+{
+    /// <summary>Numbering continues across the whole document.</summary>
+    Continuous,
+
+    /// <summary>Numbering restarts at each page.</summary>
+    EachPage,
+
+    /// <summary>Numbering restarts at each section.</summary>
+    EachSection,
+}
+
+/// <summary>Where footnotes are placed.</summary>
+public enum FootnotePosition
+{
+    /// <summary>At the bottom of each page.</summary>
+    PageBottom,
+
+    /// <summary>Beneath the text of the page.</summary>
+    BeneathText,
+
+    /// <summary>Collected at the end of the section or document.</summary>
+    DocumentEnd,
+}
+
 /// <param name="RaisedLabels">
 /// True when the label at the head of a note's text is raised like its
 /// citation and the text follows it on the line, as Word sets a note; false
 /// for LibreOffice's, a label at the text's size in a hanging indent.
 /// </param>
+/// <param name="FootnoteRestart">Where footnote numbering restarts.</param>
+/// <param name="FootnotePosition">Where footnotes are placed.</param>
 public sealed record NoteNumbering(
     ListNumberFormat FootnoteFormat = ListNumberFormat.Decimal,
     int FootnoteStart = 1,
     ListNumberFormat EndnoteFormat = ListNumberFormat.LowerRoman,
     int EndnoteStart = 1,
-    bool RaisedLabels = false)
+    bool RaisedLabels = false,
+    NoteNumberingRestart FootnoteRestart = NoteNumberingRestart.Continuous,
+    FootnotePosition FootnotePosition = FootnotePosition.PageBottom)
 {
     /// <summary>The numbering a document that states none takes.</summary>
     public static NoteNumbering Default { get; } = new();

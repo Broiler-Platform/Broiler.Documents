@@ -1,10 +1,13 @@
+using Broiler.Documents.Resources;
 using System.Collections.Generic;
 using Broiler.Documents.Model;
 
 namespace Broiler.Documents.Markdown;
 
-internal sealed class MarkdownDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
+internal sealed class MarkdownDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics, DocumentConversionContextBuilder? resources = null)
 {
+    public DocumentLimits Limits => limits;
+    public DocumentConversionContextBuilder Resources { get; } = resources ?? new DocumentConversionContextBuilder(DocumentResourcePolicy.Default);
     private readonly List<RichTextParagraph> _paragraphs = [];
     private readonly HashSet<string> _diagnosticOnce = new(System.StringComparer.Ordinal);
 

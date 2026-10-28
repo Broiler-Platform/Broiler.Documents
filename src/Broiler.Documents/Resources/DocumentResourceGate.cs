@@ -61,6 +61,14 @@ public static class DocumentResourceGate
             return false;
         }
 
+        if (image.IsMissingPayload || data.IsEmpty)
+        {
+            denial = "the image payload was missing or empty";
+            data = default;
+            contentType = null;
+            return false;
+        }
+
         denial = null;
         return true;
     }

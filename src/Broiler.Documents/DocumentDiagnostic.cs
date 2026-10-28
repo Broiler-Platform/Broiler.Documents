@@ -15,6 +15,11 @@ namespace Broiler.Documents;
 /// </remarks>
 public sealed class DocumentDiagnosticLocation
 {
+    /// <summary>Initializes a new instance of <see cref="DocumentDiagnosticLocation"/>.</summary>
+    /// <param name="byteOffset">Optional offset into the source bytes.</param>
+    /// <param name="paragraphIndex">Optional index of the produced paragraph.</param>
+    /// <param name="pageNumber">Optional one-based page number.</param>
+    /// <param name="part">Optional component or part name.</param>
     public DocumentDiagnosticLocation(long? byteOffset = null, int? paragraphIndex = null, int? pageNumber = null, string? part = null)
     {
         if (byteOffset < 0)
@@ -45,6 +50,7 @@ public sealed class DocumentDiagnosticLocation
     /// </summary>
     public string? Part { get; }
 
+    /// <summary>Returns a formatted string describing this diagnostic location.</summary>
     public override string ToString()
     {
         var parts = new System.Collections.Generic.List<string>(4);
@@ -69,6 +75,13 @@ public sealed class DocumentDiagnosticLocation
 /// </summary>
 public sealed class DocumentDiagnostic
 {
+    /// <summary>
+    /// Initializes a new instance of <see cref="DocumentDiagnostic"/>.
+    /// </summary>
+    /// <param name="severity">The diagnostic severity.</param>
+    /// <param name="code">The stable machine-readable diagnostic code.</param>
+    /// <param name="message">The human-readable message describing the condition.</param>
+    /// <param name="location">Optional location where the diagnostic condition occurred.</param>
     public DocumentDiagnostic(DocumentDiagnosticSeverity severity, string code, string message, DocumentDiagnosticLocation? location = null)
     {
         if (string.IsNullOrWhiteSpace(code))
@@ -82,24 +95,31 @@ public sealed class DocumentDiagnostic
         Location = location;
     }
 
+    /// <summary>The severity of the diagnostic.</summary>
     public DocumentDiagnosticSeverity Severity { get; }
 
+    /// <summary>The stable, machine-readable diagnostic code.</summary>
     public string Code { get; }
 
+    /// <summary>Human-readable explanation of the condition.</summary>
     public string Message { get; }
 
     /// <summary>Where the diagnostic applies, when the codec can say.</summary>
     public DocumentDiagnosticLocation? Location { get; }
 
+    /// <summary>Creates an informational diagnostic.</summary>
     public static DocumentDiagnostic Info(string code, string message, DocumentDiagnosticLocation? location = null) =>
         new(DocumentDiagnosticSeverity.Info, code, message, location);
 
+    /// <summary>Creates a warning diagnostic.</summary>
     public static DocumentDiagnostic Warning(string code, string message, DocumentDiagnosticLocation? location = null) =>
         new(DocumentDiagnosticSeverity.Warning, code, message, location);
 
+    /// <summary>Creates an error diagnostic.</summary>
     public static DocumentDiagnostic Error(string code, string message, DocumentDiagnosticLocation? location = null) =>
         new(DocumentDiagnosticSeverity.Error, code, message, location);
 
+    /// <summary>Returns a formatted string representing this diagnostic.</summary>
     public override string ToString() =>
         Location is null
             ? $"{Severity} {Code}: {Message}"

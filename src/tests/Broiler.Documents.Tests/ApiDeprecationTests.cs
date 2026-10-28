@@ -49,16 +49,13 @@ public sealed class ApiDeprecationTests
     }
 
     [Fact]
-    public void DecodeEmbeddedObjects_Is_Announced_And_Names_Its_Replacement()
+    public void DecodeEmbeddedObjects_Has_Been_Removed()
     {
-#pragma warning disable CS0618 // This test deliberately verifies the obsolete member's announcement.
-        ObsoleteAttribute? announcement = typeof(DocumentReadOptions)
-            .GetProperty(nameof(DocumentReadOptions.DecodeEmbeddedObjects))!
-            .GetCustomAttribute<ObsoleteAttribute>();
-#pragma warning restore CS0618
-
-        Assert.NotNull(announcement);
-        Assert.Contains("ResourcePolicy", announcement!.Message!, StringComparison.Ordinal);
+        // ADR 0014 removal step: DecodeEmbeddedObjects was announced with [Obsolete]
+        // and has now been removed from the public API.
+        Assert.Null(
+            typeof(DocumentReadOptions)
+                .GetProperty("DecodeEmbeddedObjects"));
     }
 
     [Fact]
@@ -79,9 +76,7 @@ public sealed class ApiDeprecationTests
     {
         // The whole point of the two-step rule. A caller who has not migrated
         // yet gets a warning and a working build, not a broken one.
-#pragma warning disable CS0618
-        Assert.True(new DocumentReadOptions(decodeEmbeddedObjects: true).DecodeEmbeddedObjects);
-        Assert.False(new DocumentReadOptions(decodeEmbeddedObjects: false).DecodeEmbeddedObjects);
-#pragma warning restore CS0618
+        foreach (ObsoleteAttribute announcement in Announcements)
+            Assert.False(announcement.IsError);
     }
 }

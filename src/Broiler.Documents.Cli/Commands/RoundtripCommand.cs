@@ -9,6 +9,7 @@ using Broiler.Documents.Cli.Composition;
 using Broiler.Documents.Cli.Documents;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Documents.Cli.Rendering;
+using Broiler.Documents.Csv;
 using Broiler.Documents.Model;
 
 namespace Broiler.Documents.Cli.Commands;
@@ -40,7 +41,7 @@ public static class RoundtripCommand
         new CommandSpec(
             "roundtrip",
             "Write a document to a format, read it back, and report what changed.",
-            "roundtrip <input> --via <format>... [--render] [--keep <directory>]",
+            "roundtrip <input> --via <format>... [--sheet <name|index>] [--table <index>] [--dialect <preset>] [--delimiter <sep>] [--render] [--keep <directory>]",
             [
                 OptionSpec.Many("via", "format", "A format to round-trip through. Give more than one to test several."),
                 OptionSpec.Value("keep", "directory", "Keep the intermediate files instead of working in memory."),
@@ -52,7 +53,10 @@ public static class RoundtripCommand
                 OptionSpec.Flag("ignore-whitespace", "Collapse runs of whitespace before comparing text."),
                 OptionSpec.Flag("ignore-inline-style", "Compare text and paragraph structure only."),
                 OptionSpec.Flag("ignore-paragraph-style", "Compare text and run formatting only."),
+                OptionSpec.Flag("ignore-table-layout", "Compare tabular data and structure only, ignoring cell widths, padding, and borders."),
+                OptionSpec.Value("numeric-tolerance", "delta", "Floating-point tolerance for cell value comparisons."),
                 OptionSpec.Value("max-differences", "n", "Stop listing differences after this many per format.", "50"),
+                .. DocumentOptions.RoutingSpecs,
                 .. RenderPipeline.Specs,
                 .. DocumentOptions.Specs,
                 .. DocumentOptions.WriteSpecs,
@@ -60,6 +64,8 @@ public static class RoundtripCommand
             [
                 "roundtrip report.docx --via docx",
                 "roundtrip report.docx --via docx --via rtf --via html --via markdown --json",
+                "roundtrip sheet.csv --sheet 0 --via csv --dialect tsv",
+                "roundtrip report.docx --table 0 --via csv --ignore-table-layout",
                 "roundtrip report.docx --via rtf --render --diff rtf-diff.png",
                 "roundtrip report.docx --via docx --keep ./artifacts",
             ],
@@ -68,7 +74,9 @@ public static class RoundtripCommand
             "A difference is not automatically a defect: the document model is normalized, and\n" +
             "source-preserving round trips are not a goal. What this finds cheaply is the\n" +
             "difference nobody decided on - and the diagnostics printed alongside usually say\n" +
-            "which of the two it is."),
+            "which of the two it is.\n\n" +
+            "Use --sheet or --table to isolate a specific spreadsheet sheet or table for roundtrip testing.\n" +
+            "Use --dialect or --delimiter to route CSV/TSV dialect presets across roundtrip hops."),
         Run);
 
     private static int Run(CommandContext context)
@@ -92,11 +100,36 @@ public static class RoundtripCommand
         context.Report("source  " + source + "  (" + original.FormatName + ", " + original.Status + ")");
         DocumentReport.Print(context, original.Diagnostics, "read diagnostics");
 
+        int sheetIndex = DocumentOptions.ResolveSheetIndex(original.Document, context.Line);
+        LoadedDocument documentToTest = original;
+        if (sheetIndex >= 0)
+        {
+            RichTextDocument isolated = DocumentOptions.ExtractSheet(original.Document, sheetIndex);
+            documentToTest = original.WithDocument(isolated);
+            context.Report($"selected sheet/table {sheetIndex} ({isolated.ParagraphCount} paragraphs)");
+            context.Result["selectedSheet"] = sheetIndex;
+        }
+
+        string? dialectName = context.Line.Get("dialect") ?? context.Line.Get("csv-dialect");
+        if (!string.IsNullOrEmpty(dialectName))
+            context.Result["dialect"] = dialectName;
+
+        double? numTolerance = null;
+        if (context.Line.Has("numeric-tolerance"))
+        {
+            string? tolStr = context.Line.Get("numeric-tolerance");
+            if (!double.TryParse(tolStr, NumberStyles.Float, CultureInfo.InvariantCulture, out double nt) || nt < 0)
+                throw new UsageException("The --numeric-tolerance option requires a non-negative number.");
+            numTolerance = nt;
+        }
+
         var options = new ComparisonOptions
         {
             IgnoreWhitespace = context.Line.Has("ignore-whitespace"),
             IgnoreInlineStyle = context.Line.Has("ignore-inline-style"),
             IgnoreParagraphStyle = context.Line.Has("ignore-paragraph-style"),
+            IgnoreTableLayout = context.Line.Has("ignore-table-layout"),
+            NumericTolerance = numTolerance,
             MaxDifferences = Math.Max(1, context.Line.GetInt32("max-differences", 50)),
         };
 
@@ -107,7 +140,7 @@ public static class RoundtripCommand
         foreach (string format in formats)
         {
             (bool equal, JsonObject json, IReadOnlyList<DocumentDiagnostic> reported) = RoundtripOne(
-                context, catalog, original, format, readOptions, writeOptions, options, source);
+                context, catalog, documentToTest, format, readOptions, writeOptions, options, source);
 
             allEqual &= equal;
             diagnostics.AddRange(reported);
@@ -162,21 +195,33 @@ public static class RoundtripCommand
                 (codec.CanRead ? "reads it but does not write it." : "writes it but does not read it."));
         }
 
+        bool isTsv = format.Equals("tsv", StringComparison.OrdinalIgnoreCase) || format.Equals(".tsv", StringComparison.OrdinalIgnoreCase);
+        bool isCsv = codec.Descriptor.MatchesExtension(".csv");
+        string viaDisplayName = isTsv ? "TSV" : codec.Descriptor.Name;
+
         context.Report();
-        context.Report("via " + codec.Descriptor.Name);
+        context.Report("via " + viaDisplayName);
 
         using var staging = new MemoryStream();
+        DocumentWriteOptions effectiveWriteOptions = writeOptions;
+        if (isCsv)
+        {
+            CsvWriteOptions baseCsv = DocumentOptions.CsvWriteOptionsFrom(context.Line);
+            char delim = isTsv ? '\t' : baseCsv.Delimiter;
+            effectiveWriteOptions = new CsvWriteOptions(delim, baseCsv.ByteOrderMark, baseCsv.EscapeFormulas, writeOptions.Metadata);
+        }
+
         DocumentWriteResult written = codec.Write(
-            new DocumentWriteRequest(original.Document, staging, writeOptions));
+            new DocumentWriteRequest(original.Document, staging, effectiveWriteOptions));
 
         DocumentReport.Print(context, written.Diagnostics, "  write diagnostics");
 
         if (written.Status == DocumentResultStatus.Rejected)
         {
-            context.Fail("the " + codec.Descriptor.Name + " codec rejected the write.");
+            context.Fail("the " + viaDisplayName + " codec rejected the write.");
             return (false, new JsonObject
             {
-                ["format"] = codec.Descriptor.Name,
+                ["format"] = viaDisplayName,
                 ["equal"] = false,
                 ["writeStatus"] = written.Status.ToString().ToLowerInvariant(),
                 ["writeDiagnostics"] = DocumentReport.ToJson(written.Diagnostics),
@@ -184,14 +229,19 @@ public static class RoundtripCommand
         }
 
         byte[] bytes = staging.ToArray();
-        string? keptPath = KeepIfAsked(context, codec, bytes, source);
+        string? keptPath = KeepIfAsked(context, codec, bytes, source, isTsv);
 
         using DocumentInput input = DocumentInput.FromBytes(bytes);
         // The intermediate file uses the output dialect, independently of the
         // original input delimiter (which may even be a different format).
-        DocumentReadOptions rereadOptions = codec.Descriptor.MatchesExtension(".csv")
+        char rereadDelimiter = isTsv
+            ? '\t'
+            : (effectiveWriteOptions as CsvWriteOptions)?.Delimiter
+                ?? DocumentOptions.CsvWriteOptionsFrom(context.Line).Delimiter;
+
+        DocumentReadOptions rereadOptions = isCsv
             ? new Broiler.Documents.Csv.CsvReadOptions(readOptions.Limits,
-                DocumentOptions.CsvWriteOptionsFrom(context.Line).Delimiter, context.Line.Has("csv-header"))
+                rereadDelimiter, context.Line.Has("csv-header"))
             : readOptions;
         DocumentReadResult reread = codec.Read(new DocumentReadRequest(input, rereadOptions));
 
@@ -201,10 +251,10 @@ public static class RoundtripCommand
         {
             // The codec could not read back what it had just written. That is
             // never a normalization difference and never a documented limitation.
-            context.Fail("the " + codec.Descriptor.Name + " codec could not read back its own output.");
+            context.Fail("the " + viaDisplayName + " codec could not read back its own output.");
             return (false, new JsonObject
             {
-                ["format"] = codec.Descriptor.Name,
+                ["format"] = viaDisplayName,
                 ["equal"] = false,
                 ["byteLength"] = bytes.Length,
                 ["readStatus"] = reread.Status.ToString().ToLowerInvariant(),
@@ -317,7 +367,8 @@ public static class RoundtripCommand
         CommandContext context,
         DocumentCodec codec,
         byte[] bytes,
-        string source)
+        string source,
+        bool isTsv = false)
     {
         if (!context.Line.Has("keep"))
             return null;
@@ -327,11 +378,10 @@ public static class RoundtripCommand
             ? "document"
             : Path.GetFileNameWithoutExtension(source);
 
-        string extension = codec.Descriptor.FileExtensions.Count > 0
-            ? codec.Descriptor.FileExtensions[0]
-            : ".bin";
+        string formatName = isTsv ? "tsv" : codec.Descriptor.Name.ToLowerInvariant();
+        string extension = isTsv ? ".tsv" : (codec.Descriptor.FileExtensions.Count > 0 ? codec.Descriptor.FileExtensions[0] : ".bin");
 
-        string path = Path.Combine(directory, stem + "-roundtrip-" + codec.Descriptor.Name.ToLowerInvariant() + extension);
+        string path = Path.Combine(directory, stem + "-roundtrip-" + formatName + extension);
         DocumentIo.WriteAllBytes(path, bytes);
         context.Report("  kept            " + path);
         return path;

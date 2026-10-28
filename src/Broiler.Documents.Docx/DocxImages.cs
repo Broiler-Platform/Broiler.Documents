@@ -26,7 +26,8 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
     /// </summary>
     private const double MaxDisplayExtent = 20000.0;
     private readonly DocxDiagram.ReadState _diagrams = new();
-    private readonly Dictionary<string, MediaPart?> _parts = new(StringComparer.OrdinalIgnoreCase);
+    private enum LoadResult { Success, Missing, Limit, Format }
+    private readonly Dictionary<string, (MediaPart? Part, LoadResult Result)> _parts = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Puts a loaded picture through the caller's resource policy and, when it
@@ -105,13 +106,18 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
         }
         XElement? fill = picture.Element(DocxNamespaces.Picture + "blipFill");
         string? id = (string?)fill?.Element(DocxNamespaces.Drawing + "blip")?.Attribute(DocxNamespaces.Relationships + "embed");
+        (string? altText, string? name) = ReadDescription(picture);
+        ImagePresentation? presentation = ReadPresentation(fill, picture);
         if (string.IsNullOrWhiteSpace(id))
         {
             diagnostics.AddDiagnosticOnce("docx.shape.group", "A grouped DOCX picture held no embedded image; external images are not fetched.");
-            return null;
+            InlineImage? placeholder = Admit(InlineImage.CreateMissingPayload(width, height, altText, name, presentation),
+                DocumentResourceDisposition.Linked, diagnostics);
+            if (placeholder is not null)
+                ImageCount++;
+            return placeholder;
         }
-        (string? altText, string? name) = ReadDescription(picture);
-        InlineImage? image = Load(id, relationships, width, height, altText, name, diagnostics, ReadPresentation(fill, picture));
+        InlineImage? image = Load(id, relationships, width, height, altText, name, diagnostics, presentation);
         if (image is not null)
             ImageCount++;
         return image;
@@ -133,6 +139,9 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
                 continue;
             }
 
+            (double width, double height) = ReadExtent(wrapper);
+            (string? altText, string? name) = ReadDescription(wrapper);
+
             XElement? blip = FindDescendant(wrapper, DocxNamespaces.Drawing + "blip");
             if (blip is null)
             {
@@ -140,6 +149,7 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
                 return null;
             }
 
+            ImagePresentation? presentation = ReadPresentation(blip.Parent, wrapper);
             string? relationshipId = (string?)blip.Attribute(DocxNamespaces.Relationships + "embed");
             if (string.IsNullOrWhiteSpace(relationshipId))
             {
@@ -148,12 +158,15 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
                 diagnostics.AddDiagnosticOnce(
                     "docx.image.external",
                     "A DOCX picture linked to an external image, which is not fetched.");
+                if (width > 0 && height > 0)
+                {
+                    return Admit(InlineImage.CreateMissingPayload(width, height, altText, name, presentation),
+                        DocumentResourceDisposition.Linked, diagnostics);
+                }
                 return null;
             }
 
-            (double width, double height) = ReadExtent(wrapper);
-            (string? altText, string? name) = ReadDescription(wrapper);
-            return Load(relationshipId, relationships, width, height, altText, name, diagnostics, ReadPresentation(blip.Parent, wrapper));
+            return Load(relationshipId, relationships, width, height, altText, name, diagnostics, presentation);
         }
 
         diagnostics.AddDiagnosticOnce("docx.image.shape", "A DOCX drawing held no embedded picture and was skipped.");
@@ -174,17 +187,23 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
             return null;
         }
 
-        string? relationshipId = (string?)imageData.Attribute(DocxNamespaces.Relationships + "id");
-        if (string.IsNullOrWhiteSpace(relationshipId))
-        {
-            diagnostics.AddDiagnosticOnce("docx.image.external", "A DOCX picture linked to an external image, which is not fetched.");
-            return null;
-        }
-
         XElement? shape = imageData.Parent;
         (double width, double height) = ReadVmlStyleExtent((string?)shape?.Attribute("style"));
         string? altText = (string?)shape?.Attribute("alt") ?? (string?)imageData.Attribute("title");
         string? name = (string?)shape?.Attribute("id");
+
+        string? relationshipId = (string?)imageData.Attribute(DocxNamespaces.Relationships + "id");
+        if (string.IsNullOrWhiteSpace(relationshipId))
+        {
+            diagnostics.AddDiagnosticOnce("docx.image.external", "A DOCX picture linked to an external image, which is not fetched.");
+            if (width > 0 && height > 0)
+            {
+                return Admit(InlineImage.CreateMissingPayload(width, height, altText, name),
+                    DocumentResourceDisposition.Linked, diagnostics);
+            }
+            return null;
+        }
+
         return Load(relationshipId, relationships, width, height, altText, name, diagnostics);
     }
 
@@ -246,6 +265,24 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
         return thousandthsOfAPercent / 100000d;
     }
 
+    /// <summary>Loads a picture from an a:blipFill element.</summary>
+    public InlineImage? ReadBlipFill(XElement blipFill, DocxRelationships relationships, IDocxImageDiagnostics diagnostics)
+    {
+        XElement? blip = blipFill.Element(DocxNamespaces.Drawing + "blip");
+        if (blip is null)
+            return null;
+
+        string? embed = (string?)blip.Attribute(DocxNamespaces.Relationships + "embed");
+        if (string.IsNullOrWhiteSpace(embed))
+        {
+            diagnostics.AddDiagnosticOnce("docx.image.external", "A DOCX picture fill linked to an external image, which is not fetched.");
+            return null;
+        }
+
+        ImagePresentation? presentation = ReadPresentation(blipFill, blipFill);
+        return Load(embed, relationships, 0, 0, null, null, diagnostics, presentation);
+    }
+
     private InlineImage? Load(string relationshipId, DocxRelationships relationships, double width, double height, string? altText, string? name,
         IDocxImageDiagnostics diagnostics, ImagePresentation? presentation = null)
     {
@@ -258,12 +295,24 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
         if (relationship.TargetModeExternal)
         {
             diagnostics.AddDiagnosticOnce("docx.image.external", "A DOCX picture linked to an external image, which is not fetched.");
+            if (width > 0 && height > 0)
+            {
+                return Admit(InlineImage.CreateMissingPayload(width, height, altText, name, presentation),
+                    DocumentResourceDisposition.Linked, diagnostics);
+            }
             return null;
         }
 
-        MediaPart? part = LoadPart(relationship.Target, diagnostics);
+        MediaPart? part = LoadPart(relationship.Target, diagnostics, out LoadResult result);
         if (part is null)
+        {
+            if (result is LoadResult.Missing or LoadResult.Format && width > 0 && height > 0)
+            {
+                return Admit(InlineImage.CreateMissingPayload(width, height, altText, name, presentation),
+                    DocumentResourceDisposition.Embedded, diagnostics);
+            }
             return null;
+        }
 
         return Admit(new InlineImage(part.Data, part.ContentType, width, height, altText,
             string.IsNullOrWhiteSpace(name) ? Path.GetFileNameWithoutExtension(relationship.Target) : name, presentation),
@@ -276,28 +325,33 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
     /// document that references it a hundred times reports once and does not
     /// re-read the entry a hundred times.
     /// </summary>
-    private MediaPart? LoadPart(string partPath, IDocxImageDiagnostics diagnostics)
+    private MediaPart? LoadPart(string partPath, IDocxImageDiagnostics diagnostics, out LoadResult result)
     {
-        if (_parts.TryGetValue(partPath, out MediaPart? cached))
-            return cached;
+        if (_parts.TryGetValue(partPath, out (MediaPart? Part, LoadResult Result) cached))
+        {
+            result = cached.Result;
+            return cached.Part;
+        }
 
-        MediaPart? part = ReadPart(partPath, diagnostics);
-        _parts[partPath] = part;
+        MediaPart? part = ReadPart(partPath, diagnostics, out result);
+        _parts[partPath] = (part, result);
         return part;
     }
 
-    private MediaPart? ReadPart(string partPath, IDocxImageDiagnostics diagnostics)
+    private MediaPart? ReadPart(string partPath, IDocxImageDiagnostics diagnostics, out LoadResult result)
     {
         ZipArchiveEntry? entry = DocxPackage.FindEntry(archive, partPath);
         if (entry is null)
         {
             diagnostics.AddDiagnosticOnce("docx.image.missing", "A DOCX picture referenced a media part the package does not contain.");
+            result = LoadResult.Missing;
             return null;
         }
 
         if (entry.Length > limits.MaxBinBytes)
         {
             diagnostics.AddDiagnosticOnce("docx.image.limit", "A DOCX image part exceeded MaxBinBytes and was skipped.");
+            result = LoadResult.Limit;
             return null;
         }
 
@@ -305,6 +359,7 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
         if (data is null)
         {
             diagnostics.AddDiagnosticOnce("docx.image.limit", "A DOCX image part exceeded MaxBinBytes and was skipped.");
+            result = LoadResult.Limit;
             return null;
         }
 
@@ -314,9 +369,11 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
             // EMF/WMF metafiles land here, as does anything Word stored under an
             // extension this codec does not decode.
             diagnostics.AddDiagnosticOnce("docx.image.format", "A DOCX picture used an image format this codec does not carry and was skipped.");
+            result = LoadResult.Format;
             return null;
         }
 
+        result = LoadResult.Success;
         return new MediaPart(data, contentType);
     }
 

@@ -26,6 +26,15 @@ public sealed class ComparisonOptions
     /// <summary>Compare text and run formatting only, not alignment, lists, indents, or spacing.</summary>
     public bool IgnoreParagraphStyle { get; init; }
 
+    /// <summary>Compare tabular data and structure only, ignoring cell widths, padding, and borders.</summary>
+    public bool IgnoreTableLayout { get; init; }
+
+    /// <summary>
+    /// When specified, floating-point tolerance delta for cell value comparisons.
+    /// Numeric cells differing by at most this delta are considered equal.
+    /// </summary>
+    public double? NumericTolerance { get; init; }
+
     /// <summary>Stop listing differences after this many.</summary>
     public int MaxDifferences { get; init; } = 50;
 
@@ -37,9 +46,15 @@ public sealed class ComparisonOptions
 }
 
 /// <summary>One way in which two documents disagree.</summary>
-public sealed class DocumentDifference(string kind, int? leftParagraph, int? rightParagraph, string detail)
+public sealed class DocumentDifference(
+    string kind,
+    int? leftParagraph,
+    int? rightParagraph,
+    string detail,
+    int? tableIndex = null,
+    string? cellCoordinate = null)
 {
-    /// <summary>What sort of difference: <c>text</c>, <c>paragraph-style</c>, <c>inline-style</c>, <c>missing</c>, or <c>extra</c>.</summary>
+    /// <summary>What sort of difference: <c>text</c>, <c>paragraph-style</c>, <c>inline-style</c>, <c>missing</c>, <c>extra</c>, or table difference kinds.</summary>
     public string Kind { get; } = kind;
 
     /// <summary>The paragraph on the left, or null when the paragraph exists only on the right.</summary>
@@ -50,25 +65,52 @@ public sealed class DocumentDifference(string kind, int? leftParagraph, int? rig
 
     public string Detail { get; } = detail;
 
-    public JsonObject ToJson() => new()
+    /// <summary>The 0-based index of the table this difference occurred in, or null if outside a table or table count mismatch.</summary>
+    public int? TableIndex { get; } = tableIndex;
+
+    /// <summary>The spreadsheet-style cell coordinate (e.g. "A1", "C4") or column name ("A"), or null if at table level.</summary>
+    public string? CellCoordinate { get; } = cellCoordinate;
+
+    public JsonObject ToJson()
     {
-        ["kind"] = Kind,
-        ["leftParagraph"] = LeftParagraph,
-        ["rightParagraph"] = RightParagraph,
-        ["detail"] = Detail,
-    };
+        var json = new JsonObject
+        {
+            ["kind"] = Kind,
+            ["leftParagraph"] = LeftParagraph,
+            ["rightParagraph"] = RightParagraph,
+            ["detail"] = Detail,
+        };
+
+        if (TableIndex.HasValue)
+            json["tableIndex"] = TableIndex.Value;
+
+        if (CellCoordinate is not null)
+            json["cellCoordinate"] = CellCoordinate;
+
+        return json;
+    }
 
     public override string ToString()
     {
-        string where = (LeftParagraph, RightParagraph) switch
+        string where;
+        if (TableIndex.HasValue)
         {
-            (int l, int r) when l == r => "paragraph " + l.ToString(CultureInfo.InvariantCulture),
-            (int l, int r) => "paragraph " + l.ToString(CultureInfo.InvariantCulture) + "/" +
-                r.ToString(CultureInfo.InvariantCulture),
-            (int l, null) => "paragraph " + l.ToString(CultureInfo.InvariantCulture) + " (left only)",
-            (null, int r) => "paragraph " + r.ToString(CultureInfo.InvariantCulture) + " (right only)",
-            _ => "document",
-        };
+            where = "table " + TableIndex.Value.ToString(CultureInfo.InvariantCulture);
+            if (CellCoordinate is not null)
+                where += ", cell " + CellCoordinate;
+        }
+        else
+        {
+            where = (LeftParagraph, RightParagraph) switch
+            {
+                (int l, int r) when l == r => "paragraph " + l.ToString(CultureInfo.InvariantCulture),
+                (int l, int r) => "paragraph " + l.ToString(CultureInfo.InvariantCulture) + "/" +
+                    r.ToString(CultureInfo.InvariantCulture),
+                (int l, null) => "paragraph " + l.ToString(CultureInfo.InvariantCulture) + " (left only)",
+                (null, int r) => "paragraph " + r.ToString(CultureInfo.InvariantCulture) + " (right only)",
+                _ => "document",
+            };
+        }
 
         return where + ": " + Detail;
     }
@@ -157,6 +199,7 @@ public sealed class DocumentComparison
             StringComparison.Ordinal);
 
         comparison.CompareParagraphs(left, right);
+        comparison.CompareTables(left, right);
         return comparison;
     }
 
@@ -175,6 +218,9 @@ public sealed class DocumentComparison
         {
             pairs = Coalesce(Align(leftKeys, rightKeys));
         }
+
+        int[] leftTableMap = BuildParagraphTableMap(left);
+        int[] rightTableMap = BuildParagraphTableMap(right);
 
         foreach ((int? leftIndex, int? rightIndex) in pairs)
         {
@@ -202,14 +248,34 @@ public sealed class DocumentComparison
                 left.Paragraphs[leftIndex.Value],
                 right.Paragraphs[rightIndex.Value],
                 leftIndex.Value,
-                rightIndex.Value);
+                rightIndex.Value,
+                leftTableMap,
+                rightTableMap);
         }
     }
 
-    private void ComparePair(RichTextParagraph left, RichTextParagraph right, int leftIndex, int rightIndex)
+    private void ComparePair(
+        RichTextParagraph left,
+        RichTextParagraph right,
+        int leftIndex,
+        int rightIndex,
+        int[] leftTableMap,
+        int[] rightTableMap)
     {
+        bool inSameTable = leftIndex < leftTableMap.Length &&
+                           rightIndex < rightTableMap.Length &&
+                           leftTableMap[leftIndex] >= 0 &&
+                           leftTableMap[leftIndex] == rightTableMap[rightIndex];
+
         if (!string.Equals(Normalize(left.Text), Normalize(right.Text), StringComparison.Ordinal))
         {
+            if (inSameTable)
+            {
+                // In matching tables, cell value differences and numeric tolerance
+                // are reported by CompareTables under "table.cell-value".
+                return;
+            }
+
             Add("text", leftIndex, rightIndex,
                 "text differs: " + Preview(left.Text) + " vs " + Preview(right.Text));
             return;
@@ -227,6 +293,295 @@ public sealed class DocumentComparison
         string? inline = FirstInlineDifference(left, right);
         if (inline is not null)
             Add("inline-style", leftIndex, rightIndex, inline);
+    }
+
+    private void CompareTables(RichTextDocument left, RichTextDocument right)
+    {
+        if (_differences.Count >= Options.MaxDifferences)
+        {
+            Truncated = true;
+            return;
+        }
+
+        if (left.Tables.Count != right.Tables.Count)
+        {
+            Add("table.grid-mismatch", null, null,
+                $"table count differs: {left.Tables.Count} vs {right.Tables.Count}");
+        }
+
+        int tableCount = Math.Min(left.Tables.Count, right.Tables.Count);
+        for (int i = 0; i < tableCount; i++)
+        {
+            if (_differences.Count >= Options.MaxDifferences)
+            {
+                Truncated = true;
+                return;
+            }
+
+            DocumentTable tableL = left.Tables[i];
+            DocumentTable tableR = right.Tables[i];
+            TableGrid gridL = tableL.Grid;
+            TableGrid gridR = tableR.Grid;
+
+            // 1. Grid mismatch (row/column counts)
+            if (gridL.RowCount != gridR.RowCount || gridL.ColumnCount != gridR.ColumnCount)
+            {
+                Add("table.grid-mismatch", tableL.ParagraphIndex, tableR.ParagraphIndex,
+                    $"grid dimensions differ: {gridL.RowCount}x{gridL.ColumnCount} vs {gridR.RowCount}x{gridR.ColumnCount}",
+                    tableIndex: i);
+            }
+
+            // 2. Table-level layout
+            if (!Options.IgnoreTableLayout)
+            {
+                if (tableL.Alignment != tableR.Alignment)
+                {
+                    Add("table.cell-layout", tableL.ParagraphIndex, tableR.ParagraphIndex,
+                        $"alignment {tableL.Alignment} vs {tableR.Alignment}",
+                        tableIndex: i);
+                }
+
+                if (!Near(tableL.CellPadding, tableR.CellPadding))
+                {
+                    Add("table.cell-layout", tableL.ParagraphIndex, tableR.ParagraphIndex,
+                        $"padding {Number(tableL.CellPadding)} vs {Number(tableR.CellPadding)}",
+                        tableIndex: i);
+                }
+
+                int minCols = Math.Min(tableL.ColumnWidths.Count, tableR.ColumnWidths.Count);
+                for (int c = 0; c < minCols; c++)
+                {
+                    double wL = tableL.ColumnWidths[c];
+                    double wR = tableR.ColumnWidths[c];
+                    if (!Near(wL, wR))
+                    {
+                        string colLetter = CellAddress.ColumnToLetters(c);
+                        Add("table.cell-layout", tableL.ParagraphIndex, tableR.ParagraphIndex,
+                            $"column {colLetter} width {Number(wL)} vs {Number(wR)}",
+                            tableIndex: i,
+                            cellCoordinate: colLetter);
+                    }
+                }
+                if (tableL.ColumnWidths.Count != tableR.ColumnWidths.Count)
+                {
+                    Add("table.cell-layout", tableL.ParagraphIndex, tableR.ParagraphIndex,
+                        $"column width count {tableL.ColumnWidths.Count} vs {tableR.ColumnWidths.Count}",
+                        tableIndex: i);
+                }
+            }
+
+            // 3. Cell-level comparison
+            int rows = Math.Min(gridL.RowCount, gridR.RowCount);
+            int cols = Math.Min(gridL.ColumnCount, gridR.ColumnCount);
+            var reportedSpanMismatchesL = new HashSet<(int, int)>();
+            var reportedSpanMismatchesR = new HashSet<(int, int)>();
+
+            for (int r = 0; r < rows; r++)
+            {
+                for (int c = 0; c < cols; c++)
+                {
+                    if (_differences.Count >= Options.MaxDifferences)
+                    {
+                        Truncated = true;
+                        return;
+                    }
+
+                    TableGridSlot slotL = gridL.GetSlot(r, c);
+                    TableGridSlot slotR = gridR.GetSlot(r, c);
+                    string coord = new CellAddress(r, c).Format();
+
+                    // Span mismatch
+                    bool spanDiffers = slotL.RowSpan != slotR.RowSpan || slotL.ColumnSpan != slotR.ColumnSpan;
+                    if (spanDiffers && (slotL.IsRoot || slotR.IsRoot))
+                    {
+                        bool alreadyReported =
+                            (!slotL.IsRoot && reportedSpanMismatchesL.Contains((slotL.RootRow, slotL.RootColumn))) ||
+                            (!slotR.IsRoot && reportedSpanMismatchesR.Contains((slotR.RootRow, slotR.RootColumn)));
+
+                        if (!alreadyReported)
+                        {
+                            string detail;
+                            if (slotL.RowSpan != slotR.RowSpan && slotL.ColumnSpan != slotR.ColumnSpan)
+                                detail = $"row span {slotL.RowSpan} vs {slotR.RowSpan}, column span {slotL.ColumnSpan} vs {slotR.ColumnSpan}";
+                            else if (slotL.RowSpan != slotR.RowSpan)
+                                detail = $"row span {slotL.RowSpan} vs {slotR.RowSpan}";
+                            else
+                                detail = $"column span {slotL.ColumnSpan} vs {slotR.ColumnSpan}";
+
+                            Add("table.cell-span-mismatch",
+                                slotL.RootCell?.ParagraphIndex,
+                                slotR.RootCell?.ParagraphIndex,
+                                detail,
+                                tableIndex: i,
+                                cellCoordinate: coord);
+
+                            reportedSpanMismatchesL.Add((slotL.RootRow, slotL.RootColumn));
+                            reportedSpanMismatchesR.Add((slotR.RootRow, slotR.RootColumn));
+                        }
+                    }
+
+                    if (slotL.IsRoot && slotR.IsEmpty)
+                    {
+                        Add("table.cell-value",
+                            slotL.RootCell?.ParagraphIndex,
+                            null,
+                            "cell value present only on left: " + Preview(CellText(left, slotL.RootCell!)),
+                            tableIndex: i,
+                            cellCoordinate: coord);
+                    }
+                    else if (slotL.IsEmpty && slotR.IsRoot)
+                    {
+                        Add("table.cell-value",
+                            null,
+                            slotR.RootCell?.ParagraphIndex,
+                            "cell value present only on right: " + Preview(CellText(right, slotR.RootCell!)),
+                            tableIndex: i,
+                            cellCoordinate: coord);
+                    }
+                    else if (slotL.IsRoot && slotR.IsRoot)
+                    {
+                        TableCell cellL = slotL.RootCell!;
+                        TableCell cellR = slotR.RootCell!;
+
+                        if (!Options.IgnoreTableLayout)
+                        {
+                            if (cellL.Borders != cellR.Borders)
+                            {
+                                Add("table.cell-layout", cellL.ParagraphIndex, cellR.ParagraphIndex,
+                                    "borders differ",
+                                    tableIndex: i,
+                                    cellCoordinate: coord);
+                            }
+
+                            TableCellPadding padL = cellL.PaddingFor(tableL);
+                            TableCellPadding padR = cellR.PaddingFor(tableR);
+                            if (!Near(padL.Left, padR.Left) || !Near(padL.Top, padR.Top) ||
+                                !Near(padL.Right, padR.Right) || !Near(padL.Bottom, padR.Bottom))
+                            {
+                                Add("table.cell-layout", cellL.ParagraphIndex, cellR.ParagraphIndex,
+                                    "cell padding differs",
+                                    tableIndex: i,
+                                    cellCoordinate: coord);
+                            }
+
+                            if (cellL.Shading != cellR.Shading)
+                            {
+                                Add("table.cell-layout", cellL.ParagraphIndex, cellR.ParagraphIndex,
+                                    $"shading {ColorText.Format(cellL.Shading)} vs {ColorText.Format(cellR.Shading)}",
+                                    tableIndex: i,
+                                    cellCoordinate: coord);
+                            }
+
+                            if (cellL.VerticalAlignment != cellR.VerticalAlignment)
+                            {
+                                Add("table.cell-layout", cellL.ParagraphIndex, cellR.ParagraphIndex,
+                                    $"vertical alignment {cellL.VerticalAlignment} vs {cellR.VerticalAlignment}",
+                                    tableIndex: i,
+                                    cellCoordinate: coord);
+                            }
+                        }
+
+                        string textL = CellText(left, cellL);
+                        string textR = CellText(right, cellR);
+                        string normL = Normalize(textL);
+                        string normR = Normalize(textR);
+
+                        if (!string.Equals(normL, normR, StringComparison.Ordinal))
+                        {
+                            bool tolerated = false;
+                            if (Options.NumericTolerance is double tol &&
+                                TryParseNumber(normL, out double valL) &&
+                                TryParseNumber(normR, out double valR))
+                            {
+                                if (Math.Abs(valL - valR) <= tol)
+                                    tolerated = true;
+                            }
+
+                            if (!tolerated)
+                            {
+                                bool bothNumeric = TryParseNumber(normL, out _) && TryParseNumber(normR, out _);
+                                string detail = (bothNumeric ? "value differs: " : "text differs: ") +
+                                    Preview(textL) + " vs " + Preview(textR);
+
+                                Add("table.cell-value",
+                                    cellL.ParagraphIndex,
+                                    cellR.ParagraphIndex,
+                                    detail,
+                                    tableIndex: i,
+                                    cellCoordinate: coord);
+                            }
+                        }
+                        else if (!string.Equals(cellL.Formula, cellR.Formula, StringComparison.Ordinal))
+                        {
+                            Add("table.cell-value",
+                                cellL.ParagraphIndex,
+                                cellR.ParagraphIndex,
+                                $"formula {Quote(cellL.Formula)} vs {Quote(cellR.Formula)}",
+                                tableIndex: i,
+                                cellCoordinate: coord);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static int[] BuildParagraphTableMap(RichTextDocument doc)
+    {
+        int[] map = new int[doc.Paragraphs.Count];
+        Array.Fill(map, -1);
+        for (int t = 0; t < doc.Tables.Count; t++)
+        {
+            var table = doc.Tables[t];
+            int end = Math.Min(doc.Paragraphs.Count, table.ParagraphEnd);
+            for (int p = table.ParagraphIndex; p < end; p++)
+                map[p] = t;
+        }
+        return map;
+    }
+
+    private static string CellText(RichTextDocument doc, TableCell cell)
+    {
+        if (cell.ParagraphCount == 0)
+            return string.Empty;
+
+        if (cell.ParagraphCount == 1)
+        {
+            return cell.ParagraphIndex < doc.Paragraphs.Count
+                ? doc.Paragraphs[cell.ParagraphIndex].Text
+                : string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        int end = Math.Min(doc.Paragraphs.Count, cell.ParagraphEnd);
+        for (int p = cell.ParagraphIndex; p < end; p++)
+        {
+            if (sb.Length > 0)
+                sb.Append('\n');
+            sb.Append(doc.Paragraphs[p].Text);
+        }
+        return sb.ToString();
+    }
+
+    private static bool TryParseNumber(string text, out double value)
+    {
+        text = text.Trim();
+        if (double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out value))
+            return true;
+        if (double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands | NumberStyles.AllowCurrencySymbol, CultureInfo.InvariantCulture, out value))
+            return true;
+        if (double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out value))
+            return true;
+        if (text.EndsWith('%') &&
+            (double.TryParse(text[..^1].Trim(), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double pct) ||
+             double.TryParse(text[..^1].Trim(), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out pct)))
+        {
+            value = pct / 100.0;
+            return true;
+        }
+
+        value = 0;
+        return false;
     }
 
     private static IEnumerable<string> CompareParagraphStyle(ParagraphStyle left, ParagraphStyle right)
@@ -468,7 +823,7 @@ public sealed class DocumentComparison
         return pairs;
     }
 
-    private void Add(string kind, int? leftIndex, int? rightIndex, string detail)
+    private void Add(string kind, int? leftIndex, int? rightIndex, string detail, int? tableIndex = null, string? cellCoordinate = null)
     {
         if (_differences.Count >= Options.MaxDifferences)
         {
@@ -476,7 +831,7 @@ public sealed class DocumentComparison
             return;
         }
 
-        _differences.Add(new DocumentDifference(kind, leftIndex, rightIndex, detail));
+        _differences.Add(new DocumentDifference(kind, leftIndex, rightIndex, detail, tableIndex, cellCoordinate));
     }
 
     private string Normalize(string text)

@@ -185,8 +185,38 @@ public static class DocumentReport
                 statistics.Images++;
         }
 
+        MeasureTables(document.Tables, statistics);
+        foreach (DocumentShape shape in document.Shapes)
+        {
+            if (shape.Tables is { Count: > 0 } shapeTables)
+                MeasureTables(shapeTables, statistics);
+        }
+
         statistics.FontFamilies = [.. families];
         return statistics;
+    }
+
+    private static void MeasureTables(IReadOnlyList<DocumentTable> tables, DocumentStatistics statistics)
+    {
+        foreach (DocumentTable table in tables)
+        {
+            statistics.Tables++;
+            TableGrid grid = TableGrid.FromTable(table);
+            statistics.TableRows += grid.RowCount;
+            statistics.TableColumns += grid.ColumnCount;
+            statistics.TableCells += grid.CellCount;
+
+            foreach (TableCell cell in grid.Cells)
+            {
+                if (cell.RowSpan > 1 || cell.ColumnSpan > 1)
+                    statistics.MergedCells++;
+                if (!string.IsNullOrEmpty(cell.Formula))
+                    statistics.FormulaCells++;
+
+                if (cell.Tables is { Count: > 0 } nested)
+                    MeasureTables(nested, statistics);
+            }
+        }
     }
 }
 
@@ -232,6 +262,18 @@ public sealed class DocumentStatistics
     /// <summary>Shapes holding text of their own, which is text a body-only read would lose.</summary>
     public int ShapeParagraphs { get; set; }
 
+    public int Tables { get; set; }
+
+    public int TableRows { get; set; }
+
+    public int TableColumns { get; set; }
+
+    public int TableCells { get; set; }
+
+    public int MergedCells { get; set; }
+
+    public int FormulaCells { get; set; }
+
     public IReadOnlyList<string> FontFamilies { get; set; } = [];
 
     public JsonObject ToJson()
@@ -260,6 +302,12 @@ public sealed class DocumentStatistics
             ["indentedParagraphs"] = IndentedParagraphs,
             ["shapes"] = Shapes,
             ["shapeParagraphs"] = ShapeParagraphs,
+            ["tables"] = Tables,
+            ["tableRows"] = TableRows,
+            ["tableColumns"] = TableColumns,
+            ["tableCells"] = TableCells,
+            ["mergedCells"] = MergedCells,
+            ["formulaCells"] = FormulaCells,
             ["fontFamilies"] = families,
         };
     }
@@ -285,5 +333,11 @@ public sealed class DocumentStatistics
         yield return new KeyValuePair<string, long>("indentedParagraphs", IndentedParagraphs);
         yield return new KeyValuePair<string, long>("shapes", Shapes);
         yield return new KeyValuePair<string, long>("shapeParagraphs", ShapeParagraphs);
+        yield return new KeyValuePair<string, long>("tables", Tables);
+        yield return new KeyValuePair<string, long>("tableRows", TableRows);
+        yield return new KeyValuePair<string, long>("tableColumns", TableColumns);
+        yield return new KeyValuePair<string, long>("tableCells", TableCells);
+        yield return new KeyValuePair<string, long>("mergedCells", MergedCells);
+        yield return new KeyValuePair<string, long>("formulaCells", FormulaCells);
     }
 }

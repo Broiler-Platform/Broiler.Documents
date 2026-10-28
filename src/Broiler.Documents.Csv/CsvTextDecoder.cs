@@ -32,10 +32,36 @@ internal static class CsvTextDecoder
     /// <param name="bytes">The input, possibly cut short at the byte limit.</param>
     /// <param name="truncated">True when the input was cut short, so its last character may be incomplete.</param>
     /// <param name="diagnostics">Where an encoding guess or a repair is reported.</param>
-    public static string Decode(ReadOnlySpan<byte> bytes, bool truncated, List<DocumentDiagnostic> diagnostics)
+    public static string Decode(ReadOnlySpan<byte> bytes, bool truncated, List<DocumentDiagnostic> diagnostics) =>
+        Decode(bytes, truncated, diagnostics, null).Text;
+
+    /// <param name="bytes">The input, possibly cut short at the byte limit.</param>
+    /// <param name="truncated">True when the input was cut short, so its last character may be incomplete.</param>
+    /// <param name="diagnostics">Where an encoding guess or a repair is reported.</param>
+    /// <param name="explicitEncoding">An explicit encoding requested by the caller or media-type hint.</param>
+    public static (string Text, Encoding Encoding) Decode(
+        ReadOnlySpan<byte> bytes,
+        bool truncated,
+        List<DocumentDiagnostic> diagnostics,
+        Encoding? explicitEncoding)
     {
-        if (TryDecodeMarked(bytes, diagnostics, out string? marked))
-            return marked;
+        if (TryDecodeMarked(bytes, diagnostics, out string? marked, out Encoding? markedEncoding))
+            return (marked, markedEncoding);
+
+        if (explicitEncoding is not null)
+        {
+            try
+            {
+                return (explicitEncoding.GetString(bytes), explicitEncoding);
+            }
+            catch (DecoderFallbackException)
+            {
+                diagnostics.Add(DocumentDiagnostic.Warning(
+                    CsvDiagnosticCodes.EncodingInvalid,
+                    "The input breaks the specified encoding; invalid sequences were replaced with U+FFFD."));
+                return (Lenient(explicitEncoding).GetString(bytes), explicitEncoding);
+            }
+        }
 
         // A cut at the byte limit can split a multi-byte character, and the
         // broken tail would fail the strict decode and drag the whole file into
@@ -45,14 +71,14 @@ internal static class CsvTextDecoder
 
         try
         {
-            return StrictUtf8.GetString(bytes);
+            return (StrictUtf8.GetString(bytes), Encoding.UTF8);
         }
         catch (DecoderFallbackException)
         {
             diagnostics.Add(DocumentDiagnostic.Warning(
                 CsvDiagnosticCodes.EncodingFallback,
                 "The input is not UTF-8 and has no byte-order mark, so it was read as Windows-1252."));
-            return Windows1252.Decode(bytes);
+            return (Windows1252.Decode(bytes), Windows1252.Instance);
         }
     }
 
@@ -85,24 +111,26 @@ internal static class CsvTextDecoder
         return lenient;
     }
 
-    private static bool TryDecodeMarked(ReadOnlySpan<byte> bytes, List<DocumentDiagnostic> diagnostics, out string text)
+    private static bool TryDecodeMarked(ReadOnlySpan<byte> bytes, List<DocumentDiagnostic> diagnostics, out string text, out Encoding encoding)
     {
-        if (ByteOrderMark(bytes) is not (Encoding encoding, int length))
+        if (ByteOrderMark(bytes) is not (Encoding bomEncoding, int length))
         {
             text = string.Empty;
+            encoding = Encoding.UTF8;
             return false;
         }
 
+        encoding = bomEncoding;
         ReadOnlySpan<byte> body = bytes[length..];
         try
         {
-            text = encoding.GetString(body);
+            text = bomEncoding.GetString(body);
         }
         catch (DecoderFallbackException)
         {
             // The mark is an explicit statement, so the encoding is not second-
             // guessed. What breaks it is replaced and reported.
-            text = Lenient(encoding).GetString(body);
+            text = Lenient(bomEncoding).GetString(body);
             diagnostics.Add(DocumentDiagnostic.Warning(
                 CsvDiagnosticCodes.EncodingInvalid,
                 "The input's byte-order mark names an encoding its bytes do not follow; " +

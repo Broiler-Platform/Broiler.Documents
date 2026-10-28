@@ -74,6 +74,28 @@ public sealed class DocxFloatingTableTests
     }
 
     [Fact]
+    public void Reads_ZOrder_And_BehindText_Of_A_Floating_Table()
+    {
+        TablePosition position = Assert.IsType<TablePosition>(Assert.Single(Read(Table(
+            "<w:tblpPr w:vertAnchor=\"page\" w:tblpY=\"600\" w:zOrder=\"7\" w:behindText=\"1\"/>")).Tables).Position);
+
+        Assert.Equal(7, position.ZOrder);
+        Assert.True(position.BehindText);
+    }
+
+    [Fact]
+    public void Roundtrips_ZOrder_And_BehindText()
+    {
+        var position = new TablePosition(TableAnchor.Margin, 20, TableAnchor.Page, 50, ZOrder: 5, BehindText: true);
+        var source = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("cell")])
+            .WithTables([new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0)])], [100.0], position: position)]);
+
+        TablePosition actual = Assert.IsType<TablePosition>(Assert.Single(RoundTrip(source).Tables).Position);
+        Assert.Equal(5, actual.ZOrder);
+        Assert.True(actual.BehindText);
+    }
+
+    [Fact]
     public void A_Nested_Floating_Table_Stays_In_Its_Cell_And_Is_Reported()
     {
         string inner = Table("<w:tblpPr w:vertAnchor=\"page\" w:tblpY=\"600\"/>", "inner");

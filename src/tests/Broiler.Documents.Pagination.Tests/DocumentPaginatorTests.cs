@@ -173,4 +173,47 @@ public sealed class DocumentPaginatorTests
 
         Assert.Throws<OperationCanceledException>(() => new DocumentPaginator().Paginate(Lines(1), BPageSetup.Default, cancelled.Token));
     }
+    [Fact]
+    public void Missing_Payload_Inline_Image_Paints_Placeholder_Box()
+    {
+        var image = InlineImage.CreateMissingPayload(100, 50, "Missing");
+        RichTextDocument document = WithPicture(image);
+        var paginator = new DocumentPaginator();
+        using PaginatedDocument pages = paginator.Paginate(document, BPageSetup.Default);
+        using BBitmap rasterized = BPageRasterizer.Render(pages.GetPage(0), 72, BColor.White);
+        Assert.NotNull(rasterized);
+        Assert.True(rasterized.Width > 0 && rasterized.Height > 0);
+    }
+
+    [Fact]
+    public void Missing_Payload_Floating_Shape_Image_Paints_Placeholder_Box()
+    {
+        var image = InlineImage.CreateMissingPayload(100, 50, "Missing");
+        var shape = new DocumentShape(0, 10, 20, 100, 50, image: image);
+        RichTextDocument document = RichTextDocument.FromPlainText("Anchor").WithShapes([shape]);
+        var paginator = new DocumentPaginator();
+        using PaginatedDocument pages = paginator.Paginate(document, BPageSetup.Default);
+        using BBitmap rasterized = BPageRasterizer.Render(pages.GetPage(0), 72, BColor.White);
+        Assert.NotNull(rasterized);
+        Assert.True(rasterized.Width > 0 && rasterized.Height > 0);
+    }
+
+    [Fact]
+    public void Missing_Payload_Image_Emits_Missing_Image_Render_Commands()
+    {
+        var image = InlineImage.CreateMissingPayload(100, 50, "Missing");
+        RichTextDocument document = WithPicture(image);
+        using var images = new ImageStore();
+        using var renderer = new BImageRenderer();
+        var paginator = new DocumentPaginator();
+        LayoutSettings settings = paginator.SettingsFor(document);
+        LayoutResult layout = new DocumentLayout(settings, images).Layout(document, DocumentPageBox.FromSetup(BPageSetup.Default));
+        var list = new BRenderList();
+        new DocumentPagePainter(settings, images).Paint(layout.Pages[0], layout.Setup, list, picture => images.Handle(renderer, picture));
+
+        var stroke = Assert.Single(list.Commands.OfType<BRenderCommand.StrokeRect>());
+        Assert.Equal(new BColor(0xB0, 0xB0, 0xB0), stroke.Color);
+        Assert.Equal(100, stroke.Rect.Width, 2);
+    }
+
 }

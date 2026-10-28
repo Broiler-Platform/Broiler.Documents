@@ -49,6 +49,9 @@ public sealed class RichTextEditor
 
     public RichTextDocument Document { get; private set; }
 
+    /// <summary>The immutable document snapshot recorded at the most recent save point.</summary>
+    public RichTextDocument SavedDocument => _savedDocument;
+
     /// <summary>Whether the current document differs from the saved snapshot.</summary>
     /// <remarks>
     /// Construction and loading establish an unmodified baseline. Only document
@@ -58,16 +61,56 @@ public sealed class RichTextEditor
     /// </remarks>
     public bool IsModified => !ReferenceEquals(Document, _savedDocument);
 
+    /// <summary>
+    /// Ends the open keyboard undo group and returns the current document snapshot
+    /// for saving.
+    /// </summary>
+    /// <remarks>
+    /// Hosts initiating an asynchronous save call this to capture the snapshot to write,
+    /// ensuring subsequent keystrokes in the editor start a new undo transaction rather
+    /// than coalescing with text captured for saving.
+    /// </remarks>
+    public RichTextDocument BeginSave()
+    {
+        BreakUndoGroup();
+        return Document;
+    }
+
     /// <summary>Marks the current document as saved and ends the open keyboard undo group.</summary>
     /// <remarks>
     /// Call after successfully saving the current document, not when a save
-    /// starts or fails. This does not clear undo or redo history. If saving is
-    /// asynchronous, the host must ensure this is still the document it saved.
+    /// starts or fails. This does not clear undo or redo history. For asynchronous
+    /// saves where concurrent edits may have occurred, use <see cref="MarkSaved(RichTextDocument)"/>
+    /// to record the exact snapshot that was written.
     /// </remarks>
-    public void MarkSaved()
+    public void MarkSaved() => MarkSaved(Document);
+
+    /// <summary>
+    /// Marks a specific document snapshot as saved, enabling asynchronous saves to
+    /// record the exact snapshot written without overwriting concurrent edits.
+    /// </summary>
+    /// <param name="snapshot">The document snapshot that was saved. Cannot be null.</param>
+    /// <remarks>
+    /// <para>
+    /// Call after successfully saving <paramref name="snapshot"/> to storage.
+    /// If the editor's current <see cref="Document"/> is still <paramref name="snapshot"/>,
+    /// <see cref="IsModified"/> becomes false and the open keyboard undo group ends.
+    /// </para>
+    /// <para>
+    /// If subsequent edits occurred while the save was in flight, <see cref="IsModified"/>
+    /// remains true for the new edits. However, undoing back to <paramref name="snapshot"/>
+    /// will return <see cref="IsModified"/> to false.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="snapshot"/> is null.</exception>
+    public void MarkSaved(RichTextDocument snapshot)
     {
-        _savedDocument = Document;
-        BreakUndoGroup();
+        ArgumentNullException.ThrowIfNull(snapshot);
+        _savedDocument = snapshot;
+        if (ReferenceEquals(Document, snapshot))
+        {
+            BreakUndoGroup();
+        }
     }
 
     public RichTextRange Selection { get; private set; }

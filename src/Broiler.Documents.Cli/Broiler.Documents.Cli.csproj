@@ -55,6 +55,8 @@
     <ProjectReference Include="..\Broiler.Documents.Html\Broiler.Documents.Html.csproj" />
     <ProjectReference Include="..\Broiler.Documents.Markdown\Broiler.Documents.Markdown.csproj" />
     <ProjectReference Include="..\Broiler.Documents.Csv\Broiler.Documents.Csv.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Xlsx\Broiler.Documents.Xlsx.csproj" />
+    <ProjectReference Include="..\Broiler.Documents.Ods\Broiler.Documents.Ods.csproj" />
   </ItemGroup>
 
   <!--

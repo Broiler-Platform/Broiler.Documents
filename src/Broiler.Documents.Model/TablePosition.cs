@@ -68,7 +68,9 @@ public sealed record TablePosition(
     double RightFromText = 0,
     double TopFromText = 0,
     double BottomFromText = 0,
-    bool AllowOverlap = true)
+    bool AllowOverlap = true,
+    int ZOrder = 0,
+    bool BehindText = false)
 {
     /// <summary>
     /// Where the table's left edge goes across a box from <paramref name="boxLeft"/>

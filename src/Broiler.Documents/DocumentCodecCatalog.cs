@@ -18,6 +18,10 @@ public sealed class DocumentCodecCatalog
 {
     private readonly ReadOnlyCollection<DocumentCodec> _codecs;
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="DocumentCodecCatalog"/> with explicit codecs.
+    /// </summary>
+    /// <param name="codecs">The collection of codecs to register.</param>
     public DocumentCodecCatalog(IEnumerable<DocumentCodec> codecs)
     {
         ArgumentNullException.ThrowIfNull(codecs);
@@ -35,14 +39,18 @@ public sealed class DocumentCodecCatalog
         _codecs = Array.AsReadOnly(array);
     }
 
+    /// <summary>The immutable collection of explicitly registered codecs.</summary>
     public IReadOnlyList<DocumentCodec> Codecs => _codecs;
 
+    /// <summary>Finds a registered codec by format name, case-insensitively.</summary>
     public DocumentCodec? FindByName(string name) =>
         _codecs.FirstOrDefault(codec => string.Equals(codec.Descriptor.Name, name, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>Finds a registered codec that claims the given file extension.</summary>
     public DocumentCodec? FindByExtension(string extension) =>
         _codecs.FirstOrDefault(codec => codec.Descriptor.MatchesExtension(extension));
 
+    /// <summary>Finds a registered codec that claims the given MIME media type.</summary>
     public DocumentCodec? FindByMimeType(string mimeType) =>
         _codecs.FirstOrDefault(codec => codec.Descriptor.MatchesMimeType(mimeType));
 
@@ -106,7 +114,7 @@ public sealed class DocumentCodecCatalog
                     $"The {match.Codec.Name} codec recognized the source but does not implement reading."));
         }
 
-        var request = new DocumentReadRequest(input, effective, cancellationToken);
+        var request = new DocumentReadRequest(input, effective, cancellationToken, hints);
         return new DocumentCodecSelection(match, match.Codec.Read(request));
     }
 
@@ -127,7 +135,7 @@ public sealed class DocumentCodecCatalog
             return SelectAndRead(input, effective, hints, cancellationToken);
         }
 
-        var request = new DocumentReadRequest(input, effective, cancellationToken);
+        var request = new DocumentReadRequest(input, effective, cancellationToken, hints);
         return new DocumentCodecSelection(match, await match.Codec.ReadAsync(request).ConfigureAwait(false));
     }
 

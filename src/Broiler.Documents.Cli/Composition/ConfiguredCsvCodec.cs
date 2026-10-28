@@ -22,14 +22,14 @@ internal sealed class ConfiguredCsvCodec(CsvReadOptions read, CsvWriteOptions wr
         _inner.Read(source, ReadOptions(options));
 
     public override DocumentReadResult Read(DocumentReadRequest request) =>
-        _inner.Read(new DocumentReadRequest(request.Input, ReadOptions(request.Options), request.CancellationToken));
+        _inner.Read(new DocumentReadRequest(request.Input, ReadOptions(request.Options), request.CancellationToken, request.Hints));
 
     public override DocumentWriteResult Write(RichTextDocument document, Stream destination, DocumentWriteOptions? options = null) =>
         _inner.Write(document, destination, WriteOptions(options));
 
     public override DocumentWriteResult Write(DocumentWriteRequest request) =>
         _inner.Write(new DocumentWriteRequest(request.Document, request.Destination,
-            WriteOptions(request.Options), request.CancellationToken));
+            WriteOptions(request.Options), request.CancellationToken, request.RequireAtomic, request.IsStaged));
 
     private DocumentReadOptions ReadOptions(DocumentReadOptions? options) =>
         options is null || options.GetType() == typeof(DocumentReadOptions)

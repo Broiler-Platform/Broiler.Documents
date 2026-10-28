@@ -44,15 +44,22 @@ by ADR 0008).
   `DocumentCodecCatalog.SelectAndRead` probes and reads in one
   pass over a replayable `DocumentInput`, so a non-seekable source never loses
   the prefix the codec needs.
-- **`DocumentInput`** defines stream ownership and buffer lifetime, replays probe
+- **DocumentInput** defines stream ownership and buffer lifetime, replays probe
   bytes, exposes a known length, and materializes within a byte ceiling. It is
-  memory-only by design; spooling waits on a host-supplied policy. It keeps
-  positions past EOF, rejects negative positions, invalid seek origins and
-  overflow, and reports a disposed stream as unreadable. Closing one stream does
-  not close the input or another stream.
+  memory-only by default (FromBytes, FromStream), with opt-in bounded spooling
+  driven strictly by a host-supplied DocumentSpoolPolicy (SpoolFromStream,
+  SpoolFromStreamAsync): designated directory, quota enforcement, in-memory buffering
+  threshold, privacy, cleanup on dispose, and crash recovery (CleanOrphanedFiles).
+  Nothing ambient touches disk. It keeps positions past EOF, rejects negative
+  positions, invalid seek origins and overflow, and reports a disposed stream as
 - **Requests.** `DocumentReadRequest` carries input, options and cancellation.
-  `DocumentWriteRequest` carries document, destination, options and cancellation.
-  Each cross-format value has exactly one owner, and format options may not
+  `DocumentWriteRequest` carries document, destination, options, cancellation,
+  `RequireAtomic`, and `IsStaged`. Each cross-format value has exactly one owner,
+  and format options may not duplicate it.
+- **Commit policy.** File hosts stage in the destination directory and replace
+  atomically. A write request with `RequireAtomic` without a staging capability
+  (`IsStaged=false`) rejects before output with `document.commit.atomic-required`
+  and `NotStarted`. Direct-stream failure reports `PartialDestination` truthfully.
   duplicate it.
 - **Typed options.** Format options derive from `DocumentReadOptions` and
   `DocumentWriteOptions` (`RtfReadOptions`, `PdfReadOptions`, and so on). A codec
@@ -70,7 +77,7 @@ by ADR 0008).
 - **Async.** Async overloads exist beside the synchronous contract.
 - **Capabilities a codec lacks** are reported as
   `document.capability.not-composed` rather than quietly approximated. That is
-  how `DecodeEmbeddedObjects` and `AsciiOnly=false` are answered today.
+  how `AsciiOnly=false` is answered today (and formerly `DecodeEmbeddedObjects` before removal).
 - **Composition.** A codec receives its services at construction and discovers
   nothing through statics, environment variables or platform registries. There is
   no global registration and no module initializer. Catalogs are built at each
@@ -209,10 +216,12 @@ by ADR 0008).
   `IsModified` compares the current document with that snapshot by reference,
   so undo/redo can return to an unmodified state. Selection and pending typing
   style do not count; independently recreating identical text does. Construction,
-  `LoadDocument` and `LoadPlainText` establish an unmodified baseline. Hosts mark
-  saved only after a successful save of the current snapshot; asynchronous saves
-  must ensure the editor still holds the document that was written. Writer UI
-  integration remains open.
+  `LoadDocument` and `LoadPlainText` establish an unmodified baseline.
+  `BeginSave()` ends the open typing group and returns the snapshot for saving;
+  asynchronous saves mark the written snapshot with `MarkSaved(snapshot)` so
+  concurrent edits stay modified while undo/redo restores unmodified status on
+  reaching the save point. `SavedDocument` exposes the recorded snapshot.
+  Writer UI integration remains open.
 
 Populated line boxes use the maximum ascent and descent of their actual pieces,
 including list markers and inline images. An unused default font does not impose

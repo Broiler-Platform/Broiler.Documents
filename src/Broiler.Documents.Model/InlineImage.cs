@@ -209,8 +209,36 @@ public sealed class InlineImage(
     double? height = null,
     string? altText = null,
     string? name = null,
-    ImagePresentation? presentation = null)
+    ImagePresentation? presentation = null,
+    bool isMissingPayload = false)
 {
+    /// <summary>
+    /// Creates a placeholder image for a picture whose payload is missing,
+    /// external, or in an unsupported format, retaining its stated display bounds.
+    /// </summary>
+    public static InlineImage CreateMissingPayload(
+        double? width,
+        double? height,
+        string? altText = null,
+        string? name = null,
+        ImagePresentation? presentation = null) =>
+        new(
+            BImageResource.FromEncoded(ReadOnlyMemory<byte>.Empty, "application/octet-stream"),
+            default,
+            width,
+            height,
+            altText,
+            name,
+            presentation,
+            isMissingPayload: true);
+
+    /// <summary>
+    /// True when the picture payload could not be loaded (missing from the container,
+    /// an external link that was not fetched, or in an unsupported format), but
+    /// its display bounds and attributes are retained.
+    /// </summary>
+    public bool IsMissingPayload { get; } = isMissingPayload ||
+        (resource.TryGetEncoded(out ReadOnlyMemory<byte> rawBytes, out _) && rawBytes.IsEmpty && !resource.TryGetPixels(out _));
     /// <summary>
     /// U+FFFC OBJECT REPLACEMENT CHARACTER — the one character an image run
     /// holds. Text is never stored for an image; alternative text lives in
@@ -367,22 +395,22 @@ public sealed class InlineImage(
 
     /// <summary>Returns the same image drawn at a different size.</summary>
     public InlineImage WithSize(double? width, double? height) =>
-        new(Resource, ResourceId, width, height, AltText, Name, Presentation);
+        new(Resource, ResourceId, width, height, AltText, Name, Presentation, IsMissingPayload);
 
     /// <summary>Returns the same image with different alternative text.</summary>
     public InlineImage WithAltText(string? altText) =>
-        new(Resource, ResourceId, Width, Height, altText, Name, Presentation);
+        new(Resource, ResourceId, Width, Height, altText, Name, Presentation, IsMissingPayload);
 
     /// <summary>Returns the same image cropped and masked differently.</summary>
     public InlineImage WithPresentation(ImagePresentation? presentation) =>
-        new(Resource, ResourceId, Width, Height, AltText, Name, presentation);
+        new(Resource, ResourceId, Width, Height, AltText, Name, presentation, IsMissingPayload);
 
     /// <summary>
     /// Returns the same image bound to a different conversion context's entry,
     /// which is what admitting a pasted or merged picture produces.
     /// </summary>
     public InlineImage WithResourceId(DocumentResourceId resourceId) =>
-        new(Resource, resourceId, Width, Height, AltText, Name, Presentation);
+        new(Resource, resourceId, Width, Height, AltText, Name, Presentation, IsMissingPayload);
 
     private static double? Validate(double? value, string name)
     {

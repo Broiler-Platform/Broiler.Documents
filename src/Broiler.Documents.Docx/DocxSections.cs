@@ -107,9 +107,10 @@ internal sealed class DocxSections
     {
         var sections = new List<Section>();
         if (body is null)
-            return new DocxSections([new Section(DocxColumns.Single, 0, StartsPage: false, WantsParity: false, Page: null)]);
+            return new DocxSections([new Section(DocxColumns.Single, 0, StartsPage: false, WantsParity: false, Page: null, BreakType: SectionBreakType.NextPage)]);
 
         int paragraphs = 0;
+        Section? previous = null;
         foreach (XElement paragraph in BodyParagraphs(body))
         {
             paragraphs++;
@@ -118,13 +119,15 @@ internal sealed class DocxSections
                 XElement sectPr = paragraph
                     .Element(DocxNamespaces.Wordprocessing + "pPr")!
                     .Element(DocxNamespaces.Wordprocessing + "sectPr")!;
-                sections.Add(ReadSection(sectPr, paragraphs));
+                Section section = ReadSection(sectPr, paragraphs, previous);
+                sections.Add(section);
+                previous = section;
                 paragraphs = 0;
             }
         }
 
         XElement? final = body.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault();
-        sections.Add(ReadSection(final, paragraphs));
+        sections.Add(ReadSection(final, paragraphs, previous));
         return new DocxSections(sections);
     }
 
@@ -154,17 +157,47 @@ internal sealed class DocxSections
         return properties;
     }
 
-    private static Section ReadSection(XElement? sectPr, int paragraphs)
+    private static Section ReadSection(XElement? sectPr, int paragraphs, Section? previous = null)
     {
         // w:type says how the section starts against the one before it, and is
         // read only where there is one before it.
         string type = DocxValueReader.WordValue(sectPr?.Element(DocxNamespaces.Wordprocessing + "type")) ?? "nextPage";
-        return new Section(
-            ReadColumns(sectPr),
-            paragraphs,
-            StartsPage: type is "nextPage" or "oddPage" or "evenPage",
-            WantsParity: type is "oddPage" or "evenPage",
-            Page: ReadPage(sectPr));
+        DocxColumns columns = ReadColumns(sectPr);
+        PageGeometry? page = ReadPage(sectPr);
+
+        bool startsPage = type is "nextPage" or "oddPage" or "evenPage";
+        bool wantsParity = type is "oddPage" or "evenPage";
+
+        // LibreOffice reads nextColumn as nextPage in Word 2013 documents and
+        // wherever the column count changes, and a change of orientation as nextPage
+        if (!startsPage && previous is not null)
+        {
+            if (type == "nextColumn" && columns.Count != previous.Columns.Count)
+                startsPage = true;
+
+            if (previous.Page is PageGeometry prevPage && page is PageGeometry currPage)
+            {
+                bool prevLandscape = prevPage.Width > prevPage.Height;
+                bool currLandscape = currPage.Width > currPage.Height;
+                if (prevLandscape != currLandscape ||
+                    !Near(prevPage.Width, currPage.Width) ||
+                    !Near(prevPage.Height, currPage.Height))
+                {
+                    startsPage = true;
+                }
+            }
+        }
+
+        SectionBreakType breakType = type switch
+        {
+            "oddPage" => SectionBreakType.OddPage,
+            "evenPage" => SectionBreakType.EvenPage,
+            "continuous" => startsPage ? SectionBreakType.NextPage : SectionBreakType.Continuous,
+            "nextColumn" => startsPage ? SectionBreakType.NextPage : SectionBreakType.NextColumn,
+            _ => SectionBreakType.NextPage,
+        };
+
+        return new Section(columns, paragraphs, startsPage, wantsParity, page, breakType);
     }
 
     /// <summary>
@@ -179,9 +212,21 @@ internal sealed class DocxSections
             return null;
 
         XElement? margin = sectPr!.Element(DocxNamespaces.Wordprocessing + "pgMar");
+        double w = DocxValueReader.Twips(size, "w");
+        double h = DocxValueReader.Twips(size, "h");
+        string? orient = (string?)size.Attribute(DocxNamespaces.Wordprocessing + "orient");
+        if (string.Equals(orient, "landscape", StringComparison.OrdinalIgnoreCase) && w < h && w > 0)
+        {
+            (w, h) = (h, w);
+        }
+        else if (string.Equals(orient, "portrait", StringComparison.OrdinalIgnoreCase) && w > h && h > 0)
+        {
+            (w, h) = (h, w);
+        }
+
         var geometry = new PageGeometry(
-            DocxValueReader.Twips(size, "w"),
-            DocxValueReader.Twips(size, "h"),
+            w,
+            h,
             DocxValueReader.Twips(margin, "left"),
             DocxValueReader.Twips(margin, "right"),
             DocxValueReader.Twips(margin, "top"),
@@ -247,9 +292,10 @@ internal sealed class DocxSections
             {
                 PageGeometry? own = SamePage(_sections[i].Page, page) ? null : _sections[i].Page;
                 RunningContent? ownRunning = hasRunning && !SameRunning(running![i], running[^1]) ? running[i] : null;
-                differ |= own is not null || ownRunning is not null;
+                differ |= own is not null || ownRunning is not null || _sections[i].BreakType != SectionBreakType.NextPage;
                 sections.Add(new DocumentSection(
-                    start, end - start, _sections[i].Columns.Count, _sections[i].Columns.Gap, own, ownRunning));
+                    start, end - start, _sections[i].Columns.Count, _sections[i].Columns.Gap, own, ownRunning,
+                    breakType: _sections[i].BreakType));
             }
 
             start = Math.Max(start, end);
@@ -372,7 +418,7 @@ internal sealed class DocxSections
          value.Equals("0", StringComparison.Ordinal) ||
          value.Equals("off", StringComparison.OrdinalIgnoreCase));
 
-    private sealed record Section(DocxColumns Columns, int Paragraphs, bool StartsPage, bool WantsParity, PageGeometry? Page);
+    private sealed record Section(DocxColumns Columns, int Paragraphs, bool StartsPage, bool WantsParity, PageGeometry? Page, SectionBreakType BreakType);
 }
 
 /// <summary>A section's text columns: how many, and the gap between them in points.</summary>

@@ -144,6 +144,8 @@ internal sealed class DocxNotes
             {
                 FootnoteFormat = Format(footnote) ?? numbering.FootnoteFormat,
                 FootnoteStart = Start(footnote) ?? numbering.FootnoteStart,
+                FootnoteRestart = Restart(footnote) ?? numbering.FootnoteRestart,
+                FootnotePosition = Position(footnote) ?? numbering.FootnotePosition,
             };
         }
 
@@ -171,4 +173,28 @@ internal sealed class DocxNotes
             out int start) && start is >= 0 and < 100000
             ? start
             : null;
+
+    private static NoteNumberingRestart? Restart(XElement properties)
+    {
+        string? val = DocxValueReader.WordValue(properties.Element(DocxNamespaces.Wordprocessing + "numRestart"));
+        return val switch
+        {
+            "eachPage" => NoteNumberingRestart.EachPage,
+            "eachSect" => NoteNumberingRestart.EachSection,
+            "continuous" => NoteNumberingRestart.Continuous,
+            _ => null,
+        };
+    }
+
+    private static FootnotePosition? Position(XElement properties)
+    {
+        string? val = DocxValueReader.WordValue(properties.Element(DocxNamespaces.Wordprocessing + "pos"));
+        return val switch
+        {
+            "pageBottom" => FootnotePosition.PageBottom,
+            "beneathText" => FootnotePosition.BeneathText,
+            "docEnd" => FootnotePosition.DocumentEnd,
+            _ => null,
+        };
+    }
 }

@@ -5,6 +5,8 @@ using System.Linq;
 using Broiler.Documents.Cli.Infrastructure;
 using Broiler.Graphics.Rendering;
 using Broiler.Graphics.Text;
+using Broiler.Documents.Model.Fonts;
+using Broiler.Documents.Pagination.Fonts;
 
 namespace Broiler.Documents.Cli.Rendering;
 
@@ -45,14 +47,24 @@ public sealed class FontResolution
     private readonly Dictionary<string, TrueTypeFont?> _metricFonts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, int?> _metricLineGaps = new(StringComparer.OrdinalIgnoreCase);
     private readonly string? _hostFallback;
+    private readonly DocumentFontService _fontService;
+    private readonly PaginationFontAdapter _textMeasurer;
 
     private FontResolution(Dictionary<string, FontFaceSet> families, string? hostFallback)
     {
         _families = families;
         _hostFallback = hostFallback;
+        _fontService = new DocumentFontService(hostFallback);
+        _textMeasurer = new PaginationFontAdapter(_fontService);
     }
 
     /// <summary>True when at least one family was pinned to a file.</summary>
+    /// <summary>The operation-scoped font service.</summary>
+    public IOperationFontService FontService => _fontService;
+
+    /// <summary>The operation-scoped text measurer adapter.</summary>
+    public IDocumentTextMeasurer TextMeasurer => _textMeasurer;
+
     public bool HasMappings => _families.Count > 0;
 
     /// <summary>Families that were explicitly mapped, ordered for a stable report.</summary>
@@ -328,9 +340,15 @@ public sealed class FontResolution
 
         FontFaceSet faces = GetOrAdd(family);
         if (explicitFace)
+        {
             faces.Set(bold, italic, path);
+            _fontService.AddFontFile(family, path, bold, italic);
+        }
         else
+        {
             faces.SetAll(path);
+            _fontService.AddFontFile(family, path);
+        }
 
         _notes.Add("mapped " + familyToken + " to " + path);
     }
@@ -350,11 +368,25 @@ public sealed class FontResolution
         int mapped = 0;
         foreach (string file in files)
         {
-            (string family, bool bold, bool italic) = GuessFace(Path.GetFileNameWithoutExtension(file));
+            string family = string.Empty;
+            bool bold = false;
+            bool italic = false;
+            FontMetadataInfo? meta = FontMetadataReader.ReadFromFile(file);
+            if (meta is not null && !string.IsNullOrWhiteSpace(meta.Family))
+            {
+                family = meta.Family;
+                bold = meta.IsBold;
+                italic = meta.IsItalic;
+            }
+            else
+            {
+                (family, bold, italic) = GuessFace(Path.GetFileNameWithoutExtension(file));
+            }
             if (family.Length == 0)
                 continue;
 
             GetOrAdd(family).SetIfAbsent(bold, italic, file);
+            _fontService.AddFontFile(family, file, bold, italic);
             mapped++;
         }
 

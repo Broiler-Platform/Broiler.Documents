@@ -7,6 +7,8 @@ using Broiler.Documents.Model;
 using Broiler.Dom;
 using Broiler.Dom.Html;
 using Broiler.Graphics.Color;
+using Broiler.Documents.Resources;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Html;
 
@@ -41,7 +43,7 @@ internal static class HtmlReader
     private static readonly HashSet<string> SkippedElements = new(StringComparer.OrdinalIgnoreCase)
     {
         "area", "base", "basefont", "canvas", "datalist", "embed", "head",
-        "iframe", "img", "input", "link", "meta", "noembed", "noframes",
+        "iframe", "input", "link", "meta", "noembed", "noframes",
         "noscript", "object", "param", "script", "style", "svg", "template",
         "title",
     };
@@ -102,10 +104,12 @@ internal static class HtmlReader
                 "only a bare element-name selector and the @page at-rule are read."));
         }
 
-        var builder = new HtmlDocumentBuilder(options.Limits, diagnostics);
+        var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
+        var builder = new HtmlDocumentBuilder(options.Limits, diagnostics, resources);
         DomNode root = parse.Document.Body is not null
             ? parse.Document.Body
             : parse.Document.DocumentElement is not null ? parse.Document.DocumentElement : parse.Document;
+        ExtractFootnotes(root, builder, styleSheet);
         ReadChildren(root, builder, styleSheet, InlineStyle.Default, ParagraphStyle.Default, preserveWhitespace: false);
 
         RichTextDocument document = builder.Build();
@@ -116,7 +120,7 @@ internal static class HtmlReader
         if (canvas is BColor fill)
             document = document.WithPageBackground(ShapeFill.Solid(fill));
 
-        return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics));
+        return new DocumentReadResult(document, diagnostics, DocumentReadResult.StatusFrom(diagnostics), resources.Build());
     }
 
     /// <summary>
@@ -158,6 +162,242 @@ internal static class HtmlReader
             : null;
     }
 
+    private static string GetInnerText(DomNode node)
+    {
+        if (node is DomText text)
+            return text.Data;
+        var sb = new StringBuilder();
+        foreach (DomNode child in node.ChildNodes)
+            sb.Append(GetInnerText(child));
+        return sb.ToString();
+    }
+
+    private static void ExtractFootnotes(DomNode root, HtmlDocumentBuilder builder, HtmlStyleSheet styleSheet)
+    {
+        var candidateLabels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        FindCandidateCitations(root, candidateLabels);
+
+        // 1. Semantic containers: <section class="footnotes">, <aside class="footnote">, <div id="footnotes">
+        var containers = new List<DomElement>();
+        FindFootnoteContainers(root, containers);
+        foreach (DomElement container in containers)
+        {
+            builder.NodesToSkip.Add(container);
+            // Collect list items or paragraphs inside container
+            var items = new List<DomElement>();
+            foreach (DomNode child in container.ChildNodes)
+            {
+                if (child is DomElement childEl)
+                {
+                    if (childEl.LocalName is "ol" or "ul")
+                    {
+                        foreach (DomNode li in childEl.ChildNodes)
+                        {
+                            if (li is DomElement liEl && liEl.LocalName == "li")
+                                items.Add(liEl);
+                        }
+                    }
+                    else if (childEl.LocalName is "p" or "div")
+                    {
+                        items.Add(childEl);
+                    }
+                }
+            }
+
+            int index = 1;
+            foreach (DomElement item in items)
+            {
+                string? id = item.GetAttribute("id");
+                string label = !string.IsNullOrEmpty(id) && id.StartsWith("fn", StringComparison.OrdinalIgnoreCase) && id.Length > 2
+                    ? id[2..]
+                    : index.ToString(CultureInfo.InvariantCulture);
+                index++;
+
+                IReadOnlyList<RichTextParagraph> paras = ReadNoteParagraphs(item, styleSheet, builder);
+                paras = StripLabelPrefix(paras, label);
+                if (paras.Count > 0)
+                {
+                    var docNote = new DocumentNote(NoteKind.Footnote, paras, label);
+                    builder.RegisterFootnote(label, docNote);
+                    if (!string.IsNullOrEmpty(id))
+                        builder.RegisterFootnote(id, docNote);
+                }
+            }
+        }
+
+        // 2. Post-<hr> notes (as HtmlWriter formats them)
+        if (root.ChildNodes.Count > 0)
+        {
+            int hrIndex = -1;
+            var children = root.ChildNodes.ToList();
+            for (int i = 0; i < children.Count; i++)
+            {
+                if (children[i] is DomElement el && el.LocalName.Equals("hr", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Check if subsequent paragraph matches candidate citation
+                    for (int j = i + 1; j < children.Count; j++)
+                    {
+                        if (children[j] is DomElement nextEl && nextEl.LocalName.Equals("p", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string text = GetInnerText(nextEl).TrimStart();
+                            foreach (string cand in candidateLabels)
+                            {
+                                if (text.StartsWith(cand + " ", StringComparison.Ordinal) ||
+                                    text.StartsWith(cand + ". ", StringComparison.Ordinal) ||
+                                    text.StartsWith(cand + ": ", StringComparison.Ordinal) ||
+                                    text.StartsWith("[" + cand + "] ", StringComparison.Ordinal))
+                                {
+                                    hrIndex = i;
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    if (hrIndex >= 0)
+                        break;
+                }
+            }
+
+            if (hrIndex >= 0)
+            {
+                builder.NodesToSkip.Add(children[hrIndex]);
+                string? currentLabel = null;
+                var currentElements = new List<DomElement>();
+
+                void FlushCurrent()
+                {
+                    if (currentLabel is not null && currentElements.Count > 0)
+                    {
+                        var noteParas = new List<RichTextParagraph>();
+                        foreach (DomElement elem in currentElements)
+                            noteParas.AddRange(ReadNoteParagraphs(elem, styleSheet, builder));
+
+                        IReadOnlyList<RichTextParagraph> cleaned = StripLabelPrefix(noteParas, currentLabel);
+                        if (cleaned.Count > 0)
+                        {
+                            var docNote = new DocumentNote(NoteKind.Footnote, cleaned, currentLabel);
+                            builder.RegisterFootnote(currentLabel, docNote);
+                        }
+                    }
+                    currentElements.Clear();
+                }
+
+                for (int i = hrIndex + 1; i < children.Count; i++)
+                {
+                    if (children[i] is DomElement el)
+                    {
+                        builder.NodesToSkip.Add(el);
+                        string text = GetInnerText(el).TrimStart();
+                        string? matchedLabel = null;
+                        foreach (string cand in candidateLabels)
+                        {
+                            if (text.StartsWith(cand + " ", StringComparison.Ordinal) ||
+                                text.StartsWith(cand + ". ", StringComparison.Ordinal) ||
+                                text.StartsWith(cand + ": ", StringComparison.Ordinal) ||
+                                text.StartsWith("[" + cand + "] ", StringComparison.Ordinal))
+                            {
+                                matchedLabel = cand;
+                                break;
+                            }
+                        }
+
+                        if (matchedLabel is not null)
+                        {
+                            FlushCurrent();
+                            currentLabel = matchedLabel;
+                            currentElements.Add(el);
+                        }
+                        else if (currentLabel is not null)
+                        {
+                            currentElements.Add(el);
+                        }
+                    }
+                }
+                FlushCurrent();
+            }
+        }
+    }
+
+    private static void FindCandidateCitations(DomNode node, HashSet<string> candidateLabels)
+    {
+        if (node is DomElement el)
+        {
+            string tag = el.LocalName;
+            if (tag.Equals("sup", StringComparison.OrdinalIgnoreCase) ||
+                (tag.Equals("a", StringComparison.OrdinalIgnoreCase) &&
+                 (el.GetAttribute("class")?.Contains("footnote", StringComparison.OrdinalIgnoreCase) == true ||
+                  el.GetAttribute("href")?.StartsWith("#fn", StringComparison.OrdinalIgnoreCase) == true)))
+            {
+                string text = GetInnerText(el).Trim().Trim('[', ']');
+                if (!string.IsNullOrEmpty(text))
+                    candidateLabels.Add(text);
+                string? href = el.GetAttribute("href");
+                if (href?.StartsWith("#", StringComparison.Ordinal) == true)
+                    candidateLabels.Add(href[1..]);
+            }
+        }
+
+        foreach (DomNode child in node.ChildNodes)
+            FindCandidateCitations(child, candidateLabels);
+    }
+
+    private static void FindFootnoteContainers(DomNode node, List<DomElement> containers)
+    {
+        if (node is DomElement el)
+        {
+            string? cls = el.GetAttribute("class");
+            string? id = el.GetAttribute("id");
+            if (cls?.Contains("footnotes", StringComparison.OrdinalIgnoreCase) == true ||
+                cls?.Contains("footnote", StringComparison.OrdinalIgnoreCase) == true ||
+                id?.Equals("footnotes", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                containers.Add(el);
+                return;
+            }
+        }
+
+        foreach (DomNode child in node.ChildNodes)
+            FindFootnoteContainers(child, containers);
+    }
+
+    private static IReadOnlyList<RichTextParagraph> ReadNoteParagraphs(
+        DomElement element, HtmlStyleSheet styleSheet, HtmlDocumentBuilder builder)
+    {
+        var noteBuilder = new HtmlDocumentBuilder(builder.Limits, builder.Diagnostics, builder.Resources);
+        ReadChildren(element, noteBuilder, styleSheet, InlineStyle.Default, ParagraphStyle.Default, preserveWhitespace: false);
+        RichTextDocument doc = noteBuilder.Build();
+        return doc.Paragraphs.Count > 0 ? doc.Paragraphs : [RichTextParagraph.Empty];
+    }
+
+    private static IReadOnlyList<RichTextParagraph> StripLabelPrefix(IReadOnlyList<RichTextParagraph> paragraphs, string label)
+    {
+        var list = new List<RichTextParagraph>(paragraphs);
+        if (list.Count > 0 && !string.IsNullOrEmpty(label))
+        {
+            string text = list[0].Text;
+            if (text.StartsWith(label, StringComparison.Ordinal))
+            {
+                int cut = label.Length;
+                if (cut < text.Length && (text[cut] == '.' || text[cut] == ':'))
+                    cut++;
+                while (cut < text.Length && char.IsWhiteSpace(text[cut]))
+                    cut++;
+                list[0] = list[0].RemoveRange(0, cut);
+            }
+            else if (text.StartsWith("[" + label + "]", StringComparison.Ordinal))
+            {
+                int cut = label.Length + 2;
+                if (cut < text.Length && (text[cut] == '.' || text[cut] == ':'))
+                    cut++;
+                while (cut < text.Length && char.IsWhiteSpace(text[cut]))
+                    cut++;
+                list[0] = list[0].RemoveRange(0, cut);
+            }
+        }
+        return list;
+    }
+
     private static void ReadChildren(
         DomNode parent,
         HtmlDocumentBuilder builder,
@@ -178,6 +418,9 @@ internal static class HtmlReader
         ParagraphStyle paragraphStyle,
         bool preserveWhitespace)
     {
+        if (builder.NodesToSkip.Contains(node))
+            return;
+
         if (node is DomText text)
         {
             builder.AppendText(text.Data, inlineStyle, preserveWhitespace, paragraphStyle);
@@ -187,10 +430,36 @@ internal static class HtmlReader
         if (node is not DomElement element)
             return;
 
+        if (element.GetAttribute("class")?.Contains("footnote-back", StringComparison.OrdinalIgnoreCase) == true)
+            return;
+
         string tag = element.LocalName;
+        if (tag.Equals("sup", StringComparison.OrdinalIgnoreCase) ||
+            (tag.Equals("a", StringComparison.OrdinalIgnoreCase) &&
+             (element.GetAttribute("class")?.Contains("footnote", StringComparison.OrdinalIgnoreCase) == true ||
+              element.GetAttribute("href")?.StartsWith("#fn", StringComparison.OrdinalIgnoreCase) == true)))
+        {
+            string citationText = GetInnerText(element).Trim().Trim('[', ']');
+            string? href = element.GetAttribute("href");
+            string? targetId = href?.StartsWith("#", StringComparison.Ordinal) == true ? href[1..] : null;
+
+            if ((!string.IsNullOrEmpty(citationText) && builder.TryGetFootnote(citationText, out DocumentNote? note)) ||
+                (targetId is not null && builder.TryGetFootnote(targetId, out note)))
+            {
+                InlineStyle noteInline = ApplyInlineElement(element, styleSheet, inlineStyle, builder.Diagnostics);
+                builder.AppendNote(note!, noteInline, paragraphStyle);
+                return;
+            }
+        }
+        if (tag.Equals("img", StringComparison.OrdinalIgnoreCase))
+        {
+            ReadImageElement(element, builder, styleSheet, inlineStyle, paragraphStyle);
+            return;
+        }
+
         if (SkippedElements.Contains(tag))
         {
-            if (tag is "img" or "object" or "embed" or "iframe")
+            if (tag is "object" or "embed" or "iframe")
                 builder.AddDiagnosticOnce("html.skip.external", "External or embedded HTML content was skipped.");
             return;
         }
@@ -789,8 +1058,145 @@ internal static class HtmlReader
         return text.Length > 0 && text[0] == '\uFEFF' ? text[1..] : text;
     }
 
-    private sealed class HtmlDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics)
+
+    private static void ReadImageElement(
+        DomElement element,
+        HtmlDocumentBuilder builder,
+        HtmlStyleSheet styleSheet,
+        InlineStyle inlineStyle,
+        ParagraphStyle paragraphStyle)
     {
+        string? src = element.GetAttribute("src");
+        if (string.IsNullOrWhiteSpace(src))
+            return;
+
+        src = src.Trim();
+        if (!src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.AddDiagnosticOnce("html.skip.external", "External or embedded HTML content was skipped.");
+            return;
+        }
+
+        if (!DataUriParser.TryParse(src, out string mediaType, out ReadOnlyMemory<byte> data, out _))
+        {
+            builder.Diagnostics.Add(DocumentDiagnostic.Warning(
+                "html.image.malformed",
+                "An embedded HTML image data URI was malformed and could not be decoded."));
+            return;
+        }
+
+        if (data.Length > builder.Limits.MaxBinBytes)
+        {
+            builder.AddDiagnosticOnce(
+                "html.image.limit",
+                "An embedded HTML image exceeded MaxBinBytes and was skipped.");
+            return;
+        }
+
+        string? alt = element.GetAttribute("alt");
+        string? title = element.GetAttribute("title");
+        string name = !string.IsNullOrWhiteSpace(title) ? title : (!string.IsNullOrWhiteSpace(alt) ? alt : "image");
+
+        TryParseImageDimensions(element, styleSheet, out double? width, out double? height);
+
+        BImageResource resource;
+        try
+        {
+            resource = BImageResource.FromEncoded(data, mediaType);
+        }
+        catch (Exception ex)
+        {
+            builder.Diagnostics.Add(DocumentDiagnostic.Warning(
+                "html.image.malformed",
+                $"An embedded image payload could not be loaded: {ex.Message}"));
+            return;
+        }
+
+        var request = new DocumentResourceRequest(
+            resource,
+            DocumentResourceProvenance.ReadFromSource,
+            DocumentResourceDisposition.Embedded,
+            name: name,
+            sourceFormat: "HTML");
+
+        if (!builder.Resources.TryAdmit(request, DocumentResourceOperations.ExtractToModel, out DocumentResourceId id, out string? denial))
+        {
+            builder.Diagnostics.Add(DocumentDiagnostic.Warning(
+                "html.image.denied",
+                "A picture was not read into the document because " + denial + "."));
+            return;
+        }
+
+        var image = new InlineImage(resource, id, width, height, altText: alt, name: name);
+        builder.AppendImage(image, inlineStyle, paragraphStyle);
+    }
+
+    private static void TryParseImageDimensions(
+        DomElement element,
+        HtmlStyleSheet styleSheet,
+        out double? width,
+        out double? height)
+    {
+        IReadOnlyDictionary<string, string> declarations = styleSheet.DeclarationsFor(element);
+        string? cssWidth = declarations.TryGetValue("width", out string? w) ? w : null;
+        string? cssHeight = declarations.TryGetValue("height", out string? h) ? h : null;
+        string? attrWidth = element.GetAttribute("width");
+        string? attrHeight = element.GetAttribute("height");
+
+        TryParseDimension(attrWidth, cssWidth, out width);
+        TryParseDimension(attrHeight, cssHeight, out height);
+    }
+
+    private static bool TryParseDimension(string? attrValue, string? cssValue, out double? points)
+    {
+        points = null;
+        string? val = cssValue;
+        if (string.IsNullOrWhiteSpace(val))
+            val = attrValue;
+        if (string.IsNullOrWhiteSpace(val))
+            return false;
+
+        val = val.Trim();
+        if (double.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out double pxVal))
+        {
+            if (pxVal > 0 && double.IsFinite(pxVal))
+            {
+                points = pxVal * 72.0 / 96.0;
+                return true;
+            }
+            return false;
+        }
+
+        if (HtmlCss.TryParsePoints(val, out float parsed) && parsed > 0 && float.IsFinite(parsed))
+        {
+            points = parsed;
+            return true;
+        }
+
+        return false;
+    }
+
+    private sealed class HtmlDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics, DocumentConversionContextBuilder resources)
+    {
+        public DocumentLimits Limits => limits;
+        public DocumentConversionContextBuilder Resources => resources;
+        public HashSet<DomNode> NodesToSkip { get; } = [];
+        public Dictionary<string, DocumentNote> Footnotes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public void RegisterFootnote(string label, DocumentNote note)
+        {
+            Footnotes[label] = note;
+        }
+
+        public bool TryGetFootnote(string label, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out DocumentNote? note) =>
+            Footnotes.TryGetValue(label, out note);
+
+        public void AppendNote(DocumentNote note, InlineStyle style, ParagraphStyle paragraphStyle)
+        {
+            EnsureParagraph(paragraphStyle);
+            AddSegment(DocumentNote.PlaceholderText, style with { Note = note, Image = null });
+        }
+
         private readonly List<RichTextParagraph> _paragraphs = [];
         public int ParagraphCount => _paragraphs.Count;
         public List<DocumentTable> Tables { get; } = [];
@@ -868,6 +1274,12 @@ internal static class HtmlReader
             AddSegment(((char)0x2028).ToString(), style);
         }
 
+        public void AppendImage(InlineImage image, InlineStyle style, ParagraphStyle paragraphStyle)
+        {
+            EnsureParagraph(paragraphStyle);
+            AddSegment(InlineImage.PlaceholderText, style with { Image = image });
+        }
+
         public void FinishParagraph(bool force)
         {
             if (!_paragraphOpen && _segments.Count == 0)
@@ -936,7 +1348,7 @@ internal static class HtmlReader
 
         private void AddSegment(string text, InlineStyle style)
         {
-            if (_segments.Count > 0 && _segments[^1].Style.Equals(style))
+            if (!style.IsNote && !style.IsImage && _segments.Count > 0 && _segments[^1].Style.Equals(style))
             {
                 Segment previous = _segments[^1];
                 _segments[^1] = new Segment(previous.Text + text, style);

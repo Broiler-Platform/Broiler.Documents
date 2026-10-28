@@ -28,6 +28,9 @@ public sealed class LoadedDocument(string source, DocumentCodec codec, DocumentP
     public IReadOnlyList<DocumentDiagnostic> Diagnostics => Result.Diagnostics;
 
     public DocumentResultStatus Status => Result.Status;
+
+    public LoadedDocument WithDocument(RichTextDocument document) =>
+        new(Source, Codec, Probe, new DocumentReadResult(document, Result.Diagnostics, Result.Status, Result.Resources, Result.Metadata));
 }
 
 /// <summary>Raised when a document could not be read. Carries the exit code the caller should use.</summary>
@@ -93,7 +96,7 @@ public static class DocumentIo
 
         DocumentProbeResult probe = codec.Probe(new DocumentProbeRequest(input.Peek(options.Limits.MaxProbeBytes), hints, options.Limits));
 
-        DocumentReadResult result = codec.Read(new DocumentReadRequest(input, options));
+        DocumentReadResult result = codec.Read(new DocumentReadRequest(input, options, hints: hints));
         return new LoadedDocument(source, codec, probe, result);
     }
 

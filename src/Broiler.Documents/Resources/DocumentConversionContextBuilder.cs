@@ -41,6 +41,9 @@ public sealed class DocumentConversionContextBuilder
     private readonly Dictionary<DocumentResourceBinding, DocumentResourceId> _byPayload = [];
     private int _nextLocalId = 1;
 
+    /// <summary>Initializes a new instance of <see cref="DocumentConversionContextBuilder"/>.</summary>
+    /// <param name="policy">The resource policy to evaluate during conversion.</param>
+    /// <param name="contextNamespace">Optional namespace for minted resource IDs.</param>
     public DocumentConversionContextBuilder(DocumentResourcePolicy policy, string? contextNamespace = null)
     {
         _policy = policy ?? throw new ArgumentNullException(nameof(policy));

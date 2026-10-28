@@ -27,6 +27,12 @@ namespace Broiler.Documents.Resources;
 /// </remarks>
 public sealed class DocumentFontResource
 {
+    /// <summary>
+    /// Initializes a new instance of <see cref="DocumentFontResource"/>.
+    /// </summary>
+    /// <param name="program">The font program's bytes.</param>
+    /// <param name="family">The font family name.</param>
+    /// <param name="declaredRights">The font's declared embedding rights from its OS/2 table.</param>
     public DocumentFontResource(ReadOnlyMemory<byte> program, string family, BFontEmbeddingRights declaredRights)
     {
         if (string.IsNullOrWhiteSpace(family))

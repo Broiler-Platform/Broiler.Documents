@@ -2,14 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Broiler.Documents.Model;
+using Broiler.Documents.Model.Fonts;
+using Broiler.Documents.Model.Text;
 using Broiler.Graphics.Text;
 
 namespace Broiler.Documents.Pagination;
 
 /// <summary>Wraps measured pieces into rows, accounting for shape bands and tab stops.</summary>
-internal sealed class LineWrapper(double tabStopPoints)
+internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? textMeasurer = null)
 {
     private readonly double _tabStopPoints = tabStopPoints;
+    private readonly IDocumentTextMeasurer? _textMeasurer = textMeasurer;
 
     /// <summary>
     /// Greedy first-fit wrapping. Break opportunities are whitespace runs; a
@@ -105,7 +108,7 @@ internal sealed class LineWrapper(double tabStopPoints)
                             {
                                 int separator = piece.Text.IndexOf(selected.DecimalCharacter);
                                 if (decimalWidth is null && separator >= 0)
-                                    decimalWidth = segmentWidth + BTextMeasurer.MeasureAdvance(piece.Text[..separator], piece.Font);
+                                    decimalWidth = segmentWidth + (_textMeasurer is not null ? _textMeasurer.MeasureAdvance(piece.Text[..separator], piece.Font) : BTextMeasurer.MeasureAdvance(piece.Text[..separator], piece.Font));
                                 segmentWidth += piece.Width;
                             }
                             trailing = tokens[next].IsWhitespace ? trailing + tokens[next].Width : 0;
@@ -169,7 +172,7 @@ internal sealed class LineWrapper(double tabStopPoints)
     }
 
     /// <summary>Splits an over-wide token into chunks that fit, one character at a time.</summary>
-    private static IEnumerable<LayoutToken> BreakToken(LayoutToken token, double maxWidth)
+    private IEnumerable<LayoutToken> BreakToken(LayoutToken token, double maxWidth)
     {
         foreach (LayoutPiece piece in token.Pieces)
         {
@@ -190,12 +193,13 @@ internal sealed class LineWrapper(double tabStopPoints)
                 continue;
             }
 
+            var clusters = UnicodeBoundaryClassifier.GetGraphemeClusters(piece.Text);
             var builder = new StringBuilder();
             double width = 0;
 
-            foreach (char character in piece.Text)
+            foreach (var cluster in clusters)
             {
-                double advance = BTextMeasurer.MeasureAdvance(character.ToString(), piece.Font);
+                double advance = _textMeasurer is not null ? _textMeasurer.MeasureAdvance(cluster.Text, piece.Font) : BTextMeasurer.MeasureAdvance(cluster.Text, piece.Font);
                 if (builder.Length > 0 && width + advance > maxWidth)
                 {
                     yield return LayoutToken.Single(Retext(piece, builder.ToString(), width));
@@ -203,8 +207,16 @@ internal sealed class LineWrapper(double tabStopPoints)
                     width = 0;
                 }
 
-                builder.Append(character);
+                builder.Append(cluster.Text);
                 width += advance;
+
+                // When a single indivisible cluster exceeds maxWidth on an empty row, terminate row
+                if (builder.Length > 0 && width > maxWidth)
+                {
+                    yield return LayoutToken.Single(Retext(piece, builder.ToString(), width));
+                    builder.Clear();
+                    width = 0;
+                }
             }
 
             if (builder.Length > 0)

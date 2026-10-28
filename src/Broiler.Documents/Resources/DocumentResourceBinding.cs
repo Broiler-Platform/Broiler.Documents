@@ -167,8 +167,10 @@ public sealed class DocumentResourceBinding : IEquatable<DocumentResourceBinding
         string.Equals(FontFamily, other.FontFamily, StringComparison.Ordinal) &&
         DeclaredRights == other.DeclaredRights;
 
+    /// <summary>Indicates whether this binding equals another object.</summary>
     public override bool Equals(object? obj) => Equals(obj as DocumentResourceBinding);
 
+    /// <summary>Returns the hash code for this resource binding.</summary>
     public override int GetHashCode() =>
         HashCode.Combine(
             Kind,
@@ -180,6 +182,7 @@ public sealed class DocumentResourceBinding : IEquatable<DocumentResourceBinding
             FontFamily is null ? 0 : StringComparer.Ordinal.GetHashCode(FontFamily),
             DeclaredRights);
 
+    /// <summary>Returns a string representation of this resource binding.</summary>
     public override string ToString() =>
         Kind == DocumentResourceKind.Font
             ? string.Create(

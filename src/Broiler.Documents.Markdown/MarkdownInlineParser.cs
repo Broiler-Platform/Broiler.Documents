@@ -2,12 +2,23 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Broiler.Documents.Model;
+using Broiler.Documents.Resources;
+using Broiler.Graphics.Imaging;
 
 namespace Broiler.Documents.Markdown;
 
 internal static class MarkdownInlineParser
 {
-    public static IReadOnlyList<MarkdownSegment> Parse(string text, InlineStyle baseStyle, ICollection<DocumentDiagnostic> diagnostics)
+    public static IReadOnlyList<MarkdownSegment> Parse(string text, InlineStyle baseStyle, ICollection<DocumentDiagnostic> diagnostics) =>
+        Parse(text, baseStyle, diagnostics, DocumentLimits.Default, new DocumentConversionContextBuilder(DocumentResourcePolicy.Default));
+
+    public static IReadOnlyList<MarkdownSegment> Parse(
+        string text,
+        InlineStyle baseStyle,
+        ICollection<DocumentDiagnostic> diagnostics,
+        DocumentLimits limits,
+        DocumentConversionContextBuilder resources,
+        IReadOnlyDictionary<string, DocumentNote>? footnotes = null)
     {
         var segments = new List<MarkdownSegment>();
         var plain = new StringBuilder();
@@ -69,19 +80,101 @@ internal static class MarkdownInlineParser
             // behind in the prose, the description came through as a label, and
             // the loss was reported as a dropped hyperlink, which it was not.
             if (text[i] == '!' && i + 1 < text.Length && text[i + 1] == '[' &&
-                TryParseLink(text, i + 1, out string description, out _, out int imageConsumed,
+                TryParseLink(text, i + 1, out string description, out string imageHref, out int imageConsumed,
                     labelMayBeEmpty: true))
             {
                 Flush(segments, plain, style);
-                diagnostics.Add(DocumentDiagnostic.Warning(
-                    "markdown.image.dropped",
-                    "An image was replaced by its description text; this reader does not build images."));
 
-                foreach (MarkdownSegment segment in Parse(description, style, diagnostics))
-                    Add(segments, segment.Text, segment.Style);
+                if (imageHref.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!DataUriParser.TryParse(imageHref, out string mediaType, out ReadOnlyMemory<byte> data, out _))
+                    {
+                        diagnostics.Add(DocumentDiagnostic.Warning(
+                            "markdown.image.malformed",
+                            "An embedded Markdown image data URI was malformed and could not be decoded."));
+                        foreach (MarkdownSegment segment in Parse(description, style, diagnostics, limits, resources))
+                            Add(segments, segment.Text, segment.Style);
+                    }
+                    else if (data.Length > limits.MaxBinBytes)
+                    {
+                        diagnostics.Add(DocumentDiagnostic.Warning(
+                            "markdown.image.limit",
+                            "A Markdown embedded image exceeded MaxBinBytes and was skipped."));
+                        foreach (MarkdownSegment segment in Parse(description, style, diagnostics, limits, resources))
+                            Add(segments, segment.Text, segment.Style);
+                    }
+                    else
+                    {
+                        BImageResource? resource = null;
+                        try
+                        {
+                            resource = BImageResource.FromEncoded(data, mediaType);
+                        }
+                        catch (Exception ex)
+                        {
+                            diagnostics.Add(DocumentDiagnostic.Warning(
+                                "markdown.image.malformed",
+                                $"An embedded image payload could not be loaded: {ex.Message}"));
+                        }
+
+                        if (resource is not null)
+                        {
+                            var request = new DocumentResourceRequest(
+                                resource,
+                                DocumentResourceProvenance.ReadFromSource,
+                                DocumentResourceDisposition.Embedded,
+                                name: description,
+                                sourceFormat: "Markdown");
+
+                            if (!resources.TryAdmit(request, DocumentResourceOperations.ExtractToModel, out DocumentResourceId id, out string? denial))
+                            {
+                                diagnostics.Add(DocumentDiagnostic.Warning(
+                                    "markdown.image.denied",
+                                    "A picture was not read into the document because " + denial + "."));
+                                foreach (MarkdownSegment segment in Parse(description, style, diagnostics, limits, resources))
+                                    Add(segments, segment.Text, segment.Style);
+                            }
+                            else
+                            {
+                                var image = new InlineImage(resource, id, width: null, height: null, altText: description, name: description);
+                                Add(segments, InlineImage.PlaceholderText, style with { Image = image });
+                            }
+                        }
+                        else
+                        {
+                            foreach (MarkdownSegment segment in Parse(description, style, diagnostics, limits, resources))
+                                Add(segments, segment.Text, segment.Style);
+                        }
+                    }
+                }
+                else
+                {
+                    diagnostics.Add(DocumentDiagnostic.Warning(
+                        "markdown.image.dropped",
+                        "An image was replaced by its description text; this reader does not build images."));
+
+                    foreach (MarkdownSegment segment in Parse(description, style, diagnostics, limits, resources))
+                        Add(segments, segment.Text, segment.Style);
+                }
 
                 i += imageConsumed + 1;
                 continue;
+            }
+
+            if (i + 2 < text.Length && text[i] == '[' && text[i + 1] == '^')
+            {
+                int close = text.IndexOf(']', i + 2);
+                if (close > i + 2)
+                {
+                    string footnoteLabel = text.Substring(i + 2, close - (i + 2));
+                    if (footnotes is not null && footnotes.TryGetValue(footnoteLabel, out DocumentNote? note))
+                    {
+                        Flush(segments, plain, style);
+                        Add(segments, DocumentNote.PlaceholderText, style with { Note = note });
+                        i = close + 1;
+                        continue;
+                    }
+                }
             }
 
             if (text[i] == '[' && TryParseLink(text, i, out string label, out string href, out int consumed))
@@ -93,7 +186,7 @@ internal static class MarkdownInlineParser
                 else
                     diagnostics.Add(DocumentDiagnostic.Warning("markdown.link", "A hyperlink with a disallowed or relative target was dropped."));
 
-                foreach (MarkdownSegment segment in Parse(label, linkStyle, diagnostics))
+                foreach (MarkdownSegment segment in Parse(label, linkStyle, diagnostics, limits, resources))
                     Add(segments, segment.Text, segment.Style);
                 i += consumed;
                 continue;

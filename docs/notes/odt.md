@@ -295,12 +295,15 @@ layout are covered; this does not claim identical exported clipping.
   count and the gap. The column separator (`style:column-sep`) is not read.
 - The columns of a `text:section`, read from its section style's
   `style:section-properties` the way a page layout's are. A section with more
-  than one column is a `DocumentSection` over the paragraphs it holds; one
-  without columns is only its paragraphs, as before. A section inside another
-  with columns is laid out in the outer one's, so the outer section is the one
-  kept. LibreOffice balances a section's columns where the text after it goes
-  on on the same page, and the layout here does the same; a section that
-  states `text:dont-balance-text-columns` is balanced anyway.
+  than one column, custom margins, or `dontBalanceColumns: true` is a `DocumentSection`
+  over the paragraphs it holds; one without columns, margins, or balancing overrides is only
+  its paragraphs, as before. A section inside another with columns is laid out in the outer
+  one's, so the outer section is the one kept. LibreOffice balances a section's columns
+  where the text after it goes on on the same page, and the layout here does the same;
+  `text:dont-balance-text-columns="true"` is preserved on `DocumentSection.DontBalanceColumns`
+  and skips column balancing at the end of the section in layout. Section margins
+  (`fo:margin-left`, `fo:margin-right`, `fo:margin`) are read as relative offsets on top of
+  active page margins into `DocumentSection.Page` and written back out to `style:section-properties`.
 - A write puts each section with columns in a `text:section` named
   `Section1`, `Section2` and on, with an automatic section style stating its
   columns. ODF lays a section's columns out inside the page's, where the model
@@ -539,9 +542,9 @@ Write diagnostics are `odt.link`, `odt.image.placeholder`, `odt.image.size`,
 `odt.list.format`, `odt.list.legal` (the list forms above ODF cannot state), and
 `odt.image.omitted` — the last one reporting a picture the caller's resource
 policy did not permit the write to pass on, which is the writer's counterpart to
-`odt.image.denied`. `odt.section.page` reports a section that states its own
-paper or margins, which are not written: a `text:section` has no page of its
-own, and its text is written within the document's.
+`odt.image.denied`. `odt.section.page` reports a section that states unsupported
+paper size or top/bottom margins, which cannot be represented on an ODF `text:section`:
+relative left and right margins are written as `fo:margin-left` and `fo:margin-right` on `style:section-properties`.
 `odt.text.control` covers every string that comes from the model, a picture's
 description as well as run text; the description path was unguarded and threw
 out of the serializer rather than reporting.

@@ -1,9 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
 using Broiler.Documents.Model;
+using Broiler.Documents.Model.Text;
 using Broiler.Graphics.Color;
 using Broiler.Graphics.Geometry;
 using Broiler.Graphics.Text;
@@ -53,7 +54,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 {
     private readonly LayoutSettings _settings = settings ?? throw new ArgumentNullException(nameof(settings));
     private readonly ImageStore _images = images ?? throw new ArgumentNullException(nameof(images));
-    private readonly LineWrapper _lineWrapper = new(settings.TabStopPoints);
+    private readonly LineWrapper _lineWrapper = new(settings.TabStopPoints, settings.TextMeasurer);
     private readonly List<string> _notes = [];
     private RunningContent _documentRunning = RunningContent.Empty;
 
@@ -327,6 +328,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         var floatLines = new List<LayoutLine>();
         var floatCells = new List<LayoutCell>();
         var floatBoxes = new List<FloatBox>();
+        var pageFloatingTables = new List<LayoutFloatingTable>();
         var floatCarry = new Queue<FloatCarry>();
 
         bool ColumnHasContent() =>
@@ -430,14 +432,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             SetNotes();
             PaintSectionUntil(contentBottom);
+            var inlineLines = new List<LayoutLine>(currentLines);
+            var inlineCells = new List<LayoutCell>(currentCells);
             currentLines.AddRange(floatLines);
             currentCells.AddRange(floatCells);
-            pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells, sectionPaint));
+            pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells, sectionPaint,
+                pageFloatingTables, inlineLines, inlineCells));
             sectionPaint = [];
             currentLines = [];
             currentCells = [];
             floatLines = [];
             floatCells = [];
+            pageFloatingTables = [];
             floatBoxes.Clear();
             column = 0;
             columnStart = 0;
@@ -493,8 +499,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             foreach (FloatBox box in floatBoxes)
             {
-                _wrap.AddBox(box.Top, box.Bottom,
-                    box.Left - setup.ContentLeftPoints, box.Right - setup.ContentLeftPoints, box.Wrap);
+                if (!box.BehindText)
+                {
+                    _wrap.AddBox(box.Top, box.Bottom,
+                        box.Left - setup.ContentLeftPoints, box.Right - setup.ContentLeftPoints, box.Wrap);
+                }
             }
         }
 
@@ -506,16 +515,60 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             TablePosition position = table.Position!;
             double remainingHeight = rows.Sum(row => row.Height);
-            for (int attempt = 0; attempt <= floatBoxes.Count; attempt++)
+            int pageNumber = pages.Count + 1;
+            var wrappingShapes = GetPageWrappingShapes(pageNumber, setup).ToList();
+
+            for (int attempt = 0; attempt < 16; attempt++)
             {
                 double moved = top;
+                double tableLeft = left - position.LeftFromText;
+                double tableRight = left + width + position.RightFromText;
+                double tableTop = moved - position.TopFromText;
+                double tableBottom = moved + remainingHeight;
+
                 foreach (FloatBox other in floatBoxes)
-                    if ((!position.AllowOverlap || !other.AllowOverlap) && left - position.LeftFromText < other.Right &&
-                        left + width + position.RightFromText > other.Left && top - position.TopFromText < other.Bottom && top + remainingHeight > other.Top)
+                {
+                    if ((!position.AllowOverlap || !other.AllowOverlap) &&
+                        tableLeft < other.Right &&
+                        tableRight > other.Left &&
+                        tableTop < other.Bottom &&
+                        tableBottom > other.Top)
+                    {
                         moved = Math.Max(moved, other.Bottom + position.TopFromText);
-                if (moved <= top + 0.01) break;
+                        tableTop = moved - position.TopFromText;
+                        tableBottom = moved + remainingHeight;
+                    }
+                }
+
+                if (!position.AllowOverlap)
+                {
+                    foreach (var shapeBox in wrappingShapes)
+                    {
+                        if (tableLeft < shapeBox.Right &&
+                            tableRight > shapeBox.Left &&
+                            tableTop < shapeBox.Bottom &&
+                            tableBottom > shapeBox.Top)
+                        {
+                            moved = Math.Max(moved, shapeBox.Bottom + position.TopFromText);
+                            tableTop = moved - position.TopFromText;
+                            tableBottom = moved + remainingHeight;
+                        }
+                    }
+                }
+
+                if (moved <= top + 0.01)
+                    break;
                 top = moved;
             }
+
+            if (top >= contentBottom - 0.01)
+            {
+                floatCarry.Enqueue(new FloatCarry(rows, left, width, table, headerStart, rowOffset));
+                return;
+            }
+
+            int floatLinesStart = floatLines.Count;
+            int floatCellsStart = floatCells.Count;
             double rowTop = top;
             int headerCount = HeaderRowCount(table);
             if (rowOffset >= headerCount && rowOffset > 0 && headerCount > 0)
@@ -541,12 +594,38 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     }
             }
             bool placed = false;
+            double totalFloatingHeight = rows.Sum(r => r.Height);
             for (int i = 0; i < rows.Count; i++)
             {
                 RowBox row = rows[i];
+                int actualRowIndex = rowOffset + i;
+                bool rowKeepWithNext = actualRowIndex < table.Rows.Count && table.Rows[actualRowIndex].KeepWithNext;
+                double nextOpening = i + 1 < rows.Count
+                    ? (rows[i + 1].CanSplit ? rows[i + 1].NestedPieces().FirstOrDefault().Bottom : rows[i + 1].Height)
+                    : 0;
+
+                if (table.KeepTogether && totalFloatingHeight <= contentBottom - pageTop && rowTop + totalFloatingHeight > contentBottom)
+                {
+                    if (placed || rowTop > pageTop + 0.01)
+                    {
+                        floatCarry.Enqueue(new FloatCarry(rows.GetRange(i, rows.Count - i), left, width, table, headerStart, actualRowIndex));
+                        break;
+                    }
+                }
+
+                if (rowKeepWithNext && i + 1 < rows.Count && rowTop + row.Height + nextOpening > contentBottom)
+                {
+                    if (placed || rowTop > pageTop + 0.01)
+                    {
+                        floatCarry.Enqueue(new FloatCarry(rows.GetRange(i, rows.Count - i), left, width, table, headerStart, actualRowIndex));
+                        break;
+                    }
+                }
+
                 if (rowTop + row.Height > contentBottom)
                 {
-                    if (row.CanSplit && row.SplitAt(contentBottom - rowTop) is (RowBox fitted, var rest))
+                    bool canSplitRow = row.CanSplit && !(table.KeepTogether && totalFloatingHeight <= contentBottom - pageTop);
+                    if (canSplitRow && row.SplitAt(contentBottom - rowTop, allowStranding: !placed) is (RowBox fitted, var rest))
                     {
                         fitted.PlaceAt(rowTop, 0, floatLines, floatCells, _paragraphTops);
                         rowTop += fitted.Height;
@@ -575,6 +654,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // Text runs beside the table where a side of the column has room for
             // it, and below it where neither does.
             if (!placed) return;
+
+            var thisTableCells = floatCells.GetRange(floatCellsStart, floatCells.Count - floatCellsStart);
+            var thisTableLines = floatLines.GetRange(floatLinesStart, floatLines.Count - floatLinesStart);
+            var tableBounds = new BRect(left, top, width, Math.Max(0, rowTop - top));
+            pageFloatingTables.Add(new LayoutFloatingTable(
+                tableBounds,
+                thisTableCells,
+                thisTableLines,
+                position.ZOrder,
+                position.BehindText,
+                position.AllowOverlap));
+
             double boxLeft = left - position.LeftFromText;
             double boxRight = left + width + position.RightFromText;
             double columnLeft = setup.ContentLeftPoints + columns.Offset(column);
@@ -584,10 +675,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 rowTop + position.BottomFromText,
                 boxLeft,
                 boxRight,
-                room >= MinimumWrapRoom ? ShapeWrap.Square : ShapeWrap.TopAndBottom, position.AllowOverlap);
+                room >= MinimumWrapRoom ? ShapeWrap.Square : ShapeWrap.TopAndBottom,
+                position.AllowOverlap,
+                position.ZOrder,
+                position.BehindText);
             floatBoxes.Add(box);
-            _wrap.AddBox(box.Top, box.Bottom,
-                box.Left - setup.ContentLeftPoints, box.Right - setup.ContentLeftPoints, box.Wrap);
+            if (!position.BehindText)
+            {
+                _wrap.AddBox(box.Top, box.Bottom,
+                    box.Left - setup.ContentLeftPoints, box.Right - setup.ContentLeftPoints, box.Wrap);
+            }
         }
 
         // Where a table in the flow can start: below every floating table on the
@@ -597,7 +694,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // table is not cut in two around the one beside it.
         double BelowFloats(double top, List<RowBox> rows, double shift)
         {
-            if (floatBoxes.Count == 0 || !rows.Any(row => row.Boxes.Count > 0))
+            if (!rows.Any(row => row.Boxes.Count > 0))
+                return top;
+
+            int pageNumber = pages.Count + 1;
+            var wrappingShapes = GetPageWrappingShapes(pageNumber, setup).ToList();
+            if (floatBoxes.Count == 0 && wrappingShapes.Count == 0)
                 return top;
 
             double left = rows.SelectMany(row => row.Boxes).Min(box => box.Left) + shift;
@@ -609,8 +711,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 double bottom = Math.Min(top + height, contentBottom);
                 foreach (FloatBox box in floatBoxes)
                 {
-                    if (box.Left < right && box.Right > left && box.Top < bottom && box.Bottom > top)
+                    if (!box.BehindText && box.Left < right && box.Right > left && box.Top < bottom && box.Bottom > top)
                         moved = Math.Max(moved, box.Bottom);
+                }
+
+                foreach (var shapeBox in wrappingShapes)
+                {
+                    if (shapeBox.Left < right && shapeBox.Right > left && shapeBox.Top < bottom && shapeBox.Bottom > top)
+                        moved = Math.Max(moved, shapeBox.Bottom);
                 }
 
                 if (moved <= top)
@@ -704,6 +812,26 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // LibreOffice ends a text:section - and the next starts there, in its
         // first column. Where the next starts a page, the page break that follows
         // starts it at the top.
+        void EnsureParity(DocumentSection? s)
+        {
+            if (setup.Continuous || s is null)
+                return;
+
+            bool isOdd = (pages.Count + 1) % 2 != 0;
+            bool needsBlank = (s.BreakType == SectionBreakType.OddPage && !isOdd) ||
+                              (s.BreakType == SectionBreakType.EvenPage && isOdd);
+
+            if (needsBlank)
+            {
+                RunningContent savedRunning = _running;
+                _running = RunningContent.Empty;
+                BreakPage();
+                _running = savedRunning;
+                _firstPage = pages.Count + 1;
+                ownerFirstPage = pages.Count + 1;
+            }
+        }
+
         void EnterRegion(DocumentSection? next, bool startsPage, bool opensPage)
         {
             if (!startsPage)
@@ -713,7 +841,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 FlowItem? last = regionLines.Count > 0 ? regionLines[^1] : null;
                 double trailing = last is null ? 0 : Math.Max(0, y - (last.Top + last.Height));
                 y = Math.Max(regionDepth, y);
-                if (region is not null && columns.Count > 1 && !regionUnbalanced && last is not null)
+                if (region is not null && columns.Count > 1 && !regionUnbalanced && !region.DontBalanceColumns && last is not null)
                 {
                     if (BalanceColumns(regionLines, columns, regionTop, contentBottom - regionTop, _paragraphTops) is double height)
                     {
@@ -817,9 +945,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 paragraphIndex = section.ParagraphEnd;
                 continue;
             }
+            bool isSectionStart = section is not null && section.ParagraphIndex == paragraphIndex;
+            bool sectionBreaksPage = isSectionStart && section!.BreakType is SectionBreakType.NextPage or SectionBreakType.OddPage or SectionBreakType.EvenPage;
+
             if (!ReferenceEquals(section, region))
             {
-                bool opensPage = table?.PageBreakBefore ?? document.Paragraphs[paragraphIndex].Style.PageBreakBefore;
+                bool opensPage = (table?.PageBreakBefore ?? document.Paragraphs[paragraphIndex].Style.PageBreakBefore) || sectionBreaksPage;
                 // Finish floating content on its owning section's paper before a
                 // following section changes the page geometry or running content.
                 if (opensPage && !setup.Continuous)
@@ -829,20 +960,28 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 EnterRegion(section, startsPage, opensPage);
             }
 
-            if (table is not null && (table.PageBreakBefore || table.ColumnBreakBefore))
+            if (table is not null && (table.PageBreakBefore || table.ColumnBreakBefore || sectionBreaksPage))
             {
+                bool pageBreak = table.PageBreakBefore || sectionBreaksPage;
                 if (setup.Continuous)
                     ignoredBreaks++;
-                else if (table.PageBreakBefore && (currentLines.Count > 0 || floatLines.Count > 0))
+                else if (pageBreak && (currentLines.Count > 0 || floatLines.Count > 0 || currentCells.Count > 0 || floatCells.Count > 0))
                 {
                     OwnBreak();
                     BreakPage();
                 }
-                else if (!table.PageBreakBefore && table.ColumnBreakBefore && ColumnHasContent())
+                else if (!pageBreak && table.ColumnBreakBefore && ColumnHasContent())
                 {
                     regionUnbalanced = true;
                     BreakColumn();
                 }
+                if (truncated)
+                    break;
+            }
+
+            if (isSectionStart)
+            {
+                EnsureParity(section);
                 if (truncated)
                     break;
             }
@@ -865,6 +1004,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 ListNumberer headerStart = numbering.Snapshot();
                 List<RowBox> composedRows = ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width);
                 y = BelowFloats(y, composedRows, columns.Offset(column));
+                double totalTableHeight = composedRows.Sum(row => row.Height);
+                if (table.KeepTogether && !setup.Continuous && totalTableHeight <= contentBottom - pageTop && y + totalTableHeight > contentBottom && ColumnHasContent())
+                {
+                    if (region is not null && columns.Count > 1)
+                        regionUnbalanced = true;
+                    BreakColumn();
+                    y = BelowFloats(y, composedRows, columns.Offset(column));
+                }
                 if (table.KeepWithNext && region is not null && columns.Count > 1)
                     regionUnbalanced = true;
                 if (table.KeepWithNext && !setup.Continuous && table.ParagraphEnd < document.ParagraphCount &&
@@ -936,17 +1083,28 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     bool inHeader = rowNumber++ < headerCount;
                     int groupEnd = rowNumber;
                     for (int index = rowNumber - 1; index < groupEnd && index < table.Rows.Count; index++)
-                        groupEnd = Math.Min(table.Rows.Count, Math.Max(groupEnd,
-                            index + table.Rows[index].Cells.Select(cell => cell.RowSpan).DefaultIfEmpty(1).Max()));
+                    {
+                        int spanEnd = index + table.Rows[index].Cells.Select(cell => cell.RowSpan).DefaultIfEmpty(1).Max();
+                        int keepEnd = table.Rows[index].KeepWithNext ? index + 2 : index + 1;
+                        groupEnd = Math.Min(table.Rows.Count, Math.Max(groupEnd, Math.Max(spanEnd, keepEnd)));
+                    }
+                    if (table.KeepTogether && totalTableHeight <= contentBottom - pageTop)
+                        groupEnd = table.Rows.Count;
+
                     double groupHeight = composedRows.Skip(rowNumber - 1).Take(groupEnd - rowNumber + 1).Sum(item => item.Height);
-                    if (groupEnd > rowNumber && !setup.Continuous && groupHeight <= contentBottom - pageTop && y + groupHeight > contentBottom && ColumnHasContent())
+                    double minRequired = composedRows.Skip(rowNumber - 1).Take(groupEnd - rowNumber).Sum(r => r.Height) +
+                        (composedRows[groupEnd - 1].CanSplit ? composedRows[groupEnd - 1].NestedPieces().FirstOrDefault().Bottom : composedRows[groupEnd - 1].Height);
+                    double requiredToKeep = groupHeight <= contentBottom - pageTop ? groupHeight : minRequired;
+
+                    if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom - pageTop && y + requiredToKeep > contentBottom && ColumnHasContent())
                         ContinueTable(inHeader);
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
                     {
                         if (y + row.Height > contentBottom - NotesHeight(row.Lines))
                         {
-                            if (row.CanSplit && row.SplitAt(contentBottom - y) is (RowBox fitted, var rest))
+                            bool canSplitRow = row.CanSplit && !(table.KeepTogether && totalTableHeight <= contentBottom - pageTop);
+                            if (canSplitRow && row.SplitAt(contentBottom - y, allowStranding: !ColumnHasContent() || headerOnly) is (RowBox fitted, var rest))
                             {
                                 PlaceRow(fitted);
                                 y += fitted.Height;
@@ -992,14 +1150,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // Not in continuous mode, where there are no pages to break between.
             // Silently doing nothing would be the wrong kind of quiet, so the
             // note below says the breaks were ignored and why.
-            if (style.PageBreakBefore && !setup.Continuous && (currentLines.Count > 0 || floatLines.Count > 0))
+            bool styleBreaksPage = style.PageBreakBefore || sectionBreaksPage;
+            if (styleBreaksPage && !setup.Continuous && (currentLines.Count > 0 || floatLines.Count > 0))
             {
                 OwnBreak();
                 BreakPage();
                 if (truncated)
                     break;
             }
-            else if (style.ColumnBreakBefore && !style.PageBreakBefore && !setup.Continuous && ColumnHasContent())
+            else if (style.ColumnBreakBefore && !styleBreaksPage && !setup.Continuous && ColumnHasContent())
             {
                 // A column break moves to the top of the next column of the
                 // stretch being filled, and from its last column, or where it has
@@ -1016,9 +1175,27 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         break;
                 }
             }
-            else if ((style.PageBreakBefore || style.ColumnBreakBefore) && setup.Continuous)
+            else if ((styleBreaksPage || style.ColumnBreakBefore) && setup.Continuous)
             {
                 ignoredBreaks++;
+            }
+
+            if (!sectionBreaksPage && isSectionStart && section!.BreakType == SectionBreakType.NextColumn && ColumnHasContent())
+            {
+                regionUnbalanced = true;
+                if (column + 1 < columns.Count)
+                    NextColumn();
+                else
+                    BreakPage();
+                if (truncated)
+                    break;
+            }
+
+            if (isSectionStart)
+            {
+                EnsureParity(section);
+                if (truncated)
+                    break;
             }
 
             // Move a wrapping frame and its anchor together when it cannot fit
@@ -1091,6 +1268,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                                 // for the table's opening on its current page.
                                 double opening = rows[0].CanSplit
                                     ? rows[0].NestedPieces().FirstOrDefault().Bottom : rows[0].Height;
+                                if (followingTable.KeepTogether && rows.Sum(r => r.Height) <= capacity)
+                                    opening = rows.Sum(r => r.Height);
+                                else if (followingTable.Rows.Count > 0 && followingTable.Rows[0].KeepWithNext && rows.Count > 1)
+                                    opening += rows[1].CanSplit ? rows[1].NestedPieces().FirstOrDefault().Bottom : rows[1].Height;
                                 required += Math.Max(0, previous.SpacingAfter) + opening;
                             }
                             break;
@@ -1264,10 +1445,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             BreakPage();
 
         SetNotes();
+        var finalInlineLines = new List<LayoutLine>(currentLines);
+        var finalInlineCells = new List<LayoutCell>(currentCells);
         currentLines.AddRange(floatLines);
         currentCells.AddRange(floatCells);
         if (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0)
-            pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells, sectionPaint));
+            pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells, sectionPaint,
+                pageFloatingTables, finalInlineLines, finalInlineCells));
 
         // A shape anchored to a page the text never reached still has to stand
         // on it, so the pages up to it are made, empty but for their running
@@ -1341,7 +1525,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     private LayoutPage NewPage(int number, DocumentPageBox setup, List<LayoutLine> lines, List<LayoutCell> cells,
-        List<LayoutShape>? sectionPaint = null)
+        List<LayoutShape>? sectionPaint = null,
+        List<LayoutFloatingTable>? floatingTables = null,
+        List<LayoutLine>? inlineLines = null,
+        List<LayoutCell>? inlineCells = null)
     {
         PageSelection selection = SelectionFor(number);
 
@@ -1354,21 +1541,28 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 number, setup, setup.MarginTopPoints, setup.MarginBottomPoints,
                 _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints);
 
-        var all = new List<LayoutLine>(lines);
-        all.AddRange(RunningLines(
+        var headerLines = RunningLines(
             _running.EffectiveHeader(selection),
             setup,
             frame,
             top: 0,
             band: frame.TextTop,
-            topDistance: frame.HeaderDistance));
-        all.AddRange(RunningLines(
+            topDistance: frame.HeaderDistance);
+        var footerLines = RunningLines(
             _running.EffectiveFooter(selection),
             setup,
             frame,
             top: frame.TextBottom,
             band: setup.HeightPoints - frame.TextBottom,
-            bottomDistance: frame.FooterDistance));
+            bottomDistance: frame.FooterDistance);
+
+        var all = new List<LayoutLine>(lines);
+        all.AddRange(headerLines);
+        all.AddRange(footerLines);
+
+        var allInline = inlineLines is not null ? new List<LayoutLine>(inlineLines) : new List<LayoutLine>(lines);
+        allInline.AddRange(headerLines);
+        allInline.AddRange(footerLines);
 
         // One list and one ordering across the body and the running bands, because
         // that is how the formats state it: a letterhead's stripe is anchored in
@@ -1389,7 +1583,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells, _background,
             _background?.ContentOnly == true ? new BRect(setup.ContentLeftPoints, setup.ContentTopPoints,
-                setup.ContentWidthPoints, setup.ContentHeightPoints) : null);
+                setup.ContentWidthPoints, setup.ContentHeightPoints) : null,
+            floatingTables: floatingTables,
+            inlineLines: allInline,
+            inlineCells: inlineCells ?? cells);
     }
 
     /// <summary>
@@ -1596,7 +1793,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </remarks>
     private List<RowBox> ComposeTable(DocumentTable table, RichTextDocument document, DocumentPageBox setup, double left, double width)
     {
-        double[] edges = table.AutoFit && table.ColumnWidths.Count == 0
+        double[] edges = table.AutoFit
             ? AutoColumnEdges(table, document, left, width) : ColumnEdges(table, left, width);
         var boxes = new List<RowBox>(table.Rows.Count);
 
@@ -1611,6 +1808,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 MinimumHeight = row.MinHeight,
                 CanSplit = !row.ExactHeight && row.CanSplit &&
                     row.Cells.All(cell => cell.RowSpan == 1 && !cell.IsRowSpanContinuation),
+                ExactHeight = row.ExactHeight,
             };
             foreach (TableCell cell in row.Cells)
             {
@@ -1716,69 +1914,211 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
-    /// Content-based column sizes for an auto table: longest unbreakable tokens
-    /// supply minimum widths, and unwrapped lines supply preferred widths.
-    /// Spanning cells add constraints after the individual columns.
+    /// Content-based column sizes for an auto-fit table using a two-pass algorithm:
+    /// Pass 1: Longest unbreakable tokens, nested tables, paragraph indents, and cell padding/borders
+    ///         supply minimum widths, and unwrapped lines supply preferred widths. Spanning cells
+    ///         distribute deficits proportionally across their spanned columns.
+    /// Pass 2: Constrains and distributes column widths against the target width across deficit,
+    ///         flexible intermediate, and expansion regimes, respecting alignment and margins.
     /// </summary>
     private double[] AutoColumnEdges(DocumentTable table, RichTextDocument document, double left, double available)
     {
         int columns = ColumnCount(table);
+        (double[] minimum, double[] preferred) = MeasureColumnExtents(table, document, 0);
+
+        double minTotal = minimum.Sum();
+        double maxTotal = preferred.Sum();
+
+        bool explicitWidth = table.PreferredWidth is > 0 || table.WidthPercent is > 0;
+        double target = table.IsFloating
+            ? (explicitWidth ? table.FloatingWidthIn(available, available) : Math.Min(available, maxTotal))
+            : (explicitWidth ? table.WidthIn(available) : Math.Min(available, maxTotal));
+
+        double[] widths = new double[columns];
+
+        if (target <= minTotal)
+        {
+            // Deficit / overflow: compress columns proportionally down to target
+            double scale = minTotal > 0 ? target / minTotal : 1.0;
+            for (int c = 0; c < columns; c++)
+                widths[c] = Math.Max(1.0, minimum[c] * scale);
+        }
+        else if (target < maxTotal && maxTotal > minTotal)
+        {
+            // Intermediate regime: allocate minimum plus a share of the column's flexible range
+            double flexTotal = maxTotal - minTotal;
+            double flexUsed = target - minTotal;
+            for (int c = 0; c < columns; c++)
+            {
+                double flex = preferred[c] - minimum[c];
+                widths[c] = minimum[c] + (flex * flexUsed / flexTotal);
+            }
+        }
+        else
+        {
+            // Expansion / underflow: expand proportionally to preferred widths
+            if (maxTotal > 0)
+            {
+                double scale = target / maxTotal;
+                for (int c = 0; c < columns; c++)
+                    widths[c] = preferred[c] * scale;
+            }
+            else
+            {
+                double equal = target / columns;
+                for (int c = 0; c < columns; c++)
+                    widths[c] = equal;
+            }
+        }
+
+        double actualTotal = widths.Sum();
+        double offset = 0;
+        if (!table.IsFloating)
+        {
+            offset = table.Alignment switch
+            {
+                TableAlignment.Center => Math.Max(0, (available - actualTotal) / 2),
+                TableAlignment.End or TableAlignment.Outside => Math.Max(0, available - actualTotal),
+                _ => table.LeftIndent,
+            };
+        }
+
+        var edges = new double[columns + 1];
+        edges[0] = left + offset;
+        for (int c = 0; c < columns; c++)
+            edges[c + 1] = edges[c] + widths[c];
+
+        return edges;
+    }
+
+    /// <summary>
+    /// Pass 1 of the auto-fit algorithm: computes content-based minimum and preferred widths for each column.
+    /// </summary>
+    private (double[] Minimum, double[] Preferred) MeasureColumnExtents(DocumentTable table, RichTextDocument document, int depth)
+    {
+        int columns = ColumnCount(table);
         var minimum = Enumerable.Repeat(1.0, columns).ToArray();
         var preferred = Enumerable.Repeat(1.0, columns).ToArray();
+
+        // Seed with explicit column width hints if available
+        for (int i = 0; i < columns; i++)
+        {
+            if (i < table.ColumnWidths.Count && table.ColumnWidths[i] > 0)
+                preferred[i] = Math.Max(preferred[i], table.ColumnWidths[i]);
+        }
+
         foreach (TableCell cell in table.Rows.SelectMany(row => row.Cells).OrderBy(cell => cell.ColumnSpan))
         {
+            if (cell.IsRowSpanContinuation)
+                continue;
+
             double min = 0, max = 0;
-            for (int p = cell.ParagraphIndex; p < Math.Min(cell.ParagraphEnd, document.Paragraphs.Count); p++)
+            int p = cell.ParagraphIndex;
+            while (p < Math.Min(cell.ParagraphEnd, document.Paragraphs.Count))
             {
+                if (DocumentTable.StartingAt(cell.Tables, p) is DocumentTable nested)
+                {
+                    if (depth < 16)
+                    {
+                        (double[] nestedMinCols, double[] nestedPrefCols) = MeasureColumnExtents(nested, document, depth + 1);
+                        double nestedMin = nestedMinCols.Sum();
+                        double nestedPref = nestedPrefCols.Sum();
+                        if (nested.PreferredWidth is > 0)
+                            nestedPref = Math.Max(nestedPref, nested.PreferredWidth.Value);
+                        if (nested.TotalWidth > 0)
+                            nestedPref = Math.Max(nestedPref, nested.TotalWidth);
+
+                        min = Math.Max(min, nestedMin);
+                        max = Math.Max(max, nestedPref);
+                    }
+
+                    p = nested.ParagraphEnd;
+                    continue;
+                }
+
+                RichTextParagraph paragraph = document.Paragraphs[p];
                 double line = 0;
-                foreach (LayoutToken token in Tokenize(document.Paragraphs[p]))
+                double pMin = 0;
+                double pMax = 0;
+                foreach (LayoutToken token in Tokenize(paragraph))
                 {
                     if (token.IsForcedBreak)
                     {
-                        max = Math.Max(max, line);
+                        pMax = Math.Max(pMax, line);
                         line = 0;
                     }
                     else
                     {
                         line += token.Width;
                         if (!token.IsWhitespace)
-                            min = Math.Max(min, token.Width);
+                            pMin = Math.Max(pMin, token.Width);
                     }
                 }
-                max = Math.Max(max, line);
+                pMax = Math.Max(pMax, line);
+
+                double pIndents = Math.Max(0, paragraph.Style.LeftIndentIn(_settings.IndentStepPoints)) + Math.Max(0, paragraph.Style.RightIndentIn);
+                min = Math.Max(min, pMin + pIndents);
+                max = Math.Max(max, pMax + pIndents);
+                p++;
             }
+
             TableCellPadding padding = cell.PaddingFor(table);
-            min += padding.Left + padding.Right;
-            max = Math.Max(min, max + padding.Left + padding.Right);
+            double hPadding = padding.Left + padding.Right;
+            double hBorders = (cell.Borders.Left.IsVisible ? cell.Borders.Left.Width : 0) +
+                              (cell.Borders.Right.IsVisible ? cell.Borders.Right.Width : 0);
+
+            min += hPadding + hBorders;
+            max = Math.Max(min, max + hPadding + hBorders);
+
             int end = Math.Min(columns, cell.ColumnIndex + cell.ColumnSpan);
-            double minDeficit = Math.Max(0, min - minimum.Skip(cell.ColumnIndex).Take(cell.ColumnSpan).Sum());
-            double maxDeficit = Math.Max(0, max - preferred.Skip(cell.ColumnIndex).Take(cell.ColumnSpan).Sum());
+            int span = end - cell.ColumnIndex;
+            if (span <= 0)
+                continue;
+
+            double currentMin = 0;
+            double currentPref = 0;
             for (int c = cell.ColumnIndex; c < end; c++)
             {
-                minimum[c] += minDeficit / cell.ColumnSpan;
-                preferred[c] = Math.Max(minimum[c], preferred[c] + maxDeficit / cell.ColumnSpan);
+                currentMin += minimum[c];
+                currentPref += preferred[c];
+            }
+
+            double minDeficit = Math.Max(0, min - currentMin);
+            double maxDeficit = Math.Max(0, max - currentPref);
+
+            if (minDeficit > 0)
+            {
+                if (currentMin > 0)
+                {
+                    for (int c = cell.ColumnIndex; c < end; c++)
+                        minimum[c] += minDeficit * (minimum[c] / currentMin);
+                }
+                else
+                {
+                    for (int c = cell.ColumnIndex; c < end; c++)
+                        minimum[c] += minDeficit / span;
+                }
+            }
+
+            if (maxDeficit > 0)
+            {
+                if (currentPref > 0)
+                {
+                    for (int c = cell.ColumnIndex; c < end; c++)
+                        preferred[c] = Math.Max(minimum[c], preferred[c] + maxDeficit * (preferred[c] / currentPref));
+                }
+                else
+                {
+                    for (int c = cell.ColumnIndex; c < end; c++)
+                        preferred[c] = Math.Max(minimum[c], preferred[c] + maxDeficit / span);
+                }
             }
         }
-        double minTotal = minimum.Sum(), maxTotal = preferred.Sum();
-        bool explicitWidth = table.PreferredWidth is > 0 || table.WidthPercent is > 0;
-        double target = explicitWidth ? table.WidthIn(available) : Math.Min(available, maxTotal);
-        double[] widths = new double[columns];
+
         for (int c = 0; c < columns; c++)
-            widths[c] = target < minTotal ? minimum[c] * target / minTotal :
-                maxTotal > minTotal && target < maxTotal
-                    ? minimum[c] + (preferred[c] - minimum[c]) * (target - minTotal) / (maxTotal - minTotal)
-                    : preferred[c] + (target - maxTotal) / columns;
-        double offset = table.Alignment switch
-        {
-            TableAlignment.Center => (available - target) / 2,
-            TableAlignment.End or TableAlignment.Outside => available - target,
-            _ => table.LeftIndent,
-        };
-        var edges = new double[columns + 1];
-        edges[0] = left + offset;
-        for (int c = 0; c < columns; c++)
-            edges[c + 1] = edges[c] + widths[c];
-        return edges;
+            preferred[c] = Math.Max(preferred[c], minimum[c]);
+
+        return (minimum, preferred);
     }
 
     private static double[] ColumnEdges(DocumentTable table, double left, double width)
@@ -1850,6 +2190,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         var pieces = new List<CutPiece>();
         ListNumberer numbering = _lists.ForNestedFlow();
         double y = 0;
+        double capacity = setup.ContentHeightPoints;
         bool keepPrevious = false;
 
         int index = Math.Max(0, from);
@@ -1867,11 +2208,35 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // Keep the nested row's legal cuts. Treating every nested row
                 // as indivisible lets a long cell run off the page even when
                 // both its row and the outer row permit splitting.
-                foreach (RowBox row in ComposeTable(nested, document, setup, left, width))
+                List<RowBox> nestedRows = ComposeTable(nested, document, setup, left, width);
+                double nestedHeight = nestedRows.Sum(row => row.Height);
+                if (nested.KeepTogether && nestedHeight <= capacity)
                 {
-                    pieces.AddRange(row.NestedPieces().Select(piece => new CutPiece(y + piece.Top, y + piece.Bottom)));
-                    row.PlaceAt(y, 0, lines, cells, new Dictionary<int, double>());
-                    y += row.Height;
+                    double startY = y;
+                    foreach (RowBox row in nestedRows)
+                    {
+                        row.PlaceAt(y, 0, lines, cells, new Dictionary<int, double>());
+                        y += row.Height;
+                    }
+                    pieces.Add(new CutPiece(startY, y));
+                }
+                else
+                {
+                    bool keepWithNextRow = false;
+                    for (int r = 0; r < nestedRows.Count; r++)
+                    {
+                        RowBox row = nestedRows[r];
+                        var rowPieces = row.NestedPieces().Select(piece => new CutPiece(y + piece.Top, y + piece.Bottom)).ToList();
+                        if (keepWithNextRow && pieces.Count > 0 && rowPieces.Count > 0)
+                        {
+                            pieces[^1] = new CutPiece(pieces[^1].Top, rowPieces[0].Bottom);
+                            rowPieces.RemoveAt(0);
+                        }
+                        pieces.AddRange(rowPieces);
+                        row.PlaceAt(y, 0, lines, cells, new Dictionary<int, double>());
+                        y += row.Height;
+                        keepWithNextRow = r < nested.Rows.Count && nested.Rows[r].KeepWithNext;
+                    }
                 }
 
                 keepPrevious = false;
@@ -1885,7 +2250,6 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             y += Math.Max(0, paragraph.Style.SpacingBefore);
 
             double anchorTop = y;
-            double capacity = setup.ContentHeightPoints;
             double height = composed.Lines.Sum(line => line.Height);
             int count = composed.Lines.Count;
             int orphans = Math.Clamp(paragraph.Style.OrphanLines ?? 1, 1, Math.Max(1, count));
@@ -1972,7 +2336,41 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// The box a floating table keeps text out of on its page, its clearance
     /// included, in page coordinates.
     /// </summary>
-    private readonly record struct FloatBox(double Top, double Bottom, double Left, double Right, ShapeWrap Wrap, bool AllowOverlap = true);
+    private IEnumerable<(double Top, double Bottom, double Left, double Right)> GetPageWrappingShapes(int pageNumber, DocumentPageBox setup)
+    {
+        if (_documentShapes.Count == 0)
+            yield break;
+
+        foreach (DocumentShape shape in _documentShapes)
+        {
+            if (!shape.Wraps)
+                continue;
+
+            double anchorTop;
+            if (shape.IsPageAnchored)
+            {
+                if (shape.AnchorPage != pageNumber)
+                    continue;
+                anchorTop = 0;
+            }
+            else if (!_paragraphTops.TryGetValue(shape.ParagraphIndex, out anchorTop))
+            {
+                continue;
+            }
+
+            double shapeTop = shape.TopOnPage(anchorTop);
+            double shapeLeft = setup.ContentLeftPoints + shape.OffsetX;
+            double shapeWidth = BoxWidth(shape);
+            double shapeHeight = BoxHeight(shape);
+            if (shapeWidth <= 0 || shapeHeight <= 0)
+                continue;
+
+            double margin = Math.Max(0, shape.WrapDistance);
+            yield return (shapeTop - margin, shapeTop + shapeHeight + margin, shapeLeft - margin, shapeLeft + shapeWidth + margin);
+        }
+    }
+
+    private readonly record struct FloatBox(double Top, double Bottom, double Left, double Right, ShapeWrap Wrap, bool AllowOverlap = true, int ZOrder = 0, bool BehindText = false);
 
     /// <summary>The rows of a floating table still to stand on the next page, and where across.</summary>
     private sealed record FloatCarry(List<RowBox> Rows, double Left, double Width, DocumentTable Table, ListNumberer HeaderStart, int RowOffset);
@@ -2001,7 +2399,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// One cell's composed lines, in order, the boxes of any table nested in it,
     /// the pieces it may be cut between, and the height they take.
     /// </summary>
-    private sealed record CellLines(List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height, TableCell? Cell = null)
+    private sealed record CellLines(List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height, TableCell? Cell = null, bool IsSplit = false)
     {
         public static CellLines Empty => new([], [], [], 0);
     }
@@ -2014,6 +2412,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         public double Height { get; set; }
         public double MinimumHeight { get; set; }
+        public bool ExactHeight { get; init; }
 
         public List<LayoutLine> Lines { get; } = [];
 
@@ -2037,7 +2436,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             foreach (CellLines content in Contents)
             {
                 double spare = Math.Max(0, Height - content.Height);
-                double down = content.Cell?.VerticalAlignment switch
+                double down = content.IsSplit ? 0 : content.Cell?.VerticalAlignment switch
                 {
                     CellVerticalAlignment.Center => spare / 2,
                     CellVerticalAlignment.Bottom => spare,
@@ -2084,7 +2483,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         /// run down to the cut, so a cell whose text ended higher still reaches
         /// the foot of the page, and both parts draw their borders.
         /// </remarks>
-        public (RowBox Fitted, RowBox? Remainder)? SplitAt(double room)
+        public (RowBox Fitted, RowBox? Remainder)? SplitAt(double room, bool allowStranding = false)
         {
             // A row whose stated floor fits on a fresh page must move there,
             // even when its few text lines would fit in the space left here.
@@ -2094,12 +2493,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             var cuts = new double?[Contents.Count];
             bool kept = false;
             bool carried = false;
+            bool anyCellStranded = false;
             for (int i = 0; i < Contents.Count; i++)
             {
-                foreach (CutPiece piece in Contents[i].Pieces)
+                CellLines content = Contents[i];
+                if (content.Pieces.Count == 0)
+                    continue;
+
+                bool cellKept = false;
+                foreach (CutPiece piece in content.Pieces)
                 {
                     if (piece.Bottom <= room)
                     {
+                        cellKept = true;
                         kept = true;
                         continue;
                     }
@@ -2108,9 +2514,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     carried = true;
                     break;
                 }
+
+                if (!cellKept)
+                    anyCellStranded = true;
             }
 
             if (!kept)
+                return null;
+            if (!allowStranding && anyCellStranded)
                 return null;
             if (!carried)
                 return (this, null);
@@ -2178,12 +2589,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 }
 
                 double remaining = Math.Max(0, content.Height - cut);
+                if (piecesAfter.Count > 0)
+                {
+                    piecesAfter[0] = piecesAfter[0] with { Top = 0 };
+                    piecesAfter[^1] = piecesAfter[^1] with { Bottom = remaining };
+                }
+
                 fitted.Lines.AddRange(before);
                 fitted.Cells.AddRange(boxesBefore);
-                fitted.Contents.Add(new CellLines(before, boxesBefore, [.. content.Pieces.Where(piece => piece.Top < cut)], cut, content.Cell));
+                fitted.Contents.Add(new CellLines(before, boxesBefore, [.. content.Pieces.Where(piece => piece.Top < cut)], cut, content.Cell, IsSplit: true));
                 rest.Lines.AddRange(after);
                 rest.Cells.AddRange(boxesAfter);
-                rest.Contents.Add(new CellLines(after, boxesAfter, piecesAfter, remaining, content.Cell));
+                rest.Contents.Add(new CellLines(after, boxesAfter, piecesAfter, remaining, content.Cell, IsSplit: content.IsSplit || cut > 0));
                 rest.Height = Math.Max(rest.Height, remaining);
             }
 
@@ -2198,7 +2615,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             foreach (CellLines content in Contents)
             {
-                if (content.Cell is not TableCell cell || cell.VerticalAlignment == CellVerticalAlignment.Top)
+                if (content.IsSplit || content.Cell is not TableCell cell || cell.VerticalAlignment == CellVerticalAlignment.Top)
                     continue;
                 double extra = Boxes.FirstOrDefault(box => ReferenceEquals(box.Cell, cell))?.ExtraHeight ?? 0;
                 double spare = Math.Max(0, Height + extra - content.Height);
@@ -2961,7 +3378,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 continue;
             }
 
-            bool isSpace = char.IsWhiteSpace(character);
+            bool isSpace = UnicodeBoundaryClassifier.IsBreakableWhitespace(character);
             if (whitespace is not null && isSpace != whitespace)
             {
                 yield return new Fragment(builder.ToString(), whitespace.Value, false, false, false);
@@ -3027,14 +3444,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 color = _settings.LinkColor;
         }
 
-        double width = BTextMeasurer.MeasureAdvance(text, font);
+        double width = _settings.TextMeasurer is not null
+            ? _settings.TextMeasurer.MeasureAdvance(text, font)
+            : BTextMeasurer.MeasureAdvance(text, font);
         var (ascent, descent, lineGap) = VerticalMetrics(font);
 
         // Shearing is a fallback for a family with no designed italic face. It
         // does not change the advance, so nothing in the layout moves either way.
-        bool oblique = style.Italic &&
-            _settings.SynthesizeItalic &&
-            !(_settings.ItalicFaceAvailable?.Invoke(font.FamilyName) ?? false);
+        bool italicFaceAvailable = _settings.TextMeasurer is not null
+            ? _settings.TextMeasurer.HasItalicFace(font.FamilyName)
+            : (_settings.ItalicFaceAvailable?.Invoke(font.FamilyName) ?? false);
+        bool oblique = style.Italic && _settings.SynthesizeItalic && !italicFaceAvailable;
 
         return new LayoutPiece(text, font, color, style.Background, underline, style.Strikethrough, style.LinkHref, null,
             width, ascent, descent, oblique: oblique, lineGap: lineGap)
@@ -3080,6 +3500,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     private (double Ascent, double Descent, double LineGap) VerticalMetrics(BFontStyle font)
     {
+        if (_settings.TextMeasurer is not null)
+        {
+            return _settings.TextMeasurer.GetVerticalMetrics(font);
+        }
+
         double lineGap = _settings.FontLineGap?.Invoke(font) is double gap && double.IsFinite(gap) && gap >= 0
             ? gap
             : 0;

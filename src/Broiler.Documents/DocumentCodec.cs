@@ -32,8 +32,10 @@ namespace Broiler.Documents;
 /// </remarks>
 public abstract class DocumentCodec(DocumentFormatDescriptor descriptor)
 {
+    /// <summary>The format descriptor identifying this codec's format name, MIME types, and file extensions.</summary>
     public DocumentFormatDescriptor Descriptor { get; } = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
 
+    /// <summary>The uppercase format name, taken from <see cref="Descriptor"/> (e.g., "RTF", "PDF", "DOCX").</summary>
     public string Name => Descriptor.Name;
 
     /// <summary>True when <see cref="Read(Stream, DocumentReadOptions)"/> is implemented for this format.</summary>
@@ -99,6 +101,13 @@ public abstract class DocumentCodec(DocumentFormatDescriptor descriptor)
                 "The write was cancelled before any byte reached the destination.");
         }
 
+        if (request.RequireAtomic && !request.IsStaged)
+        {
+            return DocumentWriteResult.Rejected(
+                DocumentDiagnosticCodes.CommitAtomicRequired,
+                "The write request requires atomic commit, but the destination has no staging capability.");
+        }
+
         try
         {
             return Write(request.Document, request.Destination, request.Options);
@@ -127,6 +136,20 @@ public abstract class DocumentCodec(DocumentFormatDescriptor descriptor)
     public virtual ValueTask<DocumentWriteResult> WriteAsync(DocumentWriteRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        if (request.CancellationToken.IsCancellationRequested)
+        {
+            return ValueTask.FromResult(DocumentWriteResult.Rejected(DocumentDiagnosticCodes.Cancelled,
+                "The write was cancelled before any byte reached the destination."));
+        }
+
+        if (request.RequireAtomic && !request.IsStaged)
+        {
+            return ValueTask.FromResult(DocumentWriteResult.Rejected(
+                DocumentDiagnosticCodes.CommitAtomicRequired,
+                "The write request requires atomic commit, but the destination has no staging capability."));
+        }
+
         return ValueTask.FromResult(Write(request));
     }
 

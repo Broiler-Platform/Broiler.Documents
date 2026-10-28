@@ -39,7 +39,11 @@ names the format instead, as `broilerdoc --from csv` does.
 
 ### Encoding
 
-CSV states no encoding, so the bytes are asked in a fixed order.
+CSV states no encoding within the file bytes, so the bytes are asked in order:
+
+| Input | Read as |
+|---|---|
+| Explicit `charset` media-type parameter (e.g. `charset=windows-1252` or `charset=utf-8`) | The specified encoding. Invalid sequences become U+FFFD and are reported as `csv.encoding.invalid` |
 
 | Input | Read as |
 |---|---|
@@ -55,9 +59,17 @@ and no encoding provider is registered. When the byte limit cuts a multi-byte
 UTF-8 character in half, the half is dropped so the file is not mistaken for
 Windows-1252.
 
-### Delimiter
+### Delimiter and `sep=` Lines
 
-`CsvReadOptions.Delimiter` states it. Left null, the reader detects it from the
+`CsvReadOptions.Delimiter` states it explicitly when provided.
+
+When left null, the reader checks whether the first line declares the delimiter
+using the spreadsheet vendor convention `sep=<char>` (such as `sep=;`, `sep=\t`,
+or `sep=,`). If present, the `sep=` line is consumed rather than emitted into the
+document table, and the declared character is used as the delimiter.
+
+Otherwise, the reader detects the delimiter from the first 20 records, quotes
+respected:
 first 20 records, quotes respected:
 
 1. Tab, semicolon and comma are each tried, and the field count most records
@@ -75,6 +87,10 @@ with a title line above the data. Blank lines are passed over. A file no
 candidate splits is read as one column.
 Detection is what lets a semicolon-separated file with decimal commas, as
 spreadsheets in many European locales save it, open without being told.
+
+The delimiter and encoding discovered during read are carried on the resulting
+`CsvReadResult` (`Delimiter` and `Encoding`), allowing a host that saves back
+what it opened to preserve the dialect.
 
 ### Grammar
 
@@ -101,7 +117,7 @@ spreadsheets in many European locales save it, open without being told.
 | A record | A `TableRow` |
 | A field | A `TableCell` at its column, holding one plain paragraph per line |
 | A record shorter than the widest | Padded with empty cells, reported as `csv.row.ragged` |
-| The first record, when `CsvReadOptions.HasHeaderRow` is set | A header row (`TableRow.IsHeader`), which repeats at the top of each page |
+| The first record, when `CsvReadOptions.HasHeaderRow` is set or `header=present` in media-type hint | A header row (`TableRow.IsHeader`), which repeats at the top of each page |
 | No records at all | `RichTextDocument.Empty`, with no table |
 
 Values are text exactly as written. `007`, `1e5`, `2026-10-12` and `=SUM(A1:A2)`
@@ -206,15 +222,15 @@ text. The codes are the constants on `CsvDiagnosticCodes`.
 - One table per file. A CSV file has no sheets, and nothing marks where one
   table would end and the next begin.
 - No types. Numbers, dates and booleans are text, and the writer writes text.
-- The dialect is not carried. A file read with semicolons is written with
-  commas unless the caller asks for semicolons again, and nothing in the read
-  result says which delimiter was found.
-- The `header` and `charset` media-type parameters are not read from a hint. A
-  caller who has them sets `HasHeaderRow` or relies on the byte-order mark.
-- A leading `sep=;` line, which some spreadsheets write to name the delimiter, is
-  read as a record.
-- Tab-separated values as their own format (`.tsv`, `text/tab-separated-values`)
-  are not registered; a tab-separated file named `.csv` is read correctly.
+
+
+
+
+
+
+
+
+
 - The table carries no borders, because the file states none. A host that wants
   a grid drawn styles it.
 

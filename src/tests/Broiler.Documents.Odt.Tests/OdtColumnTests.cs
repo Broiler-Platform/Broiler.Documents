@@ -252,4 +252,83 @@ public sealed class OdtColumnTests
         DocumentSection last = DocumentSection.Containing(read.Sections, 3)!;
         Assert.Equal((2, 18.0), (last.ColumnCount, Math.Round(last.ColumnGap, 2)));
     }
+
+    [Fact]
+    public void Section_Margins_Round_Trip()
+    {
+        PageGeometry letter = new(612, 792, 72, 72, 72, 72);
+        PageGeometry indented = new(612, 792, 108, 108, 72, 72);
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+            Enumerable.Range(0, 3).Select(i => RichTextParagraph.Plain("p" + i)).ToList())
+            .WithPageGeometry(letter)
+            .WithSections(
+            [
+                new DocumentSection(1, 1, 2, 18, page: indented),
+            ]);
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult writeResult = new OdtDocumentCodec().Write(source, stream);
+        Assert.DoesNotContain(writeResult.Diagnostics, d => d.Code == "odt.section.page");
+
+        stream.Position = 0;
+        RichTextDocument read = new OdtDocumentCodec().Read(stream).Document;
+
+        Assert.Single(read.Sections);
+        Assert.NotNull(read.Sections[0].Page);
+        Assert.Equal(108, read.Sections[0].Page!.MarginLeft, 2);
+        Assert.Equal(108, read.Sections[0].Page!.MarginRight, 2);
+    }
+
+    [Fact]
+    public void Section_With_DontBalanceColumns_Round_Trips()
+    {
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+            Enumerable.Range(0, 4).Select(i => RichTextParagraph.Plain("p" + i)).ToList())
+            .WithSections([new DocumentSection(1, 2, 2, 18, dontBalanceColumns: true)]);
+
+        RichTextDocument read = RoundTrip(source);
+
+        Assert.Single(read.Sections);
+        Assert.True(read.Sections[0].DontBalanceColumns);
+        Assert.Equal(2, read.Sections[0].ColumnCount);
+    }
+
+    [Fact]
+    public void One_Column_Section_With_Margins_Is_Preserved()
+    {
+        PageGeometry letter = new(612, 792, 72, 72, 72, 72);
+        PageGeometry indented = new(612, 792, 108, 108, 72, 72);
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+            Enumerable.Range(0, 3).Select(i => RichTextParagraph.Plain("p" + i)).ToList())
+            .WithPageGeometry(letter)
+            .WithSections(
+            [
+                new DocumentSection(1, 1, 1, 0, page: indented),
+            ]);
+
+        RichTextDocument read = RoundTrip(source);
+
+        Assert.Single(read.Sections);
+        Assert.Equal(1, read.Sections[0].ColumnCount);
+        Assert.NotNull(read.Sections[0].Page);
+        Assert.Equal(108, read.Sections[0].Page!.MarginLeft, 2);
+    }
+
+    [Fact]
+    public void Section_With_Unsupported_Paper_Size_Emits_Diagnostic()
+    {
+        PageGeometry letter = new(612, 792, 72, 72, 72, 72);
+        PageGeometry customPaper = new(800, 1000, 72, 72, 72, 72);
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+            Enumerable.Range(0, 3).Select(i => RichTextParagraph.Plain("p" + i)).ToList())
+            .WithPageGeometry(letter)
+            .WithSections(
+            [
+                new DocumentSection(1, 1, 1, 0, page: customPaper),
+            ]);
+
+        using var stream = new MemoryStream();
+        DocumentWriteResult writeResult = new OdtDocumentCodec().Write(source, stream);
+        Assert.Contains(writeResult.Diagnostics, d => d.Code == "odt.section.page");
+    }
 }

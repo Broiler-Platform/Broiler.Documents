@@ -4,6 +4,8 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using Broiler.Documents.Model;
+using Broiler.Documents.Model.Pagination;
+using Broiler.Documents.Model.Text;
 using Broiler.Documents.Pdf.Text;
 using Broiler.Graphics.Color;
 
@@ -486,6 +488,102 @@ internal sealed class PdfPageLayout(
         OrderShapes(pages);
         return pages;
     }
+
+    /// <summary>
+    /// Builds PDF layout pages directly from an already-paginated document artifact
+    /// without re-measuring fonts or re-breaking lines, preserving exact resolved geometry.
+    /// </summary>
+    public List<PdfLayoutPage> BuildFromArtifact(IPaginatedDocumentArtifact artifact, RichTextDocument? document = null)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+
+        if (document is not null)
+        {
+            DocumentStyleDefaults own = document.StyleDefaults;
+            _defaults = (own with { WidensSpaceRuns = false }).IsDefault
+                ? own with { FontSizePoints = _options.DefaultFontSize }
+                : own;
+        }
+
+        var pages = new List<PdfLayoutPage>();
+        PdfPageSetup setup = document is not null ? SetupFor(document) : _options.PageSetup;
+
+        foreach (var pageArtifact in artifact.Pages)
+        {
+            double pageHeight = pageArtifact.HeightPoints > 0 ? pageArtifact.HeightPoints : setup.Height;
+            var pdfPage = new PdfLayoutPage();
+
+            if (pageArtifact.Background is not null)
+            {
+                pdfPage.Shapes.Add(new PdfPlacedShape(
+                    0, 0, pageArtifact.WidthPoints, pageHeight, pageArtifact.Background, BColor.Empty));
+            }
+
+            foreach (var shape in pageArtifact.Shapes)
+            {
+                double shapePdfY = pageHeight - (shape.Y + shape.Height);
+                pdfPage.Shapes.Add(new PdfPlacedShape(
+                    shape.X, shapePdfY, shape.Width, shape.Height, shape.Fill, shape.Outline, OutlineWidth: shape.OutlineWidth));
+            }
+
+            foreach (var line in pageArtifact.Lines)
+            {
+                double linePdfBaseline = pageHeight - line.Baseline;
+
+                foreach (var piece in line.Pieces)
+                {
+                    if (piece.IsImage || string.IsNullOrEmpty(piece.Text))
+                        continue;
+
+                    string text = MakeEncodable(piece.Text);
+                    PdfFontFamilyKind family = ClassifyFamily(piece.FontFamily);
+                    PdfStandardFont font = PdfStandardFonts.Select(family, piece.Bold, piece.Italic);
+
+                    string? href = null;
+                    if (!string.IsNullOrEmpty(piece.Link))
+                    {
+                        if (_uriPolicy.IsAdmitted(piece.Link))
+                        {
+                            href = piece.Link;
+                        }
+                        else
+                        {
+                            _diagnostics.Skipped(
+                                PdfDiagnosticCodes.UriRejected,
+                                "A link target was not emitted because it failed the active URI policy. The text was written without an annotation.");
+                        }
+                    }
+
+                    double runBaseline = linePdfBaseline + piece.Rise;
+                    BColor foreground = piece.Color.IsEmpty ? BColor.Black : piece.Color;
+
+                    var run = new PdfPlacedRun(
+                        text,
+                        piece.X,
+                        runBaseline,
+                        piece.Width,
+                        piece.FontSizePoints,
+                        font,
+                        foreground,
+                        piece.Highlight,
+                        piece.Underline,
+                        piece.Strikethrough,
+                        href,
+                        wordSpacing: 0);
+
+                    pdfPage.Runs.Add(run);
+                }
+            }
+
+            pages.Add(pdfPage);
+        }
+
+        if (pages.Count > _options.PdfLimits.MaxPageCount)
+            throw PdfWorkBudget.Exceeded(nameof(PdfLimits.MaxPageCount), _options.PdfLimits.MaxPageCount);
+
+        return pages;
+    }
+
 
     /// <summary>
     /// Draws the header and footer on every page, once the body has decided how
@@ -1515,10 +1613,11 @@ internal sealed class PdfPageLayout(
     {
         var builder = new StringBuilder();
         double width = 0;
+        var clusters = UnicodeBoundaryClassifier.GetGraphemeClusters(word.Text);
 
-        foreach (char c in word.Text)
+        foreach (var cluster in clusters)
         {
-            double advance = CharacterWidth(word.Font, c, word.FontSize);
+            double advance = ClusterWidth(word.Font, cluster.Text, word.FontSize);
             if (builder.Length > 0 && width + advance > available)
             {
                 yield return word.WithText(builder.ToString(), width);
@@ -1526,12 +1625,27 @@ internal sealed class PdfPageLayout(
                 width = 0;
             }
 
-            builder.Append(c);
+            builder.Append(cluster.Text);
             width += advance;
+
+            if (builder.Length > 0 && width > available)
+            {
+                yield return word.WithText(builder.ToString(), width);
+                builder.Clear();
+                width = 0;
+            }
         }
 
         if (builder.Length > 0)
             yield return word.WithText(builder.ToString(), width);
+    }
+
+    private double ClusterWidth(PdfStandardFont font, string clusterText, double fontSize)
+    {
+        double total = 0;
+        foreach (char c in clusterText)
+            total += CharacterWidth(font, c, fontSize);
+        return total;
     }
 
     /// <summary>

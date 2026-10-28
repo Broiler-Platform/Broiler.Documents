@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Text;
 using Broiler.Documents.Model;
+using Broiler.Documents.Model.Pagination;
 using Broiler.Documents.Pdf.Text;
 using Broiler.Graphics.Color;
 
@@ -117,6 +118,21 @@ internal sealed class PdfWriter
         return new PdfWriteResult(written, status, DocumentDestinationState.Committed, pageCount, diagnostics.Build());
     }
 
+    public static PdfWriteResult Write(
+        RichTextDocument document,
+        Stream destination,
+        PdfWriteOptions options,
+        PdfCodecServices services,
+        IPaginatedDocumentArtifact? paginatedArtifact,
+        CancellationToken cancellationToken = default)
+    {
+        var effectiveOptions = paginatedArtifact is not null
+            ? options.WithPaginatedArtifact(paginatedArtifact)
+            : options;
+        return Write(document, destination, effectiveOptions, services, cancellationToken);
+    }
+
+
     private (byte[] Bytes, int PageCount) Build(RichTextDocument document)
     {
         PdfUriPolicy policy = _options.UriPolicy ?? _services.UriPolicy;
@@ -130,7 +146,9 @@ internal sealed class PdfWriter
         }
 
         var layout = new PdfPageLayout(_options, metrics, policy, _diagnostics, _cancellationToken);
-        List<PdfLayoutPage> pages = layout.Build(document);
+        List<PdfLayoutPage> pages = _options.PaginatedArtifact is not null
+            ? layout.BuildFromArtifact(_options.PaginatedArtifact, document)
+            : layout.Build(document);
         // The MediaBox has to be the page the layout actually used, which is the
         // document's when it states one.
         _pageSetup = layout.SetupFor(document);

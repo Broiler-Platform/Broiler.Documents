@@ -74,8 +74,7 @@ public sealed class CsvDocumentCodec : DocumentCodec
     }
 
     /// <summary>
-    /// Reads through the request contract, so cancellation reaches the parse
-    /// rather than only the start of it.
+    /// Reads through the request contract, taking hints and cancellation from the request.
     /// </summary>
     public override DocumentReadResult Read(DocumentReadRequest request)
     {
@@ -87,16 +86,47 @@ public sealed class CsvDocumentCodec : DocumentCodec
         if (request.CancellationToken.IsCancellationRequested)
             return DocumentReadResult.Rejected(DocumentDiagnosticCodes.Cancelled, "The read was cancelled before it began.");
 
+        CsvReadOptions baseOptions = CsvReadOptions.From(request.Options);
+        bool hasHeader = baseOptions.HasHeaderRow;
+        if (MediaTypeHeader.TryGetParameter(request.Hints.MimeType, "header", out string? headerVal))
+        {
+            if (string.Equals(headerVal, "present", StringComparison.OrdinalIgnoreCase))
+                hasHeader = true;
+        }
+
+        Encoding? explicitEncoding = null;
+        if (MediaTypeHeader.TryGetParameter(request.Hints.MimeType, "charset", out string? charsetVal))
+        {
+            explicitEncoding = MediaTypeHeader.ResolveEncoding(charsetVal);
+        }
+
+        CsvReadOptions effective = new(baseOptions.Limits, baseOptions.Delimiter, hasHeader);
+
         try
         {
             using Stream source = request.Input.OpenStream();
-            return ReadCore(source, CsvReadOptions.From(request.Options), request.CancellationToken);
+            return ReadCore(source, effective, request.CancellationToken, explicitEncoding);
         }
         catch (OperationCanceledException)
         {
             return DocumentReadResult.Rejected(DocumentDiagnosticCodes.Cancelled,
                 "The read was cancelled before it produced a usable document.");
         }
+    }
+
+    /// <summary>Reads a CSV file returning a format-specific <see cref="CsvReadResult"/>.</summary>
+    public CsvReadResult ReadCsv(
+        Stream source,
+        CsvReadOptions? options = null,
+        CancellationToken cancellationToken = default,
+        Encoding? explicitEncoding = null)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        options ??= CsvReadOptions.Default;
+        if (!TryValidateOptions(options, Name, out CsvReadOptions? _, out DocumentReadResult? rejection))
+            return (rejection as CsvReadResult) ?? new CsvReadResult(RichTextDocument.Empty, ',', null, rejection?.Diagnostics, DocumentResultStatus.Rejected);
+
+        return ReadCore(source, CsvReadOptions.From(options), cancellationToken, explicitEncoding);
     }
 
     public override DocumentWriteResult Write(
@@ -125,6 +155,13 @@ public sealed class CsvDocumentCodec : DocumentCodec
                 "The write was cancelled before any byte reached the destination.");
         }
 
+        if (request.RequireAtomic && !request.IsStaged)
+        {
+            return DocumentWriteResult.Rejected(
+                DocumentDiagnosticCodes.CommitAtomicRequired,
+                "The write request requires atomic commit, but the destination has no staging capability.");
+        }
+
         try
         {
             return CsvWriter.Write(
@@ -148,10 +185,14 @@ public sealed class CsvDocumentCodec : DocumentCodec
         return stream.ToArray();
     }
 
-    private static DocumentReadResult ReadCore(Stream source, CsvReadOptions options, CancellationToken cancellationToken)
+    private static CsvReadResult ReadCore(
+        Stream source,
+        CsvReadOptions options,
+        CancellationToken cancellationToken,
+        Encoding? explicitEncoding = null)
     {
         (byte[] bytes, bool truncated) = ReadAllBytes(source, options.Limits.MaxDocumentBytes, cancellationToken);
-        return CsvReader.Read(bytes, truncated, options, cancellationToken);
+        return CsvReader.Read(bytes, truncated, options, cancellationToken, explicitEncoding);
     }
 
     private static (byte[] Bytes, bool Truncated) ReadAllBytes(Stream source, long maxBytes, CancellationToken cancellationToken)

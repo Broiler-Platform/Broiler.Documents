@@ -48,7 +48,9 @@ by 2,836 pixels" are very different sentences to hand a developer.
 | `formats` | List the composed codecs and what each can do. |
 | `probe` | Identify a file's format, reporting every codec's verdict. |
 | `info` | Read a document and report its structure and diagnostics. |
-| `dump` | Print the content as text, JSON, Formatting Codes, or an outline. |
+| `tables` | Inspect tabular and spreadsheet structures in a document. |
+| `extract` | Extract tables into structured data (CSV, TSV, JSON, HTML, Markdown). |
+| `dump` | Print the content as text, JSON, Formatting Codes, outline, or grid/table. |
 | `new` | Create a document from text and write it in any format. |
 | `edit` | Apply edit operations to a document. |
 | `convert` | Read one format, write another. |
@@ -85,17 +87,38 @@ selection or change other codecs:
 | `--csv-write-delimiter <separator>` | Output separator; defaults to comma. |
 | `--csv-bom` | Write a UTF-8 byte-order mark; off by default. |
 | `--csv-escape-formulas` | Prefix formula-like output fields with an apostrophe; off by default because it changes values. |
+| `--dialect <preset>` | CSV dialect preset: `rfc4180`, `excel`, `unix`, `tsv`, `semicolon`, or `pipe`. |
+| `--delimiter <separator>` | Override field delimiter for CSV output. |
+| `--sheet <name|index>` | Select a specific sheet/table by name or 0-based index. |
+| `--table <index>` | Select a specific table by 0-based index. |
 
 A separator is one character other than a quote, CR or LF, or the name `comma`,
-`semicolon` or `tab`. Quote shell-sensitive values such as `';'` or `'|'`.
+`semicolon`, `tab`, or `pipe`. Quote shell-sensitive values such as `';'` or `'|'`.
 Input and output separators are independent; the detected input dialect is not
-preserved automatically. `roundtrip --via csv` rereads with the output separator
-and the `--csv-header` setting. Formula escaping can therefore produce an
-expected roundtrip difference. Using `tab` still writes CSV quoting rules and
-does not register TSV as a separate format.
+preserved automatically.
+
+Dialect presets configure delimiters, UTF-8 BOM, and formula escaping in one step:
+- `rfc4180` / `default`: comma delimiter, no BOM, no formula escaping.
+- `excel`: comma delimiter, UTF-8 BOM, formula escaping enabled.
+- `unix`: comma delimiter, no BOM, no formula escaping.
+- `tsv`: tab delimiter (`\t`), no BOM, no formula escaping.
+- `semicolon`: semicolon delimiter (`;`), common in European locales.
+- `pipe`: pipe delimiter (`|`).
+
+Explicit options like `--csv-write-delimiter` and `--csv-bom` override preset defaults.
+`--to tsv`, `--via tsv`, `--from tsv`, and files ending in `.tsv` map to the CSV codec
+with a tab delimiter.
+
+`roundtrip --via csv` or `--via tsv` rereads with the exact output dialect and delimiter
+and the `--csv-header` setting, preventing false diffs across intermediate hops. When
+converting or roundtripping multi-table documents, `--sheet` and `--table` isolate a
+single table so each sheet can be converted or tested in isolation.
 
 ```bash
 broilerdoc convert input.csv --out output.csv --csv-read-delimiter semicolon --csv-write-delimiter comma --csv-bom
+broilerdoc convert report.docx --out sheet0.csv --sheet 0 --dialect excel
+broilerdoc convert report.docx --out sheet1.tsv --sheet "Sheet 2"
+broilerdoc roundtrip report.docx --table 0 --via csv --dialect tsv --ignore-table-layout
 ```
 
 ## Exit codes
@@ -213,6 +236,47 @@ not the document shows its changes; `--as json` says which change marks each run
 cell keep their newline boundaries; nested tables preserve their own separators.
 Image objects contribute no text, as in LibreOffice's export; the pixel checks
 remain responsible for detecting missing images.
+
+`dump --as grid` (or `--as table`) emits a tabular ASCII/Unicode box-drawing grid representation of all tables and spreadsheet sheets in the document with row and column headers.
+
+### Inspecting tables and spreadsheet sheets with `tables`
+
+`broilerdoc tables <input>` inspects tabular and spreadsheet structures across documents (CSV, TSV, XLSX, ODS, DOCX, ODT, HTML, Markdown, PDF):
+
+```bash
+broilerdoc tables sheet.csv
+broilerdoc tables report.docx --cells
+broilerdoc tables budget.xlsx --formulas --evaluate
+broilerdoc tables document.odt --table 0 --json
+```
+
+- **Dimensions & bounds**: row and column counts, total width, column widths, bounds (`A1:D10`).
+- **Slots & merges**: root cells, continuation slots, empty slots, merged regions (`A1:B2 (span 2x2)`).
+- **Headers & nesting**: header row presence and nested table counts.
+- **Layout & styling**: alignment, padding, auto-fit, preferred/percent width, floating table positions.
+- **Data type classification**: inferred logical types (Number, Text, Boolean, Date, Time, Currency, Percentage, Formula, Empty, Error).
+- **Formulas & DAG**: formula expressions, cell dependency DAG, circular reference detection, and evaluated/formatted values with `--evaluate`.
+- **Per-cell grid details**: coordinate, spans, text, format, and value with `--cells`.
+
+### Extracting tables with `extract`
+
+`broilerdoc extract <input>` (aliases: `extract-tables`, `extract-table`) extracts tables from any supported document format into structured data:
+
+```bash
+broilerdoc extract report.docx --to csv
+broilerdoc extract sheet.csv --table 0 --range B2:D10 --to json --headers
+broilerdoc extract budget.xlsx --evaluate --formatted --to markdown
+broilerdoc extract data.docx --all --out "tables/table_{index}.csv"
+broilerdoc extract report.pdf --to html --out tables.html
+```
+
+- **Output formats (`--to` / `--as`)**: `csv`, `tsv`, `json`, `html`, `markdown`, `text` (grid). Automatically inferred from `--out` file extension if not specified.
+- **Selection (`--table`, `--all`)**: extract a single table by 0-based index or all tables.
+- **Sub-setting (`--range`)**: extract a rectangular subgrid, column slice, or row slice (e.g. `A1:D10`, `B:D`, `2:5`).
+- **Formulas & formatting**: `--evaluate` recalculates formulas into concrete values; `--formatted` applies cell number formats.
+- **Headers & records (`--headers`)**: treats the first row as column headers, emitting JSON records (`[{"Item": "Apple", ...}]`).
+- **Merged cell handling (`--fill-merged`)**: repeats root cell values across covered continuation slots.
+- **Customization (`--delimiter`, `--empty`)**: configure CSV delimiter and empty cell representation.
 
 **A table projects as one line per cell**, in row order, because that is how the
 model holds a table once it is flattened; a projection that joined a row onto one

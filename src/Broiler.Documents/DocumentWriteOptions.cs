@@ -8,6 +8,10 @@ namespace Broiler.Documents;
 /// Knobs for writing a document. Format-neutral at this level; format-specific
 /// options derive from these (for example <c>PdfWriteOptions</c>).
 /// </summary>
+/// <param name="asciiOnly">When true, non-ASCII characters are escaped into the format's portable representation where supported.</param>
+/// <param name="resources">The conversion context recording decisions about resources in the document. Defaults to <see cref="DocumentConversionContext.Empty"/>.</param>
+/// <param name="fonts">Caller-provisioned fonts for writing. Defaults to <see cref="DocumentFontSet.None"/>.</param>
+/// <param name="metadata">Caller-supplied document metadata to emit. Defaults to <see cref="DocumentMetadata.Empty"/>.</param>
 /// <remarks>
 /// Open for derivation for the same reason as <see cref="DocumentReadOptions"/>:
 /// a codec carries its own immutable options through the shared
@@ -16,6 +20,7 @@ namespace Broiler.Documents;
 public class DocumentWriteOptions(bool asciiOnly = true, DocumentConversionContext? resources = null,
     DocumentFontSet? fonts = null, DocumentMetadata? metadata = null)
 {
+    /// <summary>Default write options: ASCII-only escaping enabled, empty resources context, no provisioned fonts, and empty metadata.</summary>
     public static DocumentWriteOptions Default { get; } = new();
 
     /// <summary>

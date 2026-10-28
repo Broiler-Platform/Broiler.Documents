@@ -1992,13 +1992,42 @@ internal static class DocxReader
             List<XElement> stops = [.. gradient
                 .Elements(DocxNamespaces.Drawing + "gsLst")
                 .Elements(DocxNamespaces.Drawing + "gs")];
-            double angle = long.TryParse(
-                (string?)gradient.Element(DocxNamespaces.Drawing + "lin")?.Attribute("ang"),
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out long ang)
-                ? ang / 60000d
-                : 0;
+            XElement? lin = gradient.Element(DocxNamespaces.Drawing + "lin");
+            XElement? pathElement = gradient.Element(DocxNamespaces.Drawing + "path");
+
+            double angle = 0;
+            GradientGeometry geometry = GradientGeometry.Linear;
+            double centerX = 0.5;
+            double centerY = 0.5;
+
+            if (lin is not null)
+            {
+                angle = long.TryParse(
+                    (string?)lin.Attribute("ang"),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out long ang)
+                    ? ang / 60000d
+                    : 0;
+            }
+            else if (pathElement is not null)
+            {
+                string? pathType = (string?)pathElement.Attribute("path");
+                geometry = string.Equals(pathType, "circle", StringComparison.OrdinalIgnoreCase)
+                    ? GradientGeometry.Radial
+                    : GradientGeometry.Rectangular;
+
+                XElement? fillToRect = pathElement.Element(DocxNamespaces.Drawing + "fillToRect");
+                if (fillToRect is not null)
+                {
+                    double l = ParsePercentAttribute(fillToRect.Attribute("l"));
+                    double t = ParsePercentAttribute(fillToRect.Attribute("t"));
+                    double r = ParsePercentAttribute(fillToRect.Attribute("r"));
+                    double b = ParsePercentAttribute(fillToRect.Attribute("b"));
+                    centerX = (l + 1.0 - r) / 2.0;
+                    centerY = (t + 1.0 - b) / 2.0;
+                }
+            }
 
             // Three stops whose first and last agree are how DrawingML spells a
             // mirrored gradient; Word writes VML's 50% focus that way.
@@ -2008,7 +2037,12 @@ internal static class DocxReader
                 TryReadShapeColor(stops[2], theme, out BColor last) &&
                 outer == last)
             {
-                return new ShapeFill(outer, inner, angle, Axial: true);
+                return new ShapeFill(outer, inner, angle, Axial: true)
+                {
+                    Geometry = geometry,
+                    CenterX = centerX,
+                    CenterY = centerY,
+                };
             }
 
             if (stops.Count > 2)
@@ -2022,31 +2056,93 @@ internal static class DocxReader
                 TryReadShapeColor(stops[0], theme, out BColor start) &&
                 TryReadShapeColor(stops[^1], theme, out BColor end))
             {
-                return new ShapeFill(start, end, angle);
+                return new ShapeFill(start, end, angle)
+                {
+                    Geometry = geometry,
+                    CenterX = centerX,
+                    CenterY = centerY,
+                };
             }
         }
 
-        // A pattern is two colours the model cannot hold together: hatch lines in
-        // the foreground colour over the background one, as LibreOffice draws it.
-        // The lines are a pixel or two wide, so the background is nearly all of
-        // what shows - LibreOffice draws a wdUpDiag of 5EAD35 over 007929 as
-        // 007929 over nine-tenths of the box - and it is the colour held.
         XElement? pattern = spPr.Element(DocxNamespaces.Drawing + "pattFill");
         if (pattern is not null)
         {
-            builder.AddDiagnosticOnce(
-                "docx.shape.fill",
-                "A DOCX shape's pattern fill was read as its background colour; the pattern's lines are not drawn.");
-            return TryReadShapeColor(pattern.Element(DocxNamespaces.Drawing + "bgClr"), theme, out BColor background) ||
-                TryReadShapeColor(pattern.Element(DocxNamespaces.Drawing + "fgClr"), theme, out background)
-                ? ShapeFill.Solid(background)
-                : null;
+            string? prst = (string?)pattern.Attribute("prst");
+            BColor fg = TryReadShapeColor(pattern.Element(DocxNamespaces.Drawing + "fgClr"), theme, out BColor foreground)
+                ? foreground
+                : BColor.Black;
+            if (!TryReadShapeColor(pattern.Element(DocxNamespaces.Drawing + "bgClr"), theme, out BColor background))
+            {
+                background = TryReadShapeColor(pattern.Element(DocxNamespaces.Drawing + "fgClr"), theme, out BColor fallbackColor)
+                    ? fallbackColor
+                    : BColor.Empty;
+            }
+
+            (double angle, int directions, double distance) = ParsePatternPreset(prst);
+            return ShapeFill.Solid(background) with
+            {
+                Hatch = new HatchFill(fg, distance, angle, directions)
+            };
+        }
+
+        XElement? blipFill = spPr.Element(DocxNamespaces.Drawing + "blipFill");
+        if (blipFill is not null)
+        {
+            InlineImage? picture = context.Images.ReadBlipFill(blipFill, context.Relationships, context.Builder);
+            if (picture is not null)
+            {
+                ImageFillRepeat repeat = blipFill.Element(DocxNamespaces.Drawing + "stretch") is not null
+                    ? ImageFillRepeat.Stretch
+                    : ImageFillRepeat.Tile;
+
+                return ShapeFill.Solid(BColor.Empty) with
+                {
+                    Image = new ImageFill(picture, repeat)
+                };
+            }
         }
 
         XElement? solid = spPr.Element(DocxNamespaces.Drawing + "solidFill");
         return solid is not null && TryReadShapeColor(solid, theme, out BColor color)
             ? ShapeFill.Solid(color)
             : null;
+    }
+
+    private static (double Angle, int Directions, double Distance) ParsePatternPreset(string? preset)
+    {
+        string p = (preset ?? string.Empty).ToLowerInvariant();
+        return p switch
+        {
+            "horz" or "lthorz" or "dkhorz" or "narhorz" or "dashhorz" => (0, 1, 6),
+            "vert" or "ltvert" or "dkvert" or "narvert" or "dashvert" => (90, 1, 6),
+            "cross" or "smgrid" or "lggrid" or "dotgrid" => (0, 2, 6),
+            "diagcross" => (45, 2, 6),
+            "dndiag" or "ltdndiag" or "dkdndiag" or "wddndiag" => (-45, 1, 6),
+            "updiag" or "ltupdiag" or "dkupdiag" => (45, 1, 6),
+            "wdupdiag" => (45, 1, 8),
+            _ when p.EndsWith("cross", StringComparison.Ordinal) => (45, 2, 6),
+            _ when p.EndsWith("diag", StringComparison.Ordinal) => (45, 1, 6),
+            _ => (45, 1, 6),
+        };
+    }
+
+    private static double ParsePercentAttribute(XAttribute? attr)
+    {
+        if (attr is null)
+            return 0;
+
+        string val = attr.Value.Trim();
+        if (val.EndsWith('%'))
+        {
+            return double.TryParse(val[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out double pct)
+                ? pct / 100.0
+                : 0;
+        }
+
+        return long.TryParse(val, NumberStyles.Integer, CultureInfo.InvariantCulture, out long num)
+            ? num / 100000.0
+            : 0;
     }
 
     private static BColor ReadOutline(XElement? spPr, DocxTheme theme)

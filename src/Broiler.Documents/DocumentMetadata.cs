@@ -24,6 +24,7 @@ public readonly struct DocumentDate : IEquatable<DocumentDate>
         HasUtcOffset = hasUtcOffset;
     }
 
+    /// <summary>The underlying timestamp value.</summary>
     public DateTimeOffset Value { get; }
 
     /// <summary>True when the source stated a UTC offset.</summary>
@@ -36,16 +37,20 @@ public readonly struct DocumentDate : IEquatable<DocumentDate>
     public static DocumentDate WithoutOffset(DateTime value) =>
         new(new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Unspecified), TimeSpan.Zero), false);
 
+    /// <summary>Indicates whether this date equals another date.</summary>
     public bool Equals(DocumentDate other) => Value == other.Value && HasUtcOffset == other.HasUtcOffset;
 
+    /// <summary>Indicates whether this date equals a specified object.</summary>
     public override bool Equals(object? obj) => obj is DocumentDate other && Equals(other);
 
+    /// <summary>Returns the hash code for this date.</summary>
     public override int GetHashCode() => HashCode.Combine(Value, HasUtcOffset);
 
     public static bool operator ==(DocumentDate left, DocumentDate right) => left.Equals(right);
 
     public static bool operator !=(DocumentDate left, DocumentDate right) => !left.Equals(right);
 
+    /// <summary>Returns an ISO-8601 string representation of the date, preserving presence or absence of offset.</summary>
     public override string ToString() => Value.ToString(
         HasUtcOffset ? "yyyy-MM-ddTHH:mm:sszzz" : "yyyy-MM-ddTHH:mm:ss",
         CultureInfo.InvariantCulture);
@@ -98,6 +103,7 @@ public sealed class DocumentMetadata(string? title = null, IEnumerable<string>? 
     /// <summary>Metadata that states nothing at all.</summary>
     public static DocumentMetadata Empty { get; } = new();
 
+    /// <summary>The document's title.</summary>
     public string? Title { get; } = title;
 
     /// <summary>
@@ -107,6 +113,7 @@ public sealed class DocumentMetadata(string? title = null, IEnumerable<string>? 
     /// </summary>
     public IReadOnlyList<string> Authors { get; } = Freeze(authors);
 
+    /// <summary>The document's subject or description.</summary>
     public string? Subject { get; } = subject;
 
     /// <summary>Keywords in source order.</summary>
@@ -125,8 +132,10 @@ public sealed class DocumentMetadata(string? title = null, IEnumerable<string>? 
     /// <summary>The application that produced the file being read or written.</summary>
     public string? Producer { get; } = producer;
 
+    /// <summary>The document's creation date and time.</summary>
     public DocumentDate? CreationDate { get; } = creationDate;
 
+    /// <summary>The document's last modification date and time.</summary>
     public DocumentDate? ModificationDate { get; } = modificationDate;
 
     /// <summary>True when every normalized field is absent.</summary>

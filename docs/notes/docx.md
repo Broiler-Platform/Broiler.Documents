@@ -194,10 +194,14 @@ Open XML WordprocessingML package parts.
   DrawingML (`w:drawing`, inline and anchored, including a picture inside
   `mc:AlternateContent`) and the legacy VML shape (`w:pict`/`v:imagedata`). The
   display size comes from `wp:extent` in EMUs, or from the VML shape's CSS
-  `width`/`height`; alternative text comes from `wp:docPr@descr`. A write stores
-  each distinct image once under `word/media`, with its relationship and a
-  content-type default for its extension. Raster formats only: PNG, JPEG, GIF,
-  BMP, TIFF, WebP, and ICO.
+  `width`/`height`; alternative text comes from `wp:docPr@descr`. A picture whose
+  media part is missing, external, or in an unsupported format is retained as an
+  `InlineImage` placeholder preserving stated dimensions and alternative text,
+  emitting the appropriate diagnostic (`docx.image.missing`, `docx.image.external`,
+  `docx.image.format`). A write stores each distinct image once under `word/media`,
+  with its relationship and a content-type default for its extension; missing
+  payload placeholders are omitted with `docx.image.omitted`. Raster formats only:
+  PNG, JPEG, GIF, BMP, TIFF, WebP, and ICO.
 - `w:titlePg`, which is what makes a `first` header or footer mean anything and
   what makes a band the first page does not name *empty* there rather than the
   default one. A letterhead is the case: a first-page header, a default footer,
@@ -507,14 +511,18 @@ Open XML WordprocessingML package parts.
   that leave no room keep the page and lose the columns
   (`docx.columns.geometry`). The separator line (`w:sep`) is not read.
 - A section break starts a page unless it says it does not. `w:type` on the
-  `w:sectPr` of the section that follows says how that section starts:
+  `w:sectPr` of the section says how that section starts:
   `nextPage`, which is also what an absent `w:type` means, `oddPage` and
   `evenPage` put its first paragraph on a new page, as `PageBreakBefore`, and
   `continuous` runs it on below the section before. A section's own break and a
   page break the paragraph before it ended with are one boundary, not two.
-  `oddPage` and `evenPage` can put a blank page in front of the section to
-  land it on the side they name; that page is not made, and
-  `docx.section.parity` says so. `nextColumn` is read as `continuous`.
+  `oddPage` and `evenPage` section break types are preserved on `DocumentSection.BreakType`
+  and round-tripped through `DocxWriter`; in layout, odd- and even-page section starts
+  ensure correct page parity by generating blank pages where needed (including starting
+  the document on an even page). Changes of orientation or paper size between adjacent
+  sections force a page break (`SectionBreakType.NextPage`), respecting `w:orient="landscape"`
+  and `"portrait"`. `nextColumn` is read as `NextColumn` and forces a page break when the
+  column count changes.
   An empty body paragraph holding nothing but the `w:sectPr` is the section
   mark and not a paragraph, as in LibreOffice's import: the section ends at the
   paragraph before it. It stays where it is all its section holds, where no
@@ -667,9 +675,11 @@ editable and is written back, but is omitted from normal rendering. CLI text
 dumps retain it, as LibreOffice's plain-text export does. Text boxes retain DrawingML `bodyPr` insets and VML `inset`,
 including explicit zero. Defaults are 7.2 points horizontally and 3.6 vertically.
 Their own paragraph spacing and list numbering are laid out inside those insets.
-Writing bitmap/hatch fills, centred gradients, gradient borders or page-fill
-bounds reports `docx.fill.extended` when approximated as a base colour or linear
-gradient. These properties are carried by the common model for ODT rendering.
+DrawingML pattern fills (`a:pattFill`), radial and rectangular gradients (`a:gradFill`
+with `a:path`), and bitmap fills (`a:blipFill`) are read and written to `ShapeFill`.
+Writing gradient borders or page-fill bounds reports `docx.fill.extended` when
+approximated as a base colour or linear gradient. These properties are carried by the
+common model for ODT rendering.
 DrawingML top/centre/bottom text anchoring and explicit vertical overflow are
 retained and rendered; VML middle/bottom anchors and visible overflow are also
 read. Writing minimum-width auto-sizing or linked ODT frames as DOCX reports

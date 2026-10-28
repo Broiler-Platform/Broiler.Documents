@@ -68,36 +68,45 @@ public static class DocumentCommands
         new CommandSpec(
             "convert",
             "Read a document in one format and write it in another.",
-            "convert <input> --out <path> [--to <format>]",
+            "convert <input> --out <path> [--to <format>] [--sheet <name|index>] [--table <index>] [--dialect <preset>] [--delimiter <sep>]",
             [
                 OptionSpec.Value("out", "path", "Where to write the result. Use - for standard output."),
+                .. DocumentOptions.RoutingSpecs,
                 .. DocumentOptions.Specs,
                 .. DocumentOptions.WriteSpecs,
             ],
             [
                 "convert report.docx --out report.rtf",
                 "convert report.docx --out - --to markdown",
+                "convert sheet.csv --out table.html --sheet 0",
+                "convert report.docx --out table.csv --table 0 --dialect excel",
                 "convert page.html --out page.docx --fail-on warning",
             ],
             "Both sides report their diagnostics. What a conversion drops is usually said on\n" +
             "the read side, the write side, or both, and --fail-on turns that into an exit\n" +
-            "code a harness can branch on."),
+            "code a harness can branch on.\n\n" +
+            "When converting spreadsheet or multi-table documents, --sheet or --table selects a\n" +
+            "single table to convert. Dialect options (--dialect, --delimiter) configure CSV/TSV\n" +
+            "formatting presets and separators."),
         RunConvert);
 
     public static CommandEntry Dump() => new(
         new CommandSpec(
             "dump",
             "Print a document's content in a form that diffs cleanly.",
-            "dump <input> [--as text|json|codes|outline]",
+            "dump <input> [--as text|json|codes|outline|grid|table] [--sheet <name|index>] [--table <index>]",
             [
-                OptionSpec.Value("as", "form", "text, json, codes, or outline.", "text"),
+                OptionSpec.Value("as", "form", "text, json, codes, outline, grid, or table.", "text"),
                 OptionSpec.Value("out", "path", "Write to a file instead of standard output."),
+                OptionSpec.Value("sheet", "name|index", "Sheet name or 0-based index to dump."),
+                OptionSpec.Value("table", "index", "0-based index of table to dump."),
                 .. DocumentOptions.Specs,
             ],
             [
                 "dump report.docx --as json > before.json",
                 "dump report.docx --as codes",
                 "dump report.docx --as outline",
+                "dump sheet.csv --as grid",
             ],
             "forms\n" +
             "  text     The plain text, paragraphs separated by newlines.\n" +
@@ -105,7 +114,9 @@ public static class DocumentCommands
             "           dumps of equal documents are byte-identical and diff cleanly.\n" +
             "  codes    The Formatting Codes projection: the component's own canonical,\n" +
             "           versioned rendering of a document's semantics (ADR 0006).\n" +
-            "  outline  One line per paragraph with its style flags. Made for reading."),
+            "  outline  One line per paragraph with its style flags. Made for reading.\n" +
+            "  grid     Tabular box-drawing grid of document tables / spreadsheet sheets.\n" +
+            "  table    Synonym for grid."),
         RunDump);
 
     private static int RunNew(CommandContext context)
@@ -192,7 +203,20 @@ public static class DocumentCommands
         context.Result["sourceStatus"] = loaded.Status.ToString().ToLowerInvariant();
         context.Result["readDiagnostics"] = DocumentReport.ToJson(loaded.Diagnostics);
 
-        return WriteDocument(context, loaded.Document, destination, loaded.Diagnostics, loaded.Result.Resources);
+        int sheetIndex = DocumentOptions.ResolveSheetIndex(loaded.Document, context.Line);
+        RichTextDocument documentToConvert = loaded.Document;
+        if (sheetIndex >= 0)
+        {
+            documentToConvert = DocumentOptions.ExtractSheet(loaded.Document, sheetIndex);
+            context.Report($"selected sheet/table {sheetIndex} ({documentToConvert.ParagraphCount} paragraphs)");
+            context.Result["selectedSheet"] = sheetIndex;
+        }
+
+        string? dialectName = context.Line.Get("dialect") ?? context.Line.Get("csv-dialect");
+        if (!string.IsNullOrEmpty(dialectName))
+            context.Result["dialect"] = dialectName;
+
+        return WriteDocument(context, documentToConvert, destination, loaded.Diagnostics, loaded.Result.Resources);
     }
 
     private static int RunDump(CommandContext context)
@@ -204,21 +228,29 @@ public static class DocumentCommands
         DocumentReadOptions readOptions = DocumentOptions.ReadOptionsFrom(context.Line);
         LoadedDocument loaded = DocumentIo.LoadOrThrow(source, catalog, readOptions, context.Line.Get("from"));
 
+        int sheetIndex = DocumentOptions.ResolveSheetIndex(loaded.Document, context.Line);
+        RichTextDocument documentToDump = loaded.Document;
+        if (sheetIndex >= 0)
+        {
+            documentToDump = DocumentOptions.ExtractSheet(loaded.Document, sheetIndex);
+            context.Result["selectedSheet"] = sheetIndex;
+        }
+
         string form = context.Line.Get("as", "text")!.ToLowerInvariant();
         string payload;
 
         switch (form)
         {
             case "text":
-                payload = LabelledText(loaded.Document);
+                payload = LabelledText(documentToDump);
                 break;
 
             case "json":
-                payload = ModelJson.Describe(loaded.Document).ToJsonString(JsonOutput.Indented);
+                payload = ModelJson.Describe(documentToDump).ToJsonString(JsonOutput.Indented);
                 break;
 
             case "codes":
-                FormatCodeProjection projection = FormatCodeProjector.Project(loaded.Document);
+                FormatCodeProjection projection = FormatCodeProjector.Project(documentToDump);
                 payload = projection.Text;
                 context.Result["grammarVersion"] = FormatCodeProjection.GrammarVersion;
                 context.Result["tokenCount"] = projection.Tokens.Count;
@@ -226,11 +258,16 @@ public static class DocumentCommands
                 break;
 
             case "outline":
-                payload = Outline(loaded.Document);
+                payload = Outline(documentToDump);
+                break;
+
+            case "grid":
+            case "table":
+                payload = TableIntrospection.RenderAllGrids(documentToDump);
                 break;
 
             default:
-                throw new UsageException("--as expects text, json, codes, or outline, not \"" + form + "\".");
+                throw new UsageException("--as expects text, json, codes, outline, grid, or table, not \"" + form + "\".");
         }
 
         if (context.Line.Has("out"))

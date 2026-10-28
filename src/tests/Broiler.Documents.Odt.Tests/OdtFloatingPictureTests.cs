@@ -239,7 +239,7 @@ public sealed class OdtFloatingPictureTests
     public void Says_Only_What_Is_Still_Approximated()
     {
         DocumentDiagnostic note = Assert.Single(
-            ReadInParagraph(Frame()).Diagnostics.Where(d => d.Code == "odt.image.anchored"));
+            ReadInParagraph(Frame()).Diagnostics, d => d.Code == "odt.image.anchored");
 
         // The frame keeps its layer and its wrapping now. What it does not keep
         // is the picture's outline, so that is what the note is left saying.

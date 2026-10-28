@@ -72,7 +72,10 @@ public sealed class OdtImageTests
         DocumentReadResult result = OdtTestPackage.ReadBody(
             "<text:p>" + Frame("https://example.com/logo.png", "1in", "1in") + "</text:p>");
 
-        Assert.Null(result.Document.Paragraphs[0].StyleAt(0).Image);
+        InlineImage image = Assert.IsType<InlineImage>(result.Document.Paragraphs[0].StyleAt(0).Image);
+        Assert.True(image.IsMissingPayload);
+        Assert.Equal(72, image.Width);
+        Assert.Equal(72, image.Height);
         Assert.Contains(result.Diagnostics, d => d.Code == "odt.image.external");
     }
 
@@ -252,4 +255,41 @@ public sealed class OdtImageTests
     /// <summary>Read options that also permit writing what was read back out.</summary>
     private static DocumentReadOptions RoundTripReadOptions { get; } =
         new(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments);
+    [Fact]
+    public void Missing_Floating_Picture_Preserves_Frame_Bounds()
+    {
+        string frame = "<draw:frame draw:name=\"FloatingMissing\" text:anchor-type=\"paragraph\" " +
+            "svg:x=\"1in\" svg:y=\"2in\" svg:width=\"2in\" svg:height=\"1.5in\">" +
+            "<draw:image xlink:href=\"Pictures/absent.png\" xlink:type=\"simple\" xlink:show=\"embed\"/>" +
+            "<svg:title>Floating missing</svg:title></draw:frame>";
+
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:p>" + frame + "</text:p>");
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.NotNull(shape.Image);
+        Assert.True(shape.Image.IsMissingPayload);
+        Assert.Equal(144, shape.Width, 2);
+        Assert.Equal(108, shape.Height, 2);
+        Assert.Equal("Floating missing", shape.Image.AltText);
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.image.missing");
+    }
+
+    [Fact]
+    public void Missing_Payload_Picture_Omitted_When_Written_To_Odt()
+    {
+        InlineImage placeholder = InlineImage.CreateMissingPayload(100, 50, "Placeholder");
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Create(InlineImage.PlaceholderText, InlineStyle.Default with { Image = placeholder }),
+        ]);
+
+        using var output = new MemoryStream();
+        DocumentWriteResult result = new OdtDocumentCodec().Write(document, output);
+
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.image.omitted");
+        using var archive = new ZipArchive(new MemoryStream(output.ToArray()), ZipArchiveMode.Read);
+        Assert.DoesNotContain(archive.Entries, e => e.FullName.StartsWith("Pictures/", StringComparison.OrdinalIgnoreCase));
+    }
+
 }

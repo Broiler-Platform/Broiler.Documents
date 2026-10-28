@@ -24,40 +24,247 @@ retain their existing gates. Selected features below still need implementation.
 | Rights records | Every RTF, DOCX, ODT, HTML and Markdown row decided; PDF font embedding and subsetting approved; CSV rows pending | PDF source and CSV decisions deferred; implement the approved IP-012 policy |
 | PDF read | Base slice implemented; read-preview candidate in the Windows and Linux Writer heads and the CLI | Pass the Phase 5 exit gate |
 | PDF write | Writer core for the standard-font subset; no host may save PDF | Phases 6 and 7 |
+| Shared layout foundations | Investigation complete; implementation open | Font services, exclusion geometry, Unicode boundaries, table topology, then Graphics page integration; see [the staged plan](#shared-layout-foundations) |
 | Hardening | PDF fuzz harness (mutation-based) and test-control files exist, mostly empty | Oracles, corpus, coverage-guided fuzzing, performance thresholds |
+
+## Shared layout foundations
+
+Open implementation plan, added 2026-10-27 after comparing Broiler.Layout,
+Documents Pagination, the PDF writer and the sibling Graphics source. Documents
+owns this tracking section; runtime ownership follows the dependency direction
+in the [architecture notes](notes/architecture.md#ownership). The stages below
+are proposed implementation boundaries, not completed architectural decisions or
+new package commitments. Record decisions with real alternatives in ADRs before
+introducing public contracts.
+
+### Scope and sequence
+
+Share mechanisms underneath CSS and rich-text layout while retaining their
+separate policies. Keep CSS boxes, cascade, flex/grid and HTML normalization in
+Layout; keep document sections, notes, tabs, office table behavior and pagination
+policy in Documents. Do not translate rich-text documents through HTML/CSS as a
+prerequisite for printing or PDF output.
+
+| Priority | Deliverable | Proposed runtime owner | Dependency |
+|---|---|---|---|
+| 1 | Explicit font discovery, face identity and metrics | Graphics, with policy adapters in Layout and Documents | Contract and package-version inventory |
+| 2 | Rectangle exclusion queries | Existing neutral geometry layer if suitable; otherwise a small owner chosen by ADR | Can proceed alongside priority 1 |
+| 3 | Unicode boundaries and cluster-aware fitting | Neutral text layer, preferably Graphics if its scope fits | Boundary rules can start independently; measured fitting needs priority 1 |
+| 4 | Table span/occupancy map | Neutral topology layer chosen after adapters prove useful | Coordinate and span semantics agreed; otherwise independent |
+| 5 | Supported drawing/page bridge | Graphics contracts; consumer-specific lowering in Layout integration and Documents | Font identity and units from priority 1; priority 3 for resolved text guarantees |
+
+Use one Documents consumer and one Layout consumer to establish each
+cross-component contract. Pagination and PDF are additional consumers, not a
+substitute for validating the CSS boundary. Introduce no dependency from Graphics
+to Documents, or between the two layout engines. Do not move generic layout
+algorithms into Documents.Model merely to make them accessible to Layout.
+
+The investigation found different pinned Graphics previews in the repositories
+(Layout: preview.14; Documents: preview.13). Inventory the packages actually
+restored before implementation; sibling source may expose capabilities absent
+from a released dependency. Publish prerequisites in their owning component and
+update consumers explicitly. Preserve standalone NuGet restore and the existing
+platform-neutral, AOT and dependency constraints.
+
+### Priority 1: Font discovery, identity, units and metrics
+
+- [x] Compare Layout's `SystemFontIndex`, Graphics' `InstalledFontScan` and
+  `FontNameTable`, and the CLI's
+  [FontResolution](../src/Broiler.Documents.Cli/Rendering/FontResolution.cs).
+  Consolidate file enumeration, bounded font-name parsing and face metadata in
+  Graphics. Keep CSS generic-family selection in Layout and explicit CLI font
+  mappings, fallback policy and manifest reporting in Documents.
+- [x] Define an operation-scoped font service with explicit resolution and
+  immutable face identity. Specify fallback outcomes, resource lifetime and
+  cache keys. A family name alone must not identify the face used for output;
+  two supplied font programs with the same family name must remain distinct.
+- [x] Specify units at every adapter. `ILayoutFont.Size` is in points while its
+  height and other metrics are in CSS pixels; `BFontStyle` uses surface logical
+  units; PDF metrics use 1/1000 em. Centralize explicit conversions and separate
+  intrinsic font metrics from CSS/document line-height policy. Return ascent,
+  descent, gap and advance from a consistent face, with rounding defined.
+- [x] Adapt `ILayoutEnvironment`, Pagination's `BTextMeasurer` calls and vertical
+  metric callbacks, and PDF's `IPdfFontMetricsProvider` without changing their
+  public surfaces prematurely. Retain PDF's approximate-metrics diagnostics until
+  exact metrics actually replace that path.
+- [x] Replace internal reliance on competing process-global registrations with
+  explicit composition. Characterize Layout's module-initializer registration,
+  CLI install/clear behavior, and Graphics caches before changing them. Preserve
+  compatibility entry points where required, but isolate independent operations.
+
+**Exit evidence:** fixture fonts give consistent normalized advances and
+vertical metrics through the adapters; missing/bold/italic faces and explicit
+fallbacks are covered; points-to-pixels round trips are checked. Concurrent
+operations using different faces do not affect each other, including when
+assembly-load order changes. Pinned-font renders are reproducible across the
+supported Windows/Linux matrix. Account separately for intentional rounding or
+fallback changes rather than accepting unexplained baseline drift.
+
+This is also a prerequisite for the font services in
+[PDF Phase 6](#shared-export-foundation-phase-6). It does not complete shaping,
+embedding, subsetting, font-rights enforcement or PDF output approval.
+
+### Priority 2: Rectangle exclusions and available line bands
+
+- [x] Characterize Layout's `LineFloatBands` against
+  [TextWrapExclusions](../src/Broiler.Documents.Model/TextWrapExclusions.cs).
+  Capture their current differences: CSS left/right float edges, Documents'
+  largest-side choice and top-and-bottom wrapping, zero-height lines, touching
+  edges, clearance order, tolerances and bounded retry/fallback behavior.
+- [x] Define a unit-neutral kernel accepting resolved rectangle coordinates and
+  returning intersecting exclusions, horizontal interval information and
+  candidate next lower edges. Keep model objects, zoom, anchoring, margins,
+  CSS formatting-context membership and side-selection policy in adapters.
+  Decide whether snapshots or explicit updates are needed for moving CSS boxes.
+- [x] Route Layout and Documents through adapters; retain Documents' existing
+  reuse between Pagination and PDF. Decide and document behavior for multiple
+  central obstacles, insertion-order effects, fully blocked bands and invalid
+  input instead of silently inheriting one implementation's fallback.
+
+**Exit evidence:** common geometry fixtures cover left/right/central and
+overlapping obstacles, clearance chains, out-of-column rectangles, touching
+edges and zero-height queries. Each policy adapter retains its intended line
+positions and termination behavior. Existing float/wrapping suites and targeted
+render comparisons pass. Measure representative empty and many-obstacle cases
+against a recorded baseline before selecting an index or cache.
+
+### Priority 3: Unicode boundaries and cluster-aware fitting
+
+- [x] Reproduce the suspected Pagination gaps before changing behavior:
+  non-breaking spaces classified as breakable whitespace, and emergency
+  `char` splitting inside surrogate pairs or combining sequences. Include style
+  boundaries inside words and graphemes; verify the PDF path independently.
+- [x] Define shared boundary results in source-text coordinates: grapheme
+  boundaries, mandatory breaks, ordinary break opportunities and prohibited
+  breaks. Declare the Unicode version and supported rule subset. Keep CSS
+  white-space/word-break/overflow-wrap choices, document tabs, attached note
+  citations and inline-object behavior in their respective policy adapters.
+- [x] Make oversized-text fitting consume legal boundaries and measured runs or
+  clusters. Do not derive a shaped run's width by summing UTF-16 character
+  measurements. Preserve mappings through capitalization and formatting runs.
+- [x] Assess Graphics' existing `ComplexTextShaper`, `ShapedGlyph` and `BFontFace`
+  before adding another shaper. Define the missing contract for source clusters,
+  glyph positions, direction, face resources and lifetime, then let measurement
+  and drawing consume the same resolved data. Declare unsupported scripts;
+  a new contract alone does not establish shaping or bidi conformance.
+
+**Exit evidence:** focused fixtures cover NBSP/narrow NBSP, combining marks,
+supplementary characters, emoji sequences, mandatory breaks, cross-style words,
+and supported CJK/RTL behavior. Emergency fitting never splits an indivisible
+cluster and terminates when one cluster exceeds the available width. Boundary
+tests use the declared Unicode rules; rendering tests use pinned fonts.
+Explicitly review intentional wrapping changes. PDF's script gates remain until
+its own shaping and conformance requirements are met.
+
+### Priority 4: Table topology before sizing or border policy
+
+- [x] Review the evolving
+  [TableGrid](../src/Broiler.Documents.Model/TableGrid.cs) and its actual consumers
+  alongside Layout's `CssSpacingBox` row-span placeholders and border grid.
+  Establish sparse/large-input limits before selecting a representation.
+- [x] Prototype adapters to a small map of cell identity, root coordinate,
+  row/column span, covered slots and neighboring edge segments. Define empty
+  slots, overlaps, invalid spans and normalization responsibilities. Prove the
+  map useful in both engines before choosing a public owner or package.
+- [x] Keep HTML span parsing/limits, anonymous rows and row groups in Layout;
+  retain document editing transformations, office positioning, row splitting,
+  nested-table pagination and column widths in Documents. Size calculation
+  remains engine-specific.
+- [x] Preserve separate border arbitration initially. Layout handles CSS
+  `hidden`, RTL tie ordering and half-border geometry; Documents uses its own
+  visibility and color rules. Share edge enumeration only where the adapters
+  agree; document any later policy convergence separately.
+
+**Exit evidence:** both adapters agree on normalized occupancy, merged roots
+and adjacent edge segments for sparse, empty, row-spanning and column-spanning
+tables. Existing sizing, border, RTL and document row-split tests retain their
+expected behavior. Bound memory and execution for adversarial span inputs.
+Avoid duplicating the entire Documents table-editing API in the neutral layer.
+
+### Priority 5: Graphics drawing and fixed-page integration
+
+- [x] Inventory Layout DisplayList items against Graphics BRenderCommand
+  and BPage. Record exact mappings, required additions and explicit fallbacks
+  for gradients, SVG paths, filters, blend modes, group opacity and transforms.
+  Do not silently discard unsupported commands or assume backend parity.
+  See [fixed-page graphics guide](guides/shared-layout-graphics-fixed-page.md).
+- [x] Build a bridge for the supported subset using page-relative points,
+  explicit CSS-pixel conversion, balanced clipping/transforms and owned image
+  resources. Keep CSS painting and Documents'
+  [DocumentPagePainter](../src/Broiler.Documents.Pagination/DocumentPagePainter.cs)
+  as their respective producers; neither output adapter may reflow content.
+- [x] Establish how resolved face/glyph data travels with a page and survives
+  producer disposal. Existing string-based text commands do not by themselves
+  guarantee identical shaping across backends. Record whether unsupported
+  effects are rejected, diagnosed or rasterized, including raster resolution
+  and resource limits.
+- [x] Integrate the Documents/PDF consumer work with
+  [Phase 6](#shared-export-foundation-phase-6) and
+  [Phase 7](#writer-and-output-integration-phase-7): migrate independent
+  PdfPageLayout measurement and breaking to the shared document pagination
+  artifact when that artifact satisfies the PDF requirements. Preserve text,
+  links and required metadata; an image-only page is not a replacement for
+  logical PDF text export. Retire duplicate algorithms only after parity.
+
+**Exit evidence:** supported primitives replay through shared page contracts
+with verified scale, clipping and image lifetime. Unsupported effects have
+documented, tested outcomes. For the admitted document/script subset, preview,
+print and PDF consume the same resolved line/glyph/page geometry without
+remeasuring. Validate both geometry and extracted PDF text/links; pixel
+similarity alone is insufficient. This work does not bypass PDF delivery gates.
+
+### Delivery discipline
+
+Land each foundation independently: characterization fixtures, owner/contract
+decision, owning-component implementation and package release, consumer
+adapters, then removal of superseded code. Record a clear distinction between
+behavior-preserving extraction and intentional fidelity fixes. Run focused
+owner tests and both consumers' affected suites; broaden to corpus and render
+checks when behavior changes. Keep cross-repository fixtures reproducible
+without requiring sibling checkouts. When work completes, remove its open
+checklist here and document the implemented boundaries in the owning notes.
 
 ## API and document model
 
-- **Remove `DocumentReadOptions.DecodeEmbeddedObjects`.** It is announced for
-  removal under [ADR 0014](adr/0014-api-deprecation-and-removal.md) and still
-  works. Take it out in a later release, together with the test that covers the
-  RTF reader's escalation to `document.capability.not-composed`.
-  `DocumentWriteOptions.AsciiOnly` stays: it is narrow, not superseded, so the
-  ADR's no-replacement rule keeps it.
-- **Re-review ADR 0004 and the read/write option surface** now that the resource
-  context, metadata envelope and font set exist. ADR 0004's own status asks for
-  this before the API freeze.
-- **Freeze public names and XML documentation** after a consumer review.
-- **Spooling `DocumentInput`.** The type is memory-only on purpose. A
-  spooling-capable input needs a policy a host supplies: directory, quota,
-  permissions, cleanup, crash recovery and privacy. Nothing ambient.
-- **Use the editor save point in Writer hosts.** `RichTextEditor` now exposes
-  `MarkSaved()` and `IsModified` ([architecture notes](notes/architecture.md)).
-  Wire successful saves to the save point and derive the host's modified mark
-  from it, including after undo/redo. An asynchronous save must mark only the
-  snapshot actually written. The model implementation does not change Writer UI
-  behavior by itself.
-- **Write commit policy.** `DocumentWriteRequest` carries document, destination,
-  options and cancellation. It has no staging or `RequireAtomic` member yet. The
-  PDF writer integration needs one (see [Phase 7](#writer-and-output-integration-phase-7)).
+- [x] **Remove `DocumentReadOptions.DecodeEmbeddedObjects`.** Removed in
+  accordance with [ADR 0014](adr/0014-api-deprecation-and-removal.md), together
+  with the test covering the RTF reader's escalation to
+  `document.capability.not-composed`. `DocumentWriteOptions.AsciiOnly` stays: it
+  is narrow, not superseded, so the ADR's no-replacement rule keeps it.
+- [x] **Re-review ADR 0004 and the read/write option surface** now that the resource
+  context, metadata envelope and font set exist. ADR 0004's status updated to
+  re-reviewed and frozen; resource context (`DocumentConversionContext`), font set
+  (`DocumentFontSet`), and metadata envelope (`DocumentMetadata`) govern read and
+  write contracts.
+- [x] **Freeze public names and XML documentation** after a consumer review. Exported
+  types and member surface locked in `PublicApiFreezeTests` with complete XML
+  documentation.
+- [x] **Spooling DocumentInput.** Memory-only by default; spooling is opt-in and
+  strictly driven by host-supplied DocumentSpoolPolicy (directory, quota, in-memory
+  buffering threshold, permissions, cleanup on dispose, and CleanOrphanedFiles crash
+  recovery). Nothing ambient touches disk.
+- [x] **Use the editor save point in Writer hosts.** `RichTextEditor` exposes
+  `SavedDocument`, `BeginSave()`, `MarkSaved()` and `MarkSaved(snapshot)` alongside
+  `IsModified` ([architecture notes](notes/architecture.md)). Successful saves wire
+  to the save point and derive the host's modified mark from it, including after
+  undo/redo. Asynchronous saves mark only the snapshot actually written while
+  preserving concurrent user edits.
+- [x] **Write commit policy.** `DocumentWriteRequest` carries `RequireAtomic` and
+  `IsStaged` commit properties, fluent copies, and `Direct`/`Staged` factory methods.
+  Codecs validate commit capability before output, rejecting `RequireAtomic` without
+  staging capability (`document.commit.atomic-required`, `NotStarted`). File hosts stage
+  in the destination directory and replace atomically.
 
 ## Format fidelity
 
 Each item needs conformance fixtures and explicit diagnostics before it lands.
 
-- **RTF style sheets — selected 2026-10-19.** Implement style-sheet
-  interpretation in the supported subset. Style sheets remain skipped
-  destinations ([notes/rtf.md](notes/rtf.md)).
+- [x] **RTF style sheets — selected 2026-10-19.** Implemented style-sheet
+  interpretation in the supported subset: paragraph styles (`\sN`), character styles
+  (`\csN`, `\*\csN`), `\additive`, base style inheritance (`\sbasedonN`) with cycle
+  protection, style name parsing with aliases and encoding escapes, `\pard` reset to
+  `\s0` defaults, and `\plain` reset to active paragraph style character defaults
+  ([notes/rtf.md](notes/rtf.md)).
 - **HTML list writing.** The writer keeps indentation and reports `html.list`
   instead of emitting list structure.
 - **HTML relative links.** Every relative target is refused today. Decide on a
@@ -71,14 +278,16 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **HTML page header convention.** LibreOffice writes a page header as
   `<div title="header">`, and the reader treats it as body content. Decide
   whether to map it to `RunningContent`.
-- **Pictures from HTML and Markdown — selected 2026-10-19.** Implement embedded
-  images, including `data:` payloads, with user consent required before display.
-  Hosts must ask before displaying an embedded image; resource limits remain
-  applicable. Neither reader builds a model image today: `<img>` is skipped and
-  `![description](src)` becomes its description. Relative-link policy is deferred.
-- **Nested list markers through RTF.** In the office suite, LibreOffice's text
-  projection and `broilerdoc dump` disagree on the marker of a nested level
-  (`◦` against `•`). Find out which side is right.
+- [x] **Pictures from HTML and Markdown — selected 2026-10-19.** Implemented embedded
+  images from `data:` URI payloads with resource admission, `MaxBinBytes` limits,
+  dimension/alt extraction, round-trip support, and diagnostic reporting (`html.image.*`,
+  `markdown.image.*`). External and relative targets remain deferred/unfetched without
+  network access ([notes/html.md](notes/html.md), [notes/markdown.md](notes/markdown.md)).
+- [x] **Nested list markers through RTF.** Resolved: LibreOffice's projection is right
+  (outer level 0 uses `•` U+2022, nested level 1 uses `◦` U+25E6 per Writer's bullet
+  hierarchy in `ascatr.cxx`). RTF list tables are detected and skipped (`rtf.list`)
+  so the model preserves `ListKind.None` without generating text bullet markers
+  ([notes/rtf.md](notes/rtf.md)).
 - **Sections, the rest.** A `DocumentSection` carries its columns and its own
   margins, a DOCX section break starts the page it says it does, and the
   layout balances a section's columns where the next follows on the same page.
@@ -89,56 +298,62 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   continuous sections only, each naming its own header, changes header in
   LibreOffice through follow styles this layout does not make
   (`tdf90697_complexBreaksHeaders.docx` draws its first section's header on
-  every page). LibreOffice reads `nextColumn` as `nextPage` in Word 2013
-  documents and wherever the column count changes, and a change of
-  orientation as `nextPage`; here it is continuous. Still not read:
-  the blank page an odd- or even-page start can make (`docx.section.parity`),
-  a section's own paper size (the page is drawn at the document's, which
+  every page). Odd- and even-page section starts create the blank pages required
+  by parity in layout, orientation changes force `nextPage` breaks, and DOCX round-trips
+  all `SectionBreakType`s. ODT reads and writes relative section margins (`fo:margin-left`,
+  `fo:margin-right`) on `style:section-properties`, preserving 1-column sections with margins
+  or unbalancing, and ODF's `text:dont-balance-text-columns` disables column balancing in layout.
+  Still not read: a section's own paper size (the page is drawn at the document's, which
   puts `tdf123163-1.docx`'s `geometry` band at `off` by two or three pixels), RTF's
-  `\sect` and its break kinds, and ODF's `text:dont-balance-text-columns`.
-  ODT, RTF, HTML and the PDF writer do not write a section's margins, and the
-  PDF writer lays every page out as one column (`pdf.write.feature-unsupported`).
+  `\sect` and its break kinds, and RTF, HTML and the PDF writer do not write a section's margins
+  (the PDF writer lays every page out as one column, `pdf.write.feature-unsupported`).
   `tdf123163-1.docx`, thirty-one sections of one to four columns, draws
   thirteen pages against sixteen, its text a page ahead of LibreOffice's from
   the second. None of its fourteen pictures is in the
   package (`docx.image.missing`); LibreOffice keeps a box of the size each
   states, one of them a whole page, and this reader keeps nothing of them.
-- **A picture whose payload is missing.** Keeping that box needs an image the
-  model holds without its bytes: every writer, the resource policy and both
-  layouts assume an `InlineImage` has a resource. Decide what such an image is
-  and what each writer does with it before a reader makes one.
-- **Fills the model cannot hold.** `ShapeFill` is one colour or two along a
-  line, mirrored or not. A rectangular or radial gradient, a pattern of two
-  colours, a picture fill and a gradient of more than two stops are each held
-  as one colour and reported (`docx.background.fill`, `docx.shape.fill`,
-  `odt.gradient`, `odt.fill`). `fill.docx` is a corner gradient LibreOffice
-  draws from dark blue to orange and this draws orange.
-  `tdf167527_title_letters_cut_from_below.docx` is a DrawingML hatch drawn as
-  its background colour, under a three-stop fade from transparent whose middle
-  stop is lost.
+- **A picture whose payload is missing.** Fixed: missing, external or unsupported
+  format pictures in DOCX and ODT (`docx.image.missing`, `docx.image.external`,
+  `docx.image.format`, `odt.image.missing`, `odt.image.external`, `odt.image.format`)
+  are retained in the document model as `InlineImage` placeholder runs (`IsMissingPayload`),
+  preserving stated width, height, presentation, and alternative text. The shared
+  and CLI paginators render missing image placeholders with a crossed bounding box,
+  and codecs omit writing missing payload data while cleanly reporting `docx.image.omitted` /
+  `odt.image.omitted`.
+- **Fills the model cannot hold.** DrawingML non-linear gradients (`<a:path path="circle" | "rect">`),
+  hatch pattern presets (`<a:pattFill>`), and image fills (`<a:blipFill>`) are now read
+  and written into `ShapeFill` with radial/rectangular geometry, hatch pattern settings,
+  and image resources. `docx.fill.extended` is reported only when extended fills must
+  truly be approximated (e.g. gradient borders or content-only bounds).
 - **Floating tables, the rest.** DOCX's `w:tblpPr` is read, written and laid
-  out. ODT has no reader for one: LibreOffice writes a floating table as a
-  `draw:frame` holding a `table:table`, which is dropped with `odt.frame.block`.
-  RTF's positioned-table words (`\tpvpg`, `\tposy`, `\tposxc`,
-  `\tdfrmtxt*`) are not read. The PDF writer lays a floating table out in the
-  flow. Two floating tables are not moved apart (`w:tblOverlap` is kept, not
-  acted on), and one nested in a cell stays in the cell.
+  out. ODT's `draw:frame` holding `table:table` is now read and written, preserving
+  frame bounding geometry and graphic style positioning (`horizontal-pos`, `horizontal-rel`,
+  `vertical-pos`, `vertical-rel`, `svg:x`, `svg:y`, margins, wrap). RTF's positioned-table
+  words (`\tpvpg`, `\tpvmrg`, `\tpvpara`, `\tphpg`, `\tphmrg`, `\tphcol`, `\tposx`, `\tposy`,
+  `\tposxl`/`c`/`r`/`in`/`out`, `\tposyt`/`c`/`b`/`in`/`out`, `\tdfrmtxt*`, `\tbloverlap`)
+  are read and serialized. The PDF writer lays a floating table out in the flow.
+  Two floating tables are not moved apart (`w:tblOverlap` is kept, not acted on),
+  and one nested in a cell stays in the cell.
 - **RTF tables, the rest.** The reader reads a row's cells, borders, shading,
-  padding and height; merged cells, row borders, `\trpadd` and nested tables
-  are not read, and the writer writes a table as its paragraphs.
+  padding and height. Merged cells (`\clmgf`, `\clmrg`, `\clvmgf`, `\clvmrg`),
+  row borders (`\trbrdr*`), and row/cell padding (`\trpadd*`, `\clpad*`) are read,
+  and the writer writes native RTF tables (`\trowd ... \cell ... \row`) preserving
+  cell grid, borders, shading, merges, padding, and alignments. Nested tables
+  inside a cell join outer cell text.
 - **Notes, the rest.** Footnotes and endnotes are read, written and laid out
-  in DOCX, ODT and RTF ([architecture notes](notes/architecture.md)). Not yet:
+  in DOCX, ODT and RTF ([architecture notes](notes/architecture.md)). Note numbering
+  restarts per page or section (`w:numRestart`, `text:start-numbering-at`) and
+  footnote placement positions (`w:pos`, `text:footnotes-position`) are read and
+  written into `NoteNumbering`. The HTML and Markdown readers read back the notes
+  their writers write (including semantic HTML `<section class="footnotes">` and
+  `<aside class="footnote">`) into `DocumentNote` and `InlineStyle.Note`. Not yet:
   a note too tall for the page it is cited on is not split across pages;
-  numbering restarts per page or section (`w:numRestart`,
-  `text:start-numbering-at`) and footnotes collected at the document's end
-  (`text:footnotes-position`, `w:pos`) are not read; the separator is
-  LibreOffice's default whatever the document states (`style:footnote-sep`,
+  the separator is LibreOffice's default whatever the document states (`style:footnote-sep`,
   Word's separator note); LibreOffice puts an ODT document's endnotes on a page
   of their own, and here they follow the body; a note cited in a header, a
   footer or a text box is not read, and a table or floating shape in a note is
   read as its text. The PDF writer draws a citation as its label and leaves the
-  note out (`pdf.write.feature-unsupported`), and the HTML and Markdown readers
-  do not read back the notes their writers write.
+  note out (`pdf.write.feature-unsupported`).
 - **List numbering.** The model records that a paragraph is numbered and how
   deep, and nothing else, so the layout counts from one at every list and picks
   the marker from the indent. `tdf168017.docx` numbers its clauses from a
@@ -157,21 +372,28 @@ it does is in [notes/csv.md](notes/csv.md).
   labels, and plain-text presentation, selected 2026-10-19. Show CSV as plain
   text rather than a rendered table; the existing codec still maps CSV to tables.
   Delimiter preservation and `sep=` handling decisions are deferred.
-- **Carry the dialect.** A file read with semicolons is saved with commas unless
-  the caller asks again, and the read result does not say which delimiter was
-  found. A host that saves back what it opened needs it, probably on a CSV read
-  result the way PDF has its own.
-- **Media-type parameters.** `header=present` and `charset` on a hint are ignored.
-  Reading them needs the hint to reach the read, which today it does not.
-- **`sep=` lines.** Some spreadsheets write a first line naming the delimiter. It
-  is read as a record. Decide whether to honour it; it is a vendor convention and
-  would want a register row.
-- **Tab-separated values** as a format of their own (`.tsv`,
-  `text/tab-separated-values`, whose registration forbids tabs in values rather
-  than quoting them).
-- **XLSX and ODS — both selected 2026-10-19.** Revisit the spreadsheet model
-  under ADR 0016: typed values, formulas and several sheets need somewhere to go.
-  Prepare the model design before writing the codecs. TSV is deferred.
+- **Carry the dialect.** Delivered. `CsvReadResult` (and `TsvReadResult`) derives
+  from `DocumentReadResult` and carries the detected or specified `Delimiter` and
+  `Encoding`, allowing hosts to save back files using the dialect with which they opened.
+- **Media-type parameters.** Delivered. `DocumentReadRequest.Hints` carries hints
+  to the reader; `header=present` sets the first row as a header row and `charset`
+  resolves and applies the explicit source text encoding without fallback warnings.
+- **`sep=` lines.** Delivered. The spreadsheet vendor convention naming the delimiter
+  on line 1 (`sep=<char>`) is recognized, consumed, and overrides detected delimiters
+  without emitting a directive row into the table.
+- **Tab-separated values** as a format of their own (`.tsv`, `.tab`,
+  `text/tab-separated-values`). Delivered. `TsvDocumentCodec` provides reading and
+  writing without quotation escaping per the IANA registration, registered in the CLI
+  catalog.
+- **XLSX and ODS — both selected 2026-10-19.** Delivered. The spreadsheet model
+  was revisited under ADR 0016: typed values (`CellValue`), formulas, number
+  formatting, and multi-sheet workbooks (`SpreadsheetWorkbook`, `SpreadsheetWorksheet`,
+  `SpreadsheetRow`, `SpreadsheetCell`) with bidirectional projection to and from
+  `RichTextDocument` tables. `Broiler.Documents.Xlsx` delivers full Open XML
+  SpreadsheetML read/write with shared strings, styles, formulas, and merges;
+  `Broiler.Documents.Ods` delivers full OASIS OpenDocument Spreadsheet read/write
+  with compliant uncompressed `mimetype` packaging and bounded repeated grid elements.
+  Both codecs are registered in the CLI catalog with `--sheet` routing support.
 - **Corpus and office coverage.** CSV is not in the corpus suite's format list,
   and the office suite has no CSV seed. LibreOffice can write CSV from a seed,
   which would give the reader input it did not write itself.
@@ -372,6 +594,11 @@ Still open:
   every cross-reference form. These need the oracles and corpus above.
 
 ### Shared export foundation (Phase 6)
+
+Coordinate font, shaping and page-contract work with the
+[shared layout foundations plan](#shared-layout-foundations). That plan stages
+cross-component reuse; the PDF-specific requirements and exit gate below still
+apply.
 
 Not started. It may run in parallel with Phase 5. The font *path* is decided:
 callers supply fonts and nothing is bundled

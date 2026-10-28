@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Globalization;
 using System.Text;
 
 namespace Broiler.Documents.Model;
@@ -541,6 +543,758 @@ public sealed class RichTextDocument
         }
 
         return sections;
+    }
+
+    private int IndexOfTable(DocumentTable table)
+    {
+        for (int i = 0; i < Tables.Count; i++)
+        {
+            if (ReferenceEquals(Tables[i], table) ||
+                (Tables[i].ParagraphIndex == table.ParagraphIndex && Tables[i].ParagraphCount == table.ParagraphCount))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Moves a row in <paramref name="table"/> from <paramref name="fromIndex"/> to <paramref name="toIndex"/>,
+    /// rearranging the document's paragraph array and updating all table, cell, and section anchors.
+    /// </summary>
+    public RichTextDocument MoveTableRow(DocumentTable table, int fromIndex, int toIndex)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        int tableIndex = IndexOfTable(table);
+        if (tableIndex < 0 || fromIndex < 0 || fromIndex >= table.Rows.Count || toIndex < 0 || toIndex >= table.Rows.Count || fromIndex == toIndex)
+            return this;
+
+        TableRow movingRow = table.Rows[fromIndex];
+        int sourceStart = int.MaxValue;
+        int sourceEnd = -1;
+        foreach (TableCell cell in movingRow.Cells)
+        {
+            if (!cell.IsRowSpanContinuation && cell.ParagraphCount > 0)
+            {
+                sourceStart = Math.Min(sourceStart, cell.ParagraphIndex);
+                sourceEnd = Math.Max(sourceEnd, cell.ParagraphEnd);
+            }
+        }
+
+        int sourceCount = sourceEnd > sourceStart ? sourceEnd - sourceStart : 0;
+
+        TableRow targetRow = table.Rows[toIndex];
+        int destinationIndex;
+        if (toIndex < fromIndex)
+        {
+            destinationIndex = int.MaxValue;
+            foreach (TableCell cell in targetRow.Cells)
+            {
+                if (!cell.IsRowSpanContinuation && cell.ParagraphCount > 0)
+                    destinationIndex = Math.Min(destinationIndex, cell.ParagraphIndex);
+            }
+            if (destinationIndex == int.MaxValue)
+                destinationIndex = table.ParagraphIndex;
+        }
+        else
+        {
+            destinationIndex = -1;
+            foreach (TableCell cell in targetRow.Cells)
+            {
+                if (!cell.IsRowSpanContinuation && cell.ParagraphCount > 0)
+                    destinationIndex = Math.Max(destinationIndex, cell.ParagraphEnd);
+            }
+            if (destinationIndex == -1)
+                destinationIndex = table.ParagraphEnd;
+        }
+
+        DocumentTable updatedTable = table.MoveRow(fromIndex, toIndex);
+
+        var newParas = new List<RichTextParagraph>(_paragraphs);
+        if (sourceCount > 0 && sourceStart != destinationIndex)
+        {
+            var slice = newParas.GetRange(sourceStart, sourceCount);
+            newParas.RemoveRange(sourceStart, sourceCount);
+            int insertTarget = destinationIndex > sourceStart ? destinationIndex - sourceCount : destinationIndex;
+            newParas.InsertRange(insertTarget, slice);
+        }
+
+        var newTables = new List<DocumentTable>(Tables.Count);
+        for (int i = 0; i < Tables.Count; i++)
+        {
+            if (i == tableIndex)
+            {
+                newTables.Add(updatedTable);
+            }
+            else
+            {
+                if (Tables[i].RelocateParagraphs(sourceStart, sourceCount, destinationIndex) is DocumentTable relocated)
+                    newTables.Add(relocated);
+            }
+        }
+
+        var newSections = new List<DocumentSection>(Sections.Count);
+        foreach (DocumentSection section in Sections)
+        {
+            if (section.RelocateParagraphs(sourceStart, sourceCount, destinationIndex) is DocumentSection relocated)
+                newSections.Add(relocated);
+        }
+
+        return new RichTextDocument(newParas, RunningContent, Shapes, PageGeometry, newTables, StyleDefaults, newSections, PageBackground, NoteNumbering, ShowsRevisions);
+    }
+
+    /// <summary>
+    /// Inserts a new row into <paramref name="table"/> at <paramref name="atIndex"/>,
+    /// inserting empty paragraphs into the document and shifting subsequent anchors.
+    /// </summary>
+    public RichTextDocument InsertTableRow(
+        DocumentTable table,
+        int atIndex,
+        TableRow? row = null,
+        int paragraphsPerCell = 1,
+        Func<int, RichTextParagraph>? paragraphFactory = null)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        int tableIndex = IndexOfTable(table);
+        if (tableIndex < 0)
+            return this;
+
+        DocumentTable updatedTable = table.InsertRow(atIndex, row, paragraphsPerCell);
+        int totalInserted = updatedTable.ParagraphCount - table.ParagraphCount;
+
+        int target = Math.Clamp(atIndex, 0, updatedTable.Rows.Count - 1);
+        int insertAt = updatedTable.Rows[target].Cells.FirstOrDefault(c => !c.IsRowSpanContinuation)?.ParagraphIndex ?? table.ParagraphEnd;
+
+        var newParas = new List<RichTextParagraph>(_paragraphs.Length + totalInserted);
+        for (int i = 0; i < insertAt; i++)
+            newParas.Add(_paragraphs[i]);
+
+        for (int i = 0; i < totalInserted; i++)
+            newParas.Add(paragraphFactory?.Invoke(i) ?? RichTextParagraph.Empty);
+
+        for (int i = insertAt; i < _paragraphs.Length; i++)
+            newParas.Add(_paragraphs[i]);
+
+        var newTables = new List<DocumentTable>(Tables.Count);
+        for (int i = 0; i < Tables.Count; i++)
+        {
+            if (i == tableIndex)
+            {
+                newTables.Add(updatedTable);
+            }
+            else
+            {
+                if (Tables[i].ParagraphIndex >= insertAt)
+                {
+                    if (Tables[i].Shifted(insertAt, 0, totalInserted, RangeAffinity.ShiftAtStart) is DocumentTable shifted)
+                        newTables.Add(shifted);
+                }
+                else
+                {
+                    newTables.Add(Tables[i]);
+                }
+            }
+        }
+
+        var newSections = new List<DocumentSection>(Sections.Count);
+        foreach (DocumentSection section in Sections)
+        {
+            if (section.ParagraphIndex >= insertAt)
+            {
+                if (section.Shifted(insertAt, 0, totalInserted, RangeAffinity.ShiftAtStart) is DocumentSection shifted)
+                    newSections.Add(shifted);
+            }
+            else
+            {
+                newSections.Add(section);
+            }
+        }
+
+        return new RichTextDocument(newParas, RunningContent, Shapes, PageGeometry, newTables, StyleDefaults, newSections, PageBackground, NoteNumbering, ShowsRevisions);
+    }
+
+    /// <summary>
+    /// Deletes the row at <paramref name="atIndex"/> from <paramref name="table"/>,
+    /// removing its paragraphs and adjusting spans and subsequent anchors.
+    /// </summary>
+    public RichTextDocument DeleteTableRow(DocumentTable table, int atIndex)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        int tableIndex = IndexOfTable(table);
+        if (tableIndex < 0 || atIndex < 0 || atIndex >= table.Rows.Count)
+            return this;
+
+        TableRow deletingRow = table.Rows[atIndex];
+        int removeStart = int.MaxValue;
+        int removeEnd = -1;
+        foreach (TableCell cell in deletingRow.Cells)
+        {
+            if (!cell.IsRowSpanContinuation && cell.ParagraphCount > 0)
+            {
+                removeStart = Math.Min(removeStart, cell.ParagraphIndex);
+                removeEnd = Math.Max(removeEnd, cell.ParagraphEnd);
+            }
+        }
+
+        int totalRemoved = removeEnd > removeStart ? removeEnd - removeStart : 0;
+        DocumentTable? updatedTable = table.DeleteRow(atIndex);
+
+        var newParas = new List<RichTextParagraph>(Math.Max(1, _paragraphs.Length - totalRemoved));
+        if (totalRemoved > 0)
+        {
+            for (int i = 0; i < removeStart; i++)
+                newParas.Add(_paragraphs[i]);
+            for (int i = removeStart + totalRemoved; i < _paragraphs.Length; i++)
+                newParas.Add(_paragraphs[i]);
+        }
+        else
+        {
+            newParas.AddRange(_paragraphs);
+        }
+
+        if (newParas.Count == 0)
+            newParas.Add(RichTextParagraph.Empty);
+
+        var newTables = new List<DocumentTable>(Tables.Count);
+        for (int i = 0; i < Tables.Count; i++)
+        {
+            if (i == tableIndex)
+            {
+                if (updatedTable is not null)
+                    newTables.Add(updatedTable);
+            }
+            else
+            {
+                if (totalRemoved > 0 && Tables[i].ParagraphIndex >= removeStart)
+                {
+                    if (Tables[i].Shifted(removeStart, totalRemoved, 0) is DocumentTable shifted)
+                        newTables.Add(shifted);
+                }
+                else
+                {
+                    newTables.Add(Tables[i]);
+                }
+            }
+        }
+
+        var newSections = new List<DocumentSection>(Sections.Count);
+        foreach (DocumentSection section in Sections)
+        {
+            if (totalRemoved > 0 && section.ParagraphIndex >= removeStart)
+            {
+                if (section.Shifted(removeStart, totalRemoved, 0) is DocumentSection shifted)
+                    newSections.Add(shifted);
+            }
+            else
+            {
+                newSections.Add(section);
+            }
+        }
+
+        return new RichTextDocument(newParas, RunningContent, Shapes, PageGeometry, newTables, StyleDefaults, newSections, PageBackground, NoteNumbering, ShowsRevisions);
+    }
+
+    /// <summary>
+    /// Inserts a new column into <paramref name="table"/> at <paramref name="atIndex"/>,
+    /// inserting empty paragraphs into the document and adjusting table and subsequent anchors.
+    /// </summary>
+    public RichTextDocument InsertTableColumn(
+        DocumentTable table,
+        int atIndex,
+        double width = 0,
+        int paragraphsPerCell = 1,
+        Func<int, int, RichTextParagraph>? paragraphFactory = null)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        int tableIndex = IndexOfTable(table);
+        if (tableIndex < 0)
+            return this;
+
+        DocumentTable updatedTable = table.InsertColumn(atIndex, width, paragraphsPerCell);
+        int totalInserted = updatedTable.ParagraphCount - table.ParagraphCount;
+
+        var newParas = new List<RichTextParagraph>(_paragraphs.Length + totalInserted);
+        for (int i = 0; i < table.ParagraphIndex; i++)
+            newParas.Add(_paragraphs[i]);
+
+        for (int r = 0; r < updatedTable.Rows.Count; r++)
+        {
+            TableRow row = updatedTable.Rows[r];
+            foreach (TableCell cell in row.Cells)
+            {
+                if (cell.IsRowSpanContinuation)
+                    continue;
+
+                TableCell? originalCell = r < table.Rows.Count
+                    ? table.Rows[r].Cells.FirstOrDefault(c => c.ColumnIndex == cell.ColumnIndex && !c.IsRowSpanContinuation)
+                    : null;
+
+                if (cell.ColumnIndex == atIndex && originalCell is null)
+                {
+                    for (int p = 0; p < cell.ParagraphCount; p++)
+                        newParas.Add(paragraphFactory?.Invoke(r, atIndex) ?? RichTextParagraph.Empty);
+                }
+                else
+                {
+                    TableCell? sourceCell = r < table.Rows.Count
+                        ? table.Rows[r].Cells.FirstOrDefault(c =>
+                            (c.ColumnIndex == (cell.ColumnIndex > atIndex ? cell.ColumnIndex - 1 : cell.ColumnIndex)))
+                        : null;
+
+                    if (sourceCell is not null && !sourceCell.IsRowSpanContinuation)
+                    {
+                        for (int p = 0; p < sourceCell.ParagraphCount; p++)
+                        {
+                            int srcIdx = sourceCell.ParagraphIndex + p;
+                            newParas.Add(srcIdx < _paragraphs.Length ? _paragraphs[srcIdx] : RichTextParagraph.Empty);
+                        }
+                    }
+                    else
+                    {
+                        for (int p = 0; p < cell.ParagraphCount; p++)
+                            newParas.Add(RichTextParagraph.Empty);
+                    }
+                }
+            }
+        }
+
+        for (int i = table.ParagraphEnd; i < _paragraphs.Length; i++)
+            newParas.Add(_paragraphs[i]);
+
+        var newTables = new List<DocumentTable>(Tables.Count);
+        for (int i = 0; i < Tables.Count; i++)
+        {
+            if (i == tableIndex)
+            {
+                newTables.Add(updatedTable);
+            }
+            else
+            {
+                if (Tables[i].ParagraphIndex >= table.ParagraphEnd)
+                {
+                    if (Tables[i].Shifted(table.ParagraphEnd, 0, totalInserted, RangeAffinity.ShiftAtStart) is DocumentTable shifted)
+                        newTables.Add(shifted);
+                }
+                else
+                {
+                    newTables.Add(Tables[i]);
+                }
+            }
+        }
+
+        var newSections = new List<DocumentSection>(Sections.Count);
+        foreach (DocumentSection section in Sections)
+        {
+            if (section.ParagraphIndex >= table.ParagraphEnd)
+            {
+                if (section.Shifted(table.ParagraphEnd, 0, totalInserted, RangeAffinity.ShiftAtStart) is DocumentSection shifted)
+                    newSections.Add(shifted);
+            }
+            else
+            {
+                newSections.Add(section);
+            }
+        }
+
+        return new RichTextDocument(newParas, RunningContent, Shapes, PageGeometry, newTables, StyleDefaults, newSections, PageBackground, NoteNumbering, ShowsRevisions);
+    }
+
+    /// <summary>
+    /// Deletes column <paramref name="atIndex"/> from <paramref name="table"/>,
+    /// removing its paragraphs and adjusting column spans, widths, and subsequent anchors.
+    /// </summary>
+    public RichTextDocument DeleteTableColumn(DocumentTable table, int atIndex)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        int tableIndex = IndexOfTable(table);
+        if (tableIndex < 0)
+            return this;
+
+        DocumentTable? updatedTable = table.DeleteColumn(atIndex);
+        if (updatedTable is null)
+            return DeleteTableRow(table, 0);
+
+        int totalRemoved = table.ParagraphCount - updatedTable.ParagraphCount;
+
+        var newParas = new List<RichTextParagraph>(Math.Max(1, _paragraphs.Length - totalRemoved));
+        for (int i = 0; i < table.ParagraphIndex; i++)
+            newParas.Add(_paragraphs[i]);
+
+        for (int r = 0; r < updatedTable.Rows.Count; r++)
+        {
+            TableRow row = updatedTable.Rows[r];
+            foreach (TableCell cell in row.Cells)
+            {
+                if (cell.IsRowSpanContinuation)
+                    continue;
+
+                TableCell? sourceCell = r < table.Rows.Count
+                    ? table.Rows[r].Cells.FirstOrDefault(c =>
+                        (c.ColumnIndex == (cell.ColumnIndex >= atIndex ? cell.ColumnIndex + 1 : cell.ColumnIndex)))
+                    : null;
+
+                if (sourceCell is not null && !sourceCell.IsRowSpanContinuation)
+                {
+                    for (int p = 0; p < sourceCell.ParagraphCount; p++)
+                    {
+                        int srcIdx = sourceCell.ParagraphIndex + p;
+                        newParas.Add(srcIdx < _paragraphs.Length ? _paragraphs[srcIdx] : RichTextParagraph.Empty);
+                    }
+                }
+                else
+                {
+                    for (int p = 0; p < cell.ParagraphCount; p++)
+                        newParas.Add(RichTextParagraph.Empty);
+                }
+            }
+        }
+
+        for (int i = table.ParagraphEnd; i < _paragraphs.Length; i++)
+            newParas.Add(_paragraphs[i]);
+
+        if (newParas.Count == 0)
+            newParas.Add(RichTextParagraph.Empty);
+
+        var newTables = new List<DocumentTable>(Tables.Count);
+        for (int i = 0; i < Tables.Count; i++)
+        {
+            if (i == tableIndex)
+            {
+                newTables.Add(updatedTable);
+            }
+            else
+            {
+                if (totalRemoved > 0 && Tables[i].ParagraphIndex >= table.ParagraphEnd)
+                {
+                    if (Tables[i].Shifted(table.ParagraphEnd, totalRemoved, 0) is DocumentTable shifted)
+                        newTables.Add(shifted);
+                }
+                else
+                {
+                    newTables.Add(Tables[i]);
+                }
+            }
+        }
+
+        var newSections = new List<DocumentSection>(Sections.Count);
+        foreach (DocumentSection section in Sections)
+        {
+            if (totalRemoved > 0 && section.ParagraphIndex >= table.ParagraphEnd)
+            {
+                if (section.Shifted(table.ParagraphEnd, totalRemoved, 0) is DocumentSection shifted)
+                    newSections.Add(shifted);
+            }
+            else
+            {
+                newSections.Add(section);
+            }
+        }
+
+        return new RichTextDocument(newParas, RunningContent, Shapes, PageGeometry, newTables, StyleDefaults, newSections, PageBackground, NoteNumbering, ShowsRevisions);
+    }
+
+    /// <summary>
+    /// Merges a block of cells in <paramref name="table"/>, collecting all cell content into the root cell.
+    /// </summary>
+    public RichTextDocument MergeTableCells(DocumentTable table, int startRow, int startColumn, int rowSpan, int columnSpan)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        int tableIndex = IndexOfTable(table);
+        if (tableIndex < 0)
+            return this;
+
+        DocumentTable updatedTable = table.MergeCells(startRow, startColumn, rowSpan, columnSpan);
+        var newTables = new List<DocumentTable>(Tables);
+        newTables[tableIndex] = updatedTable;
+
+        return new RichTextDocument(_paragraphs, RunningContent, Shapes, PageGeometry, newTables, StyleDefaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
+    }
+
+    /// <summary>
+    /// Splits a cell in <paramref name="table"/>, restoring unmerged cells or splitting dimensions.
+    /// </summary>
+    public RichTextDocument SplitTableCell(DocumentTable table, int row, int column, int horizontalSplit = 1, int verticalSplit = 1, int newParagraphsPerSplit = 1)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        int tableIndex = IndexOfTable(table);
+        if (tableIndex < 0)
+            return this;
+
+        DocumentTable updatedTable = table.SplitCell(row, column, horizontalSplit, verticalSplit, newParagraphsPerSplit);
+        int totalInserted = updatedTable.ParagraphCount - table.ParagraphCount;
+
+        if (totalInserted <= 0)
+        {
+            var updatedTablesOnly = new List<DocumentTable>(Tables);
+            updatedTablesOnly[tableIndex] = updatedTable;
+            return new RichTextDocument(_paragraphs, RunningContent, Shapes, PageGeometry, updatedTablesOnly, StyleDefaults, Sections, PageBackground, NoteNumbering, ShowsRevisions);
+        }
+
+        var newParas = new List<RichTextParagraph>(_paragraphs.Length + totalInserted);
+        for (int i = 0; i < table.ParagraphIndex; i++)
+            newParas.Add(_paragraphs[i]);
+
+        for (int r = 0; r < updatedTable.Rows.Count; r++)
+        {
+            TableRow tableRow = updatedTable.Rows[r];
+            foreach (TableCell cell in tableRow.Cells)
+            {
+                if (cell.IsRowSpanContinuation)
+                    continue;
+
+                if (cell.ParagraphIndex < table.ParagraphEnd)
+                {
+                    int oldStart = cell.ParagraphIndex;
+                    for (int p = 0; p < cell.ParagraphCount; p++)
+                    {
+                        int src = oldStart + p;
+                        newParas.Add(src < _paragraphs.Length ? _paragraphs[src] : RichTextParagraph.Empty);
+                    }
+                }
+                else
+                {
+                    for (int p = 0; p < cell.ParagraphCount; p++)
+                        newParas.Add(RichTextParagraph.Empty);
+                }
+            }
+        }
+
+        for (int i = table.ParagraphEnd; i < _paragraphs.Length; i++)
+            newParas.Add(_paragraphs[i]);
+
+        var newTables = new List<DocumentTable>(Tables.Count);
+        for (int i = 0; i < Tables.Count; i++)
+        {
+            if (i == tableIndex)
+            {
+                newTables.Add(updatedTable);
+            }
+            else
+            {
+                if (Tables[i].ParagraphIndex >= table.ParagraphEnd)
+                {
+                    if (Tables[i].Shifted(table.ParagraphEnd, 0, totalInserted, RangeAffinity.ShiftAtStart) is DocumentTable shifted)
+                        newTables.Add(shifted);
+                }
+                else
+                {
+                    newTables.Add(Tables[i]);
+                }
+            }
+        }
+
+        var newSections = new List<DocumentSection>(Sections.Count);
+        foreach (DocumentSection section in Sections)
+        {
+            if (section.ParagraphIndex >= table.ParagraphEnd)
+            {
+                if (section.Shifted(table.ParagraphEnd, 0, totalInserted, RangeAffinity.ShiftAtStart) is DocumentSection shifted)
+                    newSections.Add(shifted);
+            }
+            else
+            {
+                newSections.Add(section);
+            }
+        }
+
+        return new RichTextDocument(newParas, RunningContent, Shapes, PageGeometry, newTables, StyleDefaults, newSections, PageBackground, NoteNumbering, ShowsRevisions);
+    }
+
+    /// <summary>
+    /// Evaluates all formulas in <paramref name="table"/>, updating the document paragraphs with evaluated
+    /// results while preserving paragraph and run styling.
+    /// </summary>
+    public (RichTextDocument Document, TableEvaluationResult Result) EvaluateTableFormulas(
+        DocumentTable table,
+        Func<CellValue, string>? valueFormatter = null)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        int tableIndex = IndexOfTable(table);
+        var result = TableFormulaEngine.Evaluate(table, this);
+        var currentDoc = this;
+
+        var updatedRows = new List<TableRow>(table.Rows.Count);
+        for (int r = 0; r < table.Rows.Count; r++)
+        {
+            var row = table.Rows[r];
+            var updatedCells = new List<TableCell>(row.Cells.Count);
+            for (int c = 0; c < row.Cells.Count; c++)
+            {
+                var cell = row.Cells[c];
+                int gridRow = r;
+                int gridCol = cell.ColumnIndex;
+
+                string? formula = cell.Formula;
+                bool textHadFormula = false;
+                if (string.IsNullOrWhiteSpace(formula) && cell.ParagraphCount > 0 && cell.ParagraphIndex < currentDoc.Paragraphs.Count)
+                {
+                    string currentText = currentDoc.Paragraphs[cell.ParagraphIndex].Text.TrimStart();
+                    if (currentText.StartsWith('='))
+                    {
+                        formula = currentText;
+                        textHadFormula = true;
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(formula))
+                {
+                    var cellVal = result.GetValue(gridRow, gridCol);
+                    FormattedCellResult formattedResult = valueFormatter != null
+                        ? new FormattedCellResult(valueFormatter(cellVal))
+                        : CellNumberFormatter.Format(cellVal, cell.NumberFormat);
+                    string formattedText = formattedResult.Text;
+
+                    if (cell.ParagraphCount > 0 && cell.ParagraphIndex < currentDoc.Paragraphs.Count)
+                    {
+                        var p = currentDoc.Paragraphs[cell.ParagraphIndex];
+                        var style = p.Runs.Count > 0 ? p.Runs[0].Style : p.MarkStyle;
+                        if (formattedResult.Color.HasValue)
+                        {
+                            style = style with { Foreground = formattedResult.Color.Value };
+                        }
+                        var newP = RichTextParagraph.Create(formattedText, style, p.Style);
+                        currentDoc = currentDoc.ReplaceParagraph(cell.ParagraphIndex, newP);
+
+                        for (int pi = 1; pi < cell.ParagraphCount; pi++)
+                        {
+                            int pIdx = cell.ParagraphIndex + pi;
+                            if (pIdx < currentDoc.Paragraphs.Count)
+                            {
+                                var emptyP = RichTextParagraph.Create(string.Empty, style, currentDoc.Paragraphs[pIdx].Style);
+                                currentDoc = currentDoc.ReplaceParagraph(pIdx, emptyP);
+                            }
+                        }
+                    }
+
+                    if (cell.Formula == null && textHadFormula)
+                    {
+                        cell = cell.WithFormula(formula);
+                    }
+                }
+
+                updatedCells.Add(cell);
+            }
+
+            updatedRows.Add(new TableRow(
+                updatedCells,
+                row.IsHeader,
+                row.MinHeight,
+                row.CanSplit,
+                row.ExactHeight,
+                row.KeepWithNext));
+        }
+
+        var updatedTable = new DocumentTable(
+            table.ParagraphIndex,
+            table.ParagraphCount,
+            updatedRows,
+            table.ColumnWidths,
+            table.CellPadding,
+            table.Position,
+            table.KeepWithNext,
+            table.PreferredWidth,
+            table.WidthPercent,
+            table.Alignment,
+            table.LeftIndent,
+            table.PageBreakBefore,
+            table.ColumnBreakBefore,
+            table.AutoFit,
+            table.KeepTogether);
+
+        var newTables = new List<DocumentTable>(currentDoc.Tables.Count);
+        if (tableIndex >= 0 && tableIndex < currentDoc.Tables.Count)
+        {
+            for (int i = 0; i < currentDoc.Tables.Count; i++)
+                newTables.Add(i == tableIndex ? updatedTable : currentDoc.Tables[i]);
+        }
+        else
+        {
+            newTables.AddRange(currentDoc.Tables);
+            newTables.Add(updatedTable);
+        }
+
+        var finalDoc = new RichTextDocument(
+            [.. currentDoc.Paragraphs],
+            currentDoc.RunningContent,
+            currentDoc.Shapes,
+            currentDoc.PageGeometry,
+            newTables,
+            currentDoc.StyleDefaults,
+            currentDoc.Sections,
+            currentDoc.PageBackground,
+            currentDoc.NoteNumbering,
+            currentDoc.ShowsRevisions);
+
+        return (finalDoc, result);
+    }
+
+    /// <summary>
+    /// Recalculates formulas for all tables in this document, updating paragraph text and styles.
+    /// </summary>
+    public (RichTextDocument Document, IReadOnlyList<TableEvaluationResult> Results) EvaluateAllTableFormulas(
+        Func<CellValue, string>? valueFormatter = null)
+    {
+        var currentDoc = this;
+        var results = new List<TableEvaluationResult>(Tables.Count);
+        for (int i = 0; i < currentDoc.Tables.Count; i++)
+        {
+            var table = currentDoc.Tables[i];
+            var (updatedDoc, res) = currentDoc.EvaluateTableFormulas(table, valueFormatter);
+            currentDoc = updatedDoc;
+            results.Add(res);
+        }
+        return (currentDoc, results);
+    }
+
+    /// <summary>
+    /// Applies <see cref="TableCell.NumberFormat"/> formatting and text color to all cells in <paramref name="table"/>.
+    /// </summary>
+    public RichTextDocument FormatTableCells(DocumentTable table, CultureInfo? culture = null)
+    {
+        ArgumentNullException.ThrowIfNull(table);
+        int tableIndex = IndexOfTable(table);
+        if (tableIndex < 0) return this;
+
+        var currentDoc = this;
+        for (int r = 0; r < table.Rows.Count; r++)
+        {
+            var row = table.Rows[r];
+            for (int c = 0; c < row.Cells.Count; c++)
+            {
+                var cell = row.Cells[c];
+                if (cell.IsRowSpanContinuation || string.IsNullOrWhiteSpace(cell.NumberFormat) || cell.ParagraphCount == 0)
+                    continue;
+
+                if (cell.ParagraphIndex >= currentDoc.Paragraphs.Count)
+                    continue;
+
+                string currentText = currentDoc.Paragraphs[cell.ParagraphIndex].Text;
+                var rawVal = CellValue.Parse(currentText);
+                var formatted = CellNumberFormatter.Format(rawVal, cell.NumberFormat, culture);
+
+                var p = currentDoc.Paragraphs[cell.ParagraphIndex];
+                var style = p.Runs.Count > 0 ? p.Runs[0].Style : p.MarkStyle;
+                if (formatted.Color.HasValue)
+                    style = style with { Foreground = formatted.Color.Value };
+
+                var newP = RichTextParagraph.Create(formatted.Text, style, p.Style);
+                currentDoc = currentDoc.ReplaceParagraph(cell.ParagraphIndex, newP);
+            }
+        }
+
+        return currentDoc;
+    }
+
+    /// <summary>
+    /// Applies <see cref="TableCell.NumberFormat"/> formatting and text color to all tables in this document.
+    /// </summary>
+    public RichTextDocument FormatAllTableCells(CultureInfo? culture = null)
+    {
+        var currentDoc = this;
+        foreach (var table in Tables)
+            currentDoc = currentDoc.FormatTableCells(table, culture);
+        return currentDoc;
     }
 
     private static string NormalizeNewlines(string text) =>

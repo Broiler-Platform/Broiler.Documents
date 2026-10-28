@@ -1,15 +1,35 @@
 # ADR 0004: Document Read Limits And RTF Sanitization Policy
 
-**Status:** Accepted for Phase 1 scaffolding; revisit before API freeze
-**Date:** 2026-07-05
+**Status:** Accepted; re-reviewed and frozen for API freeze
+**Date:** 2026-07-05 (Re-reviewed: 2026-10-28)
 
 > **Implementation note:** The default skip policy is implemented. The
 > `DecodeEmbeddedObjects` option was never connected to an image-import path, and
 > the capability it was holding a place for arrived instead as
 > `DocumentReadOptions.ResourcePolicy`, which decides per resource and per
-> operation. The option is announced for removal under
-> [ADR 0014](0014-api-deprecation-and-removal.md) and still works until a later
-> release takes it out. Embedded OLE objects are never instantiated either way.
+> operation. The option was announced for removal under
+> [ADR 0014](0014-api-deprecation-and-removal.md) and has now been removed.
+> Embedded OLE objects are never instantiated either way.
+>
+> **API Freeze Re-review:** The read/write option surface has completed consumer
+> review and is frozen:
+> - `DocumentLimits` enforces hard ceilings across all reads (`MaxProbeBytes`,
+>   `MaxDocumentBytes`, `MaxGroupDepth`, `MaxRunLength`, `MaxParagraphCount`, `MaxBinBytes`).
+> - `DocumentReadOptions` carries `DocumentLimits Limits`, `int DefaultCodePage`, and
+>   `DocumentResourcePolicy ResourcePolicy`. Format-specific options derive from it.
+> - `DocumentWriteOptions` carries `bool AsciiOnly` (retained under ADR 0014's
+>   no-replacement rule), `DocumentConversionContext Resources`, `DocumentFontSet Fonts`,
+>   and `DocumentMetadata Metadata`. Format-specific options derive from it.
+> - Requests (`DocumentReadRequest`, `DocumentWriteRequest`) own operation lifecycle,
+>   stream/bytes inputs, and cancellation tokens; options carry settings only.
+> - `DocumentConversionContext` guarantees that resource provenance and permissions
+>   travel with documents without laundering across format transformations.
+> - `DocumentFontSet` enforces explicit caller font provisioning without ambient OS
+>   font discovery.
+> - `DocumentMetadata` enforces a normalized 9-field envelope that is caller-owned on
+>   write rather than silently copied from read results.
+> - Diagnostics and URLs strictly adhere to the privacy and sanitization rules
+>   across all codecs.
 
 ## Context
 

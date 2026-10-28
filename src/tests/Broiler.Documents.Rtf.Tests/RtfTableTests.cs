@@ -188,4 +188,113 @@ public sealed class RtfTableTests
     {
         Assert.Empty(Read("{\\rtf1 one\\par two\\par}").Tables);
     }
+
+    [Fact]
+    public void Reads_Positioned_Floating_Table()
+    {
+        string rtf = "{\\rtf1\\trowd\\tpvpg\\tphmrg\\tposx200\\tposy400\\tdfrmtxtl100\\tdfrmtxtr120\\tdfrmtxtt80\\tdfrmtxtb90\\tbloverlap1\\cellx1000\\intbl Hello\\cell\\row\\pard\\par}";
+        RichTextDocument document = Read(rtf);
+        DocumentTable table = Assert.Single(document.Tables);
+
+        Assert.NotNull(table.Position);
+        TablePosition pos = table.Position!;
+        Assert.Equal(TableAnchor.Margin, pos.HorizontalAnchor);
+        Assert.Equal(TableAnchor.Page, pos.VerticalAnchor);
+        Assert.Equal(10.0, pos.X);
+        Assert.Equal(20.0, pos.Y);
+        Assert.Equal(5.0, pos.LeftFromText);
+        Assert.Equal(6.0, pos.RightFromText);
+        Assert.Equal(4.0, pos.TopFromText);
+        Assert.Equal(4.5, pos.BottomFromText);
+        Assert.True(pos.AllowOverlap);
+    }
+
+    [Fact]
+    public void Reads_Horizontally_Merged_Cells()
+    {
+        string rtf = "{\\rtf1\\trowd\\clmgf\\cellx1000\\clmrg\\cellx2000\\cellx3000\\intbl Merged\\cell\\cell Last\\cell\\row\\pard\\par}";
+        RichTextDocument document = Read(rtf);
+        DocumentTable table = Assert.Single(document.Tables);
+        TableRow row = Assert.Single(table.Rows);
+
+        Assert.Equal(2, row.Cells.Count);
+        TableCell merged = row.Cells[0];
+        Assert.Equal(0, merged.ColumnIndex);
+        Assert.Equal(2, merged.ColumnSpan);
+
+        TableCell last = row.Cells[1];
+        Assert.Equal(2, last.ColumnIndex);
+        Assert.Equal(1, last.ColumnSpan);
+    }
+
+    [Fact]
+    public void Reads_Vertically_Merged_Cells()
+    {
+        string rtf = "{\\rtf1\\trowd\\clvmgf\\cellx1000\\cellx2000\\intbl Top1\\cell Top2\\cell\\row\\trowd\\clvmrg\\cellx1000\\cellx2000\\intbl\\cell Bot2\\cell\\row\\pard\\par}";
+        RichTextDocument document = Read(rtf);
+        DocumentTable table = Assert.Single(document.Tables);
+        Assert.Equal(2, table.Rows.Count);
+
+        TableCell top1 = table.Rows[0].Cells[0];
+        Assert.Equal(2, top1.RowSpan);
+        Assert.False(top1.IsRowSpanContinuation);
+
+        TableCell bot1 = table.Rows[1].Cells[0];
+        Assert.True(bot1.IsRowSpanContinuation);
+    }
+
+    [Fact]
+    public void Reads_Row_Borders_And_Padding()
+    {
+        string rtf = "{\\rtf1\\trowd\\trpaddl100\\trpaddt200\\trpaddr150\\trpaddb250\\trbrdrt\\brdrs\\brdrw20\\trbrdrb\\brdrs\\brdrw40\\cellx1000\\intbl Text\\cell\\row\\pard\\par}";
+        RichTextDocument document = Read(rtf);
+        DocumentTable table = Assert.Single(document.Tables);
+        TableRow row = Assert.Single(table.Rows);
+        TableCell cell = Assert.Single(row.Cells);
+
+        Assert.NotNull(cell.Padding);
+        Assert.Equal(new TableCellPadding(5.0, 10.0, 7.5, 12.5), cell.Padding!.Value);
+        Assert.Equal(1.0, cell.Borders.Top.Width);
+        Assert.Equal(2.0, cell.Borders.Bottom.Width);
+    }
+
+    [Fact]
+    public void Round_Trips_Native_Table_Through_Writer_And_Reader()
+    {
+        var cells = new List<TableCell>
+        {
+            new(0, 1, 0, 1, shading: new BColor(200, 220, 240),
+                borders: new CellBorders(TableBorder.Solid(BColor.Black), TableBorder.Solid(BColor.Black), TableBorder.Solid(BColor.Black), TableBorder.Solid(BColor.Black))),
+            new(1, 1, 1, 1, shading: new BColor(255, 255, 200))
+        };
+        var row = new TableRow(cells, minHeight: 30);
+        var table = new DocumentTable(0, 2, [row], [150, 200], cellPadding: 8);
+
+        var doc = RichTextDocument.FromParagraphs([
+            RichTextParagraph.Plain("Cell A"),
+            RichTextParagraph.Plain("Cell B")
+        ]).WithTables([table]);
+
+        var codec = new RtfDocumentCodec();
+        using var stream = new MemoryStream();
+        codec.Write(doc, stream);
+        string rtf = Encoding.ASCII.GetString(stream.ToArray());
+
+        Assert.Contains("\\trowd", rtf);
+        Assert.Contains("\\cellx", rtf);
+        Assert.Contains("\\intbl", rtf);
+        Assert.Contains("\\cell", rtf);
+        Assert.Contains("\\row", rtf);
+
+        stream.Position = 0;
+        DocumentReadResult read = codec.Read(stream);
+        RichTextDocument roundTripped = read.Document;
+
+        DocumentTable readTable = Assert.Single(roundTripped.Tables);
+        Assert.Equal(2, readTable.ColumnWidths.Count);
+        Assert.Equal(150.0, Math.Round(readTable.ColumnWidths[0]));
+        Assert.Equal(200.0, Math.Round(readTable.ColumnWidths[1]));
+        Assert.Single(readTable.Rows);
+        Assert.Equal(2, readTable.Rows[0].Cells.Count);
+    }
 }

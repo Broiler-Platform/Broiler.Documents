@@ -295,4 +295,24 @@ public sealed class CsvWriterTests
         Assert.Equal("kept added", System.Text.Encoding.UTF8.GetString(bytes).Trim());
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == CsvDiagnosticCodes.RevisionAccepted);
     }
+
+    [Fact]
+    public void Write_Request_Enforces_RequireAtomic_Without_Staging()
+    {
+        var codec = new CsvDocumentCodec();
+        using var destination = new MemoryStream();
+        var request = new DocumentWriteRequest(
+            RichTextDocument.FromPlainText("col1,col2"),
+            destination,
+            requireAtomic: true,
+            isStaged: false);
+
+        DocumentWriteResult result = codec.Write(request);
+
+        Assert.Equal(DocumentResultStatus.Rejected, result.Status);
+        Assert.Equal(DocumentDestinationState.NotStarted, result.DestinationState);
+        Assert.Equal(0, result.BytesWritten);
+        Assert.Equal(0, destination.Length);
+        Assert.Contains(result.Diagnostics, d => d.Code == DocumentDiagnosticCodes.CommitAtomicRequired);
+    }
 }

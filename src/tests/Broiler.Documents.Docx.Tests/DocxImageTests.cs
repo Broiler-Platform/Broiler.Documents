@@ -143,7 +143,11 @@ public sealed class DocxImageTests
             DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
             new Dictionary<string, byte[]>(StringComparer.Ordinal));
 
-        Assert.Empty(Assert.Single(result.Document.Paragraphs).Text);
+        InlineImage image = Assert.Single(result.Document.Paragraphs).Runs[0].Style.Image!;
+        Assert.True(image.IsMissingPayload);
+        Assert.Equal(72, image.Width);
+        Assert.Equal(72, image.Height);
+        Assert.Equal(InlineImage.PlaceholderText, Assert.Single(result.Document.Paragraphs).Text);
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.missing");
     }
 
@@ -167,7 +171,11 @@ public sealed class DocxImageTests
             DocxTestPackage.ImageRelationship("rId7", "media/image1.emf"),
             Media("word/media/image1.emf", [0x01, 0x00, 0x00, 0x00, 0x6C]));
 
-        Assert.Empty(Assert.Single(result.Document.Paragraphs).Text);
+        InlineImage image = Assert.Single(result.Document.Paragraphs).Runs[0].Style.Image!;
+        Assert.True(image.IsMissingPayload);
+        Assert.Equal(72, image.Width);
+        Assert.Equal(72, image.Height);
+        Assert.Equal(InlineImage.PlaceholderText, Assert.Single(result.Document.Paragraphs).Text);
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.format");
     }
 
@@ -200,7 +208,11 @@ public sealed class DocxImageTests
             "Target=\"https://example.test/logo.png\" TargetMode=\"External\"/>",
             new Dictionary<string, byte[]>(StringComparer.Ordinal));
 
-        Assert.Empty(Assert.Single(result.Document.Paragraphs).Text);
+        InlineImage image = Assert.Single(result.Document.Paragraphs).Runs[0].Style.Image!;
+        Assert.True(image.IsMissingPayload);
+        Assert.Equal(72, image.Width);
+        Assert.Equal(72, image.Height);
+        Assert.Equal(InlineImage.PlaceholderText, Assert.Single(result.Document.Paragraphs).Text);
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.external");
     }
 
@@ -431,4 +443,46 @@ public sealed class DocxImageTests
         Assert.Equal(ImageMask.Ellipse, presentation.Mask);
         Assert.Equal(0.1433, presentation.CropTop, 5);
     }
+    [Fact]
+    public void Missing_Floating_Picture_Preserves_Shape_Bounds()
+    {
+        string run = DocxTestPackage.AnchoredDrawingRun(
+            "rIdMissing",
+            widthEmus: 1828800,
+            heightEmus: 914400,
+            offsetXEmus: 720000,
+            offsetYEmus: 1440000,
+            altText: "A missing picture");
+
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            "<w:p>" + run + "</w:p>",
+            DocxTestPackage.ImageRelationship("rIdMissing", "media/absent.png"),
+            new Dictionary<string, byte[]>(StringComparer.Ordinal));
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.NotNull(shape.Image);
+        Assert.True(shape.Image.IsMissingPayload);
+        Assert.Equal(144, shape.Width, 2);
+        Assert.Equal(72, shape.Height, 2);
+        Assert.Equal("A missing picture", shape.Image.AltText);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.missing");
+    }
+
+    [Fact]
+    public void Missing_Payload_Picture_Omitted_When_Written_To_Docx()
+    {
+        InlineImage placeholder = InlineImage.CreateMissingPayload(100, 50, "Placeholder");
+        RichTextDocument document = RichTextDocument.FromParagraphs(
+        [
+            RichTextParagraph.Create(InlineImage.PlaceholderText, InlineStyle.Default with { Image = placeholder }),
+        ]);
+
+        using var output = new MemoryStream();
+        DocumentWriteResult result = new DocxDocumentCodec().Write(document, output);
+
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.omitted");
+        using var archive = new ZipArchive(new MemoryStream(output.ToArray()), ZipArchiveMode.Read);
+        Assert.DoesNotContain(archive.Entries, e => e.FullName.StartsWith("word/media/", StringComparison.OrdinalIgnoreCase));
+    }
+
 }

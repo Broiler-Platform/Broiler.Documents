@@ -197,6 +197,19 @@ public sealed class PdfDocumentCodec(PdfCodecServices services) : DocumentCodec(
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        if (request.CancellationToken.IsCancellationRequested)
+        {
+            return DocumentWriteResult.Rejected(DocumentDiagnosticCodes.Cancelled,
+                "The write was cancelled before any byte reached the destination.");
+        }
+
+        if (request.RequireAtomic && !request.IsStaged)
+        {
+            return DocumentWriteResult.Rejected(
+                DocumentDiagnosticCodes.CommitAtomicRequired,
+                "The write request requires atomic commit, but the destination has no staging capability.");
+        }
+
         if (!TryValidateOptions(request.Options, Name, out PdfWriteOptions? typed, out DocumentWriteResult? rejection))
             return rejection!;
 

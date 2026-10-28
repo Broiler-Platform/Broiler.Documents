@@ -40,6 +40,8 @@ public static class CompareCommand
                 OptionSpec.Flag("ignore-case", "Compare text without regard to letter case."),
                 OptionSpec.Flag("ignore-inline-style", "Compare text and paragraph structure only."),
                 OptionSpec.Flag("ignore-paragraph-style", "Compare text and run formatting only."),
+                OptionSpec.Flag("ignore-table-layout", "Compare tabular data and structure only, ignoring cell widths, padding, and borders."),
+                OptionSpec.Value("numeric-tolerance", "delta", "Floating-point tolerance for cell value comparisons."),
                 OptionSpec.Value("max-differences", "n", "Stop listing structural differences after this many.", "50"),
                 .. RenderPipeline.Specs,
                 .. DocumentOptions.Specs,
@@ -49,11 +51,12 @@ public static class CompareCommand
                 "compare reference.docx roundtripped.docx",
                 "compare a.docx b.docx --render --continuous --diff diff.png --tolerance 2",
                 "compare a.png b.png --tolerance 2 --max-different-ratio 0.0005 --json",
+                "compare a.docx b.docx --ignore-table-layout --numeric-tolerance 0.01",
             ],
             "modes\n" +
             "  image     Two images, compared pixel by pixel.\n" +
             "  document  Two documents, compared through the model: text, paragraph structure,\n" +
-            "            run formatting, and the Formatting Codes projection.\n" +
+            "            run formatting, tables, and the Formatting Codes projection.\n" +
             "  auto      image when both paths look like images, document otherwise.\n" +
             "\n" +
             "Reach for document mode first. A pixel diff says two exports look different;\n" +
@@ -143,12 +146,29 @@ public static class CompareCommand
         LoadedDocument leftDocument = DocumentIo.LoadOrThrow(left, catalog, readOptions, context.Line.Get("from"));
         LoadedDocument rightDocument = DocumentIo.LoadOrThrow(right, catalog, readOptions, context.Line.Get("from"));
 
+        double? numericTolerance = null;
+        if (context.Line.Has("numeric-tolerance"))
+        {
+            string? tolStr = context.Line.Get("numeric-tolerance");
+            if (double.TryParse(tolStr, NumberStyles.Float, CultureInfo.InvariantCulture, out double tol) ||
+                double.TryParse(tolStr, NumberStyles.Float, CultureInfo.CurrentCulture, out tol))
+            {
+                numericTolerance = Math.Max(0, tol);
+            }
+            else
+            {
+                numericTolerance = 0;
+            }
+        }
+
         var options = new ComparisonOptions
         {
             IgnoreWhitespace = context.Line.Has("ignore-whitespace"),
             IgnoreCase = context.Line.Has("ignore-case"),
             IgnoreInlineStyle = context.Line.Has("ignore-inline-style"),
             IgnoreParagraphStyle = context.Line.Has("ignore-paragraph-style"),
+            IgnoreTableLayout = context.Line.Has("ignore-table-layout"),
+            NumericTolerance = numericTolerance,
             MaxDifferences = Math.Max(1, context.Line.GetInt32("max-differences", 50)),
         };
 

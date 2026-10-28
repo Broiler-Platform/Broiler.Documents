@@ -19,6 +19,13 @@ public class DocumentWriteResult
     private static readonly ReadOnlyCollection<DocumentDiagnostic> EmptyDiagnostics =
         Array.AsReadOnly(Array.Empty<DocumentDiagnostic>());
 
+    /// <summary>
+    /// Initializes a new instance of <see cref="DocumentWriteResult"/>.
+    /// </summary>
+    /// <param name="bytesWritten">Total number of bytes written to the destination.</param>
+    /// <param name="diagnostics">Diagnostics produced during writing.</param>
+    /// <param name="status">Overall status of the write operation.</param>
+    /// <param name="destinationState">State of the caller destination stream.</param>
     public DocumentWriteResult(long bytesWritten, IEnumerable<DocumentDiagnostic>? diagnostics = null,
         DocumentResultStatus status = DocumentResultStatus.Success,
         DocumentDestinationState destinationState = DocumentDestinationState.Committed)
@@ -33,10 +40,13 @@ public class DocumentWriteResult
         DestinationState = destinationState;
     }
 
+    /// <summary>The total number of bytes written to the destination.</summary>
     public long BytesWritten { get; }
 
+    /// <summary>The diagnostics produced during writing.</summary>
     public IReadOnlyList<DocumentDiagnostic> Diagnostics { get; }
 
+    /// <summary>The overall status of the write operation.</summary>
     public DocumentResultStatus Status { get; }
 
     /// <summary>
@@ -47,6 +57,7 @@ public class DocumentWriteResult
     /// </summary>
     public DocumentDestinationState DestinationState { get; }
 
+    /// <summary>True when any diagnostic has error severity.</summary>
     public bool HasErrors => Diagnostics.Any(static d => d.Severity == DocumentDiagnosticSeverity.Error);
 
     /// <summary>

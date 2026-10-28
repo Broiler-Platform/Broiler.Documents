@@ -56,4 +56,10 @@ public static class DocumentDiagnosticCodes
 
     /// <summary>Diagnostics were capped; the message carries only the suppressed count.</summary>
     public const string DiagnosticsTruncated = "document.diagnostics.truncated";
+
+    /// <summary>
+    /// An atomic commit was required by the caller (<see cref="DocumentWriteRequest.RequireAtomic"/>),
+    /// but the destination has no staging capability (<see cref="DocumentWriteRequest.IsStaged"/> is false).
+    /// </summary>
+    public const string CommitAtomicRequired = "document.commit.atomic-required";
 }

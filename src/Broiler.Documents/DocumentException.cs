@@ -6,8 +6,13 @@ namespace Broiler.Documents;
 /// malformed-input case, which is reported via diagnostics instead).</summary>
 public class DocumentException : Exception
 {
+    /// <summary>Initializes a new instance of <see cref="DocumentException"/> with a message.</summary>
+    /// <param name="message">The error message.</param>
     public DocumentException(string message) : base(message) { }
 
+    /// <summary>Initializes a new instance of <see cref="DocumentException"/> with a message and inner exception.</summary>
+    /// <param name="message">The error message.</param>
+    /// <param name="innerException">The inner exception.</param>
     public DocumentException(string message, Exception innerException) : base(message, innerException) { }
 }
 

@@ -1,4 +1,5 @@
 using Broiler.Graphics.Color;
+using Broiler.Documents.Resources;
 
 namespace Broiler.Documents.Docx.Tests;
 
@@ -171,10 +172,8 @@ public sealed class DocxShapeTests
     }
 
     [Fact]
-    public void A_Pattern_Fill_Is_Read_As_Its_Background_Colour_And_Reported()
+    public void A_Pattern_Fill_Is_Read_As_Hatch_Over_Background_Colour()
     {
-        // tdf167527's backdrop: LibreOffice draws thin 5EAD35 hatch lines over
-        // 007929, which is nearly all of what shows.
         DocumentReadResult result = DocxTestPackage.ReadBody("<w:p>" + DocxThemeColorTests.ShapeRun(
             "<a:pattFill prst=\"wdUpDiag\">" +
             "<a:fgClr><a:srgbClr val=\"5EAD35\"/></a:fgClr>" +
@@ -184,7 +183,10 @@ public sealed class DocxShapeTests
         ShapeFill fill = Assert.Single(result.Document.Shapes).Fill!;
         Assert.False(fill.IsGradient);
         Assert.Equal(BColor.FromArgb(0x00, 0x79, 0x29), fill.Start);
-        Assert.Contains(result.Diagnostics, d => d.Code == "docx.shape.fill");
+        Assert.NotNull(fill.Hatch);
+        Assert.Equal(BColor.FromArgb(0x5E, 0xAD, 0x35), fill.Hatch.Color);
+        Assert.Equal(45, fill.Hatch.AngleDegrees);
+        Assert.Equal(1, fill.Hatch.Directions);
     }
 
     [Fact]
@@ -339,5 +341,93 @@ public sealed class DocxShapeTests
 
         Assert.Matches("positionV relativeFrom=\"page\"", xml);
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.shape.page");
+    }
+    [Fact]
+    public void DrawingML_Pattern_Fill_Round_Trips()
+    {
+        var hatch = new HatchFill(BColor.FromArgb(0x5E, 0xAD, 0x35), 6, 45, 1);
+        var fill = ShapeFill.Solid(BColor.FromArgb(0x00, 0x79, 0x29)) with { Hatch = hatch };
+        var shape = new DocumentShape(0, 10, 20, 100, 50, fill);
+        var document = RichTextDocument.FromPlainText("body").WithShapes([shape]);
+
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(document), writable: false);
+        DocumentReadResult read = new DocxDocumentCodec().Read(stream);
+
+        DocumentShape restored = Assert.Single(read.Document.Shapes);
+        Assert.NotNull(restored.Fill?.Hatch);
+        Assert.Equal(BColor.FromArgb(0x00, 0x79, 0x29), restored.Fill.Start);
+        Assert.Equal(BColor.FromArgb(0x5E, 0xAD, 0x35), restored.Fill.Hatch.Color);
+        Assert.Equal(45, restored.Fill.Hatch.AngleDegrees);
+        Assert.DoesNotContain(read.Diagnostics, d => d.Code == "docx.fill.extended");
+    }
+
+    [Theory]
+    [InlineData(GradientGeometry.Radial, 0.5, 0.5)]
+    [InlineData(GradientGeometry.Rectangular, 0.3, 0.7)]
+    public void DrawingML_Non_Linear_Gradients_Round_Trip(GradientGeometry geometry, double cx, double cy)
+    {
+        var fill = new ShapeFill(BColor.FromArgb(255, 0, 0), BColor.FromArgb(0, 0, 255), 0)
+        {
+            Geometry = geometry,
+            CenterX = cx,
+            CenterY = cy,
+        };
+        var shape = new DocumentShape(0, 10, 20, 100, 50, fill);
+        var document = RichTextDocument.FromPlainText("body").WithShapes([shape]);
+
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(document), writable: false);
+        DocumentReadResult read = new DocxDocumentCodec().Read(stream);
+
+        DocumentShape restored = Assert.Single(read.Document.Shapes);
+        Assert.NotNull(restored.Fill);
+        Assert.Equal(geometry, restored.Fill.Geometry);
+        Assert.Equal(cx, restored.Fill.CenterX, 2);
+        Assert.Equal(cy, restored.Fill.CenterY, 2);
+        Assert.DoesNotContain(read.Diagnostics, d => d.Code == "docx.fill.extended");
+    }
+
+    private static (InlineImage Image, DocumentWriteOptions Options) Writable(InlineImage image)
+    {
+        var builder = new DocumentConversionContextBuilder(DocumentResourcePolicy.AllowOwnDocuments);
+        InlineImage admitted = builder.AdmitImage(
+            image,
+            DocumentResourceProvenance.CallerSupplied,
+            DocumentResourceDisposition.Embedded);
+
+        return (admitted, new DocumentWriteOptions(resources: builder.Build()));
+    }
+
+    [Fact]
+    public void DrawingML_Shape_Blip_Fill_Round_Trips()
+    {
+        var picture = new InlineImage(DocxTestPackage.OnePixelPng, "image/png", 100, 50);
+        (InlineImage admitted, DocumentWriteOptions writeOptions) = Writable(picture);
+        var fill = ShapeFill.Solid(BColor.Empty) with
+        {
+            Image = new ImageFill(admitted, ImageFillRepeat.Stretch),
+        };
+        var shape = new DocumentShape(0, 10, 20, 100, 50, fill);
+        var document = RichTextDocument.FromPlainText("body").WithShapes([shape]);
+
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(document, writeOptions), writable: false);
+        DocumentReadResult read = new DocxDocumentCodec().Read(stream, new DocumentReadOptions(resourcePolicy: DocumentResourcePolicy.AllowOwnDocuments));
+
+        DocumentShape restored = Assert.Single(read.Document.Shapes);
+        Assert.NotNull(restored.Fill?.Image);
+        Assert.Equal(ImageFillRepeat.Stretch, restored.Fill.Image.Repeat);
+        Assert.DoesNotContain(read.Diagnostics, d => d.Code == "docx.fill.extended");
+    }
+
+    [Fact]
+    public void Extended_Fill_Diagnostic_Emitted_Only_When_Approximated()
+    {
+        var fill = ShapeFill.Solid(BColor.Black) with { Border = 0.5 };
+        var shape = new DocumentShape(0, 10, 20, 100, 50, fill);
+        var document = RichTextDocument.FromPlainText("body").WithShapes([shape]);
+
+        using var output = new MemoryStream();
+        DocumentWriteResult result = new DocxDocumentCodec().Write(document, output);
+
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.fill.extended");
     }
 }

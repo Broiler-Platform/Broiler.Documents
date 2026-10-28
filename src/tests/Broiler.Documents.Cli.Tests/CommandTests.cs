@@ -8,7 +8,7 @@ namespace Broiler.Documents.Cli.Tests;
 public sealed class CommandTests : IDisposable
 {
     private readonly CliHarness _cli = new();
-    private static readonly string[] expected = ["DOCX", "ODT", "RTF", "HTML", "Markdown", "CSV", "PDF"];
+    private static readonly string[] expected = ["DOCX", "ODT", "RTF", "HTML", "Markdown", "CSV", "TSV", "XLSX", "ODS", "PDF"];
 
     public void Dispose() => _cli.Dispose();
 
@@ -84,6 +84,10 @@ public sealed class CommandTests : IDisposable
     [InlineData("rtf")]
     [InlineData("html")]
     [InlineData("md")]
+    [InlineData("csv")]
+    [InlineData("tsv")]
+    [InlineData("xlsx")]
+    [InlineData("ods")]
     public void New_Writes_Every_Composed_Format(string extension)
     {
         string path = _cli.Path("sample." + extension);

@@ -335,13 +335,14 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
             int start = edges[i];
             if (resolved.LastOrDefault() is DocumentSection previous && previous.ParagraphEnd == start &&
                 previous.ColumnCount == outer.ColumnCount && previous.ColumnGap == outer.ColumnGap &&
-                previous.Page == outer.Page && previous.RunningContent == outer.RunningContent && previous.Background == background && previous.Hidden == hidden)
+                previous.Page == outer.Page && previous.RunningContent == outer.RunningContent && previous.Background == background && previous.Hidden == hidden &&
+                previous.DontBalanceColumns == outer.DontBalanceColumns && previous.BreakType == outer.BreakType)
             {
                 resolved.RemoveAt(resolved.Count - 1);
                 start = previous.ParagraphIndex;
             }
             resolved.Add(new DocumentSection(start, edges[i + 1] - start, outer.ColumnCount, outer.ColumnGap,
-                outer.Page, outer.RunningContent, background, hidden: hidden));
+                outer.Page, outer.RunningContent, background, hidden: hidden, dontBalanceColumns: outer.DontBalanceColumns, breakType: outer.BreakType));
         }
         return resolved;
     }

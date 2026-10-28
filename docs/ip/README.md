@@ -6,7 +6,7 @@ are tracked in the [roadmap](../roadmap.md#rights-and-provenance).
 
 | File | Contents |
 |---|---|
-| [rtf.md](rtf.md), [docx.md](docx.md), [odt.md](odt.md), [html.md](html.md), [markdown.md](markdown.md), [csv.md](csv.md), [pdf.md](pdf.md) | One register per format: every decision, its evidence, the approved labels, and the review record |
+| [rtf.md](rtf.md), [docx.md](docx.md), [odt.md](odt.md), [html.md](html.md), [markdown.md](markdown.md), [csv.md](csv.md), [xlsx.md](xlsx.md), [ods.md](ods.md), [pdf.md](pdf.md) | One register per format: every decision, its evidence, the approved labels, and the review record |
 | [pdf-approved-sources.md](pdf-approved-sources.md) | Sources PDF code may be written from, and the similarity-review log |
 | [pdf-corpus-manifest.json](pdf-corpus-manifest.json), [schema](pdf-corpus-manifest.schema.json) | Provenance and rights for every PDF fixture. Empty: every test PDF is generated in code |
 | [briefs/src-017-normative-tables.md](briefs/src-017-normative-tables.md) | Whether normative code tables (T.4/T.6, CFF strings, T.88, T.800) may be reproduced |
@@ -46,6 +46,8 @@ though the ADR itself is still marked *Proposed*.
 | [HTML](html.md) | Two independent royalty-free patent policies (W3C, WHATWG); parsing is covered by Broiler.DOM's own register | Every row decided |
 | [Markdown](markdown.md) | No instrument at all; assessed on absence | Every row decided |
 | [CSV](csv.md) | An Informational RFC with no obligations, and conventions with no owner | Evidence assembled 2026-10-12; **every row pending**, including an IPR disclosure search still to be made by hand |
+| [XLSX](xlsx.md) | The Microsoft Open Specification Promise, which names Ecma-376 and ISO/IEC 29500 | Evidence assembled 2026-10-28; **every row pending** |
+| [ODS](ods.md) | OASIS royalty-free mode, Sun covenant, and Microsoft OSP | Evidence assembled 2026-10-28; **every row pending** |
 | [PDF](pdf.md) | Adobe's ISO 32000-1 public patent licence, plus a row per referenced technology | Every construct, filter and codec row decided; IP-012 embedding and subsetting approved 2026-10-19; source rows SRC-016 to SRC-019 and SRC-024 to SRC-026 pending (decisions deferred) |
 
 Worth keeping in view:

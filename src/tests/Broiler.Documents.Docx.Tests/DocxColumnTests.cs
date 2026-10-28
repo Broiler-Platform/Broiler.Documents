@@ -627,4 +627,69 @@ public sealed class DocxColumnTests
         Assert.Null(read.Sections[0].Page);
         Assert.Null(read.Sections[2].Page);
     }
+
+    [Fact]
+    public void Section_BreakTypes_Round_Trip()
+    {
+        PageGeometry letter = new(612, 792, 72, 72, 72, 72);
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+            Enumerable.Range(0, 5).Select(i => RichTextParagraph.Plain("p" + i)).ToList())
+            .WithPageGeometry(letter)
+            .WithSections(
+            [
+                new DocumentSection(0, 1, 1, 0, breakType: SectionBreakType.NextPage),
+                new DocumentSection(1, 1, 1, 0, breakType: SectionBreakType.OddPage),
+                new DocumentSection(2, 1, 1, 0, breakType: SectionBreakType.EvenPage),
+                new DocumentSection(3, 1, 1, 0, breakType: SectionBreakType.NextColumn),
+                new DocumentSection(4, 1, 1, 0, breakType: SectionBreakType.Continuous),
+            ]);
+
+        RichTextDocument read = RoundTrip(source);
+
+        Assert.Equal(5, read.Sections.Count);
+        Assert.Equal(SectionBreakType.NextPage, read.Sections[0].BreakType);
+        Assert.Equal(SectionBreakType.OddPage, read.Sections[1].BreakType);
+        Assert.Equal(SectionBreakType.EvenPage, read.Sections[2].BreakType);
+        Assert.Equal(SectionBreakType.NextColumn, read.Sections[3].BreakType);
+        Assert.Equal(SectionBreakType.Continuous, read.Sections[4].BreakType);
+    }
+
+    [Fact]
+    public void Orientation_Change_Between_Sections_Forces_Page_Break()
+    {
+        // First section portrait, second section landscape with continuous type
+        const string portrait =
+            "<w:sectPr><w:type w:val=\"continuous\"/><w:pgSz w:w=\"12240\" w:h=\"15840\"/>" +
+            "<w:pgMar w:left=\"1440\" w:right=\"1440\" w:top=\"1440\" w:bottom=\"1440\"/></w:sectPr>";
+        const string landscape =
+            "<w:sectPr><w:type w:val=\"continuous\"/><w:pgSz w:w=\"15840\" w:h=\"12240\" w:orient=\"landscape\"/>" +
+            "<w:pgMar w:left=\"1440\" w:right=\"1440\" w:top=\"1440\" w:bottom=\"1440\"/></w:sectPr>";
+
+        DocumentReadResult result = Read(
+            "<w:p><w:pPr>" + portrait + "</w:pPr><w:r><w:t>p1</w:t></w:r></w:p>" +
+            DocxTestPackage.Paragraph("p2") +
+            landscape);
+
+        // Even though marked continuous, orientation change forces a new page break.
+        Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.Equal(SectionBreakType.NextPage, result.Document.Sections[1].BreakType);
+    }
+
+    [Fact]
+    public void Landscape_Orientation_Attribute_Swaps_Dimensions_When_Needed()
+    {
+        // Dimensions given as w=12240 h=15840, but orient="landscape"
+        const string landscapeSect =
+            "<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\" w:orient=\"landscape\"/>" +
+            "<w:pgMar w:left=\"1440\" w:right=\"1440\" w:top=\"1440\" w:bottom=\"1440\"/></w:sectPr>";
+
+        DocumentReadResult result = Read(
+            DocxTestPackage.Paragraph("text") +
+            landscapeSect);
+
+        PageGeometry page = result.Document.PageGeometry!;
+        Assert.True(page.IsLandscape);
+        Assert.Equal(792, page.Width, 3);
+        Assert.Equal(612, page.Height, 3);
+    }
 }
