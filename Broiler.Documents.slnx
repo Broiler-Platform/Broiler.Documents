@@ -7,25 +7,6 @@
     <BuildType Name="Debug-Windows" />
     <BuildType Name="Release-Windows" />
   </Configurations>
-  <Folder Name="/solution items/">
-    <File Path="Directory.Build.props" />
-    <File Path="LICENSE" />
-    <File Path="NuGet.config" />
-    <File Path="README.md" />
-    <File Path=".gitattributes" />
-    <File Path=".gitignore" />
-    <File Path=".gitmodules" />
-  </Folder>
-  <Folder Name="/solution items/eng/">
-    <File Path="eng/Broiler.Packaging.props" />
-    <File Path="eng/NuGet.nuget-org.config" />
-  </Folder>
-  <Folder Name="/solution items/docs/">
-    <File Path="docs/README.md" />
-    <File Path="docs/roadmap.md" />
-    <File Path="docs/guides/cli.md" />
-    <File Path="docs/guides/packaging.md" />
-  </Folder>
   <!--
     Every project here is platform-neutral net10.0, so all six configurations
     build all twenty-eight. The suffixed configurations exist to line this component
