@@ -159,7 +159,7 @@ public sealed class PdfPageBreakTests
 
         using var source = new MemoryStream(original, writable: false);
         PdfReadResult read = new PdfDocumentCodec()
-            .ReadPdf(source, new PdfReadOptions(mapPageBreaks: true));
+            .ReadPdf(source, new PdfReadOptions(mapPageBreaks: true), TestContext.Current.CancellationToken);
 
         Assert.Equal(3, read.PageCount);
         Assert.DoesNotContain(read.Document.Paragraphs, p => p.Style.PageBreakBefore);

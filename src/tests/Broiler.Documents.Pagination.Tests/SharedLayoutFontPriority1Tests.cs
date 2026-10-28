@@ -219,7 +219,7 @@ public sealed class SharedLayoutFontPriority1Tests
                 Assert.Equal(7.5, ascent, precision: 4);
                 Assert.Equal(2.5, descent, precision: 4);
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
         Task taskB = Task.Run(() =>
         {
@@ -234,7 +234,7 @@ public sealed class SharedLayoutFontPriority1Tests
                 Assert.Equal(9.0, ascent, precision: 4);
                 Assert.Equal(1.0, descent, precision: 4);
             }
-        });
+        }, TestContext.Current.CancellationToken);
 
         await Task.WhenAll(taskA, taskB);
     }

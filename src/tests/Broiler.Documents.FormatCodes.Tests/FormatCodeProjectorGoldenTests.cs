@@ -12,7 +12,7 @@ public sealed class FormatCodeProjectorGoldenTests
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("Hello World!", new InlineStyle { Bold = true })]);
 
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(1, FormatCodeProjection.GrammarVersion);
         Assert.Equal("[Bold ON]Hello World![Bold OFF]", projection.Text);
@@ -26,7 +26,7 @@ public sealed class FormatCodeProjectorGoldenTests
             .Append(RichTextParagraph.Create("b", new InlineStyle { Italic = true, FontFamily = "B" }));
 
         FormatCodeProjection projection = FormatCodeProjector.Project(
-            RichTextDocument.FromParagraphs([paragraph]));
+            RichTextDocument.FromParagraphs([paragraph]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(
             "[Bold ON][Font \"A\"]a" +
@@ -53,7 +53,7 @@ public sealed class FormatCodeProjectorGoldenTests
         };
 
         FormatCodeProjection projection = FormatCodeProjector.Project(
-            RichTextDocument.FromParagraphs([RichTextParagraph.Create("x", style)]));
+            RichTextDocument.FromParagraphs([RichTextParagraph.Create("x", style)]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(
             "[Bold ON][Italic ON][Underline ON][Strike ON]" +
@@ -73,7 +73,7 @@ public sealed class FormatCodeProjectorGoldenTests
             .Append(RichTextParagraph.Create("b", new InlineStyle { Capitalization = TextCapitalization.SmallCaps }));
 
         FormatCodeProjection projection = FormatCodeProjector.Project(
-            RichTextDocument.FromParagraphs([paragraph]));
+            RichTextDocument.FromParagraphs([paragraph]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(
             "[All Caps ON]a[Caps OFF][Small Caps ON]b[Caps OFF]",
@@ -95,7 +95,7 @@ public sealed class FormatCodeProjectorGoldenTests
 
         FormatCodeProjection projection = FormatCodeProjector.Project(
             RichTextDocument.FromParagraphs(
-                [RichTextParagraph.Create(string.Empty, InlineStyle.Default, style)]));
+                [RichTextParagraph.Create(string.Empty, InlineStyle.Default, style)]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(
             "[Align CENTER][List BULLET][Indent 2][Line Spacing 1.5]" +
@@ -112,7 +112,7 @@ public sealed class FormatCodeProjectorGoldenTests
     {
         string content = "A" + "\\" + "[" + "]" + "\t" + "\u2028" + "\u0001" + "\u200E" + "\u2029" + "😀";
 
-        FormatCodeProjection projection = FormatCodeProjector.Project(RichTextDocument.FromPlainText(content));
+        FormatCodeProjection projection = FormatCodeProjector.Project(RichTextDocument.FromPlainText(content), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(
             "A" + "\\\\" + "\\[" + "\\]" + "[Tab]" + "[Line Break]" +
@@ -134,11 +134,11 @@ public sealed class FormatCodeProjectorGoldenTests
                 .InsertText(2, "b", InlineStyle.Default),
         ]);
 
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("a[Image]b", projection.Text);
         FormatCodeToken token = Assert.Single(
-            projection.Tokens.Where(t => t.DisplayText == "[Image]"));
+            projection.Tokens, t => t.DisplayText == "[Image]");
         Assert.Equal(FormatCodeTokenKind.StructureCode, token.Kind);
         Assert.Equal(FormatCodeProperty.Image, token.EditDescriptor?.Property);
     }
@@ -155,14 +155,14 @@ public sealed class FormatCodeProjectorGoldenTests
 
         Assert.Equal(
             "[Bold ON]a[Bold OFF][Paragraph Break]\n[Bold ON]b[Bold OFF]",
-            FormatCodeProjector.Project(document).Text);
+            FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken).Text);
     }
 
     [Fact]
     public void Canonical_Tokens_Concatenate_Exactly_To_Text()
     {
         FormatCodeProjection projection = FormatCodeProjector.Project(
-            RichTextDocument.FromPlainText("one\ntwo\t[three]"));
+            RichTextDocument.FromPlainText("one\ntwo\t[three]"), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(projection.Text, string.Concat(projection.Tokens.Select(token => token.DisplayText)));
         Assert.All(projection.Tokens, token => Assert.Equal(token.DisplayText.Length, token.ProjectedLength));
@@ -176,7 +176,7 @@ public sealed class FormatCodeProjectorGoldenTests
                 [RichTextParagraph.Create(
                     string.Empty,
                     InlineStyle.Default,
-                    ParagraphStyle.Default with { Alignment = TextAlignment.Justify })]));
+                    ParagraphStyle.Default with { Alignment = TextAlignment.Justify })]), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("[Align JUSTIFY][Empty Paragraph]", projection.Text);
         Assert.DoesNotContain(projection.Diagnostics, d => d.Code == "FC1001");

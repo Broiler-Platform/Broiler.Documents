@@ -51,7 +51,7 @@ public sealed class PdfComposedFontTests
         PdfReadResult result = Read(Document("ABC", Glyphs(1, 2, 3)), composed: true);
 
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed);
 
         Assert.Contains("a composed reader inspected", note.Message, StringComparison.Ordinal);
         Assert.Contains("read for a glyph-to-text map", note.Message, StringComparison.Ordinal);
@@ -98,7 +98,7 @@ public sealed class PdfComposedFontTests
             composed: true);
 
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed);
 
         Assert.Contains("never offered", note.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("did not read", note.Message, StringComparison.Ordinal);
@@ -119,7 +119,7 @@ public sealed class PdfComposedFontTests
             composed: true);
 
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed);
 
         Assert.Equal(DocumentDiagnosticSeverity.Info, note.Severity);
         Assert.NotEqual(DocumentResultStatus.Partial, result.Status);
@@ -134,7 +134,7 @@ public sealed class PdfComposedFontTests
         PdfReadResult result = Read(Document("ABC", Glyphs(1, 2, 3)), composed: true);
 
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed);
 
         Assert.Equal(DocumentDiagnosticSeverity.Info, note.Severity);
     }
@@ -149,7 +149,7 @@ public sealed class PdfComposedFontTests
             composed: true);
 
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed);
 
         Assert.Equal(DocumentDiagnosticSeverity.Warning, note.Severity);
         Assert.Equal(DocumentResultStatus.Partial, result.Status);
@@ -163,7 +163,7 @@ public sealed class PdfComposedFontTests
         PdfReadResult result = Read(Document("ABC", Glyphs(1, 2, 3)), composed: false);
 
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed);
 
         Assert.Equal(DocumentDiagnosticSeverity.Warning, note.Severity);
     }
@@ -180,7 +180,7 @@ public sealed class PdfComposedFontTests
             composed: true);
 
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed);
 
         // Offered and refused. The reader is composed, so the note must not claim
         // the build has none: the limit here is the parser's surface, and a
@@ -210,7 +210,7 @@ public sealed class PdfComposedFontTests
             composed: true);
 
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed);
 
         Assert.DoesNotContain("this build does not inspect", note.Message, StringComparison.Ordinal);
         Assert.Contains("never offered", note.Message, StringComparison.Ordinal);
@@ -231,7 +231,7 @@ public sealed class PdfComposedFontTests
             composed: false);
 
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed);
 
         Assert.Contains("this build does not inspect", note.Message, StringComparison.Ordinal);
     }
@@ -260,7 +260,7 @@ public sealed class PdfComposedFontTests
             composed: true);
 
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed);
 
         Assert.Contains("The reader declined them", note.Message, StringComparison.Ordinal);
         Assert.Contains("not an sfnt", note.Message, StringComparison.Ordinal);
@@ -277,7 +277,7 @@ public sealed class PdfComposedFontTests
             composed: true);
 
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FontProgramNotComposed);
 
         Assert.Contains("Type 1 program", note.Message, StringComparison.Ordinal);
     }

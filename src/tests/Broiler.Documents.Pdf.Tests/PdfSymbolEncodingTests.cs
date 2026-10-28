@@ -132,7 +132,7 @@ public sealed class PdfSymbolEncodingTests
             $"/Resources << /Font << /F1 {font} 0 R >> >> /Contents {stream} 0 R >>");
 
         using var pdf = new MemoryStream(builder.Build(catalog));
-        PdfReadResult result = new PdfDocumentCodec().ReadPdf(pdf, null);
+        PdfReadResult result = new PdfDocumentCodec().ReadPdf(pdf, null, TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain("α", result.Document.PlainText, StringComparison.Ordinal);
         Assert.Contains(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.TextMappingMissing);
@@ -178,6 +178,6 @@ public sealed class PdfSymbolEncodingTests
         // The difference wins for 97, and 98 falls through to the font's own
         // built-in encoding rather than to Latin — an /Encoding dictionary that
         // names no BaseEncoding does not replace what the font already knows.
-        Assert.StartsWith("Aβ", new PdfDocumentCodec().ReadPdf(pdf, null).Document.PlainText, StringComparison.Ordinal);
+        Assert.StartsWith("Aβ", new PdfDocumentCodec().ReadPdf(pdf, null, TestContext.Current.CancellationToken).Document.PlainText, StringComparison.Ordinal);
     }
 }

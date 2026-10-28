@@ -346,7 +346,7 @@ public sealed class FontResolution
         }
         else
         {
-            faces.SetAll(path);
+            faces.SetIfAbsent(false, false, path);
             _fontService.AddFontFile(family, path);
         }
 
@@ -488,8 +488,14 @@ public sealed class FontResolution
 
         public void SetIfAbsent(bool bold, bool italic, string path)
         {
-            if (Pick(bold, italic) is null)
-                Set(bold, italic, path);
+            if (bold && italic)
+                BoldItalic ??= path;
+            else if (bold)
+                Bold ??= path;
+            else if (italic)
+                Italic ??= path;
+            else
+                Regular ??= path;
         }
 
         /// <summary>

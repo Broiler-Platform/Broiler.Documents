@@ -17,7 +17,7 @@ for parsing and writes deterministic UTF-8 HTML with `HtmlSerializer`.
 | HTML | Model | Notes |
 |---|---|---|
 | `<p>`, headings, `<li>` | `RichTextParagraph` | Empty paragraph elements are preserved. |
-| `<div>`, sections, blockquote-like containers | Paragraph boundaries | Direct text in a block becomes a paragraph. |
+| `<div>`, sections, blockquote-like containers | Paragraph boundaries | Direct text in a block becomes a paragraph. Containers with `title="header"` or `title="footer"` (the convention LibreOffice HTML export uses for running content) are extracted into `RichTextDocument.RunningContent` rather than flowing into body text. |
 | `<table>`, `<tr>`, `<td>`, `<th>` | `DocumentTable`, `TableRow`, `TableCell` | Retains nested grids, spans, empty cells and captions; `th` defaults to bold and centered. Legacy `border`, `cellpadding`, `width` and cell backgrounds are read. Tables without a grid use content-based column sizing. CSS table geometry and separate border spacing remain unsupported. |
 | `<br>` | `U+2028` soft break | Same model convention as RTF line breaks. |
 | `<b>`, `<strong>` | `InlineStyle.Bold` | CSS `font-weight:bold` or numeric `>=600` also maps. |

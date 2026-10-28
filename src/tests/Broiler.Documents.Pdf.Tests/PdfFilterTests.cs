@@ -281,8 +281,8 @@ public sealed class PdfFilterCompositionTests
             .WithStreamFilters(new StubFilter(PdfFilterNames.Lzw))
             .WithUriPolicy(PdfUriPolicy.Default);
 
-        IPdfStreamFilter lzw = Assert.Single(services.StreamFilters.Where(filter =>
-            PdfFilterNames.Canonicalize(filter.Name) == PdfFilterNames.Lzw));
+        IPdfStreamFilter lzw = Assert.Single(services.StreamFilters, filter =>
+            PdfFilterNames.Canonicalize(filter.Name) == PdfFilterNames.Lzw);
 
         Assert.IsType<StubFilter>(lzw);
     }

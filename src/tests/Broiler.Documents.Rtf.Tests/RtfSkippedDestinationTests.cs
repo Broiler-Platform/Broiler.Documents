@@ -80,10 +80,10 @@ public sealed class RtfSkippedDestinationTests
     public static TheoryData<string> Payloads()
     {
         var data = new TheoryData<string>();
-        foreach (object[] row in HostsAndPayloads())
+        foreach (TheoryDataRow<string, string> row in HostsAndPayloads())
         {
-            if ((string)row[0] == @"\annotation")
-                data.Add((string)row[1]);
+            if (row.Data.Item1 == @"\annotation")
+                data.Add(row.Data.Item2);
         }
 
         return data;

@@ -9,7 +9,7 @@ public sealed class FormatCodeProjectionMappingTests
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("Hi", new InlineStyle { Bold = true })]);
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
 
         FormatCodeCaret before = projection.MapDocumentPosition(
             RichTextDocument.Start,
@@ -28,7 +28,7 @@ public sealed class FormatCodeProjectionMappingTests
     public void Literal_Text_Maps_Linearly_In_Both_Directions()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("abc");
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
         RichTextPosition afterA = document.PositionRightOf(RichTextDocument.Start);
 
         FormatCodeCaret caret = projection.MapDocumentPosition(afterA);
@@ -43,7 +43,7 @@ public sealed class FormatCodeProjectionMappingTests
     public void Expanded_Escape_Maps_First_Half_Before_And_Second_Half_After()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("[");
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(RichTextDocument.Start, projection.MapProjectedOffset(0).DocumentPosition);
         Assert.Equal(RichTextDocument.Start, projection.MapProjectedOffset(1).DocumentPosition);
@@ -54,7 +54,7 @@ public sealed class FormatCodeProjectionMappingTests
     public void Literal_Surrogate_Interior_Collapses_To_The_Model_Boundary()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("😀");
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(RichTextDocument.Start, projection.MapProjectedOffset(1).DocumentPosition);
         Assert.Equal(document.End, projection.MapProjectedOffset(2).DocumentPosition);
@@ -64,7 +64,7 @@ public sealed class FormatCodeProjectionMappingTests
     public void Every_Projected_Offset_Maps_To_A_Valid_Document_Position()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("a[\t]\nb\u2028c");
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
 
         for (int offset = 0; offset <= projection.Text.Length; offset++)
         {
@@ -77,7 +77,7 @@ public sealed class FormatCodeProjectionMappingTests
     public void Empty_Paragraph_And_End_Of_Document_Are_Addressable()
     {
         RichTextDocument document = RichTextDocument.Empty;
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("[Empty Paragraph]", projection.Text);
         Assert.Equal(RichTextDocument.Start, projection.MapProjectedOffset(0).DocumentPosition);
@@ -89,9 +89,9 @@ public sealed class FormatCodeProjectionMappingTests
     public void Paragraph_Break_Exposes_Both_Source_Boundaries()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("a\nb");
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
         FormatCodeToken boundary = Assert.Single(
-            projection.Tokens.Where(token => token.DisplayText == "[Paragraph Break]\n"));
+            projection.Tokens, token => token.DisplayText == "[Paragraph Break]\n");
         RichTextPosition firstEnd = document.PositionRightOf(RichTextDocument.Start);
         RichTextPosition secondStart = document.PositionRightOf(firstEnd);
 

@@ -10,7 +10,7 @@ public sealed class FormatCodeEditIntentTests
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("x", new InlineStyle { Bold = true })]);
 
-        FormatCodeToken token = FormatCodeProjector.Project(document).Tokens[0];
+        FormatCodeToken token = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken).Tokens[0];
 
         Assert.Equal(FormatCodeProperty.Bold, token.EditDescriptor?.Property);
         ApplyFormatCodeInlineIntent intent = Assert.IsType<ApplyFormatCodeInlineIntent>(
@@ -26,7 +26,7 @@ public sealed class FormatCodeEditIntentTests
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Plain("x").InsertText(1, DocumentNote.PlaceholderText, InlineStyle.Default with { Note = note })]);
 
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Contains("[Note]", projection.Text, StringComparison.Ordinal);
         Assert.DoesNotContain("[Image]", projection.Text, StringComparison.Ordinal);

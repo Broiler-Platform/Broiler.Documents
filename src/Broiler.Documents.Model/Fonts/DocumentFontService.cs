@@ -61,7 +61,7 @@ public sealed class DocumentFontService : IOperationFontService
         if (bold.HasValue || italic.HasValue)
             set.Set(bold ?? false, italic ?? false, source);
         else
-            set.SetAll(source);
+            set.SetIfAbsent(false, false, source);
 
         _notes.Add($"mapped {family} (bold={bold}, italic={italic}) to {filePath}");
     }
@@ -79,7 +79,7 @@ public sealed class DocumentFontService : IOperationFontService
         if (bold.HasValue || italic.HasValue)
             set.Set(bold ?? false, italic ?? false, source);
         else
-            set.SetAll(source);
+            set.SetIfAbsent(false, false, source);
 
         _notes.Add($"mapped {family} in-memory program ({programBytes.Length} bytes)");
     }

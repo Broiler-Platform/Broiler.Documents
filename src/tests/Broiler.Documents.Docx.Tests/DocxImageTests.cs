@@ -131,7 +131,7 @@ public sealed class DocxImageTests
             Media("word/media/image1.png"));
 
         DocumentDiagnostic summary = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == "docx.read.summary"));
+            result.Diagnostics, d => d.Code == "docx.read.summary");
         Assert.Contains("embedded 1 image(s)", summary.Message, StringComparison.Ordinal);
     }
 

@@ -1,4 +1,4 @@
-# The office conformance suite
+﻿# The office conformance suite
 
 `src/tests/Broiler.Documents.Office` is a console runner that asks LibreOffice to
 write the documents, reads them back with the built `broilerdoc`, and holds the
@@ -333,10 +333,7 @@ the stamp without `--restamp`, because a baseline regenerated on the wrong
 LibreOffice is worse than no baseline - it looks like evidence.
 
 It carries the stamp of the toolchain the CI workflow provisions and the rows
-the runs on it produced. Seven render rows are still `suspected-defect`
-(`letterhead-frames` and `line-break-within-paragraph`); their notes say what is
-left is ordinary disagreement between two layout engines, and classifying them
-is on the [roadmap](../roadmap.md#test-suites-and-tooling).
+the runs on it produced. Zero render rows remain as `suspected-defect`; the former seven rows (`letterhead-frames` and `line-break-within-paragraph`) have been resolved, with six passing in the clean band and `letterhead-frames/html` documented.
 
 ## The tool register
 

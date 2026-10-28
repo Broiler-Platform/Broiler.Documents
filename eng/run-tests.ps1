@@ -8,12 +8,11 @@ try {
     $results = Join-Path 'test-results' ("unit-" + [guid]::NewGuid())
     # xUnit's attribute Timeout only supports async tests. Bound synchronous
     # parser/codec hangs at the test-host level instead, including theory cases.
-    & dotnet test Broiler.Documents.slnx -c $Configuration --no-build --nologo `
-        --blame-hang-timeout 10m --blame-hang-dump-type none `
-        --logger 'trx;LogFilePrefix=broiler' --results-directory $results
+    & dotnet test --solution Broiler.Documents.slnx -c $Configuration --no-build --no-logo `
+        --timeout 10m --report-xunit-trx --results-directory $results --results-directory-layout per-module
     if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed.' }
     $executed = 0
-    foreach ($report in Get-ChildItem -LiteralPath $results -Filter *.trx) {
+    foreach ($report in Get-ChildItem -LiteralPath $results -Recurse -Filter *.trx) {
         [xml] $trx = Get-Content -LiteralPath $report.FullName -Raw
         $counters = $trx.SelectSingleNode('//*[local-name()="ResultSummary"]/*[local-name()="Counters"]')
         if (!$counters) { throw "No test counters in $($report.FullName)." }

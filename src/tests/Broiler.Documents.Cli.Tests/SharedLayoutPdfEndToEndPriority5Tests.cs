@@ -35,7 +35,7 @@ public sealed class SharedLayoutPdfEndToEndPriority5Tests
         var options = new PdfWriteOptions(compressStreams: false).WithPaginatedArtifact(layoutResult);
         var codec = new PdfDocumentCodec();
         using var stream = new MemoryStream();
-        var writeResult = codec.WritePdf(doc, stream, options);
+        var writeResult = codec.WritePdf(doc, stream, options, TestContext.Current.CancellationToken);
 
         Assert.Equal(DocumentResultStatus.Success, writeResult.Status);
         Assert.Equal(layoutResult.Pages.Count, writeResult.PageCount);
@@ -50,7 +50,7 @@ public sealed class SharedLayoutPdfEndToEndPriority5Tests
 
         // 5. Read back with Pdf codec to verify roundtrip integrity
         stream.Position = 0;
-        var readResult = codec.ReadPdf(stream, PdfReadOptions.Default);
+        var readResult = codec.ReadPdf(stream, PdfReadOptions.Default, TestContext.Current.CancellationToken);
         Assert.Equal(DocumentResultStatus.Success, readResult.Status);
         Assert.Equal(layoutResult.Pages.Count, readResult.PageCount);
         Assert.Contains("Shared Layout Heading", readResult.Document.PlainText);
@@ -79,13 +79,13 @@ public sealed class SharedLayoutPdfEndToEndPriority5Tests
         var options = new PdfWriteOptions(compressStreams: false).WithPaginatedArtifact(layoutResult);
         var codec = new PdfDocumentCodec();
         using var stream = new MemoryStream();
-        var writeResult = codec.WritePdf(doc, stream, options);
+        var writeResult = codec.WritePdf(doc, stream, options, TestContext.Current.CancellationToken);
 
         Assert.Equal(DocumentResultStatus.Success, writeResult.Status);
         Assert.Equal(layoutResult.Pages.Count, writeResult.PageCount);
 
         stream.Position = 0;
-        var readResult = codec.ReadPdf(stream, PdfReadOptions.Default);
+        var readResult = codec.ReadPdf(stream, PdfReadOptions.Default, TestContext.Current.CancellationToken);
         Assert.Equal(layoutResult.Pages.Count, readResult.PageCount);
         Assert.Contains("Paragraph 1:", readResult.Document.PlainText);
         Assert.Contains("Paragraph 40:", readResult.Document.PlainText);
@@ -118,7 +118,7 @@ public sealed class SharedLayoutPdfEndToEndPriority5Tests
         Assert.NotEmpty(layoutResult.Pages[0].Shapes);
         var codec = new PdfDocumentCodec();
         using var stream = new MemoryStream();
-        var writeResult = codec.WritePdf(doc, stream, options);
+        var writeResult = codec.WritePdf(doc, stream, options, TestContext.Current.CancellationToken);
 
         Assert.Equal(DocumentResultStatus.Success, writeResult.Status);
         string pdfText = Encoding.ASCII.GetString(stream.ToArray());

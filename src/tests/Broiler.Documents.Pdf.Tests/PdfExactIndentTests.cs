@@ -12,7 +12,7 @@ public sealed class PdfExactIndentTests
             ParagraphStyle.Default with { ListKind = ListKind.Numbered, LeftIndent = 36, FirstLineIndent = -18 })])
             .WithPageGeometry(new PageGeometry(200, 200, 10, 10, 10, 10));
         using var stream = new MemoryStream();
-        new PdfDocumentCodec().WritePdf(document, stream, new PdfWriteOptions(compressStreams: false));
+        new PdfDocumentCodec().WritePdf(document, stream, new PdfWriteOptions(compressStreams: false), TestContext.Current.CancellationToken);
         string pdf = Encoding.Latin1.GetString(stream.ToArray());
         Assert.Equal(28, XOf(pdf, "1. "), 3);
         Assert.Equal(46, XOf(pdf, "one"), 3);
@@ -33,7 +33,7 @@ public sealed class PdfExactIndentTests
             if (inCell)
                 document = document.WithTables([new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0)])], cellPadding: 0)]);
             using var stream = new MemoryStream();
-            new PdfDocumentCodec().WritePdf(document, stream, new PdfWriteOptions(compressStreams: false));
+            new PdfDocumentCodec().WritePdf(document, stream, new PdfWriteOptions(compressStreams: false), TestContext.Current.CancellationToken);
             string pdf = Encoding.Latin1.GetString(stream.ToArray());
             Assert.Equal(expected, XOf(pdf, "one"), 3);
             Assert.Equal(17.5, XOf(pdf, "two"), 3);

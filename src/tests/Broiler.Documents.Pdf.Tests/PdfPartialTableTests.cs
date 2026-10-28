@@ -61,7 +61,7 @@ public sealed class PdfPartialTableTests
     public void The_Diagnostic_Separates_Inferred_From_Ruled()
     {
         DocumentDiagnostic note = Assert.Single(
-            Read(HeaderRuled()).Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.TableReconstructed));
+            Read(HeaderRuled()).Diagnostics, d => d.Code == PdfDiagnosticCodes.TableReconstructed);
 
         Assert.Contains("only partly ruled", note.Message, StringComparison.Ordinal);
         Assert.Contains("read off the alignment", note.Message, StringComparison.Ordinal);
@@ -73,7 +73,7 @@ public sealed class PdfPartialTableTests
         // The strict path keeps its meaning: a reader must be able to tell the
         // document's own lattice from this build's reading of the text.
         DocumentDiagnostic note = Assert.Single(
-            Read(FullyRuled()).Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.TableReconstructed));
+            Read(FullyRuled()).Diagnostics, d => d.Code == PdfDiagnosticCodes.TableReconstructed);
 
         Assert.Contains("Every one was fully ruled", note.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("read off the alignment", note.Message, StringComparison.Ordinal);

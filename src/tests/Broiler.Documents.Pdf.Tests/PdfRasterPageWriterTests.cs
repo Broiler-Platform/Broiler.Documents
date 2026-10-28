@@ -34,7 +34,7 @@ public sealed partial class PdfRasterPageWriterTests
         byte[] pdf = Write([Page(BPaperSize.A4.Size, BColor.Red), Page(BPaperSize.Letter.Oriented(BPageOrientation.Landscape), BColor.Blue)]);
 
         using var stream = new MemoryStream(pdf);
-        PdfReadResult result = new PdfDocumentCodec().ReadPdf(stream);
+        PdfReadResult result = new PdfDocumentCodec().ReadPdf(stream, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(2, result.PageCount);
         Assert.NotNull(result.Document.PageGeometry);

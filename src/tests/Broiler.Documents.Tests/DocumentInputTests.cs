@@ -153,7 +153,7 @@ public sealed class DocumentInputTests
         using DocumentInput input = DocumentInput.FromStream(source);
         input.Peek(6);
 
-        ReadOnlyMemory<byte> bytes = await input.MaterializeAsync(1024);
+        ReadOnlyMemory<byte> bytes = await input.MaterializeAsync(1024, TestContext.Current.CancellationToken);
 
         Assert.Equal("PREFIXbody", System.Text.Encoding.ASCII.GetString(bytes.Span));
     }

@@ -93,7 +93,7 @@ public sealed partial class PdfDeliveryGuardTests
         }
     }
 
-    [SkippableFact]
+    [Fact]
     public void Only_The_Enabled_Heads_Name_The_Pdf_Codec()
     {
         string root = PdfGuardRoots.RequireAggregate();
@@ -106,7 +106,7 @@ public sealed partial class PdfDeliveryGuardTests
         Assert.Empty(violations);
     }
 
-    [SkippableFact]
+    [Fact]
     public void The_Shared_Writer_Core_And_The_Mobile_Heads_Cannot_Acquire_Pdf()
     {
         string root = PdfGuardRoots.RequireAggregate();
@@ -123,7 +123,7 @@ public sealed partial class PdfDeliveryGuardTests
         Assert.Empty(carriers);
     }
 
-    [SkippableFact]
+    [Fact]
     public void No_Head_Registers_The_Pdf_Codec_For_Saving()
     {
         string root = PdfGuardRoots.RequireAggregate();

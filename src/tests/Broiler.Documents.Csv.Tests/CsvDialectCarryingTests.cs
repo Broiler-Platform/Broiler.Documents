@@ -54,7 +54,7 @@ public sealed class CsvDialectCarryingTests
     public void ReadCsv_Helper_Returns_Typed_CsvReadResult()
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes("x;y\r\n10;20\r\n"));
-        CsvReadResult csv = new CsvDocumentCodec().ReadCsv(stream);
+        CsvReadResult csv = new CsvDocumentCodec().ReadCsv(stream, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(';', csv.Delimiter);
         Assert.Equal(DocumentResultStatus.Success, csv.Status);

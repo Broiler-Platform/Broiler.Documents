@@ -109,10 +109,19 @@ internal static class HtmlReader
         DomNode root = parse.Document.Body is not null
             ? parse.Document.Body
             : parse.Document.DocumentElement is not null ? parse.Document.DocumentElement : parse.Document;
+        InlineStyle rootInline = root is DomElement rootElement
+            ? ApplyInlineElement(rootElement, styleSheet, InlineStyle.Default, diagnostics)
+            : InlineStyle.Default;
+        ParagraphStyle rootParagraph = root is DomElement rootParaElement
+            ? ApplyParagraphElement(rootParaElement, styleSheet, ParagraphStyle.Default)
+            : ParagraphStyle.Default;
+        RunningContent running = ExtractRunningContent(root, builder, styleSheet, rootInline, rootParagraph);
         ExtractFootnotes(root, builder, styleSheet);
-        ReadChildren(root, builder, styleSheet, InlineStyle.Default, ParagraphStyle.Default, preserveWhitespace: false);
+        ReadChildren(root, builder, styleSheet, rootInline, rootParagraph, preserveWhitespace: false);
 
         RichTextDocument document = builder.Build();
+        if (!running.IsEmpty)
+            document = document.WithRunningContent(running);
         if (HtmlPage.TryRead(styleSheetText, PageGeometry.A4, out PageGeometry page))
             document = document.WithPageGeometry(page);
         BColor? canvas = PageBackground(parse.Document.DocumentElement, styleSheet)
@@ -170,6 +179,69 @@ internal static class HtmlReader
         foreach (DomNode child in node.ChildNodes)
             sb.Append(GetInnerText(child));
         return sb.ToString();
+    }
+
+    private static RunningContent ExtractRunningContent(
+        DomNode root,
+        HtmlDocumentBuilder builder,
+        HtmlStyleSheet styleSheet,
+        InlineStyle rootInline,
+        ParagraphStyle rootParagraph)
+    {
+        var headers = new List<RichTextParagraph>();
+        var footers = new List<RichTextParagraph>();
+        foreach (DomNode child in root.ChildNodes)
+        {
+            if (child is not DomElement element || !element.LocalName.Equals("div", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            string? title = element.GetAttribute("title");
+            bool isHeader = string.Equals(title, "header", StringComparison.OrdinalIgnoreCase);
+            bool isFooter = string.Equals(title, "footer", StringComparison.OrdinalIgnoreCase);
+            if (!isHeader && !isFooter)
+                continue;
+
+            builder.NodesToSkip.Add(element);
+            var partBuilder = new HtmlDocumentBuilder(builder.Limits, builder.Diagnostics, builder.Resources, builder.DiagnosticOnce);
+            InlineStyle divInline = ApplyInlineElement(element, styleSheet, rootInline, builder.Diagnostics);
+            ParagraphStyle divParagraph = ApplyParagraphElement(element, styleSheet, rootParagraph);
+            ReadChildren(element, partBuilder, styleSheet, divInline, divParagraph, PreservesWhitespace(element, styleSheet));
+            RichTextDocument part = partBuilder.Build();
+            IReadOnlyList<RichTextParagraph> paragraphs = TrimEmptyRunningParagraphs(part.Paragraphs);
+            if (paragraphs.Count == 0)
+                continue;
+
+            if (isHeader)
+                headers.AddRange(paragraphs);
+            else
+                footers.AddRange(paragraphs);
+        }
+
+        RunningContent running = RunningContent.Empty;
+        if (headers.Count > 0)
+            running = running.WithHeader(PageSelection.Default, headers);
+        if (footers.Count > 0)
+            running = running.WithFooter(PageSelection.Default, footers);
+        return running;
+    }
+
+    private static IReadOnlyList<RichTextParagraph> TrimEmptyRunningParagraphs(IReadOnlyList<RichTextParagraph> paragraphs)
+    {
+        var kept = new List<RichTextParagraph>(paragraphs.Count);
+        foreach (RichTextParagraph paragraph in paragraphs)
+        {
+            string trimmed = paragraph.Text.Trim('\u2028', ' ', '\t', '\r', '\n');
+            if (trimmed.Length == 0 && !paragraph.Runs.Any(run => run.Style.IsImage || run.Style.IsNote))
+                continue;
+
+            // LibreOffice ends a running-content paragraph that held a floating frame with a trailing <br/>.
+            RichTextParagraph current = paragraph;
+            while (current.Length > 0 && current.Text[^1] == '\u2028')
+                current = current.RemoveRange(current.Length - 1, 1);
+            kept.Add(current);
+        }
+
+        return kept;
     }
 
     private static void ExtractFootnotes(DomNode root, HtmlDocumentBuilder builder, HtmlStyleSheet styleSheet)
@@ -364,7 +436,7 @@ internal static class HtmlReader
     private static IReadOnlyList<RichTextParagraph> ReadNoteParagraphs(
         DomElement element, HtmlStyleSheet styleSheet, HtmlDocumentBuilder builder)
     {
-        var noteBuilder = new HtmlDocumentBuilder(builder.Limits, builder.Diagnostics, builder.Resources);
+        var noteBuilder = new HtmlDocumentBuilder(builder.Limits, builder.Diagnostics, builder.Resources, builder.DiagnosticOnce);
         ReadChildren(element, noteBuilder, styleSheet, InlineStyle.Default, ParagraphStyle.Default, preserveWhitespace: false);
         RichTextDocument doc = noteBuilder.Build();
         return doc.Paragraphs.Count > 0 ? doc.Paragraphs : [RichTextParagraph.Empty];
@@ -1176,7 +1248,11 @@ internal static class HtmlReader
         return false;
     }
 
-    private sealed class HtmlDocumentBuilder(DocumentLimits limits, List<DocumentDiagnostic> diagnostics, DocumentConversionContextBuilder resources)
+    private sealed class HtmlDocumentBuilder(
+        DocumentLimits limits,
+        List<DocumentDiagnostic> diagnostics,
+        DocumentConversionContextBuilder resources,
+        HashSet<string>? diagnosticOnce = null)
     {
         public DocumentLimits Limits => limits;
         public DocumentConversionContextBuilder Resources => resources;
@@ -1203,7 +1279,8 @@ internal static class HtmlReader
         private readonly List<Segment> _segments = [];
         private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
         private bool _paragraphOpen;
-        private readonly HashSet<string> _diagnosticOnce = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _diagnosticOnce = diagnosticOnce ?? new(StringComparer.Ordinal);
+        public HashSet<string> DiagnosticOnce => _diagnosticOnce;
 
         public List<DocumentDiagnostic> Diagnostics { get; } = diagnostics;
 

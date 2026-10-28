@@ -105,6 +105,10 @@ public sealed class RunningContent
         }
     }
 
+    public bool HasAnyHeader =>
+        _headers[0].Length > 0 || _headers[1].Length > 0 || _headers[2].Length > 0 ||
+        _headerShapes[0].Length > 0 || _headerShapes[1].Length > 0 || _headerShapes[2].Length > 0;
+
     /// <summary>The header for <paramref name="selection"/>, empty when unset.</summary>
     public IReadOnlyList<RichTextParagraph> Header(PageSelection selection) => _headers[Index(selection)];
 

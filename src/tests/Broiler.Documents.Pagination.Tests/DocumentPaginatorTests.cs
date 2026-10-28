@@ -42,7 +42,7 @@ public sealed class DocumentPaginatorTests
     {
         var setup = new BPageSetup(BPaperSize.Letter, BPageOrientation.Landscape, BPageMargins.Uniform(36));
 
-        using PaginatedDocument pages = new DocumentPaginator().Paginate(Lines(3), setup);
+        using PaginatedDocument pages = new DocumentPaginator().Paginate(Lines(3), setup, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, pages.PageCount);
         Assert.Equal(new BSize(792, 612), pages.GetPage(0).Size);
@@ -55,8 +55,8 @@ public sealed class DocumentPaginatorTests
         RichTextDocument document = Lines(150);
         var paginator = new DocumentPaginator();
 
-        using PaginatedDocument a4 = paginator.Paginate(document, BPageSetup.Default);
-        using PaginatedDocument a5 = paginator.Paginate(document, BPageSetup.Default with { Paper = BPaperSize.A5 });
+        using PaginatedDocument a4 = paginator.Paginate(document, BPageSetup.Default, TestContext.Current.CancellationToken);
+        using PaginatedDocument a5 = paginator.Paginate(document, BPageSetup.Default with { Paper = BPaperSize.A5 }, TestContext.Current.CancellationToken);
 
         Assert.True(a4.PageCount > 1, $"150 lines should not fit one A4 page; got {a4.PageCount}.");
         Assert.True(a5.PageCount > a4.PageCount, $"A5 ({a5.PageCount}) should need more pages than A4 ({a4.PageCount}).");
@@ -66,7 +66,7 @@ public sealed class DocumentPaginatorTests
     [Fact]
     public void A_Page_Is_Painted_Once_And_Kept()
     {
-        using PaginatedDocument pages = new DocumentPaginator().Paginate(Lines(2), BPageSetup.Default);
+        using PaginatedDocument pages = new DocumentPaginator().Paginate(Lines(2), BPageSetup.Default, TestContext.Current.CancellationToken);
 
         Assert.Same(pages.GetPage(0), pages.GetPage(0));
         Assert.Throws<ArgumentOutOfRangeException>(() => pages.GetPage(1));
@@ -77,7 +77,7 @@ public sealed class DocumentPaginatorTests
     {
         var image = new InlineImage(BImageResource.FromPixels(Solid(8, 4, 255, 0, 0)));
 
-        using PaginatedDocument pages = new DocumentPaginator().Paginate(WithPicture(image), BPageSetup.Default);
+        using PaginatedDocument pages = new DocumentPaginator().Paginate(WithPicture(image), BPageSetup.Default, TestContext.Current.CancellationToken);
         BPage page = pages.GetPage(0);
 
         BRenderCommand.DrawImage draw = Assert.Single(page.Commands.OfType<BRenderCommand.DrawImage>());
@@ -92,7 +92,7 @@ public sealed class DocumentPaginatorTests
     {
         var broken = new InlineImage(new byte[] { 1, 2, 3, 4 }, "image/png", 0, 0, name: "broken");
 
-        using PaginatedDocument pages = new DocumentPaginator().Paginate(WithPicture(broken), BPageSetup.Default);
+        using PaginatedDocument pages = new DocumentPaginator().Paginate(WithPicture(broken), BPageSetup.Default, TestContext.Current.CancellationToken);
         BPage page = pages.GetPage(0);
 
         Assert.Empty(page.Images);
@@ -112,7 +112,7 @@ public sealed class DocumentPaginatorTests
         var paginator = new DocumentPaginator();
         LayoutSettings settings = paginator.SettingsFor(document);
 
-        using PaginatedDocument pages = paginator.Paginate(document, BPageSetup.Default);
+        using PaginatedDocument pages = paginator.Paginate(document, BPageSetup.Default, TestContext.Current.CancellationToken);
         using BBitmap frozen = BPageRasterizer.Render(pages.GetPage(0), 72, BColor.White);
 
         using var images = new ImageStore();
@@ -149,7 +149,7 @@ public sealed class DocumentPaginatorTests
 
         Assert.Same(BPageSetup.Default, paged.PreferredSetup);
         Assert.Equal("Document", paged.Title);
-        Assert.Equal(1, paged.Paginate(BPageSetup.Default).PageCount);
+        Assert.Equal(1, paged.Paginate(BPageSetup.Default, TestContext.Current.CancellationToken).PageCount);
     }
 
     [Fact]
@@ -179,7 +179,7 @@ public sealed class DocumentPaginatorTests
         var image = InlineImage.CreateMissingPayload(100, 50, "Missing");
         RichTextDocument document = WithPicture(image);
         var paginator = new DocumentPaginator();
-        using PaginatedDocument pages = paginator.Paginate(document, BPageSetup.Default);
+        using PaginatedDocument pages = paginator.Paginate(document, BPageSetup.Default, TestContext.Current.CancellationToken);
         using BBitmap rasterized = BPageRasterizer.Render(pages.GetPage(0), 72, BColor.White);
         Assert.NotNull(rasterized);
         Assert.True(rasterized.Width > 0 && rasterized.Height > 0);
@@ -192,7 +192,7 @@ public sealed class DocumentPaginatorTests
         var shape = new DocumentShape(0, 10, 20, 100, 50, image: image);
         RichTextDocument document = RichTextDocument.FromPlainText("Anchor").WithShapes([shape]);
         var paginator = new DocumentPaginator();
-        using PaginatedDocument pages = paginator.Paginate(document, BPageSetup.Default);
+        using PaginatedDocument pages = paginator.Paginate(document, BPageSetup.Default, TestContext.Current.CancellationToken);
         using BBitmap rasterized = BPageRasterizer.Render(pages.GetPage(0), 72, BColor.White);
         Assert.NotNull(rasterized);
         Assert.True(rasterized.Width > 0 && rasterized.Height > 0);

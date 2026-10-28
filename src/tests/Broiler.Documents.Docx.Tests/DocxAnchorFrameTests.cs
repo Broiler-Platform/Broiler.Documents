@@ -1,4 +1,4 @@
-﻿namespace Broiler.Documents.Docx.Tests;
+namespace Broiler.Documents.Docx.Tests;
 
 /// <summary>
 /// Covers the frame an anchor states its offsets against. Only the offset was
@@ -152,7 +152,7 @@ public sealed class DocxAnchorFrameTests
         Assert.False(shape.OffsetFromPage);
         Assert.Equal(20, shape.OffsetY, 1);
         DocumentDiagnostic note = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == "docx.anchor.relativefrom"));
+            result.Diagnostics, d => d.Code == "docx.anchor.relativefrom");
         Assert.Contains("vertical", note.Message, StringComparison.Ordinal);
     }
 
@@ -178,6 +178,6 @@ public sealed class DocxAnchorFrameTests
             ShapeRun("column", "insideMargin") + ShapeRun("column", "insideMargin"));
 
         Assert.Equal(2, result.Document.Shapes.Count);
-        Assert.Single(result.Diagnostics.Where(d => d.Code == "docx.anchor.relativefrom"));
+        Assert.Single(result.Diagnostics, d => d.Code == "docx.anchor.relativefrom");
     }
 }

@@ -114,9 +114,9 @@ public sealed class PdfPageGeometryTests
 
         var codec = new PdfDocumentCodec();
         using var buffer = new MemoryStream();
-        codec.WritePdf(source, buffer);
+        codec.WritePdf(source, buffer, cancellationToken: TestContext.Current.CancellationToken);
         buffer.Position = 0;
-        PageGeometry page = Assert.IsType<PageGeometry>(codec.ReadPdf(buffer).Document.PageGeometry);
+        PageGeometry page = Assert.IsType<PageGeometry>(codec.ReadPdf(buffer, cancellationToken: TestContext.Current.CancellationToken).Document.PageGeometry);
 
         Assert.Equal(842, page.Width, 2);
         Assert.Equal(595, page.Height, 2);

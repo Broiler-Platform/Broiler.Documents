@@ -1,1759 +1,865 @@
 {
-  "$schema": "office-baseline.schema.json",
-  "schemaVersion": 1,
-  "updated": "2026-09-06",
-  "producedWith": {
-    "libreoffice": "LibreOffice 24.2.7.2 420(Build:2)",
-    "poppler": "pdftoppm version 24.02.0",
-    "fontSet": "office-fonts-1",
-    "platform": "linux",
-    "dpi": 144
-  },
-  "policy": {
-    "records": "Only the reads that differ from what LibreOffice made of the same file, and only the renders that do not land in the clean band. Everything this suite exercises that is absent from the two lists below is asserted to agree, so a new difference fails by not being listed.",
-    "reproduce": "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at. A render that comes back better than the band recorded here fails for the same reason - an improvement nobody records is an improvement nobody can show.",
-    "states": "documented - a limitation one of the conformance documents states. suspected-defect - a difference nobody decided on, which is what comparing against another implementation is actually good for. accepted - this component's own behaviour, looked at and accepted.",
-    "reviewer": "A row is not classified by being written down. documented and accepted both need a reviewer and a date, and a documented row needs a reference to the conformance document that states the limitation, which the guard checks is really there. This is the same demand CorpusControlGuardTests makes of the corpus baseline and PdfTestControlGuardTests makes of the tool manifest.",
-    "toolchain": "producedWith pins the LibreOffice build, the PDF text extractor, the font set, the platform and the dpi these rows were measured on. A run whose own stamp does not match it does not compare against these rows: it skips, and the skip names the mismatch. LibreOffice's layout moves between releases and with whatever fonts it can find, so a row measured on another machine is a claim about that machine, and quietly reading it as a claim about this one is how a suite comes to fail for reasons that have nothing to do with the change under test.",
-    "empty": "Both lists ship empty and every producedWith field is null, because nothing has been measured here against an approved, pinned toolchain yet. That is the shipped state on purpose, and it is not the same as having no opinion. An empty file says plainly that nothing has been measured; a file generated against whatever LibreOffice happened to be installed that morning looks like evidence, and would be worse than no baseline for exactly that reason. tests/corpus/external-sources.json ships with no rows on the same argument.",
-    "bands": "A render row records bands, not numbers. The numbers under observed are there for a reader, and for hysteresis when a run sits on a threshold; the verdict is the band. Rasterized comparison numbers move with antialiasing, hinting and the version of the font that got installed, so a file that recorded them as the expectation would fail on a change nobody can see and pass on one anybody could.",
-    "regenerate": "dotnet run --project src/tests/Broiler.Documents.Office -- --update-baseline"
-  },
-  "reads": [
-    {
-      "seed": "headings-and-outline",
-      "via": "html",
-      "check": "text",
-      "differences": [],
-      "diagnostics": [
-        "html.css.rule"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the 'td p' and 'th p' that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/notes/html.md states exactly which selector is matched and which are not, and why the line is drawn there.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "letterhead-frames",
-      "via": "html",
-      "check": "text",
-      "differences": [],
-      "diagnostics": [
-        "html.skip.external"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "Not a difference this component could avoid. LibreOffice's HTML export has no way to write a frame, so it flattens both of the seed's frames to GIF files beside the document and links them; the reader never fetches an external resource and reports html.skip.external once per read, which docs/notes/html.md states outright in both directions. What the row is worth recording for is what it says about the corpus rather than about the codec: the html target of this seed measures a document with the construct taken out of it, so a reader comparing the four targets knows not to read agreement here as evidence about frames.",
-      "reviewer": "Claude Opus 5, on the letterhead and line-break seeds",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "links",
-      "via": "html",
-      "check": "text",
-      "differences": [],
-      "diagnostics": [
-        "html.css.rule"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the 'td p' and 'th p' that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/notes/html.md states exactly which selector is matched and which are not, and why the line is drawn there.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "lists-nested",
-      "via": "docx",
-      "check": "interop",
-      "differences": [
-        "+ libreoffice-of-ours: • nested bullet",
-        "+ libreoffice-of-ours: • second nested bullet",
-        "+ libreoffice-of-ours: ◦ first bullet",
-        "+ libreoffice-of-ours: ◦ second bullet",
-        "+ libreoffice-of-ours: ◦ third bullet, back at the outer level",
-        "- libreoffice-of-its-own: • first bullet",
-        "- libreoffice-of-its-own: • second bullet",
-        "- libreoffice-of-its-own: • third bullet, back at the outer level",
-        "- libreoffice-of-its-own: ◦ nested bullet",
-        "- libreoffice-of-its-own: ◦ second nested bullet"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/guides/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "lists-nested",
-      "via": "docx",
-      "check": "text",
-      "differences": [
-        "+ libreoffice: 1. nested ordered one",
-        "+ libreoffice: 1. ordered one",
-        "+ libreoffice: 2. nested ordered two",
-        "+ libreoffice: 2. ordered two",
-        "+ libreoffice: • first bullet",
-        "+ libreoffice: • second bullet",
-        "+ libreoffice: • third bullet, back at the outer level",
-        "+ libreoffice: ◦ nested bullet",
-        "+ libreoffice: ◦ second nested bullet",
-        "- broilerdoc: first bullet",
-        "- broilerdoc: nested bullet",
-        "- broilerdoc: nested ordered one",
-        "- broilerdoc: nested ordered two",
-        "- broilerdoc: ordered one",
-        "- broilerdoc: ordered two",
-        "- broilerdoc: second bullet",
-        "- broilerdoc: second nested bullet",
-        "- broilerdoc: third bullet, back at the outer level"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/guides/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "lists-nested",
-      "via": "html",
-      "check": "roundtrip",
-      "differences": [
-        "paragraph-style@p1: list Bullet vs None",
-        "paragraph-style@p2: list Bullet vs None",
-        "paragraph-style@p3: list Bullet vs None",
-        "paragraph-style@p4: list Bullet vs None",
-        "paragraph-style@p5: list Bullet vs None",
-        "paragraph-style@p6: list Numbered vs None",
-        "paragraph-style@p7: list Numbered vs None",
-        "paragraph-style@p8: list Numbered vs None",
-        "paragraph-style@p9: list Numbered vs None"
-      ],
-      "diagnostics": [
-        "html.list"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "A limitation docs/notes/html.md states outright: the HTML writer does not emit list structure and reports html.list when it drops it, so a list read from HTML does not survive a round trip back through HTML. The roadmap holds HTML list writing as deliberate and unimplemented, to be reconsidered only behind conformance fixtures and explicit diagnostics. The diagnostic is the codec saying what it dropped, which is the half that makes the limitation reviewable.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "lists-nested",
-      "via": "html",
-      "check": "text",
-      "differences": [
-        "+ libreoffice: 1. nested ordered one",
-        "+ libreoffice: 1. ordered one",
-        "+ libreoffice: 2. nested ordered two",
-        "+ libreoffice: 2. ordered two",
-        "+ libreoffice: • first bullet",
-        "+ libreoffice: • second bullet",
-        "+ libreoffice: • third bullet, back at the outer level",
-        "+ libreoffice: ◦ nested bullet",
-        "+ libreoffice: ◦ second nested bullet",
-        "- broilerdoc: first bullet",
-        "- broilerdoc: nested bullet",
-        "- broilerdoc: nested ordered one",
-        "- broilerdoc: nested ordered two",
-        "- broilerdoc: ordered one",
-        "- broilerdoc: ordered two",
-        "- broilerdoc: second bullet",
-        "- broilerdoc: second nested bullet",
-        "- broilerdoc: third bullet, back at the outer level"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/guides/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "lists-nested",
-      "via": "odt",
-      "check": "text",
-      "differences": [
-        "+ libreoffice: 1. nested ordered one",
-        "+ libreoffice: 1. ordered one",
-        "+ libreoffice: 2. nested ordered two",
-        "+ libreoffice: 2. ordered two",
-        "+ libreoffice: • first bullet",
-        "+ libreoffice: • second bullet",
-        "+ libreoffice: • third bullet, back at the outer level",
-        "+ libreoffice: ◦ nested bullet",
-        "+ libreoffice: ◦ second nested bullet",
-        "- broilerdoc: first bullet",
-        "- broilerdoc: nested bullet",
-        "- broilerdoc: nested ordered one",
-        "- broilerdoc: nested ordered two",
-        "- broilerdoc: ordered one",
-        "- broilerdoc: ordered two",
-        "- broilerdoc: second bullet",
-        "- broilerdoc: second nested bullet",
-        "- broilerdoc: third bullet, back at the outer level"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/guides/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "lists-nested",
-      "via": "rtf",
-      "check": "interop",
-      "differences": [
-        "+ libreoffice-of-ours: first bullet",
-        "+ libreoffice-of-ours: nested bullet",
-        "+ libreoffice-of-ours: nested ordered one",
-        "+ libreoffice-of-ours: nested ordered two",
-        "+ libreoffice-of-ours: ordered one",
-        "+ libreoffice-of-ours: ordered two",
-        "+ libreoffice-of-ours: second bullet",
-        "+ libreoffice-of-ours: second nested bullet",
-        "+ libreoffice-of-ours: third bullet, back at the outer level",
-        "- libreoffice-of-its-own: 1. nested ordered one",
-        "- libreoffice-of-its-own: 1. ordered one",
-        "- libreoffice-of-its-own: 2. nested ordered two",
-        "- libreoffice-of-its-own: 2. ordered two",
-        "- libreoffice-of-its-own: • first bullet",
-        "- libreoffice-of-its-own: • second bullet",
-        "- libreoffice-of-its-own: • third bullet, back at the outer level",
-        "- libreoffice-of-its-own: ◦ nested bullet",
-        "- libreoffice-of-its-own: ◦ second nested bullet"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/guides/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "lists-nested",
-      "via": "rtf",
-      "check": "text",
-      "differences": [
-        "+ libreoffice: 1. nested ordered one",
-        "+ libreoffice: 1. ordered one",
-        "+ libreoffice: 2. nested ordered two",
-        "+ libreoffice: 2. ordered two",
-        "+ libreoffice: • first bullet",
-        "+ libreoffice: • second bullet",
-        "+ libreoffice: • third bullet, back at the outer level",
-        "+ libreoffice: ◦ nested bullet",
-        "+ libreoffice: ◦ second nested bullet",
-        "- broilerdoc: first bullet",
-        "- broilerdoc: nested bullet",
-        "- broilerdoc: nested ordered one",
-        "- broilerdoc: nested ordered two",
-        "- broilerdoc: ordered one",
-        "- broilerdoc: ordered two",
-        "- broilerdoc: second bullet",
-        "- broilerdoc: second nested bullet",
-        "- broilerdoc: third bullet, back at the outer level"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/guides/cli.md",
-      "why": "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice's plain-text export writes a list marker into the text - '* first bullet' - and this component's does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection's two visible choices and names this as one of them.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "table-simple",
-      "via": "html",
-      "check": "text",
-      "differences": [],
-      "diagnostics": [
-        "html.css.rule"
-      ],
-      "state": "documented",
-      "reference": "docs/notes/html.md",
-      "why": "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the 'td p' and 'th p' that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/notes/html.md states exactly which selector is matched and which are not, and why the line is drawn there.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "table-simple",
-      "via": "rtf",
-      "check": "interop",
-      "differences": [
-        "+ libreoffice-of-ours: cell a cell b",
-        "+ libreoffice-of-ours: cell c cell d",
-        "+ libreoffice-of-ours: head a head b",
-        "- libreoffice-of-its-own: cell a",
-        "- libreoffice-of-its-own: cell b",
-        "- libreoffice-of-its-own: cell c",
-        "- libreoffice-of-its-own: cell d",
-        "- libreoffice-of-its-own: head a",
-        "- libreoffice-of-its-own: head b"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/guides/cli.md",
-      "why": "The same kind of difference, in the other place docs/guides/cli.md names. LibreOffice's text export joins a table row onto one line - 'cell a cell b' - and this component's gives each cell its own line, in row order, because that is how the model holds a table once it is flattened and a joined row would invent a column separator the document never stated. Neither reader lost a cell.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "table-simple",
-      "via": "rtf",
-      "check": "text",
-      "differences": [
-        "+ libreoffice: cell a",
-        "+ libreoffice: cell b",
-        "+ libreoffice: cell c",
-        "+ libreoffice: cell d",
-        "+ libreoffice: head a",
-        "+ libreoffice: head b",
-        "- broilerdoc: cell a cell b",
-        "- broilerdoc: cell c cell d",
-        "- broilerdoc: head a head b"
-      ],
-      "diagnostics": [],
-      "state": "documented",
-      "reference": "docs/guides/cli.md",
-      "why": "The same kind of difference, in the other place docs/guides/cli.md names. LibreOffice's text export joins a table row onto one line - 'cell a cell b' - and this component's gives each cell its own line, in row order, because that is how the model holds a table once it is flattened and a joined row would invent a column separator the document never stated. Neither reader lost a cell.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    }
-  ],
-  "renders": [
-    {
-      "seed": "alignment-and-indent",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "heavy"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 28,
-        "inkProfileSimilarity": 0.867420740336197,
-        "coverageDelta": 0.0001279131181091981,
-        "blurDiffRatio": 0.05086919026870007
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "alignment-and-indent",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "heavy"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 4,
-        "inkProfileSimilarity": 0.9232016534075529,
-        "coverageDelta": 0.00023106885851983776,
-        "blurDiffRatio": 0.05391795817653661
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "alignment-and-indent",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "heavy"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 4,
-        "inkProfileSimilarity": 0.9262629613149929,
-        "coverageDelta": 0.00020476414471512494,
-        "blurDiffRatio": 0.05397572539116657
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "alignment-and-indent",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "loose",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "heavy"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 45,
-        "inkProfileSimilarity": 0.9153464019876453,
-        "coverageDelta": 0.00011037664223938724,
-        "blurDiffRatio": 0.056887296164256945
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "colour-and-highlight",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 6,
-        "inkProfileSimilarity": 0.9811418306495584,
-        "coverageDelta": 4.848319799300154e-05,
-        "blurDiffRatio": 0.006809310424506503
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "colour-and-highlight",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 6,
-        "inkProfileSimilarity": 0.9822440130434392,
-        "coverageDelta": 0.00015473361061596295,
-        "blurDiffRatio": 0.006435886644219978
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "colour-and-highlight",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 6,
-        "inkProfileSimilarity": 0.9811529233538111,
-        "coverageDelta": 5.20936489073736e-05,
-        "blurDiffRatio": 0.0068062157522941836
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "colour-and-highlight",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 7,
-        "inkProfileSimilarity": 0.9686267314158512,
-        "coverageDelta": 6.705123126691213e-06,
-        "blurDiffRatio": 0.013519075559516735
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "entities-and-whitespace",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 16,
-        "inkProfileSimilarity": 0.962259300828794,
-        "coverageDelta": 0.00011192397834554856,
-        "blurDiffRatio": 0.028659243579586716
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "entities-and-whitespace",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 16,
-        "inkProfileSimilarity": 0.9613933366931382,
-        "coverageDelta": 0.00011398709315376017,
-        "blurDiffRatio": 0.02886039727338747
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "entities-and-whitespace",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 15,
-        "inkProfileSimilarity": 0.9622643752749666,
-        "coverageDelta": 0.00011192397834554856,
-        "blurDiffRatio": 0.02865821202218261
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "entities-and-whitespace",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 11,
-        "inkProfileSimilarity": 0.9711339153020859,
-        "coverageDelta": 4.0230738760149015e-05,
-        "blurDiffRatio": 0.02272624116986862
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "headings-and-outline",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 31,
-        "inkProfileSimilarity": 0.8115256163952596,
-        "coverageDelta": 0.00018052254571862374,
-        "blurDiffRatio": 0.04371482389251997
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "headings-and-outline",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 31,
-        "inkProfileSimilarity": 0.8137116953534468,
-        "coverageDelta": 0.0011522496203868748,
-        "blurDiffRatio": 0.04233253697101736
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "headings-and-outline",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 31,
-        "inkProfileSimilarity": 0.8073558707351097,
-        "coverageDelta": 0.00016608074206113377,
-        "blurDiffRatio": 0.045539133161682184
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "headings-and-outline",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "heavy"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 31,
-        "inkProfileSimilarity": 0.7853137138407065,
-        "coverageDelta": 0.0002625313593450848,
-        "blurDiffRatio": 0.05240260034990427
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "inline-formatting",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 9,
-        "inkProfileSimilarity": 0.9848562805063159,
-        "coverageDelta": 0.0002135323826500295,
-        "blurDiffRatio": 0.010138661946259985
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "inline-formatting",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 8,
-        "inkProfileSimilarity": 0.9861936225590983,
-        "coverageDelta": 0.000376518452498845,
-        "blurDiffRatio": 0.009499612134416056
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "inline-formatting",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 9,
-        "inkProfileSimilarity": 0.9848603938107442,
-        "coverageDelta": 0.00021611127616029575,
-        "blurDiffRatio": 0.01013763038885588
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "inline-formatting",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 9,
-        "inkProfileSimilarity": 0.9685083174516126,
-        "coverageDelta": 0.00014596537268105926,
-        "blurDiffRatio": 0.01811775846702317
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "letterhead-frames",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 2,
-        "libreoffice": 2
-      },
-      "worstPage": 2,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "loose",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 52,
-        "inkProfileSimilarity": 0.8541433821351655,
-        "coverageDelta": 6.498811645870486e-05,
-        "blurDiffRatio": 0.023602549184657026
-      },
-      "state": "suspected-defect",
-      "reference": null,
-      "why": "The last of this row's defects is fixed and 1154 px became 52. w:titlePg is read now, so page one carries no footer where LibreOffice draws none, and the stale cached PAGE result goes with it. What is left is on page two, where both sides draw the same three lines and the same page number and put the footer 52 px apart - a footer distance, which is a layout convention rather than anything the reader lost. The profile reads poor at 0.854 on the strength of that: page two holds three lines at the top and one at the bottom, and on ink that sparse a displaced footer moves a whole peak of the smoothed profile. The band this file records is the metric behaving as its own documentation describes, on the page in this corpus with the least ink to measure.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "seed": "letterhead-frames",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 2,
-        "libreoffice": 2
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "wild",
-        "inkProfile": "poor",
-        "coverage": "close",
-        "blurDiff": "heavy"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 159,
-        "inkProfileSimilarity": 0.33214031103726394,
-        "coverageDelta": 0.0021160285673828463,
-        "blurDiffRatio": 0.06312137148965619
-      },
-      "state": "suspected-defect",
-      "reference": null,
-      "why": "Two causes, and only one of them is settled. LibreOffice cannot write a frame into HTML, so it flattens both of this seed's frames to GIF files beside the document; the reader never fetches an external resource and says so with html.skip.external, which docs/notes/html.md states in both directions. That half is a limitation rather than a defect, and the text row for the same document records it. The second half arrived with the line-break fix and nobody has decided on it: LibreOffice writes the page's header as <div title=\"header\">, this reader has no notion of that convention and reads it as body content, and the <br/> inside it is now honoured - so the body opens with a blank line LibreOffice puts nowhere, and the profile fell from 0.484 to 0.332. Honouring the break is right. Reading a header as body is the part that needs deciding, either by a statement in the conformance document or by the reader learning the convention.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "seed": "letterhead-frames",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 2,
-        "libreoffice": 2
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 31,
-        "inkProfileSimilarity": 0.9215817437174411,
-        "coverageDelta": 4.796741929094864e-05,
-        "blurDiffRatio": 0.04759244817455602
-      },
-      "state": "suspected-defect",
-      "reference": null,
-      "why": "All three ODT defects are fixed and this row is close to clean: 1180 px became 31 and the profile 0.852 became 0.922. draw:angle is read with its unit and turned the quarter turn ODF and this model are apart, so the band runs down the page; the master-page chain is followed by one link, so the band belongs to the first page and the page number to the second; and the first page carries no footer because the master page it is on states none. The row stays because near and fair are not clean, and what is under them now is the ordinary disagreement of two layout engines about where a line sits - the same thing every prose seed in this corpus reports.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "seed": "letterhead-frames",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 2,
-        "libreoffice": 2
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "wild",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "heavy"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 1193,
-        "inkProfileSimilarity": 0.8664212087134724,
-        "coverageDelta": 0.00010521885521885474,
-        "blurDiffRatio": 0.08665082194493959
-      },
-      "state": "documented",
-      "reference": "docs/notes/rtf.md",
-      "why": "A disagreement rather than a defect, and the one place in this corpus where following the format costs a band. \\titlepg is read now, so this component draws no footer on the first page of a section that states one and names no \\footerf - which is what Word does. LibreOffice draws the default footer there, and the 1193 px is the whole of the difference: it inks the bottom of page one and this component inks nothing below the third line. Matching LibreOffice would have been the cheaper number and the worse answer, because its own DOCX importer honours the same flag the Word way - agreeing with it here would have made this component disagree with itself across two of its own readers. The stray page number the text and interop rows recorded is gone: a field result belongs to the destination the field is in. What the profile still reads is the gradient, which runs left to right here where ODT and DOCX now run it down the page - LibreOffice writes no fillAngle into its RTF at all and renders its own file bottom-to-top, so no reading of that document agrees with all three of the source, the oracle and the other two targets.",
-      "reviewer": "Claude Opus 5, on the reader fixes the letterhead seed found",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "line-break-within-paragraph",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "heavy"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 32,
-        "inkProfileSimilarity": 0.9000482630157792,
-        "coverageDelta": 0.00021765861226645533,
-        "blurDiffRatio": 0.053107669835611014
-      },
-      "state": "suspected-defect",
-      "reference": null,
-      "why": "The break is honoured now, and what is left is ordinary disagreement between two layout engines. DocumentLayout classified characters with char.IsWhiteSpace, which is true for U+2028, so a forced break arrived as a break opportunity and the seed's five-line address reflowed onto two; the tokenizer now yields a break of its own and the wrapper ends the line on it. PdfPageLayout had the same defect wearing different clothes - its word scan knew only spaces and tabs, so the character was swept into the word around it and handed to the content stream as a glyph no standard font has - and is fixed with it, though only the render is measured here. The numbers moved from an ink box of 175 to 202 px and a profile of 0.29 to 22 to 32 px and 0.90. What remains is per-line leading, which every prose seed in this corpus reports as heavy on the blurred difference and which is not about this construct.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "seed": "line-break-within-paragraph",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "heavy"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 31,
-        "inkProfileSimilarity": 0.9004799235303318,
-        "coverageDelta": 0.00032287746748531007,
-        "blurDiffRatio": 0.0528564856077111
-      },
-      "state": "suspected-defect",
-      "reference": null,
-      "why": "The break is honoured now, and what is left is ordinary disagreement between two layout engines. DocumentLayout classified characters with char.IsWhiteSpace, which is true for U+2028, so a forced break arrived as a break opportunity and the seed's five-line address reflowed onto two; the tokenizer now yields a break of its own and the wrapper ends the line on it. PdfPageLayout had the same defect wearing different clothes - its word scan knew only spaces and tabs, so the character was swept into the word around it and handed to the content stream as a glyph no standard font has - and is fixed with it, though only the render is measured here. The numbers moved from an ink box of 175 to 202 px and a profile of 0.29 to 22 to 32 px and 0.90. What remains is per-line leading, which every prose seed in this corpus reports as heavy on the blurred difference and which is not about this construct.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "seed": "line-break-within-paragraph",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "heavy"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 31,
-        "inkProfileSimilarity": 0.9000497422666139,
-        "coverageDelta": 0.00021662705486234952,
-        "blurDiffRatio": 0.053099933155080214
-      },
-      "state": "suspected-defect",
-      "reference": null,
-      "why": "The break is honoured now, and what is left is ordinary disagreement between two layout engines. DocumentLayout classified characters with char.IsWhiteSpace, which is true for U+2028, so a forced break arrived as a break opportunity and the seed's five-line address reflowed onto two; the tokenizer now yields a break of its own and the wrapper ends the line on it. PdfPageLayout had the same defect wearing different clothes - its word scan knew only spaces and tabs, so the character was swept into the word around it and handed to the content stream as a glyph no standard font has - and is fixed with it, though only the render is measured here. The numbers moved from an ink box of 175 to 202 px and a profile of 0.29 to 22 to 32 px and 0.90. What remains is per-line leading, which every prose seed in this corpus reports as heavy on the blurred difference and which is not about this construct.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "seed": "line-break-within-paragraph",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "heavy"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 22,
-        "inkProfileSimilarity": 0.913952419962867,
-        "coverageDelta": 0.0001237868884927714,
-        "blurDiffRatio": 0.05987468640654915
-      },
-      "state": "suspected-defect",
-      "reference": null,
-      "why": "The break is honoured now, and what is left is ordinary disagreement between two layout engines. DocumentLayout classified characters with char.IsWhiteSpace, which is true for U+2028, so a forced break arrived as a break opportunity and the seed's five-line address reflowed onto two; the tokenizer now yields a break of its own and the wrapper ends the line on it. PdfPageLayout had the same defect wearing different clothes - its word scan knew only spaces and tabs, so the character was swept into the word around it and handed to the content stream as a glyph no standard font has - and is fixed with it, though only the render is measured here. The numbers moved from an ink box of 175 to 202 px and a profile of 0.29 to 22 to 32 px and 0.90. What remains is per-line leading, which every prose seed in this corpus reports as heavy on the blurred difference and which is not about this construct.",
-      "reviewer": null,
-      "decided": null
-    },
-    {
-      "seed": "links",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 5,
-        "inkProfileSimilarity": 0.9843996228295296,
-        "coverageDelta": 0.00018929078365352917,
-        "blurDiffRatio": 0.009934413580246914
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "lists-nested",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 26,
-        "inkProfileSimilarity": 0.7973560856718032,
-        "coverageDelta": 3.6104509143720584e-06,
-        "blurDiffRatio": 0.03057071944939592
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "lists-nested",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 26,
-        "inkProfileSimilarity": 0.7937954295819406,
-        "coverageDelta": 0.00018671189014326291,
-        "blurDiffRatio": 0.030603213507625272
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "lists-nested",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 25,
-        "inkProfileSimilarity": 0.7969471683180058,
-        "coverageDelta": 4.229385356836323e-05,
-        "blurDiffRatio": 0.03077496781540899
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "lists-nested",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 19,
-        "inkProfileSimilarity": 0.8488391103983769,
-        "coverageDelta": 4.435696837657571e-05,
-        "blurDiffRatio": 0.032853040205981385
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "long-flow-multipage",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 6,
-        "libreoffice": 6
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "poor",
-        "coverage": "close",
-        "blurDiff": "severe"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 3,
-        "inkProfileSimilarity": 0.8978288635370605,
-        "coverageDelta": 0.005460033339935305,
-        "blurDiffRatio": 0.2767895457846438
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "long-flow-multipage",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 6,
-        "libreoffice": 6
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "poor",
-        "coverage": "close",
-        "blurDiff": "severe"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 3,
-        "inkProfileSimilarity": 0.8976732332211936,
-        "coverageDelta": 0.00506804152637487,
-        "blurDiffRatio": 0.2768416394335512
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "long-flow-multipage",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 6,
-        "libreoffice": 6
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "poor",
-        "coverage": "close",
-        "blurDiff": "severe"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 3,
-        "inkProfileSimilarity": 0.8978359159071734,
-        "coverageDelta": 0.005455391331616821,
-        "blurDiffRatio": 0.2767653041856473
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "long-flow-multipage",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 6,
-        "libreoffice": 6
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "fair",
-        "coverage": "close",
-        "blurDiff": "severe"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 5,
-        "inkProfileSimilarity": 0.9242638188246272,
-        "coverageDelta": 0.0033345093087740196,
-        "blurDiffRatio": 0.2821546758434013
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "non-latin-text",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "loose",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 100,
-        "inkProfileSimilarity": 0.9542954850743903,
-        "coverageDelta": 0.00058747194163861,
-        "blurDiffRatio": 0.02574664124909223
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "non-latin-text",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "loose",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 89,
-        "inkProfileSimilarity": 0.9525336121481072,
-        "coverageDelta": 0.0006632914108404293,
-        "blurDiffRatio": 0.023741809434211395
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "non-latin-text",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "loose",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 89,
-        "inkProfileSimilarity": 0.9542775092664539,
-        "coverageDelta": 0.0005993348517858328,
-        "blurDiffRatio": 0.02402342460553245
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "non-latin-text",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "loose",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 89,
-        "inkProfileSimilarity": 0.9529609139563286,
-        "coverageDelta": 0.0005106209150326797,
-        "blurDiffRatio": 0.03656252063114808
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "page-break-explicit",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 2,
-        "libreoffice": 2
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "clean"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 3,
-        "inkProfileSimilarity": 0.9898692170691664,
-        "coverageDelta": 2.578893510266078e-05,
-        "blurDiffRatio": 0.0024086865385884995
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "page-break-explicit",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 2,
-        "libreoffice": 2
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "clean"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 3,
-        "inkProfileSimilarity": 0.9898692170691664,
-        "coverageDelta": 2.578893510266078e-05,
-        "blurDiffRatio": 0.0024086865385884995
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "page-break-explicit",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 2,
-        "libreoffice": 2
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "clean"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 3,
-        "inkProfileSimilarity": 0.9898692170691664,
-        "coverageDelta": 2.578893510266078e-05,
-        "blurDiffRatio": 0.0024086865385884995
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "page-break-explicit",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 2,
-        "libreoffice": 2
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "clean"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 3,
-        "inkProfileSimilarity": 0.9898692170691664,
-        "coverageDelta": 2.578893510266078e-05,
-        "blurDiffRatio": 0.0024086865385884995
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "plain-paragraphs",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 9,
-        "inkProfileSimilarity": 0.9809888778945087,
-        "coverageDelta": 5.67356572258532e-05,
-        "blurDiffRatio": 0.015499665775401069
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "plain-paragraphs",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 8,
-        "inkProfileSimilarity": 0.9825180090825689,
-        "coverageDelta": 0.00010986086353733347,
-        "blurDiffRatio": 0.013667104047006008
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "plain-paragraphs",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "tight",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 8,
-        "inkProfileSimilarity": 0.9809915775117998,
-        "coverageDelta": 5.1577870205320696e-05,
-        "blurDiffRatio": 0.015492444873572325
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "plain-paragraphs",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 9,
-        "inkProfileSimilarity": 0.9666767866777144,
-        "coverageDelta": 3.971496005809698e-05,
-        "blurDiffRatio": 0.020229356473229022
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "table-simple",
-      "via": "docx",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "close",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 11,
-        "inkProfileSimilarity": 0.9733415753059995,
-        "coverageDelta": 0.00013719713474615427,
-        "blurDiffRatio": 0.007224512279659339
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "table-simple",
-      "via": "html",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "loose",
-        "inkProfile": "poor",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 108,
-        "inkProfileSimilarity": 0.622646973009381,
-        "coverageDelta": 0.0007525211262956362,
-        "blurDiffRatio": 0.012236333927510399
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "table-simple",
-      "via": "odt",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "near",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 20,
-        "inkProfileSimilarity": 0.9316692058768652,
-        "coverageDelta": 6.60196738628111e-05,
-        "blurDiffRatio": 0.008845604740212584
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    },
-    {
-      "seed": "table-simple",
-      "via": "rtf",
-      "pageCount": {
-        "broilerdoc": 1,
-        "libreoffice": 1
-      },
-      "worstPage": 1,
-      "bands": {
-        "geometry": "match",
-        "inkBox": "wild",
-        "inkProfile": "fair",
-        "coverage": "exact",
-        "blurDiff": "light"
-      },
-      "observed": {
-        "inkBoxDeltaPx": 260,
-        "inkProfileSimilarity": 0.9551818325448327,
-        "coverageDelta": 0.0005013368983957218,
-        "blurDiffRatio": 0.010238207235756256
-      },
-      "state": "accepted",
-      "reference": null,
-      "why": "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
-      "reviewer": "Claude Opus 5, on the first office baseline",
-      "decided": "2026-09-06"
-    }
-  ]
+    "$schema":  "office-baseline.schema.json",
+    "schemaVersion":  1,
+    "updated":  "2026-09-06",
+    "producedWith":  {
+                         "libreoffice":  "LibreOffice 24.2.7.2 420(Build:2)",
+                         "poppler":  "pdftoppm version 24.02.0",
+                         "fontSet":  "office-fonts-1",
+                         "platform":  "linux",
+                         "dpi":  144
+                     },
+    "policy":  {
+                   "records":  "Only the reads that differ from what LibreOffice made of the same file, and only the renders that do not land in the clean band. Everything this suite exercises that is absent from the two lists below is asserted to agree, so a new difference fails by not being listed.",
+                   "reproduce":  "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at. A render that comes back better than the band recorded here fails for the same reason - an improvement nobody records is an improvement nobody can show.",
+                   "states":  "documented - a limitation one of the conformance documents states. suspected-defect - a difference nobody decided on, which is what comparing against another implementation is actually good for. accepted - this component\u0027s own behaviour, looked at and accepted.",
+                   "reviewer":  "A row is not classified by being written down. documented and accepted both need a reviewer and a date, and a documented row needs a reference to the conformance document that states the limitation, which the guard checks is really there. This is the same demand CorpusControlGuardTests makes of the corpus baseline and PdfTestControlGuardTests makes of the tool manifest.",
+                   "toolchain":  "producedWith pins the LibreOffice build, the PDF text extractor, the font set, the platform and the dpi these rows were measured on. A run whose own stamp does not match it does not compare against these rows: it skips, and the skip names the mismatch. LibreOffice\u0027s layout moves between releases and with whatever fonts it can find, so a row measured on another machine is a claim about that machine, and quietly reading it as a claim about this one is how a suite comes to fail for reasons that have nothing to do with the change under test.",
+                   "empty":  "Both lists ship empty and every producedWith field is null, because nothing has been measured here against an approved, pinned toolchain yet. That is the shipped state on purpose, and it is not the same as having no opinion. An empty file says plainly that nothing has been measured; a file generated against whatever LibreOffice happened to be installed that morning looks like evidence, and would be worse than no baseline for exactly that reason. tests/corpus/external-sources.json ships with no rows on the same argument.",
+                   "bands":  "A render row records bands, not numbers. The numbers under observed are there for a reader, and for hysteresis when a run sits on a threshold; the verdict is the band. Rasterized comparison numbers move with antialiasing, hinting and the version of the font that got installed, so a file that recorded them as the expectation would fail on a change nobody can see and pass on one anybody could.",
+                   "regenerate":  "dotnet run --project src/tests/Broiler.Documents.Office -- --update-baseline"
+               },
+    "reads":  [
+                  {
+                      "seed":  "headings-and-outline",
+                      "via":  "html",
+                      "check":  "text",
+                      "differences":  [
+
+                                      ],
+                      "diagnostics":  [
+                                          "html.css.rule"
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/notes/html.md",
+                      "why":  "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the \u0027td p\u0027 and \u0027th p\u0027 that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/notes/html.md states exactly which selector is matched and which are not, and why the line is drawn there.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "letterhead-frames",
+                      "via":  "html",
+                      "check":  "text",
+                      "differences":  [
+
+                                      ],
+                      "diagnostics":  [
+                                          "html.skip.external"
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/notes/html.md",
+                      "why":  "Not a difference this component could avoid. LibreOffice\u0027s HTML export has no way to write a frame, so it flattens both of the seed\u0027s frames to GIF files beside the document and links them; the reader never fetches an external resource and reports html.skip.external once per read, which docs/notes/html.md states outright in both directions. What the row is worth recording for is what it says about the corpus rather than about the codec: the html target of this seed measures a document with the construct taken out of it, so a reader comparing the four targets knows not to read agreement here as evidence about frames.",
+                      "reviewer":  "Claude Opus 5, on the letterhead and line-break seeds",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "links",
+                      "via":  "html",
+                      "check":  "text",
+                      "differences":  [
+
+                                      ],
+                      "diagnostics":  [
+                                          "html.css.rule"
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/notes/html.md",
+                      "why":  "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the \u0027td p\u0027 and \u0027th p\u0027 that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/notes/html.md states exactly which selector is matched and which are not, and why the line is drawn there.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "lists-nested",
+                      "via":  "docx",
+                      "check":  "interop",
+                      "differences":  [
+                                          "+ libreoffice-of-ours: â€¢ nested bullet",
+                                          "+ libreoffice-of-ours: â€¢ second nested bullet",
+                                          "+ libreoffice-of-ours: â—¦ first bullet",
+                                          "+ libreoffice-of-ours: â—¦ second bullet",
+                                          "+ libreoffice-of-ours: â—¦ third bullet, back at the outer level",
+                                          "- libreoffice-of-its-own: â€¢ first bullet",
+                                          "- libreoffice-of-its-own: â€¢ second bullet",
+                                          "- libreoffice-of-its-own: â€¢ third bullet, back at the outer level",
+                                          "- libreoffice-of-its-own: â—¦ nested bullet",
+                                          "- libreoffice-of-its-own: â—¦ second nested bullet"
+                                      ],
+                      "diagnostics":  [
+
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/guides/cli.md",
+                      "why":  "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice\u0027s plain-text export writes a list marker into the text - \u0027* first bullet\u0027 - and this component\u0027s does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection\u0027s two visible choices and names this as one of them.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "lists-nested",
+                      "via":  "docx",
+                      "check":  "text",
+                      "differences":  [
+                                          "+ libreoffice: 1. nested ordered one",
+                                          "+ libreoffice: 1. ordered one",
+                                          "+ libreoffice: 2. nested ordered two",
+                                          "+ libreoffice: 2. ordered two",
+                                          "+ libreoffice: â€¢ first bullet",
+                                          "+ libreoffice: â€¢ second bullet",
+                                          "+ libreoffice: â€¢ third bullet, back at the outer level",
+                                          "+ libreoffice: â—¦ nested bullet",
+                                          "+ libreoffice: â—¦ second nested bullet",
+                                          "- broilerdoc: first bullet",
+                                          "- broilerdoc: nested bullet",
+                                          "- broilerdoc: nested ordered one",
+                                          "- broilerdoc: nested ordered two",
+                                          "- broilerdoc: ordered one",
+                                          "- broilerdoc: ordered two",
+                                          "- broilerdoc: second bullet",
+                                          "- broilerdoc: second nested bullet",
+                                          "- broilerdoc: third bullet, back at the outer level"
+                                      ],
+                      "diagnostics":  [
+
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/guides/cli.md",
+                      "why":  "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice\u0027s plain-text export writes a list marker into the text - \u0027* first bullet\u0027 - and this component\u0027s does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection\u0027s two visible choices and names this as one of them.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "lists-nested",
+                      "via":  "html",
+                      "check":  "roundtrip",
+                      "differences":  [
+                                          "paragraph-style@p1: list Bullet vs None",
+                                          "paragraph-style@p2: list Bullet vs None",
+                                          "paragraph-style@p3: list Bullet vs None",
+                                          "paragraph-style@p4: list Bullet vs None",
+                                          "paragraph-style@p5: list Bullet vs None",
+                                          "paragraph-style@p6: list Numbered vs None",
+                                          "paragraph-style@p7: list Numbered vs None",
+                                          "paragraph-style@p8: list Numbered vs None",
+                                          "paragraph-style@p9: list Numbered vs None"
+                                      ],
+                      "diagnostics":  [
+                                          "html.list"
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/notes/html.md",
+                      "why":  "A limitation docs/notes/html.md states outright: the HTML writer does not emit list structure and reports html.list when it drops it, so a list read from HTML does not survive a round trip back through HTML. The roadmap holds HTML list writing as deliberate and unimplemented, to be reconsidered only behind conformance fixtures and explicit diagnostics. The diagnostic is the codec saying what it dropped, which is the half that makes the limitation reviewable.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "lists-nested",
+                      "via":  "html",
+                      "check":  "text",
+                      "differences":  [
+                                          "+ libreoffice: 1. nested ordered one",
+                                          "+ libreoffice: 1. ordered one",
+                                          "+ libreoffice: 2. nested ordered two",
+                                          "+ libreoffice: 2. ordered two",
+                                          "+ libreoffice: â€¢ first bullet",
+                                          "+ libreoffice: â€¢ second bullet",
+                                          "+ libreoffice: â€¢ third bullet, back at the outer level",
+                                          "+ libreoffice: â—¦ nested bullet",
+                                          "+ libreoffice: â—¦ second nested bullet",
+                                          "- broilerdoc: first bullet",
+                                          "- broilerdoc: nested bullet",
+                                          "- broilerdoc: nested ordered one",
+                                          "- broilerdoc: nested ordered two",
+                                          "- broilerdoc: ordered one",
+                                          "- broilerdoc: ordered two",
+                                          "- broilerdoc: second bullet",
+                                          "- broilerdoc: second nested bullet",
+                                          "- broilerdoc: third bullet, back at the outer level"
+                                      ],
+                      "diagnostics":  [
+
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/guides/cli.md",
+                      "why":  "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice\u0027s plain-text export writes a list marker into the text - \u0027* first bullet\u0027 - and this component\u0027s does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection\u0027s two visible choices and names this as one of them.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "lists-nested",
+                      "via":  "odt",
+                      "check":  "text",
+                      "differences":  [
+                                          "+ libreoffice: 1. nested ordered one",
+                                          "+ libreoffice: 1. ordered one",
+                                          "+ libreoffice: 2. nested ordered two",
+                                          "+ libreoffice: 2. ordered two",
+                                          "+ libreoffice: â€¢ first bullet",
+                                          "+ libreoffice: â€¢ second bullet",
+                                          "+ libreoffice: â€¢ third bullet, back at the outer level",
+                                          "+ libreoffice: â—¦ nested bullet",
+                                          "+ libreoffice: â—¦ second nested bullet",
+                                          "- broilerdoc: first bullet",
+                                          "- broilerdoc: nested bullet",
+                                          "- broilerdoc: nested ordered one",
+                                          "- broilerdoc: nested ordered two",
+                                          "- broilerdoc: ordered one",
+                                          "- broilerdoc: ordered two",
+                                          "- broilerdoc: second bullet",
+                                          "- broilerdoc: second nested bullet",
+                                          "- broilerdoc: third bullet, back at the outer level"
+                                      ],
+                      "diagnostics":  [
+
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/guides/cli.md",
+                      "why":  "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice\u0027s plain-text export writes a list marker into the text - \u0027* first bullet\u0027 - and this component\u0027s does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection\u0027s two visible choices and names this as one of them.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "lists-nested",
+                      "via":  "rtf",
+                      "check":  "interop",
+                      "differences":  [
+                                          "+ libreoffice-of-ours: first bullet",
+                                          "+ libreoffice-of-ours: nested bullet",
+                                          "+ libreoffice-of-ours: nested ordered one",
+                                          "+ libreoffice-of-ours: nested ordered two",
+                                          "+ libreoffice-of-ours: ordered one",
+                                          "+ libreoffice-of-ours: ordered two",
+                                          "+ libreoffice-of-ours: second bullet",
+                                          "+ libreoffice-of-ours: second nested bullet",
+                                          "+ libreoffice-of-ours: third bullet, back at the outer level",
+                                          "- libreoffice-of-its-own: 1. nested ordered one",
+                                          "- libreoffice-of-its-own: 1. ordered one",
+                                          "- libreoffice-of-its-own: 2. nested ordered two",
+                                          "- libreoffice-of-its-own: 2. ordered two",
+                                          "- libreoffice-of-its-own: â€¢ first bullet",
+                                          "- libreoffice-of-its-own: â€¢ second bullet",
+                                          "- libreoffice-of-its-own: â€¢ third bullet, back at the outer level",
+                                          "- libreoffice-of-its-own: â—¦ nested bullet",
+                                          "- libreoffice-of-its-own: â—¦ second nested bullet"
+                                      ],
+                      "diagnostics":  [
+
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/guides/cli.md",
+                      "why":  "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice\u0027s plain-text export writes a list marker into the text - \u0027* first bullet\u0027 - and this component\u0027s does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection\u0027s two visible choices and names this as one of them.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "lists-nested",
+                      "via":  "rtf",
+                      "check":  "text",
+                      "differences":  [
+                                          "+ libreoffice: 1. nested ordered one",
+                                          "+ libreoffice: 1. ordered one",
+                                          "+ libreoffice: 2. nested ordered two",
+                                          "+ libreoffice: 2. ordered two",
+                                          "+ libreoffice: â€¢ first bullet",
+                                          "+ libreoffice: â€¢ second bullet",
+                                          "+ libreoffice: â€¢ third bullet, back at the outer level",
+                                          "+ libreoffice: â—¦ nested bullet",
+                                          "+ libreoffice: â—¦ second nested bullet",
+                                          "- broilerdoc: first bullet",
+                                          "- broilerdoc: nested bullet",
+                                          "- broilerdoc: nested ordered one",
+                                          "- broilerdoc: nested ordered two",
+                                          "- broilerdoc: ordered one",
+                                          "- broilerdoc: ordered two",
+                                          "- broilerdoc: second bullet",
+                                          "- broilerdoc: second nested bullet",
+                                          "- broilerdoc: third bullet, back at the outer level"
+                                      ],
+                      "diagnostics":  [
+
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/guides/cli.md",
+                      "why":  "A projection difference rather than a loss, and both projections are right about the same document. LibreOffice\u0027s plain-text export writes a list marker into the text - \u0027* first bullet\u0027 - and this component\u0027s does not, because the bullet is a property of the paragraph rather than a character in it. Both readers saw the same list: the kind and the depth are in dump --as outline and dump --as json, which is where they are readable and comparable. docs/guides/cli.md states the projection\u0027s two visible choices and names this as one of them.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "table-simple",
+                      "via":  "html",
+                      "check":  "text",
+                      "differences":  [
+
+                                      ],
+                      "diagnostics":  [
+                                          "html.css.rule"
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/notes/html.md",
+                      "why":  "Not a difference at all - the text projections agree, and the row exists only because the read raised html.css.rule. That is the codec reporting that it skipped a stylesheet rule whose selector it does not implement, which here is the \u0027td p\u0027 and \u0027th p\u0027 that LibreOffice writes for a table. Reporting it is the behaviour this component asks of a codec, so the row records a codec doing the right thing loudly. docs/notes/html.md states exactly which selector is matched and which are not, and why the line is drawn there.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "table-simple",
+                      "via":  "rtf",
+                      "check":  "interop",
+                      "differences":  [
+                                          "+ libreoffice-of-ours: cell a cell b",
+                                          "+ libreoffice-of-ours: cell c cell d",
+                                          "+ libreoffice-of-ours: head a head b",
+                                          "- libreoffice-of-its-own: cell a",
+                                          "- libreoffice-of-its-own: cell b",
+                                          "- libreoffice-of-its-own: cell c",
+                                          "- libreoffice-of-its-own: cell d",
+                                          "- libreoffice-of-its-own: head a",
+                                          "- libreoffice-of-its-own: head b"
+                                      ],
+                      "diagnostics":  [
+
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/guides/cli.md",
+                      "why":  "The same kind of difference, in the other place docs/guides/cli.md names. LibreOffice\u0027s text export joins a table row onto one line - \u0027cell a cell b\u0027 - and this component\u0027s gives each cell its own line, in row order, because that is how the model holds a table once it is flattened and a joined row would invent a column separator the document never stated. Neither reader lost a cell.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  },
+                  {
+                      "seed":  "table-simple",
+                      "via":  "rtf",
+                      "check":  "text",
+                      "differences":  [
+                                          "+ libreoffice: cell a",
+                                          "+ libreoffice: cell b",
+                                          "+ libreoffice: cell c",
+                                          "+ libreoffice: cell d",
+                                          "+ libreoffice: head a",
+                                          "+ libreoffice: head b",
+                                          "- broilerdoc: cell a cell b",
+                                          "- broilerdoc: cell c cell d",
+                                          "- broilerdoc: head a head b"
+                                      ],
+                      "diagnostics":  [
+
+                                      ],
+                      "state":  "documented",
+                      "reference":  "docs/guides/cli.md",
+                      "why":  "The same kind of difference, in the other place docs/guides/cli.md names. LibreOffice\u0027s text export joins a table row onto one line - \u0027cell a cell b\u0027 - and this component\u0027s gives each cell its own line, in row order, because that is how the model holds a table once it is flattened and a joined row would invent a column separator the document never stated. Neither reader lost a cell.",
+                      "reviewer":  "Claude Opus 5, on the first office baseline",
+                      "decided":  "2026-09-06"
+                  }
+              ],
+    "renders":  [
+                    {
+                        "seed":  "alignment-and-indent",
+                        "via":  "docx",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "fair",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  32,
+                                         "inkProfileSimilarity":  0.9348997347131832,
+                                         "coverageDelta":  0.00022126906318082826,
+                                         "blurDiffRatio":  0.028554540503069915
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "alignment-and-indent",
+                        "via":  "html",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "exact",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  27,
+                                         "inkProfileSimilarity":  0.9981822190451433,
+                                         "coverageDelta":  8.9745494157258965E-05,
+                                         "blurDiffRatio":  0.0065230532448669705
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "alignment-and-indent",
+                        "via":  "rtf",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "exact",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  27,
+                                         "inkProfileSimilarity":  0.9981135540435433,
+                                         "coverageDelta":  0.00022900574371162614,
+                                         "blurDiffRatio":  0.00645239156268568
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "headings-and-outline",
+                        "via":  "docx",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "poor",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  25,
+                                         "inkProfileSimilarity":  0.8882871639023141,
+                                         "coverageDelta":  0.00036310820624546256,
+                                         "blurDiffRatio":  0.03633145177262824
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "headings-and-outline",
+                        "via":  "html",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "poor",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "heavy"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  25,
+                                         "inkProfileSimilarity":  0.8254762175999522,
+                                         "coverageDelta":  0.001226521753482538,
+                                         "blurDiffRatio":  0.05071394087938206
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "headings-and-outline",
+                        "via":  "odt",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "poor",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "heavy"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  25,
+                                         "inkProfileSimilarity":  0.8122815213380123,
+                                         "coverageDelta":  0.0003373192711428018,
+                                         "blurDiffRatio":  0.05167328926520103
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "headings-and-outline",
+                        "via":  "rtf",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "poor",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "heavy"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  25,
+                                         "inkProfileSimilarity":  0.8120735612948622,
+                                         "coverageDelta":  0.0004554325939129869,
+                                         "blurDiffRatio":  0.0517805712352281
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "letterhead-frames",
+                        "via":  "html",
+                        "pageCount":  {
+                                          "broilerdoc":  2,
+                                          "libreoffice":  2
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "loose",
+                                      "inkProfile":  "poor",
+                                      "coverage":  "close",
+                                      "blurDiff":  "heavy"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  87,
+                                         "inkProfileSimilarity":  0.6380578711293101,
+                                         "coverageDelta":  0.0025483086729250065,
+                                         "blurDiffRatio":  0.05184070552899717
+                                     },
+                        "state":  "documented",
+                        "reference":  "docs/notes/html.md",
+                        "why":  "LibreOffice cannot write a frame into HTML, so it flattens both of this seed\u0027s frames to GIF files beside the document; the reader never fetches an external resource and says so with html.skip.external, which docs/notes/html.md states in both directions. The \u003cdiv title=\"header\"\u003e container is now recognized and extracted into RunningContent rather than leaking into body content. What remains is the skipped external frame GIFs and absent @page geometry in LibreOffice\u0027s HTML export.",
+                        "reviewer":  "Claude Opus 5, on the letterhead and line-break seeds",
+                        "decided":  "2026-10-19"
+                    },
+                    {
+                        "seed":  "letterhead-frames",
+                        "via":  "rtf",
+                        "pageCount":  {
+                                          "broilerdoc":  2,
+                                          "libreoffice":  2
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "wild",
+                                      "inkProfile":  "fair",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "heavy"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  1175,
+                                         "inkProfileSimilarity":  0.967587773703944,
+                                         "coverageDelta":  0.001560746352413019,
+                                         "blurDiffRatio":  0.060676206509539844
+                                     },
+                        "state":  "documented",
+                        "reference":  "docs/notes/rtf.md",
+                        "why":  "A disagreement rather than a defect, and the one place in this corpus where following the format costs a band. \\titlepg is read now, so this component draws no footer on the first page of a section that states one and names no \\footerf - which is what Word does. LibreOffice draws the default footer there, and the 1193 px is the whole of the difference: it inks the bottom of page one and this component inks nothing below the third line. Matching LibreOffice would have been the cheaper number and the worse answer, because its own DOCX importer honours the same flag the Word way - agreeing with it here would have made this component disagree with itself across two of its own readers. The stray page number the text and interop rows recorded is gone: a field result belongs to the destination the field is in. What the profile still reads is the gradient, which runs left to right here where ODT and DOCX now run it down the page - LibreOffice writes no fillAngle into its RTF at all and renders its own file bottom-to-top, so no reading of that document agrees with all three of the source, the oracle and the other two targets.",
+                        "reviewer":  "Claude Opus 5, on the reader fixes the letterhead seed found",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "lists-nested",
+                        "via":  "docx",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "fair",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  10,
+                                         "inkProfileSimilarity":  0.9299729506121652,
+                                         "coverageDelta":  8.3556149732620655E-05,
+                                         "blurDiffRatio":  0.02358398115138311
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "lists-nested",
+                        "via":  "html",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "tight",
+                                      "inkProfile":  "exact",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  1,
+                                         "inkProfileSimilarity":  0.9994216656255881,
+                                         "coverageDelta":  9.3355945071631023E-05,
+                                         "blurDiffRatio":  0.007201818016768997
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "lists-nested",
+                        "via":  "rtf",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "poor",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  31,
+                                         "inkProfileSimilarity":  0.7495232057624513,
+                                         "coverageDelta":  0.00031101455733808635,
+                                         "blurDiffRatio":  0.029675327622631545
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "long-flow-multipage",
+                        "via":  "rtf",
+                        "pageCount":  {
+                                          "broilerdoc":  6,
+                                          "libreoffice":  6
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "tight",
+                                      "inkProfile":  "exact",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  1,
+                                         "inkProfileSimilarity":  0.9996186298956259,
+                                         "coverageDelta":  0.0016711229946523992,
+                                         "blurDiffRatio":  0.018166757443718227
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "non-latin-text",
+                        "via":  "docx",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "poor",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  31,
+                                         "inkProfileSimilarity":  0.8921967336208617,
+                                         "coverageDelta":  0.0012533422459893046,
+                                         "blurDiffRatio":  0.04444671387073348
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "non-latin-text",
+                        "via":  "html",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "poor",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  31,
+                                         "inkProfileSimilarity":  0.8965196888070252,
+                                         "coverageDelta":  0.0013394772892321907,
+                                         "blurDiffRatio":  0.04437502063114808
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "non-latin-text",
+                        "via":  "odt",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "poor",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  31,
+                                         "inkProfileSimilarity":  0.892164900073304,
+                                         "coverageDelta":  0.0012456055654585067,
+                                         "blurDiffRatio":  0.04443691407539447
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "non-latin-text",
+                        "via":  "rtf",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "loose",
+                                      "inkProfile":  "poor",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  33,
+                                         "inkProfileSimilarity":  0.8736684703509873,
+                                         "coverageDelta":  0.001140902488941704,
+                                         "blurDiffRatio":  0.03986917789001122
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "table-simple",
+                        "via":  "docx",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "tight",
+                                      "inkProfile":  "close",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "clean"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  2,
+                                         "inkProfileSimilarity":  0.9948812215692237,
+                                         "coverageDelta":  0.00045801148742325186,
+                                         "blurDiffRatio":  0.0032638476265927246
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    },
+                    {
+                        "seed":  "table-simple",
+                        "via":  "html",
+                        "pageCount":  {
+                                          "broilerdoc":  1,
+                                          "libreoffice":  1
+                                      },
+                        "worstPage":  1,
+                        "bands":  {
+                                      "geometry":  "match",
+                                      "inkBox":  "near",
+                                      "inkProfile":  "fair",
+                                      "coverage":  "exact",
+                                      "blurDiff":  "light"
+                                  },
+                        "observed":  {
+                                         "inkBoxDeltaPx":  30,
+                                         "inkProfileSimilarity":  0.900145323640209,
+                                         "coverageDelta":  0.0006091346471248432,
+                                         "blurDiffRatio":  0.009641967056182742
+                                     },
+                        "state":  "accepted",
+                        "reference":  null,
+                        "why":  "Two independent layout engines drawing one document, which is what this axis measures and never expected to be identical. The bands are what the row asserts; the numbers beside them are for a reader and for hysteresis. Recorded from the first run on the pinned toolchain as the state of the two engines on this date, so a later run that moves is a change somebody can point at rather than a number nobody had.",
+                        "reviewer":  "Claude Opus 5, on the first office baseline",
+                        "decided":  "2026-09-06"
+                    }
+                ]
 }

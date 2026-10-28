@@ -68,7 +68,7 @@ public sealed class PdfShapeRenderTests
         var document = RichTextDocument.Empty.WithPageBackground(ShapeFill.Solid(BColor.Empty) with
             { Image = new ImageFill(new InlineImage(new byte[] { 1 }, "image/png", 12, 12)) });
         using var stream = new MemoryStream();
-        var result = new PdfDocumentCodec().WritePdf(document, stream);
+        var result = new PdfDocumentCodec().WritePdf(document, stream, cancellationToken: TestContext.Current.CancellationToken);
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == PdfDiagnosticCodes.WriteFeatureUnsupported);
     }
 

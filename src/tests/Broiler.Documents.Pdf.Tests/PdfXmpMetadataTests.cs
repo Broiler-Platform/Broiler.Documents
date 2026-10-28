@@ -22,7 +22,7 @@ public sealed class PdfXmpMetadataTests
     }
 
     private static DocumentDiagnostic Only(PdfReadResult result, string code) =>
-        Assert.Single(result.Diagnostics.Where(d => d.Code == code));
+        Assert.Single(result.Diagnostics, d => d.Code == code);
 
     // ---- XMP supplies the normalized fields -----------------------------------
 

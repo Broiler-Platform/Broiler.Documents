@@ -141,7 +141,7 @@ public sealed class PdfType3FontTests
     }
 
     private static DocumentDiagnostic Only(PdfReadResult result, string code) =>
-        Assert.Single(result.Diagnostics.Where(d => d.Code == code));
+        Assert.Single(result.Diagnostics, d => d.Code == code);
 
     private static string Text(PdfReadResult result) =>
         string.Join("\n", result.Document.Paragraphs.Select(p => p.Text));

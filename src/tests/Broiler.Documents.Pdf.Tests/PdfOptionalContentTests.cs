@@ -214,7 +214,7 @@ public sealed class PdfOptionalContentTests
     }
 
     private static DocumentDiagnostic Only(PdfReadResult result, string code) =>
-        Assert.Single(result.Diagnostics.Where(d => d.Code == code));
+        Assert.Single(result.Diagnostics, d => d.Code == code);
 
     private static string Text(PdfReadResult result) =>
         string.Join("\n", result.Document.Paragraphs.Select(p => p.Text));
@@ -271,7 +271,7 @@ public sealed class PdfOptionalContentTests
             "<< /Type /Annot /Subtype /Redact /Rect [70 690 200 710] /OC 4 0 R >>"));
 
         DocumentDiagnostic redaction = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.RedactionNotApplied));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.RedactionNotApplied);
         Assert.Equal(DocumentDiagnosticSeverity.Error, redaction.Severity);
     }
 

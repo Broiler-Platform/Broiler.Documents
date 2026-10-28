@@ -74,15 +74,15 @@ public sealed class DocumentWriteCommitPolicyTests
     {
         using var stream = new MemoryStream();
 
-        var direct = DocumentWriteRequest.Direct(SampleDocument, stream);
+        var direct = DocumentWriteRequest.Direct(SampleDocument, stream, cancellationToken: TestContext.Current.CancellationToken);
         Assert.False(direct.RequireAtomic);
         Assert.False(direct.IsStaged);
 
-        var stagedDefault = DocumentWriteRequest.Staged(SampleDocument, stream);
+        var stagedDefault = DocumentWriteRequest.Staged(SampleDocument, stream, cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(stagedDefault.RequireAtomic);
         Assert.True(stagedDefault.IsStaged);
 
-        var stagedNonAtomic = DocumentWriteRequest.Staged(SampleDocument, stream, requireAtomic: false);
+        var stagedNonAtomic = DocumentWriteRequest.Staged(SampleDocument, stream, requireAtomic: false, cancellationToken: TestContext.Current.CancellationToken);
         Assert.False(stagedNonAtomic.RequireAtomic);
         Assert.True(stagedNonAtomic.IsStaged);
     }
@@ -135,7 +135,7 @@ public sealed class DocumentWriteCommitPolicyTests
         var codec = new TestWritableCodec();
         using var destination = new MemoryStream();
 
-        var request = DocumentWriteRequest.Staged(SampleDocument, destination);
+        var request = DocumentWriteRequest.Staged(SampleDocument, destination, cancellationToken: TestContext.Current.CancellationToken);
 
         DocumentWriteResult result = codec.Write(request);
 
@@ -151,7 +151,7 @@ public sealed class DocumentWriteCommitPolicyTests
         var codec = new TestWritableCodec();
         using var destination = new MemoryStream();
 
-        var request = DocumentWriteRequest.Direct(SampleDocument, destination);
+        var request = DocumentWriteRequest.Direct(SampleDocument, destination, cancellationToken: TestContext.Current.CancellationToken);
 
         DocumentWriteResult result = codec.Write(request);
 
@@ -223,7 +223,7 @@ public sealed class DocumentWriteCommitPolicyTests
                 var codec = new TestWritableCodec();
                 using (var stageStream = new FileStream(stagePath, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
-                    var request = DocumentWriteRequest.Staged(SampleDocument, stageStream);
+                    var request = DocumentWriteRequest.Staged(SampleDocument, stageStream, cancellationToken: TestContext.Current.CancellationToken);
                     DocumentWriteResult result = codec.Write(request);
                     Assert.Equal(DocumentResultStatus.Success, result.Status);
                 }

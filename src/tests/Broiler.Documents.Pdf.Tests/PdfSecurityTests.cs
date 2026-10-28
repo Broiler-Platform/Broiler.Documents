@@ -203,8 +203,8 @@ public sealed class PdfSecurityTests
         using var b = new MemoryStream(pdf);
 
         Assert.Equal(
-            first.ReadPdf(a).Document.PlainText,
-            second.ReadPdf(b).Document.PlainText);
+            first.ReadPdf(a, cancellationToken: TestContext.Current.CancellationToken).Document.PlainText,
+            second.ReadPdf(b, cancellationToken: TestContext.Current.CancellationToken).Document.PlainText);
     }
 
     private static byte[] Deflate(byte[] data)

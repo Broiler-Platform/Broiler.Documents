@@ -2006,6 +2006,19 @@ public static class OdtWriter
                     new XAttribute(OdtNamespaces.Fo + "margin-bottom", "0pt")));
         }
 
+        XElement? footerStyle = null;
+        if (geometry is { IsUsable: true } && runningParts.Any(part =>
+            part.Name == OdtNamespaces.Style + "footer" || part.Name == OdtNamespaces.Style + "footer-left" ||
+            part.Name == OdtNamespaces.Style + "footer-first"))
+        {
+            double distance = double.IsFinite(geometry.FooterDistance) ? Math.Max(0, geometry.FooterDistance) : 0;
+            pageProperties.SetAttributeValue(OdtNamespaces.Fo + "margin-bottom", OdtUnits.FormatPoints(distance));
+            footerStyle = new XElement(OdtNamespaces.Style + "footer-style",
+                new XElement(OdtNamespaces.Style + "header-footer-properties",
+                    new XAttribute(OdtNamespaces.Fo + "min-height", OdtUnits.FormatPoints(Math.Max(0, geometry.MarginBottom - distance))),
+                    new XAttribute(OdtNamespaces.Fo + "margin-top", "0pt")));
+        }
+
         var root = new XElement(
             OdtNamespaces.Office + "document-styles",
             new XAttribute(XNamespace.Xmlns + "office", OdtNamespaces.Office.NamespaceName),
@@ -2033,7 +2046,7 @@ public static class OdtWriter
                 new XElement(
                     OdtNamespaces.Style + "page-layout",
                     new XAttribute(OdtNamespaces.Style + "name", "pm1"),
-                    pageProperties, headerStyle),
+                    pageProperties, headerStyle, footerStyle),
                 // A header lives in this part, and a style reference only resolves
                 // within the part that carries it. Without these the footer's
                 // paragraphs name styles that exist in content.xml alone, and a

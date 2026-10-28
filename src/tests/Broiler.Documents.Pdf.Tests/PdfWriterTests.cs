@@ -349,7 +349,7 @@ public sealed partial class PdfWriterTests
     {
         using var failing = new FailingStream();
         PdfWriteResult result = new PdfDocumentCodec()
-            .WritePdf(RichTextDocument.FromPlainText("Doomed."), failing);
+            .WritePdf(RichTextDocument.FromPlainText("Doomed."), failing, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(DocumentResultStatus.Rejected, result.Status);
         Assert.Equal(DocumentDestinationState.PartialDestination, result.DestinationState);

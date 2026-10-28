@@ -77,7 +77,7 @@ public sealed class CsvProbeTests
         byte[] bytes = Encoding.UTF8.GetBytes("1. Quartal;100\n2. Quartal;200\n");
 
         DocumentCodecSelection selection = catalog.SelectAndRead(
-            DocumentInput.FromBytes(bytes), hints: new DocumentSourceHints("umsatz.csv"));
+            DocumentInput.FromBytes(bytes), hints: new DocumentSourceHints("umsatz.csv"), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("CSV", selection.Codec?.Name);
         Assert.Equal([["1. Quartal", "100"], ["2. Quartal", "200"]], CsvFixtures.Grid(selection.Result.Document));

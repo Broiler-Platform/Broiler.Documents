@@ -186,7 +186,7 @@ public sealed class PdfLzwTests
             $"/Resources << /Font << /F1 {font} 0 R >> >> /Contents {content} 0 R >>");
 
         using var stream = new MemoryStream(builder.Build(catalog));
-        PdfReadResult result = new PdfDocumentCodec().ReadPdf(stream, null);
+        PdfReadResult result = new PdfDocumentCodec().ReadPdf(stream, null, TestContext.Current.CancellationToken);
 
         Assert.Contains("Compressed with LZW", result.Document.PlainText, StringComparison.Ordinal);
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.FilterLzwUnsupported);

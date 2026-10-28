@@ -36,7 +36,7 @@ public sealed class PdfComposedImageTests
     }
 
     private static DocumentDiagnostic Only(PdfReadResult result, string code) =>
-        Assert.Single(result.Diagnostics.Where(d => d.Code == code));
+        Assert.Single(result.Diagnostics, d => d.Code == code);
 
     [Fact]
     public void Without_The_Filter_The_Image_Is_Reported_As_An_Unsupported_Tuple()

@@ -39,7 +39,7 @@ internal static class PdfGuardRoots
     /// </summary>
     internal static string RequireAggregate()
     {
-        Skip.If(Aggregate is null,
+        Assert.SkipWhen(Aggregate is null,
             "The application heads (src/Broiler.Writer.*) are not in this " +
             "checkout. This guard runs in the aggregate repository, where they live.");
 

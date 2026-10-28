@@ -78,7 +78,7 @@ public sealed class PdfTableContinuationTests
     public void The_Diagnostic_Says_A_Table_Was_Joined()
     {
         DocumentDiagnostic note = Assert.Single(
-            Read(Continued()).Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.TableReconstructed));
+            Read(Continued()).Diagnostics, d => d.Code == PdfDiagnosticCodes.TableReconstructed);
 
         Assert.Contains("continued a table from the page before", note.Message, StringComparison.Ordinal);
     }

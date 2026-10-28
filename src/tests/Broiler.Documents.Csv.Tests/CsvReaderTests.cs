@@ -336,7 +336,7 @@ public sealed class CsvReaderTests
     public void A_Request_Reads_Like_A_Stream()
     {
         DocumentReadResult result = new CsvDocumentCodec().Read(
-            DocumentReadRequest.FromBytes(Encoding.UTF8.GetBytes("a;b\nc;d\n"), new CsvReadOptions(hasHeaderRow: true)));
+            DocumentReadRequest.FromBytes(Encoding.UTF8.GetBytes("a;b\nc;d\n"), new CsvReadOptions(hasHeaderRow: true), cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Equal([["a", "b"], ["c", "d"]], Grid(result.Document));
         Assert.True(result.Document.Tables[0].Rows[0].IsHeader);

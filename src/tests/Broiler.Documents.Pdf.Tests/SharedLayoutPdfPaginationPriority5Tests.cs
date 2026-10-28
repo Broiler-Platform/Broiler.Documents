@@ -156,7 +156,7 @@ public sealed class SharedLayoutPdfPaginationPriority5Tests
         var options = new PdfWriteOptions(compressStreams: false).WithPaginatedArtifact(artifact);
 
         using var stream = new MemoryStream();
-        var result = PdfWriter.Write(doc, stream, options, PdfCodecServices.Base);
+        var result = PdfWriter.Write(doc, stream, options, PdfCodecServices.Base, TestContext.Current.CancellationToken);
 
         Assert.Equal(DocumentResultStatus.Success, result.Status);
         Assert.Equal(1, result.PageCount);
@@ -168,7 +168,7 @@ public sealed class SharedLayoutPdfPaginationPriority5Tests
         Assert.Contains("Sample Content", pdfAscii);
 
         // Also verify that PdfReader reads the document back
-        var readResult = PdfReader.Read(stream.ToArray(), PdfReadOptions.Default, PdfCodecServices.Base);
+        var readResult = PdfReader.Read(stream.ToArray(), PdfReadOptions.Default, PdfCodecServices.Base, TestContext.Current.CancellationToken);
         Assert.Equal(DocumentResultStatus.Success, readResult.Status);
         Assert.Equal(1, readResult.PageCount);
         Assert.Contains("Sample Content", readResult.Document.PlainText);
@@ -188,12 +188,12 @@ public sealed class SharedLayoutPdfPaginationPriority5Tests
         var options = new PdfWriteOptions(compressStreams: false).WithPaginatedArtifact(artifact);
 
         using var stream = new MemoryStream();
-        var result = PdfWriter.Write(doc, stream, options, PdfCodecServices.Base);
+        var result = PdfWriter.Write(doc, stream, options, PdfCodecServices.Base, TestContext.Current.CancellationToken);
 
         Assert.Equal(DocumentResultStatus.Success, result.Status);
         Assert.Equal(2, result.PageCount);
 
-        var readResult = PdfReader.Read(stream.ToArray(), PdfReadOptions.Default, PdfCodecServices.Base);
+        var readResult = PdfReader.Read(stream.ToArray(), PdfReadOptions.Default, PdfCodecServices.Base, TestContext.Current.CancellationToken);
         Assert.Equal(2, readResult.PageCount);
         Assert.Contains("Page One Line", readResult.Document.PlainText);
         Assert.Contains("Page Two Line", readResult.Document.PlainText);

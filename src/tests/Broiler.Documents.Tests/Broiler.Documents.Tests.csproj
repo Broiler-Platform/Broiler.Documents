@@ -11,18 +11,11 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <!--
-      Conditional skipping for the PDF guards that read the application heads.
-      Those heads live in the aggregate repository, so in a standalone checkout
-      there is nothing to inspect and the guard must report as skipped rather
-      than pass on an empty check. xUnit 2.x has no built-in runtime skip.
-    -->
-    <PackageReference Include="Xunit.SkippableFact" />
   </ItemGroup>
 
   <ItemGroup>

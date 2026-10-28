@@ -498,7 +498,7 @@ public sealed class PdfTextExtractionTests
         PdfReadResult result = ReadWithAnnotations(
             "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] /Dest (chapter-two) >>");
 
-        Assert.Single(result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.LinkDestinationDropped));
+        Assert.Single(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.LinkDestinationDropped);
         Assert.Empty(LinksOf(result));
         Assert.Equal(DocumentResultStatus.Partial, result.Status);
 
@@ -531,7 +531,7 @@ public sealed class PdfTextExtractionTests
         PdfReadResult result = ReadWithAnnotations(
             "<< /Type /Annot /Subtype /Link /Rect [70 715 140 735] " + destination + " >>");
 
-        Assert.Single(result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.LinkDestinationDropped));
+        Assert.Single(result.Diagnostics, d => d.Code == PdfDiagnosticCodes.LinkDestinationDropped);
         Assert.Empty(LinksOf(result));
     }
 
@@ -665,7 +665,7 @@ public sealed class PdfTextExtractionTests
             "<< /Type /Annot /Subtype /Redact /Rect [70 715 200 735] >>");
 
         DocumentDiagnostic redaction = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.RedactionNotApplied));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.RedactionNotApplied);
         Assert.Equal(DocumentDiagnosticSeverity.Error, redaction.Severity);
 
         // The page really is empty, and the fix must not pretend otherwise.
@@ -801,7 +801,7 @@ public sealed class PdfTextExtractionTests
         PdfReadResult result = Read(builder.Build(catalog));
 
         DocumentDiagnostic warning = Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.RedactionNotApplied));
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.RedactionNotApplied);
         Assert.Equal(DocumentDiagnosticSeverity.Error, warning.Severity);
 
         // The point of the warning: the covered text is still in the document.

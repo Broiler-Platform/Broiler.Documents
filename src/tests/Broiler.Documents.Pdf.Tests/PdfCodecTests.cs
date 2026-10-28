@@ -139,7 +139,7 @@ public sealed class PdfRoundTripTests
         Assert.NotEqual(DocumentResultStatus.Rejected, write.Status);
 
         buffer.Position = 0;
-        PdfReadResult read = codec.ReadPdf(buffer);
+        PdfReadResult read = codec.ReadPdf(buffer, cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotEqual(DocumentResultStatus.Rejected, read.Status);
         return read.Document;
     }
@@ -233,11 +233,11 @@ public sealed class PdfRoundTripTests
 
         var codec = new PdfDocumentCodec();
         using var buffer = new MemoryStream();
-        PdfWriteResult write = codec.WritePdf(RichTextDocument.FromParagraphs(paragraphs), buffer);
+        PdfWriteResult write = codec.WritePdf(RichTextDocument.FromParagraphs(paragraphs), buffer, cancellationToken: TestContext.Current.CancellationToken);
         Assert.True(write.PageCount > 1);
 
         buffer.Position = 0;
-        PdfReadResult read = codec.ReadPdf(buffer);
+        PdfReadResult read = codec.ReadPdf(buffer, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(write.PageCount, read.PageCount);
         Assert.Contains("Paragraph number 0 ", read.Document.PlainText);

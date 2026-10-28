@@ -89,7 +89,7 @@ public sealed class FormatCodeInsertPaletteTests
                 ParagraphStyle.Default with { PageBreakBefore = true })]);
 
         FormatCodeToken drawn = Assert.Single(
-            FormatCodeProjector.Project(document).Tokens,
+            FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken).Tokens,
             token => token.DisplayText == "[Page Break]");
 
         var removal = Assert.IsType<ApplyFormatCodeParagraphIntent>(drawn.EditDescriptor?.RemovalIntent);

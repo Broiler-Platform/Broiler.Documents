@@ -21,7 +21,7 @@ public sealed class PdfDiagnosticDetailTests
     }
 
     private static DocumentDiagnostic Only(PdfReadResult result, string code) =>
-        Assert.Single(result.Diagnostics.Where(d => d.Code == code));
+        Assert.Single(result.Diagnostics, d => d.Code == code);
 
     /// <summary>Every image that reached the document.</summary>
     private static List<InlineImage> ImagesIn(PdfReadResult result)

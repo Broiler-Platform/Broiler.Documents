@@ -284,7 +284,7 @@ layout are covered; this does not claim identical exported clipping.
   writes `Standard` carrying its own default paper and `HTML` carrying the page
   the source asked for, and lays the body out on the second. The header and
   footer are read from the same master page as the paper, because a Letter header
-  on an A4 page is not a thing any document said.
+  on an A4 page is not a thing any document said. `style:header-style` and `style:footer-style` inside `style:page-layout-properties` contribute their height and spacing (`fo:min-height`, `fo:margin-bottom`, `fo:margin-top`) to `PageGeometry.MarginBottom`, `MarginTop`, and band distances, and the writer emits matching styles symmetrically. Header/footer paragraphs anchoring drawings or shapes are retained even when empty of text, so anchored frames remain attached to their running band.
 - The text columns the same page layout divides its page into:
   `style:columns`' `fo:column-count`, and `fo:column-gap` or, when a producer
   lists the columns instead, the end indent of the first and the start indent of

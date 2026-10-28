@@ -213,15 +213,20 @@ public static class FontMetadataReader
 
             BFontEmbeddingRights embeddingRights = BFontEmbeddingRights.FromFsType(fsType);
 
+            bool useTypoMetrics = (fsSelection & 0x0080) != 0;
+            int layoutAscender = useTypoMetrics && typoAscender != 0 ? typoAscender : (hheaAscender != 0 ? hheaAscender : typoAscender);
+            int layoutDescender = useTypoMetrics && typoDescender != 0 ? typoDescender : (hheaDescender != 0 ? hheaDescender : typoDescender);
+            int layoutLineGap = useTypoMetrics ? Math.Max(0, typoLineGap) : Math.Max(0, hheaLineGap);
+
             return new FontMetadataInfo(
                 Family: family,
                 Subfamily: subfamily,
                 FullName: fullName,
                 PostScriptName: postScriptName,
                 UnitsPerEm: unitsPerEm,
-                TypographicAscender: typoAscender != 0 ? typoAscender : hheaAscender,
-                TypographicDescender: typoDescender != 0 ? typoDescender : hheaDescender,
-                TypographicLineGap: typoLineGap >= 0 ? typoLineGap : hheaLineGap,
+                TypographicAscender: layoutAscender,
+                TypographicDescender: layoutDescender,
+                TypographicLineGap: layoutLineGap,
                 WinAscent: winAscent,
                 WinDescent: winDescent,
                 CapHeight: capHeight > 0 ? capHeight : (int)(unitsPerEm * 0.7),
@@ -303,6 +308,12 @@ public static class FontMetadataReader
         string? legacySubfamily = null;
         string? typoFamily = null;
         string? typoSubfamily = null;
+        bool hasWinLegacyFamily = false;
+        bool hasWinLegacySubfamily = false;
+        bool hasWinFullName = false;
+        bool hasWinPostScriptName = false;
+        bool hasWinTypoFamily = false;
+        bool hasWinTypoSubfamily = false;
 
         for (int i = 0; i < count; i++)
         {
@@ -313,7 +324,7 @@ public static class FontMetadataReader
             stream.Position = recordPos;
             ushort platformId = ReadUInt16BigEndian(reader);
             ushort encodingId = ReadUInt16BigEndian(reader);
-            _ = ReadUInt16BigEndian(reader); // languageID
+            ushort languageId = ReadUInt16BigEndian(reader);
             ushort nameId = ReadUInt16BigEndian(reader);
             ushort length = ReadUInt16BigEndian(reader);
             ushort offset = ReadUInt16BigEndian(reader);
@@ -331,14 +342,52 @@ public static class FontMetadataReader
             if (string.IsNullOrWhiteSpace(value))
                 continue;
 
+            bool isPreferred = (platformId == 3 && (languageId == 0x0409 || encodingId == 1)) || platformId == 0;
+
             switch (nameId)
             {
-                case 1: legacyFamily ??= value; break;
-                case 2: legacySubfamily ??= value; break;
-                case 4: fullName ??= value; break;
-                case 6: postScriptName ??= value; break;
-                case 16: typoFamily ??= value; break;
-                case 17: typoSubfamily ??= value; break;
+                case 1:
+                    if (legacyFamily is null || (isPreferred && !hasWinLegacyFamily))
+                    {
+                        legacyFamily = value;
+                        hasWinLegacyFamily |= isPreferred;
+                    }
+                    break;
+                case 2:
+                    if (legacySubfamily is null || (isPreferred && !hasWinLegacySubfamily))
+                    {
+                        legacySubfamily = value;
+                        hasWinLegacySubfamily |= isPreferred;
+                    }
+                    break;
+                case 4:
+                    if (fullName is null || (isPreferred && !hasWinFullName))
+                    {
+                        fullName = value;
+                        hasWinFullName |= isPreferred;
+                    }
+                    break;
+                case 6:
+                    if (postScriptName is null || (isPreferred && !hasWinPostScriptName))
+                    {
+                        postScriptName = value;
+                        hasWinPostScriptName |= isPreferred;
+                    }
+                    break;
+                case 16:
+                    if (typoFamily is null || (isPreferred && !hasWinTypoFamily))
+                    {
+                        typoFamily = value;
+                        hasWinTypoFamily |= isPreferred;
+                    }
+                    break;
+                case 17:
+                    if (typoSubfamily is null || (isPreferred && !hasWinTypoSubfamily))
+                    {
+                        typoSubfamily = value;
+                        hasWinTypoSubfamily |= isPreferred;
+                    }
+                    break;
             }
         }
 

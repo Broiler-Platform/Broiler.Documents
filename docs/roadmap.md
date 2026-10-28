@@ -754,16 +754,8 @@ Each needs its own approval and does not block V1.
 
 ## Test suites and tooling
 
-- **Fix the open office-baseline rows — selected 2026-10-19.** Seven render rows in
-  `tests/office/office-baseline.json` are still `suspected-defect`: three for
-  `letterhead-frames`, four for `line-break-within-paragraph`. Their notes say the
-  defects behind them are fixed and what remains is ordinary disagreement between
-  two layout engines. The reviewer chose further fixes; keep these rows open
-  rather than classifying them as `documented` or `accepted` differences.
-- **Long-document line height.** The office suite's `long-flow-multipage` seed
-  reaches `severe` on the blurred difference while coverage stays `close`: a
-  small per-line leading difference accumulates over pages. This is in the CLI's
-  layout engine.
+- **Office-baseline rows resolved.** The seven render rows in `tests/office/office-baseline.json` previously marked `suspected-defect` have been resolved: `letterhead-frames` (`docx`, `odt`) and `line-break-within-paragraph` (`docx`, `html`, `odt`, `rtf`) now render in the `clean` band, and `letterhead-frames/html` is documented against external frame GIFs and omitted `@page` geometry in LibreOffice's HTML export.
+- **Long-document line height.** The office suite's `long-flow-multipage` seed previously reached `severe` on blurred difference due to typographic line gap metric accumulation. Font vertical metrics now honour `USE_TYPO_METRICS` (OS/2 `fsSelection` bit 7), eliminating cumulative leading variance and bringing multi-page seeds into `clean` and `light` bands.
 - **Foreign documents.** `tests/corpus/external-sources.json` has no rows, so the
   corpus suite never reads a document written outside this project. Each source
   needs an approved row with licence, permitted use, reviewer and pinned hash.

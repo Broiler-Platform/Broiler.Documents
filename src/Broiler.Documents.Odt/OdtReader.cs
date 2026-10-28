@@ -647,6 +647,7 @@ internal static class OdtReader
         double Margin(string side) => OdtUnits.TryParseLength(
             (string?)properties.Attribute(OdtNamespaces.Fo + side), out double value) ? value : uniformMargin;
         double outerTop = Margin("margin-top");
+        double outerBottom = Margin("margin-bottom");
         bool hasHeader = master?.Elements().Any(element =>
             (element.Name == OdtNamespaces.Style + "header" || element.Name == OdtNamespaces.Style + "header-left" ||
              element.Name == OdtNamespaces.Style + "header-first") &&
@@ -654,15 +655,24 @@ internal static class OdtReader
         XElement? header = properties.Parent?.Element(OdtNamespaces.Style + "header-style")
             ?.Element(OdtNamespaces.Style + "header-footer-properties");
         double headerHeight = hasHeader && header is not null
-            ? Math.Max(Length(header, "height"), Length(header, "min-height")) : 0;
+            ? Math.Max(Length(header, "height"), Length(header, "min-height")) + Math.Max(0, Length(header, "margin-bottom")) : 0;
+        bool hasFooter = master?.Elements().Any(element =>
+            (element.Name == OdtNamespaces.Style + "footer" || element.Name == OdtNamespaces.Style + "footer-left" ||
+             element.Name == OdtNamespaces.Style + "footer-first") &&
+            (string?)element.Attribute(OdtNamespaces.Style + "display") != "false") == true;
+        XElement? footer = properties.Parent?.Element(OdtNamespaces.Style + "footer-style")
+            ?.Element(OdtNamespaces.Style + "header-footer-properties");
+        double footerHeight = hasFooter && footer is not null
+            ? Math.Max(Length(footer, "height"), Length(footer, "min-height")) + Math.Max(0, Length(footer, "margin-top")) : 0;
         var geometry = new PageGeometry(
             width,
             height,
             Margin("margin-left"),
             Margin("margin-right"),
             outerTop + Math.Max(0, headerHeight),
-            Margin("margin-bottom"),
-            HeaderDistance: hasHeader ? Math.Max(0, outerTop) : 0);
+            outerBottom + Math.Max(0, footerHeight),
+            HeaderDistance: hasHeader ? Math.Max(0, outerTop) : 0,
+            FooterDistance: hasFooter ? Math.Max(0, outerBottom) : 0);
 
         if (geometry.IsUsable)
             return ReadColumns(properties, geometry, diagnostics);
@@ -1381,7 +1391,7 @@ internal static class OdtReader
 
         RichTextDocument built = builder.Build();
         IReadOnlyList<RichTextParagraph> paragraphs = built.Paragraphs;
-        if (paragraphs.Count == 1 && paragraphs[0].Length == 0)
+        if (paragraphs.Count == 1 && paragraphs[0].Length == 0 && built.Shapes.Count == 0)
             paragraphs = [];
 
         return (paragraphs, built.Shapes);

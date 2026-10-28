@@ -1630,7 +1630,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         if (headerDistance is double fromTop && double.IsFinite(fromTop) && fromTop >= 0)
         {
-            double header = RunningHeight(_running.EffectiveHeader(selection), setup, left, width);
+            IReadOnlyList<RichTextParagraph> headerParagraphs = _running.EffectiveHeader(selection);
+            if (headerParagraphs.Count == 0 && _running.HasAnyHeader && fromTop >= top)
+                headerParagraphs = [RichTextParagraph.Empty];
+            double header = RunningHeight(headerParagraphs, setup, left, width);
             double overrun = fromTop + header - top;
             if (header > 0 && overrun > 0 && overrun <= (bottom - top) / 2)
                 top += overrun;
@@ -3500,11 +3503,6 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     private (double Ascent, double Descent, double LineGap) VerticalMetrics(BFontStyle font)
     {
-        if (_settings.TextMeasurer is not null)
-        {
-            return _settings.TextMeasurer.GetVerticalMetrics(font);
-        }
-
         double lineGap = _settings.FontLineGap?.Invoke(font) is double gap && double.IsFinite(gap) && gap >= 0
             ? gap
             : 0;
@@ -3512,6 +3510,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             double.IsFinite(metrics.Ascent) && double.IsFinite(metrics.Descent) &&
             metrics.Ascent > 0 && metrics.Descent >= 0 && double.IsFinite(metrics.Ascent + metrics.Descent))
             return (metrics.Ascent, metrics.Descent, lineGap);
+
+        if (_settings.TextMeasurer is not null)
+        {
+            var measured = _settings.TextMeasurer.GetVerticalMetrics(font);
+            if (double.IsFinite(measured.Ascent) && double.IsFinite(measured.Descent) &&
+                measured.Ascent > 0 && measured.Descent >= 0 && double.IsFinite(measured.Ascent + measured.Descent))
+            {
+                double mGap = double.IsFinite(measured.LineGap) && measured.LineGap >= 0 ? measured.LineGap : 0;
+                return (measured.Ascent, measured.Descent, mGap);
+            }
+        }
         double ascent = font.Size * 0.8;
         return (ascent, Math.Max(0, BTextMeasurer.GetLineHeight(font) - ascent), 0);
     }

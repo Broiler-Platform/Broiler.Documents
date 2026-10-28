@@ -808,7 +808,7 @@ public sealed class PdfImageProjectionTests
     {
         Assert.Empty(ImagesIn(result));
         return Assert.Single(
-            result.Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected)).Message;
+            result.Diagnostics, d => d.Code == PdfDiagnosticCodes.ImageDecodedNotProjected).Message;
     }
 
     private static List<InlineImage> ImagesIn(PdfReadResult result)

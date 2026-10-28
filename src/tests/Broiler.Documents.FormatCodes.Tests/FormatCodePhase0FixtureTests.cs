@@ -33,8 +33,8 @@ public sealed class FormatCodePhase0FixtureTests
         RichTextDocument document = BuildFixture(fixture);
         var projector = new FormatCodeProjector();
 
-        FormatCodeProjection first = FormatCodeProjector.Project(document);
-        FormatCodeProjection second = FormatCodeProjector.Project(document);
+        FormatCodeProjection first = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
+        FormatCodeProjection second = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(fixture.TargetChars, document.PlainText.Length);
         Assert.Equal(fixture.Paragraphs, document.ParagraphCount);

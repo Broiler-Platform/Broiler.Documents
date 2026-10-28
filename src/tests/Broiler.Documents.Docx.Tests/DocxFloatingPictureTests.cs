@@ -91,7 +91,7 @@ public sealed class DocxFloatingPictureTests
     public void Says_Only_What_Is_Still_Approximated()
     {
         DocumentDiagnostic note = Assert.Single(
-            Read(Anchored()).Diagnostics.Where(d => d.Code == "docx.image.anchored"));
+            Read(Anchored()).Diagnostics, d => d.Code == "docx.image.anchored");
 
         // The anchor asked for square wrapping and to sit behind the text, and it
         // gets both now. What it does not get is the picture's outline, so that
@@ -175,7 +175,7 @@ public sealed class DocxFloatingPictureTests
     public void Counts_A_Floating_Picture_As_An_Image()
     {
         DocumentDiagnostic summary = Assert.Single(
-            Read(Anchored()).Diagnostics.Where(d => d.Code == "docx.read.summary"));
+            Read(Anchored()).Diagnostics, d => d.Code == "docx.read.summary");
 
         Assert.Contains("embedded 1 image(s)", summary.Message, StringComparison.Ordinal);
     }

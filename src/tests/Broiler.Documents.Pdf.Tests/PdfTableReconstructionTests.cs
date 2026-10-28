@@ -166,7 +166,7 @@ public sealed class PdfTableReconstructionTests
     public void The_Diagnostic_Says_It_Reconstructed_Rather_Than_Read()
     {
         DocumentDiagnostic note = Assert.Single(
-            Read(Ruled()).Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.TableReconstructed));
+            Read(Ruled()).Diagnostics, d => d.Code == PdfDiagnosticCodes.TableReconstructed);
 
         Assert.Contains("reconstruction", note.Message, StringComparison.Ordinal);
         Assert.Contains("2x2", note.Message, StringComparison.Ordinal);
@@ -181,7 +181,7 @@ public sealed class PdfTableReconstructionTests
         // "372 path-painting operations were dropped" on the same page as five
         // tables it had just carried. The number has to move, not only the prose.
         DocumentDiagnostic note = Assert.Single(
-            Read(Ruled()).Diagnostics.Where(d => d.Code == PdfDiagnosticCodes.VectorArtworkDropped));
+            Read(Ruled()).Diagnostics, d => d.Code == PdfDiagnosticCodes.VectorArtworkDropped);
 
         // Six rules drawn, all six of them the grid's, so none was dropped - and
         // with nothing dropped there is no breakdown to give, rather than a

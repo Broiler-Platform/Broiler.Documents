@@ -18,7 +18,7 @@ public sealed class FormatCodeProjectorRobustnessTests
                 new InlineStyle { Bold = true, Italic = true }),
         };
 
-        FormatCodeProjection projection = FormatCodeProjector.Project(document, options);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, options, TestContext.Current.CancellationToken);
 
         Assert.Equal("x", projection.Text);
         Assert.Equal(["[Pending Bold ON]", "[Pending Italic ON]"],
@@ -36,7 +36,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("x", new InlineStyle { LinkHref = string.Empty })]);
 
-        Assert.Equal("x", FormatCodeProjector.Project(document).Text);
+        Assert.Equal("x", FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken).Text);
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         RichTextDocument document = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("x", InlineStyle.Default, style)]);
 
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.StartsWith("[Align UNKNOWN 99][List UNKNOWN 88][Indent -2][Line Spacing NAN]", projection.Text);
         Assert.Contains(projection.Diagnostics, diagnostic => diagnostic.Code == "FC1001");
@@ -66,7 +66,7 @@ public sealed class FormatCodeProjectorRobustnessTests
     {
         RichTextDocument document = RichTextDocument.FromPlainText("a\uD800b");
 
-        FormatCodeProjection projection = FormatCodeProjector.Project(document);
+        FormatCodeProjection projection = FormatCodeProjector.Project(document, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("a\\u{D800}b", projection.Text);
         Assert.Contains(projection.Diagnostics, diagnostic => diagnostic.Code == "FC1005");
@@ -77,17 +77,17 @@ public sealed class FormatCodeProjectorRobustnessTests
     {
         Assert.Throws<FormatCodeProjectionLimitException>(() => FormatCodeProjector.Project(
             RichTextDocument.FromPlainText("abcd"),
-            new FormatCodeProjectionOptions { MaxOutputCharacters = 3 }));
+            new FormatCodeProjectionOptions { MaxOutputCharacters = 3 }, TestContext.Current.CancellationToken));
 
         Assert.Throws<FormatCodeProjectionLimitException>(() => FormatCodeProjector.Project(
             RichTextDocument.FromParagraphs(
                 [RichTextParagraph.Create("x", new InlineStyle { Bold = true })]),
-            new FormatCodeProjectionOptions { MaxTokens = 1 }));
+            new FormatCodeProjectionOptions { MaxTokens = 1 }, TestContext.Current.CancellationToken));
 
         Assert.Throws<FormatCodeProjectionLimitException>(() => FormatCodeProjector.Project(
             RichTextDocument.FromParagraphs(
                 [RichTextParagraph.Create("x", new InlineStyle { FontFamily = "long" })]),
-            new FormatCodeProjectionOptions { MaxQuotedValueCharacters = 3 }));
+            new FormatCodeProjectionOptions { MaxQuotedValueCharacters = 3 }, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public sealed class FormatCodeProjectorRobustnessTests
         RichTextDocument mergedRuns = RichTextDocument.FromParagraphs(
             [RichTextParagraph.Create("a", style).Append(RichTextParagraph.Create("b", style))]);
 
-        Assert.Equal(FormatCodeProjector.Project(oneRun).Text, FormatCodeProjector.Project(mergedRuns).Text);
+        Assert.Equal(FormatCodeProjector.Project(oneRun, cancellationToken: TestContext.Current.CancellationToken).Text, FormatCodeProjector.Project(mergedRuns, cancellationToken: TestContext.Current.CancellationToken).Text);
         Assert.Single(mergedRuns.Paragraphs[0].Runs);
     }
 
@@ -128,9 +128,9 @@ public sealed class FormatCodeProjectorRobustnessTests
                 .Append(RichTextParagraph.Create("right", second));
 
             FormatCodeProjection projectionOne = FormatCodeProjector.Project(
-                RichTextDocument.FromParagraphs([paragraphOne]));
+                RichTextDocument.FromParagraphs([paragraphOne]), cancellationToken: TestContext.Current.CancellationToken);
             FormatCodeProjection projectionTwo = FormatCodeProjector.Project(
-                RichTextDocument.FromParagraphs([paragraphTwo]));
+                RichTextDocument.FromParagraphs([paragraphTwo]), cancellationToken: TestContext.Current.CancellationToken);
 
             Assert.Equal(projectionOne.Text, projectionTwo.Text);
             Assert.Equal(

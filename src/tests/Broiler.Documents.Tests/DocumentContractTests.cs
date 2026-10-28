@@ -307,7 +307,7 @@ public sealed class DocumentContractTests
         using var source = new DocumentInputTests_ForwardOnly(Bytes("selected content"));
         using DocumentInput input = DocumentInput.FromStream(source);
 
-        DocumentCodecSelection selection = catalog.SelectAndRead(input);
+        DocumentCodecSelection selection = catalog.SelectAndRead(input, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("LEGACY", selection.Codec!.Name);
         Assert.True(selection.IsUsable);
@@ -320,7 +320,7 @@ public sealed class DocumentContractTests
         var catalog = new DocumentCodecCatalog([new NeverMatchesCodec()]);
         using DocumentInput input = DocumentInput.FromBytes(Bytes("not a document"));
 
-        DocumentCodecSelection selection = catalog.SelectAndRead(input);
+        DocumentCodecSelection selection = catalog.SelectAndRead(input, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Null(selection.Codec);
         Assert.False(selection.IsUsable);
@@ -335,7 +335,7 @@ public sealed class DocumentContractTests
         var catalog = new DocumentCodecCatalog([new LegacyCodec()]);
         using DocumentInput input = DocumentInput.FromBytes(Bytes("async selection"));
 
-        DocumentCodecSelection selection = await catalog.SelectAndReadAsync(input);
+        DocumentCodecSelection selection = await catalog.SelectAndReadAsync(input, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("LEGACY", selection.Codec!.Name);
         Assert.Equal("async selection", selection.Result.Document.PlainText);

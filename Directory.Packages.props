@@ -11,8 +11,7 @@
     <!-- Tests only: the recipient decryptor a host would compose for certificate
          encryption (IP-025). ADR 0001 keeps it out of every shipped assembly. -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
-    <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.1" />
-    <PackageVersion Include="Xunit.SkippableFact" Version="1.5.85" />
+    <PackageVersion Include="xunit.v3" Version="4.0.2" />
   </ItemGroup>
 </Project>

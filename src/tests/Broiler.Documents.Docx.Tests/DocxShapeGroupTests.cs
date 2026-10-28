@@ -260,7 +260,7 @@ public sealed class DocxShapeGroupTests
     {
         string relationship = DocxTestPackage.ImageRelationship("rId7", "https://example.test/logo.png").Replace("/>", " TargetMode='External'/>");
         var result = ReadPictureGroup(Picture(), relationship: relationship);
-        DocumentShape shape = Assert.Single(result.Document.Shapes.Where(s => s.Image is not null));
+        DocumentShape shape = Assert.Single(result.Document.Shapes, s => s.Image is not null);
         Assert.True(shape.Image!.IsMissingPayload);
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.external");
     }

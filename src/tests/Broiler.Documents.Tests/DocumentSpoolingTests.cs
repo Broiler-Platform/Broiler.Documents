@@ -336,12 +336,12 @@ public sealed class DocumentSpoolingTests : IDisposable
         var policy = new DocumentSpoolPolicy(_spoolDir, memoryThresholdBytes: 1000);
 
         using var source = new ForwardOnlyStream(payload);
-        using DocumentInput input = await DocumentInput.SpoolFromStreamAsync(source, policy);
+        using DocumentInput input = await DocumentInput.SpoolFromStreamAsync(source, policy, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(input.CanSeek);
         Assert.Equal(payload.Length, input.KnownLength);
 
-        ReadOnlyMemory<byte> materialized = await input.MaterializeAsync(20000);
+        ReadOnlyMemory<byte> materialized = await input.MaterializeAsync(20000, TestContext.Current.CancellationToken);
         Assert.Equal(payload, materialized.ToArray());
     }
 
