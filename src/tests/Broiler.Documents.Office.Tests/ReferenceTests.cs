@@ -94,6 +94,30 @@ public sealed class ReferenceTests : IDisposable
     }
 
     [Fact]
+    public void An_Accepted_Mismatch_Loads_And_Names_Each_Differing_Field()
+    {
+        ReferenceEnvironment windows = _environment with { Platform = "windows", FontSet = null, TimeoutSeconds = 60 };
+        string message = Assert.Throws<InvalidDataException>(() => Load(windows)).Message;
+        Assert.Contains("platform linux, here windows", message);
+        Assert.Contains("--accept-reference-mismatch", message);
+
+        OfficeReferences references = OfficeReferences.Load(_references, windows, [_sample], _families, acceptMismatch: true);
+        Assert.Equal(["platform linux, here windows", "font set test-fonts, here none", "timeout 120 s, here 60 s"],
+            references.Mismatches);
+        Assert.Empty(Load().Mismatches);
+    }
+
+    [Fact]
+    public void An_Accepted_Mismatch_Still_Checks_Schema_And_Inputs()
+    {
+        Assert.Throws<InvalidDataException>(() => OfficeReferences.Load(_references,
+            _environment with { SchemaVersion = 99 }, [_sample], _families, acceptMismatch: true));
+        File.AppendAllText(_sample.LocalPath, "modified");
+        Assert.Contains("input hash mismatch", Assert.Throws<InvalidDataException>(() => OfficeReferences.Load(_references,
+            _environment with { Platform = "windows" }, [_sample], _families, acceptMismatch: true)).Message);
+    }
+
+    [Fact]
     public void Font_Content_Is_Fingerprinted()
     {
         string fonts = Path.Combine(_root, "fonts");
@@ -161,6 +185,8 @@ public sealed class ReferenceTests : IDisposable
     [InlineData("--seed-corpus", "--references-dir", "references")]
     [InlineData("--prepare-references", "out", "--only", "one")]
     [InlineData("--prepare-references", "out", "--axis", "pixel")]
+    [InlineData("--accept-reference-mismatch")]
+    [InlineData("--references-dir", "references", "--accept-reference-mismatch", "--create-github-issue")]
     public void Invalid_Reference_Cli_Combinations_Are_Rejected(params string[] arguments) =>
         Assert.Throws<ArgumentException>(() => Program.Options.Parse(arguments));
 

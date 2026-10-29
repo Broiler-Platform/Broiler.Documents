@@ -25,7 +25,11 @@ checks still apply, and baseline regeneration remains an explicit dispatch optio
 
 `.github/workflows/office-reference-data.yml` (**Office reference data**) runs
 directly on a plain `ubuntu-24.04` GitHub runner VM, with no Docker container or
-`broiler-sdk-office` image. It installs .NET, LibreOffice, Poppler and the selected
+`broiler-sdk-office` image. The conformance workflow pins `ubuntu-24.04` too,
+never `ubuntu-latest`, and its office image is built `FROM ubuntu:24.04`. So
+both sides use Ubuntu 24.04's LibreOffice 24.2 and Poppler 24.02. Moving to
+another Ubuntu release means a new reference release and a new office image
+together. It installs .NET, LibreOffice, Poppler and the selected
 font packages, then fetches `sw/qa/extras` at the configured `corpusRevision` Git
 commit. LibreOffice runs once for the complete corpus. The workflow saves plain-text
 projections and PDFs, packages them with `manifest.json`, the original corpus
@@ -38,6 +42,16 @@ The VM's unrelated preinstalled fonts are excluded through a Fontconfig override
 its matching rules remain available while font directories are restricted to the
 selected package files. Fontconfig supports this directory override
 through [`reset-dirs`](https://fontconfig.pages.freedesktop.org/fontconfig/fontconfig-user.html).
+The font set is `office-fonts-2`: the TrueType files of `fonts-liberation`,
+`fonts-crosextra-carlito`, `fonts-crosextra-caladea` and `fonts-dejavu-core`.
+`office-fonts-1` (`office-references-v2`) named `fonts-liberation2`, which on
+Ubuntu 24.04 is a transitional package with no font files. So that reference
+set had no Liberation faces, and both sides drew Times New Roman, Arial,
+Courier New and Liberation text with substitutes
+([the note](../notes/office-conformance-workflow-improvements.md#1-the-reference-fonts-have-no-liberation-faces)).
+The step now fails when a listed package contributes no TrueType file.
+Cached conformance runs take the font-set name from the archive's manifest
+along with its fonts, so a new font set needs no new office image.
 
 Only the small `tests/office/reference-source.json` configuration is committed.
 Generated text/PDF binaries are release assets, avoiding binary Git history and
@@ -47,8 +61,9 @@ image digest. The reference generator does not pull or run that image.
 
 To bootstrap after these changes reach the default branch:
 
-1. Dispatch **Office reference data**. The first configured release is
-   `office-references-v2`. Generation uses four workers directly on the VM.
+1. Dispatch **Office reference data**. The configured release is
+   `office-references-v3`, the first with the `office-fonts-2` font set.
+   Generation uses four workers directly on the VM.
 2. Wait for generation, archive upload, and release publication to finish.
 3. Dispatch **Office conformance**, or let the nightly schedule run. Default-source
    extras runs download and verify the pinned archive before comparing documents.
@@ -82,6 +97,17 @@ and publishing a new release. Missing or incompatible entries are harness errors
 (exit 99). Expected conversion refusals/timeouts are explicit `unavailable`
 entries rather than missing files. Their exit code, timeout status and error
 message remain in the manifest; comparison preserves the corresponding skips.
+
+To score against the CI's references on another host, a Windows workstation for
+example, pass `--accept-reference-mismatch` along with `--references-dir` and the
+archive's `fonts/0` directory. The runner then loads an archive whose platform,
+font-set name, font hash or timeout differs from this run's. It prints each
+differing field, and the issue report and JSON report name them too. The
+schema, input hashes, crash classification and output hashes are still checked.
+The flag can't be combined with `--create-github-issue`, and CI never passes it.
+The run uses the CI's reference PDFs and text instead of this host's
+LibreOffice, so its ranking should match the nightly run's, apart from any
+difference between this host's Poppler and the office image's.
 Crash-regression inputs are never converted by LibreOffice, and their robustness
 checks still run against `broilerdoc`. Substring filters and exact-list replays
 reuse matching entries from the full reference release.
@@ -533,6 +559,13 @@ has the fix, if a row loses its evidence, or if its note doesn't name the bug.
 The first row is tdf#163894, the top two differences of
 [issue #170](../notes/office-issue-170.md). `--reference-defects` reads another
 file.
+
+**A ranked sample names the notes that already traced it.** Under each of the
+top differences, "Earlier Notes" lists the files in `docs/notes/` that mention
+the sample's file name on its own (`a.docx` matches `data/a.docx` but not
+`tdf1a.docx`). In GitHub Actions these are links at the commit the run checked
+out. The long-running top samples came back report after report, and each
+triage started again from nothing although a note had already traced them.
 
 **Each tool is told a sample's format only when the other is.** LibreOffice
 chooses the filter for a DOCX, ODT, RTF or PDF from the bytes, not the name,

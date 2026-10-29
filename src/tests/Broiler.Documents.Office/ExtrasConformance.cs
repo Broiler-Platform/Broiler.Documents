@@ -1140,8 +1140,10 @@ internal static class ExtrasConformance
         IReadOnlyList<ExtrasSample> allSamples,
         IReadOnlyList<ExtrasDifference> allDifferences,
         int topCount = DefaultTopDifferences,
-        double threshold = 80)
+        double threshold = 80,
+        PriorNotes? notes = null)
     {
+        notes ??= PriorNotes.None;
         IReadOnlyList<ExtrasDifference> top = TopDifferences(allDifferences, topCount);
         ExtrasDifference[] documents = [.. allDifferences.Where(diff => !diff.SetAside)];
         ExtrasDifference[] setAside = [.. allDifferences.Where(diff => diff.SetAside)];
@@ -1178,6 +1180,9 @@ internal static class ExtrasConformance
         sb.AppendLine("| **LibreOffice** | `" + (header.LibreOffice ?? "none") + "` |");
         sb.AppendLine("| **Rasteriser** | `" + (header.Rasterizer ?? "none") + "` |");
         sb.AppendLine("| **Platform / DPI** | `" + header.Platform + "` @ `" + header.Dpi.ToString(CultureInfo.InvariantCulture) + "` dpi |");
+        if (header.ReferenceMismatches is { Count: > 0 } mismatches)
+            sb.AppendLine("| **Reference Toolchain** | **not this run's**, accepted with `--accept-reference-mismatch`: " +
+                          string.Join("; ", mismatches.Select(mismatch => "`" + mismatch + "`")) + " |");
         sb.AppendLine();
 
         // Breakdown by format
@@ -1232,6 +1237,8 @@ internal static class ExtrasConformance
                           diff.SeverityScore.ToString("0.00", CultureInfo.InvariantCulture) + "`)");
             sb.AppendLine();
             sb.AppendLine("- **Summary**: " + diff.Summary);
+            if (notes.For(diff.Sample) is { Count: > 0 } named)
+                sb.AppendLine("- **Earlier Notes**: " + string.Join(", ", named.Select(notes.Format)));
 
             if (diff.BroilerReadFailed)
             {
