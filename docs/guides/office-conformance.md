@@ -993,3 +993,15 @@ imports such a table as a frame and its text export leaves frames out, so
 `dump` now does the same. The [workflow note for issue
 #175](../notes/office-conformance-workflow-improvements-issue-175.md) records
 the other findings about the workflow.
+
+The [issue #178 note](../notes/office-issue-178.md) records the first ranked
+sample, `page-background-link.fodt`, a page background linked to an address
+that is never routed. Five earlier notes put it down to the picture not being
+fetched; the reference never fetched it either, and shows the page LibreOffice
+paints when a bitmap fill does not load, in the fill colour's default
+`#729FCF`. `broilerdoc` now paints unloaded bitmap fills that way, and gives a
+page layout's fill the bounds LibreOffice gives it by the document's producer.
+The [workflow note for issue
+#178](../notes/office-conformance-workflow-improvements-issue-178.md) records
+what the investigation found about the workflow, first among it that the
+report could print what the reference draws.

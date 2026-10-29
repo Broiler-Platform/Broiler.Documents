@@ -163,14 +163,21 @@ internal sealed class OdtImageLoader(
     }
 
     /// <summary>
+    /// True when <paramref name="href"/> names a picture outside the package: a
+    /// URL, or any path at all in a flat document, which has no package.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.MemberNotNullWhen(false, nameof(_archive))]
+    public bool LinksOutsidePackage(string href) =>
+        _archive is null || (Uri.TryCreate(href, UriKind.Absolute, out Uri? absolute) && !absolute.IsFile);
+
+    /// <summary>
     /// Loads a picture the frame names by path, once per path. A part that fails
     /// is cached as a failure, so a document that shows the same picture a
     /// hundred times reports once and re-reads nothing.
     /// </summary>
     private PicturePart? LoadFromPackage(string href, IOdtImageDiagnostics diagnostics, out LoadResult result)
     {
-        if (_archive is null ||
-            (Uri.TryCreate(href, UriKind.Absolute, out Uri? absolute) && !absolute.IsFile))
+        if (LinksOutsidePackage(href))
         {
             // A picture stored outside the package. Reading it would be a network
             // or file fetch driven by document content (ADR 0004). A flat

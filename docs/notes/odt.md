@@ -11,7 +11,8 @@ Page and shape fills support embedded bitmap patterns, tiled/stretch/single
 placement, single/double/triple hatches, centred gradient geometry, gradient
 border and endpoint intensity, uniform colour opacity, and page-margin bounds.
 Legacy `style:background-image` uses the same embedded-image admission gate;
-external resources are not fetched. Unresolved patterns still report `odt.fill`.
+external resources are not fetched. An unresolved bitmap is painted in its fill
+colour, as LibreOffice paints a bitmap it cannot load, and reports `odt.fill`.
 Standalone PDF export reports `pdf.write.feature-unsupported` for bitmap fills;
 the raster painter supports them. Gradient geometry uses bounded sampling.
 `odt.fill.opacity` reports bitmap opacity that cannot be painted, or unequal
@@ -462,6 +463,21 @@ layout are covered; this does not claim identical exported clipping.
   dimensions, repeat offsets and staggered tiling are not applied. All of this
   holds for a shape's fill as well. Legacy embedded `style:background-image`
   is also read, without fetching external links.
+- A bitmap fill whose picture does not load (none named, a definition or
+  package entry that is missing, a link outside the package) is painted in its
+  `draw:fill-color`, else the default graphic style's, else `#729FCF`, the
+  colour LibreOffice keeps under every bitmap fill
+  (`sdrattributecreator.cxx`). A legacy `style:background-image` on a page or a
+  paragraph that links outside the package is painted `#729FCF` too, over any
+  `fo:background-color` beside it; one naming a package entry that is not there
+  leaves that colour. Issue #178's first sample is a page of it in LibreOffice
+  24.2's reference ([office-issue-178.md](office-issue-178.md)).
+- A page layout's own fill (no drawing-page style) covers the whole page
+  unless the document's `meta:generator` is old: OpenOffice.org, AOO and
+  LibreOffice before 6.3 keep it inside the margins, and LibreOffice 6.3/6.4
+  keep only a single or stretched picture there. This is LibreOffice's import
+  rule (`PageMasterImportContext.cxx`), with the producer read as `xmlimp.cxx`
+  reads it. A drawing-page fill states its own `draw:background-size`.
 - SVG, EMF, and WMF — what a producer stores for charts, formulas, and object
   replacement images — are not carried, because they cannot be decoded to pixels
   here. They are reported as `odt.image.format` rather than kept as a picture
@@ -555,7 +571,7 @@ blank:
 | `odt.image.denied` | Warning | A picture was not read into the document because the caller's resource policy did not permit it; the message names the denial. |
 | `odt.page.geometry` | Warning | A page layout described a page with no room to write on, so the page was not read. |
 | `odt.gradient` | Warning | An unknown gradient style was approximated by its start colour. |
-| `odt.fill` | Warning | A bitmap or hatch definition could not be resolved. |
+| `odt.fill` | Warning | A bitmap or hatch definition could not be resolved, or a background picture linked outside the package was not fetched; a bitmap's area is painted in its fill colour. |
 | `odt.columns.geometry` | Warning | A page layout's `style:columns` left no room to write in a column; the page was kept and read as one column. |
 | `odt.columns.unequal` | Info | A page layout listed columns of different relative widths; they were read as equal columns. |
 | `odt.limit.depth` | Warning | Block or inline nesting hit `MaxGroupDepth`; the deepest content was skipped. |

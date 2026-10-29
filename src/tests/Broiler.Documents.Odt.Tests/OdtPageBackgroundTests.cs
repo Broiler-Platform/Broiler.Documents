@@ -37,7 +37,7 @@ public sealed class OdtPageBackgroundTests
     public void A_Page_Layouts_Background_Colour_Is_Read()
     {
         Assert.Equal(
-            ShapeFill.Solid(BColor.FromArgb(0xFF, 0, 0)) with { ContentOnly = true },
+            ShapeFill.Solid(BColor.FromArgb(0xFF, 0, 0)),
             Read("fo:background-color=\"#ff0000\"").Document.PageBackground);
     }
 
@@ -91,11 +91,11 @@ public sealed class OdtPageBackgroundTests
     }
 
     [Fact]
-    public void A_Bitmap_Page_Fill_Is_Reported_Rather_Than_Drawn()
+    public void A_Bitmap_Page_Fill_Without_A_Bitmap_Is_Reported_And_Drawn_In_Its_Fill_Colour()
     {
         DocumentReadResult result = Read("fo:background-color=\"transparent\" draw:fill=\"bitmap\"");
 
-        Assert.Null(result.Document.PageBackground);
+        Assert.Equal(ShapeFill.Solid(BColor.FromArgb(0x72, 0x9F, 0xCF)), result.Document.PageBackground);
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "odt.fill");
     }
 

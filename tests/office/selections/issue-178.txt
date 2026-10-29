@@ -1,0 +1,14 @@
+# First ranked difference from Broiler-Platform/Broiler.Documents#178: a page background linked
+# outside the package (LibreOffice paints an unloadable link in its default fill colour), the
+# other linked backgrounds, and page fills whose bounds depend on the producer.
+tiledrendering/data/page-background-link.fodt
+tiledrendering/data/background-image-link.fodt
+tiledrendering/data/paragraph-style-background-link.fodt
+tiledrendering/data/two-paragraph-background-links.fodt
+tiledrendering/data/shape-fill-link.fodt
+odfimport/data/background-image-link.fodt
+odfexport/data/pagestyle_background_ooo33.odt
+odfexport/data/pagestyle_background_lo64.odt
+ww8export/data/tdf128608_fillStyleNoneB.odt
+uiwriter/data/tdf145731.odt
+odfimport/data/PageBackground.odt
