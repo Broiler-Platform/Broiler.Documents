@@ -138,10 +138,11 @@ internal sealed class PdfPageLayout(
         // What a run with no size and no family falls back to. The document's own
         // defaults outrank the write options, because those are the author's
         // statement and these are a caller's answer for a document that made none.
-        // Laying runs of spaces out wider is neither a size nor a family, so it
-        // does not make a document's unstated twelve points outrank the option.
+        // Laying runs of spaces out wider, or shrinking a justified line's, is
+        // neither a size nor a family, so it does not make a document's unstated
+        // twelve points outrank the option.
         DocumentStyleDefaults own = document.StyleDefaults;
-        _defaults = (own with { WidensSpaceRuns = false }).IsDefault
+        _defaults = (own with { WidensSpaceRuns = false, ShrinksJustifiedLines = false }).IsDefault
             ? own with { FontSizePoints = _options.DefaultFontSize }
             : own;
 
@@ -500,7 +501,7 @@ internal sealed class PdfPageLayout(
         if (document is not null)
         {
             DocumentStyleDefaults own = document.StyleDefaults;
-            _defaults = (own with { WidensSpaceRuns = false }).IsDefault
+            _defaults = (own with { WidensSpaceRuns = false, ShrinksJustifiedLines = false }).IsDefault
                 ? own with { FontSizePoints = _options.DefaultFontSize }
                 : own;
         }

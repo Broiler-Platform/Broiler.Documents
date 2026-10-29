@@ -99,4 +99,27 @@ internal static class OdtRevisions
 
         return true;
     }
+
+    /// <summary>
+    /// Whether the boolean <c>config:config-item</c> called <paramref name="name"/>
+    /// is set, false where the settings do not state it.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice writes its layout compatibility flags here, among them
+    /// <c>JustifyLinesWithShrinking</c>, Word 2013's justification
+    /// (<see cref="DocumentStyleDefaults.ShrinksJustifiedLines"/>).
+    /// </remarks>
+    public static bool ConfigFlag(XElement? settings, string name)
+    {
+        if (settings is null)
+            return false;
+
+        foreach (XElement item in settings.Descendants(OdtNamespaces.Config + "config-item"))
+        {
+            if ((string?)item.Attribute(OdtNamespaces.Config + "name") == name)
+                return string.Equals(item.Value.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
+    }
 }

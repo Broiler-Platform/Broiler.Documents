@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Documents.Model.Fonts;
@@ -23,13 +24,23 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
         Wrap(tokens, _ => new TextBand(0, maxWidth), bands: null);
 
     /// <remarks>
+    /// <para>
     /// The width is asked for per row rather than given once, because a wrapping
     /// shape leaves each line a different amount of room depending on where the
     /// line lands. <paramref name="bands"/> collects what each row was given, so
     /// the caller can place it at the left edge it was wrapped to.
+    /// </para>
+    /// <para>
+    /// With <paramref name="shrinks"/>, a row that a word would overflow may be
+    /// set wider than the band by <see cref="DocumentStyleDefaults.JustifiedSpaceShrink"/>
+    /// of a space for each space before the break and the one before that word,
+    /// as LibreOffice breaks a justified line of a Word 2013 document; the row
+    /// is then filled to that width. A row holding a tab does not shrink
+    /// (tdf#164499).
+    /// </para>
     /// </remarks>
     internal List<List<LayoutPiece>> Wrap(List<LayoutToken> tokens, Func<int, TextBand> bandFor, List<TextBand>? bands,
-        ParagraphTabStops? tabStops = null, double indent = 0)
+        ParagraphTabStops? tabStops = null, double indent = 0, bool shrinks = false)
     {
         var rows = new List<List<LayoutPiece>>();
         var current = new List<LayoutPiece>();
@@ -41,6 +52,10 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
         bands?.Add(band);
         double maxWidth = Math.Max(1, band.Width);
 
+        // The width the row may take by shrinking its spaces, once a word has
+        // overflowed it.
+        double? shrunkWidth = null;
+
         void Flush()
         {
             rows.Add(current);
@@ -48,6 +63,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
             currentWidth = 0;
             pendingSpace.Clear();
             pendingWidth = 0;
+            shrunkWidth = null;
 
             band = bandFor(rows.Count);
             bands?.Add(band);
@@ -137,8 +153,14 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                 continue;
             }
 
-            if (current.Count > 0 && currentWidth + pendingWidth + token.Width > maxWidth + 0.01)
-                Flush();
+            if (current.Count > 0 && currentWidth + pendingWidth + token.Width > (shrunkWidth ?? maxWidth) + 0.01)
+            {
+                if (shrinks && shrunkWidth is null)
+                    shrunkWidth = maxWidth + ShrinkAllowance(current, pendingSpace);
+
+                if (shrunkWidth is not double room || currentWidth + pendingWidth + token.Width > room + 0.01)
+                    Flush();
+            }
 
             if (current.Count == 0 && token.Width > maxWidth)
             {
@@ -171,6 +193,36 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
         return rows;
     }
 
+    /// <summary>
+    /// How much wider than its band a justified row may be set by shrinking
+    /// its spaces: a share of a space for each space in <paramref name="row"/>
+    /// and one for the gap <paramref name="gap"/> before the word that
+    /// overflowed it, nothing where there is no such gap or the row holds a tab.
+    /// The space is the gap's, as LibreOffice measures one in the font of the
+    /// text where the line breaks.
+    /// </summary>
+    private static double ShrinkAllowance(List<LayoutPiece> row, List<LayoutToken> gap)
+    {
+        if (gap.Count == 0 || gap.Any(token => token.IsTab) || row.Any(piece => piece.IsTab))
+            return 0;
+
+        LayoutPiece? space = gap[0].Pieces.FirstOrDefault(piece => piece.Text.Length > 0);
+        if (space is null)
+            return 0;
+
+        int spaces = 1;
+        foreach (LayoutPiece piece in row)
+        {
+            foreach (char character in piece.Text)
+            {
+                if (character == ' ')
+                    spaces++;
+            }
+        }
+
+        return spaces * space.Width / space.Text.Length * DocumentStyleDefaults.JustifiedSpaceShrink;
+    }
+
     /// <summary>Splits an over-wide token into chunks that fit, one character at a time.</summary>
     private IEnumerable<LayoutToken> BreakToken(LayoutToken token, double maxWidth)
     {
@@ -196,13 +248,15 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
             var clusters = UnicodeBoundaryClassifier.GetGraphemeClusters(piece.Text);
             var builder = new StringBuilder();
             double width = 0;
+            int consumed = 0;
 
             foreach (var cluster in clusters)
             {
                 double advance = _textMeasurer is not null ? _textMeasurer.MeasureAdvance(cluster.Text, piece.Font) : BTextMeasurer.MeasureAdvance(cluster.Text, piece.Font);
                 if (builder.Length > 0 && width + advance > maxWidth)
                 {
-                    yield return LayoutToken.Single(Retext(piece, builder.ToString(), width));
+                    yield return LayoutToken.Single(Retext(piece, builder.ToString(), width, consumed));
+                    consumed += builder.Length;
                     builder.Clear();
                     width = 0;
                 }
@@ -213,14 +267,15 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                 // When a single indivisible cluster exceeds maxWidth on an empty row, terminate row
                 if (builder.Length > 0 && width > maxWidth)
                 {
-                    yield return LayoutToken.Single(Retext(piece, builder.ToString(), width));
+                    yield return LayoutToken.Single(Retext(piece, builder.ToString(), width, consumed));
+                    consumed += builder.Length;
                     builder.Clear();
                     width = 0;
                 }
             }
 
             if (builder.Length > 0)
-                yield return LayoutToken.Single(Retext(piece, builder.ToString(), width));
+                yield return LayoutToken.Single(Retext(piece, builder.ToString(), width, consumed));
         }
     }
 
@@ -230,10 +285,17 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
         double factor = width / piece.Width;
         return new LayoutPiece(piece.Text, piece.Font, piece.Color, piece.Highlight, piece.Underline,
             piece.Strikethrough, piece.Link, piece.Image, width, piece.Ascent * factor, piece.Descent * factor,
-            lineGap: piece.LineGap * factor);
+            lineGap: piece.LineGap * factor)
+        {
+            SourceOffset = piece.SourceOffset,
+        };
     }
 
-    private static LayoutPiece Retext(LayoutPiece source, string text, double width) =>
+    /// <summary>
+    /// Part of <paramref name="source"/>: <paramref name="text"/>, which starts
+    /// <paramref name="skipped"/> characters into it.
+    /// </summary>
+    private static LayoutPiece Retext(LayoutPiece source, string text, double width, int skipped) =>
         new(text, source.Font, source.Color, source.Highlight, source.Underline, 
             source.Strikethrough, source.Link, null, width, source.Ascent, source.Descent, lineGap: source.LineGap)
         {
@@ -241,6 +303,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
             Note = source.Note,
             Revised = source.Revised,
             Doubled = source.Doubled,
+            SourceOffset = source.SourceOffset < 0 ? -1 : source.SourceOffset + skipped,
         };
 
     /// <summary>

@@ -81,6 +81,23 @@ public readonly record struct InlineStyle
     /// </summary>
     public PageField? PageField { get; init; }
 
+    /// <summary>
+    /// The style-reference field this run shows, or <see langword="null"/> for
+    /// ordinary text. As with <see cref="PageField"/>, the run's text is the
+    /// field's last computed value and a header or footer draws the value for
+    /// the page it is on (<see cref="StyleReferenceField"/>).
+    /// </summary>
+    public StyleReferenceField? StyleReference { get; init; }
+
+    /// <summary>
+    /// The name of the character style the run was formatted with, or
+    /// <see langword="null"/> for none. What the style sets is already resolved
+    /// into the other properties; the name is kept for a field that finds text
+    /// by it (<see cref="StyleReferenceField"/>). Adjacent runs in different
+    /// styles stay apart even where they look the same.
+    /// </summary>
+    public string? CharacterStyle { get; init; }
+
     /// <summary>The unformatted default style (<c>default(InlineStyle)</c>).</summary>
     public static InlineStyle Default => default;
 

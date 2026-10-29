@@ -103,7 +103,10 @@ internal static class DocxReader
             document = document.WithRunningContent(running[^1]);
             document = document.WithPageGeometry(page);
             document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running));
-            document = document.WithStyleDefaults(ReadStyleDefaults(styles));
+            document = document.WithStyleDefaults(ReadStyleDefaults(styles) with
+            {
+                ShrinksJustifiedLines = WordCompatibilityMode(settings.Root) >= 15,
+            });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
             void ReportBackground(string code, string message)
@@ -462,6 +465,39 @@ internal static class DocxReader
     }
 
     /// <summary>
+    /// The Word version whose layout the document asks for: the highest
+    /// <c>compatibilityMode</c> its settings state, as Word and LibreOffice
+    /// take it (<c>SettingsTable::GetWordCompatibilityMode</c>), or -1 where it
+    /// states none from 11 up. 15 is Word 2013, whose justified lines shrink
+    /// their spaces.
+    /// </summary>
+    private static int WordCompatibilityMode(XElement? settings)
+    {
+        int mode = -1;
+        XElement? compat = settings?.Element(DocxNamespaces.Wordprocessing + "compat");
+        if (compat is null)
+            return mode;
+
+        foreach (XElement setting in compat.Elements(DocxNamespaces.Wordprocessing + "compatSetting"))
+        {
+            if ((string?)setting.Attribute(DocxNamespaces.Wordprocessing + "name") != "compatibilityMode" ||
+                (string?)setting.Attribute(DocxNamespaces.Wordprocessing + "uri") != WordCompatibilityUri ||
+                !DocxValueReader.TryReadInt(setting.Attribute(DocxNamespaces.Wordprocessing + "val"), out int value))
+            {
+                continue;
+            }
+
+            if (value > 10 && value > mode)
+                mode = value;
+        }
+
+        return mode;
+    }
+
+    /// <summary>The namespace Word's own compatibility settings are named in.</summary>
+    internal const string WordCompatibilityUri = "http://schemas.microsoft.com/office/word";
+
+    /// <summary>
     /// Reads the page the document says it is written for from its section
     /// properties.
     /// </summary>
@@ -818,6 +854,15 @@ internal static class DocxReader
                 continue;
             }
 
+            // A simple field holds its result's runs; a style reference marks them.
+            if (element.Name == DocxNamespaces.Wordprocessing + "fldSimple" &&
+                DocxFields.StyleReference((string?)element.Attribute(DocxNamespaces.Wordprocessing + "instr") ?? "", context.Styles)
+                    is StyleReferenceField field)
+            {
+                ReadParagraphChildren(element.Elements(), context, style with { StyleReference = field });
+                continue;
+            }
+
             if (element.HasElements)
                 ReadParagraphChildren(element.Elements(), context, style);
         }
@@ -836,6 +881,10 @@ internal static class DocxReader
             style = ApplyRunProperties(styleRunProperties, style, context.Styles.Theme);
 
         style = ApplyRunProperties(rPr, style, context.Styles.Theme);
+
+        // The style's name is kept for a STYLEREF that finds text by it.
+        if (context.Styles.CharacterStyleName(characterStyleId) is string characterStyle)
+            style = style with { CharacterStyle = characterStyle };
 
         // A run inserted or deleted is that change whatever else happened to
         // it; one that is neither may record that its formatting changed.
@@ -859,11 +908,28 @@ internal static class DocxReader
     {
         DocxDocumentBuilder builder = context.Builder;
         DocumentNote? awaitingMark = null;
+
+        // Text in the result of a field the layout works out again carries it.
+        InlineStyle runStyle = style;
+        style = builder.Fields.Apply(runStyle);
         InlineStyle awaitingStyle = style;
         foreach (XElement child in elements)
         {
             if (child.Name == DocxNamespaces.Wordprocessing + "rPr")
                 continue;
+
+            if (child.Name == DocxNamespaces.Wordprocessing + "fldChar")
+            {
+                builder.Fields.Read(child, context.Styles);
+                style = builder.Fields.Apply(runStyle);
+                continue;
+            }
+
+            if (child.Name == DocxNamespaces.Wordprocessing + "instrText")
+            {
+                builder.Fields.Instruction(child.Value);
+                continue;
+            }
 
             if (child.Name == DocxNamespaces.Wordprocessing + "t")
             {

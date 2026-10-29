@@ -1,0 +1,5 @@
+# First ranked difference from Broiler-Platform/Broiler.Documents#170, with #2 and the
+# third upstream sample of the same LibreOffice fix (tdf#163894).
+ooxmlexport/data/tdf163894_hidden.docx
+ooxmlexport/data/tdf163894.docx
+ooxmlexport/data/tdf163894_from_top.docx

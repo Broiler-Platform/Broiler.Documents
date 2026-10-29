@@ -516,6 +516,24 @@ agreement, but a read failure scores 1200, which put ten of them in the
 seventh ranking's top thirty. The issue lists them under "Refused By Both" with
 the reason `broilerdoc` gave; a crash or exit 70 on one is still ranked.
 
+**A reference that is a known LibreOffice defect is not compared.** The corpus
+is LibreOffice's master tree, and the references come from the older
+LibreOffice the reference workflow pins (24.2.7.2). Upstream adds a sample with
+most fixes, so the pinned release draws some samples with the defect they were
+added to catch. `tests/office/extras-reference-defects.json` lists those: per
+row the bug, the first release with the fix, the fixing commits, the upstream
+tests, which checks it affects (`pixel`, `text`) and the samples. While the
+reference LibreOffice (the archive's, or the installed one without an archive)
+is older than `fixedIn`, those checks are skipped with the bug named, the
+sample is listed under "Known Reference Defects", and `broilerdoc` still has to
+read and render it with a documented exit code. Every other check runs and
+ranks. A row stops applying by itself once the references come from a fixed
+release, and `OfficeControlGuardTests` fails if the pinned LibreOffice already
+has the fix, if a row loses its evidence, or if its note doesn't name the bug.
+The first row is tdf#163894, the top two differences of
+[issue #170](../notes/office-issue-170.md). `--reference-defects` reads another
+file.
+
 **Each tool is told a sample's format only when the other is.** LibreOffice
 chooses the filter for a DOCX, ODT, RTF or PDF from the bytes, not the name,
 and four samples rely on it: `tdf132596.docx` and three more are ODT packages
@@ -900,3 +918,15 @@ OpenOffice.org 2.x hidden text and fixed header bands. `dump --as text` leaves
 shape text out again, as LibreOffice's export does. Across the 563 samples the
 changes touch, passing checks rise from 1,080 to 1,364 of 1,660, with one pixel
 check lost.
+
+The [issue #170 note](../notes/office-issue-170.md) records the first two
+ranked samples, dictionary pages headed by `STYLEREF` fields. Their reference
+is LibreOffice 24.2's defect tdf#163894, now listed in
+`tests/office/extras-reference-defects.json`. `broilerdoc` now works out
+character-style references per page and breaks justified lines as Word 2013
+does (`compatibilityMode` 15). The three upstream samples' twelve headers match
+LibreOffice's tests, and across the 30 samples the changes touch, four more pixel
+checks pass and none is lost. The [workflow improvements
+note](../notes/office-conformance-workflow-improvements.md) records what that
+investigation found about the workflow itself, first among it that the
+reference fonts have no Liberation faces.

@@ -45,6 +45,8 @@ public static class DocxWriter
             context.AddSettings(noteNumbering: document.NoteNumbering);
         if (!document.ShowsRevisions)
             context.AddSettings(hideRevisions: true);
+        if (document.StyleDefaults.ShrinksJustifiedLines)
+            context.AddSettings(shrinksJustifiedLines: true);
 
         // The caller's metadata, never the source document's: this writer is
         // given an envelope or it emits no properties at all.
@@ -2253,6 +2255,19 @@ public static class DocxWriter
             settings.Add(NoteProperties("endnotePr", numbering.EndnoteFormat, numbering.EndnoteStart));
         }
 
+        // After the note properties in CT_Settings. Word 2013's mode is what
+        // says justified lines shrink their spaces.
+        if (context.ShrinksJustifiedLines)
+        {
+            settings.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "compat",
+                new XElement(
+                    DocxNamespaces.Wordprocessing + "compatSetting",
+                    WordAttribute("name", "compatibilityMode"),
+                    WordAttribute("uri", DocxReader.WordCompatibilityUri),
+                    WordAttribute("val", "15"))));
+        }
+
         return new XDocument(new XDeclaration("1.0", "utf-8", "yes"), settings);
     }
 
@@ -2481,6 +2496,9 @@ public static class DocxWriter
         /// <summary>Whether the settings part turns on distinct even-page headers and footers.</summary>
         public bool EvenAndOddHeaders { get; private set; }
 
+        /// <summary>Whether the settings part asks for Word 2013's justified lines, which shrink their spaces.</summary>
+        public bool ShrinksJustifiedLines { get; private set; }
+
         /// <summary>How the settings part numbers notes, or null to leave a reader's default.</summary>
         public NoteNumbering? NoteNumbering { get; private set; }
 
@@ -2531,11 +2549,13 @@ public static class DocxWriter
             bool displayBackgroundShape = false,
             bool evenAndOddHeaders = false,
             NoteNumbering? noteNumbering = null,
-            bool hideRevisions = false)
+            bool hideRevisions = false,
+            bool shrinksJustifiedLines = false)
         {
             DisplayBackgroundShape |= displayBackgroundShape;
             EvenAndOddHeaders |= evenAndOddHeaders;
             HideRevisions |= hideRevisions;
+            ShrinksJustifiedLines |= shrinksJustifiedLines;
             NoteNumbering ??= noteNumbering;
             if (SettingsRelationshipId is not null)
                 return;

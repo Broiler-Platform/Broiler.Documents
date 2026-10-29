@@ -1,0 +1,39 @@
+{
+  "$schema": "extras-reference-defects.schema.json",
+  "schemaVersion": 1,
+  "updated": "2026-10-29",
+  "policy": {
+    "records": "Samples of LibreOffice's sw/qa/extras corpus that the LibreOffice the references come from draws with a LibreOffice defect a later LibreOffice release fixed. The corpus is LibreOffice's master tree and the references come from the release reference-data workflow pins, which is older, so a sample added with an upstream fix tests that fix and the pinned release draws it the way the fix corrected.",
+    "rule": "While the reference LibreOffice's major.minor is older than a row's fixedIn, the checks the row names (pixel, text) are not compared for its samples: each is reported as skipped with the bug and the note that shows it, and the sample is listed under Known Reference Defects. broilerdoc still reads, dumps and renders it and has to end each in a documented exit code, and every check the row does not name runs and ranks as usual. A row stops applying by itself once references come from a fixed release.",
+    "why": "Ranked against a defective reference, a sample broilerdoc draws as the fixed LibreOffice and Word do stays at the top of every report: tdf163894_hidden.docx and tdf163894.docx were the first two differences of issue 170, 4 pages against 22, because LibreOffice 24.2 fills their headers with a whole paragraph. Moving the renderer toward such a reference would be moving it toward the defect.",
+    "scope": "A row is a LibreOffice defect, not a layout difference: the upstream bug, the commits that fixed it, the upstream test that pins the fixed rendering, and a reference output that shows the defect. A difference nobody has traced to a fixed upstream bug stays ranked, however likely it looks that LibreOffice is wrong.",
+    "adding": "A new row needs the bug (tdf#N), the first release with the fix (major.minor), the fixing commits on LibreOffice core, the upstream tests, which checks it affects, every sample it covers, the evidence in prose and a repository note that shows it. The guard checks the fields, that fixedIn is newer than the baseline's LibreOffice, that no sample is listed twice and that the note exists and names the bug."
+  },
+  "defects": [
+    {
+      "id": "tdf163894-character-style-reference",
+      "bug": "tdf#163894",
+      "fixedIn": "26.8",
+      "fixCommits": [
+        "955f0f9b5e7f1d4ba42eb314478cc6924b4b63a7",
+        "da88bd54eba4bb3c5a588c211d0233a8eef77ffb",
+        "c29c1fd9c2c079147cf8c3d07e7bed0ea9434a06"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlexport/ooxmlexport14.cxx testTdf163894",
+        "sw/qa/extras/ooxmlexport/ooxmlexport14.cxx testTdf163894_hidden",
+        "sw/qa/extras/ooxmlexport/ooxmlexport14.cxx testTdf163894_from_top_to_beginning_of_the_documentMarguerite",
+        "sw/qa/extras/layout/layout2.cxx testTdf163894"
+      ],
+      "axes": ["pixel"],
+      "samples": [
+        "ooxmlexport/data/tdf163894.docx",
+        "ooxmlexport/data/tdf163894_hidden.docx",
+        "ooxmlexport/data/tdf163894_from_top.docx",
+        "layout/data/tdf163894.fodt"
+      ],
+      "evidence": "A STYLEREF field naming a character style shows the text in that style: the first stretch on the page, or the last with \\l, else the nearest before the page, else the first after it. LibreOffice before the February 2026 fixes gave the whole paragraph holding the first such text instead (layout2.cxx: 'This was \"Mauris ... nonummy.\", i.e. full text of the paragraph'). The office-references-v2 PDFs, made by LibreOffice 24.2.7.2, show it: tdf163894.docx and tdf163894_hidden.docx put their whole entry list in each header and run to 22 pages where the upstream tests pin four pages headed by single words; tdf163894_from_top.docx heads its pages with its first paragraph and runs to 5; tdf163894.fodt heads its page with the whole paragraph. LibreOffice 26.2.6.3 still draws tdf163894_hidden.docx on 67 pages; 26.8.1.1 draws four. The text projections are not affected: LibreOffice's text export leaves headers out.",
+      "reference": "docs/notes/office-issue-170.md"
+    }
+  ]
+}

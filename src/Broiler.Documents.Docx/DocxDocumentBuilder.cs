@@ -40,6 +40,9 @@ internal sealed class DocxDocumentBuilder(
 
     public DocumentLimits Limits => limits;
 
+    /// <summary>The complex fields open in the flow this builds.</summary>
+    public DocxFields Fields { get; } = new();
+
     /// <summary>Shared with the builders a nested part or shape is read with.</summary>
     public List<DocumentDiagnostic> Diagnostics => diagnostics;
 

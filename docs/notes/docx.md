@@ -315,11 +315,33 @@ Open XML WordprocessingML package parts.
   The picture is written back as an anchored picture. A logo hung over a
   letterhead therefore stays over it rather than being pushed into the first
   line, which moved the whole letter down by the height of the picture.
+- **Fields are drawn from their saved result**, the runs between a complex
+  field's `separate` and `end` (or a `w:fldSimple`'s runs); the instruction is
+  not text. One field is also known as a field: `STYLEREF` naming a character
+  style, with `\l` and the `\* MERGEFORMAT`/`CHARFORMAT` switches. Its result
+  runs carry an `InlineStyle.StyleReference`, and a header or footer shows on
+  each page the text in that style found there: the first stretch, or the last
+  with `\l`, else the nearest before the page, else the first after it. That
+  is Word's search, and LibreOffice's since tdf#163894 (master, February 2026).
+  A run keeps its character style's name (`InlineStyle.CharacterStyle`, from
+  `w:rStyle`'s `w:name`) for it. A `STYLEREF` naming a paragraph style, the
+  heading shorthand `STYLEREF 1`, one with any other switch, and every other
+  field keep their saved result. The writer writes a field's text, not the
+  field.
+- **Word 2013 justification.** A `compatibilityMode` of 15 or more in
+  `w:compat` (Word's URI; the highest stated wins, as in Word and
+  LibreOffice's `SettingsTable::GetWordCompatibilityMode`) sets
+  `DocumentStyleDefaults.ShrinksJustifiedLines`. LibreOffice reads it as
+  `JustifyLinesWithShrinking` (tdf#130088): a justified line that would break
+  may be a quarter of a space wider than its column for each of its spaces, and
+  is then justified with its spaces narrowed. The writer writes
+  `compatibilityMode` 15 back when the flag is set.
 
 ## Intentional Limits
 
-- Embedded objects, fields, comments, headers, footers, and section layout are
-  skipped or approximated with diagnostics where applicable. A tracked change to
+- Embedded objects, fields other than those above, comments, headers, footers,
+  and section layout are skipped or approximated with diagnostics where
+  applicable. A tracked change to
   a table row or cell (`w:trPr`, `w:tcPr`) is not read; the text in such a row
   is marked by its runs' own `w:ins` and `w:del`, as Word writes it. What a run
   or paragraph looked like before a change of formatting is not kept, and a

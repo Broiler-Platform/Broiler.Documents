@@ -187,7 +187,10 @@ internal static class OdtReader
         document = document.WithRunningContent(
             ReadRunningContent(master, styles, images, options.Limits, diagnostics));
         document = document.WithPageGeometry(page);
-        document = document.WithStyleDefaults(ReadStyleDefaults(styles));
+        document = document.WithStyleDefaults(ReadStyleDefaults(styles) with
+        {
+            ShrinksJustifiedLines = OdtRevisions.ConfigFlag(settings, "JustifyLinesWithShrinking"),
+        });
         document = document.WithPageBackground(
             ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
         document = document.WithNoteNumbering(ReadNoteNumbering(styles));

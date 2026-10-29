@@ -153,6 +153,20 @@ public static class ModelJson
             };
         }
 
+        // Only on a style reference and on text a character style formats, so
+        // the description of every other run is as it was.
+        if (style.StyleReference is StyleReferenceField reference)
+        {
+            entry["styleReference"] = new JsonObject
+            {
+                ["style"] = reference.StyleName,
+                ["fromBottom"] = reference.FromBottom,
+            };
+        }
+
+        if (style.CharacterStyle is string characterStyle)
+            entry["characterStyle"] = characterStyle;
+
         // Only on a citation, so the description of every other run is as it was.
         if (style.Note is DocumentNote note)
         {
