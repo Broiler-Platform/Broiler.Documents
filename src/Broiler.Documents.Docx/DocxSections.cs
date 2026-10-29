@@ -35,11 +35,25 @@ internal sealed class DocxSections
     private readonly List<Section> _sections;
     private readonly List<int> _ends = [];
     private int _current;
+    private int _pageOwner;
 
     private DocxSections(List<Section> sections) => _sections = sections;
 
     /// <summary>How many sections the body has; at least one.</summary>
     public int Count => _sections.Count;
+
+    /// <summary>
+    /// The page the text being read is laid out on: the paper and margins of
+    /// the last section that started a page, or null where that section
+    /// states none and the document's page holds.
+    /// </summary>
+    /// <remarks>
+    /// A continuous section follows on the page of the section before it and
+    /// keeps that page's margins rather than its own, as LibreOffice lays it
+    /// out, so an object positioned against the page or its margins in such a
+    /// section measures from that page.
+    /// </remarks>
+    public PageGeometry? CurrentPage => _sections[Math.Min(_pageOwner, _sections.Count - 1)].Page;
 
     /// <summary>
     /// The column count of the section the read has reached. A column break
@@ -264,6 +278,8 @@ internal sealed class DocxSections
     {
         _ends.Add(paragraphEnd);
         _current++;
+        if (CurrentStartsPage)
+            _pageOwner = _current;
     }
 
     /// <summary>

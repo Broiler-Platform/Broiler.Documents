@@ -11,6 +11,37 @@ internal static class DocxValueReader
 
     internal static bool TryReadInt(XAttribute? attribute, out int value) => int.TryParse((string?)attribute, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
 
+    /// <summary>
+    /// The text of a <c>w:t</c> or <c>w:delText</c> as Word and LibreOffice show it.
+    /// </summary>
+    /// <remarks>
+    /// A line feed in run text is a space, not a line break; a break is
+    /// <c>w:br</c>. Unless <c>xml:space="preserve"</c> is in scope - on the
+    /// element or the nearest ancestor that states it - white space at either
+    /// end is dropped and a tab is a space (XML 1.0 §2.10; LibreOffice's
+    /// <c>OOXMLFastContextHandler::text</c>, tdf#108806 and tdf#108995).
+    /// The parser has already turned a written CR LF into one line feed.
+    /// </remarks>
+    internal static string RunText(XElement text)
+    {
+        string value = text.Value.Replace('\n', ' ');
+        if (PreservesSpace(text))
+            return value;
+
+        return value.Trim('\t', '\n', '\r', ' ').Replace('\t', ' ');
+    }
+
+    private static bool PreservesSpace(XElement element)
+    {
+        for (XElement? scope = element; scope is not null; scope = scope.Parent)
+        {
+            if (scope.Attribute(DocxNamespaces.Xml + "space") is XAttribute space)
+                return (string)space == "preserve";
+        }
+
+        return false;
+    }
+
     internal static bool TryParseHexColor(string? value, out BColor color)
     {
         color = BColor.Empty;

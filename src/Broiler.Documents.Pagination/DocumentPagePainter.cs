@@ -277,8 +277,11 @@ public sealed class DocumentPagePainter
             }
             else
             {
+                // The rows a wrapping shape left no room in above the line are
+                // still the paragraph's, and its shading fills them too.
                 Flush();
-                open = new BRect(line.BackgroundLeft, line.Top, line.BackgroundWidth, line.Height);
+                open = new BRect(line.BackgroundLeft, line.Top - line.LeadingSkip, line.BackgroundWidth,
+                    line.Height + line.LeadingSkip);
                 color = line.Background;
             }
 

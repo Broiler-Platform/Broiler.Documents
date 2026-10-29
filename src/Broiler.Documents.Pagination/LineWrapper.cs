@@ -69,7 +69,11 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
         // when tabs may go over the margin: the row then runs on.
         bool overMargin = false;
 
-        void Flush()
+        // True while the row being filled is one the text wrapped onto, rather
+        // than the paragraph's first or one a forced break opened.
+        bool wrapped = false;
+
+        void Flush(bool wraps = true)
         {
             // A line that breaks at a soft hyphen shows the hyphen.
             if (current.Count > 0 && pendingSpace.Count > 0 && pendingSpace[^1].Hyphen is LayoutPiece hyphen)
@@ -82,6 +86,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
             pendingWidth = 0;
             shrunkWidth = null;
             overMargin = false;
+            wrapped = wraps;
 
             band = bandFor(rows.Count);
             bands?.Add(band);
@@ -104,7 +109,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                 // `isLastLine` below still names only the paragraph's final row.
                 pendingSpace.Clear();
                 pendingWidth = 0;
-                Flush();
+                Flush(wraps: false);
                 continue;
             }
 
@@ -115,7 +120,10 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                 // so a line never ends with a visible ragged space. A tab that
                 // opens the paragraph is not that space: it is the indent the
                 // author typed. Explicit tab stops also apply after manual breaks.
-                if (current.Count == 0 && !(token.IsTab && (rows.Count == 0 || tabStops is { Count: > 0 })))
+                // Spaces that open the paragraph, or a line a forced break
+                // opened, are typed rather than left over from a wrap, and
+                // LibreOffice sets them as they are.
+                if (current.Count == 0 && (token.IsTab ? !(rows.Count == 0 || tabStops is { Count: > 0 }) : wrapped))
                     continue;
 
                 if (token.IsTab)

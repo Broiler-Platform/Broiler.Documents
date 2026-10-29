@@ -1009,3 +1009,16 @@ The [workflow note for issue
 #178](../notes/office-conformance-workflow-improvements-issue-178.md) records
 what the investigation found about the workflow, first among it that the
 report could print what the reference draws.
+
+The [issue #182 note](../notes/office-issue-182.md) records the first ranked
+sample, `tdf123163-1.docx`, a magazine of thirty-one sections. Seven earlier
+notes put its gap down to its missing pictures. The causes were others: every
+`w:t` opens with a line feed, which Word and LibreOffice read as a space and
+`broilerdoc` read as a line break, and a shape placed from the page was
+converted with the last section's margins rather than those of the page it is
+on. The layout now also steps a row of exact height past a frame by whole
+rows, keeps an empty paragraph on the page its own side-wrapped backdrop
+covers, and sets the spaces that open a paragraph. The [workflow note for
+issue #182](../notes/office-conformance-workflow-improvements-issue-182.md)
+records what the investigation found about the workflow, first among it that
+a text difference of split lines names its cause.

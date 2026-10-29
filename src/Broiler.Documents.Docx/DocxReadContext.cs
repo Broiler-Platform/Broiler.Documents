@@ -40,6 +40,18 @@ internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumb
     public bool InNote { get; init; }
 
     /// <summary>
+    /// The page a floating object's offsets are converted against: the page the
+    /// body's text is on where the read follows the body's sections, the
+    /// document's page otherwise.
+    /// </summary>
+    /// <remarks>
+    /// The document's page is its last section's. A shape in an earlier section
+    /// stated against the page or a margin converted with those margins landed
+    /// wherever the two sections' margins differed by.
+    /// </remarks>
+    public PageGeometry? PlacementPage => Sections?.CurrentPage ?? Page;
+
+    /// <summary>
     /// Called with the run where a note's text repeats its label, so the space
     /// after it can go too and the label's formatting can be read.
     /// </summary>
