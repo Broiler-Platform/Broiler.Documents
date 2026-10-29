@@ -223,4 +223,32 @@ public sealed class DocumentPagePainterTableTests
             list.Commands.OfType<BRenderCommand.PushClip>().Count(),
             list.Commands.OfType<BRenderCommand.PopClip>().Count());
     }
+
+    [Fact]
+    public void Text_That_Runs_Past_A_Hair_Wide_Cell_Is_Cut_At_Its_Edge()
+    {
+        // fdo114306_2.odt keeps a digit in a column 0.05 cm wide; Writer cuts a
+        // text portion that juts past its cell at the cell's edge, so the digit
+        // is not drawn across the next column.
+        var table = new DocumentTable(0, 2, [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)])],
+            [100, 2], cellPadding: 0);
+        var document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("wide"), RichTextParagraph.Plain("0")])
+            .WithTables([table]);
+
+        using var images = new ImageStore();
+        var settings = new LayoutSettings();
+        var box = new DocumentPageBox(300, 300, 10, 10, 10, 10);
+        var page = Assert.Single(new DocumentLayout(settings, images).Layout(document, box).Pages);
+        LayoutLine digit = page.Lines.Single(line => line.ParagraphIndex == 1);
+        LayoutLine word = page.Lines.Single(line => line.ParagraphIndex == 0);
+
+        Assert.Equal(112, digit.ClipRight!.Value, 3);
+        Assert.Null(word.ClipRight);
+
+        var list = new BRenderList();
+        new DocumentPagePainter(settings, images).Paint(page, box, list, _ => null);
+        var clip = Assert.Single(list.Commands.OfType<BRenderCommand.PushClip>());
+        Assert.Equal(112, clip.Rect.Right, 3);
+        Assert.Equal(list.Commands.OfType<BRenderCommand.PushClip>().Count(), list.Commands.OfType<BRenderCommand.PopClip>().Count());
+    }
 }

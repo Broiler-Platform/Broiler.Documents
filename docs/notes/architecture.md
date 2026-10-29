@@ -179,6 +179,15 @@ by ADR 0008).
   `RichTextDocument.NoteNumbering` states, so the page, the PDF, every writer
   and the text dump agree. DOCX, ODT and RTF read and write them; HTML and
   Markdown write them after the body; CSV drops them.
+- **Page fields.** A page number or page count is a run holding the value the
+  document saved, marked through `InlineStyle.PageField` with what it counts,
+  its number format and its adjustment. The paginator lays a header and footer
+  out on every page and draws each field's own value there, numbering pages
+  from where a section restarts the count (`DocumentSection.PageNumberStart`);
+  a page count comes from a second pass that knows the first one's total. Every
+  other consumer - the text dump, writers that cannot state the field - uses
+  the saved text. ODT reads and writes the fields; DOCX and RTF read their saved
+  text ([roadmap](../roadmap.md)).
 - **Tracked changes.** A change is a `TextRevision` - insertion, deletion or
   change of formatting, with its author, its date and whether it is one side of
   a move - on the runs it marks (`InlineStyle.Revision`) and on a paragraph mark

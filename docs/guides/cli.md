@@ -235,7 +235,11 @@ not the document shows its changes; `--as json` says which change marks each run
 **Table cells are separated by tabs and rows by newlines**. Paragraphs inside a
 cell keep their newline boundaries; nested tables preserve their own separators.
 Image objects contribute no text, as in LibreOffice's export; the pixel checks
-remain responsible for detecting missing images.
+remain responsible for detecting missing images. **Text in a shape is not the
+body's either**: a text box, a frame or a form label contributes nothing, as
+LibreOffice's export walks the body alone. The one exception is LibreOffice's
+too — a document whose whole body is one empty paragraph exports its first text
+box instead. A page field is written with the value the document saved.
 
 `dump --as grid` (or `--as table`) emits a tabular ASCII/Unicode box-drawing grid representation of all tables and spreadsheet sheets in the document with row and column headers.
 

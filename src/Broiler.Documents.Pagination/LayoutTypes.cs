@@ -132,6 +132,15 @@ public sealed class LayoutLine : IPaginatedLineArtifact
     /// <summary>Visible height within a fixed table row, relative to Top; null leaves the line unclipped.</summary>
     public double? ClipHeight { get; internal set; }
 
+    /// <summary>
+    /// The right edge, in page points, past which nothing of the line is
+    /// drawn, or null for a line drawn whole. Set on a line in a table cell
+    /// whose text runs past the cell, which Writer clips to the cell
+    /// (itrpaint.cxx, <c>SwTextPainter::DrawTextLine</c>): a digit kept in a
+    /// column a hair wide is not drawn across its neighbour.
+    /// </summary>
+    public double? ClipRight { get; internal set; }
+
     /// <summary>Distance from <see cref="Top"/> down to the baseline, in points.</summary>
     public double Baseline { get; }
 
@@ -170,6 +179,8 @@ public sealed class LayoutLine : IPaginatedLineArtifact
 
         BackgroundLeft += dx;
         TextAreaLeft += dx;
+        if (ClipRight is double right)
+            ClipRight = right + dx;
         if (ChangeBarX is double bar)
             ChangeBarX = bar + dx;
         foreach (LayoutPiece piece in _pieces)
@@ -418,6 +429,16 @@ public sealed record LayoutSettings
 
     /// <summary>Stop after this many pages. Guards against a document that never ends.</summary>
     public int MaxPages { get; init; } = 200;
+
+    /// <summary>
+    /// Draw shapes the document keeps off the printed page
+    /// (<see cref="DocumentShape.Printable"/>). Off by default, because pages
+    /// are what is printed and exported; a host showing the pages while editing
+    /// turns it on, as a word processor shows such objects on screen. The
+    /// layout is the same either way: the text keeps its distance from the
+    /// shape whether it is drawn or not.
+    /// </summary>
+    public bool DrawNonPrintingShapes { get; init; }
 
     /// <summary>Draw a hairline box around the content area. A layout debugging aid.</summary>
     public bool ShowContentBox { get; init; }

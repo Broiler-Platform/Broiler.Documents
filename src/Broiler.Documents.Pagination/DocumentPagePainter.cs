@@ -880,13 +880,14 @@ public sealed class DocumentPagePainter
 
     private void DrawLine(BRenderList list, LayoutLine line, Func<InlineImage, BImageHandle?> resolveImage)
     {
-        if (line.ClipHeight is not double height)
+        if (line.ClipHeight is null && line.ClipRight is null)
         {
             DrawLineContents(list, line, resolveImage);
             return;
         }
-        // Restrict only the vertical extent. Include glyph overhangs and any
-        // change bar horizontally, so this does not add a new cell-width clip.
+        // Restrict the vertical extent where the line states one, and the right
+        // where it states that; otherwise include glyph overhangs and any change
+        // bar, so a clip on one side does not cut the line on another.
         double left = Math.Min(line.BackgroundLeft, line.Pieces.Select(piece => piece.X - piece.Font.Size)
             .DefaultIfEmpty(line.BackgroundLeft).Min());
         double right = Math.Max(line.BackgroundLeft + line.BackgroundWidth,
@@ -894,7 +895,12 @@ public sealed class DocumentPagePainter
                 .DefaultIfEmpty(line.BackgroundLeft).Max());
         if (line.ChangeBarX is double bar)
             left = Math.Min(left, bar - ChangeBarWidth);
-        list.PushClip(new BRect(left, line.Top, Math.Max(1, right - left), height));
+        if (line.ClipRight is double clipRight)
+            right = clipRight;
+        (double top, double height) = line.ClipHeight is double clipHeight
+            ? (line.Top, clipHeight)
+            : (line.Top - line.Height, line.Height * 3);
+        list.PushClip(new BRect(left, top, Math.Max(1, right - left), height));
         DrawLineContents(list, line, resolveImage);
         list.PopClip();
     }

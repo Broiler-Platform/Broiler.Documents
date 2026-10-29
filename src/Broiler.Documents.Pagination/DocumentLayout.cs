@@ -63,8 +63,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     // that section started, which is the page its first-page part is for.
     private RunningContent _running = RunningContent.Empty;
     private int _firstPage = 1;
+
+    // How pages are numbered: the page that last restarted the count and the
+    // number it took, the sections that have restarted it, and the document's
+    // page count once a first pass has found it, for a page-count field.
+    private (int Page, int Number) _numbering = (1, 1);
+    private readonly HashSet<DocumentSection> _restartedNumbering = [];
+    private int? _pageCount;
     private double? _headerDistance;
     private double? _footerDistance;
+    private (bool Header, bool Footer) _fixedBands;
     private PageFrame? _frame;
     private IReadOnlyList<DocumentShape> _documentShapes = [];
     private ShapeFill? _background;
@@ -119,10 +127,50 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private const char ForcedLineBreak = '\u2028';
 
     /// <summary>Lays the document out onto pages of the given size.</summary>
+    /// <remarks>
+    /// A header or footer that shows the page count is drawn from a second
+    /// pass, which knows the count the first one found. Only such a document
+    /// pays for it.
+    /// </remarks>
     public LayoutResult Layout(RichTextDocument document, DocumentPageBox setup)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(setup);
+
+        _pageCount = null;
+        LayoutResult result = LayoutOnce(document, setup);
+        if (!setup.Continuous && NeedsPageCount(document))
+        {
+            _pageCount = result.Pages.Count;
+            result = LayoutOnce(document, setup);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// True when a header or footer of <paramref name="document"/> needs the
+    /// page count: to show it, or to know whether the page an adjusted page
+    /// number points at is there.
+    /// </summary>
+    private static bool NeedsPageCount(RichTextDocument document)
+    {
+        static bool Shows(RunningContent running) =>
+            Enum.GetValues<PageSelection>().Any(selection =>
+                running.Header(selection).Concat(running.Footer(selection))
+                    .Any(paragraph => paragraph.Runs.Any(run =>
+                        run.Style.PageField is PageField field && (field.Kind == PageFieldKind.PageCount || field.Adjust != 0))));
+
+        return Shows(document.RunningContent) ||
+            document.Sections.Any(section =>
+                (section.RunningContent is RunningContent running && Shows(running)) ||
+                (section.PageStyles?.Styles.Any(style => Shows(style.RunningContent)) ?? false));
+    }
+
+    private LayoutResult LayoutOnce(RichTextDocument document, DocumentPageBox setup)
+    {
+        _numbering = (1, 1);
+        _restartedNumbering.Clear();
 
         // A document that hides its changes is laid out as it reads with its
         // deletions gone; one that shows them draws each in its author's colour.
@@ -138,6 +186,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _firstPage = 1;
         _headerDistance = document.PageGeometry?.HeaderDistance;
         _footerDistance = document.PageGeometry?.FooterDistance;
+        _fixedBands = (document.PageGeometry?.FixedHeaderHeight == true, document.PageGeometry?.FixedFooterHeight == true);
         _frame = null;
         bool IsHidden(int index) => DocumentSection.Containing(document.Sections, index)?.Hidden == true;
         _documentShapes = document.Shapes.Where(shape => !IsHidden(shape.ParagraphIndex)).ToArray();
@@ -214,14 +263,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 _frame = FrameFor(
                     pages.Count + 1, setup, setup.MarginTopPoints, setup.MarginBottomPoints,
-                    _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints);
+                    _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints, _fixedBands);
             }
             else
             {
                 double left = Math.Clamp(page.MarginLeft, 0, setup.WidthPoints - 1);
                 _frame = FrameFor(
                     pages.Count + 1, setup, Math.Clamp(page.MarginTop, 0, setup.HeightPoints - 1), page.MarginBottom,
-                    page.HeaderDistance, page.FooterDistance, left, Math.Max(1, setup.WidthPoints - page.MarginRight - left));
+                    page.HeaderDistance, page.FooterDistance, left, Math.Max(1, setup.WidthPoints - page.MarginRight - left),
+                    (page.FixedHeaderHeight, page.FixedFooterHeight));
             }
 
             return (_frame.TextTop, _frame.TextBottom);
@@ -250,6 +300,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             hasPendingOwner = false;
             pendingOwner = null;
             pendingSharesFirst = false;
+            // The page this section starts takes the number it restarts the
+            // count at, once: a section runs onto later pages as their owner too.
+            if (section?.PageNumberStart is int restart && _restartedNumbering.Add(section))
+                _numbering = (pages.Count + 1, restart);
             _running = setup.Continuous ? RunningContent.Empty : section?.RunningContent ?? _documentRunning;
             _firstPage = sharesFirst ? 0 : pages.Count + 1;
         }
@@ -279,6 +333,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     left = Math.Clamp(page.MarginLeft, 0, setup.WidthPoints - 1);
                     width = Math.Max(1, setup.WidthPoints - page.MarginRight - left);
                 }
+
+                // The section's own indents apply within that text area on any
+                // page, where its page margins applied only on a page it starts.
+                left += section.LeftIndent;
+                width = Math.Max(1, width - section.LeftIndent - section.RightIndent);
 
                 found = TextColumns.For(
                     section.ColumnCount, section.ColumnGap, width, left - setup.ContentLeftPoints,
@@ -1002,6 +1061,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // off its foot, because a row that waited for room it will never
                 // have would stop the layout.
                 ListNumberer headerStart = numbering.Snapshot();
+
+                // Space above a table, as above a paragraph, opens no page or
+                // column: a table that starts one starts at its top.
+                if (ColumnHasContent())
+                    y += table.SpacingBefore;
                 List<RowBox> composedRows = ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width);
                 y = BelowFloats(y, composedRows, columns.Offset(column));
                 double totalTableHeight = composedRows.Sum(row => row.Height);
@@ -1132,7 +1196,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         break;
                 }
 
-                spacingAfterPrevious = 0;
+                spacingAfterPrevious = table.SpacingAfter;
+                y += spacingAfterPrevious;
                 paragraphIndex = table.ParagraphEnd;
                 continue;
             }
@@ -1210,6 +1275,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     break;
             }
             _paragraphTops.TryAdd(paragraphIndex, y);
+
+            // A paragraph whose text and mark are all hidden takes no room, as
+            // LibreOffice hides it; the break it asked for was taken above.
+            if (IsWhollyHidden(paragraph) && !_documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex))
+            {
+                paragraphIndex++;
+                continue;
+            }
 
             // A shape's box is known once the paragraph it hangs from has a top,
             // so this paragraph's shapes join the exclusions before its own lines
@@ -1539,17 +1612,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             ? current.Number == number ? current : FrameFor(number, setup, current)
             : FrameFor(
                 number, setup, setup.MarginTopPoints, setup.MarginBottomPoints,
-                _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints);
+                _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints, _fixedBands);
 
+        int pageNumber = _numbering.Number + number - _numbering.Page;
         var headerLines = RunningLines(
-            _running.EffectiveHeader(selection),
+            WithPageFields(_running.EffectiveHeader(selection), pageNumber, number),
             setup,
             frame,
             top: 0,
             band: frame.TextTop,
             topDistance: frame.HeaderDistance);
         var footerLines = RunningLines(
-            _running.EffectiveFooter(selection),
+            WithPageFields(_running.EffectiveFooter(selection), pageNumber, number),
             setup,
             frame,
             top: frame.TextBottom,
@@ -1622,13 +1696,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </para>
     /// </remarks>
     private PageFrame FrameFor(int number, DocumentPageBox setup, double marginTop, double marginBottom,
-        double? headerDistance, double? footerDistance, double left, double width)
+        double? headerDistance, double? footerDistance, double left, double width, (bool Header, bool Footer) fixedBands = default)
     {
         double top = marginTop;
         double bottom = Math.Max(top + 1, setup.HeightPoints - marginBottom);
         PageSelection selection = SelectionFor(number);
 
-        if (headerDistance is double fromTop && double.IsFinite(fromTop) && fromTop >= 0)
+        // A band of fixed height keeps the text where the margin puts it,
+        // however much its header or footer holds.
+        if (!fixedBands.Header && headerDistance is double fromTop && double.IsFinite(fromTop) && fromTop >= 0)
         {
             IReadOnlyList<RichTextParagraph> headerParagraphs = _running.EffectiveHeader(selection);
             if (headerParagraphs.Count == 0 && _running.HasAnyHeader && fromTop >= top)
@@ -1639,7 +1715,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 top += overrun;
         }
 
-        if (footerDistance is double fromBottom && double.IsFinite(fromBottom) && fromBottom >= 0)
+        if (!fixedBands.Footer && footerDistance is double fromBottom && double.IsFinite(fromBottom) && fromBottom >= 0)
         {
             double footer = RunningHeight(_running.EffectiveFooter(selection), setup, left, width);
             double overrun = fromBottom + footer - (setup.HeightPoints - bottom);
@@ -1647,12 +1723,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 bottom -= overrun;
         }
 
-        return new PageFrame(number, marginTop, marginBottom, headerDistance, footerDistance, left, width, top, bottom);
+        return new PageFrame(number, marginTop, marginBottom, headerDistance, footerDistance, left, width, top, bottom, fixedBands);
     }
 
     /// <summary>Page <paramref name="number"/>'s frame on the paper and margins of <paramref name="like"/>.</summary>
     private PageFrame FrameFor(int number, DocumentPageBox setup, PageFrame like) =>
-        FrameFor(number, setup, like.MarginTop, like.MarginBottom, like.HeaderDistance, like.FooterDistance, like.Left, like.Width);
+        FrameFor(number, setup, like.MarginTop, like.MarginBottom, like.HeaderDistance, like.FooterDistance, like.Left, like.Width, like.FixedBands);
 
     /// <summary>
     /// The paper a page is laid out on: the margins and band distances it takes
@@ -1668,7 +1744,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double Left,
         double Width,
         double TextTop,
-        double TextBottom);
+        double TextBottom,
+        (bool Header, bool Footer) FixedBands = default);
 
     /// <summary>
     /// Adds the wrapping shapes anchored to page <paramref name="number"/> to the
@@ -1693,6 +1770,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         Math.Abs(setup.MarginBottomPoints - page.MarginBottom) < 0.01;
 
     /// <summary>
+    /// True when <paramref name="shape"/> is drawn on the page: always, unless
+    /// the document keeps it off the printed page and the host has not asked to
+    /// see such shapes. Only the drawing is skipped; the exclusions that keep
+    /// text clear of it were taken from every shape.
+    /// </summary>
+    private bool Draws(DocumentShape shape) => shape.Printable || _settings.DrawNonPrintingShapes;
+
+    /// <summary>
     /// Places a running band's shapes on every page it applies to. There is no
     /// paragraph to hang one from - a header repeats - so the offset is measured
     /// from the top of the page.
@@ -1703,6 +1788,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         foreach (DocumentShape shape in shapes)
         {
             NoteGrownHeight(shape, setup);
+            if (!Draws(shape))
+                continue;
             var bounds = new BRect(
                 setup.ContentLeftPoints + shape.OffsetX,
                 shape.OffsetY,
@@ -1774,7 +1861,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             var bounds = new BRect(area.Left + offset, shape.TopOnPage(anchorTop),
                 BoxWidth(shape), BoxHeight(shape));
 
-            if ((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule)
+            if (((bounds.Width <= 0 || bounds.Height <= 0) && !shape.IsRule) || !Draws(shape))
                 continue;
 
             (List<LayoutLine> text, List<LayoutCell> cells) = PlaceShapeContent(shape, bounds, setup);
@@ -1822,8 +1909,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 (List<LayoutLine> lines, List<LayoutCell> nested, List<CutPiece> pieces, double height) =
                     ComposeBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, setup, cellLeft + padding.Left, textWidth);
 
+                // Text that runs past the cell is cut at its edge, as Writer
+                // cuts a text portion; the innermost cell's edge wins for a
+                // nested table. A picture is a frame of its own there, drawn
+                // whole, so a line holding one is left as it is.
+                double cellRight = cellLeft + cellWidth;
                 foreach (LayoutLine line in lines)
+                {
                     line.Top += padding.Top;
+                    if (line.Pieces.Any(piece => piece.X + piece.Width > cellRight + 0.01) &&
+                        !line.Pieces.Any(piece => piece.IsImage))
+                        line.ClipRight = Math.Min(line.ClipRight ?? cellRight, cellRight);
+                }
                 foreach (LayoutCell inner in nested)
                     inner.Bounds = new BRect(inner.Bounds.Left, inner.Bounds.Top + padding.Top, inner.Bounds.Width, inner.Bounds.Height);
                 for (int piece = 0; piece < pieces.Count; piece++)
@@ -2242,12 +2339,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     }
                 }
 
-                keepPrevious = false;
+                // A table kept with what follows is held to it as a paragraph is.
+                keepPrevious = nested.KeepWithNext;
                 index = nested.ParagraphEnd;
                 continue;
             }
 
             RichTextParagraph paragraph = document.Paragraphs[index];
+            if (IsWhollyHidden(paragraph) && !document.Shapes.Any(shape => shape.ParagraphIndex == index))
+            {
+                numbering.Advance(paragraph.Style);
+                index++;
+                continue;
+            }
+
             ParagraphLines composed = ComposeParagraph(paragraph, numbering.Advance(paragraph.Style), setup, index, left, width);
 
             y += Math.Max(0, paragraph.Style.SpacingBefore);
@@ -2842,6 +2947,27 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         if (lines.Count == 0)
             return lines;
 
+        // A band of fixed height that its content overruns is cut at its
+        // edge, as LibreOffice cuts it, rather than left out: the header from
+        // its distance down to the text, the footer from the text down to its
+        // distance from the foot.
+        bool fixedBand = topDistance is not null ? frame.FixedBands.Header : bottomDistance is not null && frame.FixedBands.Footer;
+        double distanceIn = topDistance ?? bottomDistance ?? 0;
+        if (fixedBand && double.IsFinite(distanceIn) && distanceIn >= 0 && distanceIn < band && distanceIn + height > band)
+        {
+            double start = topDistance is not null ? top + distanceIn : top;
+            double limit = topDistance is not null ? top + band : top + band - distanceIn;
+            var kept = new List<LayoutLine>();
+            foreach (LayoutLine line in lines)
+            {
+                line.Top += start;
+                if (line.Top + line.Height <= limit + 0.01)
+                    kept.Add(line);
+            }
+
+            return kept;
+        }
+
         if (height > band)
         {
             _notes.Add("a header or footer was taller than its page margin and was not drawn.");
@@ -2876,6 +3002,62 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
+    /// True for a paragraph with nothing to show: its mark and all its text are
+    /// hidden. LibreOffice takes no room for one (<c>SwTextFrame::IsHiddenNow</c>),
+    /// where a paragraph with hidden text and a shown mark is still an empty line.
+    /// </summary>
+    private static bool IsWhollyHidden(RichTextParagraph paragraph) =>
+        paragraph.MarkStyle.Hidden && paragraph.Runs.All(run => run.Style.Hidden);
+
+    /// <summary>
+    /// <paramref name="paragraphs"/> with each page field showing its value on
+    /// the page numbered <paramref name="pageNumber"/>, the
+    /// <paramref name="page"/>th of the document; a page count not known yet
+    /// keeps the text the document saved.
+    /// </summary>
+    /// <remarks>
+    /// A number adjusted to another page shows nothing where that page is not
+    /// there, as LibreOffice's does: a "continued on page 2" footer is blank on
+    /// the last page.
+    /// </remarks>
+    private IReadOnlyList<RichTextParagraph> WithPageFields(IReadOnlyList<RichTextParagraph> paragraphs, int pageNumber, int page)
+    {
+        List<RichTextParagraph>? filled = null;
+        for (int i = 0; i < paragraphs.Count; i++)
+        {
+            RichTextParagraph paragraph = paragraphs[i];
+            if (!paragraph.Runs.Any(run => run.Style.PageField is not null))
+                continue;
+
+            // From the last run back, so each replacement leaves the offsets of
+            // the runs still to do where they were.
+            int end = paragraph.Length;
+            for (int r = paragraph.Runs.Count - 1; r >= 0; r--)
+            {
+                StyleRun run = paragraph.Runs[r];
+                int start = end - run.Length;
+                string? text = run.Style.PageField is PageField field && field.Kind == PageFieldKind.PageNumber && field.Adjust != 0 &&
+                    (page + field.Adjust < 1 || (_pageCount is int count && page + field.Adjust > count))
+                    ? ""
+                    : run.Style.PageField?.Text(pageNumber, _pageCount);
+                if (text is not null && text != paragraph.Text.Substring(start, run.Length))
+                {
+                    paragraph = paragraph.RemoveRange(start, run.Length);
+                    if (text.Length > 0)
+                        paragraph = paragraph.InsertText(start, text, run.Style);
+                }
+
+                end = start;
+            }
+
+            filled ??= [.. paragraphs];
+            filled[i] = paragraph;
+        }
+
+        return filled ?? paragraphs;
+    }
+
+    /// <summary>
     /// A running band's lines, each placed from the top of the band, and the
     /// band's height with its paragraphs' spacing.
     /// </summary>
@@ -2886,6 +3068,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double height = 0;
         foreach (RichTextParagraph paragraph in paragraphs)
         {
+            if (IsWhollyHidden(paragraph))
+                continue;
+
             if (lines.Count > 0)
                 height += Math.Max(0, paragraph.Style.SpacingBefore);
 

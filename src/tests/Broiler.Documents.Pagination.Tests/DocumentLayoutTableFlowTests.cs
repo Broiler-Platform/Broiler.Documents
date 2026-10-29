@@ -253,4 +253,31 @@ public sealed class DocumentLayoutTableFlowTests
         Assert.Equal(5, result.Pages[0].Lines.Count);
         Assert.Equal(4, result.Pages[1].Lines.Count);
     }
+
+    [Fact]
+    public void A_tables_spacing_stands_above_and_below_its_grid()
+    {
+        // fdo114306_2.odt sets its signature table 2.2 cm below the text with
+        // fo:margin-top on the table.
+        RichTextDocument document = RichTextDocument.FromParagraphs([Para(1), Para(1), Para(1)])
+            .WithTables([new DocumentTable(1, 1, [new TableRow([new TableCell(1, 1, 0)])], [180], cellPadding: 0,
+                spacingBefore: 15, spacingAfter: 5)]);
+
+        LayoutPage page = Assert.Single(Layout(document).Pages);
+
+        Assert.Equal([10, 35, 50], page.Lines.Select(line => Math.Round(line.Top, 3)));
+        Assert.Equal(35, page.Cells[0].Bounds.Top, 3);
+    }
+
+    [Fact]
+    public void A_tables_spacing_above_opens_no_page()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs([Para(1), Para(1)])
+            .WithTables([new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0)])], [180], cellPadding: 0,
+                spacingBefore: 15)]);
+
+        LayoutPage page = Assert.Single(Layout(document).Pages);
+
+        Assert.Equal(10, page.Lines[0].Top, 3);
+    }
 }

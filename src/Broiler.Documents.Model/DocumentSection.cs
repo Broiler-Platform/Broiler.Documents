@@ -36,7 +36,10 @@ public sealed class DocumentSection(
     PageStyleSequence? pageStyles = null,
     bool hidden = false,
     bool dontBalanceColumns = false,
-    SectionBreakType breakType = SectionBreakType.Continuous)
+    SectionBreakType breakType = SectionBreakType.Continuous,
+    double leftIndent = 0,
+    double rightIndent = 0,
+    int? pageNumberStart = null)
 {
     /// <summary>The first paragraph the section holds.</summary>
     public int ParagraphIndex { get; } = Math.Max(0, paragraphIndex);
@@ -106,6 +109,34 @@ public sealed class DocumentSection(
     /// <summary>How this section starts relative to the preceding content.</summary>
     public SectionBreakType BreakType { get; } = breakType;
 
+    /// <summary>
+    /// How far the section's text stands in from the left of the text area of
+    /// the page it is on, in points.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="Page"/>'s margins. Those are the page's, and a section
+    /// that follows on a page leaves them to the section that started it. An
+    /// indent is the section's own and applies on whichever page it lands:
+    /// ODF's <c>fo:margin-left</c> on a section, which LibreOffice keeps for a
+    /// text section on any page - a form template sets its title in the left
+    /// half of the page that way.
+    /// </remarks>
+    public double LeftIndent { get; } = double.IsFinite(leftIndent) ? leftIndent : 0;
+
+    /// <summary>
+    /// How far the section's text stands in from the right of the text area of
+    /// the page it is on, in points. See <see cref="LeftIndent"/>.
+    /// </summary>
+    public double RightIndent { get; } = double.IsFinite(rightIndent) ? rightIndent : 0;
+
+    /// <summary>
+    /// The number the first page this section starts takes, or null for a
+    /// section that carries the count on: ODF's <c>style:page-number</c> on the
+    /// paragraph that starts the section's page style. Only a section that
+    /// starts a page restarts the count.
+    /// </summary>
+    public int? PageNumberStart { get; } = pageNumberStart is >= 0 ? pageNumberStart : null;
+
     /// <summary>True when <paramref name="paragraphIndex"/> is one of the section's paragraphs.</summary>
     public bool Contains(int paragraphIndex) => paragraphIndex >= ParagraphIndex && paragraphIndex < ParagraphEnd;
 
@@ -146,7 +177,7 @@ public sealed class DocumentSection(
             return this;
 
         (int index, int count) = DocumentTable.ShiftRange(ParagraphIndex, ParagraphCount, at, removed, inserted, affinity);
-        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType);
+        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart);
     }
 
     /// <summary>
@@ -168,7 +199,10 @@ public sealed class DocumentSection(
             PageStyles,
             Hidden,
             DontBalanceColumns,
-            BreakType);
+            BreakType,
+            LeftIndent,
+            RightIndent,
+            PageNumberStart);
     }
 
     /// <summary>
@@ -179,6 +213,6 @@ public sealed class DocumentSection(
         (int index, int count) = DocumentTable.RelocateRange(ParagraphIndex, ParagraphCount, sourceStart, sourceCount, destinationIndex);
         return count <= 0
             ? null
-            : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType);
+            : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart);
     }
 }

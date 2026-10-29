@@ -114,9 +114,20 @@ layout are covered; this does not claim identical exported clipping.
   pins it.
 - Inline constructs: `text:span`, `text:a`, `text:s`, `text:tab`,
   `text:line-break`, and `text:ruby` (the `text:ruby-base` text). Fields and
-  marks — `text:date`, `text:page-number`, `text:bookmark-ref`, and the rest —
-  contribute the value they last computed, which is the text a reader can plainly
-  see on the page.
+  marks — `text:date`, `text:bookmark-ref`, and the rest — contribute the value
+  they last computed, which is the text a reader can plainly see on the page.
+- `text:page-number` and `text:page-count` keep the value they last computed
+  too, in a run marked with the field it shows (`InlineStyle.PageField`): what it
+  counts, its `style:num-format` (`1`, `i`, `I`, `a`, `A`, or empty for none),
+  and the adjustment `text:select-page` (`previous`, `next`) and
+  `text:page-adjust` make. A header or footer draws each page's own value; body
+  text keeps the saved one. A field with no `style:num-format` is decimal, where
+  LibreOffice would take the page style's format. A write puts the field back
+  with its value.
+- `style:page-number` on the paragraph or table style that starts a master page
+  restarts the count there (`DocumentSection.PageNumberStart`); `auto` and `0`
+  carry it on. A write cannot keep a restart, because it writes one master page,
+  and reports `odt.section.page-number`.
 - Footnotes and endnotes (`text:note`), as a `DocumentNote` held by one
   citation character where the note stands. `text:note-class` says which kind,
   and the paragraphs of `text:note-body` are the note's text; a table or shape
@@ -302,8 +313,16 @@ layout are covered; this does not claim identical exported clipping.
   where the text after it goes on on the same page, and the layout here does the same;
   `text:dont-balance-text-columns="true"` is preserved on `DocumentSection.DontBalanceColumns`
   and skips column balancing at the end of the section in layout. Section margins
-  (`fo:margin-left`, `fo:margin-right`, `fo:margin`) are read as relative offsets on top of
-  active page margins into `DocumentSection.Page` and written back out to `style:section-properties`.
+  (`fo:margin-left`, `fo:margin-right`, `fo:margin`) are read as indents,
+  `DocumentSection.LeftIndent` and `RightIndent`, and written back out to
+  `style:section-properties`. An indent is measured in from the text area of
+  whatever page the section is on, which is how LibreOffice applies it; a
+  section's page margins apply only on a page it starts. The indents of nested
+  sections add up.
+- A stretch of the body between two section edges follows on the page it is on.
+  Only a paragraph or table whose style names a master page opens a page. Before
+  that, every stretch started a page, which set the four pages of
+  `fdo114306_2.odt`, a form of a dozen text sections, out on eleven.
 - A write puts each section with columns in a `text:section` named
   `Section1`, `Section2` and on, with an automatic section style stating its
   columns. ODF lays a section's columns out inside the page's, where the model
@@ -538,13 +557,15 @@ blank:
 | `odt.limit.paragraphs` | Warning | Input exceeded `MaxParagraphCount`; remaining paragraphs were dropped. |
 
 Write diagnostics are `odt.link`, `odt.image.placeholder`, `odt.image.size`,
-`odt.color.alpha`, `odt.text.control`, `odt.section.page`, `odt.list.label`,
+`odt.color.alpha`, `odt.text.control`, `odt.section.page`, `odt.section.page-number`, `odt.list.label`,
 `odt.list.format`, `odt.list.legal` (the list forms above ODF cannot state), and
 `odt.image.omitted` — the last one reporting a picture the caller's resource
 policy did not permit the write to pass on, which is the writer's counterpart to
 `odt.image.denied`. `odt.section.page` reports a section that states unsupported
 paper size or top/bottom margins, which cannot be represented on an ODF `text:section`:
 relative left and right margins are written as `fo:margin-left` and `fo:margin-right` on `style:section-properties`.
+`odt.section.page-number` reports a section that restarts the page count, which a
+document written with one master page cannot state.
 `odt.text.control` covers every string that comes from the model, a picture's
 description as well as run text; the description path was unguarded and threw
 out of the serializer rather than reporting.
@@ -617,9 +638,50 @@ omits hidden body content, anchored objects and note numbering contributions;
 hidden paragraph breaks and page-style selections do not affect visible text.
 A break from a preceding visible paragraph still reaches the next visible block.
 Conditional visibility is not evaluated. Running parts and text frames do not
-carry their own section collections, so hidden sections inside those parts are
-not covered by this body-section support. Other writers report their visibility
-limitation rather than silently claiming to preserve the flag.
+carry their own section collections. A hidden section in a header or footer is
+left out of it when it is read, as LibreOffice never shows it — a template's
+file-name footer is kept that way — so it does not survive a round trip; one in
+a text frame is not covered. Other writers report their visibility limitation
+rather than silently claiming to preserve the flag.
+
+### Hidden text from OpenOffice.org 2.x
+
+OpenOffice.org 2.x wrote `text:display` the wrong way round: `true` for hidden
+text and `none` for shown. LibreOffice recognises such a document by the build
+id in `meta:generator` (`…_project/680m14$Build-9134`) and reads its values
+inverted (`txtimppr.cxx`, `CTF_TEXT_DISPLAY`), and so does this reader:
+`fdo114306_2.odt`'s "Скрытый текст" (hidden text) style says `true`. A paragraph
+whose mark and text are all hidden takes no room in the layout, as in
+LibreOffice; one whose text is hidden under a shown mark is still an empty line.
+
+### What a template keeps off the printed page
+
+A drawing whose graphic style says `style:print-content="false"` is read with
+`DocumentShape.Printable` false and written back with it. The layout places it
+and keeps text clear of it, and leaves it off the page unless the host sets
+`LayoutSettings.DrawNonPrintingShapes`, which is how LibreOffice prints and
+exports to PDF: `fdo114306_2.odt` prints without its crest and heading frame,
+its title as far down the page as if they were there.
+
+A `draw:control` that places a label (`form:fixed-text` in `office:forms`) is a
+shape holding the label's words, set in the control's `draw:text-style-name`,
+centred as `draw:textarea-vertical-align` says and drawn whole even where the
+control is shorter than its line. It has no fill or border. A label without
+`form:multi-line="true"` stays on one line, its box growing to its text, and one
+with `form:printable="false"` is not printable. Other controls are not read.
+
+### Table spacing, splitting and cell overflow
+
+A table's `fo:margin-top` and `fo:margin-bottom` are its space above and below,
+`DocumentTable.SpacingBefore` and `SpacingAfter`, read and written. As above a
+paragraph, the space above opens no page or column. `style:may-break-between-rows="false"`,
+LibreOffice's "allow table to split" turned off, keeps the table together, as
+`fo:keep-together="always"` does; a nested table that is kept with what follows
+it is held to it at a cut. A cell whose style states no padding has none: ODF
+has no default, and LibreOffice sets such a cell's text against its edge. Text
+that runs past the edge of a cell is cut there,
+as Writer cuts a text portion (`SwTextPainter::DrawTextLine`); a line holding a
+picture is drawn whole.
 
 ### Header bands and outer page margins
 
@@ -629,11 +691,19 @@ For a master page with an enabled header, its outer top margin is read as
 body `MarginTop`. The shared paginator can additionally move body text clear of
 a header whose measured content exceeds that minimum. A header style without an
 enabled header does not reserve space. Text inside a positioned drawing is not
-used to select the body's first master page.
+used to select the body's first master page, nor is the text of a deletion that
+`text:tracked-changes` keeps ahead of the body, or of a note or a comment.
+
+A band of fixed height states `svg:height` and no `fo:min-height`. Its height
+holds the spacing between it and the body already, as LibreOffice reads it: a
+0.4 cm header with 0.3 cm of spacing starts the body 0.4 cm below the header's
+top. `PageGeometry.FixedHeaderHeight` and `FixedFooterHeight` say so, the
+paginator then leaves the body where the margin puts it, and a header or footer
+taller than its band is cut at the band's edge rather than left out.
 
 Writing usable page geometry with a header reverses the mapping: the outer
 margin is the header distance and `style:header-style` retains the remaining
 minimum band. Independent LibreOffice probes verify the header/body positions
 before and after this round trip, including page-content anchored objects.
-This does not add footer-band conversion, header padding or fixed-height header
-clipping support.
+This does not add footer-band conversion or header padding, and a fixed band is
+written back as a band that grows.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Xml.Linq;
 using Broiler.Documents.Model;
 
 namespace Broiler.Documents.Odt;
@@ -29,6 +30,9 @@ internal sealed record OdtReadContext(
     public int TableDepth { get; set; }
     public int HiddenSectionDepth { get; set; }
     public IReadOnlySet<string> LinkedFrameTargets { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>The document's form controls by id, which a <c>draw:control</c> names.</summary>
+    public IReadOnlyDictionary<string, XElement> FormControls { get; init; } = new Dictionary<string, XElement>(StringComparer.Ordinal);
     /// <summary>True for the flow of a note's own text, which cannot hold another note.</summary>
     public bool InNote { get; init; }
 

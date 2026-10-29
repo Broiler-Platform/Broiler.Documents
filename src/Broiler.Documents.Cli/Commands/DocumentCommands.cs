@@ -305,6 +305,13 @@ public static class DocumentCommands
     /// renderer. A note's citation is its label too, as LibreOffice
     /// writes it, and the note's own text is not part of the body's.
     /// <para>
+    /// The text in a shape is not the body's either. LibreOffice's export walks
+    /// the body's paragraphs and nothing anchored to them (wrtasc.cxx,
+    /// <c>SwASCWriter::WriteStream</c>), with one exception: a document whose
+    /// whole body is one empty paragraph exports its first frame instead, which
+    /// is how a form built only of text boxes has any text in it at all.
+    /// </para>
+    /// <para>
     /// A bullet is written as LibreOffice's text export writes one: not the
     /// glyph the document chose but LibreOffice's default bullet for the
     /// item's level - "•", "◦", "▪", and round again - whatever the list
@@ -321,20 +328,18 @@ public static class DocumentCommands
         var builder = new StringBuilder();
         var cellSeparators = new Dictionary<int, char>();
         ReadCellSeparators(document.Tables, cellSeparators);
-        var shapeText = document.Shapes.Where(shape => shape.HasText)
-            .ToLookup(shape => Math.Clamp(shape.ParagraphIndex, 0, document.ParagraphCount - 1));
+        if (document.ParagraphCount == 1 && document.Paragraphs[0].Length == 0 && document.Tables.Count == 0 &&
+            document.Shapes.FirstOrDefault(shape => shape.HasText) is DocumentShape only)
+        {
+            return LabelledText(RichTextDocument.FromParagraphs(only.Paragraphs).WithTables(only.Tables)
+                .WithNoteNumbering(document.NoteNumbering));
+        }
+
         for (int i = 0; i < document.ParagraphCount; i++)
         {
             RichTextParagraph paragraph = document.Paragraphs[i];
             if (i > 0)
                 builder.Append(cellSeparators.GetValueOrDefault(i, '\n'));
-
-            foreach (DocumentShape shape in shapeText[i])
-            {
-                RichTextDocument content = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables)
-                    .WithNoteNumbering(document.NoteNumbering);
-                builder.Append(LabelledText(content)).Append('\n');
-            }
 
             string? label = numberer.Advance(paragraph.Style);
             if (label is not null)

@@ -891,3 +891,12 @@ before/after checks, including unchanged original cases and rounding limits.
 The [saved-diagram follow-up](../notes/office-issue-154-cached-diagrams.md)
 records 15 SmartArt cache-import behaviors, a newly passing original pixel check,
 the native PDF/TXT projection gap and reproducible derived controls.
+
+The [issue #168 verification note](../notes/office-issue-168.md) records the
+first ranked sample, a form template drawn on eleven pages against four, now
+passing all three checks locally: text sections that no longer open pages,
+non-printing objects, form labels, section indents, table spacing, page fields,
+OpenOffice.org 2.x hidden text and fixed header bands. `dump --as text` leaves
+shape text out again, as LibreOffice's export does. Across the 563 samples the
+changes touch, passing checks rise from 1,080 to 1,364 of 1,660, with one pixel
+check lost.
