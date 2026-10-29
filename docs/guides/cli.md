@@ -239,10 +239,11 @@ each cell's paragraphs on lines of their own instead, as earlier releases do;
 the conformance runner asks for it when its reference LibreOffice is one of them.
 Image objects contribute no text, as in LibreOffice's export; the pixel checks
 remain responsible for detecting missing images. **Text in a shape is not the
-body's either**: a text box, a frame or a form label contributes nothing, as
-LibreOffice's export walks the body alone. The one exception is LibreOffice's
-too — a document whose whole body is one empty paragraph exports its first text
-box instead. A page field or a style reference is written with the value the
+body's either**: a text box, a frame, a form label or a floating table (one
+with a position, which LibreOffice imports as a frame holding it) contributes
+nothing, as LibreOffice's export walks the body alone. The one exception is
+LibreOffice's too — a document whose whole body is one empty paragraph exports
+its first text box, or its first floating table, instead. A page field or a style reference is written with the value the
 document saved; `--as json` names the field (`pageField`, `styleReference`) and
 a run's character style (`characterStyle`).
 

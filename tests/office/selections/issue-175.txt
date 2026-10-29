@@ -1,0 +1,3 @@
+# First ranked difference from Broiler-Platform/Broiler.Documents#175: a centred floating table
+# above body tables (LibreOffice gerrit#205157).
+layout/data/floattable-center-shift-down.docx

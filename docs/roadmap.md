@@ -370,7 +370,9 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   `\tposxl`/`c`/`r`/`in`/`out`, `\tposyt`/`c`/`b`/`in`/`out`, `\tdfrmtxt*`, `\tbloverlap`)
   are read and serialized. The PDF writer lays a floating table out in the flow.
   Two floating tables are not moved apart (`w:tblOverlap` is kept, not acted on),
-  and one nested in a cell stays in the cell.
+  and one nested in a cell stays in the cell. LibreOffice makes a frame of that
+  one too, so its cells are in `dump --as text` and not in LibreOffice's text
+  export; a top-level floating table's are left out (issue #175).
 - **RTF tables, the rest.** The reader reads a row's cells, borders, shading,
   padding and height. Merged cells (`\clmgf`, `\clmrg`, `\clvmgf`, `\clvmrg`),
   row borders (`\trbrdr*`), and row/cell padding (`\trpadd*`, `\clpad*`) are read,

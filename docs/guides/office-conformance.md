@@ -547,7 +547,8 @@ is LibreOffice's master tree, and the references come from the older
 LibreOffice the reference workflow pins (24.2.7.2). Upstream adds a sample with
 most fixes, so the pinned release draws some samples with the defect they were
 added to catch. `tests/office/extras-reference-defects.json` lists those: per
-row the bug, the first release with the fix, the fixing commits, the upstream
+row the bug (`tdf#N`, or `gerrit#N`, the core review that merged a fix that
+names no bug), the first release with the fix, the fixing commits, the upstream
 tests, which checks it affects (`pixel`, `text`) and the samples. While the
 reference LibreOffice (the archive's, or the installed one without an archive)
 is older than `fixedIn`, those checks are skipped with the bug named, the
@@ -557,7 +558,8 @@ ranks. A row stops applying by itself once the references come from a fixed
 release, and `OfficeControlGuardTests` fails if the pinned LibreOffice already
 has the fix, if a row loses its evidence, or if its note doesn't name the bug.
 The first row is tdf#163894, the top two differences of
-[issue #170](../notes/office-issue-170.md). `--reference-defects` reads another
+[issue #170](../notes/office-issue-170.md); the second is gerrit#205157, the
+first difference of [issue #175](../notes/office-issue-175.md). `--reference-defects` reads another
 file.
 
 **A ranked sample names the notes that already traced it.** Under each of the
@@ -980,3 +982,14 @@ check failed for another reason, one that affected every sample with a table:
 reference is 24.2. The [workflow note for issue
 #173](../notes/office-conformance-workflow-improvements-issue-173.md) records
 that and the other findings about the workflow.
+
+The [issue #175 note](../notes/office-issue-175.md) records the first ranked
+sample, `floattable-center-shift-down.docx`, four pages against three.
+LibreOffice 24.2 lays a body table under a centred floating table instead of
+moving it below. LibreOffice fixed that for 26.8, `broilerdoc` already draws the
+fixed layout, and the sample is now a known reference defect. Its text check
+failed because `dump --as text` wrote a floating table's cells. LibreOffice
+imports such a table as a frame and its text export leaves frames out, so
+`dump` now does the same. The [workflow note for issue
+#175](../notes/office-conformance-workflow-improvements-issue-175.md) records
+the other findings about the workflow.

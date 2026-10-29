@@ -48,6 +48,48 @@ public sealed class DumpTableTextTests
     }
 
     [Fact]
+    public void A_Floating_Tables_Cells_Are_Not_Part_Of_The_Body_Text()
+    {
+        // LibreOffice imports a positioned table as a text frame holding it,
+        // and its text export leaves frames out (floattable-center-shift-down.docx).
+        RichTextDocument document = RichTextDocument.FromPlainText("A\nB\nbefore\nC\nD\nafter")
+            .WithTables(
+            [
+                new DocumentTable(0, 2, [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)])], position: Floating),
+                new DocumentTable(3, 2, [new TableRow([new TableCell(3, 1, 0), new TableCell(4, 1, 1)])]),
+            ]);
+
+        Assert.Equal("before\nC\tD\nafter", DocumentCommands.LabelledText(document));
+        Assert.Equal("before\nC\nD\nafter", DocumentCommands.LabelledText(document, joinsTableRows: false));
+    }
+
+    [Fact]
+    public void A_Body_Of_One_Empty_Paragraph_Exports_Its_Floating_Table()
+    {
+        RichTextDocument document = RichTextDocument.FromPlainText("A\nB\nC\nD\n")
+            .WithTables([new DocumentTable(0, 4,
+                [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)]),
+                 new TableRow([new TableCell(2, 1, 0), new TableCell(3, 1, 1)])], position: Floating)]);
+
+        Assert.Equal("A\tB\nC\tD", DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
+    public void A_Floating_Table_Is_Exported_Before_A_Text_Box()
+    {
+        // LibreOffice's first frame is the table's, even with a text box in a
+        // cell (tdf170516_drawingBeforePlainText.docx, tdf78727.docx).
+        RichTextDocument document = RichTextDocument.FromPlainText("A\nB\n")
+            .WithTables([new DocumentTable(0, 2,
+                [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)])], position: Floating)])
+            .WithShapes([new DocumentShape(0, 0, 0, 100, 80, paragraphs: [RichTextParagraph.Plain("box")])]);
+
+        Assert.Equal("A\tB", DocumentCommands.LabelledText(document));
+    }
+
+    private static readonly TablePosition Floating = new(TableAnchor.Page, 0, TableAnchor.Page, 100, TableAlignment.Center);
+
+    [Fact]
     public void Image_object_markers_are_omitted_but_literal_replacement_characters_are_kept()
     {
         var image = new InlineImage(new byte[] { 1, 2, 3 }, "image/png", 12, 12);
