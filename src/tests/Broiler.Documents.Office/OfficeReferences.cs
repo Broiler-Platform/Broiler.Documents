@@ -28,11 +28,15 @@ internal sealed class OfficeReferences
     private readonly string _root;
     private readonly Dictionary<string, ReferenceSample> _samples;
     public ReferenceEnvironment Environment { get; }
-    private OfficeReferences(string root, IEnumerable<ReferenceSample> samples, ReferenceEnvironment environment)
+    /// <summary>The toolchain fields that differ from this run's, each as "field archive, here local"; empty unless accepted.</summary>
+    public IReadOnlyList<string> Mismatches { get; }
+    private OfficeReferences(string root, IEnumerable<ReferenceSample> samples, ReferenceEnvironment environment,
+        IReadOnlyList<string> mismatches)
     {
         _root = root;
         _samples = samples.ToDictionary(sample => sample.Id, StringComparer.Ordinal);
         Environment = environment;
+        Mismatches = mismatches;
     }
 
     public static ReferenceEnvironment EnvironmentStamp(string producer, string libreOffice,
@@ -149,8 +153,13 @@ internal sealed class OfficeReferences
             run.StandardError.Length > 4096 ? run.StandardError[..4096] : run.StandardError);
     }
 
+    /// <param name="acceptMismatch">
+    /// Load an archive made on another platform, font set or timeout and record the
+    /// differences in <see cref="Mismatches"/>, so a developer can score against the CI's
+    /// references. The schema, inputs, crash classification and outputs are still checked.
+    /// </param>
     public static OfficeReferences Load(string directory, ReferenceEnvironment expected,
-        IReadOnlyList<ExtrasSample> samples, CrashRegressions crashRegressions)
+        IReadOnlyList<ExtrasSample> samples, CrashRegressions crashRegressions, bool acceptMismatch = false)
     {
         string root = Path.GetFullPath(directory);
         ReferenceManifest manifest;
@@ -162,13 +171,15 @@ internal sealed class OfficeReferences
             // prepared text/PDFs are independent of the consumer's installation.
             // Fonts and comparison/conversion contracts must still match.
             if (manifest.Environment is null || manifest.Environment.SchemaVersion != expected.SchemaVersion ||
-                manifest.Environment.Platform != expected.Platform || manifest.Environment.FontSet != expected.FontSet ||
-                manifest.Environment.FontsSha256 != expected.FontsSha256 || manifest.Environment.TimeoutSeconds != expected.TimeoutSeconds ||
                 string.IsNullOrWhiteSpace(manifest.Environment.Producer) || string.IsNullOrWhiteSpace(manifest.Environment.LibreOffice))
-                throw new InvalidDataException("Reference toolchain mismatch (platform, fonts, filters or timeout). Regenerate references.");
+                throw new InvalidDataException("Reference toolchain mismatch (schema or provenance). Regenerate references.");
+            IReadOnlyList<string> mismatches = Mismatched(manifest.Environment, expected);
+            if (mismatches.Count > 0 && !acceptMismatch)
+                throw new InvalidDataException("Reference toolchain mismatch (" + string.Join("; ", mismatches) +
+                    "). Regenerate references, or pass --accept-reference-mismatch for a local comparison.");
             if (manifest.Samples is null || manifest.Samples.Count == 0)
                 throw new InvalidDataException("Reference manifest contains no samples.");
-            var store = new OfficeReferences(root, manifest.Samples, manifest.Environment);
+            var store = new OfficeReferences(root, manifest.Samples, manifest.Environment, mismatches);
             foreach (ExtrasSample sample in samples)
             {
                 if (!store._samples.TryGetValue(sample.Id, out ReferenceSample? entry))
@@ -189,6 +200,22 @@ internal sealed class OfficeReferences
         {
             throw new InvalidDataException("Invalid reference manifest: " + exception.Message, exception);
         }
+    }
+
+    private static IReadOnlyList<string> Mismatched(ReferenceEnvironment archive, ReferenceEnvironment here)
+    {
+        var fields = new List<string>();
+        void Compare(string field, string? reference, string? local)
+        {
+            if (!string.Equals(reference, local, StringComparison.Ordinal))
+                fields.Add(field + " " + (reference ?? "none") + ", here " + (local ?? "none"));
+        }
+        Compare("platform", archive.Platform, here.Platform);
+        Compare("font set", archive.FontSet, here.FontSet);
+        Compare("font hash", archive.FontsSha256, here.FontsSha256);
+        Compare("timeout", archive.TimeoutSeconds.ToString(CultureInfo.InvariantCulture) + " s",
+            here.TimeoutSeconds.ToString(CultureInfo.InvariantCulture) + " s");
+        return fields;
     }
 
     private void Validate(ReferenceOutput? output, string label)

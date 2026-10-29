@@ -3,10 +3,15 @@
 These came up while resolving the first difference of
 [issue #170](https://github.com/Broiler-Platform/Broiler.Documents/issues/170)
 (`ooxmlexport/data/tdf163894_hidden.docx`, see the
-[issue note](office-issue-170.md)). None of them is applied here except the
-reference-defect list (item 2), which the issue needed. The rest change
-the reference set or the workflow, and they should be decided on deliberately.
-They are ordered by how much of the ranking they distort.
+[issue note](office-issue-170.md)). The issue itself needed only the
+reference-defect list (item 2). The others were left to be decided on
+deliberately. They are ordered by how much of the ranking they distort.
+
+**Status, 2026-10-29.** Done: item 1's font fix (it takes effect once
+`office-references-v3` is generated), item 3's flag and item 4's links to
+earlier notes. Still open: a newer reference LibreOffice or flagging samples
+newer than it (item 2), and item 4's other three observations. Each section
+says what was done.
 
 ## 1. The reference fonts have no Liberation faces
 
@@ -71,6 +76,17 @@ and the reference loader compares it, so the image or the workflow has to name
 the new set too. Expect the first ranking after it to look very different. That will be
 the fonts, not a regression.
 
+**Done 2026-10-29.** The reference workflow installs and copies
+`fonts-liberation`, fails a package that contributes no TrueType file, and
+names the set `office-fonts-2`. `reference-source.json` names
+`office-references-v3`. Cached conformance runs now read the font-set name
+from the archive's manifest instead of the office image, so the image didn't
+need to change. `eng/run-office-conformance.sh` installs `fonts-liberation`
+too. Its local install was never broken, since `fonts-liberation2` depends on
+the real package. The release exists once someone dispatches **Office
+reference data**. Until then, the nightly run fails with the missing-release
+message.
+
 ## 2. The references are two years older than the corpus
 
 **What happens.** The corpus is LibreOffice master at `corpusRevision`
@@ -132,6 +148,16 @@ the crash classification and the per-sample status would stay checked.
 Together with item 1's font directory, a developer could then reproduce a
 nightly ranking exactly on any host.
 
+**Done 2026-10-29.** `--accept-reference-mismatch` (runner and
+`eng/run-office-conformance.sh`) loads the archive anyway. It requires
+`--references-dir` and refuses `--create-github-issue`. It lists every
+differing field (platform, font set, font hash, timeout) on the console, in
+the issue's run summary as "Reference Toolchain" and in the JSON report as
+`referenceMismatches`. The schema version, producer provenance, input hashes,
+crash classification and output hashes are still checked, and a mismatch
+without the flag still fails. The error now names the differing fields and
+the flag.
+
 ## 4. Smaller observations
 
 - **Headers and footers are only on the pixel axis.** LibreOffice's text
@@ -150,7 +176,10 @@ nightly ranking exactly on any host.
 - **Prior triage isn't linked.** Earlier notes in `docs/notes/` mention most
   of the long-running top samples. The report could list, per ranked sample,
   the notes that name it (a grep over `docs/notes/*.md`), so whoever picks up
-  the next issue starts from what was already found.
+  the next issue starts from what was already found. *Done 2026-10-29:* each
+  of the top differences has an "Earlier Notes" line (`PriorNotes.cs`). It
+  matches the sample's file name on its own and links each note at the run's
+  commit in GitHub Actions.
 - **A word processor's compatibility settings are layout.** Word 2013's
   justification (DOCX `compatibilityMode` 15, LibreOffice's
   `JustifyLinesWithShrinking`) changed which words fit on a line in every

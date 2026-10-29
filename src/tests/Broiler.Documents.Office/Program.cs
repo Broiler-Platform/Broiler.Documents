@@ -395,9 +395,12 @@ internal static class Program
                     Console.WriteLine("references  prepared " + options.PrepareReferences);
                     return 0;
                 }
-                references = OfficeReferences.Load(options.ReferencesDirectory!, stamp, samples, crashRegressions);
+                references = OfficeReferences.Load(options.ReferencesDirectory!, stamp, samples, crashRegressions,
+                    options.AcceptReferenceMismatch);
                 Console.WriteLine("references  validated " + options.ReferencesDirectory + "; LibreOffice conversions disabled");
                 Console.WriteLine("references  produced by " + references.Environment.Producer + "; " + references.Environment.LibreOffice);
+                foreach (string mismatch in references.Mismatches)
+                    Console.WriteLine("references  accepted mismatch: " + mismatch);
             }
 
             int totalSamples = samples.Count;
@@ -432,7 +435,7 @@ internal static class Program
 
             var header = new RunHeader(
                 tool.Description, references?.Environment.LibreOffice ?? libreOffice.Version, rasterizer?.Version, options.FontSet,
-                platform, options.Dpi, true);
+                platform, options.Dpi, true, references?.Mismatches ?? []);
             void Checkpoint()
             {
                 if (options.JsonReport is not null)
@@ -511,7 +514,8 @@ internal static class Program
             IReadOnlyList<CheckResult> results = Ordered(log.Results);
 
             string issueMarkdown = ExtrasConformance.FormatIssueMarkdown(
-                sourceLabel, header, samples, differences, options.TopDifferences, options.Threshold);
+                sourceLabel, header, samples, differences, options.TopDifferences, options.Threshold,
+                PriorNotes.Load(Path.Combine(RepositoryRoot(), "docs", "notes"), PriorNotes.GitHubLinkBase()));
 
             if (options.IssueReport is not null)
             {
@@ -851,7 +855,8 @@ internal static class Program
         string? ReferencesDirectory = null,
         string? PrepareReferences = null,
         string? ReferenceProducer = null,
-        string? ReferenceDefects = null)
+        string? ReferenceDefects = null,
+        bool AcceptReferenceMismatch = false)
     {
         public bool IsExtrasRun => !SeedCorpus && (ExtrasUrl is not null || ExtrasDirectory is not null ||
             SampleList is not null || TriageDirectory is not null || ReferencesDirectory is not null || PrepareReferences is not null);
@@ -867,6 +872,7 @@ internal static class Program
             var fontDirectories = new List<string>();
             bool keep = false, verbose = false, update = false, restamp = false;
             bool allowPending = false, help = false, createIssue = false, seedCorpus = false;
+            bool acceptReferenceMismatch = false;
             int jobs = Environment.ProcessorCount;
             double threshold = 80;
             int dpi = 144, maxPages = 40, timeout = 120;
@@ -939,6 +945,7 @@ internal static class Program
                     case "--update-baseline": update = true; break;
                     case "--restamp": restamp = true; break;
                     case "--allow-pending-tools": allowPending = true; break;
+                    case "--accept-reference-mismatch": acceptReferenceMismatch = true; break;
                     case "--help" or "-h": help = true; break;
                     case "--axis":
                         axis = Value(argument);
@@ -974,13 +981,19 @@ internal static class Program
                 if (prepareReferences is not null && (axis != "all" || only is not null || maxFiles is not null || sampleList is not null))
                     throw new ArgumentException("Reference generation requires the complete corpus and --axis all.");
             }
+            // A ranking scored against references made for another toolchain is a
+            // local reproduction, never the published one.
+            if (acceptReferenceMismatch && referencesDirectory is null)
+                throw new ArgumentException("--accept-reference-mismatch applies to --references-dir only.");
+            if (acceptReferenceMismatch && createIssue)
+                throw new ArgumentException("--accept-reference-mismatch cannot publish a GitHub issue; the ranking would not be the CI's.");
 
             return new Options(
                 tool, soffice, pdftoppm, manifest, baseline, tools, workspace, fontDirectories, fontSet,
                 axis, only, json, junit, extrasUrl, extrasDir, issueOut, githubRepo, crashRegressions, topDifferences,
                 maxFiles, createIssue, seedCorpus, keep, verbose, update, restamp, allowPending, help,
                 jobs, dpi, threshold, maxPages, TimeSpan.FromSeconds(timeout), sampleList, triageDirectory, previousTriage,
-                referencesDirectory, prepareReferences, referenceProducer, referenceDefects);
+                referencesDirectory, prepareReferences, referenceProducer, referenceDefects, acceptReferenceMismatch);
         }
 
         public static void WriteUsage(TextWriter output)
@@ -999,6 +1012,9 @@ internal static class Program
             output.WriteLine("  --prepare-references <dir> Generate a complete immutable text/PDF reference set.");
             output.WriteLine("  --references-dir <dir>   Validate and reuse prepared LibreOffice references (no conversions).");
             output.WriteLine("  --reference-producer <name> Generator identity recorded in the manifest (default local).");
+            output.WriteLine("  --accept-reference-mismatch");
+            output.WriteLine("                           Use references made for another platform, font set or");
+            output.WriteLine("                           timeout, and name the differences. Local runs only.");
             output.WriteLine("  --top-differences <n>    Number of major differences to report (default 3).");
             output.WriteLine("  --issue-out <path>       Write the Markdown GitHub issue report for the top differences.");
             output.WriteLine("  --create-github-issue    Create or update a GitHub issue with the top differences.");

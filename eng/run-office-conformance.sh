@@ -19,6 +19,9 @@
 #                              (default: https://github.com/LibreOffice/core/tree/master/sw/qa/extras)
 #     --extras-dir <dir>       Local directory of sw/qa/extras samples
 #     --references-dir <dir>   Reuse validated LibreOffice text/PDF references
+#     --accept-reference-mismatch
+#                              Use references made for another platform, font set
+#                              or timeout, and name the differences. Local runs only
 #     --top-differences <n>    Number of major differences to report (default: 3)
 #     --issue-out <path>       Markdown file for the top major differences report
 #     --create-github-issue    Create or update a GitHub issue with the top differences
@@ -69,6 +72,7 @@ OUTPUT_DIR="$REPO_ROOT/test-results"
 EXTRAS_URL="https://github.com/LibreOffice/core/tree/master/sw/qa/extras"
 EXTRAS_DIR=""
 REFERENCES_DIR=""
+ACCEPT_REFERENCE_MISMATCH=false
 TOP_DIFFERENCES="3"
 ISSUE_OUT=""
 CREATE_GITHUB_ISSUE=false
@@ -119,6 +123,7 @@ while [[ $# -gt 0 ]]; do
         --extras-url) EXTRAS_URL="$2"; shift 2 ;;
         --extras-dir) EXTRAS_DIR="$2"; shift 2 ;;
         --references-dir) REFERENCES_DIR="$2"; shift 2 ;;
+        --accept-reference-mismatch) ACCEPT_REFERENCE_MISMATCH=true; shift ;;
         --top-differences|-x) TOP_DIFFERENCES="$2"; shift 2 ;;
         --issue-out) ISSUE_OUT="$2"; shift 2 ;;
         --create-github-issue) CREATE_GITHUB_ISSUE=true; shift ;;
@@ -293,7 +298,7 @@ elif [[ "$(uname -s)" == Linux* ]]; then
         fi
         if ! run_with_retries "apt-get install" $SUDO apt-get install -y --no-install-recommends \
             libreoffice-writer poppler-utils \
-            fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core; then
+            fonts-liberation fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core; then
             write_failure_marker "$REASON_LO_INSTALL_FAILED" "apt-get install failed"
             echo "  ✗ Could not install LibreOffice and poppler." >&2
             exit "$EXIT_TOOLCHAIN_UNAVAILABLE"
@@ -419,6 +424,7 @@ fi
 
 [[ -n "$ONLY" ]] && RUNNER_ARGS+=(--only "$ONLY")
 [[ -n "$REFERENCES_DIR" ]] && RUNNER_ARGS+=(--references-dir "$REFERENCES_DIR")
+[[ "$ACCEPT_REFERENCE_MISMATCH" == "true" ]] && RUNNER_ARGS+=(--accept-reference-mismatch)
 [[ -n "$JOBS" ]] && RUNNER_ARGS+=(--jobs "$JOBS")
 [[ -n "${BROILER_PDFTOPPM:-}" ]] && RUNNER_ARGS+=(--pdftoppm "$BROILER_PDFTOPPM")
 [[ "$ALLOW_PENDING" == "true" ]] && RUNNER_ARGS+=(--allow-pending-tools)

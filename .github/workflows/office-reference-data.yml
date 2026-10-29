@@ -41,25 +41,32 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libreoffice-writer libreoffice-calc poppler-utils fontconfig \
-            fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core
+            fonts-liberation fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core
           # Exclude the runner's unrelated preinstalled fonts. These exact files
           # travel with the references and are reused by broilerdoc later.
+          # fonts-liberation, not fonts-liberation2: on Ubuntu 24.04 the latter is a
+          # transitional package with no fonts, and office-fonts-1 lost Liberation
+          # Serif, Sans and Mono to it unnoticed. A package that contributes no
+          # TrueType file now fails the step instead.
           FONT_ROOT="$RUNNER_TEMP/office-reference-fonts"
           mkdir -p "$FONT_ROOT"
-          for package in fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core; do
+          for package in fonts-liberation fonts-crosextra-carlito fonts-crosextra-caladea fonts-dejavu-core; do
+            count=0
             while IFS= read -r font; do
               case "$font" in
                 /usr/share/fonts/truetype/*.ttf)
                   relative="${font#/usr/share/fonts/truetype/}"
                   mkdir -p "$FONT_ROOT/$(dirname "$relative")"
                   cp "$font" "$FONT_ROOT/$relative"
+                  count=$((count + 1))
                   ;;
               esac
             done < <(dpkg-query -L "$package")
+            test "$count" -gt 0 || { echo "$package installed no TrueType font" >&2; exit 1; }
+            echo "$package: $count TrueType font(s)"
           done
-          test -n "$(find "$FONT_ROOT" -name '*.ttf' -print -quit)"
           printf 'BROILER_OFFICE_FONT_DIR=%s\n' "$FONT_ROOT" >> "$GITHUB_ENV"
-          echo 'BROILER_OFFICE_FONT_SET=office-fonts-1' >> "$GITHUB_ENV"
+          echo 'BROILER_OFFICE_FONT_SET=office-fonts-2' >> "$GITHUB_ENV"
           python3 - "$FONT_ROOT" "$RUNNER_TEMP/office-fontconfig.xml" <<'PY'
           from pathlib import Path
           import sys

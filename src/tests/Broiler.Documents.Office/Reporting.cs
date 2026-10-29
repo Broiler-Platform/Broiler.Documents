@@ -117,6 +117,8 @@ internal static class OfficeReporting
             ["failed"] = results.Count(result => result.Outcome == CheckOutcome.Failed),
             ["skipped"] = results.Count(result => result.Outcome == CheckOutcome.Skipped),
         };
+        if (header.ReferenceMismatches is { Count: > 0 } mismatches)
+            root["referenceMismatches"] = new JsonArray([.. mismatches.Select(mismatch => (JsonNode?)mismatch)]);
 
         var checks = new JsonArray();
         foreach (CheckResult result in results)
@@ -372,4 +374,5 @@ internal sealed record RunHeader(
     string? FontSet,
     string Platform,
     int Dpi,
-    bool StampMatches);
+    bool StampMatches,
+    IReadOnlyList<string>? ReferenceMismatches = null);

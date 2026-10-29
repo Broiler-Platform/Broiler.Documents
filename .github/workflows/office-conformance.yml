@@ -98,7 +98,7 @@ concurrency:
 
 jobs:
   reference-configuration:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       image: ${{ steps.reference.outputs.image }}
     steps:
@@ -109,7 +109,10 @@ jobs:
   conformance:
     name: Office conformance
     needs: reference-configuration
-    runs-on: ubuntu-latest
+    # The same release as office-reference-data.yml, never ubuntu-latest. The
+    # LibreOffice and Poppler that run here come from the digest-pinned office
+    # image, which is ubuntu:24.04 too, so the VM only hosts it.
+    runs-on: ubuntu-24.04
     container:
       image: ${{ needs.reference-configuration.outputs.image }}
       # LibreOffice spawns helpers that can outlive their parent. Reap them
@@ -172,9 +175,14 @@ jobs:
           # so aborting here would kill the step before the output is printed
           # and a failing run would arrive with no failures in it.
           REFERENCE_FONTS="$BROILER_OFFICE_FONT_DIR"
+          REFERENCE_FONT_SET="$BROILER_OFFICE_FONT_SET"
           if [ "$OFFICE_EXTRAS_URL" = "$BROILER_OFFICE_EXTRAS_URL" ] && \
              [ "$OFFICE_SEED_CORPUS" != "true" ] && [ "$OFFICE_UPDATE_BASELINE" != "true" ]; then
+            # The fonts and their set name both come from the archive, so a new
+            # reference font set needs no new office image.
             REFERENCE_FONTS="$RUNNER_TEMP/office-references/fonts/0"
+            REFERENCE_FONT_SET="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["Environment"]["FontSet"] or "")' \
+              "$RUNNER_TEMP/office-references/manifest.json")"
           fi
           ARGS=(
             --output-dir "$GITHUB_WORKSPACE/test-results"
@@ -184,7 +192,7 @@ jobs:
             --dpi "$OFFICE_DPI"
             --threshold "$OFFICE_THRESHOLD"
             --font-dir "$REFERENCE_FONTS"
-            --font-set "$BROILER_OFFICE_FONT_SET"
+            --font-set "$REFERENCE_FONT_SET"
             --top-differences "$OFFICE_TOP_DIFFERENCES"
           )
           # Cached runs use the VM-generated corpus/font snapshot; the container
