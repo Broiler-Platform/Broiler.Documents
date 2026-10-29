@@ -386,6 +386,13 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   Writer's "Internet Link" `#000080`.
 - **Page fields on DOCX write.** `PAGE` and `NUMPAGES` are read as page
   fields; the writer writes their text, so a round trip freezes the number.
+- **Document defaults on DOCX write.** The writer writes no `styles.xml`, so
+  LibreOffice 26.2, and since issue #180 the reader too, set its output in
+  11 pt Calibri whatever the document's own default; a 12 pt HTML or ODT
+  document saved as DOCX reads back a point smaller. Writing `w:docDefaults`
+  alone is not enough: the reader folds `w:rPrDefault` into every run, so each
+  DOCX round trip would turn inherited sizes and families into stated ones,
+  and a family the model leaves unset would read back as Times New Roman.
 - **Custom shapes that fit their text.** LibreOffice 24.2 draws
   `shape-fill-link.fodt`'s 12 cm x 6 cm `draw:custom-shape` as 142 x 14 pt
   around the stated box's centre, the size of its one line of text; the

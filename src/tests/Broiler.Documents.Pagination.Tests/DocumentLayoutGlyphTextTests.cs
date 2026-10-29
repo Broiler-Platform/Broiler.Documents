@@ -34,7 +34,9 @@ public sealed class DocumentLayoutGlyphTextTests
         LayoutLine hyphenated = Assert.Single(Layout("Reinraum" + SoftHyphen + "klasse end").Lines);
 
         Assert.Equal("Reinraumklasse end", LineText(hyphenated));
-        Assert.Equal(plain.Pieces[^1].X, hyphenated.Pieces[^1].X, 6);
+        // The halves are measured apart, which can round a hundredth of a
+        // point away from the whole word; a hyphen would be points wide.
+        Assert.Equal(plain.Pieces[^1].X, hyphenated.Pieces[^1].X, 0.05);
     }
 
     [Fact]
