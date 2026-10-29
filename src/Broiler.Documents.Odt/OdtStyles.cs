@@ -193,6 +193,15 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     /// inverted (txtimppr.cxx, <c>CTF_TEXT_DISPLAY</c>), and so does this.
     /// </summary>
     public bool InvertsTextDisplay { get; set; }
+
+    /// <summary>How much of the page a page layout's own fill covers, by the document's producer.</summary>
+    public OdtPageFillBounds PageFillBounds { get; set; }
+
+    /// <summary>
+    /// True for an <c>xlink:href</c> naming a picture outside the package,
+    /// which the reader does not fetch (ADR 0004).
+    /// </summary>
+    public Func<string, bool>? LinksOutsidePackage { get; set; }
     public void AddDiagnosticOnce(string code, string message) => Report(code, code, message);
 
     /// <summary>

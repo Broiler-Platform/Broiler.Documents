@@ -362,6 +362,19 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   and written into `ShapeFill` with radial/rectangular geometry, hatch pattern settings,
   and image resources. `docx.fill.extended` is reported only when extended fills must
   truly be approximated (e.g. gradient borders or content-only bounds).
+- **Background pictures on paragraphs.** ODT's `style:background-image` on a
+  paragraph is read only when it links outside the package, which is painted
+  in LibreOffice's unloaded-fill colour (issue #178); an embedded or package
+  picture is not painted, and the paragraph keeps its colour.
+- **Defaults of an ODT that names no styles.** A flat ODT with no page layout
+  and no default style (`two-paragraph-background-links.fodt`) is set by
+  LibreOffice in Liberation Serif with 2 cm margins; `broilerdoc` uses a sans
+  face and puts the first line about 15 pt lower (issue #178's note).
+- **Custom shapes that fit their text.** LibreOffice 24.2 draws
+  `shape-fill-link.fodt`'s 12 cm x 6 cm `draw:custom-shape` as 142 x 14 pt
+  around the stated box's centre, the size of its one line of text; the
+  auto-grow defaults behind that are not modelled, and `broilerdoc` draws the
+  stated box.
 - **Floating tables, the rest.** DOCX's `w:tblpPr` is read, written and laid
   out. ODT's `draw:frame` holding `table:table` is now read and written, preserving
   frame bounding geometry and graphic style positioning (`horizontal-pos`, `horizontal-rel`,

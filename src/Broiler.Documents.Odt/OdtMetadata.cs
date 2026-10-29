@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO.Compression;
 using System.Linq;
@@ -52,6 +53,95 @@ internal static class OdtMetadata
         System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(
             generator, @"_project/(\d+)m\d+\$Build-\d+", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         return match.Success && match.Groups[1].Value == "680";
+    }
+
+    /// <summary>
+    /// How much of the page a page layout's own fill covers in a document
+    /// <paramref name="generator"/> wrote, as LibreOffice decides it when the
+    /// master page has no drawing-page style to say (PageMasterImportContext.cxx,
+    /// <c>FillPropertySet_PageStyle</c>).
+    /// </summary>
+    /// <remarks>
+    /// Writer painted a page background inside the margins until 6.3, and ODF
+    /// had no way to state the bounds until 7.0 wrote
+    /// <c>draw:background-size</c>. So LibreOffice keeps the fill of an
+    /// OpenOffice.org or AOO document, or one written before 6.3, inside the
+    /// margins, and guesses from the fill for 6.3 and 6.4. Every other document,
+    /// including one that names no producer or one LibreOffice does not
+    /// recognise, gets today's default: the whole page. The version is read the
+    /// way xmlimp.cxx's <c>DocumentInfo</c> reads it from the build id
+    /// xmlmetai.cxx makes of <c>meta:generator</c>.
+    /// </remarks>
+    public static OdtPageFillBounds PageFillBounds(string? generator)
+    {
+        if (string.IsNullOrEmpty(generator))
+            return OdtPageFillBounds.WholePage;
+
+        // "LibreOffice_project" has been in every LibreOffice generator since
+        // 3.3. Its version is the digits and dots after the first slash, and
+        // once it has one LibreOffice ignores the build id.
+        int slash = generator.IndexOf('/');
+        if (slash >= 0 && generator.Contains("LibreOffice_project/", StringComparison.Ordinal))
+        {
+            int end = slash + 1;
+            while (end < generator.Length && (char.IsAsciiDigit(generator[end]) || generator[end] == '.'))
+                end++;
+            if (end > slash + 1)
+                return LibreOfficePageFillBounds(generator[(slash + 1)..end]);
+        }
+
+        (int upd, int build) = BuildId(generator);
+        bool openOffice = upd is >= 640 and <= 645 or 680 or 310 or 320 or 330 or 340 or 400 or 401 or >= 410 ||
+            upd == 300 && build <= 9379;
+        return openOffice ? OdtPageFillBounds.InsideMargins : OdtPageFillBounds.WholePage;
+    }
+
+    private static OdtPageFillBounds LibreOfficePageFillBounds(string version)
+    {
+        // 24.2 and later have a two-digit major and are current.
+        if (version.IndexOf('.') != 1)
+            return OdtPageFillBounds.WholePage;
+        char minor = version.Length > 2 ? version[2] : '\0';
+        return version[0] switch
+        {
+            '3' or '5' => OdtPageFillBounds.InsideMargins,
+            '4' => minor is >= '0' and <= '4' ? OdtPageFillBounds.InsideMargins : OdtPageFillBounds.WholePage,
+            '6' => minor is '0' or '1' or '2' ? OdtPageFillBounds.InsideMargins : OdtPageFillBounds.ByFill,
+            _ => OdtPageFillBounds.WholePage,
+        };
+    }
+
+    /// <summary>
+    /// The product and build numbers of an OpenOffice.org-line generator: the
+    /// <c>330</c> and <c>9567</c> of
+    /// <c>OpenOffice.org/3.3$Unix OpenOffice.org_project/330m20$Build-9567</c>,
+    /// or zeros.
+    /// </summary>
+    private static (int Upd, int Build) BuildId(string generator)
+    {
+        int space = generator.IndexOf(' ');
+        int slash = space < 0 ? -1 : generator.IndexOf('/', space);
+        int milestone = slash < 0 ? -1 : generator.IndexOf('m', slash);
+        int build = milestone < 0 ? -1 : generator.IndexOf("$Build-", milestone, StringComparison.Ordinal);
+        if (build >= 0)
+            return (LeadingNumber(generator.AsSpan(slash + 1, milestone - slash - 1)), LeadingNumber(generator.AsSpan(build + 7)));
+
+        string[] firstLine = ["StarOffice 7", "StarSuite 7", "StarOffice 6", "StarSuite 6", "OpenOffice.org 1"];
+        if (firstLine.Any(prefix => generator.StartsWith(prefix, StringComparison.Ordinal)))
+            return (645, 8687);
+        return generator.StartsWith("NeoOffice/2", StringComparison.Ordinal) ? (680, 9134) : (0, 0);
+    }
+
+    private static int LeadingNumber(ReadOnlySpan<char> text)
+    {
+        int value = 0;
+        foreach (char c in text)
+        {
+            if (!char.IsAsciiDigit(c) || value > 100_000_000)
+                break;
+            value = value * 10 + (c - '0');
+        }
+        return value;
     }
 
     /// <summary>Reads the package's <c>meta.xml</c>, if it has one.</summary>
@@ -176,4 +266,20 @@ internal static class OdtMetadata
         if (date is not null)
             meta.Add(new XElement(name, DocumentTimestamp.ToW3cdtf(date.Value)));
     }
+}
+
+/// <summary>How much of the page a page layout's fill covers when the document does not say.</summary>
+internal enum OdtPageFillBounds
+{
+    /// <summary>The whole sheet, margins included.</summary>
+    WholePage,
+
+    /// <summary>The content rectangle inside the margins.</summary>
+    InsideMargins,
+
+    /// <summary>
+    /// LibreOffice 6.3 and 6.4: a single or stretched picture inside the
+    /// margins, a colour, gradient, hatch or tiled picture over the whole page.
+    /// </summary>
+    ByFill,
 }

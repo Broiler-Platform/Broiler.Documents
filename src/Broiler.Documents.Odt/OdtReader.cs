@@ -177,10 +177,12 @@ internal static class OdtReader
         styles.ReadFillImage = definition => images.Read(new XElement(OdtNamespaces.Draw + "frame",
             new XElement(OdtNamespaces.Draw + "image", definition.Attributes().Where(attribute => attribute.Name.Namespace == OdtNamespaces.XLink),
                 definition.Elements(OdtNamespaces.Office + "binary-data"))), styles);
+        styles.LinksOutsidePackage = images.LinksOutsidePackage;
         // The producer is needed before the content: OpenOffice.org 2.x wrote
         // text:display inverted, and the text's visibility depends on it.
         DocumentMetadata metadata = readMetadata();
         styles.InvertsTextDisplay = OdtMetadata.WrittenByOpenOffice2(metadata.Producer);
+        styles.PageFillBounds = OdtMetadata.PageFillBounds(metadata.Producer);
         XElement? master = ResolveMasterPage(content, styles);
         PageGeometry? page = ReadPageGeometry(master, styles, diagnostics);
         RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics, master);
@@ -1373,29 +1375,28 @@ internal static class OdtReader
             string? name = (string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-name");
             XElement? definition = name is not null && styles.FillDefinitions.TryGetValue(name, out XElement? found) ? found :
                 properties.Element(OdtNamespaces.Style + "background-image");
-            if (definition is not null && styles.ReadFillImage?.Invoke(definition) is InlineImage image)
-            {
-                _ = OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-width"), out double width);
-                _ = OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-height"), out double height);
-                string position = (string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-ref-point") ?? "center";
-                var repeat = (string?)properties.Attribute(OdtNamespaces.Style + "repeat") switch
-                    { "stretch" => ImageFillRepeat.Stretch, "no-repeat" => ImageFillRepeat.Single, _ => ImageFillRepeat.Tile };
-                return ShapeFill.Solid(BColor.Empty) with { Image = new ImageFill(image, repeat, width, height,
-                    position.Contains("left", StringComparison.Ordinal) ? 0 : position.Contains("right", StringComparison.Ordinal) ? 1 : 0.5,
-                    position.Contains("top", StringComparison.Ordinal) ? 0 : position.Contains("bottom", StringComparison.Ordinal) ? 1 : 0.5) };
-            }
-        }
-        if (kind is "bitmap" or "hatch")
-        {
-            BColor fallback = BColor.Empty;
-            bool hasFallback = kind == "bitmap" &&
-                TryColor((string?)properties.Attribute(OdtNamespaces.Draw + "fill-color"), out fallback);
+            if (definition is not null && ReadImageFill(properties, definition, styles) is ShapeFill image)
+                return image;
+
+            // LibreOffice keeps the fill colour under a bitmap and paints it on
+            // its own when the bitmap does not load - one named but not defined,
+            // a package entry that is missing, a link it cannot fetch
+            // (sdrattributecreator.cxx, createNewSdrFillAttribute). A graphic
+            // style stating no colour has the default style's merged in already;
+            // without either, the colour is the item's own default.
+            BColor fallback = TryColor((string?)properties.Attribute(OdtNamespaces.Draw + "fill-color"), out BColor declared)
+                ? declared
+                : UnloadedFillColor;
             styles.Report(
-                "odt.fill:" + kind,
+                "odt.fill:bitmap",
                 "odt.fill",
-                "A " + kind + " fill could not be resolved" +
-                (hasFallback ? "; its declared fallback colour was drawn." : " and was not drawn."));
-            return hasFallback ? ShapeFill.Solid(fallback) : null;
+                "A bitmap fill could not be resolved; its fill colour was drawn, as LibreOffice draws a bitmap it cannot load.");
+            return ShapeFill.Solid(fallback);
+        }
+        if (kind == "hatch")
+        {
+            styles.Report("odt.fill:hatch", "odt.fill", "A hatch fill could not be resolved and was not drawn.");
+            return null;
         }
 
         return string.Equals(kind, "solid", StringComparison.Ordinal) &&
@@ -1403,6 +1404,45 @@ internal static class OdtReader
                 ? ShapeFill.Solid(solid)
                 : null;
     }
+
+    /// <summary>
+    /// The colour LibreOffice paints for a bitmap fill it cannot load when
+    /// nothing states another: <c>XFillColorItem</c>'s default,
+    /// <c>COL_DEFAULT_SHAPE_FILLING</c>. Its 24.2 reference of
+    /// <c>tiledrendering/data/page-background-link.fodt</c> is a page of it.
+    /// </summary>
+    private static readonly BColor UnloadedFillColor = BColor.FromArgb(0x72, 0x9F, 0xCF);
+
+    /// <summary>
+    /// The bitmap fill <paramref name="definition"/> holds the picture of, placed
+    /// as <paramref name="properties"/> say, or null when the picture does not load.
+    /// </summary>
+    private static ShapeFill? ReadImageFill(XElement properties, XElement definition, OdtStyles styles)
+    {
+        if (styles.ReadFillImage?.Invoke(definition) is not InlineImage image)
+            return null;
+
+        _ = OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-width"), out double width);
+        _ = OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-height"), out double height);
+        string position = (string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-ref-point") ?? "center";
+        var repeat = (string?)properties.Attribute(OdtNamespaces.Style + "repeat") switch
+            { "stretch" => ImageFillRepeat.Stretch, "no-repeat" => ImageFillRepeat.Single, _ => ImageFillRepeat.Tile };
+        return ShapeFill.Solid(BColor.Empty) with { Image = new ImageFill(image, repeat, width, height,
+            position.Contains("left", StringComparison.Ordinal) ? 0 : position.Contains("right", StringComparison.Ordinal) ? 1 : 0.5,
+            position.Contains("top", StringComparison.Ordinal) ? 0 : position.Contains("bottom", StringComparison.Ordinal) ? 1 : 0.5) };
+    }
+
+    /// <summary>
+    /// True when a <c>style:background-image</c> links to a picture outside the
+    /// package. The reader does not fetch it, and LibreOffice paints such a link
+    /// it cannot load in <see cref="UnloadedFillColor"/>, whatever colour sits
+    /// beside it: its brush conversion clears the colour once there is a picture
+    /// (unobrushitemhelper.cxx, setSvxBrushItemAsFillAttributesToTargetSet).
+    /// </summary>
+    private static bool LinksOutsidePackage(XElement backgroundImage, OdtStyles styles) =>
+        (string?)backgroundImage.Attribute(OdtNamespaces.XLink + "href") is { } href &&
+        !string.IsNullOrWhiteSpace(href) &&
+        styles.LinksOutsidePackage?.Invoke(href) == true;
 
     /// <summary>A <c>draw:gradient</c> as the model's two-colour fill.</summary>
     /// <remarks>
@@ -1454,6 +1494,7 @@ internal static class OdtReader
     /// What the master page paints its page with, or null for nothing.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// ODF states it in two places. The newer is a <c>drawing-page</c> style the
     /// master page names with <c>draw:style-name</c> (ODF 1.3 §16.10); the older
     /// is the page layout's own properties, with <c>draw:fill</c> or with
@@ -1461,6 +1502,19 @@ internal static class OdtReader
     /// the background colour flattened to the average of a gradient, so they are
     /// read in that order and the first that says anything is the answer. A
     /// <c>draw:fill</c> of <c>none</c> says there is no fill, and stops the search.
+    /// </para>
+    /// <para>
+    /// A drawing-page fill states its own bounds with <c>draw:background-size</c>.
+    /// A page layout's fill covers what its producer gave it (see
+    /// <see cref="OdtMetadata.PageFillBounds"/>): the whole page for a current
+    /// or unnamed producer, the content rectangle for an old one.
+    /// </para>
+    /// <para>
+    /// A legacy <c>style:background-image</c> linked outside the package is
+    /// painted the way LibreOffice paints a link it cannot load, in
+    /// <see cref="UnloadedFillColor"/>. One naming a package entry that is not
+    /// there leaves the background colour beside it, as LibreOffice does.
+    /// </para>
     /// </remarks>
     private static ShapeFill? ReadPageBackground(XElement? master, XElement? layoutProperties, OdtStyles styles)
     {
@@ -1475,29 +1529,58 @@ internal static class OdtReader
         if (layoutProperties is null)
             return null;
 
-        if (layoutProperties.Attribute(OdtNamespaces.Draw + "fill") is not null)
-            return ReadDrawFill(layoutProperties, styles);
+        if ((string?)layoutProperties.Attribute(OdtNamespaces.Draw + "fill") is string kind)
+        {
+            return WithPageBounds(ReadDrawFill(layoutProperties, styles), layoutProperties, kind,
+                (string?)layoutProperties.Attribute(OdtNamespaces.Style + "repeat"), styles);
+        }
 
         if (layoutProperties.Element(OdtNamespaces.Style + "background-image") is XElement legacy &&
             (!string.IsNullOrWhiteSpace((string?)legacy.Attribute(OdtNamespaces.XLink + "href")) ||
              legacy.Element(OdtNamespaces.Office + "binary-data") is not null))
         {
+            string repeat = (string?)legacy.Attribute(OdtNamespaces.Style + "repeat") ?? "repeat";
             var properties = new XElement(layoutProperties);
-            properties.SetAttributeValue(OdtNamespaces.Draw + "fill", "bitmap");
-            properties.SetAttributeValue(OdtNamespaces.Draw + "background-size", "border");
-            properties.SetAttributeValue(OdtNamespaces.Style + "repeat", (string?)legacy.Attribute(OdtNamespaces.Style + "repeat") ?? "repeat");
+            properties.SetAttributeValue(OdtNamespaces.Style + "repeat", repeat);
             string position = (string?)legacy.Attribute(OdtNamespaces.Style + "position") ?? "center";
             properties.SetAttributeValue(OdtNamespaces.Draw + "fill-image-ref-point", position.Replace(' ', '-'));
-            return ReadDrawFill(properties, styles);
+            if (ReadImageFill(properties, legacy, styles) is ShapeFill image)
+                return WithPageBounds(image, layoutProperties, "bitmap", repeat, styles);
+
+            if (LinksOutsidePackage(legacy, styles))
+            {
+                styles.Report(
+                    "odt.fill:link",
+                    "odt.fill",
+                    "A background picture linked outside the package was not fetched; its area was painted as LibreOffice paints a link it cannot load.");
+                return WithPageBounds(ShapeFill.Solid(UnloadedFillColor), layoutProperties, "bitmap", repeat, styles);
+            }
         }
 
         return TryColor((string?)layoutProperties.Attribute(OdtNamespaces.Fo + "background-color"), out BColor color) &&
             !color.IsEmpty && color.A > 0
-                // The legacy fo:background-color paints the page's content
-                // rectangle, leaving its margins clear. Drawing-page fills
-                // above use their explicit draw:background-size instead.
-                ? ShapeFill.Solid(color) with { ContentOnly = true }
+                ? WithPageBounds(ShapeFill.Solid(color), layoutProperties, "solid", null, styles)
                 : null;
+    }
+
+    /// <summary>
+    /// A page layout's <paramref name="fill"/>, covering the part of the page
+    /// LibreOffice gives a <paramref name="kind"/> of fill from the document's
+    /// producer (PageMasterImportContext.cxx).
+    /// </summary>
+    private static ShapeFill? WithPageBounds(ShapeFill? fill, XElement layoutProperties, string kind, string? repeat, OdtStyles styles)
+    {
+        if (fill is null)
+            return null;
+
+        bool insideMargins = styles.PageFillBounds switch
+        {
+            OdtPageFillBounds.InsideMargins => true,
+            // An unstated repeat tiles, the bitmap mode LibreOffice reads as full size.
+            OdtPageFillBounds.ByFill => kind == "bitmap" && repeat is "stretch" or "no-repeat",
+            _ => (string?)layoutProperties.Attribute(OdtNamespaces.Draw + "background-size") == "border",
+        };
+        return fill with { ContentOnly = insideMargins };
     }
 
     /// <summary>A shape's own paragraphs, read with the same walker the body uses.</summary>
@@ -1957,7 +2040,7 @@ internal static class OdtReader
         string? breakAfter = null;
         foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
         {
-            paragraphStyle = ApplyParagraphProperties(properties, paragraphStyle, context.Builder);
+            paragraphStyle = ApplyParagraphProperties(properties, paragraphStyle, context.Builder, context.Styles);
 
             // fo:break-after is resolved here rather than inside
             // ApplyParagraphProperties because it is not a property of this
@@ -2395,7 +2478,7 @@ internal static class OdtReader
         string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name");
         ParagraphStyle style = ParagraphStyle.Default;
         foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
-            style = ApplyParagraphProperties(properties, style, context.Builder);
+            style = ApplyParagraphProperties(properties, style, context.Builder, context.Styles);
 
         if (list is not null)
         {
@@ -2879,7 +2962,8 @@ internal static class OdtReader
     private static ParagraphStyle ApplyParagraphProperties(
         XElement? properties,
         ParagraphStyle style,
-        OdtDocumentBuilder builder)
+        OdtDocumentBuilder builder,
+        OdtStyles styles)
     {
         if (properties is null)
             return style;
@@ -2989,6 +3073,19 @@ internal static class OdtReader
             style = OdtUnits.TryParseColor(background, out BColor fill)
                 ? style with { Background = fill }
                 : style with { Background = BColor.Empty };
+        }
+
+        // A background picture linked outside the package is not fetched, and
+        // LibreOffice paints such a link it cannot load over the paragraph as it
+        // does over a page, in its default fill colour (see ReadPageBackground).
+        if (properties.Element(OdtNamespaces.Style + "background-image") is XElement picture &&
+            LinksOutsidePackage(picture, styles))
+        {
+            styles.Report(
+                "odt.fill:link",
+                "odt.fill",
+                "A background picture linked outside the package was not fetched; its area was painted as LibreOffice paints a link it cannot load.");
+            style = style with { Background = UnloadedFillColor };
         }
 
         return ApplyLineHeight(properties, style, builder);

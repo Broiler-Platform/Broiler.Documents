@@ -6,12 +6,14 @@ namespace Broiler.Documents.Odt.Tests;
 public sealed class OdtAdvancedFillTests
 {
     [Fact]
-    public void An_Unresolved_Bitmap_Uses_Only_Its_Explicit_Fallback_Colour()
+    public void An_Unresolved_Bitmap_Paints_Its_Fill_Colour()
     {
         var result = Read("draw:fill='bitmap' draw:fill-image-name='missing' draw:fill-color='#99ccff'");
         Assert.Equal(ShapeFill.Solid(BColor.FromArgb(153, 204, 255)), result.Document.PageBackground);
         Assert.Contains(result.Diagnostics, d => d.Code == "odt.fill");
-        Assert.Null(Read("draw:fill='bitmap' draw:fill-image-name='missing'").Document.PageBackground);
+        // Stating none, it is the fill colour's own default, as LibreOffice paints it.
+        Assert.Equal(ShapeFill.Solid(BColor.FromArgb(0x72, 0x9F, 0xCF)),
+            Read("draw:fill='bitmap' draw:fill-image-name='missing'").Document.PageBackground);
     }
 
     [Fact]
@@ -41,7 +43,7 @@ public sealed class OdtAdvancedFillTests
     public void An_Empty_Legacy_Image_Does_Not_Hide_The_Page_Colour(string color, byte r, byte g, byte b)
     {
         var result = Read("fo:background-color=\"" + color + "\"", children: "<style:background-image/>");
-        Assert.Equal(ShapeFill.Solid(new BColor(r, g, b)) with { ContentOnly = true }, result.Document.PageBackground);
+        Assert.Equal(ShapeFill.Solid(new BColor(r, g, b)), result.Document.PageBackground);
         Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code is "odt.fill" or "odt.image.shape");
     }
 
@@ -147,7 +149,7 @@ public sealed class OdtAdvancedFillTests
         Assert.Equal(ImageFillRepeat.Stretch, fill.Image!.Repeat);
         Assert.Equal(OdtTestPackage.OnePixelPng, fill.Image.Picture.Data.ToArray());
         var external = Read("", children: "<style:background-image xlink:href=\"https://example.invalid/background.png\"/>");
-        Assert.Null(external.Document.PageBackground);
+        Assert.Equal(ShapeFill.Solid(BColor.FromArgb(0x72, 0x9F, 0xCF)), external.Document.PageBackground);
         Assert.Contains(external.Diagnostics, diagnostic => diagnostic.Code.StartsWith("odt.image", StringComparison.Ordinal));
     }
 }
