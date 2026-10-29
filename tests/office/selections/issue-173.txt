@@ -1,0 +1,3 @@
+# First ranked difference from Broiler-Platform/Broiler.Documents#173: tables of amounts
+# in a Word 2010 document (tdf#77417).
+ooxmlexport/data/tdf77417.docx

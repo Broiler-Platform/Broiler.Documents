@@ -99,9 +99,33 @@ public sealed record DocumentStyleDefaults
     /// </remarks>
     public bool ShrinksJustifiedLines { get; init; }
 
+    /// <summary>
+    /// Whether a tab stop beyond the paragraph's right edge is honoured where
+    /// it stands, and the text after it runs on past that edge instead of
+    /// wrapping, as Word 2010 and earlier lay it out.
+    /// </summary>
+    /// <remarks>
+    /// A DOCX says it by stating a <c>compatibilityMode</c> of 14 or less, or
+    /// none, which LibreOffice reads as its <c>TabOverMargin</c> setting
+    /// (writerfilter's <c>SettingsTable::ApplyProperties</c>); an ODT says it
+    /// with that setting. Only a stop the paragraph states counts, and the
+    /// line runs on to at most 55.8 cm, Word's widest tab stop
+    /// (<c>SwTextFormatInfo::GetLineWidth</c>). Without it, a table of amounts
+    /// whose stops lie past a narrow cell's right indent wraps each amount
+    /// onto a line of its own.
+    /// </remarks>
+    public bool TabsOverMargin { get; init; }
+
+    /// <summary>
+    /// The longest a line may run on past a tab stop beyond its right edge
+    /// (<see cref="TabsOverMargin"/>): 558 mm, in points.
+    /// </summary>
+    public const double TabOverMarginLimitPoints = 558 / 25.4 * 72;
+
     /// <summary>True when this states nothing a consumer would not have assumed.</summary>
     public bool IsDefault =>
-        FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines;
+        FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
+        !TabsOverMargin;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

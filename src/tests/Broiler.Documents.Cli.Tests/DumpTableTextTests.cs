@@ -71,6 +71,17 @@ public sealed class DumpTableTextTests
     }
 
     [Fact]
+    public void Without_joined_rows_each_cell_is_a_line_as_before_LibreOffice_24_8()
+    {
+        RichTextDocument document = RichTextDocument.FromPlainText("before\nA\nB\nC\nD\nafter")
+            .WithTables([new DocumentTable(1, 4,
+                [new TableRow([new TableCell(1, 1, 0), new TableCell(2, 1, 1)]),
+                 new TableRow([new TableCell(3, 1, 0), new TableCell(4, 1, 1)])])]);
+
+        Assert.Equal("before\nA\nB\nC\nD\nafter", DocumentCommands.LabelledText(document, joinsTableRows: false));
+    }
+
+    [Fact]
     public void Multiple_paragraphs_in_a_cell_keep_their_boundaries()
     {
         RichTextDocument document = RichTextDocument.FromPlainText("A1\nA2\nB")

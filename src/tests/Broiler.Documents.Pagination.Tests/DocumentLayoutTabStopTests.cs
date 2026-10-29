@@ -86,6 +86,77 @@ public sealed class DocumentLayoutTabStopTests
         Assert.True(tab.Width > 0);
     }
 
+    /// <summary>
+    /// A narrow cell's amount, as in <c>tdf77417.docx</c>: "$", a right stop
+    /// past the right indent and the amount, then a stop further out and a
+    /// footnote mark.
+    /// </summary>
+    private static RichTextParagraph Amount() =>
+        RichTextParagraph.Create("$\t00,000\t(a)", InlineStyle.Default,
+            ParagraphStyle.Default with
+            {
+                RightIndent = 300,
+                TabStops = new ParagraphTabStops([new(120, TabAlignment.Right), new(150, TabAlignment.Decimal)]),
+            });
+
+    private static LayoutResult Layout(RichTextParagraph paragraph, bool tabsOverMargin)
+    {
+        using var images = new ImageStore();
+        return new DocumentLayout(new LayoutSettings(), images).Layout(
+            RichTextDocument.FromParagraphs([paragraph])
+                .WithStyleDefaults(DocumentStyleDefaults.Default with { TabsOverMargin = tabsOverMargin }),
+            new DocumentPageBox(400, 200, 10, 10, 10, 10));
+    }
+
+    [Fact]
+    public void Over_The_Margin_A_Stop_Past_The_Right_Indent_Keeps_Its_Place_And_The_Line_Runs_On()
+    {
+        LayoutLine line = Assert.Single(Assert.Single(Layout(Amount(), tabsOverMargin: true).Pages).Lines);
+
+        LayoutPiece amount = line.Pieces.Single(piece => piece.Text == "00,000");
+        LayoutPiece mark = line.Pieces.Single(piece => piece.Text == "(a)");
+        Assert.Equal(130, amount.X + amount.Width, 3);
+        Assert.Equal(160, mark.X + mark.Width, 3);
+    }
+
+    [Fact]
+    public void Without_It_The_Text_Past_The_Right_Indent_Wraps()
+    {
+        Assert.True(Assert.Single(Layout(Amount(), tabsOverMargin: false).Pages).Lines.Count > 1);
+    }
+
+    [Fact]
+    public void A_Cell_Line_Carried_Over_The_Margin_By_A_Tab_Is_Not_Cut_At_The_Cell()
+    {
+        // tdf77417.docx's last column puts its amounts at a stop 1.4 pt past
+        // the cell, and LibreOffice draws them whole there.
+        var cell = RichTextParagraph.Create("$\t00,000", InlineStyle.Default,
+            ParagraphStyle.Default with { TabStops = new ParagraphTabStops([new(60, TabAlignment.Right)]) });
+        var table = new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0)])], [55], cellPadding: 0);
+        RichTextDocument document = RichTextDocument.FromParagraphs([cell]).WithTables([table])
+            .WithStyleDefaults(DocumentStyleDefaults.Default with { TabsOverMargin = true });
+
+        using var images = new ImageStore();
+        LayoutPage page = Assert.Single(new DocumentLayout(new LayoutSettings(), images)
+            .Layout(document, new DocumentPageBox(400, 200, 10, 10, 10, 10)).Pages);
+        LayoutLine line = Assert.Single(page.Lines, line => line.ParagraphIndex == 0);
+        LayoutPiece amount = line.Pieces.Single(piece => piece.Text == "00,000");
+
+        Assert.Equal(70, amount.X + amount.Width, 3);
+        Assert.Null(line.ClipRight);
+    }
+
+    [Fact]
+    public void Over_The_Margin_A_Default_Stop_Still_Wraps()
+    {
+        // Only a stop the paragraph states goes over the margin, as in
+        // LibreOffice, where an automatic one breaks the line.
+        var paragraph = RichTextParagraph.Create("alpha\tbravo charlie delta", InlineStyle.Default,
+            ParagraphStyle.Default with { RightIndent = 330 });
+
+        Assert.True(Assert.Single(Layout(paragraph, tabsOverMargin: true).Pages).Lines.Count > 1);
+    }
+
     private static LayoutResult Layout(RichTextParagraph paragraph)
     {
         using var images = new ImageStore();

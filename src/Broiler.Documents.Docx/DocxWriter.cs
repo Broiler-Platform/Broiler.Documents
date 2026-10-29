@@ -233,7 +233,8 @@ public static class DocxWriter
         PageGeometry? geometry,
         (int Count, double Gap)? columns = null,
         SectionBreakType? breakType = null,
-        bool continuous = false)
+        bool continuous = false,
+        int? pageNumberStart = null)
     {
         var sectPr = new XElement(DocxNamespaces.Wordprocessing + "sectPr");
         bool hasFirst = false;
@@ -290,6 +291,13 @@ public static class DocxWriter
 
         }
 
+        if (pageNumberStart is int start)
+        {
+            sectPr.Add(new XElement(
+                DocxNamespaces.Wordprocessing + "pgNumType",
+                WordAttribute("start", start.ToString(CultureInfo.InvariantCulture))));
+        }
+
         if (stated.Count > 1)
         {
             sectPr.Add(new XElement(
@@ -325,7 +333,8 @@ public static class DocxWriter
             PageAt(document, document.ParagraphCount - 1),
             lastColumns,
             breakType: lastBreak,
-            continuous: lastBreak == SectionBreakType.Continuous || (lastBreak == null && document.Sections.Count > 0)));
+            continuous: lastBreak == SectionBreakType.Continuous || (lastBreak == null && document.Sections.Count > 0),
+            pageNumberStart: lastSection?.PageNumberStart));
 
         var root = new XElement(
             DocxNamespaces.Wordprocessing + "document",
@@ -499,7 +508,8 @@ public static class DocxWriter
             PageAt(document, index),
             ColumnsAt(document, index),
             breakType: effectiveBreak,
-            continuous: effectiveBreak == SectionBreakType.Continuous);
+            continuous: effectiveBreak == SectionBreakType.Continuous,
+            pageNumberStart: section?.PageNumberStart);
     }
 
     /// <summary>A paragraph's <c>w:pPr</c>, made when it has none, and kept first among its children.</summary>

@@ -67,11 +67,11 @@ public static class OdtWriter
             AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(
                 document.RunningContent, PageOf(document), document.PageBackground, document.NoteNumbering, context));
             AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta(metadata));
-            if (!document.ShowsRevisions || document.StyleDefaults.ShrinksJustifiedLines)
+            if (!document.ShowsRevisions || document.StyleDefaults.ShrinksJustifiedLines || document.StyleDefaults.TabsOverMargin)
             {
                 context.HasSettings = true;
                 AddXmlEntry(archive, OdtNamespaces.SettingsPart,
-                    BuildSettings(!document.ShowsRevisions, document.StyleDefaults.ShrinksJustifiedLines));
+                    BuildSettings(!document.ShowsRevisions, document.StyleDefaults));
             }
 
             foreach (OdtPicturePart picture in context.Pictures)
@@ -376,23 +376,32 @@ public static class OdtWriter
     /// the view settings) or that its justified lines shrink their spaces
     /// (<c>JustifyLinesWithShrinking</c> in the configuration settings).
     /// </summary>
-    private static XDocument BuildSettings(bool hideRevisions, bool shrinksJustifiedLines)
+    private static XDocument BuildSettings(bool hideRevisions, DocumentStyleDefaults defaults)
     {
-        static XElement Flag(string set, string name, bool value) =>
+        static XElement Set(string name, params XElement[] items) =>
             new(
                 OdtNamespaces.Config + "config-item-set",
-                new XAttribute(OdtNamespaces.Config + "name", set),
-                new XElement(
-                    OdtNamespaces.Config + "config-item",
-                    new XAttribute(OdtNamespaces.Config + "name", name),
-                    new XAttribute(OdtNamespaces.Config + "type", "boolean"),
-                    value ? "true" : "false"));
+                new XAttribute(OdtNamespaces.Config + "name", name),
+                items);
+
+        static XElement Flag(string name, bool value) =>
+            new(
+                OdtNamespaces.Config + "config-item",
+                new XAttribute(OdtNamespaces.Config + "name", name),
+                new XAttribute(OdtNamespaces.Config + "type", "boolean"),
+                value ? "true" : "false");
 
         var settings = new XElement(OdtNamespaces.Office + "settings");
         if (hideRevisions)
-            settings.Add(Flag("ooo:view-settings", "ShowRedlineChanges", false));
-        if (shrinksJustifiedLines)
-            settings.Add(Flag("ooo:configuration-settings", "JustifyLinesWithShrinking", true));
+            settings.Add(Set("ooo:view-settings", Flag("ShowRedlineChanges", false)));
+
+        var configuration = new List<XElement>();
+        if (defaults.ShrinksJustifiedLines)
+            configuration.Add(Flag("JustifyLinesWithShrinking", true));
+        if (defaults.TabsOverMargin)
+            configuration.Add(Flag("TabOverMargin", true));
+        if (configuration.Count > 0)
+            settings.Add(Set("ooo:configuration-settings", [.. configuration]));
 
         return new(
             new XDeclaration("1.0", "UTF-8", null),

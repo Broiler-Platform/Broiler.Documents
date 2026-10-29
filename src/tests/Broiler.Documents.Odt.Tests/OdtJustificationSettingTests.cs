@@ -49,4 +49,25 @@ public sealed class OdtJustificationSettingTests
         Assert.True(back.StyleDefaults.ShrinksJustifiedLines);
         Assert.Equal(showsRevisions, back.ShowsRevisions);
     }
+
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData("false", false)]
+    public void The_Tab_Over_Margin_Setting_Is_Read(string value, bool overMargin)
+    {
+        Assert.Equal(overMargin, Read(Settings("ooo:configuration-settings", "TabOverMargin", value)).StyleDefaults.TabsOverMargin);
+    }
+
+    [Fact]
+    public void Both_Layout_Settings_Are_Written_Back_Together()
+    {
+        RichTextDocument source = RichTextDocument.FromPlainText("body")
+            .WithStyleDefaults(DocumentStyleDefaults.Default with { ShrinksJustifiedLines = true, TabsOverMargin = true });
+
+        using var stream = new MemoryStream(OdtDocumentCodec.WriteToArray(source), writable: false);
+        RichTextDocument back = new OdtDocumentCodec().Read(stream).Document;
+
+        Assert.True(back.StyleDefaults.ShrinksJustifiedLines);
+        Assert.True(back.StyleDefaults.TabsOverMargin);
+    }
 }

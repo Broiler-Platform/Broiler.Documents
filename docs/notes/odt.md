@@ -158,7 +158,11 @@ layout are covered; this does not claim identical exported clipping.
   the changes are hidden. `JustifyLinesWithShrinking` in the configuration
   settings, which LibreOffice keeps for a document from Word 2013 or later, is
   read and written as `DocumentStyleDefaults.ShrinksJustifiedLines`: justified
-  lines may shrink their spaces to take more text, as the DOCX note describes. ODF has no move: each side of one is written as the
+  lines may shrink their spaces to take more text, as the DOCX note describes.
+  `TabOverMargin` there, which LibreOffice keeps for a document from Word 2010
+  or earlier, is read and written as `DocumentStyleDefaults.TabsOverMargin`:
+  a tab stop past the right indent keeps its place and the line runs on past
+  it. ODF has no move: each side of one is written as the
   insertion or deletion it is. A header or footer is written into `styles.xml`,
   where no region the body lists can be named, so its changes are written
   accepted.

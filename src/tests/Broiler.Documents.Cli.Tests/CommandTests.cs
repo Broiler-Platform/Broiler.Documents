@@ -136,6 +136,17 @@ public sealed class CommandTests : IDisposable
     }
 
     [Fact]
+    public void Dump_Takes_Tabs_Or_Lines_For_Table_Cells()
+    {
+        string path = _cli.MakeDocument("hello.docx", "Hello");
+
+        Assert.Contains("Hello", CliHarness.RunExpecting(ExitCode.Ok, "dump", path, "--cells", "lines").Output, StringComparison.Ordinal);
+        CliRun run = CliHarness.RunExpecting(ExitCode.Usage, "dump", path, "--cells", "columns");
+
+        Assert.Contains("--cells expects tabs or lines", run.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_Pdf_Picture_In_Icc_Colour_Is_Read()
     {
         // The one optional PDF provider this tool composes. Without a profile

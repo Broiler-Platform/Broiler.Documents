@@ -55,6 +55,32 @@ internal static class TextProjection
     private const int AlignmentLineLimit = 4000;
 
     /// <summary>
+    /// The first LibreOffice release whose text export writes a table row on
+    /// one line with its cells separated by tabs (tdf#144576,
+    /// <c>SwASCWriter::WriteTable</c>). Earlier releases, the CI reference's
+    /// 24.2 among them, write each cell's paragraphs on lines of their own.
+    /// </summary>
+    public static readonly Version JoinedTableRowsSince = new(24, 8);
+
+    /// <summary>
+    /// The arguments that make <c>broilerdoc dump --as text</c> lay a table out
+    /// as the text export of <paramref name="libreOffice"/> does: a line per
+    /// cell before <see cref="JoinedTableRowsSince"/>, a line per row from it
+    /// on, and per row where the version cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// This is not a rule added to <see cref="Canonicalise"/>, because no rule
+    /// over the strings can tell a tab between two cells from a tab inside
+    /// one. Each side is asked for the same projection instead. Without it,
+    /// every table compared against the 24.2 reference differed by line
+    /// breaks alone, which ranked a document's tables as lost text.
+    /// </remarks>
+    public static IReadOnlyList<string> DumpArguments(string? libreOffice) =>
+        ReferenceDefects.ParseRelease(libreOffice) is Version release && release < JoinedTableRowsSince
+            ? ["--cells", "lines"]
+            : [];
+
+    /// <summary>
     /// The canonical form both sides are reduced to before they are
     /// compared: no byte order mark, LF endings, no blank lines, a single
     /// space wherever a run of spaces or a tab stood, and NFC.

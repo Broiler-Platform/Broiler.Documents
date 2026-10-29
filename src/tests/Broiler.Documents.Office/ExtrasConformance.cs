@@ -638,7 +638,8 @@ internal static class ExtrasConformance
             {
                 libreOfficeAnswered = true;
                 ToolRun dumped = await tool
-                    .RunAsync(["dump", inputSourcePath, .. fromArgs, "--as", "text", "--quiet"])
+                    .RunAsync(["dump", inputSourcePath, .. fromArgs, "--as", "text",
+                        .. TextProjection.DumpArguments(referenceLibreOffice), "--quiet"])
                     .ConfigureAwait(false);
 
                 if (dumped.ExitCode != 0)
