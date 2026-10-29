@@ -35,16 +35,37 @@ public sealed class DocxStyleDefaultsTests
     }
 
     [Fact]
-    public void A_Package_That_States_No_Defaults_Keeps_The_Shared_Ones()
+    public void A_Package_Without_Run_Defaults_Falls_Back_To_Word_2007s()
     {
+        // LibreOffice (tdf#108350): no w:rPrDefault means Calibri 11.
         DocumentReadResult result = DocxTestPackage.ReadStyled(
             "<w:p><w:r><w:t>body</w:t></w:r></w:p>",
             string.Empty);
 
-        Assert.Equal(
-            DocumentStyleDefaults.FallbackFontSizePoints,
-            result.Document.StyleDefaults.FontSizePoints);
-        Assert.Null(result.Document.StyleDefaults.FontFamily);
+        Assert.Equal(11f, result.Document.StyleDefaults.FontSizePoints);
+        Assert.Equal("Calibri", result.Document.StyleDefaults.FontFamily);
+    }
+
+    [Fact]
+    public void Run_Defaults_That_State_No_Size_Or_Face_Fall_Back_To_Times_New_Roman_10()
+    {
+        // A w:rPrDefault resets LibreOffice's defaults to 10 point Times New Roman,
+        // and the default style here names only a face: the size stays 10, not 12.
+        DocumentReadResult result = DocxTestPackage.ReadStyled(
+            "<w:p><w:r><w:t>body</w:t></w:r></w:p>",
+            "<w:docDefaults><w:rPrDefault><w:rPr><w:lang w:val=\"de-AT\"/></w:rPr></w:rPrDefault></w:docDefaults>");
+
+        Assert.Equal(10f, result.Document.StyleDefaults.FontSizePoints);
+        Assert.Equal("Times New Roman", result.Document.StyleDefaults.FontFamily);
+
+        DocumentReadResult arial = DocxTestPackage.ReadStyled(
+            "<w:p><w:r><w:t>body</w:t></w:r></w:p>",
+            "<w:docDefaults><w:rPrDefault><w:rPr><w:lang w:val=\"de-AT\"/></w:rPr></w:rPrDefault></w:docDefaults>" +
+            "<w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\">" +
+            "<w:rPr><w:rFonts w:ascii=\"Arial\" w:hAnsi=\"Arial\"/><w:szCs w:val=\"24\"/></w:rPr></w:style>");
+
+        Assert.Equal(10f, arial.Document.StyleDefaults.FontSizePoints);
+        Assert.Equal("Arial", arial.Document.StyleDefaults.FontFamily);
     }
 
     [Fact]

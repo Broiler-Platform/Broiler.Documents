@@ -43,9 +43,11 @@ internal sealed class DocxStyles
         string? defaultTableStyleId,
         DocxTheme theme,
         int maxChainDepth,
-        List<DocumentDiagnostic> diagnostics)
+        List<DocumentDiagnostic> diagnostics,
+        bool hasRunDefaults = false)
     {
         _styles = styles;
+        HasRunDefaults = hasRunDefaults;
         _defaultParagraphProperties = defaultParagraphProperties;
         _defaultRunProperties = defaultRunProperties;
         _defaultParagraphStyleId = defaultParagraphStyleId;
@@ -57,6 +59,13 @@ internal sealed class DocxStyles
 
     /// <summary>Theme fonts, needed to resolve <c>w:rFonts</c> theme references.</summary>
     public DocxTheme Theme { get; }
+
+    /// <summary>
+    /// Whether <c>w:docDefaults</c> holds a <c>w:rPrDefault</c>, which decides
+    /// what a run stating no size or family falls back to (see
+    /// <see cref="DocxReader"/>'s style defaults).
+    /// </summary>
+    public bool HasRunDefaults { get; }
 
     /// <summary>The number of named styles that were loaded.</summary>
     public int Count => _styles.Count;
@@ -93,9 +102,8 @@ internal sealed class DocxStyles
         XElement? defaultParagraphProperties = docDefaults
             ?.Element(DocxNamespaces.Wordprocessing + "pPrDefault")
             ?.Element(DocxNamespaces.Wordprocessing + "pPr");
-        XElement? defaultRunProperties = docDefaults
-            ?.Element(DocxNamespaces.Wordprocessing + "rPrDefault")
-            ?.Element(DocxNamespaces.Wordprocessing + "rPr");
+        XElement? runDefaults = docDefaults?.Element(DocxNamespaces.Wordprocessing + "rPrDefault");
+        XElement? defaultRunProperties = runDefaults?.Element(DocxNamespaces.Wordprocessing + "rPr");
 
         var styles = new Dictionary<string, StyleDefinition>(StringComparer.Ordinal);
         string? defaultParagraphStyleId = null;
@@ -131,7 +139,8 @@ internal sealed class DocxStyles
             defaultTableStyleId,
             theme,
             limits.MaxGroupDepth,
-            diagnostics);
+            diagnostics,
+            hasRunDefaults: runDefaults is not null);
     }
 
     private static DocxStyles WithoutStyles(

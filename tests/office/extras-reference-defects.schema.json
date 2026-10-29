@@ -56,8 +56,13 @@
         },
         "upstreamTests": {
           "type": "array",
-          "minItems": 1,
+          "description": "The upstream tests that pin the fixed rendering. Empty only where the fix came with none, and then untested says so.",
           "items": { "type": "string", "minLength": 1 }
+        },
+        "untested": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why upstreamTests is empty - a fix with no test of its own - and what pins the fixed rendering instead: a later release's output, the producer's own saved rendering. Required when upstreamTests is empty, absent otherwise."
         },
         "axes": {
           "type": "array",

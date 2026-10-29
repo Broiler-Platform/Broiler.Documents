@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Broiler.Documents.Model.Text;
 
 namespace Broiler.Documents.Pdf.Text;
 
@@ -203,41 +204,11 @@ internal static class PdfEncodings
     }
 
     /// <summary>
-    /// The Symbol font's built-in encoding, authored from the character each slot
-    /// denotes rather than transcribed from a glyph-list file (IP-021's position,
-    /// applied to the data IP-013 covers).
+    /// The Symbol font's built-in encoding, kept with the model's recoding of
+    /// text set in Symbol (<see cref="SymbolFontText"/>) so that the two read
+    /// one table.
     /// </summary>
-    /// <remarks>
-    /// The slots left unmapped are the ones that are not characters: Symbol
-    /// reserves a run of private-use codes for the pieces large brackets,
-    /// parentheses, braces, and integral signs are assembled from. A piece of a
-    /// glyph has no text to extract, so those stay empty rather than resolving to
-    /// something plausible.
-    /// </remarks>
-    private static char[] BuildSymbol()
-    {
-        var table = new char[256];
-
-        // ASCII slots Symbol keeps, and the mathematics it puts in the rest.
-        Assign(table, 32, " !∀#∃%&∋()∗+,−./0123456789:;<=>?");
-        Assign(table, 64, "≅ΑΒΧΔΕΦΓΗΙϑΚΛΜΝΟ");
-        Assign(table, 80, "ΠΘΡΣΤΥςΩΞΨΖ[∴]⊥_");
-        Assign(table, 97, "αβχδεφγηιϕκλμνο");
-        Assign(table, 112, "πθρστυϖωξψζ{|}∼");
-
-        Assign(table, 160, "€ϒ′≤⁄∞ƒ♣♦♥♠↔←↑→↓");
-        Assign(table, 176, "°±″≥×∝∂•÷≠≡≈…");
-        table[191] = '↵';
-        Assign(table, 192, "ℵℑℜ℘⊗⊕∅∩∪⊃⊇⊄⊂⊆∈∉");
-        Assign(table, 208, "∠∇®©™∏√⋅¬∧∨⇔⇐⇑⇒⇓");
-        Assign(table, 224, "◊〈®©™∑");
-        table[241] = '〉';
-        table[242] = '∫';
-        table[243] = '⌠';
-        table[245] = '⌡';
-
-        return table;
-    }
+    private static char[] BuildSymbol() => SymbolFontText.CopyTable();
 
     private static char[] BuildWinAnsi()
     {

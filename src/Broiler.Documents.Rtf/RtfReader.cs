@@ -324,6 +324,7 @@ public static class RtfReader
                 {
                     FontFamily = _defaultFont is int font ? _fonts.GetName(font) : null,
                     WidensSpaceRuns = WidensSpaceRuns(),
+                    UndecoratedLinks = true,
                 })
                 .WithRunningContent(BuildRunningContent())
                 .WithPageGeometry(BuildPageGeometry())

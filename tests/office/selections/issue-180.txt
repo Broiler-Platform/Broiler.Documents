@@ -1,0 +1,15 @@
+# First ranked difference from Broiler-Platform/Broiler.Documents#180: a heading LibreOffice 24.2
+# splits at a page break before a comment (a reference defect), the default text size of a DOCX,
+# page fields, table-of-contents links, soft hyphens, Symbol text and shapes in table cells; then
+# the samples whose renders this change moved most (tdf104713_undefinedStyles.docx the wrong way).
+ooxmlexport/data/wDateValueFormat.docx
+ooxmlexport/data/tdf105035_framePrC.docx
+ooxmlexport/data/table-row-data-displayed-twice.docx
+ww8export/data/tdf117503.docx
+uiwriter/data/tdf130680.odt
+ooxmlexport/data/tdf124594.docx
+ooxmlexport/data/tdf132752.docx
+ooxmlexport/data/tdf152636_lostPageBreak2.docx
+ooxmlexport/data/1_page.docx
+layout/data/tdf134277.docx
+ooxmlexport/data/tdf104713_undefinedStyles.docx

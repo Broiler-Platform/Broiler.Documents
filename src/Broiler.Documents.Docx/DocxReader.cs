@@ -111,6 +111,7 @@ internal static class DocxReader
             {
                 ShrinksJustifiedLines = compatibilityMode >= 15,
                 TabsOverMargin = compatibilityMode <= 14,
+                UndecoratedLinks = true,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
@@ -873,6 +874,16 @@ internal static class DocxReader
                 continue;
             }
 
+            if (element.Name == DocxNamespaces.Wordprocessing + "fldSimple" &&
+                DocxFields.Page((string?)element.Attribute(DocxNamespaces.Wordprocessing + "instr") ?? "") is PageField page)
+            {
+                if (element.Descendants(DocxNamespaces.Wordprocessing + "t").Any(t => t.Value.Length > 0))
+                    ReadParagraphChildren(element.Elements(), context, style with { PageField = page });
+                else
+                    context.Builder.AppendText(ListNumberer.Format(1, page.Format), style with { PageField = page });
+                continue;
+            }
+
             if (element.HasElements)
                 ReadParagraphChildren(element.Elements(), context, style);
         }
@@ -880,13 +891,15 @@ internal static class DocxReader
 
     private static void ReadRun(XElement run, DocxReadContext context, InlineStyle inherited)
     {
-        _ = context.Builder;
         XElement? rPr = run.Element(DocxNamespaces.Wordprocessing + "rPr");
 
         // ECMA-376 §17.7.2: the character style named by w:rStyle applies over
         // the paragraph's inherited formatting, and the run's own w:rPr over that.
+        // In a table of contents LibreOffice applies none (DocxFields.InTableOfContents).
         InlineStyle style = inherited;
-        string? characterStyleId = DocxValueReader.WordValue(rPr?.Element(DocxNamespaces.Wordprocessing + "rStyle"));
+        string? characterStyleId = context.Builder.Fields.InTableOfContents
+            ? null
+            : DocxValueReader.WordValue(rPr?.Element(DocxNamespaces.Wordprocessing + "rStyle"));
         foreach (XElement styleRunProperties in context.Styles.RunPropertiesForCharacterStyle(characterStyleId))
             style = ApplyRunProperties(styleRunProperties, style, context.Styles.Theme);
 
@@ -930,7 +943,9 @@ internal static class DocxReader
 
             if (child.Name == DocxNamespaces.Wordprocessing + "fldChar")
             {
-                builder.Fields.Read(child, context.Styles);
+                // A page field Word saved no result for still shows a number.
+                if (builder.Fields.Read(child, context.Styles, runStyle) is PageField empty)
+                    builder.AppendText(ListNumberer.Format(1, empty.Format), runStyle with { PageField = empty });
                 style = builder.Fields.Apply(runStyle);
                 continue;
             }
@@ -953,6 +968,8 @@ internal static class DocxReader
                     continue;
                 }
 
+                if (child.Value.Length > 0)
+                    builder.Fields.NoteResultText();
                 builder.AppendText(child.Value, style);
                 continue;
             }
@@ -1557,10 +1574,20 @@ internal static class DocxReader
             textOverflow: (string?)wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Attribute("vertOverflow") == "overflow",
             geometry: geometry,
             outlineWidth: long.TryParse((string?)spPr?.Element(DocxNamespaces.Drawing + "ln")?.Attribute("w"), out long lineWidth) && lineWidth >= 0 ? lineWidth / 12700d : 0.75,
-            offsetXFromCell: context.Builder.InTableCell && geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending &&
-                RelativeFrom(anchor, "positionH") == "column"));
+            offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" &&
+                (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor))));
         return true;
     }
+
+    /// <summary>
+    /// Whether an object anchored in a table cell is placed in the cell, as
+    /// <c>wp:anchor</c>'s <c>layoutInCell</c> says unless it is off. A check
+    /// box drawn as a group of a square and two strokes in a form's middle
+    /// column had its strokes there and its square in the table's first
+    /// column, because only lines were placed from the cell.
+    /// </summary>
+    private static bool LaysOutInCell(XElement anchor) =>
+        (string?)anchor.Attribute("layoutInCell") is not ("0" or "false" or "off");
 
     private static TableCellPadding ReadShapePadding(XElement? body)
     {
@@ -2541,6 +2568,14 @@ internal static class DocxReader
     /// reading <c>w:docDefaults</c> directly, so a document whose default style
     /// overrides the document defaults reports what a run would actually get.
     /// Word writes both, and they disagree more often than not.
+    /// <para>
+    /// What neither states is LibreOffice's, which tells two documents apart
+    /// (writerfilter's <c>StyleSheetTable</c>, tdf#108350): one with a
+    /// <c>w:rPrDefault</c> falls back to 10 point Times New Roman, the
+    /// defaults Word had before 2007, and one without to 11 point Calibri,
+    /// which Word 2007 and later assume. A report whose default style names
+    /// Arial and no size was set in 12 points here and ran a page longer.
+    /// </para>
     /// </remarks>
     private static DocumentStyleDefaults ReadStyleDefaults(DocxStyles styles)
     {
@@ -2552,10 +2587,17 @@ internal static class DocxReader
         {
             FontSizePoints = style.FontSize is float size && size > 0
                 ? size
-                : DocumentStyleDefaults.FallbackFontSizePoints,
-            FontFamily = string.IsNullOrWhiteSpace(style.FontFamily) ? null : style.FontFamily,
+                : styles.HasRunDefaults ? StatedDefaultsFontSize : UnstatedDefaultsFontSize,
+            FontFamily = string.IsNullOrWhiteSpace(style.FontFamily)
+                ? styles.HasRunDefaults ? StatedDefaultsFontFamily : UnstatedDefaultsFontFamily
+                : style.FontFamily,
         };
     }
+
+    private const float StatedDefaultsFontSize = 10f;
+    private const float UnstatedDefaultsFontSize = 11f;
+    private const string StatedDefaultsFontFamily = "Times New Roman";
+    private const string UnstatedDefaultsFontFamily = "Calibri";
 
     private static InlineStyle ApplyRunProperties(XElement? rPr, InlineStyle style, DocxTheme theme)
     {

@@ -531,7 +531,12 @@ public sealed partial class OfficeControlGuardTests
             // A fix that names no tdf bug is cited by the core review that merged it.
             Assert.Matches("^(tdf|gerrit)#[0-9]+$", bug);
             Assert.Matches(@"^[0-9]+\.[0-9]+$", row.GetProperty("fixedIn").GetString() ?? string.Empty);
-            Assert.NotEmpty(row.GetProperty("upstreamTests").EnumerateArray());
+            // A fix that came with no test of its own says so, and says what pins
+            // the fixed rendering instead; a row with tests has nothing to excuse.
+            bool tested = row.GetProperty("upstreamTests").EnumerateArray().Any();
+            bool excused = row.TryGetProperty("untested", out JsonElement untested) &&
+                !string.IsNullOrWhiteSpace(untested.GetString());
+            Assert.True(tested != excused, id + " must name the upstream tests that pin the fixed rendering, or say in untested why there are none.");
             Assert.False(string.IsNullOrWhiteSpace(row.GetProperty("evidence").GetString()), id + " gives no evidence.");
 
             JsonElement[] commits = [.. row.GetProperty("fixCommits").EnumerateArray()];

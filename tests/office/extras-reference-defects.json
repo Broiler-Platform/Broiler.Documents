@@ -6,8 +6,8 @@
     "records": "Samples of LibreOffice's sw/qa/extras corpus that the LibreOffice the references come from draws with a LibreOffice defect a later LibreOffice release fixed. The corpus is LibreOffice's master tree and the references come from the release reference-data workflow pins, which is older, so a sample added with an upstream fix tests that fix and the pinned release draws it the way the fix corrected.",
     "rule": "While the reference LibreOffice's major.minor is older than a row's fixedIn, the checks the row names (pixel, text) are not compared for its samples: each is reported as skipped with the bug and the note that shows it, and the sample is listed under Known Reference Defects. broilerdoc still reads, dumps and renders it and has to end each in a documented exit code, and every check the row does not name runs and ranks as usual. A row stops applying by itself once references come from a fixed release.",
     "why": "Ranked against a defective reference, a sample broilerdoc draws as the fixed LibreOffice and Word do stays at the top of every report: tdf163894_hidden.docx and tdf163894.docx were the first two differences of issue 170, 4 pages against 22, because LibreOffice 24.2 fills their headers with a whole paragraph. Moving the renderer toward such a reference would be moving it toward the defect.",
-    "scope": "A row is a LibreOffice defect, not a layout difference: the upstream bug, the commits that fixed it, the upstream test that pins the fixed rendering, and a reference output that shows the defect. A difference nobody has traced to a fixed upstream bug stays ranked, however likely it looks that LibreOffice is wrong.",
-    "adding": "A new row needs the bug (tdf#N; gerrit#N, the LibreOffice core review that merged the fix, only where the fix names no bug), the first release with the fix (major.minor), the fixing commits on LibreOffice core, the upstream tests, which checks it affects, every sample it covers, the evidence in prose and a repository note that shows it. The guard checks the fields, that fixedIn is newer than the baseline's LibreOffice, that no sample is listed twice and that the note exists and names the bug."
+    "scope": "A row is a LibreOffice defect, not a layout difference: the upstream bug, the commits that fixed it, the upstream test that pins the fixed rendering (or, for a fix that came with none, what pins it instead), and a reference output that shows the defect. A difference nobody has traced to a fixed upstream bug stays ranked, however likely it looks that LibreOffice is wrong.",
+    "adding": "A new row needs the bug (tdf#N; gerrit#N, the LibreOffice core review that merged the fix, only where the fix names no bug), the first release with the fix (major.minor), the fixing commits on LibreOffice core, the upstream tests (where the fix came with none, an empty list and an untested field saying so and naming what pins the fixed rendering instead, such as a later release's output and the producer's own saved layout), which checks it affects, every sample it covers, the evidence in prose and a repository note that shows it. The guard checks the fields, that fixedIn is newer than the baseline's LibreOffice, that no sample is listed twice and that the note exists and names the bug."
   },
   "defects": [
     {
@@ -51,6 +51,22 @@
       ],
       "evidence": "A table in the body moves below a floating table that overlaps it, whatever the floating table's horizontal alignment. Before the April 2026 fix (\"sw: Layout - avoid horizontal orientation check shifting down tables\", no tdf bug; it finishes the TODO tdf#154775's commit 7b1c03ed left in SwTabFrame::CalcFlyOffsets) LibreOffice moved it only for a floating table aligned none, left or right, and a centred one (tblpXSpec=\"center\") let the body table run underneath. The upstream test pins the fixed layout: no body table on page 1. The office-references-v3 PDF, made by LibreOffice 24.2.7.2, draws the sample's first body table on page 1 under the floating one and runs to 3 pages; LibreOffice 26.2.6.3 does the same, and 26.8.1.1 draws 4 pages, as broilerdoc does. The fix is on master and libreoffice-26-8, not on libreoffice-26-2. The text projection is not affected: LibreOffice's text export leaves the floating table's frame out and writes the body table where the document has it.",
       "reference": "docs/notes/office-issue-175.md"
+    },
+    {
+      "id": "comment-text-splits-page-break-paragraph",
+      "bug": "gerrit#163053",
+      "fixedIn": "24.8",
+      "fixCommits": [
+        "e6783f42ae706da76fd347790c15ac3397ce4530"
+      ],
+      "upstreamTests": [],
+      "untested": "The fix is part of a refactoring series (\"writerfilter: move even more members to SubstreamContext\") that moved the importer's per-paragraph state into each substream's own; it added no test. What pins the fixed rendering: LibreOffice 26.2.6.3 draws the sample with the heading whole, \"1.3 Status Filter-Strömungstest\" on page 5 and chapter 2 \"Beschreibung der Räume\" on page 7, and the table of contents Word saved in the document, with its PAGEREF results, numbers and places the chapters the same way.",
+      "axes": ["pixel", "text"],
+      "samples": [
+        "ooxmlexport/data/wDateValueFormat.docx"
+      ],
+      "evidence": "A page break run followed by a comment reference and then text splits the paragraph in LibreOffice 24.2. The DOCX importer splits a paragraph at a deferred page break when the text arrives after the paragraph's first run (DomainMapper::lcl_utext, IsFirstRun), and in 24.2 that flag was one member shared by every stream: the comment's own paragraphs, read where its w:commentReference stands, clear it. The text after the reference then starts a paragraph of its own in the default paragraph style, which keeps the heading's list at level 0 because the split erases the list id and level but not the NumberingStyleName finishParagraph copied from the heading style. Since February 2024 the flag lives in each substream's state, so a comment no longer touches the paragraph it is anchored in; libreoffice-24-8 has it, libreoffice-24-2 does not. The office-references-v3 PDF and text, made by LibreOffice 24.2.7.2, show the defect: heading \"1.3\" alone at the foot of page 4, \"2 Status Filter-Strömungstest\" in 10 point body text atop page 5, and every later chapter numbered one higher (127 lines of the text projection). LibreOffice 26.2.6.3 keeps the heading whole, as Word's saved table of contents does.",
+      "reference": "docs/notes/office-issue-180.md"
     }
   ]
 }

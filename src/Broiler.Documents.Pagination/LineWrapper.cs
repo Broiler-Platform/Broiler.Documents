@@ -71,6 +71,10 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
 
         void Flush()
         {
+            // A line that breaks at a soft hyphen shows the hyphen.
+            if (current.Count > 0 && pendingSpace.Count > 0 && pendingSpace[^1].Hyphen is LayoutPiece hyphen)
+                current.Add(hyphen);
+
             rows.Add(current);
             current = [];
             currentWidth = 0;

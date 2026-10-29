@@ -97,7 +97,11 @@ Open XML WordprocessingML package parts.
   the style named by `w:pStyle` (paragraphs) or `w:rStyle` (runs), then direct
   formatting. The default style (`w:default="1"`) applies only to content that
   names no style of its own. Template documents carry nearly all of their
-  formatting here rather than inline.
+  formatting here rather than inline. What neither the defaults nor the default
+  style states is LibreOffice's (`StyleSheetTable`, tdf#108350): a document with
+  a `w:rPrDefault` falls back to 10 point Times New Roman, one without to
+  Calibri 11 (`DocxStyles.HasRunDefaults`; issue #180, whose Arial body text
+  stating no size was set in 12 points and ran a page longer).
 - Theme fonts from `word/theme/theme1.xml`: `w:rFonts` theme references such as
   `w:asciiTheme="majorHAnsi"` resolve to the theme's major/minor latin typeface.
   An explicit font name on the same element wins.
@@ -188,7 +192,10 @@ Open XML WordprocessingML package parts.
   to the writer later is checked in its right place rather than failing a list
   it was never named in.
 - External hyperlinks for `http`, `https`, and `mailto`, plus internal anchor
-  links, written as `w:hyperlink w:anchor`. Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried.
+  links, written as `w:hyperlink w:anchor`. A link is drawn as its formatting
+  makes it and gets no renderer link look (`DocumentStyleDefaults.UndecoratedLinks`):
+  a DOCX link naming no character style is plain text in Word and LibreOffice.
+  Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried.
 - Embedded pictures, read and written as a single object replacement character
   (`U+FFFC`) whose run carries the image. Both shapes Word writes are read:
   DrawingML (`w:drawing`, inline and anchored, including a picture inside
@@ -248,6 +255,12 @@ Open XML WordprocessingML package parts.
   the shared and PDF renderers place its cells beside one another. This also
   applies to text boxes inside drawing groups; affine font scaling and full
   group fidelity remain approximate.
+- A drawn shape anchored in a table cell and positioned from the column is
+  placed from the cell's text area (`DocumentShape.OffsetXFromCell`) unless its
+  anchor says `layoutInCell="0"`; a line is placed from the cell either way.
+  Only lines were placed from the cell before, which put a form's check-box
+  squares in the table's first column and their ticks in the middle one
+  (issue #180).
 - VML shapes in a `w:pict` - `v:rect`, `v:roundrect`, `v:oval` and a `v:shape`
   that holds no picture - are floating shapes, which is how Word wrote a text box
   before 2010. The box is the shape's CSS `style`: `width`, `height`, and
@@ -317,8 +330,16 @@ Open XML WordprocessingML package parts.
   line, which moved the whole letter down by the height of the picture.
 - **Fields are drawn from their saved result**, the runs between a complex
   field's `separate` and `end` (or a `w:fldSimple`'s runs); the instruction is
-  not text. One field is also known as a field: `STYLEREF` naming a character
-  style, with `\l` and the `\* MERGEFORMAT`/`CHARFORMAT` switches. Its result
+  not text. `PAGE` and `NUMPAGES` (with `\* roman`, `ROMAN`, `alphabetic`,
+  `ALPHABETIC`, `Arabic` and `MERGEFORMAT`) are known as fields: their result
+  runs carry a `PageField`, which a header or footer draws as the page's number
+  or the page count, formatted as the run holding the separator is, because
+  LibreOffice inserts the field there and never reads the result (issue #180's
+  footer saved "Seite 14 von 19" and drew it on every page). One saved without
+  a result shows the first page's number. Inside a `TOC` field's result runs
+  take no character style, as in LibreOffice, so Word's blue, underlined
+  `Hyperlink` entries are drawn in their paragraph style. `STYLEREF` naming a character
+  style, with `\l` and the `\* MERGEFORMAT`/`CHARFORMAT` switches, is known too. Its result
   runs carry an `InlineStyle.StyleReference`, and a header or footer shows on
   each page the text in that style found there: the first stretch, or the last
   with `\l`, else the nearest before the page, else the first after it. That

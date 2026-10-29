@@ -549,7 +549,10 @@ most fixes, so the pinned release draws some samples with the defect they were
 added to catch. `tests/office/extras-reference-defects.json` lists those: per
 row the bug (`tdf#N`, or `gerrit#N`, the core review that merged a fix that
 names no bug), the first release with the fix, the fixing commits, the upstream
-tests, which checks it affects (`pixel`, `text`) and the samples. While the
+tests, which checks it affects (`pixel`, `text`) and the samples. A fix that came
+with no test of its own, such as a refactoring, lists none and says so in
+`untested`, with what pins the fixed rendering instead: a later release's output
+and the producer's own saved layout. The guard takes one or the other. While the
 reference LibreOffice (the archive's, or the installed one without an archive)
 is older than `fixedIn`, those checks are skipped with the bug named, the
 sample is listed under "Known Reference Defects", and `broilerdoc` still has to
@@ -559,8 +562,9 @@ release, and `OfficeControlGuardTests` fails if the pinned LibreOffice already
 has the fix, if a row loses its evidence, or if its note doesn't name the bug.
 The first row is tdf#163894, the top two differences of
 [issue #170](../notes/office-issue-170.md); the second is gerrit#205157, the
-first difference of [issue #175](../notes/office-issue-175.md). `--reference-defects` reads another
-file.
+first difference of [issue #175](../notes/office-issue-175.md); the third is gerrit#163053, the
+first difference of [issue #180](../notes/office-issue-180.md) and the first row without an upstream
+test. `--reference-defects` reads another file.
 
 **A ranked sample names the notes that already traced it.** Under each of the
 top differences, "Earlier Notes" lists the files in `docs/notes/` that mention
