@@ -39,7 +39,11 @@
       "required": ["id", "bug", "fixedIn", "fixCommits", "upstreamTests", "axes", "samples", "evidence", "reference"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
-        "bug": { "type": "string", "pattern": "^tdf#[0-9]+$" },
+        "bug": {
+          "type": "string",
+          "pattern": "^(tdf|gerrit)#[0-9]+$",
+          "description": "The LibreOffice bug, tdf#N, or where the fix names none the LibreOffice core review that merged it, gerrit#N."
+        },
         "fixedIn": {
           "type": "string",
           "pattern": "^[0-9]+\\.[0-9]+$",

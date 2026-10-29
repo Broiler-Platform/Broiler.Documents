@@ -13,7 +13,10 @@ namespace Broiler.Documents.Office;
 /// samples, and the release that fixed it.
 /// </summary>
 /// <param name="Id">A stable name for the row.</param>
-/// <param name="Bug">The LibreOffice bug, <c>tdf#N</c>.</param>
+/// <param name="Bug">
+/// The LibreOffice bug, <c>tdf#N</c>, or <c>gerrit#N</c>, the core review that
+/// merged a fix that names no bug.
+/// </param>
 /// <param name="FixedIn">The first LibreOffice release, major.minor, whose rendering is right.</param>
 /// <param name="Axes">The checks the defect makes meaningless: <c>pixel</c>, <c>text</c> or both.</param>
 /// <param name="Reference">The repository note that shows the defect.</param>

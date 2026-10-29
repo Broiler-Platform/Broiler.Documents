@@ -320,6 +320,14 @@ public static class DocumentCommands
     /// is how a form built only of text boxes has any text in it at all.
     /// </para>
     /// <para>
+    /// A floating table is not the body's either: LibreOffice imports every
+    /// table with a position as a text frame holding it (DOCX and RTF through
+    /// DomainMapperTableHandler::endTable, ODT as written), so its cells are
+    /// left out like a text box's, and a body of one empty paragraph beside it
+    /// exports the table in its place, before any text box, as LibreOffice 24.2
+    /// does for the corpus samples built that way.
+    /// </para>
+    /// <para>
     /// A bullet is written as LibreOffice's text export writes one: not the
     /// glyph the document chose but LibreOffice's default bullet for the
     /// item's level - "•", "◦", "▪", and round again - whatever the list
@@ -337,18 +345,33 @@ public static class DocumentCommands
         var cellSeparators = new Dictionary<int, char>();
         if (joinsTableRows)
             ReadCellSeparators(document.Tables, cellSeparators);
-        if (document.ParagraphCount == 1 && document.Paragraphs[0].Length == 0 && document.Tables.Count == 0 &&
-            document.Shapes.FirstOrDefault(shape => shape.HasText) is DocumentShape only)
+        DocumentTable[] floating = [.. document.Tables.Where(table => table.IsFloating)];
+        bool InFloatingTable(int index) =>
+            floating.Any(table => index >= table.ParagraphIndex && index < table.ParagraphEnd);
+
+        int[] body = [.. Enumerable.Range(0, document.ParagraphCount).Where(index => !InFloatingTable(index))];
+        if (body.Length == 1 && document.Paragraphs[body[0]].Length == 0 && document.Tables.All(table => table.IsFloating))
         {
-            return LabelledText(RichTextDocument.FromParagraphs(only.Paragraphs).WithTables(only.Tables)
-                .WithNoteNumbering(document.NoteNumbering), joinsTableRows);
+            // LibreOffice's first frame is the floating table's where there is
+            // one, even with a text box in its cells (tdf170516_drawingBeforePlainText.docx).
+            if (floating.Length > 0)
+            {
+                body = [.. Enumerable.Range(floating[0].ParagraphIndex, floating[0].ParagraphCount)];
+            }
+            else if (document.Shapes.FirstOrDefault(shape => shape.HasText) is DocumentShape only)
+            {
+                return LabelledText(RichTextDocument.FromParagraphs(only.Paragraphs).WithTables(only.Tables)
+                    .WithNoteNumbering(document.NoteNumbering), joinsTableRows);
+            }
         }
 
-        for (int i = 0; i < document.ParagraphCount; i++)
+        bool first = true;
+        foreach (int i in body)
         {
             RichTextParagraph paragraph = document.Paragraphs[i];
-            if (i > 0)
+            if (!first)
                 builder.Append(cellSeparators.GetValueOrDefault(i, '\n'));
+            first = false;
 
             string? label = numberer.Advance(paragraph.Style);
             if (label is not null)

@@ -528,7 +528,8 @@ public sealed partial class OfficeControlGuardTests
             Assert.True(ids.Add(id), "The reference defect '" + id + "' is listed twice.");
 
             string bug = row.GetProperty("bug").GetString() ?? string.Empty;
-            Assert.Matches("^tdf#[0-9]+$", bug);
+            // A fix that names no tdf bug is cited by the core review that merged it.
+            Assert.Matches("^(tdf|gerrit)#[0-9]+$", bug);
             Assert.Matches(@"^[0-9]+\.[0-9]+$", row.GetProperty("fixedIn").GetString() ?? string.Empty);
             Assert.NotEmpty(row.GetProperty("upstreamTests").EnumerateArray());
             Assert.False(string.IsNullOrWhiteSpace(row.GetProperty("evidence").GetString()), id + " gives no evidence.");
