@@ -170,6 +170,28 @@ public sealed class TableCompareTests : IDisposable
     }
 
     [Fact]
+    public void Compare_Ignores_Table_Padding_That_No_Cell_Takes()
+    {
+        // An ODT states no table default: it writes the default on each cell
+        // and reads the table's back as 0, the cells' padding unchanged.
+        var padding = new TableCellPadding(5.4, 0, 5.4, 0);
+        DocumentTable Table(double cellPadding, TableCellPadding? cellOwn) => new(
+            0, 2,
+            [new TableRow([new TableCell(0, 1, 0, padding: cellOwn), new TableCell(1, 1, 1, padding: padding)])],
+            columnWidths: [100.0, 200.0],
+            cellPadding: cellPadding);
+        RichTextDocument Document(DocumentTable table) => RichTextDocument.FromPlainText("A\nB").WithTables([table]);
+        var options = new ComparisonOptions { IgnoreTableLayout = false };
+
+        Assert.True(DocumentComparison.Compare(Document(Table(5.4, padding)), Document(Table(0, padding)), options).Equal);
+        Assert.True(DocumentComparison.Compare(Document(Table(5.4, null)), Document(Table(0, padding)), options).Equal);
+
+        DocumentComparison taken = DocumentComparison.Compare(Document(Table(5.4, null)), Document(Table(0, null)), options);
+        Assert.Contains(taken.Differences, d => d.Detail == "padding 5.4 vs 0");
+        Assert.Contains(taken.Differences, d => d.CellCoordinate == "A1" && d.Detail == "cell padding differs");
+    }
+
+    [Fact]
     public void Compare_Suppresses_Table_Layout_When_Ignore_Table_Layout_Is_True()
     {
         var border = TableBorder.Solid(BColor.Black);

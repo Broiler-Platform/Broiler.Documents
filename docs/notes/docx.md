@@ -336,6 +336,21 @@ Open XML WordprocessingML package parts.
   may be a quarter of a space wider than its column for each of its spaces, and
   is then justified with its spaces narrowed. The writer writes
   `compatibilityMode` 15 back when the flag is set.
+- **Word 2010 and earlier.** A `compatibilityMode` of 14 or less, or none,
+  sets `DocumentStyleDefaults.TabsOverMargin`, LibreOffice's `TabOverMargin`
+  (`SettingsTable::ApplyProperties`): a tab stop the paragraph states past its
+  right indent keeps its place and alignment, and the text after it runs on
+  past the indent, to at most 55.8 cm, instead of wrapping. A stated mode of 11
+  to 14 also drops the spaces, tabs and no-break spaces that end a paragraph in
+  a table cell, as LibreOffice does on import (tdf#77417,
+  `DomainMapper_Impl::finishParagraph`), with the info diagnostic
+  `docx.table.trailingspace`. `tdf77417.docx` needed both: its tables of
+  amounts end each cell in a tab and no-break spaces, and put their stops past
+  narrow cells' right indents.
+- **Page numbering.** `w:pgNumType`'s `w:start` is `DocumentSection.PageNumberStart`
+  and is written back. An `oddPage` or `evenPage` section starts on a page
+  whose number, not place, has that parity, so a document whose only section
+  is `evenPage` and numbered from 2 opens with no blank page.
 
 ## Intentional Limits
 
@@ -622,6 +637,7 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.pagebreak.split` | Warning | A `w:br w:type="page"` had text after it in the same paragraph; it was read as a line break, because pages break between paragraphs here and not inside one. |
 | `docx.pagebreak.repeated` | Warning | A paragraph stated more than one page break; the first was kept and the blank pages the others make were dropped. |
 | `docx.pagebreak.trailing` | Warning | A page break in the last paragraph of a part was dropped; there is no following paragraph for it to start. |
+| `docx.table.trailingspace` | Info | A document of Word 2010 or earlier (`compatibilityMode` 11 to 14) ended a paragraph in a table cell with spaces, tabs or no-break spaces, and they were dropped, as Word ignores them and LibreOffice removes them. |
 | `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks. |
 | `docx.break.column` | Warning | A column break with text before and after it in the same paragraph was read as a line break; columns break between paragraphs here, not inside one. |
 | `docx.section.columns` | Info | The sections differ in their columns; each section keeps its own, and the page records those of the section holding the most paragraphs. |

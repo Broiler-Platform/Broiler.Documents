@@ -60,6 +60,9 @@ internal sealed class OfficeWorkspace
     private readonly object _gate = new();
     private int _profileSlot = -1;
 
+    /// <summary>The version of the LibreOffice this workspace converts with.</summary>
+    public string LibreOfficeVersion => _libreOffice.Version;
+
     public OfficeWorkspace(
         LibreOfficeTool libreOffice, OfficeManifest manifest, string directory, TimeSpan timeout)
     {

@@ -107,7 +107,9 @@ internal static class OdtRevisions
     /// <remarks>
     /// LibreOffice writes its layout compatibility flags here, among them
     /// <c>JustifyLinesWithShrinking</c>, Word 2013's justification
-    /// (<see cref="DocumentStyleDefaults.ShrinksJustifiedLines"/>).
+    /// (<see cref="DocumentStyleDefaults.ShrinksJustifiedLines"/>), and
+    /// <c>TabOverMargin</c>, Word 2010's tabs past the right indent
+    /// (<see cref="DocumentStyleDefaults.TabsOverMargin"/>).
     /// </remarks>
     public static bool ConfigFlag(XElement? settings, string name)
     {

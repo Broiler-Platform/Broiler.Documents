@@ -100,6 +100,8 @@ public static class DocumentCommands
                 OptionSpec.Value("out", "path", "Write to a file instead of standard output."),
                 OptionSpec.Value("sheet", "name|index", "Sheet name or 0-based index to dump."),
                 OptionSpec.Value("table", "index", "0-based index of table to dump."),
+                OptionSpec.Value("cells", "tabs|lines",
+                    "How --as text writes a table: a row per line, its cells separated by tabs, or a line per cell.", "tabs"),
                 .. DocumentOptions.Specs,
             ],
             [
@@ -109,7 +111,10 @@ public static class DocumentCommands
                 "dump sheet.csv --as grid",
             ],
             "forms\n" +
-            "  text     The plain text, paragraphs separated by newlines.\n" +
+            "  text     The plain text, paragraphs separated by newlines. A table row is one\n" +
+            "           line, its cells separated by tabs, as LibreOffice 24.8 and later\n" +
+            "           export text; --cells lines puts each cell on lines of its own, as\n" +
+            "           earlier releases do.\n" +
             "  json     Every paragraph, run, and resolved style. Lossless and stable, so two\n" +
             "           dumps of equal documents are byte-identical and diff cleanly.\n" +
             "  codes    The Formatting Codes projection: the component's own canonical,\n" +
@@ -242,7 +247,10 @@ public static class DocumentCommands
         switch (form)
         {
             case "text":
-                payload = LabelledText(documentToDump);
+                string cells = context.Line.Get("cells", "tabs")!.ToLowerInvariant();
+                if (cells is not ("tabs" or "lines"))
+                    throw new UsageException("--cells expects tabs or lines, not \"" + cells + "\".");
+                payload = LabelledText(documentToDump, joinsTableRows: cells == "tabs");
                 break;
 
             case "json":
@@ -321,18 +329,19 @@ public static class DocumentCommands
     /// word.
     /// </para>
     /// </remarks>
-    internal static string LabelledText(RichTextDocument document)
+    internal static string LabelledText(RichTextDocument document, bool joinsTableRows = true)
     {
         var numberer = new ListNumberer();
         var notes = new NoteNumberer(document.NoteNumbering);
         var builder = new StringBuilder();
         var cellSeparators = new Dictionary<int, char>();
-        ReadCellSeparators(document.Tables, cellSeparators);
+        if (joinsTableRows)
+            ReadCellSeparators(document.Tables, cellSeparators);
         if (document.ParagraphCount == 1 && document.Paragraphs[0].Length == 0 && document.Tables.Count == 0 &&
             document.Shapes.FirstOrDefault(shape => shape.HasText) is DocumentShape only)
         {
             return LabelledText(RichTextDocument.FromParagraphs(only.Paragraphs).WithTables(only.Tables)
-                .WithNoteNumbering(document.NoteNumbering));
+                .WithNoteNumbering(document.NoteNumbering), joinsTableRows);
         }
 
         for (int i = 0; i < document.ParagraphCount; i++)
@@ -368,7 +377,10 @@ public static class DocumentCommands
     }
 
     // Writer's text export separates table cells with tabs and rows with
-    // newlines. Paragraphs inside a cell keep their own newline boundaries.
+    // newlines since LibreOffice 24.8 (tdf#144576, SwASCWriter::WriteTable).
+    // Paragraphs inside a cell keep their own newline boundaries. Earlier
+    // releases write each cell's paragraphs on lines of their own, which is
+    // what leaving these out gives.
     private static void ReadCellSeparators(
         IReadOnlyList<DocumentTable> tables, Dictionary<int, char> separators)
     {

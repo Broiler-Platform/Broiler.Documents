@@ -153,7 +153,7 @@ internal static class SemanticChecks
         else
         {
             ToolRun dumped = await tool
-                .RunAsync(["dump", document.Path, "--as", "text", "--quiet"])
+                .RunAsync(["dump", document.Path, "--as", "text", .. TextProjection.DumpArguments(space.LibreOfficeVersion), "--quiet"])
                 .ConfigureAwait(false);
 
             if (dumped.ExitCode != 0)

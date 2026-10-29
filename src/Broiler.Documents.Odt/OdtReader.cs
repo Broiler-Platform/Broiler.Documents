@@ -190,6 +190,7 @@ internal static class OdtReader
         document = document.WithStyleDefaults(ReadStyleDefaults(styles) with
         {
             ShrinksJustifiedLines = OdtRevisions.ConfigFlag(settings, "JustifyLinesWithShrinking"),
+            TabsOverMargin = OdtRevisions.ConfigFlag(settings, "TabOverMargin"),
         });
         document = document.WithPageBackground(
             ReadPageBackground(master, PageLayoutProperties(master, styles), styles));

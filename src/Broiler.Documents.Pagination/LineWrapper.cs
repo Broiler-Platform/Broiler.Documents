@@ -38,9 +38,18 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
     /// is then filled to that width. A row holding a tab does not shrink
     /// (tdf#164499).
     /// </para>
+    /// <para>
+    /// With <paramref name="tabsOverMargin"/>, a stop the paragraph states
+    /// keeps its position and alignment past the band's right edge, and once a
+    /// tab has reached such a stop the rest of the row runs on rather than
+    /// wrapping (<see cref="DocumentStyleDefaults.TabsOverMargin"/>). That is
+    /// LibreOffice's <c>TabOverMargin</c>: <c>SwTabPortion::PostFormat</c>
+    /// aligns to the stop itself, and <c>SwTextFormatInfo::GetLineWidth</c>
+    /// lets the text after it run to <see cref="DocumentStyleDefaults.TabOverMarginLimitPoints"/>.
+    /// </para>
     /// </remarks>
     internal List<List<LayoutPiece>> Wrap(List<LayoutToken> tokens, Func<int, TextBand> bandFor, List<TextBand>? bands,
-        ParagraphTabStops? tabStops = null, double indent = 0, bool shrinks = false)
+        ParagraphTabStops? tabStops = null, double indent = 0, bool shrinks = false, bool tabsOverMargin = false)
     {
         var rows = new List<List<LayoutPiece>>();
         var current = new List<LayoutPiece>();
@@ -56,6 +65,10 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
         // overflowed it.
         double? shrunkWidth = null;
 
+        // Set once a tab has reached a stated stop past the band's right edge,
+        // when tabs may go over the margin: the row then runs on.
+        bool overMargin = false;
+
         void Flush()
         {
             rows.Add(current);
@@ -64,6 +77,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
             pendingSpace.Clear();
             pendingWidth = 0;
             shrunkWidth = null;
+            overMargin = false;
 
             band = bandFor(rows.Count);
             bands?.Add(band);
@@ -140,8 +154,11 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                         // Writer brings a right-aligned stop back to a narrow
                         // text frame's edge. TOC styles often retain the wider
                         // page's stop even when their paragraphs live in a frame.
-                        double position = selected.Alignment == TabAlignment.Right
+                        // Over the margin, the stop stays where it is.
+                        double position = selected.Alignment == TabAlignment.Right && !tabsOverMargin
                             ? Math.Min(selected.Position, origin + maxWidth) : selected.Position;
+                        if (tabsOverMargin && selected.Position > origin + maxWidth + 0.01)
+                            overMargin = true;
                         target = position - origin - alignment;
                         token.Pieces[0].TabLeader = selected.Leader;
                     }
@@ -151,6 +168,19 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                 pendingSpace.Add(token);
                 pendingWidth += token.Width;
                 continue;
+            }
+
+            if (overMargin)
+            {
+                if (currentWidth + pendingWidth + token.Width <= DocumentStyleDefaults.TabOverMarginLimitPoints)
+                {
+                    AddPending();
+                    current.AddRange(token.Pieces);
+                    currentWidth += token.Width;
+                    continue;
+                }
+
+                Flush();
             }
 
             if (current.Count > 0 && currentWidth + pendingWidth + token.Width > (shrunkWidth ?? maxWidth) + 0.01)
@@ -176,6 +206,17 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
                 continue;
             }
 
+            AddPending();
+            current.AddRange(token.Pieces);
+            currentWidth += token.Width;
+        }
+
+        rows.Add(current);
+        return rows;
+
+        // Moves the whitespace held back into the row, now that a word follows it.
+        void AddPending()
+        {
             foreach (LayoutToken space in pendingSpace)
             {
                 current.AddRange(space.Pieces);
@@ -184,13 +225,7 @@ internal sealed class LineWrapper(double tabStopPoints, IDocumentTextMeasurer? t
 
             pendingSpace.Clear();
             pendingWidth = 0;
-
-            current.AddRange(token.Pieces);
-            currentWidth += token.Width;
         }
-
-        rows.Add(current);
-        return rows;
     }
 
     /// <summary>

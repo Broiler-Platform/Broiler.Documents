@@ -107,7 +107,7 @@ internal sealed class DocxSections
     {
         var sections = new List<Section>();
         if (body is null)
-            return new DocxSections([new Section(DocxColumns.Single, 0, StartsPage: false, WantsParity: false, Page: null, BreakType: SectionBreakType.NextPage)]);
+            return new DocxSections([new Section(DocxColumns.Single, 0, StartsPage: false, WantsParity: false, Page: null, BreakType: SectionBreakType.NextPage, PageNumberStart: null)]);
 
         int paragraphs = 0;
         Section? previous = null;
@@ -197,7 +197,14 @@ internal sealed class DocxSections
             _ => SectionBreakType.NextPage,
         };
 
-        return new Section(columns, paragraphs, startsPage, wantsParity, page, breakType);
+        // w:pgNumType's w:start restarts the page count on the section's first
+        // page (ECMA-376 §17.6.12), which also decides whether that page is odd
+        // or even for an oddPage or evenPage section.
+        int? numberStart = DocxValueReader.TryReadInt(
+            sectPr?.Element(DocxNamespaces.Wordprocessing + "pgNumType")?.Attribute(DocxNamespaces.Wordprocessing + "start"),
+            out int start) && start >= 0 ? start : null;
+
+        return new Section(columns, paragraphs, startsPage, wantsParity, page, breakType, numberStart);
     }
 
     /// <summary>
@@ -292,10 +299,11 @@ internal sealed class DocxSections
             {
                 PageGeometry? own = SamePage(_sections[i].Page, page) ? null : _sections[i].Page;
                 RunningContent? ownRunning = hasRunning && !SameRunning(running![i], running[^1]) ? running[i] : null;
-                differ |= own is not null || ownRunning is not null || _sections[i].BreakType != SectionBreakType.NextPage;
+                differ |= own is not null || ownRunning is not null || _sections[i].BreakType != SectionBreakType.NextPage ||
+                          _sections[i].PageNumberStart is not null;
                 sections.Add(new DocumentSection(
                     start, end - start, _sections[i].Columns.Count, _sections[i].Columns.Gap, own, ownRunning,
-                    breakType: _sections[i].BreakType));
+                    breakType: _sections[i].BreakType, pageNumberStart: _sections[i].PageNumberStart));
             }
 
             start = Math.Max(start, end);
@@ -418,7 +426,8 @@ internal sealed class DocxSections
          value.Equals("0", StringComparison.Ordinal) ||
          value.Equals("off", StringComparison.OrdinalIgnoreCase));
 
-    private sealed record Section(DocxColumns Columns, int Paragraphs, bool StartsPage, bool WantsParity, PageGeometry? Page, SectionBreakType BreakType);
+    private sealed record Section(DocxColumns Columns, int Paragraphs, bool StartsPage, bool WantsParity, PageGeometry? Page, SectionBreakType BreakType,
+        int? PageNumberStart);
 }
 
 /// <summary>A section's text columns: how many, and the gap between them in points.</summary>

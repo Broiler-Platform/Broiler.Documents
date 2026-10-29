@@ -49,6 +49,15 @@ internal sealed class DocxDocumentBuilder(
     /// <summary>The codes already reported, so once means once per document.</summary>
     public HashSet<string> Reported => _diagnosticOnce;
 
+    /// <summary>
+    /// Whether a paragraph in a table cell loses the spaces, tabs and no-break
+    /// spaces it ends with, as LibreOffice reads a document of Word 2010 or
+    /// earlier (<c>compatibilityMode</c> 11 to 14). See
+    /// <see cref="TrimCellParagraphEnd"/>. A builder for a nested flow takes
+    /// it from the one it is nested in.
+    /// </summary>
+    public bool TrimsCellParagraphEnds { get; init; }
+
     /// <summary>Counts a table for the read summary.</summary>
     public void NoteTable() => _tableCount++;
 
@@ -374,6 +383,9 @@ internal sealed class DocxDocumentBuilder(
             return;
         }
 
+        if (TrimsCellParagraphEnds && InTableCell)
+            TrimCellParagraphEnd();
+
         RichTextParagraph paragraph = RichTextParagraph.Empty
             .WithParagraphStyle(_paragraphStyle)
             .WithMarkStyle(_markStyle);
@@ -389,6 +401,49 @@ internal sealed class DocxDocumentBuilder(
         _paragraphStyle = ParagraphStyle.Default;
         _markStyle = InlineStyle.Default;
     }
+
+    /// <summary>
+    /// Drops the spaces, tabs and no-break spaces at the end of the paragraph
+    /// being finished. LibreOffice does this to every paragraph in a table
+    /// cell of a document stating Word 2010's <c>compatibilityMode</c> or an
+    /// earlier one (tdf#77417, writerfilter's
+    /// <c>DomainMapper_Impl::finishParagraph</c>), because Word ignores white
+    /// space ending a cell's paragraph there. Left in, a cell ending in a tab
+    /// wraps it onto a line of its own: <c>tdf77417.docx</c>'s tables of
+    /// amounts, each ending in a tab and a few no-break spaces, ran to three
+    /// pages instead of one. The search stops at anything else, such as an
+    /// image's or a note's object replacement character.
+    /// </summary>
+    private void TrimCellParagraphEnd()
+    {
+        bool trimmed = false;
+        while (_segments.Count > 0)
+        {
+            Segment last = _segments[^1];
+            string kept = last.Text.TrimEnd(CellEndWhiteSpace);
+            if (kept.Length == last.Text.Length)
+                break;
+
+            trimmed = true;
+            if (kept.Length > 0)
+            {
+                _segments[^1] = last with { Text = kept };
+                break;
+            }
+
+            _segments.RemoveAt(_segments.Count - 1);
+        }
+
+        if (trimmed && _diagnosticOnce.Add("docx.table.trailingspace"))
+        {
+            diagnostics.Add(DocumentDiagnostic.Info(
+                "docx.table.trailingspace",
+                "Spaces, tabs or no-break spaces ending a paragraph in a table cell were dropped, " +
+                "as Word 2010 and earlier ignore them and LibreOffice removes them."));
+        }
+    }
+
+    private static readonly char[] CellEndWhiteSpace = [' ', '\t', (char)0x00A0];
 
     /// <summary>The paragraph a shape met right now would be anchored to.</summary>
     public int CurrentParagraphIndex => _paragraphs.Count;

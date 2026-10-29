@@ -631,6 +631,12 @@ Classified, not open:
   LibreOffice would make this component disagree with its own DOCX reader.
 - List labels, note citations and table cell separators follow LibreOffice's
   text export, so those projection differences no longer masquerade as lost text.
+  Which export depends on the release: 24.8 and later join a table row onto one
+  line with tabs (tdf#144576), earlier ones write each cell on lines of its
+  own. The runner reads the reference LibreOffice's version and passes
+  `dump --cells lines` for an earlier one (`TextProjection.DumpArguments`), so
+  the 24.2 references and a newer local LibreOffice are both compared with the
+  projection they wrote.
 - `lists-nested/html/roundtrip` carries `html.list`, which is the writer saying
   it did not emit list structure.
 
@@ -963,3 +969,14 @@ checks pass and none is lost. The [workflow improvements
 note](../notes/office-conformance-workflow-improvements.md) records what that
 investigation found about the workflow itself, first among it that the
 reference fonts have no Liberation faces.
+
+The [issue #173 note](../notes/office-issue-173.md) records the first ranked
+sample, `tdf77417.docx`, tables of amounts drawn on three pages against one. A
+Word 2010 document now drops white space ending a table cell's paragraph, lets
+tab stops past the right indent carry the line on (`TabOverMargin`), and an
+`evenPage` section numbered from 2 no longer opens with a blank page. Its text
+check failed for another reason, one that affected every sample with a table:
+`dump --as text` joined table rows as LibreOffice 24.8 and later do, while the
+reference is 24.2. The [workflow note for issue
+#173](../notes/office-conformance-workflow-improvements-issue-173.md) records
+that and the other findings about the workflow.

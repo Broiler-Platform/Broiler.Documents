@@ -106,4 +106,18 @@ public sealed class ReferenceDefectTests
 
         Assert.Same(difference, Assert.Single(ExtrasConformance.TopDifferences([difference])));
     }
+
+    [Theory]
+    [InlineData("LibreOffice 24.2.7.2 420(Build:2)", true)]
+    [InlineData("LibreOffice 7.6.4.1", true)]
+    [InlineData("LibreOffice 24.8.0.3", false)]
+    [InlineData("LibreOffice 26.2.6.3 a1b2c3", false)]
+    [InlineData(null, false)]
+    public void The_Text_Dump_Puts_Cells_On_Lines_Where_The_Reference_Does(string? libreOffice, bool lines)
+    {
+        // Text export joins a table row onto one line since 24.8 (tdf#144576).
+        IReadOnlyList<string> arguments = TextProjection.DumpArguments(libreOffice);
+
+        Assert.Equal(lines ? ["--cells", "lines"] : [], arguments);
+    }
 }

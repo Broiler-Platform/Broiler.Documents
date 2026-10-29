@@ -892,7 +892,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if (setup.Continuous || s is null)
                 return;
 
-            bool isOdd = (pages.Count + 1) % 2 != 0;
+            // Odd and even are the page's number, not its place: a section whose
+            // count restarts at 2 starts on an even page with no blank one
+            // before it, in Word and LibreOffice alike. The section has already
+            // taken the page over here, so a restart it states is counted.
+            int number = _numbering.Number + (pages.Count + 1) - _numbering.Page;
+            bool isOdd = number % 2 != 0;
             bool needsBlank = (s.BreakType == SectionBreakType.OddPage && !isOdd) ||
                               (s.BreakType == SectionBreakType.EvenPage && isOdd);
 
@@ -1929,13 +1934,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // Text that runs past the cell is cut at its edge, as Writer
                 // cuts a text portion; the innermost cell's edge wins for a
                 // nested table. A picture is a frame of its own there, drawn
-                // whole, so a line holding one is left as it is.
+                // whole, so a line holding one is left as it is. So is a line
+                // a tab carried over the margin (TabsOverMargin): Writer paints
+                // such a line to the page's edge (SwTextPainter::DrawTextLine).
                 double cellRight = cellLeft + cellWidth;
                 foreach (LayoutLine line in lines)
                 {
                     line.Top += padding.Top;
                     if (line.Pieces.Any(piece => piece.X + piece.Width > cellRight + 0.01) &&
-                        !line.Pieces.Any(piece => piece.IsImage))
+                        !line.Pieces.Any(piece => piece.IsImage) &&
+                        !(_styleDefaults.TabsOverMargin && line.Pieces.Any(piece => piece.IsTab)))
                         line.ClipRight = Math.Min(line.ClipRight ?? cellRight, cellRight);
                 }
                 foreach (LayoutCell inner in nested)
@@ -3311,12 +3319,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     lineY += estimate;
                     return IndentedBand(row, index);
                 },
-                bands, style.TabStops, indent + hang, shrinks);
+                bands, style.TabStops, indent + hang, shrinks, _styleDefaults.TabsOverMargin);
         }
         else
         {
             rows = _lineWrapper.Wrap(tokens, index => IndentedBand(new TextBand(0, textWidth), index), bands,
-                style.TabStops, indent + hang, shrinks);
+                style.TabStops, indent + hang, shrinks, _styleDefaults.TabsOverMargin);
         }
 
         var lines = new List<LayoutLine>(rows.Count);

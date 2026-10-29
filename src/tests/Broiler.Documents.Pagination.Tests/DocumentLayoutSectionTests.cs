@@ -502,6 +502,35 @@ public sealed class DocumentLayoutSectionTests
     }
 
     [Fact]
+    public void An_Even_Page_Section_Numbered_From_Two_Starts_On_The_First_Page()
+    {
+        // tdf77417.docx: an evenPage section whose w:pgNumType starts at 2. Odd
+        // and even are the page's number, so its first page is already even.
+        RichTextDocument document = RichTextDocument.FromParagraphs([Line("evenStart")])
+            .WithSections([new DocumentSection(0, 1, 1, 0, breakType: SectionBreakType.EvenPage, pageNumberStart: 2)]);
+
+        LayoutPage page = Assert.Single(Layout(document).Pages);
+
+        Assert.Equal(0, page.Lines[0].ParagraphIndex);
+    }
+
+    [Fact]
+    public void An_Odd_Page_Section_Restarting_At_One_Needs_No_Blank_Page()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs([Line("first"), Line("second")])
+            .WithSections(
+            [
+                new DocumentSection(0, 1, 1, 0, breakType: SectionBreakType.NextPage),
+                new DocumentSection(1, 1, 1, 0, breakType: SectionBreakType.OddPage, pageNumberStart: 1),
+            ]);
+
+        IReadOnlyList<LayoutPage> pages = Layout(document).Pages;
+
+        Assert.Equal(2, pages.Count);
+        Assert.Equal(1, pages[1].Lines[0].ParagraphIndex);
+    }
+
+    [Fact]
     public void A_Sections_Indents_Apply_On_A_Page_It_Follows_On()
     {
         // Unlike its page margins, which a section that follows on a page leaves

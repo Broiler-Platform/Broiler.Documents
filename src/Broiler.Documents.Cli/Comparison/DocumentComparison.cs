@@ -341,7 +341,13 @@ public sealed class DocumentComparison
                         tableIndex: i);
                 }
 
-                if (!Near(tableL.CellPadding, tableR.CellPadding))
+                // The table's padding is only the default of a cell that states
+                // none, and the cell comparison below weighs what each cell
+                // takes. It is a difference of its own only where both tables
+                // have a cell that takes it: ODF has no table default, so an ODT
+                // writes it on each cell and reads the table's back as 0.
+                if (!Near(tableL.CellPadding, tableR.CellPadding) &&
+                    TakesDefaultPadding(tableL) && TakesDefaultPadding(tableR))
                 {
                     Add("table.cell-layout", tableL.ParagraphIndex, tableR.ParagraphIndex,
                         $"padding {Number(tableL.CellPadding)} vs {Number(tableR.CellPadding)}",
@@ -874,6 +880,10 @@ public sealed class DocumentComparison
     }
 
     private static bool Near(double left, double right) => Math.Abs(left - right) < 0.0005;
+
+    /// <summary>Whether a cell of <paramref name="table"/> states no padding of its own, so takes the table's.</summary>
+    private static bool TakesDefaultPadding(DocumentTable table) =>
+        table.Rows.Any(row => row.Cells.Any(cell => cell.Padding is null));
 
     private static bool NullableNear(float? left, float? right)
     {

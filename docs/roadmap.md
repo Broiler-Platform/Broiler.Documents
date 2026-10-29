@@ -315,10 +315,10 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   states, one of them a whole page, and this reader keeps nothing of them.
 - **Page fields, the rest.** ODT's `text:page-number` and `text:page-count` are
   `InlineStyle.PageField` runs that a header or footer draws per page, and ODT's
-  `style:page-number` restarts the count (`DocumentSection.PageNumberStart`). Not
-  yet: DOCX's `PAGE`, `NUMPAGES` and `SECTIONPAGES` fields and `w:pgNumType`
-  (`w:start`, `w:fmt`) and RTF's `\chpgn` and `PAGE` field are read as their
-  saved text; a field takes no number format from its page style; a page field in
+  `style:page-number` restarts the count (`DocumentSection.PageNumberStart`), as
+  DOCX's `w:pgNumType` `w:start` does. Not yet: DOCX's `PAGE`, `NUMPAGES` and
+  `SECTIONPAGES` fields and `w:pgNumType`'s `w:fmt` and RTF's `\chpgn` and
+  `PAGE` field are read as their saved text; a field takes no number format from its page style; a page field in
   body text or in a header's text box keeps its saved value; the ODT writer writes
   one master page, so a restart is not written (`odt.section.page-number`).
 - **Style references, the rest.** DOCX `STYLEREF` naming a character style is
@@ -331,6 +331,18 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   `text:chapter`, and RTF's `STYLEREF`. A header band is sized from the
   field's saved text, so a page whose result needs another line overlaps the
   body rather than pushing it down. The writers write the field's text.
+- **Word compatibility layout, the rest.** DOCX `compatibilityMode` 14 or less
+  gives `TabsOverMargin` and drops white space ending a cell's paragraph
+  (issue #173). Not yet: Word 2013's `TabOverSpacing`, which LibreOffice sets
+  for every DOCX (a left stop past the right indent is honoured up to the
+  paragraph's frame); RTF, which LibreOffice's writerfilter reads with
+  `TabOverMargin` too, as no RTF states a compatibility mode; and the line
+  breaking that lets `tdf77417.docx`'s "$ 000,000" overrun its right stop by
+  2.4 pt in LibreOffice where `broilerdoc` wraps it.
+- **Superscript and subscript.** `w:vertAlign`, RTF's `\super` and `\sub`, ODF's
+  `style:text-position` and HTML's `sup` and `sub` are not modelled for ordinary
+  text; only a note's citation is raised and made smaller. `tdf77417.docx`'s
+  footnote marks "(a)" and "(b)" are drawn at full size on the baseline.
 - **Conditional visibility in ODT.** `text:section` with `text:display="condition"`,
   `text:hidden-paragraph` and `text:conditional-text` are not evaluated: a
   section shows and a paragraph keeps its line whatever the condition says.

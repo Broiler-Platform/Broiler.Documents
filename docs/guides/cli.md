@@ -232,8 +232,11 @@ gets none; `--as outline` is where the list kind and depth are shown, and
 and the note's own text is not part of the body's. **Text a tracked change
 deleted is written** with the rest, as LibreOffice's export writes it whether or
 not the document shows its changes; `--as json` says which change marks each run.
-**Table cells are separated by tabs and rows by newlines**. Paragraphs inside a
-cell keep their newline boundaries; nested tables preserve their own separators.
+**Table cells are separated by tabs and rows by newlines**, as LibreOffice 24.8
+and later export text (tdf#144576). Paragraphs inside a cell keep their newline
+boundaries; nested tables preserve their own separators. `--cells lines` writes
+each cell's paragraphs on lines of their own instead, as earlier releases do;
+the conformance runner asks for it when its reference LibreOffice is one of them.
 Image objects contribute no text, as in LibreOffice's export; the pixel checks
 remain responsible for detecting missing images. **Text in a shape is not the
 body's either**: a text box, a frame or a form label contributes nothing, as
@@ -283,13 +286,6 @@ broilerdoc extract report.pdf --to html --out tables.html
 - **Headers & records (`--headers`)**: treats the first row as column headers, emitting JSON records (`[{"Item": "Apple", ...}]`).
 - **Merged cell handling (`--fill-merged`)**: repeats root cell values across covered continuation slots.
 - **Customization (`--delimiter`, `--empty`)**: configure CSV delimiter and empty cell representation.
-
-**A table projects as one line per cell**, in row order, because that is how the
-model holds a table once it is flattened; a projection that joined a row onto one
-line would be inventing a column separator the document never stated. That is not
-a loss and not the only defensible answer — newer LibreOffice text exports join a
-row onto one line — so a harness comparing the two projections has to expect it
-and say so rather than record it as a finding.
 
 ### Turning diagnostics into a build failure
 
