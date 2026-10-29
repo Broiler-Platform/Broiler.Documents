@@ -155,7 +155,10 @@ layout are covered; this does not claim identical exported clipping.
   (`RichTextDocument.ShowsRevisions`). The writer lists a region for each
   change and marks the body the same way, a deleted paragraph break joining its
   two paragraphs in the body as ODF holds them, and writes `settings.xml` when
-  the changes are hidden. ODF has no move: each side of one is written as the
+  the changes are hidden. `JustifyLinesWithShrinking` in the configuration
+  settings, which LibreOffice keeps for a document from Word 2013 or later, is
+  read and written as `DocumentStyleDefaults.ShrinksJustifiedLines`: justified
+  lines may shrink their spaces to take more text, as the DOCX note describes. ODF has no move: each side of one is written as the
   insertion or deletion it is. A header or footer is written into `styles.xml`,
   where no region the body lists can be named, so its changes are written
   accepted.

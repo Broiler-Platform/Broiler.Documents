@@ -239,7 +239,9 @@ remain responsible for detecting missing images. **Text in a shape is not the
 body's either**: a text box, a frame or a form label contributes nothing, as
 LibreOffice's export walks the body alone. The one exception is LibreOffice's
 too — a document whose whole body is one empty paragraph exports its first text
-box instead. A page field is written with the value the document saved.
+box instead. A page field or a style reference is written with the value the
+document saved; `--as json` names the field (`pageField`, `styleReference`) and
+a run's character style (`characterStyle`).
 
 `dump --as grid` (or `--as table`) emits a tabular ASCII/Unicode box-drawing grid representation of all tables and spreadsheet sheets in the document with row and column headers.
 

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broiler.dev/schemas/documents-extras-reference-defects-1.json",
+  "title": "Broiler.Documents known LibreOffice reference defects for the sw/qa/extras ranking",
+  "description": "Samples whose reference, made by the pinned LibreOffice, is a LibreOffice defect a later release fixed. While the reference is older than the fix, the extras runner does not compare the checks a row names for its samples; broilerdoc still has to handle each one with a documented exit code. A row is a claim about LibreOffice, so it carries the bug, the fix and the evidence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "updated", "policy", "defects"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "updated": { "type": "string", "format": "date" },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Why the file exists, in prose, next to the rows it governs.",
+      "required": ["records", "rule", "why", "scope", "adding"],
+      "properties": {
+        "records": { "type": "string", "minLength": 1 },
+        "rule": { "type": "string", "minLength": 1 },
+        "why": { "type": "string", "minLength": 1 },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Where the line is: a traced, fixed LibreOffice defect is listed; a difference merely suspected to be LibreOffice's stays ranked."
+        },
+        "adding": { "type": "string", "minLength": 1 }
+      }
+    },
+    "defects": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/defect" }
+    }
+  },
+  "$defs": {
+    "defect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "bug", "fixedIn", "fixCommits", "upstreamTests", "axes", "samples", "evidence", "reference"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "bug": { "type": "string", "pattern": "^tdf#[0-9]+$" },
+        "fixedIn": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$",
+          "description": "The first LibreOffice release, major.minor, that draws the samples right. The row applies while the reference LibreOffice is older."
+        },
+        "fixCommits": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+        },
+        "upstreamTests": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "axes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["pixel", "text"] }
+        },
+        "samples": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Paths relative to sw/qa/extras.",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "evidence": { "type": "string", "minLength": 1 },
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A repository document that shows the defect and names the bug."
+        }
+      }
+    }
+  }
+}

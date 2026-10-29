@@ -70,6 +70,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private (int Page, int Number) _numbering = (1, 1);
     private readonly HashSet<DocumentSection> _restartedNumbering = [];
     private int? _pageCount;
+
+    // Where each page's body text starts, as the pass laying it out found it,
+    // and as a first pass found it, for a header that shows text found on its
+    // page; with the paragraphs those positions are in.
+    private readonly List<(int Paragraph, int Offset)?> _pageStartsFound = [];
+    private IReadOnlyList<(int Paragraph, int Offset)?>? _pageStarts;
+    private IReadOnlyList<RichTextParagraph> _bodyParagraphs = [];
     private double? _headerDistance;
     private double? _footerDistance;
     private (bool Header, bool Footer) _fixedBands;
@@ -128,9 +135,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     /// <summary>Lays the document out onto pages of the given size.</summary>
     /// <remarks>
-    /// A header or footer that shows the page count is drawn from a second
-    /// pass, which knows the count the first one found. Only such a document
-    /// pays for it.
+    /// A header or footer that shows the page count, or text found on its page
+    /// (<see cref="StyleReferenceField"/>), is drawn from a second pass, which
+    /// knows the count and where each page's text starts from the first. Both
+    /// passes size the bands from the text the document saved for those
+    /// fields, so the body is laid out the same both times. Only such a
+    /// document pays for it.
     /// </remarks>
     public LayoutResult Layout(RichTextDocument document, DocumentPageBox setup)
     {
@@ -138,10 +148,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         ArgumentNullException.ThrowIfNull(setup);
 
         _pageCount = null;
+        _pageStarts = null;
         LayoutResult result = LayoutOnce(document, setup);
-        if (!setup.Continuous && NeedsPageCount(document))
+        if (!setup.Continuous && NeedsSecondPass(document))
         {
             _pageCount = result.Pages.Count;
+            _pageStarts = [.. _pageStartsFound];
             result = LayoutOnce(document, setup);
         }
 
@@ -149,17 +161,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>
-    /// True when a header or footer of <paramref name="document"/> needs the
-    /// page count: to show it, or to know whether the page an adjusted page
-    /// number points at is there.
+    /// True when a header or footer of <paramref name="document"/> needs what
+    /// only a first pass finds: the page count, to show it or to know whether
+    /// the page an adjusted page number points at is there, or where each
+    /// page's text starts, to show text found on the page.
     /// </summary>
-    private static bool NeedsPageCount(RichTextDocument document)
+    private static bool NeedsSecondPass(RichTextDocument document)
     {
         static bool Shows(RunningContent running) =>
             Enum.GetValues<PageSelection>().Any(selection =>
                 running.Header(selection).Concat(running.Footer(selection))
                     .Any(paragraph => paragraph.Runs.Any(run =>
-                        run.Style.PageField is PageField field && (field.Kind == PageFieldKind.PageCount || field.Adjust != 0))));
+                        run.Style.StyleReference is not null ||
+                        (run.Style.PageField is PageField field && (field.Kind == PageFieldKind.PageCount || field.Adjust != 0)))));
 
         return Shows(document.RunningContent) ||
             document.Sections.Any(section =>
@@ -176,6 +190,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // deletions gone; one that shows them draws each in its author's colour.
         document = RevisionDisplay.HideDeletions(document);
         _revisions = RevisionDisplay.For(document);
+        _bodyParagraphs = document.Paragraphs;
+        _pageStartsFound.Clear();
 
         _notes.Clear();
         // Continuous mode collapses the document to one tall page, so there are no
@@ -1604,6 +1620,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         List<LayoutCell>? inlineCells = null)
     {
         PageSelection selection = SelectionFor(number);
+        NotePageStart(number, lines);
 
         // The frame the page's text was laid out in. A page made after the text
         // ran out, to stand a page-anchored shape on, has none of its own and
@@ -3026,7 +3043,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         for (int i = 0; i < paragraphs.Count; i++)
         {
             RichTextParagraph paragraph = paragraphs[i];
-            if (!paragraph.Runs.Any(run => run.Style.PageField is not null))
+            if (!paragraph.Runs.Any(run => run.Style.PageField is not null || run.Style.StyleReference is not null))
                 continue;
 
             // From the last run back, so each replacement leaves the offsets of
@@ -3036,10 +3053,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 StyleRun run = paragraph.Runs[r];
                 int start = end - run.Length;
-                string? text = run.Style.PageField is PageField field && field.Kind == PageFieldKind.PageNumber && field.Adjust != 0 &&
-                    (page + field.Adjust < 1 || (_pageCount is int count && page + field.Adjust > count))
-                    ? ""
-                    : run.Style.PageField?.Text(pageNumber, _pageCount);
+                string? text = run.Style.StyleReference is StyleReferenceField reference
+                    ? StyleReferenceText(reference, page)
+                    : run.Style.PageField is PageField field && field.Kind == PageFieldKind.PageNumber && field.Adjust != 0 &&
+                        (page + field.Adjust < 1 || (_pageCount is int count && page + field.Adjust > count))
+                        ? ""
+                        : run.Style.PageField?.Text(pageNumber, _pageCount);
                 if (text is not null && text != paragraph.Text.Substring(start, run.Length))
                 {
                     paragraph = paragraph.RemoveRange(start, run.Length);
@@ -3055,6 +3074,62 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
 
         return filled ?? paragraphs;
+    }
+
+    /// <summary>
+    /// Notes where page <paramref name="page"/>'s body text starts: the
+    /// earliest of its <paramref name="lines"/> in the text, or nothing for a
+    /// page with none. Lines in table cells count; a header's, a note's and a
+    /// shape's carry no paragraph and do not.
+    /// </summary>
+    private void NotePageStart(int page, List<LayoutLine> lines)
+    {
+        (int Paragraph, int Offset)? start = null;
+        foreach (LayoutLine line in lines)
+        {
+            if (line.ParagraphIndex < 0)
+                continue;
+
+            int offset = line.Pieces.FirstOrDefault(piece => piece.SourceOffset >= 0)?.SourceOffset ?? 0;
+            if (start is not { } earliest || line.ParagraphIndex < earliest.Paragraph ||
+                (line.ParagraphIndex == earliest.Paragraph && offset < earliest.Offset))
+            {
+                start = (line.ParagraphIndex, offset);
+            }
+        }
+
+        while (_pageStartsFound.Count < page)
+            _pageStartsFound.Add(null);
+        _pageStartsFound[page - 1] = start;
+    }
+
+    /// <summary>
+    /// A style reference's text on page <paramref name="page"/>, whose body runs
+    /// from where it starts to where the next page with text starts; null on a
+    /// first pass, which keeps the text the document saved. A page with no text
+    /// of its own searches from the start of the document, as LibreOffice's
+    /// search from the header itself does.
+    /// </summary>
+    private string? StyleReferenceText(StyleReferenceField reference, int page)
+    {
+        if (_pageStarts is null)
+            return null;
+
+        (int Paragraph, int Offset)? start = page - 1 < _pageStarts.Count ? _pageStarts[page - 1] : null;
+        if (start is not { } from)
+            return reference.Text(_bodyParagraphs, (0, 0), (0, 0));
+
+        (int Paragraph, int Offset) to = (_bodyParagraphs.Count, 0);
+        for (int next = page; next < _pageStarts.Count; next++)
+        {
+            if (_pageStarts[next] is { } found)
+            {
+                to = found;
+                break;
+            }
+        }
+
+        return reference.Text(_bodyParagraphs, from, to);
     }
 
     /// <summary>
@@ -3212,6 +3287,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
 
         List<LayoutToken> tokens = Tokenize(paragraph);
+        bool shrinks = _styleDefaults.ShrinksJustifiedLines && style.Alignment == TextAlignment.Justify;
         var bands = new List<TextBand>();
         var skips = new List<double>();
         List<List<LayoutPiece>> rows;
@@ -3235,12 +3311,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     lineY += estimate;
                     return IndentedBand(row, index);
                 },
-                bands, style.TabStops, indent + hang);
+                bands, style.TabStops, indent + hang, shrinks);
         }
         else
         {
             rows = _lineWrapper.Wrap(tokens, index => IndentedBand(new TextBand(0, textWidth), index), bands,
-                style.TabStops, indent + hang);
+                style.TabStops, indent + hang, shrinks);
         }
 
         var lines = new List<LayoutLine>(rows.Count);
@@ -3374,12 +3450,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // moving the line. The last line of a paragraph keeps its slack: it ends
         // where the text ended, and stretching it would pull a short closing line
         // across the whole column. A line with nothing to stretch stays flush.
+        // A line that took more text by shrinking its spaces is narrowed to the
+        // column the same way, the last line too, which would otherwise overhang.
         double wordSpacing = 0;
-        if (style.Alignment == TextAlignment.Justify && !isLastLine)
+        if (style.Alignment == TextAlignment.Justify)
         {
             double slack = textWidth - used;
             int spaces = CountSpaces(pieces, first);
-            if (slack > 0 && spaces > 0)
+            bool shrunk = slack < 0 && _styleDefaults.ShrinksJustifiedLines;
+            if (spaces > 0 && ((slack > 0 && !isLastLine) || shrunk))
                 wordSpacing = slack / spaces;
         }
 
@@ -3430,6 +3509,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             string text = paragraph.Text.Substring(offset, length);
+            int runStart = offset;
             offset += run.Length;
             if (run.Style.Hidden)
                 continue;
@@ -3440,12 +3520,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             {
                 word ??= LayoutToken.Empty();
                 for (int i = 0; i < length; i++)
-                    word.Add(MakeCitationPiece(note, run.Style));
+                {
+                    LayoutPiece citation = MakeCitationPiece(note, run.Style);
+                    citation.SourceOffset = runStart + i;
+                    word.Add(citation);
+                }
                 continue;
             }
 
+            // Each piece notes where its text starts in the paragraph's.
+            int at = runStart;
             foreach ((string fragment, bool whitespace, bool image, bool tab, bool forcedBreak) in Fragments(text, run.Style))
             {
+                int fragmentStart = at;
+                at += forcedBreak || image || tab ? 1 : fragment.Length;
                 if (forcedBreak)
                 {
                     if (word is not null)
@@ -3461,6 +3549,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 if (image)
                 {
                     LayoutPiece piece = MakeImagePiece(run.Style);
+                    piece.SourceOffset = fragmentStart;
                     word ??= LayoutToken.Empty();
                     word.Add(piece);
                     tokens.Add(word);
@@ -3476,7 +3565,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         word = null;
                     }
 
-                    tokens.Add(LayoutToken.Single(MakeTabPiece(run.Style), isWhitespace: true));
+                    LayoutPiece tabPiece = MakeTabPiece(run.Style);
+                    tabPiece.SourceOffset = fragmentStart;
+                    tokens.Add(LayoutToken.Single(tabPiece, isWhitespace: true));
                     continue;
                 }
 
@@ -3492,6 +3583,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     foreach (LayoutPiece piece in MakePieces(fragment, run.Style))
                     {
                         piece.Width += SpaceRunExtraWidth(piece.Text, run.Style, piece.Font.Size);
+                        piece.SourceOffset = fragmentStart;
                         space.Add(piece);
                     }
 
@@ -3500,8 +3592,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 }
 
                 word ??= LayoutToken.Empty();
+                int pieceStart = fragmentStart;
                 foreach (LayoutPiece piece in MakePieces(fragment, run.Style))
+                {
+                    piece.SourceOffset = pieceStart;
+                    pieceStart += piece.Text.Length;
                     word.Add(piece);
+                }
             }
         }
 

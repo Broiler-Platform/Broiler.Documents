@@ -93,6 +93,14 @@ public sealed class LayoutPiece(string text, BFontStyle font, BColor color, BCol
 
     /// <summary>True when the piece's underline or strikethrough is drawn twice, as moved text's is.</summary>
     public bool Doubled { get; internal set; }
+
+    /// <summary>
+    /// Where the piece's text starts in its paragraph's, or -1 for a piece the
+    /// paragraph's text does not hold, such as a list marker. It is what tells
+    /// where on a page a page's text starts, for a header that shows text found
+    /// on its page (<see cref="StyleReferenceField"/>).
+    /// </summary>
+    internal int SourceOffset { get; set; } = -1;
 }
 
 /// <summary>One laid-out line, positioned on its page.</summary>

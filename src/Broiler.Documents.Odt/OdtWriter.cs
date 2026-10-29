@@ -67,10 +67,11 @@ public static class OdtWriter
             AddXmlEntry(archive, OdtNamespaces.StylesPart, BuildStyles(
                 document.RunningContent, PageOf(document), document.PageBackground, document.NoteNumbering, context));
             AddXmlEntry(archive, OdtNamespaces.MetaPart, BuildMeta(metadata));
-            if (!document.ShowsRevisions)
+            if (!document.ShowsRevisions || document.StyleDefaults.ShrinksJustifiedLines)
             {
                 context.HasSettings = true;
-                AddXmlEntry(archive, OdtNamespaces.SettingsPart, BuildSettings());
+                AddXmlEntry(archive, OdtNamespaces.SettingsPart,
+                    BuildSettings(!document.ShowsRevisions, document.StyleDefaults.ShrinksJustifiedLines));
             }
 
             foreach (OdtPicturePart picture in context.Pictures)
@@ -370,28 +371,38 @@ public static class OdtWriter
     private const char DeletedBreak = RevisionDisplay.DeletedBreak;
 
     /// <summary>
-    /// The settings part, written only to say the document's changes are not
-    /// shown, where LibreOffice keeps it: <c>ShowRedlineChanges</c> in the view
-    /// settings.
+    /// The settings part, written only to say what LibreOffice keeps there:
+    /// that the document's changes are not shown (<c>ShowRedlineChanges</c> in
+    /// the view settings) or that its justified lines shrink their spaces
+    /// (<c>JustifyLinesWithShrinking</c> in the configuration settings).
     /// </summary>
-    private static XDocument BuildSettings() =>
-        new(
+    private static XDocument BuildSettings(bool hideRevisions, bool shrinksJustifiedLines)
+    {
+        static XElement Flag(string set, string name, bool value) =>
+            new(
+                OdtNamespaces.Config + "config-item-set",
+                new XAttribute(OdtNamespaces.Config + "name", set),
+                new XElement(
+                    OdtNamespaces.Config + "config-item",
+                    new XAttribute(OdtNamespaces.Config + "name", name),
+                    new XAttribute(OdtNamespaces.Config + "type", "boolean"),
+                    value ? "true" : "false"));
+
+        var settings = new XElement(OdtNamespaces.Office + "settings");
+        if (hideRevisions)
+            settings.Add(Flag("ooo:view-settings", "ShowRedlineChanges", false));
+        if (shrinksJustifiedLines)
+            settings.Add(Flag("ooo:configuration-settings", "JustifyLinesWithShrinking", true));
+
+        return new(
             new XDeclaration("1.0", "UTF-8", null),
             new XElement(
                 OdtNamespaces.Office + "document-settings",
                 new XAttribute(XNamespace.Xmlns + "office", OdtNamespaces.Office.NamespaceName),
                 new XAttribute(XNamespace.Xmlns + "config", OdtNamespaces.Config.NamespaceName),
                 new XAttribute(OdtNamespaces.Office + "version", OdtNamespaces.WrittenVersion),
-                new XElement(
-                    OdtNamespaces.Office + "settings",
-                    new XElement(
-                        OdtNamespaces.Config + "config-item-set",
-                        new XAttribute(OdtNamespaces.Config + "name", "ooo:view-settings"),
-                        new XElement(
-                            OdtNamespaces.Config + "config-item",
-                            new XAttribute(OdtNamespaces.Config + "name", "ShowRedlineChanges"),
-                            new XAttribute(OdtNamespaces.Config + "type", "boolean"),
-                            "false")))));
+                settings));
+    }
 
     /// <summary>
     /// The sections written as <c>text:section</c>, in order: each of the

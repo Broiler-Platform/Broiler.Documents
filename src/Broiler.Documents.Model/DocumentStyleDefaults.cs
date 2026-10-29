@@ -73,9 +73,35 @@ public sealed record DocumentStyleDefaults
     /// </remarks>
     public bool WidensSpaceRuns { get; init; }
 
+    /// <summary>
+    /// How much wider than its column a justified line may be set, for each
+    /// space it holds, as a fraction of a space: a line that would break may
+    /// take more text where its spaces can shrink to make room.
+    /// </summary>
+    /// <remarks>
+    /// A quarter, LibreOffice's allowance (<c>SwTextGuess::Guess</c> in
+    /// <c>guess.cxx</c>, the same in 24.2 and since), counted over the spaces
+    /// before the break and the one before the next word.
+    /// </remarks>
+    public const double JustifiedSpaceShrink = 0.25;
+
+    /// <summary>
+    /// Whether justified lines are broken as Word 2013 and later break them:
+    /// a line that would break may take more text by shrinking its spaces
+    /// (<see cref="JustifiedSpaceShrink"/>), and is then justified with them
+    /// narrower than the font makes them.
+    /// </summary>
+    /// <remarks>
+    /// A DOCX says it with <c>compatibilityMode</c> 15 or later, which
+    /// LibreOffice reads as its <c>JustifyLinesWithShrinking</c> setting
+    /// (tdf#119908, tdf#130088). Without it a justified line breaks before the
+    /// word Word fits, and a long justified document runs to more pages.
+    /// </remarks>
+    public bool ShrinksJustifiedLines { get; init; }
+
     /// <summary>True when this states nothing a consumer would not have assumed.</summary>
     public bool IsDefault =>
-        FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns;
+        FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -28,6 +29,7 @@ public sealed partial class OfficeControlGuardTests
     private const string BaselineFile = "tests/office/office-baseline.json";
     private const string Tools = "tests/office/tools/manifest.json";
     private const string CrashRegressionsFile = "tests/office/extras-crash-regressions.json";
+    private const string ReferenceDefectsFile = "tests/office/extras-reference-defects.json";
     private const string Runner = "src/tests/Broiler.Documents.Office";
 
     private static readonly string[] DocumentExtensions =
@@ -48,11 +50,12 @@ public sealed partial class OfficeControlGuardTests
         // fails in milliseconds with the file named.
         foreach (string relative in new[]
                  {
-                     Corpus, BaselineFile, Tools, CrashRegressionsFile,
+                     Corpus, BaselineFile, Tools, CrashRegressionsFile, ReferenceDefectsFile,
                      "tests/office/office-corpus.schema.json",
                      "tests/office/office-baseline.schema.json",
                      "tests/office/tools/manifest.schema.json",
                      "tests/office/extras-crash-regressions.schema.json",
+                     "tests/office/extras-reference-defects.schema.json",
                  })
         {
             string path = Path.Combine(PdfGuardRoots.Component, relative);
@@ -506,6 +509,89 @@ public sealed partial class OfficeControlGuardTests
         // check on a file nothing uses.
         string program = File.ReadAllText(Path.Combine(PdfGuardRoots.Component, Runner, "Program.cs"));
         Assert.Contains("\"extras-crash-regressions.json\"", program, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Every_Reference_Defect_Carries_Its_Fix_And_Evidence()
+    {
+        // A row keeps checks from being compared, and nothing in a run says it
+        // was wrong to. So the claim that LibreOffice is wrong has to come with
+        // the bug, the fix, the test that pins the fixed rendering and a note a
+        // reader can follow, the way an approved tool names who approved it.
+        using JsonDocument file = Load(ReferenceDefectsFile);
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var samples = new HashSet<string>(StringComparer.Ordinal);
+        foreach (JsonElement row in file.RootElement.GetProperty("defects").EnumerateArray())
+        {
+            string id = row.GetProperty("id").GetString() ?? string.Empty;
+            Assert.Matches("^[a-z][a-z0-9-]*$", id);
+            Assert.True(ids.Add(id), "The reference defect '" + id + "' is listed twice.");
+
+            string bug = row.GetProperty("bug").GetString() ?? string.Empty;
+            Assert.Matches("^tdf#[0-9]+$", bug);
+            Assert.Matches(@"^[0-9]+\.[0-9]+$", row.GetProperty("fixedIn").GetString() ?? string.Empty);
+            Assert.NotEmpty(row.GetProperty("upstreamTests").EnumerateArray());
+            Assert.False(string.IsNullOrWhiteSpace(row.GetProperty("evidence").GetString()), id + " gives no evidence.");
+
+            JsonElement[] commits = [.. row.GetProperty("fixCommits").EnumerateArray()];
+            Assert.NotEmpty(commits);
+            Assert.All(commits, commit => Assert.Matches("^[0-9a-f]{40}$", commit.GetString() ?? string.Empty));
+
+            JsonElement[] axes = [.. row.GetProperty("axes").EnumerateArray()];
+            Assert.NotEmpty(axes);
+            Assert.All(axes, axis => Assert.Contains(axis.GetString(), new[] { "pixel", "text" }));
+
+            JsonElement[] listed = [.. row.GetProperty("samples").EnumerateArray()];
+            Assert.NotEmpty(listed);
+            foreach (JsonElement sample in listed)
+            {
+                string name = sample.GetString() ?? string.Empty;
+                Assert.True(samples.Add(name), name + " is listed under more than one reference defect.");
+                Assert.Contains(Path.GetExtension(name).ToLowerInvariant(), DocumentExtensions);
+            }
+
+            string reference = row.GetProperty("reference").GetString() ?? string.Empty;
+            string path = Path.Combine(PdfGuardRoots.Component, reference);
+            Assert.True(File.Exists(path), id + " cites " + reference + ", which does not exist.");
+            Assert.Contains(bug, File.ReadAllText(path), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Every_Reference_Defect_Is_Fixed_After_The_Pinned_LibreOffice()
+    {
+        // A row whose fix the pinned LibreOffice already has would hide checks
+        // for nothing, and the runner would ignore it anyway. Comparing with the
+        // baseline's stamp makes moving the pin a moment to prune the list.
+        using JsonDocument baseline = Load(BaselineFile);
+        string? pinned = baseline.RootElement.GetProperty("producedWith").GetProperty("libreoffice").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(pinned), "The baseline names no LibreOffice to compare fixes with.");
+        Version pinnedRelease = Release(pinned!);
+
+        using JsonDocument file = Load(ReferenceDefectsFile);
+        foreach (JsonElement row in file.RootElement.GetProperty("defects").EnumerateArray())
+        {
+            string fixedIn = row.GetProperty("fixedIn").GetString() ?? string.Empty;
+            Assert.True(
+                Release(fixedIn) > pinnedRelease,
+                (row.GetProperty("id").GetString() ?? "?") + " was fixed in " + fixedIn + ", which the pinned " + pinned +
+                " already has; the row should go.");
+        }
+    }
+
+    [Fact]
+    public void The_Runner_Reads_The_Reference_Defects_File_This_Guard_Checks()
+    {
+        string program = File.ReadAllText(Path.Combine(PdfGuardRoots.Component, Runner, "Program.cs"));
+        Assert.Contains("\"extras-reference-defects.json\"", program, StringComparison.Ordinal);
+    }
+
+    /// <summary>The major.minor release a LibreOffice version string names.</summary>
+    private static Version Release(string text)
+    {
+        Match match = Regex.Match(text, @"([0-9]+)\.([0-9]+)", RegexOptions.None, TimeSpan.FromSeconds(1));
+        Assert.True(match.Success, "'" + text + "' names no major.minor release.");
+        return new Version(int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture), int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture));
     }
 
     /// <summary>

@@ -148,9 +148,11 @@ internal static class Program
         {
             CrashRegressions crashRegressions = CrashRegressions.Load(
                 options.CrashRegressions ?? Path.Combine(root, "tests", "office", "extras-crash-regressions.json"));
+            ReferenceDefects referenceDefects = ReferenceDefects.Load(
+                options.ReferenceDefects ?? Path.Combine(root, "tests", "office", "extras-reference-defects.json"));
             return await RunExtrasAsync(
                 options, tool, libreOffice, rasterizer, rasterReason, fontArguments, workspace, platform,
-                crashRegressions)
+                crashRegressions, referenceDefects)
                 .ConfigureAwait(false);
         }
 
@@ -348,7 +350,8 @@ internal static class Program
         IReadOnlyList<string> fontArguments,
         string workspace,
         string platform,
-        CrashRegressions crashRegressions)
+        CrashRegressions crashRegressions,
+        ReferenceDefects referenceDefects)
     {
         _ = rasterReason;
         var log = new RunLog();
@@ -417,6 +420,13 @@ internal static class Program
                                       .GroupBy(family => family, StringComparer.Ordinal)
                                       .OrderBy(group => group.Key, StringComparer.Ordinal)
                                       .Select(group => group.Key + " " + group.Count().ToString(CultureInfo.InvariantCulture))) + ")"));
+            // The LibreOffice the references come from decides which known
+            // defects it has: a row stops applying once it has the fix.
+            string? referenceLibreOffice = references?.Environment.LibreOffice ?? libreOffice.Version;
+            int defective = samples.Count(sample => !families.ContainsKey(sample.Id) && referenceDefects.For(sample, referenceLibreOffice) is not null);
+            Console.WriteLine("defects     " + defective.ToString(CultureInfo.InvariantCulture) +
+                              " sample(s) whose reference is a known LibreOffice defect, those checks not compared (" +
+                              referenceDefects.Count.ToString(CultureInfo.InvariantCulture) + " listed)");
             Console.WriteLine("axis        " + options.Axis);
             Console.WriteLine("workspace   " + workspace);
 
@@ -467,7 +477,8 @@ internal static class Program
                         options.FontDirectories,
                         fontArguments,
                         options.LibreOfficeTimeout,
-                        NextProfile, options.Threshold, references).ConfigureAwait(false);
+                        NextProfile, options.Threshold, references,
+                        referenceDefects.For(sample, referenceLibreOffice), referenceLibreOffice).ConfigureAwait(false);
                 }
 
                 log.AddRange(sampleResults);
@@ -839,7 +850,8 @@ internal static class Program
         string? PreviousTriage = null,
         string? ReferencesDirectory = null,
         string? PrepareReferences = null,
-        string? ReferenceProducer = null)
+        string? ReferenceProducer = null,
+        string? ReferenceDefects = null)
     {
         public bool IsExtrasRun => !SeedCorpus && (ExtrasUrl is not null || ExtrasDirectory is not null ||
             SampleList is not null || TriageDirectory is not null || ReferencesDirectory is not null || PrepareReferences is not null);
@@ -850,7 +862,7 @@ internal static class Program
             string? tools = null, workspace = null, fontSet = null, only = null, json = null, junit = null;
             string? extrasUrl = null, extrasDir = null, issueOut = null, githubRepo = null;
             string? crashRegressions = null, sampleList = null, triageDirectory = null, previousTriage = null;
-            string? referencesDirectory = null, prepareReferences = null, referenceProducer = null;
+            string? referencesDirectory = null, prepareReferences = null, referenceProducer = null, referenceDefects = null;
             string axis = "all";
             var fontDirectories = new List<string>();
             bool keep = false, verbose = false, update = false, restamp = false;
@@ -907,6 +919,7 @@ internal static class Program
                     case "--issue-out": issueOut = Value(argument); break;
                     case "--github-repo": githubRepo = Value(argument); break;
                     case "--crash-regressions": crashRegressions = Value(argument); break;
+                    case "--reference-defects": referenceDefects = Value(argument); break;
                     case "--top-differences" or "-x": topDifferences = Integer(argument, 1); break;
                     case "--max-files": maxFiles = Integer(argument, 1); break;
                     case "--create-github-issue": createIssue = true; break;
@@ -967,7 +980,7 @@ internal static class Program
                 axis, only, json, junit, extrasUrl, extrasDir, issueOut, githubRepo, crashRegressions, topDifferences,
                 maxFiles, createIssue, seedCorpus, keep, verbose, update, restamp, allowPending, help,
                 jobs, dpi, threshold, maxPages, TimeSpan.FromSeconds(timeout), sampleList, triageDirectory, previousTriage,
-                referencesDirectory, prepareReferences, referenceProducer);
+                referencesDirectory, prepareReferences, referenceProducer, referenceDefects);
         }
 
         public static void WriteUsage(TextWriter output)
@@ -993,6 +1006,10 @@ internal static class Program
             output.WriteLine("  --crash-regressions <path>");
             output.WriteLine("                           Fuzzer families kept out of the extras ranking.");
             output.WriteLine("                           (tests/office/extras-crash-regressions.json)");
+            output.WriteLine("  --reference-defects <path>");
+            output.WriteLine("                           Samples the reference LibreOffice draws with a defect");
+            output.WriteLine("                           a later release fixed; those checks are not compared.");
+            output.WriteLine("                           (tests/office/extras-reference-defects.json)");
             output.WriteLine("  --max-files <n>          Maximum number of extras sample files to evaluate.");
             output.WriteLine("  --seed-corpus            Run the authored seed corpus instead of sw/qa/extras.");
             output.WriteLine("  --manifest <path>        The seed corpus. (tests/office/office-corpus.json)");

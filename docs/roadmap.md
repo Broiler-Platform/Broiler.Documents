@@ -321,6 +321,16 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   saved text; a field takes no number format from its page style; a page field in
   body text or in a header's text box keeps its saved value; the ODT writer writes
   one master page, so a restart is not written (`odt.section.page-number`).
+- **Style references, the rest.** DOCX `STYLEREF` naming a character style is
+  worked out per page in headers and footers (`StyleReferenceField`). Not yet:
+  `STYLEREF` naming a paragraph style or a heading level (`STYLEREF 1`, and
+  `tdf32363.docx`'s numbered headings), its `\n`, `\r`, `\w`, `\s`, `\t` and `\p`
+  switches, one in body text (it keeps its saved result), ODT's
+  `loext:style-ref` (`layout/data/tdf163894.fodt` shows its saved
+  "Etiam eget dui. " where LibreOffice joins the following stretches) and
+  `text:chapter`, and RTF's `STYLEREF`. A header band is sized from the
+  field's saved text, so a page whose result needs another line overlaps the
+  body rather than pushing it down. The writers write the field's text.
 - **Conditional visibility in ODT.** `text:section` with `text:display="condition"`,
   `text:hidden-paragraph` and `text:conditional-text` are not evaluated: a
   section shows and a paragraph keeps its line whatever the condition says.

@@ -235,9 +235,15 @@ public sealed class RichTextDocument
     {
         position = ClampPosition(position);
         // Text typed beside a tracked change is not part of it: this model
-        // records no changes of its own. Nor is text typed beside a page field,
-        // which a header would draw over with the page's number.
-        return _paragraphs[position.ParagraphIndex].StyleBefore(position.Offset) with { Revision = null, PageField = null };
+        // records no changes of its own. Nor is text typed beside a page field
+        // or a style reference, which a header would draw over with the page's
+        // own value.
+        return _paragraphs[position.ParagraphIndex].StyleBefore(position.Offset) with
+        {
+            Revision = null,
+            PageField = null,
+            StyleReference = null,
+        };
     }
 
     public RichTextPosition PositionLeftOf(RichTextPosition position)
@@ -283,8 +289,8 @@ public sealed class RichTextDocument
         RichTextParagraph target = _paragraphs[at.ParagraphIndex];
         // Text typed after a citation is text, not a second citation of the
         // same note: the style it inherits is the citation's without the note,
-        // and likewise a page field's without the field.
-        InlineStyle inherited = style ?? target.StyleBefore(at.Offset) with { Note = null, PageField = null };
+        // and likewise a page field's or a style reference's without the field.
+        InlineStyle inherited = style ?? target.StyleBefore(at.Offset) with { Note = null, PageField = null, StyleReference = null };
 
         if (text.IndexOf('\n') < 0)
         {

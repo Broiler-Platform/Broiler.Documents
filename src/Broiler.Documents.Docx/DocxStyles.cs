@@ -317,6 +317,61 @@ internal sealed class DocxStyles
         });
     }
 
+    /// <summary>
+    /// The name of the character style <paramref name="characterStyleId"/>
+    /// identifies (its <c>w:name</c>, or the id where it states none), or null
+    /// where no character style has that id.
+    /// </summary>
+    public string? CharacterStyleName(string? characterStyleId)
+    {
+        if (string.IsNullOrEmpty(characterStyleId) ||
+            !_styles.TryGetValue(characterStyleId, out StyleDefinition? style) ||
+            !style.Type.Equals("character", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return NameOf(style);
+    }
+
+    /// <summary>
+    /// The name of the character style a field instruction calls
+    /// <paramref name="name"/>, or null where it names no character style.
+    /// Word matches style names ignoring case, so this does too, preferring an
+    /// exact match; a paragraph style of the name wins, as the field then
+    /// refers to paragraphs.
+    /// </summary>
+    public string? CharacterStyleCalled(string name)
+    {
+        StyleDefinition? exact = null;
+        StyleDefinition? loose = null;
+        foreach (StyleDefinition style in _styles.Values)
+        {
+            string styleName = NameOf(style);
+            bool matches = styleName.Equals(name, StringComparison.Ordinal);
+            if (!matches && !styleName.Equals(name, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (style.Type.Equals("paragraph", StringComparison.Ordinal))
+                return null;
+
+            if (!style.Type.Equals("character", StringComparison.Ordinal))
+                continue;
+
+            if (matches)
+                exact ??= style;
+            else
+                loose ??= style;
+        }
+
+        return (exact ?? loose) is StyleDefinition found ? NameOf(found) : null;
+    }
+
+    private static string NameOf(StyleDefinition style) =>
+        DocxValueReader.WordValue(style.Element.Element(DocxNamespaces.Wordprocessing + "name")) is { Length: > 0 } name
+            ? name
+            : style.Id;
+
     private XElement[] Resolve(string key, Func<List<XElement>> build)
     {
         if (_chainCache.TryGetValue(key, out XElement[]? cached))

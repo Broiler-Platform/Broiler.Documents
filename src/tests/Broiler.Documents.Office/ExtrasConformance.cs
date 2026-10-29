@@ -50,6 +50,11 @@ internal sealed record ExtrasSample(
 /// encrypted package opened without its password and a part that is not XML
 /// are refused by both; that is agreement, not a difference.
 /// </param>
+/// <param name="ReferenceDefect">
+/// The <see cref="ReferenceDefects"/> row that kept some of the sample's checks
+/// from being compared, because the reference LibreOffice draws it with a
+/// defect a later release fixed, or null where every check was compared.
+/// </param>
 internal sealed record ExtrasDifference(
     ExtrasSample Sample,
     bool BroilerReadFailed,
@@ -63,7 +68,8 @@ internal sealed record ExtrasDifference(
     string Summary,
     IReadOnlyList<CheckResult> Checks,
     string? CrashRegressionFamily = null,
-    bool RefusedByBoth = false)
+    bool RefusedByBoth = false,
+    ReferenceDefect? ReferenceDefect = null)
 {
     /// <summary>True for a crash-regression input, which is never ranked.</summary>
     public bool SetAside => CrashRegressionFamily is not null;
@@ -570,10 +576,13 @@ internal static class ExtrasConformance
         TimeSpan libreOfficeTimeout,
         Func<string> nextProfile,
         double threshold = 80,
-        OfficeReferences? references = null)
+        OfficeReferences? references = null,
+        ReferenceDefect? referenceDefect = null,
+        string? referenceLibreOffice = null)
     {
         var results = new List<CheckResult>();
         string safeKey = SanitizePath(sample.Id);
+        string? defectReason = referenceDefect?.Describe(referenceLibreOffice ?? "The reference LibreOffice");
         string? inputSourcePath = sample.LocalPath;
 
         string[] fromArgs = FormatArguments(sample);
@@ -642,6 +651,10 @@ internal static class ExtrasConformance
                         "text/" + sample.Id,
                         "broilerdoc dump --as text exited " + dumped.ExitCode.ToString(CultureInfo.InvariantCulture) + ".",
                         dumped.CommandLine()));
+                }
+                else if (referenceDefect?.Covers("text") == true)
+                {
+                    results.Add(CheckResult.Skip("text", "text/" + sample.Id, defectReason!));
                 }
                 else
                 {
@@ -728,6 +741,10 @@ internal static class ExtrasConformance
                                 "pixel/" + sample.Id,
                                 "broilerdoc render exited " + rendered.ExitCode.ToString(CultureInfo.InvariantCulture) + ": " + broilerError,
                                 rendered.CommandLine()));
+                        }
+                        else if (referenceDefect?.Covers("pixel") == true)
+                        {
+                            results.Add(CheckResult.Skip("pixel", "pixel/" + sample.Id, defectReason!));
                         }
                         else
                         {
@@ -871,7 +888,8 @@ internal static class ExtrasConformance
             score,
             summary,
             results,
-            RefusedByBoth: refusedByBoth);
+            RefusedByBoth: refusedByBoth,
+            ReferenceDefect: referenceDefect);
 
         return (results, reading, renderRow, difference);
     }
@@ -1132,6 +1150,9 @@ internal static class ExtrasConformance
         ExtrasDifference[] refusedByBoth = [.. documents
             .Where(diff => diff.RefusedByBoth)
             .OrderBy(diff => diff.Sample.Id, StringComparer.Ordinal)];
+        ExtrasDifference[] knownDefects = [.. documents
+            .Where(diff => diff.ReferenceDefect is not null)
+            .OrderBy(diff => diff.Sample.Id, StringComparer.Ordinal)];
 
         var sb = new StringBuilder();
         sb.AppendLine("## Office Conformance Major Differences (`sw/qa/extras`)");
@@ -1152,6 +1173,7 @@ internal static class ExtrasConformance
                           : string.Empty) + " |");
         sb.AppendLine("| **Documents With Differences** | " + totalWithDifferences.ToString(CultureInfo.InvariantCulture) + " |");
         sb.AppendLine("| **Refused By Both** | " + refusedByBoth.Length.ToString(CultureInfo.InvariantCulture) + " |");
+        sb.AppendLine("| **Known Reference Defects** | " + knownDefects.Length.ToString(CultureInfo.InvariantCulture) + " |");
         sb.AppendLine("| **Top Major Differences Reported** | " + top.Count.ToString(CultureInfo.InvariantCulture) + " (requested top " + topCount.ToString(CultureInfo.InvariantCulture) + ") |");
         sb.AppendLine("| **LibreOffice** | `" + (header.LibreOffice ?? "none") + "` |");
         sb.AppendLine("| **Rasteriser** | `" + (header.Rasterizer ?? "none") + "` |");
@@ -1184,6 +1206,9 @@ internal static class ExtrasConformance
 
         if (refusedByBoth.Length > 0)
             AppendRefusedByBoth(sb, refusedByBoth);
+
+        if (knownDefects.Length > 0)
+            AppendKnownReferenceDefects(sb, knownDefects, header.LibreOffice);
 
         if (top.Count == 0)
         {
@@ -1285,6 +1310,30 @@ internal static class ExtrasConformance
                 ? "[`" + diff.Sample.Id + "`](" + diff.Sample.SourceUrl + ")"
                 : "`" + diff.Sample.Id + "`";
             sb.AppendLine("- " + sampleLink + ": " + (diff.BroilerError ?? diff.Summary));
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void AppendKnownReferenceDefects(
+        StringBuilder sb, IReadOnlyList<ExtrasDifference> known, string? libreOffice)
+    {
+        sb.AppendLine("### Known Reference Defects");
+        sb.AppendLine();
+        sb.AppendLine(
+            known.Count.ToString(CultureInfo.InvariantCulture) + " document(s) are drawn by `" + (libreOffice ?? "the reference LibreOffice") +
+            "` with a LibreOffice defect that a later release fixed (`tests/office/extras-reference-defects.json`). " +
+            "The checks the defect affects were not compared, `broilerdoc` still had to read and render each one, " +
+            "and every other check ran. A check that failed for another reason still ranks.");
+        sb.AppendLine();
+        foreach (ExtrasDifference diff in known)
+        {
+            ReferenceDefect defect = diff.ReferenceDefect!;
+            string sampleLink = diff.Sample.SourceUrl is not null
+                ? "[`" + diff.Sample.Id + "`](" + diff.Sample.SourceUrl + ")"
+                : "`" + diff.Sample.Id + "`";
+            sb.AppendLine("- " + sampleLink + ": " + defect.Bug + ", fixed in LibreOffice " + defect.FixedIn.ToString(2) +
+                          "; " + string.Join(" and ", defect.Axes.Order(StringComparer.Ordinal)) + " not compared (" + defect.Reference + ")");
         }
 
         sb.AppendLine();
