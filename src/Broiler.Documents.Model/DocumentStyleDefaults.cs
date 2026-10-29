@@ -122,10 +122,25 @@ public sealed record DocumentStyleDefaults
     /// </summary>
     public const double TabOverMarginLimitPoints = 558 / 25.4 * 72;
 
+    /// <summary>
+    /// Whether a link is drawn only as its own formatting says, with no colour
+    /// or underline a renderer adds to show it is a link.
+    /// </summary>
+    /// <remarks>
+    /// A word processor's links look the way their character style makes them.
+    /// A DOCX or RTF link that names none is plain text in Word and LibreOffice
+    /// alike (LibreOffice gives Word's <c>Hyperlink</c> style its look, and
+    /// nothing else), as is every entry of a table of contents, whose style
+    /// LibreOffice drops. An ODT link without a style takes Writer's
+    /// <c>Internet Link</c>, so the renderer's link look stays for ODT, as it
+    /// does for HTML and Markdown.
+    /// </remarks>
+    public bool UndecoratedLinks { get; init; }
+
     /// <summary>True when this states nothing a consumer would not have assumed.</summary>
     public bool IsDefault =>
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
-        !TabsOverMargin;
+        !TabsOverMargin && !UndecoratedLinks;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

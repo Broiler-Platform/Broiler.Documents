@@ -370,6 +370,29 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   and no default style (`two-paragraph-background-links.fodt`) is set by
   LibreOffice in Liberation Serif with 2 cm margins; `broilerdoc` uses a sans
   face and puts the first line about 15 pt lower (issue #178's note).
+- **Metafile pictures.** EMF and WMF, what Word embeds for charts and shape
+  fallbacks, are not decoded (`docx.image.format`), so a picture of one is an
+  empty frame. About 130 corpus samples hold one (100 DOCX, 18 RTF, 13 ODT);
+  `wDateValueFormat.docx`'s three bar charts are the latest (issue #180). It
+  needs a metafile renderer: records to paths, fills, pens and text.
+- **A page break leading a section's first paragraph.** LibreOffice splits
+  that paragraph and leaves its empty first part, numbered where it is a
+  numbered heading, on the page before (`DomainMapper::lcl_utext`,
+  `GetIsFirstParagraphInSection`); `broilerdoc` moves the whole paragraph
+  (issue #180's note).
+- **Wingdings text and ODT link colour.** Text set in Symbol is drawn as the
+  characters it stands for; Wingdings private-use text is not recoded. An ODT
+  link without a style is drawn in `broilerdoc`'s link colour, `#0033CC`, not
+  Writer's "Internet Link" `#000080`.
+- **Page fields on DOCX write.** `PAGE` and `NUMPAGES` are read as page
+  fields; the writer writes their text, so a round trip freezes the number.
+- **Document defaults on DOCX write.** The writer writes no `styles.xml`, so
+  LibreOffice 26.2, and since issue #180 the reader too, set its output in
+  11 pt Calibri whatever the document's own default; a 12 pt HTML or ODT
+  document saved as DOCX reads back a point smaller. Writing `w:docDefaults`
+  alone is not enough: the reader folds `w:rPrDefault` into every run, so each
+  DOCX round trip would turn inherited sizes and families into stated ones,
+  and a family the model leaves unset would read back as Times New Roman.
 - **Custom shapes that fit their text.** LibreOffice 24.2 draws
   `shape-fill-link.fodt`'s 12 cm x 6 cm `draw:custom-shape` as 142 x 14 pt
   around the stated box's centre, the size of its one line of text; the

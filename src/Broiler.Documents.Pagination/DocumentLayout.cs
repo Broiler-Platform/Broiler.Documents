@@ -3579,6 +3579,22 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     continue;
                 }
 
+                if (whitespace && fragment == SoftHyphenText)
+                {
+                    if (word is not null)
+                    {
+                        tokens.Add(word);
+                        word = null;
+                    }
+
+                    LayoutPiece hold = MakeTextPiece(string.Empty, run.Style, _settings.DecorateLinks);
+                    LayoutPiece hyphen = MakeTextPiece("-", run.Style, _settings.DecorateLinks);
+                    hold.SourceOffset = fragmentStart;
+                    hyphen.SourceOffset = fragmentStart;
+                    tokens.Add(LayoutToken.SoftHyphen(hold, hyphen));
+                    continue;
+                }
+
                 if (whitespace)
                 {
                     if (word is not null)
@@ -3671,6 +3687,21 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 continue;
             }
 
+            // A soft hyphen stands alone: it draws nothing where its line goes
+            // on, and a hyphen where the line breaks at it (LineWrapper).
+            if (character == UnicodeBoundaryClassifier.SoftHyphen)
+            {
+                if (builder.Length > 0)
+                {
+                    yield return new Fragment(builder.ToString(), whitespace ?? false, false, false, false);
+                    builder.Clear();
+                }
+
+                whitespace = null;
+                yield return new Fragment(SoftHyphenText, Whitespace: true, Image: false, Tab: false, Break: false);
+                continue;
+            }
+
             bool isSpace = UnicodeBoundaryClassifier.IsBreakableWhitespace(character);
             if (whitespace is not null && isSpace != whitespace)
             {
@@ -3688,12 +3719,22 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     private readonly record struct Fragment(string Text, bool Whitespace, bool Image, bool Tab, bool Break);
 
+    private static readonly string SoftHyphenText = UnicodeBoundaryClassifier.SoftHyphen.ToString();
+
     /// <summary>
     /// The drawable pieces for a fragment. Usually one; small capitals produce
     /// two sizes and therefore more than one.
     /// </summary>
     private IEnumerable<LayoutPiece> MakePieces(string text, InlineStyle style)
     {
+        // Text set in Symbol is drawn as the characters it stands for, in the
+        // document's own face, as LibreOffice draws it where Symbol is replaced.
+        if (SymbolFontText.IsSymbolFamily(style.FontFamily))
+        {
+            text = SymbolFontText.Recode(text);
+            style = style with { FontFamily = null };
+        }
+
         if (style.Capitalization != TextCapitalization.SmallCaps)
         {
             yield return MakeTextPiece(Transform(text, style.Capitalization), style, _settings.DecorateLinks);
@@ -3730,7 +3771,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         BColor color = LayoutColors.Or(style.Foreground, _settings.DefaultForeground);
         bool underline = style.Underline;
 
-        if (decorateLink && style.IsLink)
+        if (decorateLink && style.IsLink && !_styleDefaults.UndecoratedLinks)
         {
             underline = true;
             if (style.Foreground.IsEmpty)

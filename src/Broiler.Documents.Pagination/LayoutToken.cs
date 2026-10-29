@@ -50,6 +50,21 @@ internal sealed class LayoutToken
     }
 
     /// <summary>
+    /// The hyphen a soft hyphen shows when its line breaks there, or null for
+    /// any other token. The token itself is a break opportunity with no width
+    /// and nothing drawn, which is all a soft hyphen is inside a line.
+    /// </summary>
+    public LayoutPiece? Hyphen { get; private init; }
+
+    /// <summary>A soft hyphen: <paramref name="hold"/> keeps its place, <paramref name="hyphen"/> is shown at a break.</summary>
+    public static LayoutToken SoftHyphen(LayoutPiece hold, LayoutPiece hyphen)
+    {
+        var token = new LayoutToken(isWhitespace: true) { Hyphen = hyphen };
+        token.Add(hold);
+        return token;
+    }
+
+    /// <summary>
     /// Sets a tab's width once wrapping knows where on its line it starts.
     /// The piece is the same object the line will place, so both agree.
     /// </summary>

@@ -1,7 +1,7 @@
 {
     "$schema":  "corpus-baseline.schema.json",
     "schemaVersion":  1,
-    "updated":  "2026-10-28",
+    "updated":  "2026-10-29",
     "policy":  {
                    "records":  "Only the round trips that lose something or warn about something. Everything this corpus can do that is absent from the list below is asserted to round trip clean, so a new loss fails by not being listed.",
                    "reproduce":  "A row that stops reproducing fails too. That is deliberate: a fix should arrive with this file updated, so the shrinking of the suspected-defect list is a thing somebody can point at.",
@@ -30,6 +30,25 @@
                        },
                        {
                            "sample":  "alignment",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p3: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
+                       },
+                       {
+                           "sample":  "alignment",
                            "source":  "html",
                            "via":  "markdown",
                            "differences":  [
@@ -100,6 +119,22 @@
                        },
                        {
                            "sample":  "colour",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
+                       },
+                       {
+                           "sample":  "colour",
                            "source":  "html",
                            "via":  "markdown",
                            "differences":  [
@@ -145,6 +180,24 @@
                            "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
                            "reviewer":  "Claude Opus 5, on the writer-losses pass",
                            "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "control-characters",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
                        },
                        {
                            "sample":  "control-characters",
@@ -337,6 +390,14 @@
                            "via":  "rtf",
                            "differences":  [
                                                "paragraph-style@p1: list Bullet vs None",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p3: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p4: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p5: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p6: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p7: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p9: formatting differs from character 0: font size default vs 11",
                                                "table.cell-layout@p2: column width count 0 vs 2"
                                            ],
                            "diagnostics":  [
@@ -344,7 +405,7 @@
                                            ],
                            "state":  "documented",
                            "reference":  "docs/notes/rtf.md",
-                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "why":  "The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. The inline font size differences (default vs 11) are the RTF writer stating the DOCX default of 11 points on every run, as docs/notes/rtf.md describes (issue #180).",
                            "reviewer":  "Claude Opus 5, on the writer-losses pass",
                            "decided":  "2026-09-05"
                        },
@@ -363,6 +424,22 @@
                            "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
                            "reviewer":  "Claude Opus 5, on the writer-losses pass",
                            "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "emphasis",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
                        },
                        {
                            "sample":  "emphasis",
@@ -428,6 +505,24 @@
                            "why":  "Markdown separates paragraphs with a blank line, so an empty paragraph has no spelling. A limitation of the format rather than of the writer.",
                            "reviewer":  "Claude Opus 5, on the writer-losses pass",
                            "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "empty-paragraphs",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p4: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
                        },
                        {
                            "sample":  "empty-paragraphs",
@@ -853,6 +948,25 @@
                        },
                        {
                            "sample":  "indent-spacing",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p3: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
+                       },
+                       {
+                           "sample":  "indent-spacing",
                            "source":  "html",
                            "via":  "markdown",
                            "differences":  [
@@ -916,6 +1030,56 @@
                            "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
                            "reviewer":  null,
                            "decided":  null
+                       },
+                       {
+                           "sample":  "links",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
+                       },
+                       {
+                           "sample":  "links-rejected",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
+                       },
+                       {
+                           "sample":  "links-relative",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
                        },
                        {
                            "sample":  "lists",
@@ -983,21 +1147,27 @@
                            "source":  "docx",
                            "via":  "rtf",
                            "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
                                                "paragraph-style@p1: list Bullet vs None",
                                                "paragraph-style@p1: first line indent -18 vs 0",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
                                                "paragraph-style@p2: list Bullet vs None",
                                                "paragraph-style@p2: first line indent -18 vs 0",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11",
                                                "paragraph-style@p3: list Numbered vs None",
                                                "paragraph-style@p3: first line indent -18 vs 0",
+                                               "inline-style@p3: formatting differs from character 0: font size default vs 11",
                                                "paragraph-style@p4: list Numbered vs None",
-                                               "paragraph-style@p4: first line indent -18 vs 0"
+                                               "paragraph-style@p4: first line indent -18 vs 0",
+                                               "inline-style@p4: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p5: formatting differs from character 0: font size default vs 11"
                                            ],
                            "diagnostics":  [
 
                                            ],
                            "state":  "suspected-defect",
                            "reference":  "docs/guides/corpus-suite.md",
-                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list.",
+                           "why":  "Exact-indent comparison added in 708990c exposes this round-trip difference; reproduced by the Linux and Windows publish validation on 2026-10-23. Recorded as a suspected defect, not accepted fidelity. Previous classification rationale (does not cover all newly observed differences): The RTF reader does not set ListKind in this release, and the HTML writer emits no list markup; each conformance document says so, and the HTML writer reports html.list. The inline font size differences (default vs 11) are the RTF writer stating the DOCX default of 11 points on every run, as docs/notes/rtf.md describes (issue #180).",
                            "reviewer":  null,
                            "decided":  null
                        },
@@ -1115,6 +1285,27 @@
                            "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
                            "reviewer":  "Claude Opus 5, on the writer-losses pass",
                            "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "long-flow",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p3: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p4: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p5: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
                        },
                        {
                            "sample":  "long-flow",
@@ -1266,6 +1457,25 @@
                            "decided":  "2026-09-05"
                        },
                        {
+                           "sample":  "metacharacters",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p3: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
+                       },
+                       {
                            "sample":  "odt-package",
                            "source":  "odt",
                            "via":  "docx",
@@ -1389,6 +1599,24 @@
                        },
                        {
                            "sample":  "page-break",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
+                       },
+                       {
+                           "sample":  "page-break",
                            "source":  "html",
                            "via":  "markdown",
                            "differences":  [
@@ -1434,6 +1662,24 @@
                            "why":  "Markdown has no page, so it has no page break, and there is no honest fallback: a horizontal rule is a rule and a form feed is a character in the prose. The writer says so with markdown.page-break rather than dropping it quietly, which is the behaviour this row exists to hold. docs/notes/markdown.md states it as a property the format will not carry rather than as one not yet implemented.",
                            "reviewer":  "Claude Opus 5, on the page-break pass",
                            "decided":  "2026-09-06"
+                       },
+                       {
+                           "sample":  "plain",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
                        },
                        {
                            "sample":  "rtf-control-words",
@@ -1481,6 +1727,22 @@
                        },
                        {
                            "sample":  "typography",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
+                       },
+                       {
+                           "sample":  "typography",
                            "source":  "html",
                            "via":  "markdown",
                            "differences":  [
@@ -1526,6 +1788,47 @@
                            "why":  "Markdown has no way to express this and says so. docs/notes/markdown.md maps the writer property by property, and it reports markdown.paragraph-style or markdown.inline-style rather than dropping it silently.",
                            "reviewer":  "Claude Opus 5, on the writer-losses pass",
                            "decided":  "2026-09-05"
+                       },
+                       {
+                           "sample":  "unicode",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p3: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p4: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p5: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
+                       },
+                       {
+                           "sample":  "whitespace",
+                           "source":  "docx",
+                           "via":  "rtf",
+                           "differences":  [
+                                               "inline-style@p0: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p1: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p2: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p3: formatting differs from character 0: font size default vs 11",
+                                               "inline-style@p4: formatting differs from character 0: font size default vs 11"
+                                           ],
+                           "diagnostics":  [
+
+                                           ],
+                           "state":  "documented",
+                           "reference":  "docs/notes/rtf.md",
+                           "why":  "A DOCX without a w:rPrDefault, which is what the DOCX writer produces, reads at LibreOffice\u0027s 11 point Calibri default (tdf#108350, issue #180). RTF\u0027s \\plain resets the size to 12 points, so the RTF writer states the inherited 11 points on every run and the reader keeps it as a run size rather than a document default. The size drawn is unchanged; docs/notes/rtf.md describes the export.",
+                           "reviewer":  "Claude Opus 5.5, on the issue #180 CI pass",
+                           "decided":  "2026-10-29"
                        }
                    ]
 }
