@@ -308,11 +308,16 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   puts `tdf123163-1.docx`'s `geometry` band at `off` by two or three pixels), RTF's
   `\sect` and its break kinds, and RTF, HTML and the PDF writer do not write a section's margins
   (the PDF writer lays every page out as one column, `pdf.write.feature-unsupported`).
-  `tdf123163-1.docx`, thirty-one sections of one to four columns, draws
-  thirteen pages against sixteen, its text a page ahead of LibreOffice's from
-  the second. None of its fourteen pictures is in the
-  package (`docx.image.missing`); LibreOffice keeps a box of the size each
-  states, one of them a whole page, and this reader keeps nothing of them.
+  `tdf123163-1.docx`, thirty-one sections of one to four columns, draws its
+  sixteen pages, but section 3's third paragraph stays on page 1 where
+  LibreOffice moves it to page 2 along with the next paragraph, whose own
+  square-wrapped backdrop leaves it no room there; the layout's single forward
+  pass does not move a placed paragraph after a later one's shapes
+  (notes/office-issue-182.md).
+- **Inline picture effect extents.** LibreOffice widens an inline DOCX picture
+  by its `wp:effectExtent`, the room a shadow or glow takes; the reader ignores
+  it, so `imgshadow.docx`'s two pictures and the space before them take 586
+  pixels at 96 dpi where LibreOffice's take 614.
 - **Page fields, the rest.** ODT's `text:page-number` and `text:page-count` are
   `InlineStyle.PageField` runs that a header or footer draws per page, and ODT's
   `style:page-number` restarts the count (`DocumentSection.PageNumberStart`), as

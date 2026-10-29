@@ -1,0 +1,15 @@
+# First ranked difference from Broiler-Platform/Broiler.Documents#182: a magazine whose run text
+# opens with line feeds and whose page-placed shapes were converted with the last section's margins;
+# then LibreOffice's tests of the run-text rules, the samples this change moved most, tdf138039.odt
+# (an empty paragraph under a top-and-bottom frame) and the two that moved the wrong way most.
+layout/data/tdf123163-1.docx
+ooxmlimport/data/tdf108806.docx
+ooxmlimport/data/xml_space.docx
+ooxmlexport/data/tdf135774_numberingCRProps.docx
+ooxmlimport/data/tdf87533_bidi.docx
+ooxmlexport/data/tdf165359_SdtWithDrawing.docx
+ooxmlexport/data/tdf165359_SdtWithInline.docx
+ooxmlexport/data/tdf123705.docx
+layout/data/tdf138039.odt
+ooxmlexport/data/imgshadow.docx
+ooxmlexport/data/table-row-data-displayed-twice.docx

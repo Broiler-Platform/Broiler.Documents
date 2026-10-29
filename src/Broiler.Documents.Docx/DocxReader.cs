@@ -962,15 +962,16 @@ internal static class DocxReader
                 {
                     // w:customMarkFollows: the text after the reference is the
                     // note's own label, not body text.
-                    var marked = new DocumentNote(awaitingMark.Kind, awaitingMark.Paragraphs, child.Value.Trim());
+                    var marked = new DocumentNote(awaitingMark.Kind, awaitingMark.Paragraphs, DocxValueReader.RunText(child).Trim());
                     builder.AppendText(DocumentNote.PlaceholderText, awaitingStyle with { Note = marked });
                     awaitingMark = null;
                     continue;
                 }
 
-                if (child.Value.Length > 0)
+                string text = DocxValueReader.RunText(child);
+                if (text.Length > 0)
                     builder.Fields.NoteResultText();
-                builder.AppendText(child.Value, style);
+                builder.AppendText(text, style);
                 continue;
             }
 
@@ -1068,7 +1069,7 @@ internal static class DocxReader
             // A deleted run's text: kept, marked by the w:del around the run.
             if (child.Name == DocxNamespaces.Wordprocessing + "delText")
             {
-                builder.AppendText(child.Value, style);
+                builder.AppendText(DocxValueReader.RunText(child), style);
                 continue;
             }
 
@@ -1150,7 +1151,7 @@ internal static class DocxReader
             context.Styles,
             context.Images,
             builder,
-            context.Page,
+            context.PlacementPage,
             context.Band)
         {
             InNote = true,
@@ -1261,7 +1262,7 @@ internal static class DocxReader
                     e.Name.Namespace == DocxNamespaces.Wordprocessing && e.Name.LocalName is "br" or "tab" or "sym" or "pict" or "footnoteReference" or "endnoteReference" or "instrText" or "fldChar" or "delText");
             if (block)
             {
-                double x = context.Builder.ReserveDiagramBlock(width, height, context.Page);
+                double x = context.Builder.ReserveDiagramBlock(width, height, context.PlacementPage);
                 placement.Add(new XElement(DocxNamespaces.WordDrawing + "positionH", new XAttribute("relativeFrom", "column"),
                     new XElement(DocxNamespaces.WordDrawing + "posOffset", Math.Round(x * 12700))));
             }
@@ -1697,7 +1698,7 @@ internal static class DocxReader
         DocxVml.TryLength(style.GetValueOrDefault("margin-top"), out double marginTop);
         // Across, every frame converts to the column, as a DrawingML anchor's does.
         double offsetX = segment ? lineLeft + (shape.Name.LocalName == "polyline" ? left + marginLeft : 0) : left + marginLeft;
-        if (context.Page is PageGeometry page)
+        if (context.PlacementPage is PageGeometry page)
         {
             offsetX += style.GetValueOrDefault("mso-position-horizontal-relative") switch
             {
@@ -1723,7 +1724,7 @@ internal static class DocxReader
         bool fromPage = false;
         if (verticalFrom is not null)
         {
-            if (FromPageTop(verticalFrom, offsetY, context.Page) is double fromTop)
+            if (FromPageTop(verticalFrom, offsetY, context.PlacementPage) is double fromTop)
             {
                 (offsetY, fromPage) = (fromTop, true);
             }
@@ -1737,7 +1738,7 @@ internal static class DocxReader
             }
         }
 
-        if (context.Page is PageGeometry alignmentPage)
+        if (context.PlacementPage is PageGeometry alignmentPage)
         {
             string? horizontal = style.GetValueOrDefault("mso-position-horizontal");
             string? horizontalFrame = style.GetValueOrDefault("mso-position-horizontal-relative");
@@ -1966,7 +1967,7 @@ internal static class DocxReader
     {
         double offset = EmuToPoints(PositionOffset(anchor, "positionH"));
         string? from = RelativeFrom(anchor, "positionH");
-        if (context.Page is not PageGeometry page)
+        if (context.PlacementPage is not PageGeometry page)
             return offset;
 
         switch (from)
@@ -2053,7 +2054,7 @@ internal static class DocxReader
         if (from is null or "paragraph" or "line")
             return (offset, false);
 
-        if (FromPageTop(from, offset, context.Page) is double fromPage)
+        if (FromPageTop(from, offset, context.PlacementPage) is double fromPage)
             return (fromPage, true);
 
         context.Builder.AddDiagnosticOnce(
@@ -2283,7 +2284,7 @@ internal static class DocxReader
         };
         var nested = new DocxReadContext(
             context.Relationships, context.Numbering, context.Styles, context.Images, builder,
-            context.Page, context.Band);
+            context.PlacementPage, context.Band);
         ReadBlockContent(content.Elements(), nested, depth: 0);
 
         return builder.Build();

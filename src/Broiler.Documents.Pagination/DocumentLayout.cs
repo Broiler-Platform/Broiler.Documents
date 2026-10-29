@@ -1437,13 +1437,27 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 }
                 y += line.LeadingSkip;
 
+                // An empty paragraph first in its column, pushed off the page by
+                // shapes of its own that text may run beside - a full-page
+                // backdrop with square wrapping, say - stays on the page with
+                // them, as LibreOffice keeps it. Moved on, it only made a blank
+                // page. A shape that keeps text above and below it moves even an
+                // empty line on, there as here (tdf138039.odt).
+                bool heldByOwnShapes = first && paragraph.Length == 0 && line.LeadingSkip > 0 &&
+                    currentLines.Count == columnStart &&
+                    _documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex && shape.Wrap == ShapeWrap.Square) &&
+                    !_documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex && shape.Wrap == ShapeWrap.TopAndBottom);
+
                 // A line that cites a footnote needs room for the note at the
                 // foot of the page as well as for itself.
-                if (y + line.Height > contentBottom - NotesHeight([line]) && ColumnHasContent())
+                if (y + line.Height > contentBottom - NotesHeight([line]) && ColumnHasContent() && !heldByOwnShapes)
                 {
                     BreakColumn();
                     if (truncated)
                         break;
+
+                    // The room it moved past was on the page it left.
+                    line.LeadingSkip = 0;
                     if (first)
                     {
                         // No line of this paragraph was placed yet. Its new
@@ -3306,15 +3320,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // default line height rather than the row's own, which is not known
             // until the row has been wrapped to a width - so a row of unusually
             // tall text can reach a little into a shape it only just cleared.
+            // A paragraph of exact line height has no such doubt: every row is
+            // that tall.
             double lineY = top;
             var estimatedMetrics = VerticalMetrics(defaultFont);
-            double estimate = estimatedMetrics.Ascent + estimatedMetrics.Descent;
+            bool exact = style.LineHeightRule == LineHeightRule.Exact && style.LineHeight > 0;
+            double estimate = exact ? style.LineHeight : estimatedMetrics.Ascent + estimatedMetrics.Descent;
             rows = _lineWrapper.Wrap(
                 tokens,
                 index =>
                 {
                     double skip = 0;
                     TextBand row = BandFor(ref lineY, estimate, textWidth, ref skip);
+                    if (exact && skip > 0)
+                        row = ExactLineSkip(ref lineY, estimate, textWidth, ref skip);
                     skips.Add(skip);
                     lineY += estimate;
                     return IndentedBand(row, index);
@@ -3394,6 +3413,35 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         TextBand band = _wrap.Resolve(ref y, height, width, out double moved);
         skip += moved;
+        return band;
+    }
+
+    /// <summary>
+    /// Rounds the move a row of exact line height made past a shape up to a
+    /// whole number of rows, and gives the band it has there.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice fills a row a frame leaves no room beside with an empty row
+    /// and tries the next one below it, "by units of line height"
+    /// (<c>SwTextFormatter::CalcFlyWidth</c>), rather than starting the row at
+    /// the frame's foot; an exact line spacing holds each empty row to its
+    /// height. So a title of 98.4-point rows beside a picture that ends 0.5
+    /// points into its second row starts on its third.
+    /// </remarks>
+    private TextBand ExactLineSkip(ref double y, double height, double width, ref double skip)
+    {
+        double start = y - skip;
+        TextBand band = default;
+        for (int attempt = 0; attempt < 8; attempt++)
+        {
+            double next = start + (Math.Ceiling((skip / height) - 1e-6) * height);
+            band = _wrap.Resolve(ref next, height, width, out double moved);
+            y = next;
+            skip = next - start;
+            if (moved <= 0)
+                break;
+        }
+
         return band;
     }
 

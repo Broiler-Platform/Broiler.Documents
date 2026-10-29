@@ -24,6 +24,13 @@ Open XML WordprocessingML package parts.
   `w:line` is in 240ths of a line, and Strict writes that number as if it were
   twips, so single spacing is `12pt`.
 - Paragraphs, empty paragraphs, tabs, and soft line breaks.
+- Run text (`w:t`, `w:delText`) as Word and LibreOffice show it: a line feed
+  in it is a space, not a line break, which only `w:br` makes; and unless
+  `xml:space="preserve"` is in scope, on the element or the nearest ancestor
+  stating it, white space at either end is dropped and a tab is a space
+  (LibreOffice's `OOXMLFastContextHandler::text`, tdf#108806, tdf#108995).
+  `tdf123163-1.docx` starts every `w:t` with a line feed, and each was read
+  as a line break (issue #182).
 - The paragraph mark's formatting, `w:pPr/w:rPr`, as
   `RichTextParagraph.MarkStyle`: the run formatting the paragraph style gives,
   then the mark's own. An empty paragraph has no run, and the mark is what its
@@ -268,7 +275,12 @@ Open XML WordprocessingML package parts.
   `mso-position-horizontal-relative` and `mso-position-vertical-relative` name
   the other frames in VML's own words (`page`, `margin`, `left-margin-area`,
   `top-margin-area` and so on), and they convert as a DrawingML anchor's do:
-  across into the column, down into `OffsetFromPage`. A negative `z-index` puts
+  across into the column, down into `OffsetFromPage`. The column they convert
+  to, in either kind, is that of the page the text is on: the margins of the
+  last section that started a page, which a continuous section after it keeps
+  as LibreOffice lays it out, not the document's last section. A backdrop in a
+  first section 134.9 points in stood 140 points left of the page in
+  `tdf123163-1.docx`, whose last section is 275.5 points in (issue #182). A negative `z-index` puts
   it behind the text. Its fill is read as the page background's
   is, reported as `docx.shape.fill` where it had to be approximated; its outline
   is `strokecolor`, VML's default black, or none where `stroked` turns it off;

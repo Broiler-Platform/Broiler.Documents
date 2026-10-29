@@ -53,9 +53,9 @@ public sealed class DocxImageTests
     public void Reads_Alternative_Text_And_Keeps_Surrounding_Text_In_Order()
     {
         DocumentReadResult result = DocxTestPackage.ReadWithMedia(
-            "<w:p><w:r><w:t>before </w:t></w:r>" +
+            "<w:p><w:r><w:t xml:space=\"preserve\">before </w:t></w:r>" +
             DocxTestPackage.DrawingRun("rId7", OneInchEmus, OneInchEmus, altText: "a logo") +
-            "<w:r><w:t> after</w:t></w:r></w:p>",
+            "<w:r><w:t xml:space=\"preserve\"> after</w:t></w:r></w:p>",
             DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
             Media("word/media/image1.png"));
 
