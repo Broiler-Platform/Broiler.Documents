@@ -442,4 +442,33 @@ public sealed class OdtTableTests
         Assert.Equal(30, table.Rows[0].MinHeight, 3);
         Assert.True(table.Rows[1].CanSplit);
     }
+
+    [Fact]
+    public void A_Tables_Margins_Above_And_Below_Are_Its_Spacing_And_Round_Trip()
+    {
+        // fdo114306_2.odt sets its signature table 2.2 cm below the text above.
+        var result = OdtTestPackage.ReadBody(
+            "<text:p>before</text:p><table:table table:style-name=\"sign\"><table:table-row><table:table-cell><text:p>Mayor</text:p></table:table-cell></table:table-row></table:table>",
+            "<style:style style:name=\"sign\" style:family=\"table\"><style:table-properties style:width=\"200pt\" fo:margin-top=\"2.2cm\" fo:margin-bottom=\"6pt\" table:align=\"margins\"/></style:style>");
+
+        DocumentTable table = Assert.Single(result.Document.Tables);
+        Assert.Equal(62.36, table.SpacingBefore, 2);
+        Assert.Equal(6, table.SpacingAfter, 2);
+
+        DocumentTable written = Assert.Single(RoundTrip(result.Document).Tables);
+        Assert.Equal(62.36, written.SpacingBefore, 2);
+        Assert.Equal(6, written.SpacingAfter, 2);
+    }
+
+    [Fact]
+    public void A_Table_That_May_Not_Break_Between_Rows_Is_Kept_Together()
+    {
+        // LibreOffice's "allow table to split across pages" turned off.
+        var result = OdtTestPackage.ReadBody(
+            "<table:table table:style-name=\"whole\"><table:table-row><table:table-cell><text:p>a</text:p></table:table-cell></table:table-row>" +
+            "<table:table-row><table:table-cell><text:p>b</text:p></table:table-cell></table:table-row></table:table>",
+            "<style:style style:name=\"whole\" style:family=\"table\"><style:table-properties style:may-break-between-rows=\"false\"/></style:style>");
+
+        Assert.True(Assert.Single(result.Document.Tables).KeepTogether);
+    }
 }

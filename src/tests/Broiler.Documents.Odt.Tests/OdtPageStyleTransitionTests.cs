@@ -69,4 +69,67 @@ public sealed class OdtPageStyleTransitionTests
         Assert.Equal(200, chain.At(2).Page!.Width);
         Assert.Equal("foot B", Assert.Single(chain.At(3).RunningContent.Footer(PageSelection.Default)).Text);
     }
+
+    [Fact]
+    public void Text_Sections_Between_Page_Styles_Follow_On_The_Page_They_Are_On()
+    {
+        // fdo114306_2.odt is a form of a dozen text sections under two page
+        // styles. Every stretch between two section edges used to start a page
+        // of its own, which set its four pages out on eleven.
+        var result = OdtTestPackage.ReadStyled(
+            "<text:section text:name=\"a\"><text:p>title</text:p></text:section>" +
+            "<text:section text:name=\"hidden\" text:display=\"none\"><text:p>hint</text:p></text:section>" +
+            "<text:section text:name=\"b\"><text:p>body</text:p></text:section>" +
+            "<text:p text:style-name=\"switch\">sheet</text:p>" +
+            "<text:section text:name=\"c\"><text:p>more</text:p></text:section>",
+            Masters(false), "<style:style style:name=\"switch\" style:family=\"paragraph\" style:master-page-name=\"Other\"/>");
+
+        var sections = result.Document.Sections;
+        Assert.Equal(SectionBreakType.NextPage, DocumentSection.Containing(sections, 0)!.BreakType);
+        Assert.Equal(SectionBreakType.Continuous, DocumentSection.Containing(sections, 2)!.BreakType);
+        Assert.Equal(SectionBreakType.NextPage, DocumentSection.Containing(sections, 3)!.BreakType);
+        Assert.Equal(3, DocumentSection.Containing(sections, 4)!.ParagraphIndex);
+        Assert.True(DocumentSection.Containing(sections, 1)!.Hidden);
+        Assert.Equal([0, 3], sections.Where(section => section.BreakType == SectionBreakType.NextPage).Select(section => section.ParagraphIndex));
+    }
+
+    [Fact]
+    public void A_Sections_Margins_Indent_It_Under_A_Page_Style_And_Nested_Ones_Add_Up()
+    {
+        var result = OdtTestPackage.ReadStyled(
+            "<text:p>first</text:p>" +
+            "<text:section text:style-name=\"half\" text:name=\"title\"><text:p>title</text:p>" +
+            "<text:section text:style-name=\"inner\" text:name=\"inner\"><text:p>inner</text:p></text:section></text:section>" +
+            "<text:p text:style-name=\"switch\">sheet</text:p>",
+            Masters(false),
+            "<style:style style:name=\"switch\" style:family=\"paragraph\" style:master-page-name=\"Other\"/>" +
+            "<style:style style:name=\"half\" style:family=\"section\"><style:section-properties fo:margin-right=\"8.5cm\"/></style:style>" +
+            "<style:style style:name=\"inner\" style:family=\"section\"><style:section-properties fo:margin-left=\"10pt\"/></style:style>");
+
+        DocumentSection title = DocumentSection.Containing(result.Document.Sections, 1)!;
+        DocumentSection inner = DocumentSection.Containing(result.Document.Sections, 2)!;
+        Assert.Equal((0, 240.94), (title.LeftIndent, Math.Round(title.RightIndent, 2)));
+        Assert.Equal((10, 240.94), (inner.LeftIndent, Math.Round(inner.RightIndent, 2)));
+        Assert.Equal(200, title.Page!.Width);
+        Assert.Equal(SectionBreakType.Continuous, title.BreakType);
+        Assert.Equal(0, DocumentSection.Containing(result.Document.Sections, 3)!.LeftIndent);
+    }
+
+    [Fact]
+    public void A_Deleted_Paragraph_Ahead_Of_The_Body_Does_Not_Choose_Its_Page()
+    {
+        // text:tracked-changes keeps a deletion's paragraphs ahead of the body.
+        // tdf130680.odt's body starts on a first-page style with no footer, and
+        // reading the deletion first put it on the default page, footer and all.
+        var result = OdtTestPackage.ReadStyled(
+            "<text:tracked-changes><text:changed-region text:id=\"c1\"><text:deletion>" +
+            "<text:p text:style-name=\"plain\">gone</text:p></text:deletion></text:changed-region></text:tracked-changes>" +
+            "<text:p text:style-name=\"switch\">first</text:p>",
+            Masters(false),
+            "<style:style style:name=\"plain\" style:family=\"paragraph\"/>" +
+            "<style:style style:name=\"switch\" style:family=\"paragraph\" style:master-page-name=\"Other\"/>");
+
+        Assert.Equal(300, result.Document.PageGeometry!.Width);
+        Assert.Equal("foot B", Assert.Single(result.Document.RunningContent.Footer(PageSelection.Default)).Text);
+    }
 }

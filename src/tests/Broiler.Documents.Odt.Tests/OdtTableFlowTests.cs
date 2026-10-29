@@ -32,12 +32,15 @@ public sealed class OdtTableFlowTests
     }
 
     [Fact]
-    public void Unspecified_padding_keeps_the_existing_fallback()
+    public void Unspecified_padding_is_none()
     {
+        // ODF has no default cell padding. fdo114306_2.odt's approval sheet is a
+        // table of unstyled cells, and LibreOffice sets its text against the
+        // 3 cm margin; Word's 0.08 inch used to push it in and narrow it.
         DocumentTable table = Assert.Single(Read("").Document.Tables);
         TableCell cell = Assert.Single(Assert.Single(table.Rows).Cells);
         Assert.Null(cell.Padding);
-        Assert.Equal(new TableCellPadding(5.4, 0, 5.4, 0), cell.PaddingFor(table));
+        Assert.Equal(new TableCellPadding(0, 0, 0, 0), cell.PaddingFor(table));
         Assert.False(table.KeepWithNext);
     }
 

@@ -316,6 +316,12 @@ public static class OdtWriter
                 "odt.section.page",
                 "A section's own page size and top/bottom margins were not written; its text is written within the document's page.");
         }
+        if (document.Sections.Any(section => section.PageNumberStart is not null))
+        {
+            context.AddDiagnosticOnce(
+                "odt.section.page-number",
+                "A section's page-number restart was not written; its pages are numbered on from the pages before it.");
+        }
         if (document.Paragraphs.Any(paragraph => paragraph.Style.List is ListReference list &&
             !ReferenceEquals(list.Definition, list.Definition.CounterGroup)))
             context.AddDiagnosticOnce("odt.list.shared-counter", "A list restart that also resets another list's shared counters was written as an independent list restart.");
@@ -441,8 +447,9 @@ public static class OdtWriter
     }
 
     private static bool HasSectionMargins(DocumentSection section, PageGeometry? docPage) =>
-        section.Page is PageGeometry page && docPage is not null &&
-        (page.MarginLeft > docPage.MarginLeft + 0.01 || page.MarginRight > docPage.MarginRight + 0.01);
+        section.LeftIndent > 0 || section.RightIndent > 0 ||
+        (section.Page is PageGeometry page && docPage is not null &&
+        (page.MarginLeft > docPage.MarginLeft + 0.01 || page.MarginRight > docPage.MarginRight + 0.01));
 
     private static bool InsideTable(DocumentSection section, IReadOnlyList<DocumentTable> tables) =>
         tables.Any(table => section.ParagraphIndex >= table.ParagraphIndex && section.ParagraphEnd <= table.ParagraphEnd &&
@@ -975,6 +982,32 @@ public static class OdtWriter
         {
             host.Add(imageAnchor);
             host = imageAnchor;
+        }
+
+        // A page field holds its last value as its text, as ODF writes one.
+        if (style.PageField is PageField field)
+        {
+            var element = new XElement(OdtNamespaces.Text + (field.Kind == PageFieldKind.PageCount ? "page-count" : "page-number"));
+            string? format = field.Format switch
+            {
+                ListNumberFormat.None => "",
+                ListNumberFormat.LowerRoman => "i",
+                ListNumberFormat.UpperRoman => "I",
+                ListNumberFormat.LowerLetter => "a",
+                ListNumberFormat.UpperLetter => "A",
+                ListNumberFormat.Decimal => "1",
+                _ => null,
+            };
+            if (format is not null)
+                element.Add(new XAttribute(OdtNamespaces.Style + "num-format", format));
+            if (field.Kind == PageFieldKind.PageNumber)
+            {
+                element.Add(new XAttribute(OdtNamespaces.Text + "select-page", "current"));
+                if (field.Adjust != 0)
+                    element.Add(new XAttribute(OdtNamespaces.Text + "page-adjust", field.Adjust.ToString(CultureInfo.InvariantCulture)));
+            }
+            host.Add(element);
+            host = element;
         }
         AddInlineContent(host, text, offset, style, state, context);
     }
@@ -2337,6 +2370,9 @@ public static class OdtWriter
                     _ => "run-through",
                 }));
 
+            if (!shape.Printable)
+                properties.Add(new XAttribute(OdtNamespaces.Style + "print-content", "false"));
+
             if (shape.IsPageAnchored)
             {
                 properties.Add(new XAttribute(OdtNamespaces.Style + "horizontal-pos", "from-left"));
@@ -2414,10 +2450,12 @@ public static class OdtWriter
         /// </summary>
         public string GetSectionStyleName(DocumentSection section, PageGeometry? docPage)
         {
-            double extraLeft = (section.Page is not null && docPage is not null && section.Page.MarginLeft > docPage.MarginLeft + 0.01)
-                ? section.Page.MarginLeft - docPage.MarginLeft : 0;
-            double extraRight = (section.Page is not null && docPage is not null && section.Page.MarginRight > docPage.MarginRight + 0.01)
-                ? section.Page.MarginRight - docPage.MarginRight : 0;
+            double extraLeft = Math.Max(0, section.LeftIndent) +
+                ((section.Page is not null && docPage is not null && section.Page.MarginLeft > docPage.MarginLeft + 0.01)
+                    ? section.Page.MarginLeft - docPage.MarginLeft : 0);
+            double extraRight = Math.Max(0, section.RightIndent) +
+                ((section.Page is not null && docPage is not null && section.Page.MarginRight > docPage.MarginRight + 0.01)
+                    ? section.Page.MarginRight - docPage.MarginRight : 0);
 
             string key = section.ColumnCount.ToString(CultureInfo.InvariantCulture) + "|" +
                          OdtUnits.FormatPoints(section.ColumnGap) + "|" +
@@ -2491,6 +2529,10 @@ public static class OdtWriter
                 }));
             if (table.LeftIndent != 0)
                 properties.Add(new XAttribute(OdtNamespaces.Fo + "margin-left", OdtUnits.FormatPoints(table.LeftIndent)));
+            if (table.SpacingBefore > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "margin-top", OdtUnits.FormatPoints(table.SpacingBefore)));
+            if (table.SpacingAfter > 0)
+                properties.Add(new XAttribute(OdtNamespaces.Fo + "margin-bottom", OdtUnits.FormatPoints(table.SpacingAfter)));
             if (!properties.HasAttributes)
                 return null;
             string key = properties.ToString(SaveOptions.DisableFormatting);

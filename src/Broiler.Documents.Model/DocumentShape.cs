@@ -76,7 +76,8 @@ public sealed class DocumentShape(
     ShapeGeometry geometry = ShapeGeometry.Rectangle,
     double outlineWidth = 1,
     bool offsetXFromCell = false,
-    TextAlignment? cellHorizontalAlignment = null)
+    TextAlignment? cellHorizontalAlignment = null,
+    bool printable = true)
 {
 
     /// <summary>The paragraph the shape is anchored to.</summary>
@@ -146,6 +147,15 @@ public sealed class DocumentShape(
     /// letterhead case, and painting it over the letter would hide the letter.
     /// </summary>
     public bool BehindText { get; } = behindText;
+
+    /// <summary>
+    /// False for a shape the document keeps off the printed page: shown while
+    /// editing, laid out and wrapped around as any other, but not drawn on a
+    /// page that is printed or exported. ODF states it as
+    /// <c>style:print-content="false"</c>; a letterhead template uses it for
+    /// the band and crest that the printed company paper already carries.
+    /// </summary>
+    public bool Printable { get; } = printable;
 
     /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,

@@ -273,10 +273,28 @@ public sealed class OdtColumnTests
         stream.Position = 0;
         RichTextDocument read = new OdtDocumentCodec().Read(stream).Document;
 
+        // ODF states a section's margins as indents within the page's text
+        // area, and they come back as that: half an inch either side of the
+        // document's inch margins.
         Assert.Single(read.Sections);
-        Assert.NotNull(read.Sections[0].Page);
-        Assert.Equal(108, read.Sections[0].Page!.MarginLeft, 2);
-        Assert.Equal(108, read.Sections[0].Page!.MarginRight, 2);
+        Assert.Equal(36, read.Sections[0].LeftIndent, 2);
+        Assert.Equal(36, read.Sections[0].RightIndent, 2);
+    }
+
+    [Fact]
+    public void Section_Indents_Round_Trip()
+    {
+        RichTextDocument source = RichTextDocument.FromParagraphs(
+            Enumerable.Range(0, 3).Select(i => RichTextParagraph.Plain("p" + i)).ToList())
+            .WithSections([new DocumentSection(1, 1, 1, 0, leftIndent: 18, rightIndent: 241)]);
+
+        RichTextDocument read = RoundTrip(source);
+
+        DocumentSection section = Assert.Single(read.Sections);
+        Assert.Equal((1, 1), (section.ParagraphIndex, section.ParagraphCount));
+        Assert.Equal(18, section.LeftIndent, 2);
+        Assert.Equal(241, section.RightIndent, 2);
+        Assert.Null(section.Page);
     }
 
     [Fact]
@@ -310,8 +328,7 @@ public sealed class OdtColumnTests
 
         Assert.Single(read.Sections);
         Assert.Equal(1, read.Sections[0].ColumnCount);
-        Assert.NotNull(read.Sections[0].Page);
-        Assert.Equal(108, read.Sections[0].Page!.MarginLeft, 2);
+        Assert.Equal(36, read.Sections[0].LeftIndent, 2);
     }
 
     [Fact]

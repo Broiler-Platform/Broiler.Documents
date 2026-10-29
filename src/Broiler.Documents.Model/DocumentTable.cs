@@ -89,7 +89,9 @@ public sealed class DocumentTable(
     bool columnBreakBefore = false,
     bool autoFit = false,
     bool keepTogether = false,
-    string? name = null)
+    string? name = null,
+    double spacingBefore = 0,
+    double spacingAfter = 0)
 {
 
     /// <summary>Word's own default cell margin: 0.08 inch on the left and right.</summary>
@@ -143,6 +145,16 @@ public sealed class DocumentTable(
     /// <summary>Optional sheet or table name (e.g. "Sheet1" or "Sales").</summary>
     public string? Name { get; } = name;
 
+    /// <summary>
+    /// Space above the table, in points, as a paragraph has above it: ODF's
+    /// <c>fo:margin-top</c> on a table. Like a paragraph's, it opens no page or
+    /// column; a table at the top of one starts there.
+    /// </summary>
+    public double SpacingBefore { get; } = double.IsFinite(spacingBefore) && spacingBefore > 0 ? spacingBefore : 0;
+
+    /// <summary>Space below the table, in points: ODF's <c>fo:margin-bottom</c> on a table.</summary>
+    public double SpacingAfter { get; } = double.IsFinite(spacingAfter) && spacingAfter > 0 ? spacingAfter : 0;
+
     /// <summary>Returns a copy of this table with the specified sheet or table name.</summary>
     public DocumentTable WithName(string? newName) =>
         new DocumentTable(
@@ -161,7 +173,9 @@ public sealed class DocumentTable(
             ColumnBreakBefore,
             AutoFit,
             KeepTogether,
-            newName);
+            newName,
+            SpacingBefore,
+            SpacingAfter);
 
     /// <summary>The inline table's width within its containing text area.</summary>
     public double WidthIn(double available)
@@ -286,7 +300,7 @@ public sealed class DocumentTable(
         // would draw an empty table and lay the paragraph out inside no cell,
         // which is to say nowhere.
         return held == 0 ? null : new DocumentTable(index, count, rows, ColumnWidths, CellPadding, Position,
-            KeepWithNext, PreferredWidth, WidthPercent, Alignment, LeftIndent, PageBreakBefore, ColumnBreakBefore, AutoFit, KeepTogether, Name);
+            KeepWithNext, PreferredWidth, WidthPercent, Alignment, LeftIndent, PageBreakBefore, ColumnBreakBefore, AutoFit, KeepTogether, Name, SpacingBefore, SpacingAfter);
     }
 
     /// <summary>
@@ -318,7 +332,9 @@ public sealed class DocumentTable(
             ColumnBreakBefore,
             AutoFit,
             KeepTogether,
-            Name);
+            Name,
+            SpacingBefore,
+            SpacingAfter);
     }
 
     /// <summary>
@@ -361,7 +377,9 @@ public sealed class DocumentTable(
             ColumnBreakBefore,
             AutoFit,
             KeepTogether,
-            Name);
+            Name,
+            SpacingBefore,
+            SpacingAfter);
     }
 
     /// <summary>
@@ -605,7 +623,8 @@ public sealed class DocumentTable(
 
         if (sourceCount <= 0)
             return new DocumentTable(ParagraphIndex, ParagraphCount, newRows, ColumnWidths, CellPadding, Position,
-                KeepWithNext, PreferredWidth, WidthPercent, Alignment, LeftIndent, PageBreakBefore, ColumnBreakBefore, AutoFit, KeepTogether);
+                KeepWithNext, PreferredWidth, WidthPercent, Alignment, LeftIndent, PageBreakBefore, ColumnBreakBefore, AutoFit, KeepTogether,
+                spacingBefore: SpacingBefore, spacingAfter: SpacingAfter);
 
         var remappedRows = new List<TableRow>(newRows.Count);
         foreach (TableRow row in newRows)
@@ -657,7 +676,9 @@ public sealed class DocumentTable(
             PageBreakBefore,
             ColumnBreakBefore,
             AutoFit,
-            KeepTogether);
+            KeepTogether,
+            spacingBefore: SpacingBefore,
+            spacingAfter: SpacingAfter);
     }
 
     /// <summary>
@@ -777,7 +798,9 @@ public sealed class DocumentTable(
             PageBreakBefore,
             ColumnBreakBefore,
             AutoFit,
-            KeepTogether);
+            KeepTogether,
+            spacingBefore: SpacingBefore,
+            spacingAfter: SpacingAfter);
     }
 
     /// <summary>
@@ -882,7 +905,9 @@ public sealed class DocumentTable(
             PageBreakBefore,
             ColumnBreakBefore,
             AutoFit,
-            KeepTogether);
+            KeepTogether,
+            spacingBefore: SpacingBefore,
+            spacingAfter: SpacingAfter);
     }
 
     /// <summary>
@@ -1015,7 +1040,9 @@ public sealed class DocumentTable(
             PageBreakBefore,
             ColumnBreakBefore,
             AutoFit,
-            KeepTogether);
+            KeepTogether,
+            spacingBefore: SpacingBefore,
+            spacingAfter: SpacingAfter);
     }
 
     /// <summary>
@@ -1156,7 +1183,9 @@ public sealed class DocumentTable(
             PageBreakBefore,
             ColumnBreakBefore,
             AutoFit,
-            KeepTogether);
+            KeepTogether,
+            spacingBefore: SpacingBefore,
+            spacingAfter: SpacingAfter);
     }
 
     /// <summary>
@@ -1324,7 +1353,9 @@ public sealed class DocumentTable(
             PageBreakBefore,
             ColumnBreakBefore,
             AutoFit,
-            KeepTogether);
+            KeepTogether,
+            spacingBefore: SpacingBefore,
+            spacingAfter: SpacingAfter);
     }
 
     /// <summary>
@@ -1474,7 +1505,9 @@ public sealed class DocumentTable(
                 PageBreakBefore,
                 ColumnBreakBefore,
                 AutoFit,
-                KeepTogether);
+                KeepTogether,
+                spacingBefore: SpacingBefore,
+                spacingAfter: SpacingAfter);
         }
 
         if (rs > 1 || cs > 1)
@@ -1600,7 +1633,9 @@ public sealed class DocumentTable(
                 PageBreakBefore,
                 ColumnBreakBefore,
                 AutoFit,
-                KeepTogether);
+                KeepTogether,
+                spacingBefore: SpacingBefore,
+                spacingAfter: SpacingAfter);
         }
 
         return this;

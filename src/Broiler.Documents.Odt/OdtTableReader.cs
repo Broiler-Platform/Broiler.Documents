@@ -138,10 +138,16 @@ internal static class OdtTableReader
             context.Builder.CurrentParagraphIndex - start,
             rows,
             widths,
-            DocumentTable.DefaultCellPadding,
+            // ODF has no default cell padding: a cell whose style states none
+            // has none, and LibreOffice sets its text against the cell's edge.
+            // Word's 0.08 inch is DOCX's default, not this format's.
+            cellPadding: 0,
             position: position,
             keepWithNext: (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "keep-with-next") == "always",
-            keepTogether: (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "keep-together") == "always",
+            // style:may-break-between-rows="false" is LibreOffice's "allow table
+            // to split across pages" turned off: the table stays on one page.
+            keepTogether: (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "keep-together") == "always" ||
+                (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Style + "may-break-between-rows") == "false",
             preferredWidth: preferredWidth,
             widthPercent: TablePercent(table, context.Styles) ?? (relativeGrid && preferredWidth is not > 0 ? 100 : null),
             alignment: (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Table + "align") switch
@@ -154,7 +160,9 @@ internal static class OdtTableReader
             pageBreakBefore: precedingBreak == OdtBreak.Page ||
                 (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "break-before") == "page",
             columnBreakBefore: precedingBreak == OdtBreak.Column ||
-                (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "break-before") == "column"));
+                (string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "break-before") == "column",
+            spacingBefore: TableLength(table, context.Styles, OdtNamespaces.Fo + "margin-top") ?? 0,
+            spacingAfter: TableLength(table, context.Styles, OdtNamespaces.Fo + "margin-bottom") ?? 0));
 
         context.HoldBreak((string?)TableProperties(table, context.Styles)?.Attribute(OdtNamespaces.Fo + "break-after") switch
         {

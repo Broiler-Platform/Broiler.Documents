@@ -14,8 +14,9 @@ public sealed class DumpTableTextTests
     }
 
     [Fact]
-    public void Anchored_Text_Box_Tables_Are_Exported_In_Their_Own_Flow()
+    public void Anchored_Text_Box_Text_Is_Not_Part_Of_The_Body_Text()
     {
+        // LibreOffice's text export walks the body and nothing anchored to it.
         var definition = new ListDefinition([new ListLevel { Template = "%1." }]);
         var itemStyle = ParagraphStyle.Default with { List = new ListReference(definition, 0), ListKind = ListKind.Numbered };
         var document = RichTextDocument.FromParagraphs([
@@ -24,7 +25,26 @@ public sealed class DumpTableTextTests
             .WithShapes([new DocumentShape(1, 0, 0, 100, 80,
                 paragraphs: [RichTextParagraph.Create("A", InlineStyle.Default, itemStyle), RichTextParagraph.Plain("B")],
                 tables: [new DocumentTable(0, 2, [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)])])])]);
-        Assert.Equal("1. before\n1. A\tB\n2. after", DocumentCommands.LabelledText(document));
+        Assert.Equal("1. before\n2. after", DocumentCommands.LabelledText(document));
+    }
+
+    [Fact]
+    public void A_Body_Of_One_Empty_Paragraph_Exports_Its_First_Text_Box_In_Its_Own_Flow()
+    {
+        // The one case LibreOffice exports a frame: nothing in the body but an
+        // empty paragraph, and then only the first frame, tables and lists
+        // numbered within it.
+        var definition = new ListDefinition([new ListLevel { Template = "%1." }]);
+        var itemStyle = ParagraphStyle.Default with { List = new ListReference(definition, 0), ListKind = ListKind.Numbered };
+        var document = RichTextDocument.FromParagraphs([RichTextParagraph.Plain("")])
+            .WithShapes(
+            [
+                new DocumentShape(0, 0, 0, 100, 80,
+                    paragraphs: [RichTextParagraph.Create("A", InlineStyle.Default, itemStyle), RichTextParagraph.Plain("B")],
+                    tables: [new DocumentTable(0, 2, [new TableRow([new TableCell(0, 1, 0), new TableCell(1, 1, 1)])])]),
+                new DocumentShape(0, 0, 100, 100, 80, paragraphs: [RichTextParagraph.Plain("second")]),
+            ]);
+        Assert.Equal("1. A\tB", DocumentCommands.LabelledText(document));
     }
 
     [Fact]

@@ -76,4 +76,28 @@ public sealed class OdtHeaderGeometryTests
         using var stream = new MemoryStream(OdtTestPackage.FromBody(body, stylesPartInnerXml: styles));
         return new OdtDocumentCodec().Read(stream);
     }
+
+    [Fact]
+    public void A_Header_Of_Fixed_Height_Holds_Its_Spacing_And_Says_It_Is_Fixed()
+    {
+        // fdo114306_2.odt's approval sheet: svg:height 0.4 cm with 0.3 cm of
+        // spacing, and LibreOffice starts the body 0.4 cm below the header's
+        // top, its spacing inside the height rather than added to it.
+        string styles = "<office:automatic-styles><style:page-layout style:name='page'>" +
+            "<style:page-layout-properties fo:page-width='400pt' fo:page-height='600pt' fo:margin-top='20pt' fo:margin-bottom='30pt'/>" +
+            "<style:header-style><style:header-footer-properties svg:height='16pt' fo:margin-bottom='12pt'/></style:header-style>" +
+            "<style:footer-style><style:header-footer-properties fo:min-height='16pt' fo:margin-top='12pt'/></style:footer-style>" +
+            "</style:page-layout></office:automatic-styles><office:master-styles>" +
+            "<style:master-page style:name='Standard' style:page-layout-name='page'>" +
+            "<style:header><text:p>header</text:p></style:header><style:footer><text:p>footer</text:p></style:footer>" +
+            "</style:master-page></office:master-styles>";
+        using var stream = new MemoryStream(OdtTestPackage.FromBody("<text:p>body</text:p>", stylesPartInnerXml: styles));
+
+        PageGeometry page = new OdtDocumentCodec().Read(stream).Document.PageGeometry!;
+
+        Assert.Equal((20, 36), (page.HeaderDistance, page.MarginTop));
+        Assert.True(page.FixedHeaderHeight);
+        Assert.Equal(30 + 16 + 12, page.MarginBottom);
+        Assert.False(page.FixedFooterHeight);
+    }
 }

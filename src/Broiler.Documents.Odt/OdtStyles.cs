@@ -185,6 +185,14 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     public IReadOnlyDictionary<string, XElement> NumberFormats { get; init; } = new Dictionary<string, XElement>();
     public CultureInfo NumberCulture { get; } = CultureInfo.CurrentCulture;
     public Func<XElement, InlineImage?>? ReadFillImage { get; set; }
+
+    /// <summary>
+    /// True for a document OpenOffice.org 2.x wrote, which states
+    /// <c>text:display</c> the wrong way round: <c>true</c> for hidden text and
+    /// <c>none</c> for shown. LibreOffice reads such a document's values
+    /// inverted (txtimppr.cxx, <c>CTF_TEXT_DISPLAY</c>), and so does this.
+    /// </summary>
+    public bool InvertsTextDisplay { get; set; }
     public void AddDiagnosticOnce(string code, string message) => Report(code, code, message);
 
     /// <summary>
@@ -605,6 +613,37 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         }
 
         return name;
+    }
+
+    /// <summary>
+    /// The page number a paragraph or table style restarts the count at where it
+    /// starts a page style: <c>style:page-number</c>, or null for one that states
+    /// none or <c>auto</c>, which carries the count on.
+    /// </summary>
+    /// <remarks>
+    /// LibreOffice writes <c>0</c> on a style that names no page style, and reads
+    /// it as carrying on; only a positive number restarts the count.
+    /// </remarks>
+    public int? PageNumberStart(string family, string? styleName)
+    {
+        string? value = null;
+        if (family == TableFamily)
+        {
+            if (styleName is not null && TableProperties.TryGetValue(styleName, out XElement? table))
+                value = (string?)table.Attribute(OdtNamespaces.Style + "page-number");
+        }
+        else
+        {
+            foreach (StyleDefinition style in Chain(family, styleName))
+            {
+                if ((string?)style.ParagraphProperties?.Attribute(OdtNamespaces.Style + "page-number") is string stated)
+                    value = stated;
+            }
+        }
+
+        return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int number) && number > 0
+            ? number
+            : null;
     }
 
     /// <summary>

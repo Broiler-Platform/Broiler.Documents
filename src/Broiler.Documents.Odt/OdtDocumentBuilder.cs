@@ -332,17 +332,23 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
             DocumentSection outer = covering[0];
             var background = covering.LastOrDefault(section => !section.Background.IsEmpty && section.Background.A > 0)?.Background ?? default;
             bool hidden = covering.Any(section => section.Hidden);
+            // A section inside another is indented within it, so the
+            // indents of every section around a paragraph add up.
+            double leftIndent = covering.Sum(section => section.LeftIndent);
+            double rightIndent = covering.Sum(section => section.RightIndent);
             int start = edges[i];
             if (resolved.LastOrDefault() is DocumentSection previous && previous.ParagraphEnd == start &&
                 previous.ColumnCount == outer.ColumnCount && previous.ColumnGap == outer.ColumnGap &&
                 previous.Page == outer.Page && previous.RunningContent == outer.RunningContent && previous.Background == background && previous.Hidden == hidden &&
-                previous.DontBalanceColumns == outer.DontBalanceColumns && previous.BreakType == outer.BreakType)
+                previous.DontBalanceColumns == outer.DontBalanceColumns && previous.BreakType == outer.BreakType &&
+                previous.LeftIndent == leftIndent && previous.RightIndent == rightIndent)
             {
                 resolved.RemoveAt(resolved.Count - 1);
                 start = previous.ParagraphIndex;
             }
             resolved.Add(new DocumentSection(start, edges[i + 1] - start, outer.ColumnCount, outer.ColumnGap,
-                outer.Page, outer.RunningContent, background, hidden: hidden, dontBalanceColumns: outer.DontBalanceColumns, breakType: outer.BreakType));
+                outer.Page, outer.RunningContent, background, hidden: hidden, dontBalanceColumns: outer.DontBalanceColumns, breakType: outer.BreakType,
+                leftIndent: leftIndent, rightIndent: rightIndent));
         }
         return resolved;
     }

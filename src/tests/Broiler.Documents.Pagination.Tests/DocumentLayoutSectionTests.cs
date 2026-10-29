@@ -500,4 +500,28 @@ public sealed class DocumentLayoutSectionTests
         Assert.NotEmpty(pages[1].Lines);
         Assert.Equal(0, pages[1].Lines[0].ParagraphIndex);
     }
+
+    [Fact]
+    public void A_Sections_Indents_Apply_On_A_Page_It_Follows_On()
+    {
+        // Unlike its page margins, which a section that follows on a page leaves
+        // to the section that started it, an ODF section's fo:margin-left and
+        // fo:margin-right indent it wherever it is: fdo114306_2.odt sets its
+        // title in the left half of the first page with an 8.5 cm right margin.
+        PageGeometry letter = new(612, 792, 72, 72, 72, 72);
+        string words = string.Join(' ', Enumerable.Repeat("word", 60));
+        RichTextDocument document = RichTextDocument.FromParagraphs([Line(words), Line(words), Line(words)])
+            .WithPageGeometry(letter)
+            .WithSections([new DocumentSection(1, 1, 1, 0, leftIndent: 36, rightIndent: 200)]);
+
+        LayoutPage page = Assert.Single(Layout(document).Pages);
+
+        Assert.All(page.Lines.Where(line => line.ParagraphIndex == 1), line =>
+        {
+            Assert.True(LeftOf(line) >= 72 + 36 - 0.01);
+            Assert.True(line.Pieces[^1].X + line.Pieces[^1].Width <= 612 - 72 - 200 + 0.5);
+        });
+        Assert.All(page.Lines.Where(line => line.ParagraphIndex != 1), line => Assert.Equal(72, LeftOf(line), 3));
+        Assert.True(page.Lines.Count(line => line.ParagraphIndex == 1) > page.Lines.Count(line => line.ParagraphIndex == 0));
+    }
 }

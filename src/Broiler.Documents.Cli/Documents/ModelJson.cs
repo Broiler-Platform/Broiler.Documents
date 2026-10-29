@@ -142,6 +142,17 @@ public static class ModelJson
         if (style.Revision is TextRevision revision)
             entry["revision"] = Describe(revision);
 
+        // Only on a page field, so the description of every other run is as it was.
+        if (style.PageField is PageField field)
+        {
+            entry["pageField"] = new JsonObject
+            {
+                ["kind"] = field.Kind == PageFieldKind.PageCount ? "pageCount" : "pageNumber",
+                ["format"] = field.Format.ToString().ToLowerInvariant(),
+                ["adjust"] = field.Adjust,
+            };
+        }
+
         // Only on a citation, so the description of every other run is as it was.
         if (style.Note is DocumentNote note)
         {

@@ -300,8 +300,9 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   (`tdf90697_complexBreaksHeaders.docx` draws its first section's header on
   every page). Odd- and even-page section starts create the blank pages required
   by parity in layout, orientation changes force `nextPage` breaks, and DOCX round-trips
-  all `SectionBreakType`s. ODT reads and writes relative section margins (`fo:margin-left`,
-  `fo:margin-right`) on `style:section-properties`, preserving 1-column sections with margins
+  all `SectionBreakType`s. ODT reads and writes section margins (`fo:margin-left`,
+  `fo:margin-right`) on `style:section-properties` as indents that apply on any page,
+  preserving 1-column sections with margins
   or unbalancing, and ODF's `text:dont-balance-text-columns` disables column balancing in layout.
   Still not read: a section's own paper size (the page is drawn at the document's, which
   puts `tdf123163-1.docx`'s `geometry` band at `off` by two or three pixels), RTF's
@@ -312,6 +313,20 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
   the second. None of its fourteen pictures is in the
   package (`docx.image.missing`); LibreOffice keeps a box of the size each
   states, one of them a whole page, and this reader keeps nothing of them.
+- **Page fields, the rest.** ODT's `text:page-number` and `text:page-count` are
+  `InlineStyle.PageField` runs that a header or footer draws per page, and ODT's
+  `style:page-number` restarts the count (`DocumentSection.PageNumberStart`). Not
+  yet: DOCX's `PAGE`, `NUMPAGES` and `SECTIONPAGES` fields and `w:pgNumType`
+  (`w:start`, `w:fmt`) and RTF's `\chpgn` and `PAGE` field are read as their
+  saved text; a field takes no number format from its page style; a page field in
+  body text or in a header's text box keeps its saved value; the ODT writer writes
+  one master page, so a restart is not written (`odt.section.page-number`).
+- **Conditional visibility in ODT.** `text:section` with `text:display="condition"`,
+  `text:hidden-paragraph` and `text:conditional-text` are not evaluated: a
+  section shows and a paragraph keeps its line whatever the condition says.
+  Forms built on user fields (`U-min.fodt`, `table-0-height-rows.fodt`) lay out
+  on two pages where LibreOffice draws one. The saved `text:is-hidden` is a
+  starting point, but LibreOffice evaluates the condition again on load.
 - **A picture whose payload is missing.** Fixed: missing, external or unsupported
   format pictures in DOCX and ODT (`docx.image.missing`, `docx.image.external`,
   `docx.image.format`, `odt.image.missing`, `odt.image.external`, `odt.image.format`)

@@ -29,6 +29,15 @@ namespace Broiler.Documents.Model;
 /// Columns of unequal width are held as equal ones, and a column break, which
 /// moves to the next column rather than the next page, is not modelled.
 /// </para>
+/// <para>
+/// A header's band is <see cref="MarginTop"/> less <see cref="HeaderDistance"/>.
+/// Most documents let the band grow to hold the header, and a renderer moves the
+/// text down where the header is taller. <see cref="FixedHeaderHeight"/> says the
+/// band is exactly that tall: the text stays where the margin puts it, and a
+/// header taller than its band is cut at it, as ODF's <c>svg:height</c> on
+/// <c>style:header-footer-properties</c> states and LibreOffice draws.
+/// <see cref="FixedFooterHeight"/> is the same for the footer.
+/// </para>
 /// </remarks>
 public sealed record PageGeometry(
     double Width,
@@ -40,7 +49,9 @@ public sealed record PageGeometry(
     double HeaderDistance = 0,
     double FooterDistance = 0,
     int ColumnCount = 1,
-    double ColumnGap = 0)
+    double ColumnGap = 0,
+    bool FixedHeaderHeight = false,
+    bool FixedFooterHeight = false)
 {
     /// <summary>A4 portrait with 1 inch margins, for a document that states none.</summary>
     public static PageGeometry A4 { get; } = new(595.276, 841.89, 72, 72, 72, 72, 36, 36);

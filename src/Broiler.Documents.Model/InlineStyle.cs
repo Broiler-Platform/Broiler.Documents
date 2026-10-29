@@ -74,6 +74,13 @@ public readonly record struct InlineStyle
     /// </summary>
     public TextRevision? Revision { get; init; }
 
+    /// <summary>
+    /// The page field this run shows, or <see langword="null"/> for ordinary
+    /// text. The run's text is the field's last computed value; a header or
+    /// footer draws the value for the page it is on (<see cref="Model.PageField"/>).
+    /// </summary>
+    public PageField? PageField { get; init; }
+
     /// <summary>The unformatted default style (<c>default(InlineStyle)</c>).</summary>
     public static InlineStyle Default => default;
 

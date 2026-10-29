@@ -37,6 +37,23 @@ internal static class OdtMetadata
     /// <summary>What this writer names itself when the caller states no producer.</summary>
     public const string DefaultGenerator = "Broiler.Documents.Odt";
 
+    /// <summary>
+    /// True when <paramref name="generator"/>, a <c>meta:generator</c>, names
+    /// OpenOffice.org 2.x - or another product of its code line - by the
+    /// build id LibreOffice reads from it: the <c>680</c> of
+    /// <c>OpenOffice.org/2.2$Win32 OpenOffice.org_project/680m14$Build-9134</c>
+    /// (xmlimp.cxx, <c>DocumentInfo</c>, <c>OOo_2x</c>).
+    /// </summary>
+    public static bool WrittenByOpenOffice2(string? generator)
+    {
+        if (string.IsNullOrEmpty(generator))
+            return false;
+
+        System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(
+            generator, @"_project/(\d+)m\d+\$Build-\d+", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        return match.Success && match.Groups[1].Value == "680";
+    }
+
     /// <summary>Reads the package's <c>meta.xml</c>, if it has one.</summary>
     public static DocumentMetadata Read(
         ZipArchive archive,

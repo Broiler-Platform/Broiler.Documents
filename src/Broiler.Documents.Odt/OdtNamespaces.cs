@@ -32,6 +32,9 @@ internal static class OdtNamespaces
 
     public static readonly XNamespace Xml = "http://www.w3.org/XML/1998/namespace";
 
+    /// <summary>The form namespace: the controls a <c>draw:control</c> places on the page.</summary>
+    public static readonly XNamespace Form = "urn:oasis:names:tc:opendocument:xmlns:form:1.0";
+
     /// <summary>The settings namespace: <c>config:config-item</c> in <c>settings.xml</c>.</summary>
     public static readonly XNamespace Config = "urn:oasis:names:tc:opendocument:xmlns:config:1.0";
 
