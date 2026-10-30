@@ -1,14 +1,12 @@
 # ODS Conformance
 
 `Broiler.Documents.Ods` reads and writes OASIS OpenDocument Spreadsheet documents
-(`.ods`, `.ots`) through the `DocumentCodec` contract. It has no DOM, UI, OS, or
-third-party dependencies.
-
-Spreadsheet formats project through the rich-text model's tables per
-[ADR 0016](../adr/0016-spreadsheet-formats-through-the-rich-text-model.md). In
-addition, `Broiler.Documents.Model.Spreadsheets` provides a typed
-`SpreadsheetWorkbook` representation with bidirectional projection to and from
-`RichTextDocument`.
+(`.ods`, `.ots`) through the `DocumentCodec` contract, with no DOM, UI, OS, or
+third-party dependencies. Spreadsheets project through the rich-text model's
+tables ([ADR 0016](../adr/0016-spreadsheet-formats-through-the-rich-text-model.md));
+`Broiler.Documents.Model.Spreadsheets` adds a typed `SpreadsheetWorkbook`
+projected both ways to and from `RichTextDocument`. Rights are in the
+[ODS IP Register](../ip/ods.md).
 
 ## Probe
 
@@ -22,52 +20,49 @@ addition, `Broiler.Documents.Model.Spreadsheets` provides a typed
 
 ## Reading
 
-### Package Structure
+ODF part 2 §3.3 has the `mimetype` file stored first in the ZIP archive,
+uncompressed (`CompressionLevel.NoCompression`). The reader checks:
 
-Section 3.3 of ODF part 2 mandates that packages store the `mimetype` file
-as the first entry in the ZIP archive, uncompressed (`CompressionLevel.NoCompression`).
-The reader verifies package integrity:
-1. `mimetype`: Checked for valid OASIS spreadsheet MIME type.
-2. `META-INF/manifest.xml`: Validates part paths and content types.
-3. `content.xml`: Contains the document body and `<office:spreadsheet>` element.
-4. `styles.xml`: Read for shared styles and formatting definitions.
+1. `mimetype`: a valid OASIS spreadsheet MIME type.
+2. `META-INF/manifest.xml`: part paths and content types.
+3. `content.xml`: the document body and its `<office:spreadsheet>` element.
+4. `styles.xml`: shared styles and formatting definitions.
 
-### Bounded Expansion
+Repeated rows and columns are expanded within bounds, since packages often
+state e.g. `table:number-rows-repeated="1048500"` on empty trailing rows and
+unbounded expansion would be an out-of-memory denial of service:
 
-Spreadsheet packages frequently use repeated row and column attributes, e.g.
-`table:number-rows-repeated="1048500"` on empty trailing grid rows. Unbounded
-expansion would cause out-of-memory denial of service. The reader inspects cell
-contents:
-- Trailing rows with only empty cells are bounded (capped to 1 row).
+- Trailing rows with only empty cells are capped to one row.
 - Non-empty repeated rows are bounded by `DocumentLimits.MaxTableRows`.
-- Repeated columns (`table:number-columns-repeated`) are bounded by `DocumentLimits.MaxTableColumns`.
+- Repeated columns (`table:number-columns-repeated`) are bounded by
+  `DocumentLimits.MaxTableColumns`.
 
-### Tables and Cells
+| ODS | Model |
+|---|---|
+| Each `<table:table>` sheet | A `DocumentTable` in the `RichTextDocument`; `table:name` is `DocumentTable.Name` and `SpreadsheetWorksheet.Name` |
+| `<table:table-column>` column styles | Column widths |
+| `string` cell | `office:string-value` or nested `<text:p>` elements |
+| `float` / `currency` / `percentage` cell | `office:value` |
+| `boolean` cell | `office:boolean-value` |
+| `date` cell | `office:date-value` |
+| Cell values | Typed, in `TableCell.Value` (`CellValue`); number formats in `TableCell.NumberFormat` |
+| `table:formula` | `TableCell.Formula`, the OpenFormula prefixes (`of:=...` or `:=...`) normalized to standard formula syntax |
+| `table:number-columns-spanned`, `table:number-rows-spanned` | Cell spans; the `<table:covered-table-cell>` elements after them are skipped or spanned accordingly |
 
-- **Sheet name**: Read from `table:name` on `<table:table>` and preserved on
-  `DocumentTable.Name` and `SpreadsheetWorksheet.Name`.
-- **Column widths**: Extracted from `<table:table-column>` column styles.
-- **Value types**:
-  - `string`: Read from `office:string-value` or nested `<text:p>` elements.
-  - `float` / `currency` / `percentage`: Read from `office:value`.
-  - `boolean`: Read from `office:boolean-value`.
-  - `date`: Read from `office:date-value`.
-- **Formulas**: Read from `table:formula`. OpenFormula prefix conventions (`of:=...` or `:=...`) are normalized to standard formula syntax.
-- **Merged cells**: `table:number-columns-spanned` and `table:number-rows-spanned` determine cell spans; subsequent covered cells (`<table:covered-table-cell>`) are skipped or spanned accordingly.
-
-### Model Projection
-
-- Each sheet produces a `DocumentTable` in the resulting `RichTextDocument`.
-- Cells carry typed values in `TableCell.Value` (`CellValue`), formulas in `TableCell.Formula`, and number formats in `TableCell.NumberFormat`.
-- `OdsReadResult` carries both the `RichTextDocument` and the typed `SpreadsheetWorkbook`.
+`OdsReadResult` carries both the `RichTextDocument` and the typed
+`SpreadsheetWorkbook`.
 
 ## Writing
 
-The writer generates a compliant OASIS OpenDocument Spreadsheet package:
-- `mimetype`: Written uncompressed (`NoCompression`) as the first entry in the ZIP archive, containing `application/vnd.oasis.opendocument.spreadsheet`.
-- `META-INF/manifest.xml`: Manifest declaring root, `content.xml`, and `styles.xml`.
-- `styles.xml`: Standard styles, fonts, and office document properties.
-- `content.xml`: Full spreadsheet content with `<office:spreadsheet>`, `<table:table>`, `<table:table-column>`, `<table:table-row>`, and typed `<table:table-cell>` elements. Formulas are written with standard OpenFormula syntax (`of:=...`).
+The writer produces an OASIS OpenDocument Spreadsheet package:
+
+- `mimetype`: first in the ZIP archive, uncompressed (`NoCompression`),
+  containing `application/vnd.oasis.opendocument.spreadsheet`.
+- `META-INF/manifest.xml`: declares the root, `content.xml`, and `styles.xml`.
+- `styles.xml`: standard styles, fonts, and office document properties.
+- `content.xml`: `<office:spreadsheet>`, `<table:table>`,
+  `<table:table-column>`, `<table:table-row>`, and typed `<table:table-cell>`
+  elements; formulas in OpenFormula syntax (`of:=...`).
 
 ## Diagnostics
 
@@ -77,7 +72,3 @@ The writer generates a compliant OASIS OpenDocument Spreadsheet package:
 | `ods.missing-content` | `content.xml` was not found in the package. |
 | `ods.content` | `content.xml` has invalid XML or empty root. |
 | `ods.missing-spreadsheet` | `content.xml` contains no `office:spreadsheet` element. |
-
-## IP and Governance
-
-See the [ODS IP Register](../ip/ods.md).

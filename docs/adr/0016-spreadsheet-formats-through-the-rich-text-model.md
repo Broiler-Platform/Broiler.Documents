@@ -14,7 +14,7 @@ The reviewer also selected plain-text CSV presentation in the Writer. The
 existing CSV codec still maps records to rich-text tables; adapting Writer
 presentation is outstanding work, and the original table-rendering expectation
 for Writer below is superseded. Delimiter preservation, `sep=` handling and TSV
-are deferred. See the [decision record](../notes/roadmap-decisions-2026-10-19.md).
+are deferred. See the [decision record](../notes/roadmap-decisions.md).
 
 ## Context
 

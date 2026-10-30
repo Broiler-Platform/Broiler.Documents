@@ -2,30 +2,25 @@
 
 - **Status:** Active; regenerated whenever the codec's behavior changes
 - **Component:** `Broiler.Documents.Pdf`
-- **Updated:** 2026-09-24 (image masks carried as alpha; ICC-based colour through a composed reader; encrypted documents opened under IP-015, IP-002 and IP-025)
 - **Purpose:** to scope the IP-001 acceptance by stating exactly which PDF
   constructs the implementation reads, writes, recognizes without interpreting,
   and rejects
 
 ## 1. What this document is for
 
-The IP/licensing register's IP-001 row asks a reviewer to determine
-whether Broiler's reader and writer fall within Adobe's ISO 32000-1 public
-patent licence — a question about *`Compliant Implementation`* and *`Essential
-Claim`* coverage, and therefore a question about a concrete artifact rather than
-an intention. Before the base slice was implemented that question had no
-definite subject. It now does, and this inventory is that subject written down.
-
-A reviewer should be able to work from this document alone to answer "what does
-this implementation actually do with the format?" without reading the code, and
-to spot-check any row against the named source file when they want to.
+The IP/licensing register's IP-001 row asks a reviewer to determine whether
+Broiler's reader and writer fall within Adobe's ISO 32000-1 public patent
+licence — a question about *`Compliant Implementation`* and *`Essential
+Claim`* coverage, and therefore about a concrete artifact rather than an
+intention. This inventory is that artifact written down. A reviewer should be
+able to answer "what does this implementation actually do with the format?"
+from it alone, and spot-check any row against the named source file.
 
 Where a row's behavior is "recognized and skipped", the codec also reports what
-it met — how many, of which declared variants, on which pages. That inventory is
-specified in
-[PDF extension points §3.1](extension-points.md#31-what-a-skip-report-carries),
-and it is the evidence a reviewer scoping IP-005 or IP-012 would otherwise have
-to gather by hand. It changes no behavior and decodes nothing.
+it met — how many, of which declared variants, on which pages — as specified in
+[PDF extension points §3.1](extension-points.md#31-what-a-skip-report-carries).
+That is the evidence a reviewer scoping IP-005 or IP-012 would otherwise gather
+by hand; it changes no behavior and decodes nothing.
 
 **This is not a conformance claim.** It states behavior, not compliance. No entry
 here promotes anything in the [feature matrix](feature-matrix.md), which
@@ -34,25 +29,22 @@ nothing here is `Supported` while its register row is pending.
 
 ## 2. Provenance and the clause column
 
-Every behavioral row was derived from the implementation, not from memory or from
-any other PDF library: the operator list is the interpreter's dispatch switch,
-the key list is the set of dictionary keys the code actually consults, and the
-writer list is the set of names the serializer actually emits. The
-"Where" column names the file so a reviewer can verify any row directly.
+Every behavioral row is derived from the implementation, not from memory or any
+other PDF library: the operator list is the interpreter's dispatch switch, the
+key list is the set of dictionary keys the code consults, and the writer list is
+the set of names the serializer emits. The "Where" column names the file.
 
 > **The clause column is provisional and must be verified against the licensed
-> standard text.** That verification is an open
-> [roadmap item](../../roadmap.md#rights-and-provenance), so these references
-> are a best-effort starting point offered to save the reviewer time — they are
-> not themselves evidence, and a mismatch between this column and the standard
-> means this column is wrong. Consistent with the roadmap's standards-source
-> rule, clauses are cited and no standard prose, table, or diagram is reproduced
-> here.
+> standard text** (an open
+> [roadmap item](../../roadmap.md#rights-and-provenance)). The references are a
+> best-effort starting point, not evidence; a mismatch with the standard means
+> this column is wrong. Per the roadmap's standards-source rule, clauses are
+> cited and no standard prose, table, or diagram is reproduced.
 
 ## 3. Reader — constructs interpreted
 
-These are the constructs the codec parses and acts on. This is the set the
-IP-001 determination has to cover on the reading side.
+The constructs the codec parses and acts on: the set the IP-001 determination
+has to cover on the reading side.
 
 | Construct | Clause (provisional) | Behavior | Where |
 |---|---|---|---|
@@ -139,8 +131,8 @@ document content reaches a diagnostic.
 
 ## 4. Reader — recognized but not interpreted
 
-These constructs are identified so the reader can name what it declined. **No
-data of these kinds is decoded, executed, fetched, or projected**, which is the
+Constructs identified so the reader can name what it declined. **No data of
+these kinds is decoded, executed, fetched, or projected**, which is the
 distinction that matters for the register rows they belong to.
 
 | Construct | Clause (provisional) | Diagnostic | Register row |
@@ -151,8 +143,8 @@ distinction that matters for the register rows they belong to.
 | Font provisioning on write | 9.6 | The writer takes fonts from the caller's configured `DocumentFontSet` or from nowhere; nothing is discovered on the machine. Text outside WinAnsi with no font provisioned reports `pdf.write.no-font-configured`, which is the caller's to fix; with a font provisioned it reports `pdf.write.character-unsupported`, which is this build's | IP-012 (inspection only; embedding outside it) |
 | Decoded image extraction | 8.9 | A decoded image whose samples are RGBA or packed one-bit rows becomes an `InlineImage` in the document when the caller's resource policy permits `ExtractToModel`. Its masks (8.9.6, 11.6.5.3) become its alpha: a stencil painted in the fill colour, a colour key, an explicit mask, and a soft mask with its `/Matte` undone. A picture covering the page beneath its visible text is the page's background, left out of the flow and reported, and is never offered to the resource policy. A sample layout, a colour space, or a mask outside what the feature matrix lists reports `pdf.image.decoded-not-projected` with the construct met; a policy refusal reports `pdf.image.extraction-denied`. The drawn box comes from the CTM, not the sample count | IP-001 |
 | `ICCBased` colour spaces and the profiles they embed | 8.6.5.5 | Converted to sRGB where `IccColorProfileReader` is composed: matrix and lookup-table profiles of versions 2 and 4 over Gray, RGB, and CMYK, connecting in CIEXYZ or CIELAB, through the `A2B` table the rendering intent selects - the image's `/Intent`, else `ri` or a graphics state's `/RI`. An Indexed palette over such a space converts entry by entry. Without a reader, an image of raw samples reports `pdf.image.decoded-not-projected` naming the colour space; a profile the reader declines is reported with the construct it declined. No profile is bundled, cached past the read, or re-emitted | IP-024 |
-| `DCTDecode` | 7.4.8 | Every Huffman-coded DCT process — baseline sequential, extended sequential, and progressive — at 8-bit with 1 or 3 components decodes when `JpegStreamFilter` is composed, with the colour transform resolved from the Adobe `APP14` marker, the `/ColorTransform` entry, or the format default. `pdf.image.dct.progressive-unsupported` is retained as API and no longer emitted here; colour transform 0 is honoured by telling the decoder not to convert; contradictory colour declarations report `pdf.image.dct.color-transform-uncertain`; every other tuple, including YCCK, reports `pdf.image.dct.tuple-unsupported`. Nothing is composed by default | IP-005, IP-006 approved |
-| `JPXDecode` | 7.4.9 | Reported with `pdf.filter.jpx.unsupported`. Where `JpxStreamFilter` is composed the JP2 boxes and the SIZ/COD markers are read, so the note carries the real tuple — size, components, depth, decomposition levels, wavelet — and a Part 2 codestream is refused by `Rsiz` as outside the row. Since 2026-09-03 a Part 1 codestream is decoded for one tile, default precincts and the LRCP/RPCL progressions — tag trees, packet headers, EBCOT tier-1, the inverse wavelets and the component transforms — with multiple tiles, precinct overrides, region of interest, progression changes and packed headers refused by name. No real image has been decoded through it | IP-007 approved for Part 1; EBCOT context tables pending in SRC-018 |
+| `DCTDecode` | 7.4.8 | Every Huffman-coded DCT process — baseline sequential, extended sequential, and progressive — at 8-bit with 1 or 3 components decodes when `JpegStreamFilter` is composed, with the colour transform resolved from the Adobe `APP14` marker, the `/ColorTransform` entry, or the format default. `pdf.image.dct.progressive-unsupported` is retained as API and emitted by nothing here; colour transform 0 is honoured by telling the decoder not to convert; contradictory colour declarations report `pdf.image.dct.color-transform-uncertain`; every other tuple, including YCCK, reports `pdf.image.dct.tuple-unsupported`. Nothing is composed by default | IP-005, IP-006 approved |
+| `JPXDecode` | 7.4.9 | Reported with `pdf.filter.jpx.unsupported`. Where `JpxStreamFilter` is composed the JP2 boxes and the SIZ/COD markers are read, so the note carries the real tuple — size, components, depth, decomposition levels, wavelet — and a Part 2 codestream is refused by `Rsiz` as outside the row. A Part 1 codestream is decoded for one tile, default precincts and the LRCP/RPCL progressions — tag trees, packet headers, EBCOT tier-1, the inverse wavelets and the component transforms — with multiple tiles, precinct overrides, region of interest, progression changes and packed headers refused by name. No real image has been decoded through it | IP-007 approved for Part 1; EBCOT context tables pending in SRC-018 |
 | `Crypt` filter where there is nothing for it to select: in a document that is not encrypted, or anywhere in a chain but first | 7.4.10 | `pdf.filter.crypt.unsupported`. A leading `/Crypt` stage in an encrypted document is the security handler's (§3.1) and never reaches the pipeline | IP-015 |
 | Image XObjects and inline images (`BI`/`ID`/`EI`) | 8.9 | An image XObject whose whole filter chain is composed — a byte-stream chain such as `FlateDecode`, an empty chain, or an image codec a caller composed — is decoded and reported with `pdf.image.decoded-not-projected`: the samples exist, and the logical model carries no images. The decode is diagnostic work and is bounded by `MaxDescribedImageBytes` and by half the read's decoded-byte allowance; past either bound the image is reported from its dictionary instead, and never at the cost of the document. An image naming a filter with no composed decoder reports that filter's own code. Inline images are never decoded, and report `pdf.image.not-composed` | IP-005 |
 | Embedded font programs (`/FontFile`, `/FontFile2`, `/FontFile3`) | 9.8 | Reported with `pdf.font.program-not-composed`. Where a reader is composed, a composite identity-encoded font's program is read for glyph-to-text: an sfnt (`FontFile2`, `FontFile3` `/OpenType`) through its character map, and a bare CFF (`FontFile3` `/Type1C`, `/CIDFontType0C`) through its charset, whose glyph names this codec then resolves with its own authored data. A CID-keyed CFF is refused, its charset holding character identifiers rather than names. Type 1 (`FontFile`) stays unread for want of parser surface. No program is ever embedded, subsetted, or re-emitted | IP-012 approved for inspection; CFF standard strings pending in SRC-016 |
@@ -175,9 +167,8 @@ distinction that matters for the register rows they belong to.
 
 ### 4.1 Damage and limits the reader survives
 
-Not every construct that is not interpreted is a feature. These are conditions in
-the input, or ceilings in this build, that the reader continues past and reports
-rather than failing on. They are inventoried because a reviewer asking what the
+Conditions in the input, or ceilings in this build, that the reader continues
+past and reports rather than failing on. A reviewer asking what the
 implementation does with a given file needs them as much as the feature rows.
 
 | Condition | Clause (provisional) | Behavior |
@@ -276,7 +267,6 @@ structure tree, tagged semantics, XMP, or any profile conformance identifier.
 
 ## 9. Keeping this true
 
-This document describes behavior, so it goes stale the moment behavior changes.
 Any change that adds, removes, or moves a construct between §3, §4, §5, and §6
 updates this file in the same commit, and any change that moves one *into* §3 or
 §6 must first clear its register row per

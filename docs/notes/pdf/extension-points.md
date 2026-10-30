@@ -36,28 +36,21 @@ knows every filter *exists* — see `PdfFilterNames` — it can report
 `pdf.filter.jbig2.unsupported` rather than "unknown filter", and a host can tell
 a policy decision apart from a corrupt file.
 
-A fourth thing follows from the first, and IP-010 is the worked example: when a
-row clears, the boundary is re-asked rather than assumed. LZW cleared and moved
-*into* the base build, because none of the three reasons survived — there was no
-outside component, and a bounded byte-stream decompressor is not an image codec.
-JPEG and the font reader cleared and stayed composed, because both of those
-reasons still hold for them. Clearing a row answers the legal question and only
-the legal question.
+A fourth follows from the first: when a row clears, the boundary is re-asked
+rather than assumed. LZW (IP-010) is in the base build because none of the
+three reasons applies — there is no outside component, and a bounded
+byte-stream decompressor is not an image codec. JPEG and the font reader are
+cleared and stay composed, because both of those still hold for them. Clearing a row answers the legal question and only the legal question.
 
 ## 2. What the base build carries
 
-| Area | Implemented in the base build |
-|---|---|
-| Syntax | Tokens, all eight object types, indirect references, streams |
-| Cross-references | Classic tables, cross-reference streams, object streams, hybrid `/XRefStm`, incremental `/Prev` chains, scan-based recovery |
-| Filters | `FlateDecode` (with PNG and TIFF predictors), `LZWDecode` (with `EarlyChange`), `ASCIIHexDecode`, `ASCII85Decode`, `RunLengthDecode` |
-| Structure | Catalog, page tree with inherited attributes, boxes, rotation, `UserUnit`, effective version, `/Extensions` inventory |
-| Metadata | `Info` and the XMP read subset (ISO 16684-1:2019) normalized to the V1 allowlist, XMP winning per field and disagreement reported; the raw packet is never preserved |
-| Text | Graphics and text state, all show-text operators, Form XObjects, marked-content `ActualText`, simple-font encodings with `/Differences`, `ToUnicode` CMaps, composite fonts through `Identity-H` |
-| Images | Samples from a filter chain the build can run, normalized to RGBA within the [approved raw-sample subset](README.md#images-and-links) — DeviceGray at 1/2/4/8 bits, DeviceRGB at 8, Indexed at 1/2/4/8 over a bounded palette, `/Decode` validated — with their stencil, colour-key, explicit and soft masks carried as alpha, and admitted through the caller's resource policy |
-| Semantics | Reading order from a tagged document's structure tree where it covers the page, geometric assembly otherwise, list detection, link annotations under the URI policy, and the default optional-content configuration — content in a layer the catalog turns off is omitted |
-| Writer | New PDF 1.7 files, standard font names with WinAnsi encoding, Flate content streams, colour, decorations, alignment, lists, link annotations, normalized metadata |
-| Security | Encrypted documents opened with the standard security handler at revisions 2, 3, 4 and 6 - RC4, AES-128 and AES-256, crypt filters, `/EncryptMetadata` - with the caller's password or the document's empty one; the copy-and-extract permission enforced and the rest reported; and the PDF half of the public-key handler, whose envelopes a composed decryptor opens (§4.6). Nothing is ever encrypted |
+Everything in [the PDF overview § What is implemented](README.md#what-is-implemented)
+except what it names as composed: syntax and cross-references, the built-in
+filters, structure, metadata, text and fonts, reading order and page structure,
+images within the [approved raw-sample subset](README.md#images-and-links)
+(masks carried as alpha), the writer, and encryption — the standard security
+handler and the PDF half of the public-key handler, whose envelopes a composed
+decryptor opens (§4.6). Nothing is ever encrypted.
 
 Nothing in that list needs a third-party runtime dependency, a bundled font, a
 glyph list, a metric file, or a codec asset. `FlateDecode` uses the .NET
@@ -71,8 +64,8 @@ still reads; the affected construct is reported rather than guessed at.
 
 | Technology | Diagnostic | Register row |
 |---|---|---|
-| `DCTDecode` (JPEG) | `pdf.image.dct.tuple-unsupported` or `pdf.image.dct.color-transform-uncertain`. `pdf.image.dct.progressive-unsupported` is retained as API and emitted by nothing here since IP-005 was widened on 2026-09-02 | IP-005 and IP-006 (both **approved**; see §4.1.1) |
-| `JPXDecode` (JPEG 2000) | `pdf.filter.jpx.unsupported`, carrying the codestream's tuple and the construct refused | IP-007 (**approved** for Part 1; a decoder exists for one tile and the LRCP/RPCL progressions, and its EBCOT context tables are **pending** in SRC-018) |
+| `DCTDecode` (JPEG) | `pdf.image.dct.tuple-unsupported` or `pdf.image.dct.color-transform-uncertain`. `pdf.image.dct.progressive-unsupported` is retained as API and emitted by nothing here | IP-005 and IP-006 (both **approved**; see §4.1.1) |
+| `JPXDecode` (JPEG 2000) | `pdf.filter.jpx.unsupported`, carrying the codestream's tuple and the construct refused | IP-007 (**approved** for Part 1; the composed decoder covers one tile and the LRCP/RPCL progressions; its EBCOT context tables are **pending** in SRC-018) |
 | `JBIG2Decode` | `pdf.filter.jbig2.unsupported`, carrying the stream's segment inventory where the filter is composed | IP-008 (**approved**; generic regions decode under both coding methods, and symbol dictionaries, text regions and refinement arithmetically; the halftone regions, aggregate coding, the intermediate regions and every Huffman-coded form do not; the MQ probability table is **pending** in SRC-019) |
 | Any other named filter | `pdf.filter.not-composed` | — |
 | ICC profiles (`ICCBased`) | `pdf.image.decoded-not-projected`, naming the colour space. A composed reader converts to sRGB; see §4.5 | IP-024 (**approved**) |
@@ -184,84 +177,68 @@ or be handed something undecoded.
 #### 4.1.1 The ones that ship: `JpegStreamFilter` and `CcittFaxStreamFilter`
 
 `Broiler.Documents.Pdf.Images` holds the reviewed implementations of this
-interface, and they are the worked examples of §5 rather than special cases.
-`CcittFaxStreamFilter` joined `JpegStreamFilter` there when IP-009 cleared,
-decoding all three fax schemes of ITU-T T.4 and T.6, and `JpxStreamFilter`
-followed when IP-007 cleared — though that one only reported until its decoder
-was written on 2026-09-03, and what it decodes has still never been checked
-against a real image, a distinction worth keeping in view.
+interface. They are the worked examples of §5 rather than special cases:
+`JpegStreamFilter`; `CcittFaxStreamFilter` (IP-009), decoding all three fax
+schemes of ITU-T T.4 and T.6; `JpxStreamFilter` (IP-007), whose decoder has
+never been checked against a real image; and `Jbig2StreamFilter`.
 
-`Jbig2StreamFilter` completed the set, and has since grown into the shape a
-scanned page actually has. Generic regions decode under MMR by reusing the T.6
-decoder that arrived with `CcittFaxStreamFilter`, which is what a cleared row
-next to another cleared row buys you, and under the arithmetic coder since
-2026-09-03; the symbol dictionaries and text regions that carry the text of a
-scanned page decode since the same day, and so does the refinement that corrects
-them — a region over the page, an instance before it is drawn, or a dictionary
-symbol defined as a correction of another. It still refuses any page whose
-segments are not all supported, rather than compositing the parts that decoded.
-Half a page is not a worse picture but a misleading one: what a halftone region
-would have drawn is exactly the content a reader would assume was absent from
-the original.
+`Jbig2StreamFilter` covers the shape a scanned page has. Generic regions decode
+under MMR, reusing the T.6 decoder of `CcittFaxStreamFilter`, and under the
+arithmetic coder; the symbol dictionaries and text regions that carry a scanned
+page's text decode, and so does the refinement that corrects them — a region
+over the page, an instance before it is drawn, or a dictionary symbol defined
+as a correction of another. It refuses any page whose segments are not all
+supported rather than compositing the parts that decoded. Half a page is not a
+worse picture but a misleading one: what a halftone region would have drawn is
+exactly the content a reader would assume was absent from the original.
 
-Refinement is also why the filter composites in stream order rather than
-collecting regions and drawing them at the end. A refinement region's reference
-is the page beneath it, so the page has to exist, and to hold everything earlier
-in the stream, before the segment correcting it is read. That in turn is why the
-combination operators are now distinguished: OR can only add black, and a
-correction that clears a pixel has no way to say so without REPLACE.
+Refinement is why the filter composites in stream order rather than collecting
+regions and drawing them at the end: a refinement region's reference is the page
+beneath it, so the page has to exist, holding everything earlier in the stream,
+before the segment correcting it is read. It is also why the combination
+operators are distinguished: OR can only add black, and a correction that clears
+a pixel needs REPLACE.
 
-Reading a header earns its place even where nothing decodes, for a reason
-peculiar to JPEG 2000. A `JPXDecode` image may legally omit `/ColorSpace` and
-`/BitsPerComponent` from its PDF dictionary, because the codestream is the
-authority for them — so the dictionary-derived tuple every other image reports is,
-for this one, frequently blank. Reading the codestream header is the only way to
-say what the image is, and what it is happens to be exactly what a decision
-about writing the decoder needed.
+`JpxStreamFilter` reads the codestream header even where nothing decodes, for a
+reason peculiar to JPEG 2000. A `JPXDecode` image may legally omit `/ColorSpace`
+and `/BitsPerComponent` from its PDF dictionary, because the codestream is the
+authority for them, so the dictionary-derived tuple every other image reports is
+often blank for this one. The header is the only way to say what the image is.
 
-That it is composed rather than built in is the interesting half. LZW cleared and
-went straight into the base build (§1), and fax did not, because the two are not
-the same kind of thing once the legal question is settled: a byte-stream
-decompressor produces bytes whose size the data itself bounds, while a fax
-decoder is a bit-level entropy parser producing a pixel buffer whose dimensions
-come from the *dictionary* rather than from the data. That is the attack surface
-§1 keeps out of the default build, and a cleared row does not change it.
+**Composed, not built in.** LZW is in the base build (§1) and fax is not, because
+once the legal question is settled they are different kinds of thing: a
+byte-stream decompressor produces bytes whose size the data itself bounds, while
+a fax decoder is a bit-level entropy parser producing a pixel buffer whose
+dimensions come from the *dictionary* rather than from the data. That is the
+attack surface §1 keeps out of the default build, and a cleared row does not
+change it.
 
-It exists as a separate assembly on purpose. The codec's own dependency rule —
-tested, not merely written down — is that `Broiler.Documents.Pdf` references the
-codec framework and the model and nothing else. Keeping the adapter out of it is
-what makes "not composed" mean *not linked*: a host that never mentions
+The adapters are a separate assembly on purpose. The codec's own dependency rule
+— tested, not merely written down — is that `Broiler.Documents.Pdf` references
+the codec framework and the model and nothing else. Keeping the adapter out of
+it makes "not composed" mean *not linked*: a host that never mentions
 `JpegStreamFilter` has no JPEG decoder in its process, which is the security
-position of §1 and the reason an approved patent row did not move the decoder
+position of §1 and the reason an approved patent row does not move the decoder
 into the base build.
 
-What the adapter owns is the PDF half:
+What the JPEG adapter owns is the PDF half:
 
 - it reads the JPEG's marker segments to learn the frame's tuple **before**
   decoding, because the byte ceiling has to be honoured before an output buffer
   exists and an image's output size is knowable only from its frame header;
 - it resolves the colour transform from the Adobe `APP14` marker, the
-  `/ColorTransform` parameter, or the format's default, and refuses every tuple
-  outside the cleared rows by name — a
-  self-contradicting pair of declarations under its own code, and a declaration
-  it understands but cannot honour under the tuple code; and
+  `/ColorTransform` parameter, or the format's default — colour transform 0 on
+  three components, samples already RGB, is honoured by telling the decoder not
+  to convert (IP-006) — and refuses every tuple outside the cleared rows by
+  name: a self-contradicting pair of declarations under its own code, and a
+  declaration it understands but cannot honour under the tuple code; and
 - it converts a decoder fault into a skipped image, so a malformed picture costs
   the picture rather than the document.
 
-One refusal is worth singling out, because it is the shape of thing this
-boundary exists to make visible, and it is worth reading now that it has an
-ending. A JPEG declaring colour transform 0 on three components is saying its
-samples are already RGB. IP-006 cleared reading that declaration on 2026-09-01,
-and the adapter read it — and then refused the image anyway, because the composed
-decoder applied the YCbCr conversion unconditionally and would have reported
-colours the document does not contain.
-
-"We may not" and "we cannot" are different answers, they are fixed by different
-work, and saying which one a host had hit is what made the fix findable. It was
-the second: on 2026-09-02 the decoder gained a parameter for the resolved value,
-and the declaration is now honoured. No register row moved, because none had
-been in the way. A refusal recorded only as "refused" would have sent someone
-looking for an approval that had been there all along.
+The two refusal codes keep "we may not" apart from "we cannot". They are fixed
+by different work — a register row against a decoder capability — and a refusal
+recorded only as "refused" sends someone looking for an approval that may
+already be there.
 
 The decoder itself stays in `Broiler.Media`, per §5 step 3. One condition travels
 with it: that component's own human review records its managed image codecs as
@@ -325,8 +302,7 @@ font reaches its glyphs through the program's own `cmap` under rules that depend
 on which subtable it selected, and recovering text from one would be a guess
 where the composite case is a lookup. The codec does not guess.
 
-Two limits are worth stating plainly, because neither is a register question any
-more:
+Two limits, neither of them a register question:
 
 - **Type 1 and CID-keyed CFF are declined.** `BFontProgramInspector` answers one
   question — what a glyph spells — and exposes no glyph names, no `post` table
@@ -380,7 +356,7 @@ destination. A picture a composed codec decoded is converted after it, and
 without a reader keeps the codec's colours, which is the alternate PDF
 32000-1 8.6.5.5 has a reader without profiles use.
 
-Three limits are worth stating plainly:
+Three limits:
 
 - **The destination is sRGB, computed rather than stored.** The matrix from
   the connection space is derived from sRGB's chromaticities and the linear
@@ -395,9 +371,9 @@ Three limits are worth stating plainly:
   which carries the one patent declaration IP-024 records, has no part in a
   conversion and no code path here.
 
-The reader belongs with the other colour work in `Broiler.Media` in the end,
-as the JPEG 2000 and JBIG2 decoders moved there; it is in the image satellite
-until then, behind the same composition boundary.
+The JPEG 2000 and JBIG2 decoders live in `Broiler.Media`, and the reader
+belongs with the other colour work there; until then it is in the image
+satellite, behind the same composition boundary.
 
 ### 4.6 `IPdfRecipientDecryptor` - opening a certificate recipient's envelope
 
@@ -489,23 +465,23 @@ The order matters: the register row comes first, and the capability comes last.
 
 ## 6. Data provenance in the base build
 
-Two pieces of data in the base build deserve naming, because "no third-party
-dependency" has to mean the data too.
+"No third-party dependency" has to mean the data too, so the base build's data
+is named here.
 
 **Encoding tables** (`PdfEncodings`). `StandardEncoding`, `WinAnsiEncoding`, and
 `MacRomanEncoding` are expressed as code-point tables authored from the character
 identity each slot denotes, and glyph names are mapped through a Latin repertoire
 authored the same way plus the algorithmic `uniXXXX`/`uXXXX` forms. No
 third-party glyph-list file is transcribed or shipped. The Symbol font's
-built-in encoding joined them when IP-013 cleared, authored the same way.
-`MacExpertEncoding` and ZapfDingbats' built-in encoding stay absent: mapping them
-needs font-specific data this build does not carry, so a font using one reports
+built-in encoding (IP-013) is authored the same way. `MacExpertEncoding` and
+ZapfDingbats' built-in encoding are absent: mapping them needs font-specific
+data this build does not carry, so a font using one reports
 `pdf.text.mapping-missing-or-uncertain` instead of guessing. ZapfDingbats is
-*recognized* in order to be refused — left to the Latin fallback it extracted
-"ab" for two ornaments, and confident nonsense is worse than a gap.
+*recognized* in order to be refused — left to the Latin fallback it would
+extract "ab" for two ornaments, and confident nonsense is worse than a gap.
 
-**The XMP subset** (`XmpReader`, in `Broiler.Documents`) adds no data at all,
-which is the point worth recording. It carries four namespace URIs and nine
+**The XMP subset** (`XmpReader`, in `Broiler.Documents`) adds no data at all. It
+carries four namespace URIs and nine
 property names — identifiers the format defines, not a table copied from
 anywhere — and reads them with the platform's own XML reader. There is no schema
 file, no namespace registry, no glyph or character data, and no third-party code

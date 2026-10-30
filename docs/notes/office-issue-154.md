@@ -1,105 +1,26 @@
-# Issue #154: legacy RTF drawings and DOCX shape style references
+# Issue 154: legacy RTF drawings, DrawingML colors and cached diagrams
 
-The [30 ranked cases in issue #154](https://github.com/Broiler-Platform/Broiler.Documents/issues/154)
-were downloaded and compared against commit `6e5082e`. The exact paths and input
-SHA-256 values are recorded in `tests/office/selections/issue-154.txt` and
-`tests/office/selections/issue-154.sha256`. Source documents are not vendored.
+[Issue #154](https://github.com/Broiler-Platform/Broiler.Documents/issues/154)
+ranked 30 cases. Exact paths and input SHA-256 values are in
+`tests/office/selections/issue-154.txt` and
+`tests/office/selections/issue-154.sha256`; sources are not vendored. The first
+pass is compared against `6e5082e`, the color pass against `5726ec5` and the
+diagram pass against `9935963`. Local runs use Linux, LibreOffice 26.8.1.1,
+Poppler 26.05.0, 72 DPI, the 80% threshold, a 40-page cap, a 30-second
+LibreOffice timeout and unpinned fonts. The issue used LibreOffice 26.2.6.3 /
+Poppler 26.01.0 at 144 DPI, so its ranking is not reproduced exactly - e.g. the
+hidden `tdf163894` reference has four pages locally instead of the issue's
+40-page capped result; do not read that as a codec improvement. Passing checks
+are tolerance checks, not pixel identity. No baselines, tolerances or tool
+approvals changed.
 
-## Corrections
-
-### Legacy RTF drawing objects
-
-The reader previously skipped the entire ignorable `\do` destination. It now
-retains one rectangle (`\dprect`), ellipse (`\dpellipse`) or line (`\dpline`):
-
-- Twip offsets/extents, page/margin/column horizontal origins and
-  page/margin/paragraph vertical origins are mapped to model coordinates.
-- RGB fill/outline components, transparent fill, hollow outlines, declared pen
-  width and drawing stack order survive. Legacy outlines without an explicit
-  color use the native blue default, independently of modern shapes' black.
-- Zero-height/width lines and reversed extents retain their line geometry.
-- Nested formatting does not finish a drawing early. Unknown ignorable groups,
-  skipped destinations, notes and running content cannot emit body drawings.
-- A modern `\shpinst` suppresses its `\shprslt` fallback. The fallback's body
-  text or legacy geometry must not be imported a second time. A shape containing
-  only a legacy drawing result can still retain that result.
-
-Aggregates, polygons, text-box primitives and other unsupported legacy objects
-are skipped with `rtf.drawing.legacy`. Rounded corners, patterns and line
-decoration are approximated with the same diagnostic. This is deliberately not
-an implementation of the complete legacy drawing language. Running-content
-shapes remain unsupported. Native legacy pen-width import differs from the
-stated value in the tested LibreOffice; the model preserves the stated value.
-
-### DOCX DrawingML format matrix
-
-A `wps:style` can reference the theme's `fillStyleLst`, `bgFillStyleLst` and
-`lnStyleLst` instead of carrying paint directly in `wps:spPr`. Those references
-were ignored. The reader now resolves the one-based indices (background fills
-start at 1001), substitutes the reference color for `phClr`, and applies the
-matrix's color transforms to it. Solid fills, supported gradients, outline
-colors and outline widths reach the existing shape reader.
-
-Direct properties take precedence. Explicit `noFill` cancels inherited paint;
-a line stating only a width retains its referenced color, and a direct color
-retains the referenced width. Missing/invalid indices do not invent paint.
-Resolved paint survives DOCX export as explicit colors, without live theme
-bindings. This change covers WordprocessingML shapes, including those already
-walked inside drawing groups; it does not implement picture-style references,
-SmartArt layout, effects, arbitrary paths, live theme editing or group rotation.
-Existing gradient/pattern and outline-rendering approximations still apply.
-
-## Verification
-
-- Release solution build passed.
-- **4,211 unit tests passed**, three additional tests skipped.
-- **38 new regression cases**: 21 RTF and 17 DOCX, including export round trips.
-  Against isolated assemblies built from `6e5082e`, 17 RTF and seven DOCX cases
-  fail; the remaining 14 protect unchanged fallbacks and precedence.
-- CLI corpus: **2,320/2,320 passed**, 105 documented skips.
-- Eight authored RTF native controls improve **17/24 -> 24/24** checks.
-- Eight authored DOCX native controls improve **18/24 -> 24/24** checks.
-  Native color pixels confirm reference blue `#4F81BD`, transformed blue
-  `#376092`, explicit red and the background-fill entry's green. Passing checks
-  are tolerance checks, not pixel identity: outline placement, antialiasing and
-  legacy pen widths still differ.
-- All 30 originals retain **38/89** checks, 51 failed and the same one skipped
-  reference (`uiwriter/data/tdf170672.docx`, no native PDF). No check changes
-  from pass to fail. No original is claimed newly fully resolved.
-
-The original `rtfexport/data/dprect-anchor.rtf` now retains its formerly missing
-rectangle: blank/inked mismatch becomes a **16 px** ink-box delta, ink profile
-**0 -> 0.8417**, and coverage delta **0.4619% -> 0.0347%**. Paper geometry remains
-different, rounded corners are approximated, and blur difference increases
-**0.6184% -> 0.7677%**. It remains a failing comparison.
-
-Two other originals have worse narrow measurements without losing a pass:
-`uiwriter/data/tdf147199.docx` retains theme paint but blur changes
-**14.0465% -> 14.2737%** and coverage delta **4.4947% -> 4.7034%**;
-`ooxmlexport/data/tdf141173_missingFrames.rtf` retains a legacy fallback line,
-while blur changes **11.3381% -> 12.2093%** and coverage delta
-**3.7387% -> 3.9571%**. Their pagination and remaining layout failures persist.
-Other original render observations are unchanged.
-
-## Environment and reproduction
-
-The local comparisons use LibreOffice **26.8.1.1**, Poppler **26.05.0**, Linux,
-**72 DPI**, 80% threshold, 40-page cap and a 30-second LibreOffice timeout.
-Fonts are not pinned. The issue used LibreOffice 26.2.6.3 / Poppler 26.01.0 at
-144 DPI; its ranking is not an exact local reproduction. For example, the
-hidden `tdf163894` reference has four pages locally rather than the issue's
-40-page capped result. Do not infer a codec improvement from that difference.
-No baseline tolerances, baseline expectations or tool approvals changed.
-
-After fetching the listed public LibreOffice inputs under `$extras`, verify
-input identity and run both revisions with the same external tools and fonts:
+The 30 originals stay at **38/89** (51 failed, one skipped:
+`uiwriter/data/tdf170672.docx` has no native PDF) through all three passes;
+no check goes from pass to fail except the text check noted under cached
+diagrams.
 
 ```sh
 (cd "$extras" && sha256sum -c "$repo/tests/office/selections/issue-154.sha256")
-dotnet build Broiler.Documents.slnx -c Release --nologo -m:4
-pwsh -NoProfile -File eng/run-tests.ps1 -Configuration Release
-dotnet run --project src/tests/Broiler.Documents.Corpus -c Release --no-build -- \
-  --report corpus.json --junit corpus.junit.xml
 dotnet run --project src/tests/Broiler.Documents.Office -c Release --no-build -- \
   --extras-dir "$extras" --sample-list tests/office/selections/issue-154.txt \
   --soffice "$soffice" --jobs 3 --dpi 72 --max-pages 40 --lo-timeout 30 \
@@ -107,12 +28,152 @@ dotnet run --project src/tests/Broiler.Documents.Office -c Release --no-build --
   --workspace office-154-work --keep
 ```
 
-Use `--tool` to select an independently built earlier CLI and distinct report,
-workspace and triage paths; use `--previous-triage` for the subsequent comparison.
-The committed in-memory package tests exercise the import and export behavior
-without depending on external Office documents.
+For the before side, pass an independently built earlier CLI with `--tool` and
+separate report/workspace/triage paths, then `--previous-triage`.
 
-Remaining high-impact groups include floating/nested table pagination, linked
-text-frame overflow, SmartArt and custom VML geometry. The remote-background
-case points to an external HTTP image and cannot be treated as a self-contained
-paint fixture. These were investigated but not assigned speculative fixes.
+## Legacy RTF drawing objects
+
+The reader used to skip the whole ignorable `\do` destination. It now keeps one
+rectangle (`\dprect`), ellipse (`\dpellipse`) or line (`\dpline`):
+
+- Twip offsets/extents with page/margin/column horizontal and
+  page/margin/paragraph vertical origins map to model coordinates.
+- RGB fill/outline, transparent fill, hollow outline, pen width and stack order
+  survive. Outlines without an explicit color use the native legacy blue
+  default (modern shapes keep black).
+- Zero-height/width lines and reversed extents keep their geometry.
+- Nested formatting does not end a drawing early; unknown ignorable groups,
+  skipped destinations, notes and running content cannot emit body drawings.
+- A modern `\shpinst` suppresses its `\shprslt` fallback (body text or legacy
+  geometry is not imported twice); a shape whose only result is a legacy
+  drawing keeps it.
+
+Aggregates, polygons, text-box primitives and other legacy objects are skipped
+with `rtf.drawing.legacy`; rounded corners, patterns and line decoration are
+approximated under the same code. Running-content shapes are unsupported.
+LibreOffice imports legacy pen widths differently from the stated value; the
+model keeps the stated value.
+
+Evidence: eight RTF controls 17/24 -> 24/24. `rtfexport/data/dprect-anchor.rtf`
+keeps its formerly missing rectangle (ink profile 0 -> 0.8417, coverage delta
+0.4619% -> 0.0347%) but still fails: paper geometry differs, corners are
+approximated, blur 0.6184% -> 0.7677%. `ooxmlexport/data/tdf141173_missingFrames.rtf`
+keeps a legacy fallback line; blur 11.3381% -> 12.2093%, no pass lost.
+
+## DrawingML style references
+
+A `wps:style` can reference the theme's `fillStyleLst`, `bgFillStyleLst` and
+`lnStyleLst` instead of carrying paint in `wps:spPr`. The reader resolves the
+one-based indices (background fills start at 1001), substitutes the reference
+color for `phClr` and applies the matrix's transforms. Solid fills, supported
+gradients, outline colors and widths reach the shape reader. Direct properties
+win: explicit `noFill` cancels inherited paint; a width-only line keeps the
+referenced color and a direct color keeps the referenced width; bad indices
+invent nothing. Export writes explicit colors. Covers WordprocessingML shapes,
+including those inside drawing groups.
+
+Evidence: eight DOCX controls 18/24 -> 24/24; native pixels confirm reference
+blue `#4F81BD`, transformed `#376092`, explicit red and the background-fill
+green. `uiwriter/data/tdf147199.docx` keeps theme paint but blur worsens
+14.0465% -> 14.2737%; no pass lost.
+
+## DrawingML colors
+
+Fifteen DOCX color behaviors (base `5726ec5`):
+
+- Base colors `scrgbClr` (linear-light percentages), `hslClr`, and all 140
+  `prstClr` spellings including `dk`/`lt`/`med` names (unknown stay
+  unresolved).
+- Transforms `alphaMod`, `alphaOff` (clamped), `hue`, `hueOff`, `hueMod`, `sat`,
+  `satOff`, `lum` (black/white endpoints achromatic), `comp` (180-degree
+  rotation), `inv` (linear RGB, opacity kept), `gray` (native weighted
+  grayscale), and parameterless `gamma` / `invGamma`.
+- Parameterless transforms need no `val`. Transforms run in source order and
+  adjacent HSL operations keep HSL state (desaturate red, set hue green, restore
+  saturation -> green). Malformed numbers and unknown elements keep the safe
+  fallback.
+- Theme palette slots use the same base-color reader, so these encodings reach
+  Word text colors and shape paint; shapes, gradient stops, outlines and
+  format-matrix placeholders share the path. Export writes explicit colors.
+
+Rules: gamma 2.3 for linear RGB and 22%/72%/6% grayscale weights (not ICC).
+Integer percentage/angle attributes only (no percent-suffixed forms). Numeric
+hue operations clamp at 0/360 like LibreOffice; `comp` wraps. Presets use the
+standard RGB values; known exception `ltGoldenrodYellow` is `#FAFAD2` here but
+`#FAFA78` in LibreOffice's lookup. Only `orange` is natively tested.
+
+Evidence: `tests/office/generators/drawing-colors.py` (standard-library Python,
+deterministic hashes) emits 19 DOCX controls; they go 40/57 -> 57/57. Interior
+RGB matches exactly in 17; `inv` and `gamma` differ by one channel unit. These
+encodings occur in the SmartArt parts of `ooxmlimport/data/fdo87488.docx`.
+
+```sh
+python3 tests/office/generators/drawing-colors.py /tmp/office-color-probes
+# then run the suite with --extras-dir /tmp/office-color-probes
+#   --sample-list /tmp/office-color-probes/samples.txt --top-differences 20
+```
+
+## Cached SmartArt diagrams
+
+The DOCX reader skipped the SmartArt in `ooxmlimport/data/fdo87488.docx`
+although the package holds a saved DrawingML rendering. It now imports that
+cache (base `9935963`) without a SmartArt layout engine:
+
+- Data/cache parts are found through typed relationships (including
+  nonconventional paths and data-part-local relationships), not a guessed name.
+- Cached children stay in source order on the right body paragraph. Child
+  origins/extents apply; an explicit cached root extent is already display EMUs,
+  independent of the inline extent. Nested groups flatten within the depth
+  limit.
+- Ellipse and line presets (with flip composition), solid/gradient/theme fills
+  and outline color/width are kept. Quarter-turn rectangles/ellipses rotate
+  around their centers.
+- Cached text keeps paragraphs, soft breaks and field display text inside the
+  shape; alignment, indents, point/percentage line spacing, paragraph spacing,
+  literal/theme Latin fonts, half-point sizes, bold/italic/underline/strike
+  (including inherited and off values), explicit/theme run colors (font
+  reference fallback), text insets and vertical alignment map to the model.
+- A standalone inline diagram reserves its height (even if empty) and honors
+  paragraph alignment without overwriting an exact line height.
+- Cache parts use the XML parser and part-size limits, are parsed once per read
+  and count toward an aggregate expansion budget derived from
+  `MaxDocumentBytes` (relationship parts too). External parts are not fetched.
+  Missing, malformed, oversized or unsupported caches are diagnosed.
+
+Evidence: `fdo87488.docx` goes from a blank one-page rendering to two pages
+like LibreOffice and its **pixel check passes** (blur 46.95% -> 3.2412%). A
+cache-only marker test confirmed LibreOffice renders the saved drawing. Its
+**text check now fails**: LibreOffice's TXT export omits cached diagram labels
+while broilerdoc exports them; the earlier empty/empty match proved nothing.
+Thresholds were not changed to hide this.
+
+`tests/office/generators/cached-diagrams.py` derives 15 controls from the hashed
+original (rewriting cache and body, keeping the data/layout graph): pixel
+checks 0/14 -> 12/14; totals stay 29/43 because 12 text checks fail for the same
+TXT reason. The relocated-cache control yields no native reference; the
+root-child-space control fails because LibreOffice's first rendering ignores
+the cached child-space mapping; the nested-group control's reference shows the
+regenerated `text1`/`text2`, not the cached label. Exported as plain shapes,
+all three match natively (to one pixel).
+
+```sh
+python3 tests/office/generators/cached-diagrams.py "$template" /tmp/diagram-probes
+```
+
+## Still open
+
+- Legacy RTF aggregates, polygons, text boxes and running-content shapes.
+- Picture-style references, SmartArt layout (no diagram is synthesized from the
+  graph without a cache), effects, arbitrary paths, live theme editing, group
+  rotation/reflection, text rotation and general affine transforms.
+- Channel-specific red/green/blue color transforms; small rounding differences.
+- Cached diagrams: unsupported presets/custom paths become rectangles; multi-stop
+  fills, pictures, dynamic fields, list markers, links and DrawingML-only
+  formatting are not supported; text opacity is flattened with a diagnostic;
+  mixed inline text and table-cell placement are approximated; export flattens
+  to ordinary shapes (no editable SmartArt). The TXT projection gap leaves the
+  `fdo87488.docx` text check failing.
+- Other high-impact groups were investigated without speculative fixes:
+  floating/nested table pagination, linked text-frame overflow, SmartArt and
+  custom VML geometry. The remote-background case points at an external HTTP
+  image and is not a self-contained paint fixture.
