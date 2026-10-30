@@ -109,7 +109,7 @@ jobs:
   conformance:
     name: Office conformance
     needs: reference-configuration
-    # The same release as office-reference-data.yml, never ubuntu-24.04. The
+    # The same fixed release as office-reference-data.yml. The
     # LibreOffice and Poppler that run here come from the digest-pinned office
     # image, which is ubuntu:24.04 too, so the VM only hosts it.
     runs-on: ubuntu-24.04

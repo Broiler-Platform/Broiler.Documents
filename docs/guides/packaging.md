@@ -99,7 +99,7 @@ node --test eng/select-restore-feed.test.mjs
 ### Continuous Integration (CI)
 
 The CI workflow (`.github/workflows/ci.yml`) runs on pushes to `main`, pull requests, and workflow dispatch:
-- Builds and runs tests in `Release` configuration across `ubuntu-latest` and `windows-latest`.
+- Builds and runs tests in `Release` configuration across `ubuntu-24.04` and `windows-latest`.
 - Runs release script tests (`eng/resolve-preview-version.test.mjs` and `eng/select-restore-feed.test.mjs`).
 - Verifies package restore from NuGet.org (`node eng/select-restore-feed.mjs`).
 - Runs the CLI corpus suite (`broilerdoc-corpus`) against the committed baseline.
