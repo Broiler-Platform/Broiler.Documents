@@ -44,10 +44,12 @@ internal sealed class DocxStyles
         DocxTheme theme,
         int maxChainDepth,
         List<DocumentDiagnostic> diagnostics,
-        bool hasRunDefaults = false)
+        bool hasRunDefaults = false,
+        bool hasParagraphDefaults = false)
     {
         _styles = styles;
         HasRunDefaults = hasRunDefaults;
+        HasParagraphDefaults = hasParagraphDefaults;
         _defaultParagraphProperties = defaultParagraphProperties;
         _defaultRunProperties = defaultRunProperties;
         _defaultParagraphStyleId = defaultParagraphStyleId;
@@ -66,6 +68,13 @@ internal sealed class DocxStyles
     /// <see cref="DocxReader"/>'s style defaults).
     /// </summary>
     public bool HasRunDefaults { get; }
+
+    /// <summary>
+    /// Whether <c>w:docDefaults</c> holds a <c>w:pPrDefault</c>, which gives
+    /// every paragraph that does not state its own two-line widow and orphan
+    /// control (<see cref="DocumentStyleDefaults.WidowOrphanLines"/>).
+    /// </summary>
+    public bool HasParagraphDefaults { get; }
 
     /// <summary>The number of named styles that were loaded.</summary>
     public int Count => _styles.Count;
@@ -99,9 +108,8 @@ internal sealed class DocxStyles
             return WithoutStyles(theme, limits, diagnostics);
 
         XElement? docDefaults = xml.Root.Element(DocxNamespaces.Wordprocessing + "docDefaults");
-        XElement? defaultParagraphProperties = docDefaults
-            ?.Element(DocxNamespaces.Wordprocessing + "pPrDefault")
-            ?.Element(DocxNamespaces.Wordprocessing + "pPr");
+        XElement? paragraphDefaults = docDefaults?.Element(DocxNamespaces.Wordprocessing + "pPrDefault");
+        XElement? defaultParagraphProperties = paragraphDefaults?.Element(DocxNamespaces.Wordprocessing + "pPr");
         XElement? runDefaults = docDefaults?.Element(DocxNamespaces.Wordprocessing + "rPrDefault");
         XElement? defaultRunProperties = runDefaults?.Element(DocxNamespaces.Wordprocessing + "rPr");
 
@@ -140,7 +148,8 @@ internal sealed class DocxStyles
             theme,
             limits.MaxGroupDepth,
             diagnostics,
-            hasRunDefaults: runDefaults is not null);
+            hasRunDefaults: runDefaults is not null,
+            hasParagraphDefaults: paragraphDefaults is not null);
     }
 
     private static DocxStyles WithoutStyles(

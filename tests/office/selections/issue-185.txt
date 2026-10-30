@@ -1,0 +1,22 @@
+# First ranked difference from Broiler-Platform/Broiler.Documents#185: a glossary in a floating table
+# with page breaks inside its cells, a title text box too short for its line, and Word 2010 placement;
+# then LibreOffice's tests of the break rules, the samples this change moved most, the three it moved
+# furthest away, and the samples that failed when the widow default reached body paragraphs (roadmap).
+ooxmlexport/data/fdo68607.docx
+ooxmlexport/data/table-pagebreak.docx
+ooxmlexport/data/tdf163178_columnbreakInTable.docx
+ooxmlexport/data/fdo78883.docx
+layout/data/tdf164907_rowHeightAtLeast.docx
+ooxmlexport/data/tdf160077_layoutInCell.docx
+ooxmlexport/data/fdo78474.docx
+ooxmlexport/data/n792778.docx
+layout/data/tdf123898.odt
+rtfimport/data/fdo57708.rtf
+rtfexport/data/tdf154129_transparentFrame.rtf
+ooxmlexport/data/fdo80097.docx
+uiwriter/data/floattable-nosection-7in.docx
+ooxmlexport/data/fdo76249.docx
+ooxmlexport/data/tdf121670_columnsInSectionsOnly.docx
+ooxmlexport/data/tdf160049_anchorMargin14.docx
+ooxmlexport/data/tdf118947_tableStyle2.docx
+ooxmlexport/data/tdf123351_UnderlineGroupSapeText.docx

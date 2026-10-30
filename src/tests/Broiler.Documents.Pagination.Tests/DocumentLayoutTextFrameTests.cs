@@ -35,6 +35,19 @@ public sealed class DocumentLayoutTextFrameTests
     }
 
     [Fact]
+    public void A_Frame_Too_Short_For_Its_First_Line_Shows_It_Cut_At_Its_Text_Area()
+    {
+        // fdo68607.docx's title: one 24 point line in a text box 26.5 points
+        // high inside its insets, which LibreOffice draws. The lines after the
+        // first still go where they do not fit.
+        var frame = Assert.Single(Layout(new DocumentShape(0, 0, 0, 100, 14, paragraphs: [Text("one\u2028two")],
+            textPadding: new TableCellPadding(0, 3, 0, 3))).Shapes);
+        LayoutLine line = Assert.Single(frame.Lines);
+        Assert.Equal(frame.Bounds.Top + 3, line.Top, 3);
+        Assert.Equal(8, line.ClipHeight!.Value, 3);
+    }
+
+    [Fact]
     public void Minimum_Width_Grows_To_An_Unwrapped_Word()
     {
         var frame = Assert.Single(Layout(new DocumentShape(0, 0, 0, 1, 1,

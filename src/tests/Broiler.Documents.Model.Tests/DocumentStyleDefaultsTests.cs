@@ -118,4 +118,19 @@ public sealed class DocumentStyleDefaultsTests
         Assert.Equal(0, defaults.SpaceRunExtraWidth("a    b", "Courier New", 12));
         Assert.Equal(8, defaults.SpaceRunExtraWidth("a    b", "Times New Roman", 12), 9);
     }
+
+    [Theory]
+    [InlineData(null, 2)]
+    [InlineData(0, 0)]
+    [InlineData(3, 3)]
+    public void A_Paragraph_Keeps_Its_Own_Lines_Or_The_Documents(int? own, int expected)
+    {
+        var defaults = new DocumentStyleDefaults { WidowOrphanLines = 2 };
+        var style = ParagraphStyle.Default with { OrphanLines = own, WidowLines = own };
+
+        Assert.Equal(expected, defaults.OrphanLinesOf(style));
+        Assert.Equal(expected, defaults.WidowLinesOf(style));
+        Assert.False(defaults.IsDefault);
+        Assert.Null(DocumentStyleDefaults.Default.OrphanLinesOf(ParagraphStyle.Default));
+    }
 }

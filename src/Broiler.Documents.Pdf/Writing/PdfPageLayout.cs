@@ -139,10 +139,11 @@ internal sealed class PdfPageLayout(
         // defaults outrank the write options, because those are the author's
         // statement and these are a caller's answer for a document that made none.
         // Laying runs of spaces out wider, shrinking a justified line's or letting
-        // tabs go over the margin is neither a size nor a family, so it does not
+        // tabs go over the margin, or keeping a paragraph's first and last lines
+        // together, is neither a size nor a family, so it does not
         // make a document's unstated twelve points outrank the option.
         DocumentStyleDefaults own = document.StyleDefaults;
-        _defaults = (own with { WidensSpaceRuns = false, ShrinksJustifiedLines = false, TabsOverMargin = false }).IsDefault
+        _defaults = (own with { WidensSpaceRuns = false, ShrinksJustifiedLines = false, TabsOverMargin = false, WidowOrphanLines = 0 }).IsDefault
             ? own with { FontSizePoints = _options.DefaultFontSize }
             : own;
 
@@ -501,7 +502,7 @@ internal sealed class PdfPageLayout(
         if (document is not null)
         {
             DocumentStyleDefaults own = document.StyleDefaults;
-            _defaults = (own with { WidensSpaceRuns = false, ShrinksJustifiedLines = false, TabsOverMargin = false }).IsDefault
+            _defaults = (own with { WidensSpaceRuns = false, ShrinksJustifiedLines = false, TabsOverMargin = false, WidowOrphanLines = 0 }).IsDefault
                 ? own with { FontSizePoints = _options.DefaultFontSize }
                 : own;
         }

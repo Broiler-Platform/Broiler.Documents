@@ -19,6 +19,24 @@ public sealed class DocxFloatingTableTests
 
     private static RichTextDocument Read(string bodyXml) => DocxTestPackage.ReadBody(bodyXml).Document;
 
+    private const string LeftBorder = "<w:tblBorders><w:left w:val=\"single\" w:sz=\"8\" w:space=\"0\" w:color=\"000000\"/></w:tblBorders>";
+
+    /// <summary>Reads a body whose settings state <paramref name="mode"/>, or none.</summary>
+    private static RichTextDocument ReadInMode(string? mode, string bodyXml)
+    {
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (mode is not null)
+        {
+            parts["word/settings.xml"] =
+                "<w:settings " + DocxTestPackage.BodyNamespaceDeclarations + "><w:compat>" +
+                "<w:compatSetting w:name=\"compatibilityMode\" w:uri=\"http://schemas.microsoft.com/office/word\" w:val=\"" + mode + "\"/>" +
+                "</w:compat></w:settings>";
+        }
+
+        using var stream = new MemoryStream(DocxTestPackage.FromBody(bodyXml, parts), writable: false);
+        return new DocxDocumentCodec().Read(stream).Document;
+    }
+
     private static RichTextDocument RoundTrip(RichTextDocument document)
     {
         using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(document), writable: false);
@@ -54,8 +72,77 @@ public sealed class DocxFloatingTableTests
 
         Assert.Equal(TableAnchor.Text, position.HorizontalAnchor);
         Assert.Equal(TableAnchor.Margin, position.VerticalAnchor);
-        Assert.Equal(20, position.X, 3);
+        // A package stating no compatibility mode stands the table its left
+        // cell margin, 5.4 points by default, left of the offset.
+        Assert.Equal(20 - 5.4, position.X, 3);
         Assert.Equal(30, position.Y, 3);
+    }
+
+    [Theory]
+    [InlineData("14", 20 - 5.4 - 0.5)]
+    [InlineData("15", 20 - 0.5)]
+    [InlineData(null, 20 - 5.4 - 0.5)]
+    public void A_Table_Placed_By_Offset_Stands_Where_Word_Draws_It(string? mode, double x)
+    {
+        // LibreOffice 24.2's DomainMapperTableHandler: below Word 2013's mode
+        // the left cell margin, and in every mode half the first cell's left
+        // border. fdo68607.docx, mode 14, so lines its text up with the margin.
+        TablePosition position = Assert.IsType<TablePosition>(Assert.Single(ReadInMode(mode, Table(
+            "<w:tblpPr w:horzAnchor=\"margin\" w:tblpX=\"400\" w:tblpY=\"600\"/>" + LeftBorder)).Tables).Position);
+
+        Assert.Equal(x, position.X, 3);
+    }
+
+    [Fact]
+    public void A_Table_Aligned_Across_Is_Not_Moved()
+    {
+        TablePosition position = Assert.IsType<TablePosition>(Assert.Single(ReadInMode("14", Table(
+            "<w:tblpPr w:horzAnchor=\"margin\" w:tblpXSpec=\"center\" w:tblpY=\"600\"/>" + LeftBorder)).Tables).Position);
+
+        Assert.Equal(TableAlignment.Center, position.HorizontalAlignment);
+        Assert.Equal(0, position.X, 3);
+    }
+
+    [Theory]
+    [InlineData("14", 0, -5.4)]
+    [InlineData("14", 360, 18 - 5.4)]
+    [InlineData("15", 360, 18)]
+    [InlineData(null, 360, 18)]
+    public void An_Inline_Table_Of_Word_2010_Lines_Its_Text_Up_With_Its_Indent(string? mode, int indent, double edge)
+    {
+        // Word 2010 and earlier put the first column's text at w:tblInd, so
+        // the edge stands the cell margin left of it; Word 2013 and a document
+        // stating no mode put the edge there.
+        DocumentTable table = Assert.Single(ReadInMode(mode, Table(
+            "<w:tblInd w:w=\"" + indent + "\" w:type=\"dxa\"/>" + LeftBorder)).Tables);
+
+        Assert.Equal(edge, table.LeftIndent, 3);
+    }
+
+    [Fact]
+    public void A_Nested_Table_Keeps_Its_Indent()
+    {
+        string inner = Table("<w:tblInd w:w=\"360\" w:type=\"dxa\"/>", "inner");
+        string outer = "<w:tbl><w:tblPr/>" + Grid + "<w:tr><w:tc><w:tcPr/>" + inner +
+            DocxTestPackage.Paragraph("after") + "</w:tc></w:tr></w:tbl>";
+
+        DocumentTable nested = Assert.Single(Assert.Single(ReadInMode("14", outer).Tables).Rows[0].Cells[0].Tables);
+        Assert.Equal(18, nested.LeftIndent, 3);
+    }
+
+    [Theory]
+    [InlineData("14")]
+    [InlineData(null)]
+    public void A_Floating_Table_Read_From_Word_Comes_Back_Where_It_Was(string? mode)
+    {
+        // The writer states no compatibility mode, so it writes the offset a
+        // reader takes the margin and border back off.
+        RichTextDocument source = ReadInMode(mode, Table(
+            "<w:tblpPr w:horzAnchor=\"margin\" w:tblpX=\"400\" w:tblpY=\"600\"/>" + LeftBorder));
+        TablePosition read = Assert.IsType<TablePosition>(Assert.Single(source.Tables).Position);
+
+        TablePosition actual = Assert.IsType<TablePosition>(Assert.Single(RoundTrip(source).Tables).Position);
+        Assert.Equal(read.X, actual.X, 3);
     }
 
     [Fact]

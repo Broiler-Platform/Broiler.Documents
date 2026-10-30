@@ -134,6 +134,43 @@ public sealed class DocumentLayoutParagraphKeepTests
     }
 
     [Fact]
+    public void A_body_paragraph_does_not_take_the_document_default()
+    {
+        // DocumentStyleDefaults.WidowOrphanLines goes to floating tables' cells
+        // only; a body paragraph keeps what it states.
+        using var images = new ImageStore();
+        var document = RichTextDocument.FromParagraphs([Para(7), Para(3)])
+            .WithStyleDefaults(DocumentStyleDefaults.Default with { WidowOrphanLines = 2 });
+        LayoutResult result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10));
+        Assert.Equal(new[] { 8, 2 }, result.Pages.Select(p => p.Lines.Count));
+    }
+
+    [Theory]
+    [InlineData(true, 0, null, new[] { 9, 1 })]
+    [InlineData(true, 2, null, new[] { 7, 3 })]
+    [InlineData(true, 2, 0, new[] { 9, 1 })]
+    [InlineData(false, 2, null, new[] { 9, 1 })]
+    public void A_floating_row_whose_two_line_cell_cannot_keep_its_lines_moves_whole(
+        bool floating, int lines, int? own, int[] pages)
+    {
+        // fdo68607.docx: one line of a two-line definition had room at the foot
+        // of the page, and the row of its floating table broke there; Writer
+        // keeps two lines in a floating table of a Word document and moves the
+        // row whole, and turns the control off in a row of an inline table.
+        using var images = new ImageStore();
+        var document = RichTextDocument.FromParagraphs([Para(6), Para(1), Para(1), Para(2, Style with { OrphanLines = own, WidowLines = own })])
+            .WithTables([new DocumentTable(1, 3, [new TableRow([new TableCell(1, 1, 0, columnSpan: 2)]),
+                    new TableRow([new TableCell(2, 1, 0), new TableCell(3, 1, 1)])],
+                [90, 90], cellPadding: 0,
+                position: floating ? new TablePosition(TableAnchor.Margin, 0, TableAnchor.Text, 0) : null)])
+            .WithStyleDefaults(DocumentStyleDefaults.Default with { WidowOrphanLines = lines });
+        LayoutResult result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10));
+        Assert.Equal(pages, result.Pages.Select(p => p.Lines.Count));
+    }
+
+    [Fact]
     public void Widow_control_leaves_two_lines_for_the_next_page()
     {
         LayoutResult result = Layout(Para(5), Para(4, Style with { WidowLines = 2 }));

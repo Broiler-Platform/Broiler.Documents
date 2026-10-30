@@ -58,4 +58,31 @@ public sealed class DocxParagraphPaginationTests
         Assert.False(style.KeepTogether);
         Assert.Equal(0, style.WidowLines);
     }
+
+    [Theory]
+    [InlineData("<w:docDefaults><w:rPrDefault/><w:pPrDefault/></w:docDefaults>", 2)]
+    [InlineData("<w:docDefaults><w:rPrDefault/></w:docDefaults>", 0)]
+    [InlineData("", 0)]
+    public void Paragraph_defaults_keep_two_lines_where_a_paragraph_states_nothing(string defaults, int lines)
+    {
+        // LibreOffice's StyleSheetTable::applyDefaults sets two-line widow and
+        // orphan control when it reads a w:pPrDefault (tdf#87533), as Word
+        // applies it where w:widowControl is absent. fdo68607.docx states none,
+        // and a two-line cell no longer breaks across a page.
+        var result = DocxTestPackage.ReadStyled(DocxTestPackage.Paragraph("body"), defaults);
+        Assert.Equal(lines, result.Document.StyleDefaults.WidowOrphanLines);
+        Assert.Null(result.Document.Paragraphs[0].Style.OrphanLines);
+        Assert.Equal(lines == 0 ? null : lines, result.Document.StyleDefaults.OrphanLinesOf(result.Document.Paragraphs[0].Style));
+    }
+
+    [Fact]
+    public void A_paragraph_turning_widow_control_off_outranks_the_default()
+    {
+        var result = DocxTestPackage.ReadStyled(
+            "<w:p><w:pPr><w:widowControl w:val=\"0\"/></w:pPr><w:r><w:t>body</w:t></w:r></w:p>",
+            "<w:docDefaults><w:pPrDefault/></w:docDefaults>");
+        ParagraphStyle style = result.Document.Paragraphs[0].Style;
+        Assert.Equal(0, result.Document.StyleDefaults.OrphanLinesOf(style));
+        Assert.Equal(0, result.Document.StyleDefaults.WidowLinesOf(style));
+    }
 }
