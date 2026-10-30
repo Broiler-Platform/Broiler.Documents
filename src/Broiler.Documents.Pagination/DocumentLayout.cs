@@ -1916,9 +1916,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// <remarks>
     /// Every row is composed before any is placed, because a cell that spans rows
     /// needs the heights of the rows below it before its box can be drawn.
+    /// The cells of a floating table, and of the tables nested in one, keep the
+    /// document's widow and orphan lines where a paragraph states none
+    /// (<paramref name="inFloatingTable"/>); see <see cref="ComposeBlocks"/>.
     /// </remarks>
-    private List<RowBox> ComposeTable(DocumentTable table, RichTextDocument document, DocumentPageBox setup, double left, double width)
+    private List<RowBox> ComposeTable(DocumentTable table, RichTextDocument document, DocumentPageBox setup, double left, double width,
+        bool inFloatingTable = false)
     {
+        bool keepsDefaultLines = inFloatingTable || table.IsFloating;
         double[] edges = table.AutoFit
             ? AutoColumnEdges(table, document, left, width) : ColumnEdges(table, left, width);
         var boxes = new List<RowBox>(table.Rows.Count);
@@ -1943,7 +1948,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 double textWidth = Math.Max(1.0, cellWidth - padding.Left - padding.Right);
 
                 (List<LayoutLine> lines, List<LayoutCell> nested, List<CutPiece> pieces, double height) =
-                    ComposeBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, setup, cellLeft + padding.Left, textWidth);
+                    ComposeBlocks(document, cell.Tables, cell.ParagraphIndex, cell.ParagraphEnd, setup, cellLeft + padding.Left, textWidth,
+                        keepsDefaultLines);
 
                 // Text that runs past the cell is cut at its edge, as Writer
                 // cuts a text portion; the innermost cell's edge wins for a
@@ -2320,9 +2326,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// The lines and nested cell boxes, the pieces a page may cut the range
     /// between, and the height it takes.
     /// </returns>
+    /// <remarks>
+    /// A paragraph keeps the widow and orphan lines it states, and in a
+    /// floating table's cell (<paramref name="keepsDefaultLines"/>) the
+    /// document's where it states none (<see cref="DocumentStyleDefaults.WidowOrphanLines"/>).
+    /// Writer turns widow and orphan control off in a table row that may
+    /// split, except in a floating table of a Word document
+    /// (<c>WidowsAndOrphans</c> in <c>widorp.cxx</c>, <c>TABLE_ROW_KEEP</c>),
+    /// so the default goes there only; that a stated value is off in other
+    /// rows is not modelled. <c>fdo68607.docx</c>'s two-line definition moves
+    /// its row to the next page whole rather than leave one line behind.
+    /// </remarks>
     private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeBlocks(
         RichTextDocument document, IReadOnlyList<DocumentTable> tables, int from, int to, DocumentPageBox setup,
-        double left, double width)
+        double left, double width, bool keepsDefaultLines = false)
     {
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
@@ -2347,7 +2364,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // Keep the nested row's legal cuts. Treating every nested row
                 // as indivisible lets a long cell run off the page even when
                 // both its row and the outer row permit splitting.
-                List<RowBox> nestedRows = ComposeTable(nested, document, setup, left, width);
+                List<RowBox> nestedRows = ComposeTable(nested, document, setup, left, width, keepsDefaultLines);
                 double nestedHeight = nestedRows.Sum(row => row.Height);
                 if (nested.KeepTogether && nestedHeight <= capacity)
                 {
@@ -2399,8 +2416,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             double anchorTop = y;
             double height = composed.Lines.Sum(line => line.Height);
             int count = composed.Lines.Count;
-            int orphans = Math.Clamp(paragraph.Style.OrphanLines ?? 1, 1, Math.Max(1, count));
-            int widows = Math.Clamp(paragraph.Style.WidowLines ?? 1, 1, Math.Max(1, count));
+            int orphans = Math.Clamp((keepsDefaultLines ? _styleDefaults.OrphanLinesOf(paragraph.Style) : paragraph.Style.OrphanLines) ?? 1,
+                1, Math.Max(1, count));
+            int widows = Math.Clamp((keepsDefaultLines ? _styleDefaults.WidowLinesOf(paragraph.Style) : paragraph.Style.WidowLines) ?? 1,
+                1, Math.Max(1, count));
             if (composed.Lines.Take(orphans).Sum(line => line.Height) > capacity ||
                 composed.Lines.TakeLast(widows).Sum(line => line.Height) > capacity ||
                 (orphans + widows > count && height > capacity))
@@ -2950,11 +2969,25 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double down = shape.TextVerticalAlignment switch { CellVerticalAlignment.Center => spare / 2, CellVerticalAlignment.Bottom => spare, _ => 0 };
         var lines = new List<LayoutLine>();
         var cells = new List<LayoutCell>();
+        bool first = true;
         foreach (LayoutLine line in content.Lines)
         {
             line.Top += bounds.Top + down;
             if (shape.TextOverflow || (line.Top >= bounds.Top && line.Top + (line.ClipHeight ?? line.Height) <= bounds.Bottom + 0.01))
+            {
                 lines.Add(line);
+            }
+            else if (first && line.Top >= bounds.Top && line.Top < bounds.Bottom)
+            {
+                // A frame too short for its first line still shows it, cut at
+                // the frame's text area, as Writer formats a text frame's first
+                // line whatever room it has: fdo68607.docx's title is one 24
+                // point line in a box 26.5 points high inside its insets.
+                line.ClipHeight = bounds.Bottom - line.Top;
+                lines.Add(line);
+            }
+
+            first = false;
         }
         foreach (LayoutCell cell in content.Cells)
         {

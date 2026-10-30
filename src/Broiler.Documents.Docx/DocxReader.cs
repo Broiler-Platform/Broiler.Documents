@@ -69,7 +69,6 @@ internal static class DocxReader
             DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"));
             PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
             int compatibilityMode = WordCompatibilityMode(settings.Root);
-            bool trimsCellParagraphEnds = compatibilityMode is > 0 and <= 14;
             DocxNotes notes = DocxNotes.Load(
                 archive,
                 documentRelationships,
@@ -90,7 +89,7 @@ internal static class DocxReader
                 page,
                 sections,
                 notes,
-                trimsCellParagraphEnds);
+                compatibilityMode);
             IReadOnlyList<RunningContent> running = ReadRunningContent(
                 archive,
                 documentXml,
@@ -103,7 +102,7 @@ internal static class DocxReader
                 reported,
                 page,
                 settings.EvenAndOddHeaders,
-                trimsCellParagraphEnds);
+                compatibilityMode);
             document = document.WithRunningContent(running[^1]);
             document = document.WithPageGeometry(page);
             document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running));
@@ -112,6 +111,7 @@ internal static class DocxReader
                 ShrinksJustifiedLines = compatibilityMode >= 15,
                 TabsOverMargin = compatibilityMode <= 14,
                 UndecoratedLinks = true,
+                WidowOrphanLines = styles.HasParagraphDefaults ? 2 : 0,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
@@ -160,7 +160,7 @@ internal static class DocxReader
         PageGeometry? page,
         DocxSections sections,
         DocxNotes notes,
-        bool trimsCellParagraphEnds)
+        int compatibilityMode)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         if (body is null)
@@ -171,7 +171,7 @@ internal static class DocxReader
             return RichTextDocument.Empty;
         }
 
-        var builder = new DocxDocumentBuilder(limits, diagnostics, reported) { TrimsCellParagraphEnds = trimsCellParagraphEnds };
+        var builder = new DocxDocumentBuilder(limits, diagnostics, reported) { WordCompatibilityMode = compatibilityMode };
         var context = new DocxReadContext(relationships, numbering, styles, images, builder, page, Sections: sections, Notes: notes);
         ReadBlockContent(body.Elements(), context, depth: 0);
         builder.ReportReadSummary(body.Elements().Any(IsContentBlock), styles.Count, images.ImageCount);
@@ -323,7 +323,7 @@ internal static class DocxReader
         HashSet<string> reported,
         PageGeometry? page,
         bool evenAndOddHeaders,
-        bool trimsCellParagraphEnds)
+        int compatibilityMode)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         if (body?.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault() is null)
@@ -391,7 +391,7 @@ internal static class DocxReader
                         archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported,
                         isHeader ? RunningBand.Header : RunningBand.Footer,
                         page,
-                        trimsCellParagraphEnds);
+                        compatibilityMode);
                     parts.Add((relationshipId, isHeader), part);
                 }
 
@@ -613,7 +613,7 @@ internal static class DocxReader
         HashSet<string> reported,
         RunningBand band,
         PageGeometry? page,
-        bool trimsCellParagraphEnds)
+        int compatibilityMode)
     {
         ZipArchiveEntry? entry = DocxPackage.FindEntry(archive, partPath);
         if (entry is null)
@@ -635,7 +635,7 @@ internal static class DocxReader
             limits,
             diagnostics);
 
-        var builder = new DocxDocumentBuilder(limits, diagnostics, reported) { TrimsCellParagraphEnds = trimsCellParagraphEnds };
+        var builder = new DocxDocumentBuilder(limits, diagnostics, reported) { WordCompatibilityMode = compatibilityMode };
         var context = new DocxReadContext(
             partRelationships, numbering, styles, images, builder, page, band);
         ReadBlockContent(partXml.Root.Elements(), context, depth: 0);
@@ -1015,7 +1015,7 @@ internal static class DocxReader
             // DocxDocumentBuilder.NotePageBreak.
             if (child.Name == DocxNamespaces.Wordprocessing + "br" && IsPageBreak(child, context))
             {
-                builder.NotePageBreak(style, sourceColumn: IsColumnBreak(child));
+                builder.NotePageBreak(sourceColumn: IsColumnBreak(child));
                 continue;
             }
 
@@ -1023,7 +1023,7 @@ internal static class DocxReader
             // and travels to the paragraph it starts exactly as a page break does.
             if (child.Name == DocxNamespaces.Wordprocessing + "br" && IsColumnBreak(child) && context.Sections is not null)
             {
-                builder.NotePageBreak(style, column: true, sourceColumn: true);
+                builder.NotePageBreak(column: true, sourceColumn: true);
                 continue;
             }
 
@@ -1141,7 +1141,7 @@ internal static class DocxReader
             context.Builder.Diagnostics,
             context.Builder.Reported)
         {
-            TrimsCellParagraphEnds = context.Builder.TrimsCellParagraphEnds,
+            WordCompatibilityMode = context.Builder.WordCompatibilityMode,
         };
         bool skipping = false;
         DocxNotes notes = context.Notes;
@@ -2280,7 +2280,7 @@ internal static class DocxReader
             context.Builder.Diagnostics,
             context.Builder.Reported)
         {
-            TrimsCellParagraphEnds = context.Builder.TrimsCellParagraphEnds,
+            WordCompatibilityMode = context.Builder.WordCompatibilityMode,
         };
         var nested = new DocxReadContext(
             context.Relationships, context.Numbering, context.Styles, context.Images, builder,

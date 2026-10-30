@@ -144,10 +144,10 @@ internal static class DocxTableReader
                 readBlocks(cell.Elements(), cellContext, depth + 1);
                 context.Builder.PopTableSink();
 
-                // A cell ends the reach of a page break stated in its last
-                // paragraph: the paragraphs of every cell are one flat list, so
-                // the next one is the neighbouring cell's or the body's past
-                // the table, and neither is where the document put the break.
+                // A cell ends the reach of a page break held in it: the
+                // paragraphs of every cell are one flat list, so the next one
+                // is the neighbouring cell's or the body's past the table, and
+                // neither is where the document put the break.
                 context.Builder.DiscardPageBreakAtCellEnd();
 
                 cells.Add(new CellDraft
@@ -203,17 +203,27 @@ internal static class DocxTableReader
             }
         }
 
+        double cellPadding = ReadCellPadding(styleTableParts, properties);
+        double leftIndent = DocxValueReader.Twips(TableProperty(styleTableParts, properties, "tblInd"), "w");
+        TablePosition? position = depth <= 1 ? ReadPosition(properties) : null;
+        if (depth <= 1)
+        {
+            TableBorder firstLeft = rows.Count > 0 && rows[0].Cells.Count > 0 ? rows[0].Cells[0].Borders.Left : default;
+            (position, leftIndent) = PlaceAsWord(position, leftIndent, cellPadding,
+                firstLeft.IsVisible ? firstLeft.Width : 0, context.Builder.WordCompatibilityMode);
+        }
+
         context.Builder.AddTable(new DocumentTable(
             start,
             context.Builder.CurrentParagraphIndex - start,
             [.. rows.Select(BuildRow)],
             grid,
-            ReadCellPadding(styleTableParts, properties),
-            depth <= 1 ? ReadPosition(properties) : null,
+            cellPadding,
+            position,
             preferredWidth: ReadPreferredWidth(TableProperty(styleTableParts, properties, "tblW"), percent: false),
             widthPercent: ReadPreferredWidth(TableProperty(styleTableParts, properties, "tblW"), percent: true),
             alignment: ReadAlignment(DocxValueReader.WordValue(TableProperty(styleTableParts, properties, "jc"))),
-            leftIndent: DocxValueReader.Twips(TableProperty(styleTableParts, properties, "tblInd"), "w"),
+            leftIndent: leftIndent,
             pageBreakBefore: pageBreak, columnBreakBefore: columnBreak));
 
         if (depth > 1 && properties?.Element(DocxNamespaces.Wordprocessing + "tblpPr") is not null)
@@ -330,6 +340,50 @@ internal static class DocxTableReader
             _ => TableAlignment.None,
         };
     }
+
+    /// <summary>
+    /// Where a table that is not nested stands across the page, as LibreOffice
+    /// 24.2 reads it (<c>DomainMapperTableHandler::endTableGetTableStyle</c>):
+    /// the model's <see cref="DocumentTable.LeftIndent"/> and
+    /// <see cref="TablePosition.X"/> are the left edge of the table's border.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Word 2010 and earlier (<c>compatibilityMode</c> 1 to 14) put the text
+    /// of a table's first column at <c>w:tblInd</c>, so the table's edge stands
+    /// its left cell margin - or half its left border, where that is wider -
+    /// to the left of it. Word 2013 and a document stating no mode put the edge
+    /// there.
+    /// </para>
+    /// <para>
+    /// A floating table placed by offset stands its left cell margin to the
+    /// left of <c>w:tblpX</c> below mode 15, a document stating none included,
+    /// and half its first cell's left border further. A table aligned by
+    /// <c>w:tblpXSpec</c> is not moved. <c>fdo68607.docx</c>, mode 14, stands
+    /// 5.9 points left of the margin it is anchored to.
+    /// </para>
+    /// <para>
+    /// <see cref="DocxWriter"/> adds the floating offset back on writing.
+    /// </para>
+    /// </remarks>
+    internal static (TablePosition? Position, double LeftIndent) PlaceAsWord(
+        TablePosition? position, double leftIndent, double cellPadding, double leftBorderWidth, int compatibilityMode)
+    {
+        if (position is not null)
+        {
+            return position.HorizontalAlignment == TableAlignment.None
+                ? (position with { X = position.X - FloatingOffset(cellPadding, leftBorderWidth, compatibilityMode) }, leftIndent)
+                : (position, leftIndent);
+        }
+
+        return compatibilityMode is > 0 and <= 14
+            ? (null, leftIndent - Math.Max(leftBorderWidth / 2, cellPadding))
+            : (null, leftIndent);
+    }
+
+    /// <summary>How far left of its stated offset a floating table stands (<see cref="PlaceAsWord"/>).</summary>
+    internal static double FloatingOffset(double cellPadding, double leftBorderWidth, int compatibilityMode) =>
+        (compatibilityMode < 15 ? cellPadding : 0) + (leftBorderWidth / 2);
 
     private static XElement? TableProperty(IReadOnlyList<XElement> styles, XElement? own, string name)
     {

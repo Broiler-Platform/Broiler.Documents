@@ -25,8 +25,8 @@ internal sealed class DocxDocumentBuilder(
     private readonly Stack<List<DocumentTable>> _tableSinks = new();
     private ParagraphStyle _paragraphStyle = ParagraphStyle.Default;
     private InlineStyle _markStyle = InlineStyle.Default;
-    private InlineStyle _pageBreakStyle = InlineStyle.Default;
     private bool _pageBreakSeen;
+    private bool _cellSplitPending;
     private bool _pageBreakLeadsParagraph;
     private bool _pageBreakStartsNextParagraph;
 
@@ -53,10 +53,16 @@ internal sealed class DocxDocumentBuilder(
     /// Whether a paragraph in a table cell loses the spaces, tabs and no-break
     /// spaces it ends with, as LibreOffice reads a document of Word 2010 or
     /// earlier (<c>compatibilityMode</c> 11 to 14). See
-    /// <see cref="TrimCellParagraphEnd"/>. A builder for a nested flow takes
-    /// it from the one it is nested in.
+    /// <see cref="TrimCellParagraphEnd"/>.
     /// </summary>
-    public bool TrimsCellParagraphEnds { get; init; }
+    public bool TrimsCellParagraphEnds => WordCompatibilityMode is > 0 and <= 14;
+
+    /// <summary>
+    /// The Word version whose layout the document asks for, its
+    /// <c>compatibilityMode</c>, or -1 where it states none. A builder for a
+    /// nested flow takes it from the one it is nested in.
+    /// </summary>
+    public int WordCompatibilityMode { get; init; } = -1;
 
     /// <summary>Counts a table for the read summary.</summary>
     public void NoteTable() => _tableCount++;
@@ -137,8 +143,18 @@ internal sealed class DocxDocumentBuilder(
     /// by splitting the paragraph across the boundary, and a paragraph
     /// carrying one flag cannot say "the first half of me is on the page
     /// before". Body paragraphs are therefore split into fragments at that
-    /// boundary. Inside a table cell, the existing line-break approximation
-    /// remains because row pagination does not honor such internal boundaries.
+    /// boundary.
+    /// </para>
+    /// <para>
+    /// A page break inside a table cell is dropped, leaving nothing in its
+    /// place - no line break and no space - as LibreOffice 24.2's DOCX import
+    /// drops it (<c>DomainMapper_Impl::deferBreak</c>, after the binary Word
+    /// filter's <c>HandlePageBreakChar</c>). Word splits the row there; a row
+    /// breaks here only where the page runs out, and a line break in its place
+    /// made every such cell taller than either application draws it. A column
+    /// break there splits its paragraph where text follows text, as
+    /// LibreOffice 24.2 splits one (<c>DomainMapper</c>'s <c>m_bIsSplitPara</c>),
+    /// and starts nothing: Writer does not break a column inside a cell.
     /// </para>
     /// <para>
     /// A leading break moves the paragraph to the far side of the boundary.
@@ -151,8 +167,17 @@ internal sealed class DocxDocumentBuilder(
     /// <paramref name="column"/> says which this is.
     /// </para>
     /// </remarks>
-    public void NotePageBreak(InlineStyle style, bool column = false, bool sourceColumn = false)
+    public void NotePageBreak(bool column = false, bool sourceColumn = false)
     {
+        if (InTableCell)
+        {
+            _cellSplitPending |= sourceColumn && _segments.Count > 0;
+            AddDiagnosticOnce(
+                "docx.pagebreak.table",
+                "A page or column break inside a table cell started no page or column; a row breaks only where the page runs out, not where a paragraph in it asks.");
+            return;
+        }
+
         // Two breaks with nothing between them are two page boundaries and
         // a blank page in the middle. The flag holds one, and the one kept
         // is the first: honouring the later one instead would move the
@@ -167,7 +192,6 @@ internal sealed class DocxDocumentBuilder(
 
         _pageBreakSeen = true;
         _pageBreakLeadsParagraph = _segments.Count == 0;
-        _pageBreakStyle = style;
         _breakIsColumn = column;
         _breakKeepsLeadingLabel = sourceColumn;
     }
@@ -196,12 +220,12 @@ internal sealed class DocxDocumentBuilder(
     }
 
     /// <summary>
-    /// Drops a page break that reached the end of a table cell. Word splits
-    /// the row a break inside a table falls in; a row breaks here only where
-    /// the page runs out, so there is no boundary to move it to, and the paragraph
-    /// that follows in the flat list is a page's worth of layout away from
-    /// where the break was written. It is dropped and said out loud rather
-    /// than landing somewhere the document never asked for.
+    /// Drops a page break still held at the end of a table cell - a section
+    /// that starts a page, ended inside the cell. A run's break there never
+    /// gets this far (<see cref="NotePageBreak"/>). The paragraph that follows
+    /// in the flat list is the neighbouring cell's or the body's past the
+    /// table, so the break is dropped and said out loud rather than landing
+    /// somewhere the document never asked for.
     /// </summary>
     public void DiscardPageBreakAtCellEnd()
     {
@@ -212,7 +236,7 @@ internal sealed class DocxDocumentBuilder(
         _pageBreakStartsNextParagraph = false;
         AddDiagnosticOnce(
             "docx.pagebreak.table",
-            "A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks.");
+            "A page or column break inside a table cell started no page or column; a row breaks only where the page runs out, not where a paragraph in it asks.");
     }
 
     public void StartParagraph(ParagraphStyle style, InlineStyle markStyle = default)
@@ -256,6 +280,12 @@ internal sealed class DocxDocumentBuilder(
         if (string.IsNullOrEmpty(text))
             return;
 
+        if (_cellSplitPending)
+        {
+            _cellSplitPending = false;
+            SplitAtPageBreak(breaks: false);
+        }
+
         // Text after a page break run is the case NotePageBreak cannot
         // carry: the break is inside the paragraph rather than at the end
         // of it. Deciding here, on the first content that follows, keeps the
@@ -263,12 +293,10 @@ internal sealed class DocxDocumentBuilder(
         if (_pageBreakSeen)
         {
             if (_pageBreakLeadsParagraph && _breakKeepsLeadingLabel &&
-                _paragraphStyle.ListKind != ListKind.None && !InTableCell)
+                _paragraphStyle.ListKind != ListKind.None)
                 SplitAtPageBreak(keepList: true);
             else if (_pageBreakLeadsParagraph)
                 StartParagraphOnNewPage();
-            else if (InTableCell)
-                DemotePageBreakToLineBreak();
             else
                 SplitAtPageBreak();
         }
@@ -315,8 +343,9 @@ internal sealed class DocxDocumentBuilder(
 
     /// <summary>Preserves an inline boundary as two paragraph fragments.
     /// Ordinary continuations have no repeated label or first-line indent;
-    /// keepList retains the item after a leading column break.</summary>
-    private void SplitAtPageBreak(bool keepList = false)
+    /// keepList retains the item after a leading column break. A column
+    /// break in a table cell splits without <paramref name="breaks"/>.</summary>
+    private void SplitAtPageBreak(bool keepList = false, bool breaks = true)
     {
         bool column = _breakIsColumn;
         _pageBreakSeen = false;
@@ -326,8 +355,8 @@ internal sealed class DocxDocumentBuilder(
         FinishParagraph();
         StartParagraph(original with
         {
-            PageBreakBefore = !column,
-            ColumnBreakBefore = column,
+            PageBreakBefore = breaks && !column,
+            ColumnBreakBefore = breaks && column,
             SpacingBefore = 0,
             FirstLineIndent = keepList ? original.FirstLineIndent : 0,
             ListKind = keepList ? original.ListKind : ListKind.None,
@@ -337,35 +366,11 @@ internal sealed class DocxDocumentBuilder(
             "An inline page or column break was preserved as paragraph fragments; the source paragraph structure is approximated.");
     }
 
-    /// <summary>
-    /// Turns a page break that content followed into a line break, because
-    /// the paragraph it is in cannot be split. The flag is cleared first:
-    /// the line break goes in through <see cref="AppendText"/>, which is
-    /// where the demotion is triggered from.
-    /// </summary>
-    private void DemotePageBreakToLineBreak()
-    {
-        InlineStyle style = _pageBreakStyle;
-        _pageBreakSeen = false;
-        if (_breakIsColumn)
-        {
-            AddDiagnosticOnce(
-                "docx.break.column",
-                "A column break with text before and after it in the same paragraph was read as a line break; " +
-                "columns here break between paragraphs, not inside one.");
-        }
-        else
-        {
-            AddDiagnosticOnce(
-                "docx.pagebreak.split",
-                "A page break with text after it in the same paragraph was read as a line break; pages here break between paragraphs, not inside one.");
-        }
-
-        AppendText(((char)0x2028).ToString(), style);
-    }
-
     public void FinishParagraph()
     {
+        // A column break that ends a cell's paragraph splits nothing.
+        _cellSplitPending = false;
+
         // A page break that reached the end of its paragraph is the break
         // the next paragraph starts with, whatever that paragraph's own
         // w:pPr says.

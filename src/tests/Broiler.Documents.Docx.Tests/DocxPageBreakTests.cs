@@ -39,14 +39,30 @@ public sealed class DocxPageBreakTests
         Assert.All(result.Document.Paragraphs, paragraph => Assert.True(paragraph.StyleAt(0).Bold));
     }
 
-    [Fact]
-    public void An_Internal_Table_Cell_Break_Keeps_The_Existing_Line_Break_Approximation()
+    [Theory]
+    [InlineData("page", "", new[] { "beforeafter", "leading", "body" })]
+    [InlineData("column", "", new[] { "before", "after", "leading", "body" })]
+    [InlineData("column", "<w:sectPr><w:cols w:num='2'/></w:sectPr>", new[] { "before", "after", "leading", "body" })]
+    public void A_Break_Inside_A_Table_Cell_Starts_No_Page_Or_Column(string type, string section, string[] paragraphs)
     {
+        // LibreOffice's fdo68607.docx: a glossary table whose cells were pasted
+        // from a PDF with a page break where each line ended. LibreOffice 24.2's
+        // import drops a page break inside a table - no line break, not even a
+        // space ("describe thefeeling") - and a line break in its place made
+        // each of those cells several lines taller. A column break there splits
+        // its paragraph where text came before it (tdf163178_columnbreakInTable.docx)
+        // and starts no column.
         var result = DocxTestPackage.ReadBody(DocxTestPackage.Table(
-            [["<w:p><w:r><w:t>before</w:t><w:br w:type='page'/><w:t>after</w:t></w:r></w:p>"]]) + DocxTestPackage.Paragraph("body"));
-        Assert.Equal("before" + LineBreak + "after", result.Document.Paragraphs[0].Text);
-        Assert.False(result.Document.Paragraphs[1].Style.PageBreakBefore);
-        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.split");
+            [[$"<w:p><w:r><w:t>before</w:t><w:br w:type='{type}'/><w:t>after</w:t></w:r></w:p>" +
+              $"<w:p><w:r><w:br w:type='{type}'/><w:t>leading</w:t></w:r></w:p>"]]) +
+            DocxTestPackage.Paragraph("body") + section);
+        Assert.Equal(paragraphs, result.Document.Paragraphs.Select(p => p.Text));
+        Assert.All(result.Document.Paragraphs, paragraph =>
+        {
+            Assert.False(paragraph.Style.PageBreakBefore);
+            Assert.False(paragraph.Style.ColumnBreakBefore);
+        });
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.pagebreak.table");
     }
 
     [Fact]

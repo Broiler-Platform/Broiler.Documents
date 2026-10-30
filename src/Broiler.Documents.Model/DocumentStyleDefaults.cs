@@ -137,10 +137,34 @@ public sealed record DocumentStyleDefaults
     /// </remarks>
     public bool UndecoratedLinks { get; init; }
 
+    /// <summary>
+    /// The lines a paragraph that states no widow or orphan control of its own
+    /// keeps together at the start and at the end of a page; zero for none.
+    /// </summary>
+    /// <remarks>
+    /// A DOCX that has a <c>w:pPrDefault</c> says two, the default Word
+    /// applies where <c>w:widowControl</c> is absent and LibreOffice imports
+    /// (writerfilter's <c>StyleSheetTable::applyDefaults</c>, tdf#87533).
+    /// The raster layout applies it in the cells of floating tables, where
+    /// Writer keeps widow and orphan control for a Word document: without it,
+    /// a row whose two-line cell has room for one line on the page breaks
+    /// there, where both applications move the row whole. Body paragraphs
+    /// do not take it yet (see the roadmap).
+    /// </remarks>
+    public int WidowOrphanLines { get; init; }
+
+    /// <summary>The orphan lines <paramref name="style"/> keeps: its own, or the document's.</summary>
+    public int? OrphanLinesOf(ParagraphStyle style) =>
+        style.OrphanLines ?? (WidowOrphanLines > 0 ? WidowOrphanLines : null);
+
+    /// <summary>The widow lines <paramref name="style"/> keeps: its own, or the document's.</summary>
+    public int? WidowLinesOf(ParagraphStyle style) =>
+        style.WidowLines ?? (WidowOrphanLines > 0 ? WidowOrphanLines : null);
+
     /// <summary>True when this states nothing a consumer would not have assumed.</summary>
     public bool IsDefault =>
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
-        !TabsOverMargin && !UndecoratedLinks;
+        !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

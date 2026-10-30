@@ -347,7 +347,36 @@ Each item needs conformance fixtures and explicit diagnostics before it lands.
 - **Superscript and subscript.** `w:vertAlign`, RTF's `\super` and `\sub`, ODF's
   `style:text-position` and HTML's `sup` and `sub` are not modelled for ordinary
   text; only a note's citation is raised and made smaller. `tdf77417.docx`'s
-  footnote marks "(a)" and "(b)" are drawn at full size on the baseline.
+  footnote marks "(a)" and "(b)" are drawn at full size on the baseline, and
+  `fdo68607.docx`'s "19th" is set at full size, which wraps its definition
+  one word earlier than LibreOffice does.
+- **The DOCX widow and orphan default.** A DOCX with a `w:pPrDefault` keeps two
+  lines of every paragraph that states nothing, in Word and in LibreOffice
+  (`DocumentStyleDefaults.WidowOrphanLines`, issue #185); 1,701 of the
+  corpus' 1,800 DOCX samples have one. The layout applies it only in the
+  cells of floating tables. Applied to body paragraphs it turned four passing
+  pixel checks to failures, each a gap in how the layout keeps lines rather
+  than in the rule:
+  - sections of balanced columns: a paragraph that keeps lines marks its
+    region unbalanced (`regionUnbalanced`), at once and wherever the widow
+    path breaks a column. With the default on every paragraph, eight more
+    column samples failed until the first marker was left to stated values
+    (`unbalanced-columns.docx`, `default-sect-break-cols.docx`, …), and
+    `tdf121670_columnsInSectionsOnly.docx` still ran its three columns 9/4/0
+    and took a third page where LibreOffice balances them 4/4/3;
+  - a one-line paragraph pushed down by its own wrap-through picture
+    (`tdf160049_anchorMargin14.docx` and `…15.docx`): the widow path does
+    not know issue #182's rule that keeps such a line on its page, and starts
+    an eighth page;
+  - the cells of inline tables (`tdf118947_tableStyle2.docx`): Writer turns
+    widow and orphan control off in a table row that may split, except in a
+    floating table of a Word document (`WidowsAndOrphans` in `widorp.cxx`).
+    That holds for stated values too, which the layout still applies in
+    every cell.
+  The default gained `tdf123351_UnderlineGroupSapeText.docx`. No writer
+  states the default either: the DOCX writer writes no `styles.xml` (and must
+  not fold run defaults into one, see issue #180), and the ODT and RTF
+  writers do not write it, so a converted document loses it.
 - **Conditional visibility in ODT.** `text:section` with `text:display="condition"`,
   `text:hidden-paragraph` and `text:conditional-text` are not evaluated: a
   section shows and a paragraph keeps its line whatever the condition says.

@@ -569,7 +569,7 @@ public static class DocxWriter
 
         var element = new XElement(
             DocxNamespaces.Wordprocessing + "tbl",
-            BuildTableProperties(table),
+            BuildTableProperties(table, document.StyleDefaults.ShrinksJustifiedLines ? 15 : -1),
             BuildTableGrid(table));
 
         int rowIndex = 0;
@@ -630,7 +630,7 @@ public static class DocxWriter
         return element;
     }
 
-    private static XElement BuildTableProperties(DocumentTable table)
+    private static XElement BuildTableProperties(DocumentTable table, int compatibilityMode)
     {
         double total = table.PreferredWidth ?? table.TotalWidth;
         var properties = new XElement(DocxNamespaces.Wordprocessing + "tblPr");
@@ -638,7 +638,16 @@ public static class DocxWriter
         // CT_TblPr is a sequence, and the position comes before the width.
         if (table.Position is TablePosition position)
         {
-            properties.Add(BuildTablePosition(position));
+            // A reader places the table left of the offset written, by its left
+            // cell margin and half its first cell's left border, as
+            // DocxTableReader.PlaceAsWord reads one; the offset written is
+            // where the model's edge goes plus that.
+            TableBorder firstLeft = table.Rows.Count > 0 && table.Rows[0].Cells.Count > 0 ? table.Rows[0].Cells[0].Borders.Left : default;
+            properties.Add(BuildTablePosition(position with
+            {
+                X = position.X + DocxTableReader.FloatingOffset(
+                    table.CellPadding, firstLeft.IsVisible ? firstLeft.Width : 0, compatibilityMode),
+            }));
             if (!position.AllowOverlap)
                 properties.Add(new XElement(DocxNamespaces.Wordprocessing + "tblOverlap", WordAttribute("val", "never")));
         }

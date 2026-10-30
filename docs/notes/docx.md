@@ -158,6 +158,17 @@ Open XML WordprocessingML package parts.
   `w:num` restarting each run of the numbered one. A list item that restarts its
   list's count (ODF's `text:start-value`) is written without the restart
   (`docx.list.restart`).
+- Widow and orphan control. `w:widowControl` on a paragraph or in its style
+  chain is `OrphanLines` and `WidowLines`, two or none. Where nothing states
+  it, a document whose `w:docDefaults` holds a `w:pPrDefault` - nearly every
+  DOCX - keeps two lines, as Word does and as LibreOffice imports it
+  (`StyleSheetTable::applyDefaults`, tdf#87533); the reader says so with
+  `DocumentStyleDefaults.WidowOrphanLines` rather than on each paragraph.
+  The layout applies that default in the cells of floating tables, where
+  Writer keeps the control for a Word document (`widorp.cxx`,
+  `TABLE_ROW_KEEP`): a row whose two-line cell has room for one line at the
+  foot of a page moves whole, as in `fdo68607.docx`. Body paragraphs and the
+  cells of inline tables do not take it yet; see the roadmap.
 - Page breaks, read from both spellings WordprocessingML has for the one thing
   and written back as one:
 
@@ -495,26 +506,27 @@ Open XML WordprocessingML package parts.
   letterhead templates are built from state a tall empty row precisely to place
   the block beneath it. Read as `auto` those rows collapse and the layout falls
   in on itself.
-- A page break *inside* a paragraph is not carried. Word honours a
-  `w:br w:type="page"` with text after it in the same paragraph by splitting the
-  paragraph across the boundary; a paragraph here holds one flag saying where it
-  starts, and nothing in the model says "the first half of me is on the page
-  before". Such a break is demoted to the line break every other `w:br` becomes,
-  with `docx.pagebreak.split`, rather than carried to the next paragraph — which
-  would pull the text that followed the break onto the page before the one the
-  document put it on. Two breaks with nothing between them are two boundaries
+- A page break *inside* a paragraph is honoured as Word and LibreOffice honour
+  it: the paragraph is split into two fragments at the boundary, the second
+  starting the new page with no first-line indent and no space before
+  (`docx.pagebreak.fragment`). Two breaks with nothing between them are two boundaries
   and a blank page in the middle: the first is kept and
   `docx.pagebreak.repeated` reports the rest, because honouring the later one
   would move the paragraph a page further on than the document did. A break in
   the last paragraph of a part has no paragraph to start and is dropped with
   `docx.pagebreak.trailing`; a document that deliberately ends on a blank page
   loses that page.
-- A page break at the end of a table cell is dropped, with
-  `docx.pagebreak.table`. Every cell's paragraphs live in the document's one
-  flat list, so the paragraph after a cell's last one is the neighbouring cell's
-  or the body's past the table, and neither is the row Word splits there. A
-  break on a paragraph *within* a cell is read and written back as stated, but
-  the layout breaks a row only where the page runs out, so nothing acts on it.
+- A page break run inside a table cell is dropped, with
+  `docx.pagebreak.table`, and nothing takes its place: no line break, not even
+  a space. That is LibreOffice 24.2's import (`DomainMapper_Impl::deferBreak`,
+  after the binary Word filter's `HandlePageBreakChar`). A column break there
+  splits its paragraph where something came before it, as the import splits
+  one (`m_bIsSplitPara`), and starts no column: Writer ignores the break in a
+  cell. Word splits the row at such a break; the layout here breaks a row
+  only where the page runs out. `fdo68607.docx` is a glossary pasted from a PDF with a page break
+  where every line of a definition ended; read as line breaks, they made each
+  such row several lines taller. A `w:pageBreakBefore` on a paragraph within a
+  cell is read and written back as stated, and the layout does not act on it.
 - A row's `w:cantSplit` is `TableRow.CanSplit`, read as the on/off property it
   is and written back. A row without it may break across a page, as in Word,
   including one whose cell holds a nested table: that breaks between the
@@ -546,6 +558,19 @@ Open XML WordprocessingML package parts.
   stated. A floating table nested in a cell stays in its cell, with
   `docx.table.floating`, and the PDF writer lays a floating table out in the
   flow (`pdf.write.feature-unsupported`).
+- Where a table that is not nested stands across the page follows LibreOffice
+  24.2's `DomainMapperTableHandler` (`DocxTableReader.PlaceAsWord`).
+  `DocumentTable.LeftIndent` and `TablePosition.X` are the table's left edge.
+  Word 2010 and earlier (`compatibilityMode` 1 to 14) put the text of the
+  first column at `w:tblInd`, so the edge is the left cell margin (or half the
+  left border, where that is wider) left of it; Word 2013 and a document that
+  states no mode put the edge at `w:tblInd`. A floating table placed by
+  `w:tblpX` stands its left cell margin left of the offset below mode 15, a
+  document stating none included, and half its first cell's left border
+  further in every mode; one aligned by `w:tblpXSpec` is not moved. The writer
+  states no mode and adds the floating offset back, so a table comes back
+  where it was. Before this, every such table stood 5.4 points (Word's
+  default cell margin) right of LibreOffice's.
 - Writing a vertical merge supplies continuation cells for model rows that
   omit the covered cells, as ODT readers do. Later cells keep their grid
   columns; existing explicit continuations are retained without duplication.
@@ -561,9 +586,7 @@ Open XML WordprocessingML package parts.
   it is read exactly as a `w:type="page"` break is, including the cases above.
   In a section of several columns it moves to the next column, and is
   `ParagraphStyle.ColumnBreakBefore` on the paragraph it starts, travelling
-  there exactly as a page break does; one with text on both sides of it in its
-  paragraph is a line break and reported as `docx.break.column`, as a page
-  break there is. Which section a paragraph is in is found before the content
+  there exactly as a page break does, including the split into fragments. Which section a paragraph is in is found before the content
   is read, because a section's properties follow its paragraphs. In a header,
   a footer or a text box it stays a line break. A write puts a
   `w:br w:type="column"` run first in the paragraph that has the break.
@@ -667,12 +690,11 @@ a document that opens blank can be told apart from a document that *is* blank:
 | `docx.table.rowheight` | Warning | A row stated an exact height; its text is retained in the model and its rendered overflow is clipped. |
 | `docx.table.floating` | Warning | A table nested in a cell stated a floating position; it was laid out in its cell. |
 | `docx.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
-| `docx.pagebreak.split` | Warning | A `w:br w:type="page"` had text after it in the same paragraph; it was read as a line break, because pages break between paragraphs here and not inside one. |
+| `docx.pagebreak.fragment` | Warning | A page or column break with text after it in the same paragraph split the paragraph into two fragments at the boundary. |
 | `docx.pagebreak.repeated` | Warning | A paragraph stated more than one page break; the first was kept and the blank pages the others make were dropped. |
 | `docx.pagebreak.trailing` | Warning | A page break in the last paragraph of a part was dropped; there is no following paragraph for it to start. |
 | `docx.table.trailingspace` | Info | A document of Word 2010 or earlier (`compatibilityMode` 11 to 14) ended a paragraph in a table cell with spaces, tabs or no-break spaces, and they were dropped, as Word ignores them and LibreOffice removes them. |
-| `docx.pagebreak.table` | Warning | A page break at the end of a table cell was dropped; a row breaks only where the page runs out, not where a paragraph in it asks. |
-| `docx.break.column` | Warning | A column break with text before and after it in the same paragraph was read as a line break; columns break between paragraphs here, not inside one. |
+| `docx.pagebreak.table` | Warning | A page or column break inside a table cell started no page or column: a page break was dropped and a column break split its paragraph, as LibreOffice's import reads them; a row breaks only where the page runs out, not where a paragraph in it asks. |
 | `docx.section.columns` | Info | The sections differ in their columns; each section keeps its own, and the page records those of the section holding the most paragraphs. |
 | `docx.header.first` | Info | A section has a `first` header or footer, its own or continued, but does not set `w:titlePg`, so it was not read for that section; its first page carries the default one. |
 | `docx.header.even` | Info | An `even` header or footer was not read, because the document does not set `w:evenAndOddHeaders`; even pages carry the default one. |
@@ -751,6 +773,10 @@ with `a:path`), and bitmap fills (`a:blipFill`) are read and written to `ShapeFi
 Writing gradient borders or page-fill bounds reports `docx.fill.extended` when
 approximated as a base colour or linear gradient. These properties are carried by the
 common model for ODT rendering.
+A text box too short for its first line still shows that line, cut at its
+text area, as Writer formats a frame's first line whatever room it has
+(`fdo68607.docx`'s title, one 24 point line in a box 26.5 points high inside
+its insets); the lines after it are left out where they do not fit.
 DrawingML top/centre/bottom text anchoring and explicit vertical overflow are
 retained and rendered; VML middle/bottom anchors and visible overflow are also
 read. Writing minimum-width auto-sizing or linked ODT frames as DOCX reports

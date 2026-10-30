@@ -96,8 +96,9 @@ public sealed class DocumentLayoutShapeTests
                 Enumerable.Range(0, 20).Select(i => RichTextParagraph.Plain("line " + i)).ToList()))));
 
         Assert.True(shape.Lines.Count < 20, "the overflowing lines should not all be drawn");
+        // The first line shows, cut at the box's text area, as Writer draws it.
         foreach (LayoutLine line in shape.Lines)
-            Assert.True(line.Top + line.Height <= shape.Bounds.Bottom + 0.001);
+            Assert.True(line.Top + (line.ClipHeight ?? line.Height) <= shape.Bounds.Bottom + 0.001);
     }
 
     [Fact]
