@@ -53,6 +53,16 @@ public sealed class TextWrapExclusions
     /// <summary>True when nothing wraps, which is the common case and the fast path.</summary>
     public bool IsEmpty => _kernel.IsEmpty;
 
+    /// <summary>Register a shape using its declared size.</summary>
+    /// <remarks>Retains the binary signature used by published rich-edit implementations.</remarks>
+    public void Add(DocumentShape shape, double top, double scale = 1)
+        => Add(shape, top, scale, height: null, width: null);
+
+    /// <summary>Register a shape with a layout-provided height.</summary>
+    /// <remarks>Retains the four-parameter signature used before width overrides were introduced.</remarks>
+    public void Add(DocumentShape shape, double top, double scale, double? height)
+        => Add(shape, top, scale, height, width: null);
+
     /// <summary>
     /// Records a shape's box. <paramref name="top"/> is where the shape starts
     /// once its anchoring paragraph is placed; the margin the shape keeps around

@@ -116,6 +116,33 @@ public sealed class SharedLayoutExclusionsPriority2Tests
     #region 2. TextWrapExclusions Adapter Equivalence & Word Processing Wrap
 
     [Fact]
+    public void TextWrapExclusions_LegacyBinarySignatures_ForwardToSizeAwareImplementation()
+    {
+        var shape = new DocumentShape(0, 20, 0, 100, 50, wrap: ShapeWrap.Square, wrapDistance: 10);
+        var legacy = new TextWrapExclusions();
+        var current = new TextWrapExclusions();
+        var method = typeof(TextWrapExclusions).GetMethod(nameof(TextWrapExclusions.Add),
+            new[] { typeof(DocumentShape), typeof(double), typeof(double) });
+        Assert.NotNull(method);
+        // Invoke the exact signature referenced by the published RichEdit binary.
+        method.Invoke(legacy, new object[] { shape, 40d, 2d });
+        current.Add(shape, 40, 2, height: null, width: null);
+        var expected = Assert.Single(current.Kernel.Obstacles);
+        var actual = Assert.Single(legacy.Kernel.Obstacles);
+        Assert.Equal(expected.Left, actual.Left);
+        Assert.Equal(expected.Right, actual.Right);
+        Assert.Equal(expected.Top, actual.Top);
+        Assert.Equal(expected.Bottom, actual.Bottom);
+
+        var withHeight = typeof(TextWrapExclusions).GetMethod(nameof(TextWrapExclusions.Add),
+            new[] { typeof(DocumentShape), typeof(double), typeof(double), typeof(double?) });
+        Assert.NotNull(withHeight);
+        var resized = new TextWrapExclusions();
+        withHeight.Invoke(resized, new object[] { shape, 40d, 2d, 80d });
+        Assert.Equal(220, Assert.Single(resized.Kernel.Obstacles).Bottom);
+    }
+
+    [Fact]
     public void TextWrapExclusions_AddShape_AppliesMarginsAndScale()
     {
         var exclusions = new TextWrapExclusions();
