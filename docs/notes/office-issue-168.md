@@ -1,137 +1,116 @@
 # Issue #168: a form template's sections, hidden text and page fields
 
-The first of the [30 ranked differences in issue #168](https://github.com/Broiler-Platform/Broiler.Documents/issues/168)
-was `uiwriter/data/fdo114306_2.odt`: broilerdoc drew eleven pages where
-LibreOffice draws four (severity 1570.77). It is a Moscow-government order
-template OpenOffice.org 2.2 saved in 2008: a dozen text sections under two page
-styles, non-printing editing aids, an approval sheet that restarts the page
-count, and hidden text written the way OpenOffice.org 2.x wrote it. The path and
-input SHA-256 are in `tests/office/selections/issue-168.txt` and
-`tests/office/selections/issue-168.sha256`. The document is not vendored.
+First of the [30 ranked differences in issue #168](https://github.com/Broiler-Platform/Broiler.Documents/issues/168):
+`uiwriter/data/fdo114306_2.odt` (severity 1570.77), eleven pages against
+LibreOffice's four. It is a Moscow-government order template OpenOffice.org
+2.2 saved in 2008: a dozen text sections under two page styles, non-printing
+editing aids, an approval sheet that restarts the page count, and hidden text
+written the OpenOffice.org 2.x way. Path and input SHA-256:
+`tests/office/selections/issue-168.txt` and
+`tests/office/selections/issue-168.sha256`; not vendored.
 
-Locally all three of its checks now pass: read, text and pixel (78.48% before
-the last two corrections below, then over the 80% threshold), at four pages
-against four.
+Locally all three checks now pass (read, text, pixel), four pages against four.
 
 ## Corrections
 
-Each follows what LibreOffice does, checked against its source or by probing it
-with altered copies of the sample.
+Each follows LibreOffice, checked against its source or by probing altered
+copies of the sample.
 
-- **Text sections follow on.** The ODT reader turned every stretch between two
-  section edges into a section that starts a page. Only a paragraph or table
-  whose style names a master page opens one now. This alone took the sample
-  from eleven pages to four.
-- **What a template keeps off the page.** A drawing whose style says
+- **Text sections follow on.** The ODT reader made every stretch between two
+  section edges a section starting a page. Only a paragraph or table whose
+  style names a master page opens one now; this alone took the sample from
+  eleven pages to four.
+- **Non-printing drawings.** A drawing whose style says
   `style:print-content="false"` is laid out and kept clear of but not printed
   (`DocumentShape.Printable`, written back; `LayoutSettings.DrawNonPrintingShapes`
-  lets an editing host show it). The sample's crest and heading frame go.
-- **Form labels.** A `draw:control` placing a `form:fixed-text` is a shape holding
-  its label in the control's text style; `form:printable="false"` makes it
-  non-printing. The sample's "Разослать:" prints; its editing hints do not.
-- **Section margins are indents.** ODF section `fo:margin-left`/`-right` apply on
-  any page (`DocumentSection.LeftIndent`, `RightIndent`); they were page margins
-  that a section following on a page ignored. The title is set in the left half
-  again.
+  lets an editing host show it). The crest and heading frame go.
+- **Form labels.** A `draw:control` placing a `form:fixed-text` is a shape
+  holding its label in the control's text style; `form:printable="false"`
+  makes it non-printing. "Разослать:" prints; the editing hints do not.
+- **Section margins are indents.** ODF section `fo:margin-left`/`-right` apply
+  on any page (`DocumentSection.LeftIndent`, `RightIndent`), not as page
+  margins a following-on section ignored.
 - **Table spacing and splitting.** `fo:margin-top`/`-bottom` on a table are its
-  spacing (`DocumentTable.SpacingBefore`, `SpacingAfter`), read, written and laid
-  out; the signature stands 2.2 cm below the text. `style:may-break-between-rows="false"`
-  keeps a table together, and a nested table kept with what follows is held to it.
-- **Cells.** An ODF cell that states no padding has none, where Word's 5.4 pt
-  was used. Text that runs past a cell is cut at its edge, as Writer cuts a text
-  portion; a line holding a picture is drawn whole.
-- **Page fields.** `text:page-number` and `text:page-count` are runs that keep
-  their saved value and say which field they are (`InlineStyle.PageField`). A
-  header or footer draws each page's own value; `style:page-number` restarts the
-  count (`DocumentSection.PageNumberStart`); a page count comes from a second
-  pass; a number adjusted to a page that is not there shows nothing. The sample's
-  headers read "- 2 -" on its second and fourth pages, as LibreOffice's do,
-  where both said the saved "3". Typing beside a field does not extend it.
+  spacing (`DocumentTable.SpacingBefore`, `SpacingAfter`), read, written and
+  laid out. `style:may-break-between-rows="false"` keeps a table together, and
+  a nested table kept with what follows is held to it.
+- **Cells.** An ODF cell stating no padding has none (Word's 5.4 pt was used).
+  Text running past a cell is cut at its edge, as Writer cuts a text portion;
+  a line holding a picture is drawn whole.
+- **Page fields.** `text:page-number` and `text:page-count` are runs keeping
+  their saved value and naming their field (`InlineStyle.PageField`). A header
+  or footer draws each page's own value; `style:page-number` restarts the count
+  (`DocumentSection.PageNumberStart`); a page count comes from a second pass; a
+  number adjusted to a page that is not there shows nothing. Headers now read
+  "- 2 -" on pages 2 and 4, not the saved "3". Typing beside a field does not
+  extend it.
 - **Hidden text from OpenOffice.org 2.x.** That release wrote `text:display`
-  inverted. LibreOffice recognises it by the build id in `meta:generator` and
-  reads it the other way round (`txtimppr.cxx`); so does the reader now. A
+  inverted; LibreOffice recognises it by the build id in `meta:generator` and
+  reads it the other way round (`txtimppr.cxx`), as the reader now does. A
   paragraph whose mark and text are all hidden takes no room, in every format;
-  its page break still applies. The sample's "Скрытый текст" (hidden text) digits
-  and the empty paragraph that starts its approval sheet disappear.
-- **Fixed header and footer bands.** `svg:height` on `style:header-footer-properties`
-  is a fixed band whose height already holds the spacing below it
-  (`PageGeometry.FixedHeaderHeight`, `FixedFooterHeight`). The body is not moved
-  for its content, and content that overruns it is cut at the band.
-- **Hidden sections in running content.** A `text:section text:display="none"` in a
-  header or footer is left out; the sample's file-name footer goes.
-- **The first master page.** The text of a deletion kept ahead of the body in
-  `text:tracked-changes`, or of a note or comment, no longer chooses the master
-  page the document starts on (`tdf130680.odt` lost a footer LibreOffice never draws).
-- **Text projection.** `dump --as text` leaves out text in shapes, as
-  LibreOffice's text export walks the body alone (`wrtasc.cxx`), except for a
-  body of one empty paragraph, which exports its first text box. The
-  [issue #136 frames note](office-issue-136-floating-frames-textboxes-verification-2026-10-22.md)
-  had added shape text and recorded the text checks it broke. The
+  its page break still applies. The "Скрытый текст" digits and the empty
+  paragraph opening the approval sheet disappear.
+- **Fixed header and footer bands.** `svg:height` on
+  `style:header-footer-properties` is a fixed band already holding the spacing
+  below it (`PageGeometry.FixedHeaderHeight`, `FixedFooterHeight`). The body is
+  not moved for its content; overrunning content is cut at the band.
+- **Hidden sections in running content.** A `text:section
+  text:display="none"` in a header or footer is left out (the file-name footer).
+- **The first master page.** Deleted text kept ahead of the body in
+  `text:tracked-changes`, or a note or comment, no longer chooses the starting
+  master page (`tdf130680.odt` lost a footer LibreOffice never draws).
+- **Text projection.** `dump --as text` leaves out shape text, as LibreOffice's
+  text export walks the body alone (`wrtasc.cxx`), except a body of one empty
+  paragraph, which exports its first text box. The
+  [issue #136 frames note](office-issue-136.md#floating-frames-and-text-box-content)
+  had added shape text and recorded the text checks it broke; the
   [office-conformance guide](../guides/office-conformance.md) already said the
   text projection carries no shape.
 
 ## Verification
 
-The unit suite passes: **4,879 passed, three skipped**, with regression tests for
-each correction above in the Model, ODT, Pagination and CLI suites, including an
-end-to-end flat-ODT form template laid out through the paginator.
+The CI's prepared references carry a Linux toolchain stamp, so every corpus
+sample was rendered and dumped with `468ce62` and with this change; the 563
+samples differing in either got host-made LibreOffice references:
 
-The local comparison could not use the CI's prepared references, whose toolchain
-stamp is Linux. Instead every corpus sample was rendered and text-dumped with an
-isolated build of `468ce62` and with this change; 563 samples differ in either.
-LibreOffice references were generated for exactly those, and both builds were
-scored against them with the same fonts and settings.
+- text checks passed 197 → 469, pixel 320 → 332, all 1,080 → 1,364 of 1,660;
+  summed severity 316,293 → 296,111; 343 samples lower, 18 higher;
+- one check lost: the pixel check of `uiwriter/data/tdf130680.odt` (78.84%).
+  Its pages now start where LibreOffice's do and drop the footer LibreOffice
+  does not draw; what remains is a table taller than LibreOffice's (embedded
+  objects not decoded), which the wrong footer had offset in the score.
 
-| Axis | Before | After |
-| --- | ---: | ---: |
-| Text checks passed | 197 | 469 |
-| Pixel checks passed | 320 | 332 |
-| All checks passed (of 1,660) | 1,080 | 1,364 |
-| Summed severity | 316,293 | 296,111 |
+Notable samples (severity, pages against LibreOffice's):
 
-Of 563 samples, 343 have a lower severity and 18 a higher one. One check that
-passed fails: the pixel check of `uiwriter/data/tdf130680.odt` (78.84%). Its pages
-now start exactly where LibreOffice's do and lose the footer LibreOffice does not
-draw; what remains is a table taller than LibreOffice's, whose embedded objects
-are not decoded, which the wrong footer had been offsetting in the score.
+- `uiwriter/data/fdo114306_2.odt`: 1213.2 → 467.0, 10 → 4 (4), all pass.
+- `ooxmlexport/data/ooo96040-2.odt` (#2): 1361.8 → 982.2, 20 → 12 (13), read
+  passes.
+- `layout/data/tdf119875.odt`: 1140.5 → 643.9, 9 → 3 (3), all pass.
+- `ooxmlexport/data/tdf101589_dontSplitTable.odt`: 802.4 → 2.0, 2 (2), all
+  pass.
 
-| Sample | Severity before → after | Pages (LibreOffice) | Checks now |
-| --- | ---: | --- | --- |
-| `uiwriter/data/fdo114306_2.odt` | 1213.2 → 467.0 | 10 → 4 (4) | all pass |
-| `ooxmlexport/data/ooo96040-2.odt` (#2) | 1361.8 → 982.2 | 20 → 12 (13) | read |
-| `layout/data/tdf119875.odt` | 1140.5 → 643.9 | 9 → 3 (3) | all pass |
-| `ooxmlexport/data/tdf101589_dontSplitTable.odt` | 802.4 → 2.0 | 2 → 2 (2) | all pass |
+Higher severities, none a lost check (worst-page observations):
 
-Higher severities, none of them a failing check that passed before:
-
-- `layout/data/U-min.fodt` (+810), `layout/data/table-0-height-rows.fodt` (+64)
-  and `layout/data/footer-fly-table.fodt` (+23) have a "continued on page N"
-  footer (`text:page-adjust="1"`). Their content depends on conditional
-  sections and `text:hidden-paragraph`, which are not evaluated, so they lay out
-  on two pages where LibreOffice has one, and the first page now shows the
-  "2" a two-page document would.
+- `layout/data/U-min.fodt` (+810), `layout/data/table-0-height-rows.fodt`
+  (+64), `layout/data/footer-fly-table.fodt` (+23): a "continued on page N"
+  footer (`text:page-adjust="1"`) whose content depends on conditional
+  sections and `text:hidden-paragraph`, not evaluated; they lay out on two
+  pages against one, so page 1 now shows "2".
 - `uiwriter/data/tdf39828.fodt` (+203), `cjk/data/tdf115079.odt` (+131),
-  `layout/data/min-wtf.rtf` (+45) and `ooxmlexport/data/cell-grid-span.docx`
-  (+44, two pages to one against LibreOffice's two after a hidden empty
-  paragraph stops taking a line) move within failing pixel checks; the others
-  rise by less than six.
-
-These are each run's worst-page observations.
+  `layout/data/min-wtf.rtf` (+45), `ooxmlexport/data/cell-grid-span.docx`
+  (+44; two pages to one against LibreOffice's two, once a hidden empty
+  paragraph stops taking a line) move within failing pixel checks; the rest by
+  less than six.
 
 ## Environment and reproduction
 
 Windows, LibreOffice 26.2.6.3, Poppler 24.04.0 (pdftoppm), 96 DPI, 80%
-threshold, the Liberation, Carlito, Caladea and DejaVu faces pinned on both
-sides. The issue uses Linux, LibreOffice 24.2.7.2 and the `office-references-v2`
-archive, whose pinned fonts are Carlito, Caladea and DejaVu only.
+threshold, Liberation, Carlito, Caladea and DejaVu pinned on both sides (the
+issue used Linux, LibreOffice 24.2.7.2 and `office-references-v2`, pinning
+Carlito, Caladea and DejaVu only). Replay: `dotnet run --project
+src/tests/Broiler.Documents.Office -- --extras-dir <samples> --sample-list
+tests/office/selections/issue-168.txt --font-dir <fonts> --dpi 96
+--allow-pending-tools`.
 
-```powershell
-dotnet test Broiler.Documents.slnx
-dotnet run --project src/tests/Broiler.Documents.Office -- `
-  --extras-dir <sw/qa/extras samples> --sample-list tests/office/selections/issue-168.txt `
-  --font-dir <font dir> --dpi 96 --allow-pending-tools
-```
-
-Follow-up work this leaves open is in the [roadmap](../roadmap.md): page fields
-in DOCX and RTF, a field's number format from its page style, and conditional
-visibility.
+Open, in the [roadmap](../roadmap.md): page fields in DOCX and RTF, a field's
+number format from its page style, and conditional visibility.

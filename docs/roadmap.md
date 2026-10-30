@@ -12,7 +12,7 @@ model.
 
 ## At a glance
 
-The [2026-10-19 decision record](notes/roadmap-decisions-2026-10-19.md) records
+The [2026-10-19 decision record](notes/roadmap-decisions.md) records
 the selected scope and deferred questions. Deferred decisions remain open and
 retain their existing gates. Selected features below still need implementation.
 

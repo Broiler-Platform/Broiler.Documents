@@ -17,84 +17,169 @@ for parsing and writes deterministic UTF-8 HTML with `HtmlSerializer`.
 | HTML | Model | Notes |
 |---|---|---|
 | `<p>`, headings, `<li>` | `RichTextParagraph` | Empty paragraph elements are preserved. |
-| `<div>`, sections, blockquote-like containers | Paragraph boundaries | Direct text in a block becomes a paragraph. Containers with `title="header"` or `title="footer"` (the convention LibreOffice HTML export uses for running content) are extracted into `RichTextDocument.RunningContent` rather than flowing into body text. |
-| `<table>`, `<tr>`, `<td>`, `<th>` | `DocumentTable`, `TableRow`, `TableCell` | Retains nested grids, spans, empty cells and captions; `th` defaults to bold and centered. Legacy `border`, `cellpadding`, `width` and cell backgrounds are read. Tables without a grid use content-based column sizing. CSS table geometry and separate border spacing remain unsupported. |
+| `<div>`, sections, blockquote-like containers | Paragraph boundaries | Direct text in a block becomes a paragraph, keeping the container's resolved alignment, spacing and indentation, including text after a child paragraph. Containers with `title="header"` or `title="footer"` (LibreOffice's HTML export convention for running content) go to `RichTextDocument.RunningContent`, not the body. |
+| `<table>`, `<tr>`, `<td>`, `<th>` | `DocumentTable`, `TableRow`, `TableCell` | Retains nested grids, spans, empty cells and captions; `th` defaults to bold and centered. Legacy `border`, `cellpadding`, `width` and cell backgrounds are read. Tables without a grid use content-based column sizing. CSS table geometry, separate border spacing and column declarations are unsupported. |
 | `<br>` | `U+2028` soft break | Same model convention as RTF line breaks. |
 | `<b>`, `<strong>` | `InlineStyle.Bold` | CSS `font-weight:bold` or numeric `>=600` also maps. |
 | `<i>`, `<em>` | `InlineStyle.Italic` | CSS `font-style:italic/oblique` also maps. |
 | `<u>` | `InlineStyle.Underline` | CSS `text-decoration: underline` also maps. |
 | `<s>`, `<strike>`, `<del>` | `InlineStyle.Strikethrough` | CSS `line-through` also maps. |
 | CSS `text-transform: uppercase`, `font-variant: small-caps` | `InlineStyle.Capitalization` | Display only; the markup keeps the author's casing. |
-| `<a href>` | `InlineStyle.LinkHref` | Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried. Refusals are reported as `html.link`. |
-| `<img>` with `data:` URI | `InlineStyle.Image` (`InlineImage`) | Embedded base64 or percent-encoded data URI payloads are decoded and admitted via caller resource policy. CSS or attribute `width`/`height` map to points; `alt` maps to `AltText`, `title` to `Name`. Images inside `<a>` links retain `LinkHref`. Payloads exceeding `MaxBinBytes` report `html.image.limit`, malformed URIs report `html.image.malformed`, and policy denials report `html.image.denied`. External/relative images remain skipped with `html.skip.external`. |
+| `<a href>` | `InlineStyle.LinkHref` | Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`. Every other scheme, every relative target and a bare `#` are refused, on read and on write (the link written as plain text), and reported as `html.link`. One predicate decides it for all five codecs (`DocumentLinkTarget`). A fragment preserves the reference, not a working jump: no codec reads or writes a bookmark and the model has nowhere to put one. |
+| `<img>` with `data:` URI | `InlineStyle.Image` (`InlineImage`) | Base64 or percent-encoded payloads are decoded and admitted via caller resource policy. CSS or attribute `width`/`height` map to points; `alt` maps to `AltText`, `title` to `Name`. Images inside `<a>` keep `LinkHref`. Payloads exceeding `MaxBinBytes` report `html.image.limit`, malformed URIs `html.image.malformed`, policy denials `html.image.denied`. External/relative images are skipped with `html.skip.external`. |
 | `<font face color>` | `FontFamily`, `Foreground` | Legacy compatibility only. |
-| CSS `color`, `background-color` | `Foreground`, `Background` | Named colors, `#rgb`, `#rrggbb`, and `rgb(...)`. A background whose alpha is zero — `transparent`, or an `rgba(...)` that resolves to it — is read as *no* background rather than as an invisible one, because the model spells "no background" as a distinct sentinel and storing the colour instead made every such run a highlighted run. `color: transparent` is not reinterpreted: invisible text is something a document can genuinely mean, and a background that is not there is not a colour at all. |
+| CSS `color`, `background-color` | `Foreground`, `Background` | Named colors, `#rgb`, `#rrggbb`, and `rgb(...)`. A background with zero alpha — `transparent`, or an `rgba(...)` resolving to it — is read as *no* background (the model's distinct sentinel), not as an invisible colour that would highlight every run. `color: transparent` is kept: invisible text is something a document can mean. |
 | CSS `font-family`, `font-size` | `FontFamily`, `FontSize` | Points are preserved; px converts using 96 DPI. |
 | CSS `text-align` / `align` | `ParagraphStyle.Alignment` | `justify` degrades to left. |
-| CSS `line-height` | `ParagraphStyle.LineSpacing`, or an at-least `LineHeight` | A number or percentage is a multiple; a length is the least a line is, which is how LibreOffice's HTML import reads it (`ParseCSS1_line_height`). It used to be taken as a multiple of twelve points. |
-| CSS margins | spacing/indent fields | Left margins retain exact point offsets, accumulating through containing blocks. Canonical offsets still use the equivalent legacy indent level. Padding retains the older approximate handling; this is not a general CSS box model. |
-| `<ul>` / `<ol>` + `<li>` | `ListKind`, `ListReference`, `IndentLevel` | Independent list definitions restart counters; `ol type`, `start` and `li value` are retained. Nested ordered lists default to decimal. Only the first paragraph of each item has a label; nested items count separately. Logical nesting is separate from physical container margins. Reversed counting remains outside this support. The writer still reports `html.list` and writes no list markup. |
-| CSS `page-break-before` / `break-before` | `ParagraphStyle.PageBreakBefore` | Read from the declarations resolved for the paragraph element - its own inline `style` attribute over a bare type rule from the document's stylesheet. Both spellings are current and both are read: `page-break-before` is the CSS2 property and is what LibreOffice writes, `break-before` is the CSS3 replacement the older one is now defined as an alias for. `always` and `page` are breaks; `auto` is the initial value and is not, nor is `avoid`, nor `region`, which names a fragmentation into containers this model does not have. `break-before: column`, and the older `column-break-before: always`, are a column break, `ParagraphStyle.ColumnBreakBefore`, unless the paragraph also states a page break, which goes further and is the one kept. `left`, `right`, `recto` and `verso` are read as a plain break and reported as `html.page-break` — the break is kept because a break is what the document asked for, and the side is not, because the model holds a flag and has no page parity. When the two properties disagree the break wins: CSS settles that by source order and this codec's declaration parser returns a dictionary rather than an order, so both are read as the one question of whether the paragraph states a break at all. A break on a containing `<div>` is not inherited by the paragraphs inside it — alignment descends, a break happens once, where it was stated. Text lying directly in a container retains its resolved alignment, spacing and indentation, including text after a child paragraph. Container break declarations are not transferred by this paragraph-formation support. |
-| A `<style>` type-selector rule, `p { ... }` | The base beneath an element's own `style` attribute | A rule whose selector is a bare element name, or a selector list every item of which is one, contributes its declarations to those elements. The element's own inline `style` attribute wins property by property, so a property the inline style does not state still arrives and a property both state takes the inline value. Whatever this reader already does with a declaration it does with one resolved from here, the page break included: applying the stylesheet to a paragraph's line spacing and not to its page break would be a distinction no document makes. Two type rules stating one property for one element resolve by source order, the later winning, which is what CSS says for two rules of equal specificity. Comments are stripped first, the `<!--` / `-->` pair a word processor wraps a stylesheet in included, and a nested block is removed from a rule body before the declarations are split. A rule this codec does not implement is skipped and reported once as `html.css.rule`. |
-| `<body bgcolor>`, CSS `background-color` and `background` on `<html>` or `<body>` | `RichTextDocument.PageBackground` | The canvas colour, CSS 2.1 §14.2: the root element's background, or the body's when the root states none. The property wins over the `bgcolor` attribute, which HTML maps beneath any author style. A transparent background is none. It is the page's and not the runs': read onto them it would highlight every line and leave the margins white. |
-| CSS `@page` `size` and margins | `PageGeometry` | The one rule read out of a `<style>` element rather than off an element. `size` takes a CSS page name (`a3`-`a5`, `b4`, `b5`, JIS `b4`/`b5`, `letter`, `legal`, `ledger`), one length, or two, with `portrait`/`landscape` orienting it; margins take the shorthand in all four arities and the four longhands. Only the first unnamed rule is read - a `@page cover` states the page for part of a document and this model holds one. Margin boxes are stepped over. A rule leaving no column to write in is refused rather than honoured. |
+| CSS `line-height` | `ParagraphStyle.LineSpacing`, or an at-least `LineHeight` | A number or percentage is a multiple; a length is the least a line is, as LibreOffice's HTML import reads it (`ParseCSS1_line_height`). |
+| CSS margins | spacing/indent fields | Left margins keep exact point offsets, accumulating through containing blocks; canonical offsets still use the equivalent legacy indent level. Padding keeps the older approximate handling; this is not a general CSS box model. |
+| `<ul>` / `<ol>` + `<li>` | `ListKind`, `ListReference`, `IndentLevel` | Independent list definitions restart counters; `ol type`, `start` and `li value` are retained. Nested ordered lists default to decimal. Only the first paragraph of each item has a label; nested items count separately. Logical nesting is separate from physical container margins. Reversed counting is unsupported. The writer reports `html.list` and writes no list markup. |
+| CSS `page-break-before` / `break-before` | `ParagraphStyle.PageBreakBefore` | See [Page breaks](#page-breaks). |
+| A `<style>` type-selector rule, `p { ... }` | The base beneath an element's own `style` attribute | See [Stylesheets](#stylesheets). |
+| `<body bgcolor>`, CSS `background-color` and `background` on `<html>` or `<body>` | `RichTextDocument.PageBackground` | The canvas colour, CSS 2.1 §14.2: the root element's background, or the body's when the root states none. The property wins over the `bgcolor` attribute, which HTML maps beneath any author style. A transparent background is none. It is the page's, not the runs': on them it would highlight every line and leave the margins white. |
+| CSS `@page` `size` and margins | `PageGeometry` | The one rule read out of a `<style>` element rather than off an element. `size` takes a CSS page name (`a3`-`a5`, `b4`, `b5`, JIS `b4`/`b5`, `letter`, `legal`, `ledger`), one length, or two, with `portrait`/`landscape` orienting it; margins take the shorthand in all four arities and the four longhands. Only the first unnamed rule is read - a `@page cover` states the page for part of a document and this model holds one. Margin boxes are stepped over. A rule leaving no column to write in is refused. |
 
-Text and attributes are HTML-decoded once by the DOM parser. The codec does not
-decode the resulting text again, so literal entity spellings survive read/write
-round trips and link targets/font names keep their authored values. Stylesheet
-text is raw CSS and does not undergo HTML entity decoding.
-Normal HTML whitespace collapses to single
-spaces; `<pre>`, and any element declaring `white-space: pre`, `pre-wrap` or
-`break-spaces`, preserves it. What collapses is the five characters CSS names —
-space, tab, line feed, carriage return, form feed — and a non-breaking space is
-deliberately not one of them, so `&nbsp;` beside an ordinary space keeps both.
-Under a preserving declaration nothing is trimmed either, including at the start
-of the paragraph, which is what the declaration is for.
+### Text
 
-Elements whose content is not text the document says are skipped with
-everything inside them: the ones the HTML rendering rules hide (`area`, `base`,
-`basefont`, `datalist`, `head`, `link`, `meta`, `noembed`, `noframes`, `param`,
-`script`, `style`, `template`, `title`), and the external or embedded content
-this reader neither fetches nor draws, of which an image, an object, an embed or
-an iframe is reported as `html.skip.external`.
-`noframes` and `noembed` were missing from that list until a document showed
-what it cost: the parser reads both as raw text, so markup inside one came out
-as the document's prose, tags and all. `rp` is on the rendering list and kept
-here on purpose - it holds the parentheses shown around a ruby annotation by a
-reader with no ruby support, which this model is.
+Text and attributes are HTML-decoded once by the DOM parser and not again, so
+literal entity spellings survive read/write round trips and link targets and
+font names keep their authored values. Stylesheet text is raw CSS and is not
+entity-decoded.
+
+Normal HTML whitespace collapses to single spaces; `<pre>`, and any element
+declaring `white-space: pre`, `pre-wrap` or `break-spaces`, preserves it. What
+collapses is the five characters CSS names — space, tab, line feed, carriage
+return, form feed — and a non-breaking space is deliberately not one of them,
+so `&nbsp;` beside an ordinary space keeps both. Under a preserving
+declaration nothing is trimmed either, including at the start of the
+paragraph.
 
 A NUL is not text. The tree builder ignores one in body content, so a
-conforming DOM never holds it there; the parser this codec uses keeps it, and
-the renderer drew it as a missing glyph in the middle of a word, so the reader
-drops it. Where the standard turns a NUL into U+FFFD instead - `&#0;`, and
-inside a `textarea` - it is dropped as well, because by the time the text
-reaches the reader the two cases cannot be told apart. Other control characters
-are left alone: CSS asks for them to be drawn visibly rather than removed.
+conforming DOM never holds it there; the parser this codec uses keeps it, so
+the reader drops it rather than draw a missing glyph mid-word. Where the
+standard turns a NUL into U+FFFD instead - `&#0;`, and inside a `textarea` -
+it is dropped as well, since the reader cannot tell the two cases apart. Other
+control characters are left alone: CSS asks for them to be drawn visibly.
+
+Elements whose content is not the document's text are skipped with everything
+inside them: those the HTML rendering rules hide (`area`, `base`, `basefont`,
+`datalist`, `head`, `link`, `meta`, `noembed`, `noframes`, `param`, `script`,
+`style`, `template`, `title`), and external or embedded content this reader
+neither fetches nor draws, of which an image, an object, an embed or an iframe
+is reported as `html.skip.external`. The parser reads `noframes` and `noembed`
+as raw text, so without the skip their markup would come out as prose, tags
+and all. `rp` is on the rendering list but kept on purpose: it holds the
+parentheses shown around a ruby annotation by a reader with no ruby support,
+which this model is.
+
+### CSS values
 
 Numeric CSS lengths and line-height multipliers must be finite. NaN, infinity,
-numeric overflow and unit conversions that overflow are ignored, preserving
-the inherited model value. `HtmlFiniteLengthTests` covers font sizes, paragraph
-margins and line height.
+numeric overflow and overflowing unit conversions are ignored, keeping the
+inherited model value (`HtmlFiniteLengthTests` covers font sizes, paragraph
+margins and line height).
 
-Declaration semicolons and font-family list commas are recognized outside quoted
-strings. A quoted family such as `'Alpha;Beta'` or `'Alpha,Beta'` remains one
-name, in both inline styles and supported type rules. Quoted family names remove
-only their matching outer quote pair and decode escaped quotes/backslashes,
-including those emitted by the writer. General CSS hexadecimal escape decoding
-remains outside this subset.
+Declaration semicolons and font-family list commas are recognised outside
+quoted strings, so a quoted family such as `'Alpha;Beta'` or `'Alpha,Beta'`
+stays one name, in inline styles and supported type rules alike. Quoted family
+names lose only their matching outer quote pair and decode escaped
+quotes/backslashes, including those the writer emits. General CSS hexadecimal
+escape decoding is outside this subset.
+
+### Stylesheets
+
+A `<style>` element's text is never prose; the element is read separately, for
+its `@page` rule and its type-selector rules and nothing else. A rule whose
+selector is a bare element name, or a selector list every item of which is
+one, contributes its declarations to those elements. The element's own inline
+`style` attribute wins property by property: a property it does not state
+still arrives, and one both state takes the inline value. Two type rules
+stating one property for one element resolve by source order, the later
+winning, as CSS says for equal specificity. Whatever the reader does with a
+declaration it does with one resolved from a type rule, the page break
+included. Comments are stripped first, including the `<!--` / `-->` pair a word
+processor wraps a stylesheet in, and a nested block is removed from a rule body
+before the declarations are split.
+
+**Exactly one selector is matched: the bare element name.** A
+`p { line-height: 115% }` rule reaches the paragraphs it selects, and so does
+`h1, h2 { ... }`. **Nothing else is matched** - not a class, an id, an
+attribute, a pseudo-class, a combinator, a descendant selector, or `*`; and
+there is no `!important`, no `@media`, no external stylesheet, no computed
+style, and no layout. A selector list is all or nothing: `h1, .lead { ... }`
+applies to neither, not to the `h1` alone, because two elements an author styled together coming back
+one styled and one not, with nothing to say which, is worse than not applying
+the rule. A skipped rule - an unimplemented selector, or any at-rule other than
+`@page` - is reported once per read as `html.css.rule`: it was read, understood
+to be formatting aimed at this document, and dropped, a loss the codec can see
+and so has to name.
+
+A type rule contributes to the element its selector names and nothing else; it
+is not a computed-style inheritance pass. What follows is the reader's
+existing descent, which carries the model style fields it understands from a
+container into the blocks inside it, exactly as for a `style` attribute on
+that container: `td { font-size: 8pt }` makes a cell's text small, and
+`div { margin-bottom: 12pt }` reaches the paragraphs in the `div` as
+`<div style="margin-bottom:12pt">` does.
+
+**Why the line sits there: everything past it is the cascade, and the cascade
+is a browser.** Specificity here is one comparison with one answer - the
+element's own `style` attribute beats the sheet - applicable without knowing
+the rest of the document. A class rule, an id rule and a descendant rule aimed
+at one paragraph must be ordered against each other before any applies, and
+building that is not smaller than building the engine. This is a document
+reader wanting the formatting a producer stated, and in the LibreOffice sample
+that prompted it every selector was `@page` or `p`. `@page` is the one at-rule
+read because a page is a property of the document rather than its
+presentation: HTML keeps there what DOCX keeps in `w:sectPr` and ODF in
+`style:page-layout`.
+
+**The measurable gap.** For a document with a table LibreOffice also writes
+`td p { ... }` and `th p { ... }`, descendant selectors, so paragraphs in cells
+get none of it. In the office conformance suite the seeds without tables score
+as their DOCX twins do (`plain-paragraphs` at an ink box of 9 pixels against
+the twin's 9), while `table-simple` sat at 107 against 11 - partly this, and
+partly table flattening, measured when the reader still flattened tables (it
+now keeps basic grids, see [issue 143](office-issue-143.md); the writer still
+flattens). It is the case to weigh first if the line ever moves.
+
+An external stylesheet is not fetched, so neither a `@page` rule nor a type
+rule in one is read: the reader never makes a network request.
+
+### Page breaks
+
+`page-break-before` and `break-before` are read from the declarations resolved
+for the paragraph element - its own inline `style` attribute over a bare type
+rule - so `p { page-break-before: always }` reaches the paragraphs it names,
+while a class rule a word processor writes for the paragraphs it wants broken
+selects nothing. Both spellings are current: `page-break-before` is the CSS2
+property and what LibreOffice writes; `break-before` is the CSS3 replacement
+the older one is defined as an alias for.
+
+- `always` and `page` are breaks; `auto` (the initial value), `avoid` and
+  `region` (a fragmentation into containers this model lacks) are not.
+- `break-before: column`, and the older `column-break-before: always`, are a
+  column break, `ParagraphStyle.ColumnBreakBefore`, unless the paragraph also
+  states a page break, which goes further and is the one kept.
+- `left`, `right`, `recto` and `verso` are read as a plain break and reported
+  as `html.page-break`: the model holds a flag and has no page parity.
+- When the two properties disagree the break wins: CSS settles it by source
+  order, and this codec's declaration parser returns a dictionary, not an order.
+- A break on a containing `<div>` is not inherited by the paragraphs inside it
+  (alignment descends; a break happens once, where stated), and container break
+  declarations are not transferred to direct text.
 
 ## Writer Mapping
 
-A paragraph whose text would not survive HTML's collapsing carries
-`white-space: pre-wrap` so that it does: a tab, a repeated space, or a space at
-either edge. Only such a paragraph carries it — the declaration changes how a
-browser lays the paragraph out, so it is not spent on paragraphs that do not need
-it.
+A paragraph whose text would not survive HTML's collapsing - a tab, a repeated
+space, or a space at either edge - carries `white-space: pre-wrap`. Only such a
+paragraph carries it, since the declaration changes how a browser lays the
+paragraph out.
 
 | Model | HTML |
 |---|---|
 | Document | `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>...` |
-| `PageGeometry` | `<style type="text/css">@page { size: Wpt Hpt; margin: T R B L; }</style>` in the head, and nothing when the document states no page. Written in points because the model is in points, so a round trip converts nothing; the margins are written as four values rather than folded to the shortest shorthand, so a diff of two exports shows a margin change where the margin changed. |
+| `PageGeometry` | `<style type="text/css">@page { size: Wpt Hpt; margin: T R B L; }</style>` in the head, and nothing when the document states no page. Points, because the model is in points, so a round trip converts nothing; four margin values rather than the shortest shorthand, so a diff of two exports shows a margin change where the margin changed. |
 | `RichTextDocument.PageBackground` | `background-color` on `<body>`. A gradient is written as its middle colour, as LibreOffice writes one, and reported as `html.background.gradient`. |
 | Paragraphs | `<p>` elements |
 | Soft breaks | `<br>` |
@@ -105,108 +190,46 @@ it.
 | `InlineStyle.Note` | The note's label in `<sup>`, and the note's paragraphs after the body, under an `<hr>`, the first opened with the label. HTML has no notes; reported once as `html.note`. The reader reads back notes written by this codec as well as semantic footnote containers into `DocumentNote` and `InlineStyle.Note`. |
 | Paragraph alignment, line spacing, indent, spacing | CSS on `<p>`. A stated line height is written as a `line-height` length, which reads back as the least a line is; an exact one is reported once as `html.lineheight.exact`. |
 | `ParagraphStyle.ColumnBreakBefore` | `break-before: column`, where the paragraph starts no page. There is no CSS2 spelling to prefer for it. |
-| `ParagraphStyle.PageBreakBefore` | `page-break-before: always`, in the paragraph's own `style` attribute beside whatever else that paragraph declares. The CSS2 property rather than the CSS3 `break-before: page`, even though the reader takes either: what is written has to be understood by whoever opens the file, and this is the spelling every browser and every word processor has read for twenty years — CSS Fragmentation keeps it as an alias for exactly that reason. Writing both spellings was the other option and was rejected, because it states one break twice and a consumer resolving them in the wrong order would be entitled to honour the second. |
+| `ParagraphStyle.PageBreakBefore` | `page-break-before: always`, in the paragraph's own `style` attribute beside its other declarations. The CSS2 property rather than the CSS3 `break-before: page`, because every browser and word processor has read it for twenty years - CSS Fragmentation keeps it as an alias for that reason. Not both: that states one break twice, and a consumer resolving them in the wrong order would be entitled to honour the second. |
 
-Text columns, the page's or a section's, and a section's own margins are not
-written and are reported as `html.columns`: CSS can state columns, but a browser balances them over the
-whole body rather than filling a page at a time, so writing them would describe
-another layout than the document's.
-
-`ListKind` is not written in the first subset; the writer preserves exact left indentation
-and emits an `html.list` diagnostic. An embedded image is written inline as a
-base64 data URI (`html.image.datauri`), which keeps an exported page a single
-file; the reader decodes embedded `data:` URIs back into model `InlineImage` instances
-when permitted by the caller's resource policy, preserving the image on round-trip. Tables are written as cell paragraphs with `html.table.flattened`; their grid
-does not survive an HTML round-trip. Embedded objects, scripts, stylesheets,
-forms, and metadata are not serialized from the model.
+- Text columns, the page's or a section's, and a section's own margins are not
+  written and are reported as `html.columns`: a browser balances CSS columns
+  over the whole body rather than filling a page at a time, which is another
+  layout than the document's.
+- `ListKind` is not written; the writer preserves exact left indentation and
+  reports `html.list`.
+- An embedded image is written inline as a base64 data URI
+  (`html.image.datauri`), keeping an exported page a single file; the reader
+  decodes it back into an `InlineImage` when the caller's resource policy
+  permits, so the image round-trips.
+- Tables are written as cell paragraphs with `html.table.flattened`; their grid
+  does not survive an HTML round trip.
+- Embedded objects, scripts, stylesheets, forms, and metadata are not
+  serialized from the model.
+- Hidden body-section visibility is not written; the retained content is
+  exported as visible paragraphs, with `html.section.hidden`. ODT retains the
+  flag; the shared raster paginator omits hidden body sections.
+- Writer output is semantic model HTML, not a preservation of source markup.
 
 ## Security And Limits
 
 - The reader never fetches external resources.
 - `script`, `style`, `iframe`, `object`, `embed`, SVG/canvas, form inputs,
-  metadata, and templates are skipped as non-model content. The text of a `style`
-  element is never prose and that skip stays; the element is read separately, for
-  its `@page` rule and its type-selector rules and nothing else.
+  metadata, and templates are skipped as non-model content.
 - External or embedded content skips produce `html.skip.external` once per read.
-- A style rule whose selector this codec does not implement, and any at-rule
-  other than `@page`, is skipped and reported as `html.css.rule` once per read.
+- Skipped style rules produce `html.css.rule` once per read.
 - Links are inert model metadata; unsafe schemes are dropped with `html.link`.
 - `DocumentLimits.MaxDocumentBytes`, `MaxRunLength`, and `MaxParagraphCount` are
   enforced with diagnostics.
 
 ## Known Limitations
 
-- CSS support is declaration-level and intentionally small. **Exactly one
-  selector is matched: the bare element name.** A `p { line-height: 115% }` rule
-  reaches the paragraphs it selects, and so does `h1, h2 { ... }`, in which every
-  item of the list is such a name. **Nothing else is matched** - not a class, an
-  id, an attribute, a pseudo-class, a combinator, a descendant selector, or `*`;
-  and there is no `!important`, no `@media`, no external stylesheet, no computed
-  style, and no layout. A selector list is all or nothing, so `h1, .lead { ... }`
-  applies to neither rather than to the `h1` alone: two elements an author styled
-  together coming back one styled and one not, with nothing in the result to say
-  which happened to which, is a worse answer than not applying the rule.
-- A type rule contributes to the element its selector names and to nothing else.
-  It is not a computed-style inheritance pass: what happens after that is the
-  descent this reader already had, which carries the model style fields it
-  understands from a container into the blocks inside it, exactly as it does for
-  a `style` attribute written on that container. So `td { font-size: 8pt }` makes
-  the text in a cell small, and `div { margin-bottom: 12pt }` reaches the
-  paragraphs in the `div` for the same reason `<div style="margin-bottom:12pt">`
-  always did. That descent is a separate, older decision; a type rule feeds it
-  rather than changing it.
-- **The line is there because everything past it is the cascade, and the cascade
-  is a browser.** Specificity here is one comparison with one answer - the
-  element's own `style` attribute beats the sheet - which can be stated in a
-  sentence and applied to an element without knowing anything about the rest of
-  the document. Class matching is not: a class rule, an id rule and a descendant
-  rule all aimed at one paragraph have to be ordered against each other before
-  any of them can be applied, and building the thing that orders them is not a
-  smaller job than building the whole engine. This is a document reader. It wants
-  the formatting a producer stated, in the way that producer states it - and in
-  the sample that prompted this, every selector LibreOffice wrote was either
-  `@page` or `p`. `@page` remains the one at-rule read, because a page is a
-  property of the document rather than of its presentation: it is where HTML
-  keeps what DOCX keeps in `w:sectPr` and ODF in `style:page-layout`.
-- **That sample was not the whole story, and the gap it hid is measurable.** A
-  document containing a table makes LibreOffice write `td p { ... }` and
-  `th p { ... }` as well, and those are descendant selectors, so the paragraphs
-  inside cells get none of it. It is visible in the office conformance suite: the
-  seeds without tables now score as their DOCX twins do - `plain-paragraphs` at
-  an ink box of 9 pixels against the twin's 9, where before this it was 38 - and
-  `table-simple` still sits at 107 against 11. Two things are behind that number
-  and only one of them is this: at the time of that measurement, HTML tables
-  were flattened to their cell paragraphs. The reader now retains basic table
-  grids (see [issue 143](office-issue-143.md)); the writer still flattens them. It is recorded here rather than left for the next reader
-  to rediscover from a number, and it is the case to weigh first if the line ever
-  moves.
-- A page break follows the same line as every other declaration. `p {
-  page-break-before: always }` now reaches the paragraphs it names; a class rule
-  written for the paragraphs a word processor wants broken still selects nothing,
-  because working out which paragraphs it picked out is the cascade. This is a
-  change of position: the break used to be read from the paragraph element alone,
-  on the reasoning that a rule selecting paragraphs was a cascade this codec did
-  not have. That was true while no selector at all was matched. Once one is, a
-  document whose line spacing came from its stylesheet and whose page breaks did
-  not would be arbitrary, and nothing in the code or the output could say why.
-- A rule that is skipped is reported. `html.css.rule` is raised once per read
-  when any rule was passed over for a selector this codec does not implement, or
-  for being an at-rule other than `@page`. This is the opposite of the old
-  position on a break in a stylesheet, and for a reason: that break was never
-  parsed, so there was genuinely nothing to notice. A rule skipped now was read,
-  understood to be formatting aimed at this document, and dropped anyway - a loss
-  the codec can see is a loss it has to name.
-- An external stylesheet is not fetched, so neither a `@page` rule nor a type
-  rule in one is read. The reader never makes a network request, and finding out
-  how a document's paragraphs are spaced should not be the thing that changes
-  that.
-- Table writing flattens cell content; reading retains basic grids. CSS table
-  layout, separate border spacing and column declarations remain unsupported.
-- Relative links are currently dropped; only absolute `http`, `https`, and
-  `mailto` links are retained.
-- Writer output is semantic model HTML, not a preservation of source markup.
-- Markdown and DOCX are implemented as peer codecs. Their format-specific
-  coverage is documented separately; this HTML codec does not delegate to them.
+- CSS support is declaration-level and intentionally small: bare type selectors
+  and `@page` only ([Stylesheets](#stylesheets)).
+- Table writing flattens cell content; reading retains basic grids.
+- Relative links are dropped ([Reader Mapping](#reader-mapping)).
+- Markdown and DOCX are peer codecs, documented separately; this HTML codec
+  does not delegate to them.
 
 ## Standards and rights
 
@@ -215,8 +238,3 @@ labels and the provenance findings are in [the HTML register](../ip/html.md).
 This codec does not tokenize or parse HTML: `Broiler.Dom.Html` does, and that
 repository keeps its own register. A claim about Broiler's HTML support as a
 whole needs both.
-
-
-Hidden body-section visibility is not written by this codec. The retained
-content is exported as visible paragraphs, with `html.section.hidden`.
-ODT retains the flag; the shared raster paginator omits hidden body sections.

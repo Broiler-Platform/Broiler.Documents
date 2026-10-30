@@ -2,13 +2,12 @@
 
 How the component is put together and the contracts every codec shares. The
 package list, dependency direction and component constraints are in the
-[README](../../README.md#packages). The decisions behind them are in the
+[README](../../README.md#packages); the decisions behind them are in the
 [ADRs](../adr/README.md).
 
 ## Ownership
 
-The PDF work forced the question of where shared work lives. The answer applies
-to every codec.
+Where shared work lives, for every codec:
 
 | Owner | Holds | Must not hold |
 |---|---|---|
@@ -18,11 +17,9 @@ to every codec.
 | `Broiler.Media.Image` (external) | Immutable encoded and decoded image payloads, decode contracts and limits; the managed JPEG codec in `.Managed` | `Broiler.Documents` policy types, PDF filter dictionaries, predictors, masks, `/Decode` |
 | Format codecs | Their format's syntax, mapping, limits and diagnostics | Anything another format needs as well |
 
-Rules that follow from it:
-
 - **Containment.** A shared addition needs a format-neutral name, owner-local
-  tests and a second, non-PDF consumer. Otherwise it stays inside the codec that
-  needed it. `DocumentMetadata` was promoted only once DOCX and ODT consumed it.
+  tests and a second, non-PDF consumer; otherwise it stays inside the codec that
+  needed it. `DocumentMetadata` became shared only once DOCX and ODT consumed it.
 - **Dependency direction.** Graphics and Media never reference
   `Broiler.Documents`. They expose their own technical decisions, the conversion
   context translates caller policy into them, and the codec composes them.
@@ -40,34 +37,35 @@ Rules that follow from it:
 by ADR 0008).
 
 - **Probing** reads a bounded prefix and reports a confidence. The highest
-  confidence wins, and a tie goes to the codec registered first.
-  `DocumentCodecCatalog.SelectAndRead` probes and reads in one
-  pass over a replayable `DocumentInput`, so a non-seekable source never loses
-  the prefix the codec needs.
-- **DocumentInput** defines stream ownership and buffer lifetime, replays probe
+  confidence wins; a tie goes to the codec registered first.
+  `DocumentCodecCatalog.SelectAndRead` probes and reads in one pass over a
+  replayable `DocumentInput`, so a non-seekable source never loses the prefix
+  the codec needs.
+- **`DocumentInput`** defines stream ownership and buffer lifetime, replays probe
   bytes, exposes a known length, and materializes within a byte ceiling. It is
-  memory-only by default (FromBytes, FromStream), with opt-in bounded spooling
-  driven strictly by a host-supplied DocumentSpoolPolicy (SpoolFromStream,
-  SpoolFromStreamAsync): designated directory, quota enforcement, in-memory buffering
-  threshold, privacy, cleanup on dispose, and crash recovery (CleanOrphanedFiles).
-  Nothing ambient touches disk. It keeps positions past EOF, rejects negative
-  positions, invalid seek origins and overflow, and reports a disposed stream as
+  memory-only by default (`FromBytes`, `FromStream`). Spooling is opt-in
+  (`SpoolFromStream`, `SpoolFromStreamAsync`) and driven strictly by a
+  host-supplied `DocumentSpoolPolicy`: designated directory, quota, in-memory
+  buffering threshold, privacy, cleanup on dispose, and crash recovery
+  (`CleanOrphanedFiles`). Nothing ambient touches disk. It keeps positions past
+  EOF, rejects negative positions, invalid seek origins and overflow, and
+  reports a disposed stream as unreadable. Closing one stream does not close the
+  input or another stream.
 - **Requests.** `DocumentReadRequest` carries input, options and cancellation.
   `DocumentWriteRequest` carries document, destination, options, cancellation,
-  `RequireAtomic`, and `IsStaged`. Each cross-format value has exactly one owner,
+  `RequireAtomic` and `IsStaged`. Each cross-format value has exactly one owner,
   and format options may not duplicate it.
 - **Commit policy.** File hosts stage in the destination directory and replace
-  atomically. A write request with `RequireAtomic` without a staging capability
+  atomically. A write with `RequireAtomic` and no staging capability
   (`IsStaged=false`) rejects before output with `document.commit.atomic-required`
-  and `NotStarted`. Direct-stream failure reports `PartialDestination` truthfully.
-  duplicate it.
+  and `NotStarted`. A direct-stream failure reports `PartialDestination`.
 - **Typed options.** Format options derive from `DocumentReadOptions` and
   `DocumentWriteOptions` (`RtfReadOptions`, `PdfReadOptions`, and so on). A codec
-  validates the concrete type before touching input or output, and a mismatched
-  type is an invalid-options result (`document.options.invalid`), never a silent
-  downcast. Where a shared and a format budget overlap, the stricter one wins.
-  Group depth and binary payload size stay on `DocumentLimits` because DOCX uses
-  them as well as RTF.
+  validates the concrete type before touching input or output; a mismatch is an
+  invalid-options result (`document.options.invalid`), never a silent downcast.
+  Where a shared and a format budget overlap, the stricter one wins. Group depth
+  and binary payload size stay on `DocumentLimits` because DOCX uses them as
+  well as RTF.
 - **Result status.** `DocumentResultStatus` is `Success`, `Partial` or
   `Rejected`, independent of diagnostic severity. `Partial` needs explicit caller
   approval before it replaces an open document or is published. CLI exit codes
@@ -76,8 +74,8 @@ by ADR 0008).
   `PartialDestination`. `Success` requires `Committed`.
 - **Async.** Async overloads exist beside the synchronous contract.
 - **Capabilities a codec lacks** are reported as
-  `document.capability.not-composed` rather than quietly approximated. That is
-  how `AsciiOnly=false` is answered today (and formerly `DecodeEmbeddedObjects` before removal).
+  `document.capability.not-composed` rather than quietly approximated, as
+  `AsciiOnly=false` is.
 - **Composition.** A codec receives its services at construction and discovers
   nothing through statics, environment variables or platform registries. There is
   no global registration and no module initializer. Catalogs are built at each
@@ -90,7 +88,7 @@ by ADR 0008).
 
 - **`DocumentConversionContext`** is the immutable record of which resources a
   conversion met and what the caller's policy decided for each. A read returns
-  it on `DocumentReadResult.Resources`, and a write consumes it through
+  it on `DocumentReadResult.Resources`; a write consumes it through
   `DocumentWriteOptions.Resources`. The DOCX, RTF, HTML, Markdown and ODT writers
   all consume it, so a resource cannot escape policy by changing output format.
 - **Operations are separate flags** (`DocumentResourceOperations`): semantic
@@ -109,7 +107,7 @@ by ADR 0008).
 - **Fonts.** `DocumentFontSet` carries the caller's configured fonts, and
   `DocumentFontEmbedding` is the fail-closed embedding preflight: it requires a
   per-font licence disposition and refuses restricted, silent, no-subsetting and
-  bitmap-only `fsType` declarations. Nothing embeds a font today.
+  bitmap-only `fsType` declarations. Nothing embeds a font.
 - **Metadata.** `DocumentMetadata` carries nine normalized fields: title, ordered
   authors, subject, ordered keywords, language, creator application, producer,
   creation and modification date. Missing and explicitly empty stay distinct.
@@ -118,7 +116,7 @@ by ADR 0008).
   `docProps/app.xml`, ODT through `meta.xml`, PDF through `Info` and XMP. Each
   codec reconciles its own sources first.
 - **Transfer is explicit.** Nothing copies a read result's metadata into a
-  write. A caller who wants that does it, and `DocumentMetadata.With` is where
+  write; a caller who wants that does it, and `DocumentMetadata.With` is where
   they correct what should not survive. A write reports each field as emitted,
   narrowed or stripped (`document.metadata.*`), naming fields and never quoting
   values. Raw XMP, arbitrary properties, source IDs, paths and user names are
@@ -130,16 +128,16 @@ by ADR 0008).
   length, paragraph count and binary payloads. Every reader is total: malformed
   input yields a best-effort document plus diagnostics, never an exception across
   the API (ADR 0004). `PdfLimits` adds PDF-specific accounting and composes with
-  the shared limits and Media's own.
+  the shared limits and Media's own; the stricter remaining budget wins.
 - **Packages.** `Packaging/DocumentPackage` gives DOCX and ODT one bounded ZIP and
   XML loader. It counts decompressed bytes, reads at most one byte past the
   remaining budget, prohibits DTDs and disables external resolution.
   `Resources/DocumentImageFormats` gives both codecs one table of image
   extensions, raster signatures and preferred output extensions. Both are
   internal.
-- **Text.** `Text/Windows1252` gives RTF and CSV one table for the code page's
-  32 positions that differ from Latin-1, so neither codec registers an encoding
-  provider, which would be process-wide state. It is internal.
+- **Text.** `Text/Windows1252` gives RTF and CSV one internal table for the code
+  page's 32 positions that differ from Latin-1, so neither codec registers an
+  encoding provider, which would be process-wide state.
 - **Links.** `DocumentLinkTarget` is the one predicate the five interchange
   codecs share, on read and on write: absolute `http`, `https` and `mailto`, plus
   a non-empty `#fragment` without whitespace, quotes or a second `#`. A refused
@@ -147,7 +145,8 @@ by ADR 0008).
   reference, not a working jump, because no codec reads or writes bookmarks.
 - **Two deliberate exceptions.** `PdfUriPolicy` is configurable and stricter: it
   requires an absolute URI, needs an opt-in for `http` and `mailto`, caps length,
-  refuses user information, and stores targets canonicalized.
+  refuses user information, and stores targets canonicalized (details in
+  [PDF extension points §4.3](pdf/extension-points.md#43-pdfuripolicy--link-admission)).
   `FormatCodeEditIntent` keeps its own predicate because
   `Broiler.Documents.FormatCodes` references only the model. It caps length,
   rejects control characters, and admits the empty string, which the edit
@@ -163,9 +162,9 @@ by ADR 0008).
 - **Measurements.** Non-finite and negative values are rejected wherever the
   model lets one be stated.
 - **Images.** `InlineImage` carries a `DocumentResourceId` and a
-  `BImageResource`, with nullable point dimensions. When both are absent, the
-  intrinsic pixels at 96 per inch are used, and an unplaceable image is
-  reportable rather than a sentinel.
+  `BImageResource`, with nullable point dimensions. When both dimensions are
+  absent, the intrinsic pixels at 96 per inch are used, and an unplaceable image
+  is reportable rather than a sentinel.
 - **Style defaults.** `DocumentStyleDefaults` states the document's size and
   logical family. DOCX reads them from `w:docDefaults` and ODT from
   `style:default-style`. The size always resolves, at 12 points. The family may
@@ -194,15 +193,15 @@ by ADR 0008).
   it inserted or deleted (`RichTextParagraph.MarkStyle`). Deleted text stays in
   the paragraph, as it does in DOCX, ODT and LibreOffice's model.
   `RichTextDocument.ShowsRevisions` says whether the document shows its changes.
-  `RevisionDisplay` is how they are drawn, LibreOffice's way: inserted text
-  underlined and deleted text struck through in the author's colour, moved text
-  green, changed formatting bold, a bar in the margin beside a changed line; a
-  document that hides its changes is laid out as it reads with its deletions
-  gone. The renderer and the PDF writer both follow it, and the text dump
-  writes deleted text, as LibreOffice's text export does. DOCX and ODT read and
-  write changes; RTF reads them; HTML writes `<ins>` and `<del>`; RTF, Markdown
-  and CSV write the document with its changes accepted, and say so. Text typed
-  beside a change is not part of it.
+  `RevisionDisplay` draws them LibreOffice's way: inserted text underlined and
+  deleted text struck through in the author's colour, moved text green, changed
+  formatting bold, a bar in the margin beside a changed line; a document that
+  hides its changes is laid out as it reads with its deletions gone. The
+  renderer and the PDF writer both follow it, and the text dump writes deleted
+  text, as LibreOffice's text export does. DOCX and ODT read and write changes;
+  RTF reads them; HTML writes `<ins>` and `<del>`; RTF, Markdown and CSV write
+  the document with its changes accepted, and say so. Text typed beside a change
+  is not part of it.
 - **Page geometry.** `PageGeometry` is the page a document says it was written
   for: size, margins, header and footer distances, one per document. DOCX, ODT,
   RTF and HTML state it; PDF import infers it. It describes the page and places
@@ -214,61 +213,70 @@ by ADR 0008).
   editors drive it and keep no stack of their own (ADR 0006). Each transaction
   stores the document and selection before and after, so undo swaps snapshots
   and never inverts operations. Most calls record one transaction. Keyboard
-  editing is grouped instead: `TypeText` joins text typed straight after earlier
-  typing, and `Backspace` and `Delete` at a caret join a run of their own kind.
-  A typed word that follows whitespace starts a new transaction. So does any
-  selection change, other edit, undo, redo, pending style, or a host's
-  `BreakUndoGroup` call. `InsertText`, which paste uses, never joins. The depth
-  bound (100 by default) counts transactions, not keystrokes.
+  editing is grouped: `TypeText` joins text typed straight after earlier typing,
+  and `Backspace` and `Delete` at a caret join a run of their own kind. A typed
+  word that follows whitespace starts a new transaction, as does any selection
+  change, other edit, undo, redo, pending style, or a host's `BreakUndoGroup`
+  call. `InsertText`, which paste uses, never joins. The depth bound (100 by
+  default) counts transactions, not keystrokes.
 - **Save point.** `RichTextEditor.MarkSaved()` records the current immutable
   document and ends the keyboard undo group without clearing history.
   `IsModified` compares the current document with that snapshot by reference,
   so undo/redo can return to an unmodified state. Selection and pending typing
-  style do not count; independently recreating identical text does. Construction,
-  `LoadDocument` and `LoadPlainText` establish an unmodified baseline.
-  `BeginSave()` ends the open typing group and returns the snapshot for saving;
-  asynchronous saves mark the written snapshot with `MarkSaved(snapshot)` so
-  concurrent edits stay modified while undo/redo restores unmodified status on
-  reaching the save point. `SavedDocument` exposes the recorded snapshot.
-  Writer UI integration remains open.
+  style do not count; independently recreating identical text does.
+  Construction, `LoadDocument` and `LoadPlainText` establish an unmodified
+  baseline. `BeginSave()` ends the open typing group and returns the snapshot to
+  save; an asynchronous save marks the written snapshot with
+  `MarkSaved(snapshot)`, so concurrent edits stay modified while undo/redo
+  restores unmodified status on reaching the save point. `SavedDocument`
+  exposes the recorded snapshot.
 
-Populated line boxes use the maximum ascent and descent of their actual pieces,
-including list markers and inline images. An unused default font does not impose
-a minimum height. Empty lines use default-font metrics. The paragraph's line
-spacing multiplier applies to the resulting height without moving its baseline.
-Hosts can supply per-layout ascent and descent through
-`LayoutSettings.FontVerticalMetrics`; invalid or absent values retain the
-Graphics fallback. Text, tabs and empty lines use the same provider. The CLI
-supplies the explicitly mapped font's `hhea` ascent and descent, scaled from font
-units to points, caching inspection per file for that render configuration.
-Unmapped families retain fallback metrics. The paginator performs no installed
-font discovery and holds no global metrics provider. The CLI also supplies the
-mapped face's `hhea` line gap as leading below the glyph box. This is not full
-OpenType line-spacing selection: `OS/2` typographic metric selection is not
-incorporated.
+### Line boxes, running content and notes
 
-The paginator anchors a header's complete line block at `PageGeometry.HeaderDistance`
-below the top edge and a footer's block at `PageGeometry.FooterDistance`
-above the bottom edge of the effective page box. Without document page geometry,
-it centres each block in its margin. An invalid distance or a block that
-cannot fit at that distance is diagnosed and omitted rather than drawn over the
-body. Header and footer blocks include paragraph spacing: before-spacing between
-paragraphs and after-spacing after each paragraph, matching body layout. The
-first paragraph's before-spacing is suppressed. These gaps count towards margin
-fit and distance anchoring. Running content does not appear
-in continuous layout.
-
-A footnote is set at the foot of the page its citation is first placed on,
-under LibreOffice's separator: a quarter of the text's width, 0.51 points thick,
-2.86 points clear above and below. Each cited note moves the foot of the text
-up by its height before the line that cites it is placed, so a line whose note
-does not fit goes to the next page with its note. A note is not split across
-pages. The citation is its label at 58% of its text's size, raised by 33%, as
-LibreOffice sets superscript. A note's label opens its first paragraph in the
-hanging indent, or, where `NoteNumbering.RaisedLabels` says the document sets
-labels as Word does, raised and followed by a space. Endnotes follow the body
-under the same line; a continuous render, which has no page foot, sets the
-footnotes there too.
+- **Line height.** A populated line box uses the maximum ascent and descent of
+  its actual pieces, including list markers and inline images; an unused default
+  font imposes no minimum height. Empty lines use default-font metrics. The
+  paragraph's line spacing multiplier scales the resulting height without moving
+  its baseline. A mixed-font line takes the largest line gap of its pieces.
+- **Vertical metrics.** Hosts can supply per-layout ascent and descent through
+  `LayoutSettings.FontVerticalMetrics`; invalid or absent values keep the
+  Graphics fallback. Text, tabs and empty lines use the same provider. The CLI
+  measures the face a run is drawn with (`FontResolution.MetricPath`): the
+  explicitly mapped face, or for an unmapped family the host's fallback face,
+  one face for every weight and slant. It supplies that face's `hhea` ascent and
+  descent, scaled from font units to points and cached per file for that render
+  configuration, and its `hhea` line gap as leading below the glyph box. Where
+  no face file can be named, the layout's estimate stands. This is not full
+  OpenType line-spacing selection: `OS/2` typographic metric selection is not
+  incorporated. The paginator performs no installed font discovery and holds no
+  global metrics provider.
+- **Headers and footers.** The paginator anchors a header's complete line block
+  at `PageGeometry.HeaderDistance` below the top edge and a footer's block at
+  `PageGeometry.FooterDistance` above the bottom edge of the effective page box.
+  A block that runs past its margin pushes the body text down (header) or up
+  (footer), as ECMA-376 §17.6.11 says and Word and LibreOffice draw it; one that
+  would take more than half the text's height moves nothing and is reported and
+  left out. Without document page geometry a block is centred in its margin and
+  moves nothing. A block taller than its band, or with an invalid distance, is
+  diagnosed and omitted rather than drawn over the body. A fixed-height band
+  (`PageGeometry.FixedHeaderHeight`, `FixedFooterHeight`) keeps the text where
+  the margin puts it, and content overrunning it is cut at its edge, as
+  LibreOffice cuts it. The blocks include paragraph spacing as body layout does
+  (before-spacing between paragraphs, after-spacing after each, the first
+  paragraph's before-spacing suppressed), and these gaps count towards margin
+  fit and distance anchoring. Running content does not appear in continuous
+  layout.
+- **Footnotes.** A footnote is set at the foot of the page its citation is first
+  placed on, under LibreOffice's separator: a quarter of the text's width, 0.51
+  points thick, 2.86 points clear above and below. Each cited note moves the
+  foot of the text up by its height before the citing line is placed, so a line
+  whose note does not fit goes to the next page with its note. A note is not
+  split across pages. The citation is its label at 58% of its text's size,
+  raised by 33%, as LibreOffice sets superscript. A note's label opens its first
+  paragraph in the hanging indent or, where `NoteNumbering.RaisedLabels` says
+  the document sets labels as Word does, raised and followed by a space.
+  Endnotes follow the body under the same line; a continuous render, which has
+  no page foot, sets the footnotes there too.
 
 ## Graphics and Media prerequisites
 

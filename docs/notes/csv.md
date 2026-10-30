@@ -1,26 +1,22 @@
 # Broiler.Documents.Csv Conformance
 
-**Writer presentation decision, 2026-10-19:** show CSV as plain text. This is
-planned host behaviour, not an implemented codec change; the table mapping
-documented below remains current. See the
-[decision record](roadmap-decisions-2026-10-19.md) and [roadmap](../roadmap.md).
-
 `Broiler.Documents.Csv` reads comma-separated values into a table in the
 rich-text model and writes tables back out, through the same `DocumentCodec`
 contract as every other format. It has no DOM, UI, OS, or third-party
-dependency. Why a spreadsheet format goes through the rich-text model rather
-than a model of its own is
+dependency. Why a spreadsheet format goes through the rich-text model is
 [ADR 0016](../adr/0016-spreadsheet-formats-through-the-rich-text-model.md).
+The Writer is to show CSV as plain text (host behaviour, not a codec change;
+[decision record](roadmap-decisions.md), [roadmap](../roadmap.md));
+the table mapping below is what the codec does.
 
 The grammar is RFC 4180's (§2). The reader accepts more than the RFC writes,
 because files that break it are common; the writer produces the RFC's form.
 
 ## Probe
 
-CSV has no signature, and any text with a comma in it is CSV of some shape. A
-probe that looked at content alone would claim every plain-text file, so the
-codec matches only when the caller's hint says CSV, and uses the content to say
-how sure it is.
+CSV has no signature, and any text with a comma in it is CSV of some shape, so
+the codec matches only when the caller's hint says CSV and uses the content to
+say how sure it is.
 
 | Input evidence | Confidence |
 |---|---|
@@ -29,7 +25,7 @@ how sure it is.
 | The same hint, and a prefix with a NUL byte outside a UTF-16 or UTF-32 byte-order mark | No match |
 | No hint | No match |
 
-High is deliberate. A spreadsheet's first column often starts with something the
+High is deliberate: a spreadsheet's first column often starts with something the
 Markdown probe reads as a block marker, such as a row headed `1. Quartal`, and a
 file the caller named `.csv` should not lose to that. The prefix's last line is
 ignored, because a prefix usually ends inside a record. A caller with no hint
@@ -39,58 +35,47 @@ names the format instead, as `broilerdoc --from csv` does.
 
 ### Encoding
 
-CSV states no encoding within the file bytes, so the bytes are asked in order:
+CSV states no encoding in its bytes, so the reader asks in order:
 
 | Input | Read as |
 |---|---|
-| Explicit `charset` media-type parameter (e.g. `charset=windows-1252` or `charset=utf-8`) | The specified encoding. Invalid sequences become U+FFFD and are reported as `csv.encoding.invalid` |
-
-| Input | Read as |
-|---|---|
-| UTF-8, UTF-16 or UTF-32 byte-order mark | That encoding. Bytes that break it become U+FFFD and are reported as `csv.encoding.invalid` |
+| Explicit `charset` media-type parameter (e.g. `charset=windows-1252` or `charset=utf-8`) | The specified encoding. Invalid sequences become U+FFFD, reported as `csv.encoding.invalid` |
+| UTF-8, UTF-16 or UTF-32 byte-order mark | That encoding. Bytes that break it become U+FFFD, reported as `csv.encoding.invalid` |
 | No mark, valid UTF-8 | UTF-8 |
 | No mark, not valid UTF-8 | Windows-1252, reported as `csv.encoding.fallback` |
 
 UTF-8 is tried first because only a UTF-8 decode can fail: every byte sequence
-is valid Windows-1252. The fallback is Windows-1252 rather than Latin-1 because
-the two differ in exactly the characters such files hold, the euro sign and
-curly quotes. The table is shared with the RTF codec (`Broiler.Documents.Text.Windows1252`),
-and no encoding provider is registered. When the byte limit cuts a multi-byte
-UTF-8 character in half, the half is dropped so the file is not mistaken for
+is valid Windows-1252. Windows-1252 rather than Latin-1, because the two differ
+in exactly the characters such files hold, the euro sign and curly quotes. The
+table is shared with the RTF codec (`Broiler.Documents.Text.Windows1252`), and
+no encoding provider is registered. When the byte limit cuts a multi-byte UTF-8
+character in half, the half is dropped so the file is not mistaken for
 Windows-1252.
 
 ### Delimiter and `sep=` Lines
 
-`CsvReadOptions.Delimiter` states it explicitly when provided.
-
-When left null, the reader checks whether the first line declares the delimiter
-using the spreadsheet vendor convention `sep=<char>` (such as `sep=;`, `sep=\t`,
-or `sep=,`). If present, the `sep=` line is consumed rather than emitted into the
-document table, and the declared character is used as the delimiter.
-
-Otherwise, the reader detects the delimiter from the first 20 records, quotes
-respected:
-first 20 records, quotes respected:
+`CsvReadOptions.Delimiter` states it explicitly. When it is null, a first line
+of the spreadsheet vendor form `sep=<char>` (such as `sep=;`, `sep=\t`, or
+`sep=,`) declares it; that line is consumed, not emitted into the table.
+Otherwise the reader detects it from the first 20 records, quotes respected:
 
 1. Tab, semicolon and comma are each tried, and the field count most records
-   share under it is taken as its width. A candidate whose width is one field
-   is out.
+   share under it is its width. A candidate whose width is one field is out.
 2. The one under which the larger share of records has its width wins.
 3. Then the wider.
-4. Then the rarer character: tab, then semicolon, then comma. Commas occur inside
-   values on their own, in prose and in every number written with a decimal
+4. Then the rarer character: tab, then semicolon, then comma. Commas occur
+   inside values on their own, in prose and in every number with a decimal
    comma, so a file whose records all split evenly on a semicolon is far more
-   likely to be separated by one.
+   likely separated by one.
 
 The common width rather than the first record's, because exports often open
 with a title line above the data. Blank lines are passed over. A file no
-candidate splits is read as one column.
-Detection is what lets a semicolon-separated file with decimal commas, as
-spreadsheets in many European locales save it, open without being told.
+candidate splits is read as one column. Detection lets a semicolon-separated
+file with decimal commas, as spreadsheets in many European locales save it,
+open without being told.
 
-The delimiter and encoding discovered during read are carried on the resulting
-`CsvReadResult` (`Delimiter` and `Encoding`), allowing a host that saves back
-what it opened to preserve the dialect.
+The detected delimiter and encoding are on `CsvReadResult` (`Delimiter` and
+`Encoding`), so a host that saves back what it opened can keep the dialect.
 
 ### Grammar
 
@@ -113,17 +98,17 @@ what it opened to preserve the dialect.
 
 | CSV | Model |
 |---|---|
-| The file | One `DocumentTable` covering every paragraph, with no column widths, borders or shading, because the file states none |
+| The file | One `DocumentTable` covering every paragraph, with no column widths, borders or shading, because the file states none (a host that wants a grid drawn styles it) |
 | A record | A `TableRow` |
 | A field | A `TableCell` at its column, holding one plain paragraph per line |
 | A record shorter than the widest | Padded with empty cells, reported as `csv.row.ragged` |
-| The first record, when `CsvReadOptions.HasHeaderRow` is set or `header=present` in media-type hint | A header row (`TableRow.IsHeader`), which repeats at the top of each page |
+| The first record, when `CsvReadOptions.HasHeaderRow` is set or the media-type hint says `header=present` | A header row (`TableRow.IsHeader`), which repeats at the top of each page |
 | No records at all | `RichTextDocument.Empty`, with no table |
 
-Values are text exactly as written. `007`, `1e5`, `2026-10-12` and `=SUM(A1:A2)`
-are all strings: a spreadsheet's types are its own reading of the text, and
-nothing that looks like a formula is evaluated. Whether the first record names
-the columns is something RFC 4180 says beside the file, in the `header` media-type
+Values are text exactly as written: `007`, `1e5`, `2026-10-12` and
+`=SUM(A1:A2)` are all strings. A spreadsheet's types are its own reading of the
+text, and nothing that looks like a formula is evaluated. RFC 4180 says whether
+the first record names the columns beside the file, in the `header` media-type
 parameter, never in it, so the reader is told rather than guessing.
 
 ## Writing
@@ -140,7 +125,7 @@ The writer walks the body in order and writes UTF-8 with CRLF after every record
 | A table inside a cell | That cell's text, one line per paragraph, reported as `csv.table.nested` |
 | A paragraph outside any table | A record of one field, reported as `csv.text.outside-table` |
 | An empty paragraph outside any table | Nothing; it is spacing, and would come back as an empty row |
-| A header row at the top | The first record, unreported, because the header line is the first record |
+| A header row at the top | The first record, unreported |
 | Column widths, padding, borders, shading, row heights, a header row lower down | Dropped, reported as `csv.table.layout` |
 | Character formatting and link targets | Dropped with the text kept, reported as `csv.inline-style` |
 | Paragraph formatting | Dropped, reported as `csv.paragraph-style` |
@@ -159,20 +144,22 @@ once, so a cancelled or failed write leaves the destination untouched.
 
 `CsvWriteOptions` sets the delimiter (comma by default; a quote, CR or LF is
 refused), a UTF-8 byte-order mark (off by default), and formula escaping (off by
-default, below).
+default).
 
 ### Formulas
 
 A spreadsheet opening a CSV file runs a field that starts with `=`, `+`, `-` or
-`@` as a formula, and some run a leading tab or CR the same way. A document read
-from somewhere untrusted and saved as CSV can therefore carry a formula to
-whoever opens the result. With `CsvWriteOptions.EscapeFormulas` set, such a field
-is written with a leading apostrophe, which spreadsheets show as text, and the
-count is reported as `csv.formula.escaped`. It is off by default because it
-changes the data: `-5` is written as `'-5`, and a CSV round trip no longer gives
-back what went in.
+`@` as a formula, and some run a leading tab or CR the same way, so a document
+from somewhere untrusted saved as CSV can carry a formula to whoever opens it.
+With `CsvWriteOptions.EscapeFormulas` set, such a field is written with a
+leading apostrophe, which spreadsheets show as text, and the count is reported
+as `csv.formula.escaped`. It is off by default because it changes the data:
+`-5` is written as `'-5`, and a CSV round trip no longer gives back what went in.
 
 ## Diagnostics
+
+Each is reported once per read or write. Messages carry counts, never document
+text. The codes are the constants on `CsvDiagnosticCodes`.
 
 | Code | Severity | Direction | Meaning |
 |---|---|---|---|
@@ -180,14 +167,14 @@ back what went in.
 | `csv.limit.paragraphs` | Warning | Read | The records would have exceeded `MaxParagraphCount`; the rest were dropped whole. The message gives the count |
 | `csv.limit.run` | Warning | Read | A line of a field exceeded `MaxRunLength` and was truncated |
 | `csv.encoding.fallback` | Warning | Read | No byte-order mark and not UTF-8, so read as Windows-1252 |
-| `csv.encoding.invalid` | Warning | Read | The byte-order mark named an encoding the bytes broke; the breaks are U+FFFD |
+| `csv.encoding.invalid` | Warning | Read | The byte-order mark or `charset` named an encoding the bytes broke; the breaks are U+FFFD |
 | `csv.quote.unterminated` | Warning | Read | A quoted field ran to the end of the input |
 | `csv.quote.stray` | Info | Read | A quote stood where the grammar allows none; it was kept as text |
 | `csv.row.ragged` | Info | Read | Short records were padded to the widest; the message gives the count |
 | `csv.text.outside-table` | Warning | Write | Paragraphs outside a table were written as one-field records |
 | `csv.table.span` | Warning | Write | A merged cell was written in its first column and row |
 | `csv.table.nested` | Warning | Write | A table inside a cell was written as the cell's text |
-| `csv.revision` | Info | Write | Tracked changes were written accepted: deleted text left out, inserted text written as plain text |
+| `csv.revision` | Info | Write | Tracked changes were written accepted |
 | `csv.table.layout` | Warning | Write | Widths, padding, borders, shading, row heights or a lower header row were dropped |
 | `csv.inline-style` | Warning | Write | Character formatting or link targets were dropped |
 | `csv.paragraph-style` | Warning | Write | Paragraph formatting was dropped |
@@ -197,16 +184,13 @@ back what went in.
 | `csv.running-content` | Warning | Write | Headers and footers were left out |
 | `csv.formula.escaped` | Info | Write | Fields were escaped as `EscapeFormulas` asked; the message gives the count |
 
-Each is reported once per read or write. Messages carry counts, never document
-text. The codes are the constants on `CsvDiagnosticCodes`.
-
 ## Security And Limits
 
 - The reader evaluates nothing, fetches nothing and resolves nothing. A value is
   text.
 - `MaxDocumentBytes` bounds the input. `MaxParagraphCount` bounds the grid,
   padding included, so one very wide record cannot turn every other row into as
-  many cells. Records past the limit are dropped whole rather than cut part way.
+  many cells; records past the limit are dropped whole rather than cut part way.
   `MaxRunLength` bounds a line of a field.
 - The writer's grid is at most 16,384 columns wide, the most a spreadsheet
   opens. A cell a malformed model places or spans past that joins the last
@@ -215,33 +199,18 @@ text. The codes are the constants on `CsvDiagnosticCodes`.
   reading the input, every 1024 records, and before writing.
 - Options of another codec's type are refused before any byte is touched
   (`document.options.invalid`).
-- Formula escaping on write is the caller's choice, described above.
-
-## Known Limitations
-
-- One table per file. A CSV file has no sheets, and nothing marks where one
+- One table per file: a CSV file has no sheets, and nothing marks where one
   table would end and the next begin.
-- No types. Numbers, dates and booleans are text, and the writer writes text.
-
-
-
-
-
-
-
-
-
-- The table carries no borders, because the file states none. A host that wants
-  a grid drawn styles it.
+- No types: numbers, dates and booleans are text, and the writer writes text.
 
 ## Command line
 
-The CLI exposes the existing options as `--csv-read-delimiter`, `--csv-header`,
-`--csv-write-delimiter`, `--csv-bom` and `--csv-escape-formulas`. Settings are
-scoped to CSV in the command's catalog; other formats still receive shared
-options. Defaults are unchanged. Roundtrip rereads use the output delimiter,
-not the original input delimiter. See the [CLI guide](../guides/cli.md) for
-syntax and the value-changing effect of formula escaping.
+The CLI exposes the options as `--csv-read-delimiter`, `--csv-header`,
+`--csv-write-delimiter`, `--csv-bom` and `--csv-escape-formulas`, scoped to CSV
+in the command's catalog; other formats still receive shared options, and
+defaults are unchanged. Roundtrip rereads use the output delimiter, not the
+original input delimiter. See the [CLI guide](../guides/cli.md) for syntax and
+the value-changing effect of formula escaping.
 
 ## Standards and rights
 

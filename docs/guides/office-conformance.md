@@ -48,7 +48,7 @@ The font set is `office-fonts-2`: the TrueType files of `fonts-liberation`,
 Ubuntu 24.04 is a transitional package with no font files. So that reference
 set had no Liberation faces, and both sides drew Times New Roman, Arial,
 Courier New and Liberation text with substitutes
-([the note](../notes/office-conformance-workflow-improvements.md#1-the-reference-fonts-have-no-liberation-faces)).
+([the note](../notes/office-conformance-workflow.md#the-reference-fonts-have-no-liberation-faces)).
 The step now fails when a listed package contributes no TrueType file.
 Cached conformance runs take the font-set name from the archive's manifest
 along with its fonts, so a new font set needs no new office image.
@@ -511,7 +511,7 @@ its handling of the damage - twenty pages of a table whose `cellpadding` the
 fuzzer set to 65536 - which is not a reference. The first ranked run was three
 of them, and every fix that read them more faithfully pushed them higher,
 because the pages LibreOffice adds are the ones it invents; the
-[note on that run](../notes/office-extras-forcepoint-verification-2026-10-20.md)
+[note on that run](../notes/office-extras-runs.md#first-ranked-run-forcepoint)
 has the numbers.
 
 The families are in `tests/office/extras-crash-regressions.json`, each a
@@ -617,12 +617,12 @@ rest `broilerdoc` probes the bytes as LibreOffice does. On the corpus of
 | A run's `w:color w:val="auto"` was ignored, leaving its style's colour | Fixed. `auto` is a colour (ECMA-376 §17.3.2.6), the default one |
 | RTF had no tables, and ignored the page a section states (`fdo66565.rtf`) | Fixed. `\trowd` to `\row` is read into a `DocumentTable`, cells closed inside groups included, and the first section's `\pgwsxn` and margins over the document's. The writer still writes a table as its paragraphs |
 
-The [note on the second ranked run](../notes/office-extras-columns-verification-2026-10-20.md)
+The [note on the second ranked run](../notes/office-extras-runs.md#second-ranked-run-columns)
 has the numbers for the eight rows before the last four, and the documents in
 that run that were not this component's reading; the
-[note on the third](../notes/office-extras-marks-and-bands-verification-2026-10-20.md)
+[note on the third](../notes/office-extras-runs.md#third-ranked-run-marks-and-bands)
 has the last four, and why its other two documents still stand where they do;
-the [note on the fourth](../notes/office-extras-backgrounds-verification-2026-10-21.md)
+the [note on the fourth](../notes/office-extras-runs.md#fourth-ranked-run-backgrounds)
 has the last eight.
 
 Still open, and tracked in the [roadmap](../roadmap.md#test-suites-and-tooling):
@@ -632,7 +632,7 @@ text, and `table-simple` through HTML.
 
 Classified, not open:
 
-- `letterhead-frames/rtf` is `documented`. With `	itlepg` and no `ooterf`,
+- `letterhead-frames/rtf` is `documented`. With `\titlepg` and no `\footerf`,
   page one gets no footer, as in Word; LibreOffice draws the default one. Matching
   LibreOffice would make this component disagree with its own DOCX reader.
 - List labels, note citations and table cell separators follow LibreOffice's
@@ -744,7 +744,7 @@ including the configured rendering threshold. Non-best descriptive bands or
 informational diagnostics alone do not make a passing document an issue entry.
 Skipped axes are not failures. The issue summary and JSON report record the
 configured threshold. Renderer failures without measurements are still reported.
-The [threshold-reporting verification note](../notes/office-threshold-reporting-verification-2026-10-23.md)
+The [threshold-reporting verification note](../notes/office-extras-runs.md#threshold-reporting)
 records artifact replays and the 80%/100% end-to-end check for this policy.
 The upstream workflow continues to publish a ranking; its existing policy does
 not fail the job for individual upstream sample differences.
@@ -780,65 +780,65 @@ intermediate storage by the concurrent documents rather than the entire corpus.
 
 ## Paragraph pagination rules
 
-The [paragraph-pagination verification note](../notes/office-issue-135-pagination-verification-2026-10-22.md)
+The [paragraph-pagination verification note](../notes/office-issue-135.md#paragraph-pagination)
 records keep-with-next, keep-together and explicit widow/orphan controls read
 from DOCX and ODT. Authored page assignments match LibreOffice, while the five
 sampled issue #135 scores remain unchanged. The note describes the supported
 body and table-cell cases and the remaining limitations.
 
-The [table/image verification note](../notes/office-issue-135-table-image-verification-2026-10-22.md)
+The [table/image verification note](../notes/office-issue-135.md#page-images-and-table-flow)
 records the subsequent page-frame positioning, table keep-with-next and cell
 padding changes. One sampled blank-image failure now passes the pixel check;
 the table results are mixed, including a page-count regression documented there.
 
-The [table-geometry verification note](../notes/office-issue-135-table-geometry-verification-2026-10-22.md)
+The [table-geometry verification note](../notes/office-issue-135.md#inline-table-geometry)
 records preferred widths, horizontal placement and cell vertical alignment.
 Authored geometry agrees with LibreOffice; the seven ranked samples still fail
 their pixel checks despite lower blurred differences in several cases.
 
-The [empty-cell and table-break verification note](../notes/office-issue-135-empty-cells-breaks-verification-2026-10-22.md)
+The [empty-cell and table-break verification note](../notes/office-issue-135.md#empty-cells-cell-spacing-and-table-breaks)
 records preservation of empty ODT cells, first-paragraph cell spacing and table
 page/column breaks. It also covers the PDF fix for text lost after blank table
 continuation pages, and the remaining mixed results on upstream samples.
 
-The [issue #136 verification note](../notes/office-issue-136-verification-2026-10-22.md)
+The [issue #136 verification note](../notes/office-issue-136.md#lists-symbols-and-default-rtf-pages)
 records five list, symbol and RTF page corrections. Four sampled text comparisons
 now pass and two RTF page geometries match; the eight sampled pixel comparisons
 still fail. The note includes the selected samples, authored checks and limits.
 
-The [section-colour and indent verification note](../notes/office-issue-136-indents-backgrounds-verification-2026-10-22.md)
+The [section-colour and indent verification note](../notes/office-issue-136.md#section-colours-and-exact-indents)
 records five further corrections. The nested-section sample now passes the
 visual comparison, one page-count gap narrows, and other sampled results remain
 mixed. Exact non-list indents round trip through DOCX and ODT; the note records
 the remaining list and standalone PDF limitations.
 
-The [floating-frame and text-box verification note](../notes/office-issue-136-floating-frames-textboxes-verification-2026-10-22.md)
+The [floating-frame and text-box verification note](../notes/office-issue-136.md#floating-frames-and-text-box-content)
 records five further corrections to graphic defaults, frame pagination, text-box
 tables and text export. One sampled visual check now passes and another page
 count matches; the note also records a visual regression and text-export
 differences exposed by retaining previously omitted content.
 
-The [issue #137 verification note](../notes/office-issue-137-verification-2026-10-22.md)
+The [issue #137 verification note](../notes/office-issue-137.md#page-styles-fixed-rows-and-text-box-layout)
 records ten corrections to page styles, fixed rows, numbering, hidden text and
 text-box layout. All 30 ranked samples were compared before and after; the note
 records newly passing checks, corrected page counts and remaining regressions.
 
-The [linked-frame and merged-cell verification note](../notes/office-issue-137-textframes-merged-cells-verification-2026-10-22.md)
+The [linked-frame and merged-cell verification note](../notes/office-issue-137.md#linked-frames-text-box-sizing-and-merged-cells)
 records five further corrections. A five-versus-two page mismatch closes, while
 the focused pass count stays unchanged; the note records mixed visual metrics,
 regression tests and the remaining export limitations.
 
-The [issue #138 fill and field verification note](../notes/office-issue-138-fills-fields-verification-2026-10-23.md)
+The [issue #138 fill and field verification note](../notes/office-issue-138.md#page-fills-and-rtf-field-text)
 records ten shared corrections to background painting and RTF field text. The
 30-sample comparison improves from 40/90 to 42/90 passing checks, without lost
 passes; it includes authored LibreOffice checks and the remaining limits.
 
-The [floating-table and numeric-cell verification note](../notes/office-issue-138-floating-tables-numeric-cells-verification-2026-10-23.md)
+The [floating-table and numeric-cell verification note](../notes/office-issue-138.md#floating-tables-and-numeric-cells)
 records the next ten corrections: preferred widths, grid scaling, repeated
 headers and numbering, non-overlap, continuation preservation and section
 ownership, locale-aware numeric display, and vertical-merge export.
 
-The [drawing-geometry verification note](../notes/office-issue-138-drawing-geometry-verification-2026-10-23.md)
+The [drawing-geometry verification note](../notes/office-issue-138.md#drawing-geometry)
 records five further corrections to outline retention, line paths, stroke
 widths, frame borders and ellipses, with authored LibreOffice comparisons.
 
@@ -923,23 +923,23 @@ The [issue #152 verification note](../notes/office-issue-152.md) records inline
 DOCX boundary and ODT master-page fallback corrections, with a complete 30-case
 control list and before/after native-reference results.
 
-The [RTF shape-property follow-up](../notes/office-issue-152-rtf-shape-properties.md)
+The [RTF shape-property follow-up](../notes/office-issue-152.md#rtf-shape-properties)
 records ten further import/export corrections, authored native comparisons and
 remaining LibreOffice consumer limitations.
 
-The [VML follow-up](../notes/office-issue-152-vml-shapes.md) records ten DOCX
+The [VML follow-up](../notes/office-issue-152.md#vml-shapes) records ten DOCX
 shape-reading corrections, group/type handling, native line/polyline distinctions,
 and the remaining mixed measurements in the original control group.
 
-The [RTF group/formatting follow-up](../notes/office-issue-152-rtf-groups-formatting.md)
+The [RTF group/formatting follow-up](../notes/office-issue-152.md#rtf-groups-positioning-and-formatting)
 records retained graphics in a ranked original, ten reader corrections, native
 controls and the remaining paper-size, nested-group and decoration approximations.
 
-The [table grid/style follow-up](../notes/office-issue-152-table-grids-styles.md)
+The [table grid/style follow-up](../notes/office-issue-152.md#table-grids-and-styles)
 records ten import/export corrections, a native sparse-cell export check and
 remaining native/autofit differences without a newly resolved ranked original.
 
-The [WordprocessingML theme-color follow-up](../notes/office-issue-152-word-theme-colors.md)
+The [WordprocessingML theme-color follow-up](../notes/office-issue-152.md#word-theme-colors)
 records five corrected color contexts, cache-versus-theme precedence and native
 export checks, including the tested LibreOffice importer's cache preference.
 
@@ -947,11 +947,11 @@ The [issue #154 verification note](../notes/office-issue-154.md) records legacy
 RTF drawings and DOCX shape format-matrix references, a new hashed 30-case
 selection, native controls and mixed observations in the original files.
 
-The [DrawingML color follow-up](../notes/office-issue-154-drawing-colors.md)
+The [DrawingML color follow-up](../notes/office-issue-154.md#drawingml-colors)
 records 15 additional color behaviors, a reusable native-probe generator and
 before/after checks, including unchanged original cases and rounding limits.
 
-The [saved-diagram follow-up](../notes/office-issue-154-cached-diagrams.md)
+The [saved-diagram follow-up](../notes/office-issue-154.md#cached-smartart-diagrams)
 records 15 SmartArt cache-import behaviors, a newly passing original pixel check,
 the native PDF/TXT projection gap and reproducible derived controls.
 
@@ -972,7 +972,7 @@ character-style references per page and breaks justified lines as Word 2013
 does (`compatibilityMode` 15). The three upstream samples' twelve headers match
 LibreOffice's tests, and across the 30 samples the changes touch, four more pixel
 checks pass and none is lost. The [workflow improvements
-note](../notes/office-conformance-workflow-improvements.md) records what that
+note](../notes/office-conformance-workflow.md#issue-170) records what that
 investigation found about the workflow itself, first among it that the
 reference fonts have no Liberation faces.
 
@@ -984,7 +984,7 @@ tab stops past the right indent carry the line on (`TabOverMargin`), and an
 check failed for another reason, one that affected every sample with a table:
 `dump --as text` joined table rows as LibreOffice 24.8 and later do, while the
 reference is 24.2. The [workflow note for issue
-#173](../notes/office-conformance-workflow-improvements-issue-173.md) records
+#173](../notes/office-conformance-workflow.md#issue-173) records
 that and the other findings about the workflow.
 
 The [issue #175 note](../notes/office-issue-175.md) records the first ranked
@@ -995,7 +995,7 @@ fixed layout, and the sample is now a known reference defect. Its text check
 failed because `dump --as text` wrote a floating table's cells. LibreOffice
 imports such a table as a frame and its text export leaves frames out, so
 `dump` now does the same. The [workflow note for issue
-#175](../notes/office-conformance-workflow-improvements-issue-175.md) records
+#175](../notes/office-conformance-workflow.md#issue-175) records
 the other findings about the workflow.
 
 The [issue #178 note](../notes/office-issue-178.md) records the first ranked
@@ -1006,7 +1006,7 @@ paints when a bitmap fill does not load, in the fill colour's default
 `#729FCF`. `broilerdoc` now paints unloaded bitmap fills that way, and gives a
 page layout's fill the bounds LibreOffice gives it by the document's producer.
 The [workflow note for issue
-#178](../notes/office-conformance-workflow-improvements-issue-178.md) records
+#178](../notes/office-conformance-workflow.md#issue-178) records
 what the investigation found about the workflow, first among it that the
 report could print what the reference draws.
 
@@ -1019,6 +1019,6 @@ converted with the last section's margins rather than those of the page it is
 on. The layout now also steps a row of exact height past a frame by whole
 rows, keeps an empty paragraph on the page its own side-wrapped backdrop
 covers, and sets the spaces that open a paragraph. The [workflow note for
-issue #182](../notes/office-conformance-workflow-improvements-issue-182.md)
+issue #182](../notes/office-conformance-workflow.md#issue-182)
 records what the investigation found about the workflow, first among it that
 a text difference of split lines names its cause.

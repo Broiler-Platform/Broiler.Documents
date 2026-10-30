@@ -31,10 +31,20 @@ is intentionally conservative.
 | `*emphasis*` / `_emphasis_` | `InlineStyle.Italic` | |
 | `` `code` `` | `FontFamily = "monospace"` | |
 | `~~strike~~` | `InlineStyle.Strikethrough` | GitHub-flavored extension included for model symmetry. |
-| `[label](href)` | `InlineStyle.LinkHref` | `http`, `https`, and `mailto` only; other schemes are dropped with `markdown.link`. |
-| `![description](data:...)` | `InlineStyle.Image` (`InlineImage`) | Embedded base64 or percent-encoded `data:` URIs are decoded and admitted via caller resource policy, setting `AltText` and `Name`. Payloads exceeding `MaxBinBytes` report `markdown.image.limit`, malformed URIs report `markdown.image.malformed`, and policy denials report `markdown.image.denied` (falling back to description text). External or relative image targets are not fetched, reporting `markdown.image.dropped` with description fallback. |
+| `[label](href)` | `InlineStyle.LinkHref` | Targets the shared link predicate admits (see Security And Limits); others are dropped with `markdown.link`. |
+| `[^label]` and `[^label]: text` | `InlineStyle.Note`, `DocumentNote` | Inline citations and footnote definitions. |
+| `![description](data:...)` | `InlineStyle.Image` (`InlineImage`) | Base64 or percent-encoded `data:` URIs are decoded and admitted through the caller's resource policy, with `AltText` and `Name` set to the description. |
+| `![description](src)`, other targets | Description text | External or relative image targets are not fetched: `markdown.image.dropped`. |
+
+An embedded image falls back to its description text when its payload exceeds
+`MaxBinBytes` (`markdown.image.limit`), the URI or payload is malformed
+(`markdown.image.malformed`), or the resource policy denies it
+(`markdown.image.denied`). Images therefore round-trip only as embedded
+`data:` URIs read back under a permitting policy.
 
 ## Writer Mapping
+
+The writer emits UTF-8 Markdown with a trailing newline, property by property:
 
 | Model | Markdown |
 |---|---|
@@ -45,53 +55,44 @@ is intentionally conservative.
 | Bold / italic / strike | `**` / `*` / `~~` |
 | Monospace font family | Code span |
 | `LinkHref` | Inline link |
-| `InlineStyle.Note` | `[^label]` in the text, and `[^label]: text` after the body, the note's later paragraphs indented, as GitHub and most dialects write a footnote. The reader reads `[^label]` inline citations and `[^label]: text` footnote definitions back into `DocumentNote` and `InlineStyle.Note`. |
-| `PageBreakBefore` | Nothing, reported as `markdown.page-break` |
-| `ColumnBreakBefore` | Nothing, reported as `markdown.column-break` |
+| `InlineStyle.Note` | `[^label]` in the text and `[^label]: text` after the body, later paragraphs indented, as GitHub and most dialects write a footnote |
+| `InlineImage` | `![alt](data:...;base64,...)`, reported as `markdown.image.datauri`; left out with `markdown.image.omitted` when the resource policy withholds its bytes |
+| Alignment, line spacing or a stated line height, spacing before/after | Nothing, reported as `markdown.paragraph-style` |
+| Underline, size, foreground/background color, non-monospace font family | Nothing, reported as `markdown.inline-style` |
+| Tracked changes | The document as accepting them would leave it — deleted text left out, a deleted paragraph break joining its paragraphs, inserted text plain — reported once as `markdown.revision` |
+| `PageBreakBefore` | An ordinary paragraph, reported as `markdown.page-break` |
+| `ColumnBreakBefore` | An ordinary paragraph, reported as `markdown.column-break` |
+| Hidden body section | Visible paragraphs, reported as `markdown.section.hidden`; ODT retains the flag, and the shared raster paginator omits hidden body sections |
 
 The writer escapes the characters that would otherwise be read back as markup:
 `\` `` ` `` `*` `_` `[` `]` `(` `)` `#` `+` `-` `.` `!` and `~`. The tilde
 matters because doubled it is this reader's own strikethrough.
 
-The writer emits UTF-8 Markdown with a trailing newline. Unsupported paragraph
-style fields (alignment, line spacing or a stated line height, spacing before/after) produce
-`markdown.paragraph-style`. An embedded image is written as CommonMark image
-syntax with a base64 data URI (`markdown.image.datauri`); the reader decodes
-embedded `data:` URIs back into model `InlineImage` instances when permitted by
-the caller's resource policy, preserving the image on round-trip. Unsupported inline style fields (underline, size,
-foreground/background color, and non-monospace font family) produce
-`markdown.inline-style`.
+A list is written as bulleted or numbered items, which is all Markdown states.
+A list whose labels such items would not read back as - starting at four,
+counting in letters or roman numerals, or counting on past a paragraph between
+its items - is reported once as `markdown.list.numbering`; a list numbered 1, 2,
+3 loses nothing and is not reported.
 
-A list is written as Markdown list items, bulleted or numbered, which is all
-Markdown states. A list whose labels are not what such items read back as - one
-that starts at four, counts in letters or roman numerals, or carries its count on
-past a paragraph between its items - is reported once as
-`markdown.list.numbering`; a list numbered 1, 2, 3 loses nothing and is not.
-
-Markdown cannot say text was inserted or deleted. A document with tracked
-changes is written as accepting them would leave it - the deleted text left out,
-a deleted paragraph break joining its two paragraphs, the inserted text plain -
-and reported once as `markdown.revision`.
-
-A paragraph that starts a new page is written as an ordinary paragraph and
-reported as `markdown.page-break`. Markdown has no page, so it has no page break:
-there is no syntax to write one in and no fallback that would be honest, since a
-horizontal rule is a rule and a form feed is a character in the prose. What is
-left is to say so, which is the only thing separating a codec that dropped
-something from one that was never given it — and for this construct it is the
-whole of the difference, because until the model could carry a page break every
-codec here dropped one in silence. It has its own code rather than joining
-`markdown.paragraph-style`: that diagnostic names the three fields it drops, and
-a reader deciding whether a document can be re-exported to something paginated is
-asking a different question than one chasing lost spacing. A paragraph that
-starts the next column is written the same way and reported as
-`markdown.column-break`, for the same reason: Markdown has no columns either.
+`markdown.page-break` and `markdown.column-break` are codes of their own rather
+than part of `markdown.paragraph-style`, because a caller deciding whether a
+document can be re-exported to something paginated asks a different question
+than one chasing lost spacing.
 
 ## Security And Limits
 
 - The reader never fetches link targets or external resources.
-- Links are inert model metadata. Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried. Refusals are reported as
-  `markdown.link`. The same allow-list applies when writing. A target the reader would refuse is written as plain text with the run's other formatting kept, and reported — a link admitted under one policy must not be able to launder itself into output under another, which is the position `PdfUriPolicy` states for the PDF codec and now holds across all five. Reader and writer share one predicate so the two cannot drift apart again.
+- Links are inert model metadata. Absolute `http`, `https` and `mailto` are
+  admitted, plus a non-empty `#fragment` whose name carries no whitespace,
+  quote or second `#`; every other scheme, every relative target and a bare
+  `#` are refused, on read and on write, and reported as `markdown.link`. A
+  refused target is written as plain text with the run's other formatting
+  kept: a link admitted under one policy must not launder itself into output
+  under another, which is the position `PdfUriPolicy` states for the PDF codec.
+  One predicate decides it for reader and writer in all five codecs
+  (`DocumentLinkTarget`). A fragment preserves the reference the source made,
+  not a working jump: no codec here reads or writes a bookmark and the model
+  has nowhere to put one, so the name it points at is not carried.
 - `DocumentLimits.MaxDocumentBytes`, `MaxRunLength`, and `MaxParagraphCount` are
   enforced with diagnostics.
 - HTML blocks are treated as text by this codec; HTML interchange belongs to
@@ -102,15 +103,14 @@ starts the next column is written the same way and reported as
 - No full CommonMark block parser: tables, reference links, HTML blocks, setext
   headings, thematic breaks, task lists, and nested container edge cases are
   outside the first subset.
-- Inline images are recognized and deliberately not built: the reader replaces
-  `![description](src)` with its description and reports
-  `markdown.image.dropped`. Recognizing them is what keeps the marker and the
-  destination out of the text; building them is a separate decision, and one
-  that would have to say what a reader may do with a `data:` payload.
-- There is no page break and there will not be one. `ParagraphStyle.PageBreakBefore`
-  is written away and reported as `markdown.page-break`; a Markdown round trip
-  loses it, and no reader here can put it back, because nothing in the text says
-  it was ever there.
+- There is no page or column break and there will not be one: Markdown has no
+  page and no columns, so this is a property the format will not carry, not
+  one not yet implemented. There is no syntax for it and no honest fallback,
+  since a horizontal rule is a rule and a form feed is a character in the
+  prose. `ParagraphStyle.PageBreakBefore` is written away and reported as
+  `markdown.page-break` rather than dropped silently; a Markdown round trip
+  loses it, and no reader can put it back, because nothing in the text says it
+  was ever there.
 - Inline parsing is intentionally simple and best-effort for malformed or deeply
   nested delimiter runs.
 - Writer output is semantic model Markdown, not preservation of source markup.
@@ -122,8 +122,3 @@ the reading of the licence's naming clause, the approved labels and the
 provenance findings are in [the Markdown register](../ip/markdown.md). This is a
 CommonMark-oriented subset and the limits above enumerate what it does not
 implement, so nothing may describe it as CommonMark-compliant.
-
-
-Hidden body-section visibility is not written by this codec. The retained
-content is exported as visible paragraphs, with `markdown.section.hidden`.
-ODT retains the flag; the shared raster paginator omits hidden body sections.

@@ -1,433 +1,252 @@
 # Issue 143: highest-impact cases, investigation and safe fixes
 
-The ten highest severity scores in
-[issue 143](https://github.com/Broiler-Platform/Broiler.Documents/issues/143)
-were selected in their reported order. This investigation does **not** claim
-that ten original cases were fixed. The initial investigation corrected two reproducible implementation defects,
-but the ten original comparisons remain unresolved. Further HTML-table, DOCX table-break, ODT frame/picture and table-clipping fixes and
-original-document measurements are documented below.
+[Issue 143](https://github.com/Broiler-Platform/Broiler.Documents/issues/143)
+ranks Office differences by severity. The top ten were investigated in order,
+then further ranks. Each fix below corrects a reproducible defect; **none of the
+ten top-ranked originals is fully resolved**. The top-ten comparison moves
+from 12/30 to 13/30 passing checks (the DOCX table-break fix) and stays there
+through every later round, with unchanged page counts.
+
+Local runs use LibreOffice 26.8.1.1, poppler 26.05.0, 72 DPI, unpinned fonts,
+an 80% threshold and a 40-page cap; an extra baseline with LibreOffice 25.2.3.2
+exposes reference-version differences. The issue used LibreOffice 26.2.6.3, so
+these are local reproductions, not its exact scores. Before runs use isolated
+CLIs from `ed822c2`, `72ab55e` and `e16fa6b`. Originals are refetched from
+upstream for each round (SHA-256 hashes and reports outside the checkout in
+the cloud workspace's `/workspace/.setup`); no upstream binaries are
+committed.
 
 ## Selected cases
 
-Paths below are relative to LibreOffice's `sw/qa/extras` directory. Page counts
-are from the local comparison with LibreOffice 26.8.1.1, not the issue's 26.2.6.3.
+Paths are under LibreOffice's `sw/qa/extras`. Pages are Broiler vs LibreOffice
+26.8.1.1.
 
-| Rank | Reported severity | Sample | Finding and remaining work |
+| Rank | Severity | Sample | Finding and remaining work |
 | --- | ---: | --- | --- |
-| 1 | 1771.69 | `ooxmlexport/data/tdf163894_hidden.docx` | Local counts are 5 vs 4. Neither LibreOffice 25.2 nor 26.8 reproduces the issue's 40 reference pages. No change was made to force the renderer toward that unverified count. |
-| 2 | 1343.16 | `layout/data/tdf142694-1.odt` | Nested tables, repeated headers and large inline images; 5 vs 8 pages. The general nested-row splitting defect described below is fixed, but this original input's render is unchanged. |
-| 3 | 1336.89 | `uiwriter/data/tdf147199.docx` | Inline drawing groups are retained as paragraph-anchored shapes without their inline flow footprint. The local comparison remains 5 vs 8 pages. Correct inline drawing layout needs further model/layout work. |
-| 4 | 1324.92 | `ooxmlexport/data/tdf146955.odt` | Many page-anchored text frames and unsupported or missing image/object resources. Both renders are capped at 40 pages; this cannot establish whole-document pagination conformance. |
-| 5 | 1321.56 | `tiledrendering/data/page-background-link.fodt` | The background points to `http://192.0.2.1:12345/background.png`, not embedded image bytes. The reader's refusal to fetch document-controlled external resources is retained. No automatic network loading was introduced. |
-| 6 | 1318.58 | `layout/data/floattable-center-shift-down.docx` | Reference-version dependent: 4 vs 3 pages with LibreOffice 25.2, but 4 vs 4 with 26.8. Visual differences remain. The upstream test requires inline tables to move past the floating table; the page-count discrepancy alone does not justify another shift. |
-| 7 | 1303.92 | `layout/data/fdo43573-2-min.docx` | Two-column section, anchored images and tables; 22 vs 15 pages. The explicit column widths differ by only one twip, so unequal widths are not an adequate explanation. Wrapping and section flow remain open. |
-| 8 | 1299.68 | `ww8export/data/tdf91083.odt` | Nested tables and merged cells; 6 vs 7 pages. The general row-splitting fix is covered by authored tests, but this input's render is unchanged. |
-| 9 | 1286.87 | `ooxmlexport/data/tdf141173_missingFrames.rtf` | Positioned paragraphs, an ordinary drawing and an explicit page/section break; 1 vs 2 pages. LibreOffice's first page is blank. Broader page-break rewrites were rejected after independent frame/drawing probes contradicted them. The safe final-anchor fix below does not resolve this original input. |
-| 10 | 1242.37 | `ooxmlexport/data/tdf127814.docx` | A cell spans 28 rows and states `w:textDirection="btLr"`. Vertical cell text is not represented by the current table model. The later table-break fix below corrects the leading section break: the local pixel check now passes, while the text check remains open. Both renders have two pages. |
+| 1 | 1771.69 | `ooxmlexport/data/tdf163894_hidden.docx` | 5 vs 4. Neither LibreOffice 25.2 nor 26.8 reproduces the issue's 40 reference pages; the renderer is not forced toward that unverified count. |
+| 2 | 1343.16 | `layout/data/tdf142694-1.odt` | Nested tables, repeated headers, large inline images; 5 vs 8. The nested-row fix below does not change its render. |
+| 3 | 1336.89 | `uiwriter/data/tdf147199.docx` | Inline drawing groups become paragraph-anchored shapes without an inline flow footprint; 5 vs 8. Needs model/layout work. |
+| 4 | 1324.92 | `ooxmlexport/data/tdf146955.odt` | Many page-anchored frames, unsupported or missing image/object resources. Both capped at 40 pages, so pagination cannot be judged. |
+| 5 | 1321.56 | `tiledrendering/data/page-background-link.fodt` | Background is `http://192.0.2.1:12345/background.png`, not embedded. The reader keeps refusing to fetch document-controlled external resources. |
+| 6 | 1318.58 | `layout/data/floattable-center-shift-down.docx` | 4 vs 3 with LibreOffice 25.2, 4 vs 4 with 26.8. The upstream test requires inline tables to move past the floating table; the page count alone does not justify another shift. Visual differences remain. |
+| 7 | 1303.92 | `layout/data/fdo43573-2-min.docx` | Two-column section, anchored images, tables; 22 vs 15. Column widths differ by only one twip, so unequal widths do not explain it. Wrapping and section flow open. |
+| 8 | 1299.68 | `ww8export/data/tdf91083.odt` | Nested tables, merged cells; 6 vs 7. Render unchanged by the nested-row fix. |
+| 9 | 1286.87 | `ooxmlexport/data/tdf141173_missingFrames.rtf` | Positioned paragraphs, a drawing and a page/section break; 1 vs 2, LibreOffice's first page is blank. Broad page-break rewrites were rejected (see below). |
+| 10 | 1242.37 | `ooxmlexport/data/tdf127814.docx` | A cell spans 28 rows with `w:textDirection="btLr"`; vertical cell text is not modelled. The table-break fix makes its pixel check pass; text check open. 2 vs 2. |
 
-## Changes retained
+Further ranks examined:
 
-### Nested table rows may split when both rows allow it
+| Rank | Sample | Outcome |
+| --- | --- | --- |
+| 13 | `uiwriter/data/tdf135056.odt` | Unchanged |
+| 14 | `mailmerge/data/missing-default-line-color.ott` | 2 vs 1 → 1 vs 1 (empty ODT frame) |
+| 15 | `ooxmlexport/data/tdf123351_UnderlineGroupSapeText.docx` | Unchanged |
+| 16 | `ooxmlexport/data/tdf95033.docx` | 2 vs 3 → 3 vs 3 (table break) |
+| 17 | `ww8export/data/fdo66304-1.odt` | Header geometry improved |
+| 18 | `tdf81345.docx` | Unchanged, 7 vs 5 |
+| 19 | `layout/data/tdf116501.odt` | Header geometry improved |
+| 20 | `fdo87488.docx` | Unchanged |
+| 23 | `layout/data/tdf152106.odt` | Character anchors and clipped rows improved |
+| 24 | `FDO76248.docx` | Unchanged |
+| 25 | `floattable-split.docx` | Unchanged |
+| 26, 30 | `htmlimport/data/tdf118579.html`, `htmlimport/data/table_border_1px.html` | HTML tables imported |
+| 27 | `uiwriter/data/fdo114306_2.odt` | 7 vs 4 → 4 vs 4 (hidden sections) |
+| 28 | `ooxmlexport/data/testCustomShapePresetExport.odt` | Screenshots restored |
+| 29 | `ooo96040-2.odt` | Unchanged, 16 vs 12 |
 
-`ComposeBlocks` previously made each nested row one indivisible cut piece,
-regardless of the nested row's `CanSplit` setting. A long nested row could
-therefore extend beyond the page instead of continuing on the next one.
+## Nested table rows may split when both rows allow it
 
-Nested rows now expose common legal cut boundaries. Overlapping atomic pieces
-from different cells are merged with a sorted interval sweep, so a cut cannot
-slice through another cell's line, kept paragraph or protected block. Minimum
-heights and vertical alignment are accounted for. A row that forbids splitting,
-at either level, still stays whole. New tests check continuation, explicit keeps,
-different cell line heights, preservation of every paragraph and page bounds.
-The existing no-split test now explicitly states its intended `canSplit: false`.
+`ComposeBlocks` made each nested row one indivisible cut piece regardless of
+its `CanSplit`, so a long nested row could run off the page. Nested rows now
+expose common legal cut boundaries: overlapping atomic pieces from different
+cells are merged with a sorted interval sweep, so a cut never slices another
+cell's line, kept paragraph or protected block. Minimum heights and vertical
+alignment are accounted for; a row that forbids splitting at either level
+stays whole. This is a general fix; ranks 2 and 8 still need separate work.
 
-This is a general pagination fix, not evidence that cases 2 or 8 are now resolved.
-Their remaining table behaviour needs separate work.
+## A final RTF frame keeps its body anchor
 
-### A final RTF frame keeps its body anchor
+A frame after body text can refer to the next body paragraph while the
+accumulator has no text for it. At end of input `Build` omitted that empty
+paragraph when earlier paragraphs existed, leaving the shape anchored outside
+the document. The reader now commits the final anchor before building.
 
-A frame after existing body text can refer to the next body paragraph while
-the accumulator has no text for that paragraph. At end of input, `Build` used
-to omit this empty paragraph whenever earlier paragraphs already existed.
-The shape then referenced an index outside the document and could disappear
-from layout. The reader now commits that final anchor before building the model.
-A regression test covers body text followed by a final positioned frame.
+No change to `\page` is retained: independent probes showed a general rewrite
+alters unrelated frame and drawing behaviour, and fixing rank 9's page count
+while placing its frames on the wrong page is not a valid fix.
 
-No change to the interpretation of `\page` was retained. Independent reference
-probes showed that a general rewrite would alter unrelated frame and ordinary
-drawing behaviour. In particular, correcting case 9's page count while placing
-its frames on the wrong page is not a valid conformance fix.
+## HTML tables (ranks 26 and 30)
 
-## Validation at `112e9a4`
+The HTML reader treated `table`, `tr`, `td` and `th` as plain blocks. It now
+keeps the row/cell grid, empty cells, nested tables, row/column spans,
+captions, header-cell emphasis, legacy `border`, `cellpadding`, `width` and
+cell backgrounds; paragraphs stay in row-major order. Tables without a stated
+grid opt into content-based column sizing (longest unbreakable token,
+unwrapped lines, spanning-cell constraints, interpolated within the available
+width); explicit widths still apply. The model option defaults off for other
+readers and survives paragraph edits. The corpus baseline records three newly
+exposed `*.table.flattened` diagnostics: writers report losing the grid the
+reader now keeps.
 
-The Release build succeeds. All 3,850 executed unit tests pass, with three
-additional tests skipped. The CLI corpus passes 2,320/2,320 checks, with 105
-additional checks skipped for their documented reasons. No fidelity assertions or comparison thresholds were relaxed. The corpus
-baseline records three newly exposed `*.table.flattened` diagnostics for the
-authored HTML table: the reader now retains its grid, while those existing
-writers report losing it. All previous differences and classifications remain.
-
-At `112e9a4`, the original ten-sample comparison remained at 12/30 passing checks before and
-after those changes: ten reads and two text checks pass; ten pixel checks
-and eight text checks fail. No original top-ten input was fully fixed in
-that change. The improvement demonstrated by the new regression tests must not
-be presented as an improved original-corpus score.
-
-The ten original input files were fetched again from upstream and all ten
-matched the bytes used for the initial comparison. Their SHA-256 hashes are
-recorded outside the checkout at `/workspace/.setup/issue143-inputs.json`.
-No upstream document binaries are committed.
-
-Before/after runs use the same inputs, LibreOffice 26.8.1.1, poppler 26.05.0,
-72 DPI, unpinned fonts, an 80% threshold and a 40-page cap. A baseline CLI was
-built from `ed822c2` in an external source snapshot. An additional baseline
-with LibreOffice 25.2.3.2 exposes the reference-version differences above.
-Neither reference version exactly reproduces the issue's toolchain.
-
-Reproduction in the prepared cloud workspace:
-
-```sh
-source /workspace/.setup/activate.sh
-dotnet build Broiler.Documents.slnx -c Release --nologo -m:4
-pwsh -NoProfile -File eng/run-tests.ps1 -Configuration Release
-dotnet run --project src/tests/Broiler.Documents.Office -c Release --no-build -- \
-  --extras-dir /workspace/.setup/issue143 \
-  --soffice /workspace/.setup/soffice26 --jobs 3 --dpi 72 --max-pages 40 \
-  --top-differences 10 --report /workspace/.setup/office143-recheck.json
-```
-
-The original ten-sample comparison is still expected to fail overall. Authored regression
-coverage for the two retained fixes must not be confused with closure of those
-whole-document comparisons.
-
-## Further cases: HTML tables (ranks 26 and 30)
-
-The HTML reader previously treated `table`, `tr`, `td` and `th` as plain block
-containers. It now retains the row/cell grid, empty cells, nested tables,
-row/column spans, captions, header-cell emphasis, legacy `border`, `cellpadding`,
-`width` and cell backgrounds. Paragraphs remain in row-major model order.
-
-HTML tables without a stated grid opt into content-based column sizing. The
-paginator measures longest unbreakable tokens and unwrapped lines, incorporates
-spanning-cell constraints, and interpolates within the available width. Explicit
-widths still apply. The new model option defaults off, preserving the existing
-behaviour of other readers. Paragraph edits retain the option.
-
-This is basic table import, not full CSS table layout: separate border spacing,
-column declarations, CSS table geometry and vertical alignment remain open.
-HTML writing still explicitly reports that it flattens tables.
-
-Fresh originals were compared against the pre-change `ed822c2` CLI using the
-same LibreOffice 26.8.1.1, fonts, 72 dpi and unchanged 80% similarity threshold:
-
-| Input | Before profile similarity | After | Result |
-| --- | ---: | ---: | --- |
-| `htmlimport/data/tdf118579.html` | 72.53% | 82.23% | Pixel check now passes; semantic text check still fails. |
-| `htmlimport/data/table_border_1px.html` | 22.75% | 58.96% | Improved profile and ink bounds; pixel check remains open. Read/text checks pass. |
-
-Both inputs remain one page on both sides. Across these two originals, checks
-improve from 3/6 to 4/6. These are partial conformance improvements: blurred
-pixel differences increase slightly (4.78% to 5.08%, and 4.89% to 6.16%), so the
-profile gain must not be described as improvement in every visual metric or as
-full resolution of either document. The top-ten findings above remain open.
-
-
-## Further cases: section-leading tables and empty ODT frames
-
-### DOCX breaks must belong to the next block
-
-The builder carried section and trailing run breaks to the next paragraph. When
-that block was a table, its first cell consumed the flag, but table layout does
-not apply a cell paragraph's break to the whole table. The table now takes a
-pending block break before its cells are read, retaining it as `PageBreakBefore`
-or `ColumnBreakBefore`. Empty malformed tables do not consume it. Breaks inside
-cells retain their existing handling and diagnostics.
-
-This corrects two original samples:
-
-| Input | Before | After | Remaining limitations |
+| Input | Profile similarity | Blur | Result |
 | --- | --- | --- | --- |
-| Rank 16, `ooxmlexport/data/tdf95033.docx` | 2 pages vs 3; final-page geometry mismatched | 3 vs 3 with the correct landscape/portrait sections; measured rendering similarity 76.95% | Pixel check remains below 80%; font and table geometry differences remain. Text check passes. |
-| Rank 10, `ooxmlexport/data/tdf127814.docx` | Pixel check failed; worst-page profile similarity 0.96% | Pixel check passes; worst-page profile similarity 87.63%, blur difference 0.18% | Text check still fails; vertical merged-cell text remains unsupported. |
+| `tdf118579.html` | 72.53% → 82.23% | 4.78% → 5.08% | Pixel passes; text fails |
+| `table_border_1px.html` | 22.75% → 58.96% | 4.89% → 6.16% | Pixel open; read/text pass |
 
-The original ten-sample comparison improves from **12/30 to 13/30** checks:
-10 reads, 2 text checks and 1 pixel check pass. No complete top-ten document is
-claimed resolved. The other nine samples' observed rendering metrics match the
-previous run exactly.
+Both stay one page; checks 3/6 → 4/6. Open: separate border spacing, column
+declarations, CSS table geometry, vertical alignment. HTML writing still
+reports flattening.
 
-### Empty positioned ODT text frames must not become body paragraphs
+## DOCX breaks before a table belong to the table
 
-A valid text frame with neither visible paint nor text used to fall through to
-the body-content reader, which emitted its empty paragraph into the body. It is
-now retained as a positioned frame, including its anchor and wrap properties.
-A trailing paragraph-anchored frame still gets an empty body anchor when needed;
-a page-anchored frame does not require one. A frame containing an unrepresented
-nested drawing is not treated as empty: its existing fallback path is preserved.
+The builder carried section and trailing run breaks to the next paragraph;
+when the next block was a table, its first cell consumed the flag, but table
+layout ignores a cell paragraph's break. The table now takes a pending block
+break before its cells are read, as `PageBreakBefore` or `ColumnBreakBefore`.
+Empty malformed tables do not consume it; breaks inside cells keep their
+existing handling and diagnostics.
 
-In rank 14, `mailmerge/data/missing-default-line-color.ott`, the spurious body
-paragraph preceded the first named page style and caused an extra page. The
-original now has **1 page vs LibreOffice's 1**, previously 2 vs 1. Its worst-page
-profile similarity rises from 8.45% to 38.37%, but pixel and text comparisons
-remain open. The blur metric increases from 2.33% to 4.31%; correcting the page
-boundary does not imply every pixel metric improves.
+- Rank 16 `tdf95033.docx`: 2 → 3 pages vs 3, correct landscape/portrait
+  sections; similarity 76.95% (pixel still below 80%, text passes).
+- Rank 10 `tdf127814.docx`: worst-page profile 0.96% → 87.63%, blur 0.18%;
+  pixel passes, text fails (vertical merged-cell text).
 
-Ranks 15 (`tdf123351_UnderlineGroupSapeText.docx`) and 20 (`fdo87488.docx`) were
-also checked; their outputs remain unchanged. In the four additional originals,
-6/12 checks pass before and after; the improvements above correct pagination
-without yet clearing another complete check in that group.
+## Empty positioned ODT text frames stay frames
 
-### Verification of this follow-up
+A text frame with neither paint nor text fell through to the body reader and
+emitted an empty body paragraph. It is now a positioned frame with its anchor
+and wrap properties. A trailing paragraph-anchored frame still gets an empty
+body anchor when needed; a page-anchored one does not. A frame holding an
+unrepresented nested drawing is not empty and keeps its fallback path.
 
-Release build succeeds; **3,859 executed unit tests pass**, with 3 additional
-skips. The CLI corpus passes **2,320/2,320**, with 105 documented skips. No corpus
-baseline or conformance threshold changed in this follow-up. Authored regressions
-cover section/run breaks before tables, column breaks, one-time consumption,
-empty tables, breaks within cells, empty page/paragraph frames, trailing anchors
-and unrepresented nested drawings.
+In rank 14 `missing-default-line-color.ott` the spurious paragraph preceded the
+first named page style and added a page: now 1 vs 1 (was 2 vs 1). Profile 8.45%
+→ 38.37%, blur 2.33% → 4.31%; pixel and text checks remain open.
 
-The new four-input before/after runs use identical originals, LibreOffice
-26.8.1.1, poppler 26.05.0, 72 dpi, unpinned fonts and the unchanged 80% threshold.
-They are recorded outside the checkout as `/workspace/.setup/next143-before.json`
-and `/workspace/.setup/next143-after-final.json`; the top-ten recheck is
-`/workspace/.setup/next143-top10-final.json`. These references differ from the
-versions used in the original issue; results are local reproductions.
+## Character-anchored pictures and partly visible table lines (rank 23)
 
-## Further case: character-anchored pictures and partially visible table lines
+`tdf152106.odt` exposes two defects:
 
-Rank 23, `layout/data/tdf152106.odt`, exposes two independent rendering defects:
+- `text:anchor-type="char"` was treated as inline like `as-char`. Only
+  `as-char` is inline; `char` floats, so pictures take the floating-picture
+  path and diagnostic with page-relative position, size and wrap. Missing
+  anchor types keep the old fallback. The model still uses a paragraph anchor
+  rather than the exact glyph for character-relative offsets.
+- A fixed-height row discarded any line extending below its bottom, including
+  an image slightly taller than the row. Partly visible lines now carry a
+  visible height and are clipped when painted; wholly hidden lines are still
+  omitted. Paragraph shading and a containing text frame use the same visible
+  extent. Applies in body tables and tables inside frames.
 
-- `text:anchor-type="char"` was treated as inline, just like `as-char`. A
-  character anchor instead floats beside the text. Only `as-char` is inline;
-  missing anchor types retain the reader's previous fallback. Pictures now use
-  the existing floating-picture path and diagnostic, preserving page-relative
-  positions, size and wrapping. The current model still uses a paragraph anchor
-  rather than locating the exact glyph for character-relative offsets.
-- A fixed-height table row discarded any line extending below its bottom,
-  including an image just slightly taller than the row. Partially intersecting
-  lines now carry a visible height and are clipped when painted; wholly hidden
-  lines are still omitted. Paragraph shading respects the same visible height.
-  A containing text frame checks that visible extent, so it does not discard
-  the clipped image a second time. Model text and original image size remain
-  intact. This applies to body tables and tables inside text frames.
+The full-page background picture, formerly shrunk to column width, now covers
+the page, and the image in the fixed row reappears. Four pages both sides.
 
-The original's full-page background picture was previously shrunk to column
-width and placed in the text. It now covers the page. Its image in a fixed-height
-row is also restored instead of disappearing. The comparison remains open:
-font substitution and text wrapping/flow still differ.
-
-| Worst-page metric | Before (`72ab55e`) | After character-anchor fix | After both fixes |
+| Worst-page metric | Before (`72ab55e`) | Anchor fix | Both fixes |
 | --- | ---: | ---: | ---: |
-| Blur difference | 70.30% | 32.54% | 28.86% |
-| Ink profile similarity | 87.51% | 96.34% | 99.51% |
+| Blur | 70.30% | 32.54% | 28.86% |
+| Ink profile | 87.51% | 96.34% | 99.51% |
 | Ink bounds delta | 81 px | 6 px | 6 px |
 | Coverage delta | 15.25% | 0.27% | 2.35% |
 
-Both renders have four pages throughout. Worst-page selection changes from page
-4 to page 1; these are the comparison's aggregate worst-page observations, not
-paired measurements of one physical page. Rendering similarity improves from
-29.70% to 71.14%, still below the unchanged 80% threshold. Coverage is slightly
-worse after adding back the table image than after the anchor fix alone, while
-remaining substantially better than the starting point. No whole-document pass
-is claimed.
+Worst page moves from 4 to 1, so the columns are not one physical page.
+Similarity 29.70% → 71.14%, below threshold; fonts and text flow still differ.
+The character-anchor change alone does not resolve rank 27 despite its
+character-anchored picture markup.
 
-Five more originals were checked: ranks 13 (`tdf135056.odt`), 24
-(`FDO76248.docx`), 25 (`floattable-split.docx`), 27 (`fdo114306_2.odt`) and 29
-(`ooo96040-2.odt`). Their observed rendering metrics and page counts are unchanged.
-In particular, changing the character-anchor classification alone does not
-resolve rank 27, despite its character-anchored picture markup. Across these six
-inputs the read/text/pixel result stays at 6/18, with only the six reads passing.
-The top-ten recheck retains **13/30** passes and identical rendering observations
-for all ten inputs.
+## Raster alternatives after unsupported vector images (rank 28)
 
-Validation: Release build, **3,862 executed unit tests pass** (3 additional
-skips), and **2,320/2,320 CLI corpus checks pass** (105 documented skips). New
-coverage verifies the character/inline distinction and rasterizes an oversized
-image in a fixed row both in the body and inside a text frame: pixels above the
-row edge remain visible, pixels below it are clipped, and clip commands balance.
-The existing exact-row test now also retains and clips the partially visible
-second line while still excluding the wholly hidden third line. No corpus
-baseline or comparison threshold changed.
+`testCustomShapePresetExport.odt` stores an SVM and a PNG for each screenshot
+in one frame. The loader took only the first `draw:image`, rejected SVM and
+dropped the picture. It now tries representations in source order until one
+is carried, keeping preference for a supported first one, the frame's
+extent/name/description, package caching and diagnostics for skipped ones.
+Alternatives inside a clickable `draw:a` and flat `office:binary-data` count;
+nested frames are separate objects. Resource admission happens once after
+selection, and a denied representation does not try further alternatives.
+Nothing external is fetched.
 
-Before/after comparisons use an isolated CLI published from `72ab55e`, the same
-input bytes, LibreOffice 26.8.1.1, poppler 26.05.0, 72 dpi, unpinned fonts and a
-40-page cap. Reports are outside the checkout at
-`/workspace/.setup/round3-before-all.json`, `round3-after-final.json` and
-`round3-top10-final.json`. Source originals were fetched again from LibreOffice's
-public `sw/qa/extras` tree; no upstream document binaries are committed.
+Six pages both sides; profile 42.80% → 90.25%, blur 24.51% → 21.07%, coverage
+13.18% → 6.27%; similarity 78.93%, still below 80%; text open. The native-shape
+column still has wrong inline placement, simplified preset geometry and no
+implicit fill. A fill-only change was rejected: painting the shapes at their
+wrong positions made the comparison worse.
 
-## Further case: embedded raster alternatives after unsupported vector images
+## Hidden ODT sections (rank 27)
 
-Rank 28, `ooxmlexport/data/testCustomShapePresetExport.odt`, stores a vector SVM
-representation and a PNG representation of each screenshot in the same frame.
-The loader previously selected only the first `draw:image`, rejected its format,
-and discarded the frame's picture even though a supported alternative was
-embedded beside it.
+`fdo114306_2.odt` has many sections with `text:display="none"`, imported as
+visible content whose breaks created pages. The model keeps unconditional
+visibility as `DocumentSection.Hidden`. The ODT reader resolves nested
+visibility, keeps the text, and isolates hidden page breaks and page-style
+selections from the visible flow. The shared paginator skips hidden body
+ranges, objects anchored to hidden paragraphs and hidden note labels. ODT
+writing keeps the flag and keeps cell-local sections inside cells instead of
+duplicating their table. Paragraph edits keep visibility via range shifting.
 
-The loader now tries representations in source order until it can carry one.
-It preserves the preference for an already supported first representation, the
-frame's extent/name/description, package caching, and diagnostics for skipped
-representations. Alternatives inside a clickable `draw:a` and flat
-`office:binary-data` payloads are included. Nested frames are separate objects
-and are not searched. Resource admission still happens once after selection;
-a denied representation does not trigger further alternatives. No external
-resource is fetched.
+Now 4 vs 4 pages (was 7 vs 4); profile 0% → 90.24%, ink bounds 731 → 254 px,
+coverage 5.08% → 3.57%, blur 13.86% → 26.02% as content moves to its correct
+pages. Similarity 73.98%; the text check still reports two missing heading
+strings. Plain text is unchanged: hidden content stays in the model for
+editing and round trips. No speculative table spacing change was made for
+the floating-table candidates.
 
-The original's screenshot column is restored. Against an isolated CLI published
-from `e16fa6b`, with identical original bytes and reference settings:
+Not covered: conditional visibility; sections in text frames and running
+parts (no section collections there). DOCX, RTF, HTML and Markdown writers
+report `*.section.hidden` when exporting hidden content as visible; native
+PDF layout reports its limitation.
 
-| Worst-page metric | Before | After |
-| --- | ---: | ---: |
-| Ink profile similarity | 42.80% | 90.25% |
-| Blur difference | 24.51% | 21.07% |
-| Coverage delta | 13.18% | 6.27% |
-| Ink bounds delta | 17 px | 17 px |
+## ODT header bands and header distance (ranks 17 and 19)
 
-Both renders have six pages. Rendering similarity is now 78.93%, still below the
-unchanged 80% threshold; the text comparison also remains open. The native-shape
-column still has incorrect inline placement, simplified preset geometry and
-missing implicit fill handling. A fill-only change was not retained: painting
-those shapes at their currently incorrect positions made the overall comparison
-worse. This change claims restored embedded pictures, not complete shape support
-or resolution of the whole original case.
+`tdf116501.odt` and `fdo66304-1.odt` had the header's outer margin and
+reserved band conflated with the body's top margin, so header text sat at the
+page edge. The reader now separates the outer top margin (`HeaderDistance`)
+from the minimum body offset below the declared header area (`MarginTop`);
+the writer reverses this via `style:header-style`, keeping explicit header
+positions on round trip. The first master-page lookup also skips paragraphs
+inside positioned drawings, so a frame's text style does not select the body's
+first page (authored regression only).
 
-Rank 29, `ooo96040-2.odt`, was checked again and retains identical observed
-rendering metrics and the existing 16-vs-12 page discrepancy. Across these two
-inputs the checks remain 2/6, with only the reads passing. The top-ten recheck
-retains 13/30 passing checks and identical rendering observations for all ten
-inputs.
+| Original | Profile | Blur | Pages |
+| --- | --- | --- | --- |
+| `tdf116501.odt` | 57.53% → 62.04% | 23.83% → 21.86% | 2 vs 2 |
+| `fdo66304-1.odt` | 64.44% → 68.28% | 6.42% → 5.91% | 2 vs 2 |
 
-Validation: Release build; **3,867 executed unit tests pass** (3 additional
-skips); **2,320/2,320 CLI corpus checks pass** (105 documented skips). Five new
-regression cases cover unsupported preferred images with PNG alternatives,
-clickable wrappers, preference for a supported first image, an external
-alternative followed by flat embedded data, and resource denial. No corpus
-baseline or comparison threshold was changed.
+`tdf116501.odt` ink bounds 20 → 8 px; pixel and text checks open for both.
+Footer band conversion, header padding and fixed-height header clipping are
+outside this change.
 
-The local comparisons use LibreOffice 26.8.1.1, poppler 26.05.0, 72 dpi, unpinned
-fonts, an 80% threshold and a 40-page cap. Reports outside the checkout:
-`/workspace/.setup/round4-before.json`, `round4-verified.json` and
-`round4-top10-verified.json`. The original was fetched again from LibreOffice's
-public `sw/qa/extras` tree; its binary is not committed.
+Reference probe: an ODF source with outer top margin 18pt and minimum header
+band 54pt, exported by LibreOffice, puts HEADER at 18.508449pt and BODY at
+72.508449pt (`pdftotext -bbox`); a page-content-anchored 10pt rectangle starts
+at (30, 72) in LibreOffice and the raster layout. A 10pt header bottom gap
+leaves the body coordinate unchanged, so the gap is not added twice.
 
-## Further case: hidden ODT sections contributing visible pages
+## Known visual tradeoffs in the top ten
 
-Rank 27, `uiwriter/data/fdo114306_2.odt`, includes numerous sections explicitly
-marked `text:display="none"`. The reader previously imported their paragraphs
-and tables as ordinary visible body content, including breaks that created
-extra pages.
+- `tdf142694-1.odt`: after the header change blur improves 59.68% → 55.77% but
+  profile drops 12.74% → 8.50%; still 5 vs 8 pages.
+- **`tdf146955.odt` gets visually worse in the capped comparison** after the
+  header change: blur 16.94% → 28.27%, profile 6.17% → 4.29%, coverage 6.32% →
+  8.89%, ink bounds 501 → 542 px. The independently verified header mapping is
+  kept; the frame/layout discrepancy remains unresolved and is not pagination
+  evidence.
 
-The model now retains unconditional visibility as `DocumentSection.Hidden`.
-The ODT reader resolves nested visibility, keeps the text, and isolates hidden
-page breaks and page-style selections from the visible flow. The shared
-paginator skips hidden body ranges, objects anchored to hidden paragraphs and
-hidden note-label contributions. ODT writing retains the flag and keeps
-cell-local sections inside cells instead of duplicating their containing table.
-Paragraph edits preserve visibility through the existing range-shifting rule.
+## Still open
 
-The original now has **4 pages vs LibreOffice's 4**, previously 7 vs 4:
+- Inline drawing-group footprint (`tdf147199.docx`), nested table pagination
+  (`tdf142694-1.odt`, `tdf91083.odt`), two-column flow
+  (`fdo43573-2-min.docx`), framed RTF content with a blank first page
+  (`tdf141173_missingFrames.rtf`), vertical cell text (`tdf127814.docx`).
+- External backgrounds are never fetched (`page-background-link.fodt`).
+- Native custom-shape geometry and fills (`testCustomShapePresetExport.odt`).
+- Conditional section visibility; CSS table layout; footer bands.
 
-| Worst-page observation | Before | After |
-| --- | ---: | ---: |
-| Ink profile similarity | 0% | 90.24% |
-| Ink bounds delta | 731 px | 254 px |
-| Coverage delta | 5.08% | 3.57% |
-| Blur difference | 13.86% | 26.02% |
+## Reproduction
 
-The blur metric gets worse as visible content moves onto its correct pages;
-this is not an improvement in every visual metric. The pixel comparison remains
-below threshold at 73.98% rendering similarity, and the text comparison still
-reports the two missing heading strings. Plain text remains unchanged by the
-visibility fix: hidden content is preserved for editing and ODT round trips,
-not removed from the source model. No whole-document pass is claimed. The
-floating-table candidates inspected earlier remain open; no speculative table
-spacing change was made.
+```sh
+dotnet run --project src/tests/Broiler.Documents.Office -c Release --no-build -- \
+  --extras-dir /path/to/issue143 \
+  --soffice /path/to/soffice26 --jobs 3 --dpi 72 --max-pages 40 \
+  --top-differences 10 --report /path/outside/checkout/office143.json
+```
 
-Conditional section visibility is not evaluated. Sections inside text frames
-and running parts lack independent section collections and remain outside this
-body-section support. DOCX, RTF, HTML and Markdown writers explicitly report
-`*.section.hidden` when exporting retained content as visible paragraphs. The
-native PDF layout likewise reports its visibility limitation; the shared raster
-paginator supports omission of hidden body sections.
-
-Release build succeeds; **3,881 executed unit tests pass** (3 additional
-skips), and **2,320/2,320 CLI corpus checks pass** (105 documented skips).
-Regressions cover ODT content/visibility round trips, nested inheritance,
-page-break isolation and carry, first-page style selection, table-cell/nested
-cell round trips, hidden tables and page-anchored objects, visible sibling cells,
-and explicit loss diagnostics in the other writers. No corpus baseline or
-comparison threshold changed. The ten highest-impact originals retain 13/30
-passes and their prior rendering observations.
-
-Reports outside the checkout are `/workspace/.setup/round5-before.json`,
-`round5-verified.json` and `round5-top10.json`. The baseline CLI was published
-from `e16fa6b`; the intervening image-alternative fix does not affect this
-input's single-representation frames. Runs use identical originals, LibreOffice
-26.8.1.1, poppler 26.05.0, 72 dpi, unpinned fonts, the unchanged 80% threshold and
-40-page cap. These tool versions differ from the original issue's reference.
-
-## Further cases: ODT header bands and header distance
-
-Ranks 19 (`layout/data/tdf116501.odt`) and 17
-(`ww8export/data/fdo66304-1.odt`) have headers whose declared outer margin and
-reserved band were previously conflated with the body's top margin. Header
-text was drawn at the page's edge rather than the stated distance.
-
-The reader now distinguishes the outer top margin (`HeaderDistance`) from the
-minimum body offset below the declared header area (`MarginTop`). The writer
-reverses this mapping using `style:header-style`, preserving explicit header
-positions on ODT round trips. The first master-page lookup also skips paragraphs
-inside positioned drawings; a frame's own text style does not select the body's
-initial page. That separate lookup defect is covered by an authored regression;
-no original-book improvement is attributed to it.
-
-| Original | Profile similarity before / after | Blur difference before / after | Pages |
-| --- | ---: | ---: | --- |
-| `tdf116501.odt` | 57.53% / 62.04% | 23.83% / 21.86% | 2 vs 2 throughout |
-| `fdo66304-1.odt` | 64.44% / 68.28% | 6.42% / 5.91% | 2 vs 2 throughout |
-
-The first sample's ink bounds delta improves from 20 to 8 pixels. Both pixel
-and text checks remain open. Rank 18 (`tdf81345.docx`) retains identical metrics
-and its existing 7-vs-5 pagination discrepancy. These three inputs retain 3/9
-passing checks, namely their reads. No additional whole-document pass is claimed.
-
-### Known visual tradeoffs in the top ten
-
-The top-ten recheck remains **13/30**, with unchanged page counts. Geometry
-corrections do not improve every existing approximate layout:
-
-- `tdf142694-1.odt`: blur difference improves from 59.68% to 55.77%, but profile
-  similarity drops from 12.74% to 8.50%. Its 5-vs-8 page discrepancy remains.
-- **`tdf146955.odt` gets visually worse in the capped comparison**: blur
-  difference increases from 16.94% to 28.27%, profile similarity drops from
-  6.17% to 4.29%, coverage delta grows from 6.32% to 8.89%, and ink bounds delta
-  increases from 501 to 542 pixels. Both renders are still capped at 40 pages.
-  This complex frame-heavy input remains unresolved; these observations must
-  not be represented as a general conformance improvement or complete
-  pagination evidence. The independently verified header mapping is retained,
-  and the remaining frame/layout discrepancy is explicitly recorded here.
-
-The other eight top-ten originals retain their rendering observations. Footer
-band conversion, header padding and fixed-height header clipping remain outside
-this change.
-
-### Independent reference probes and validation
-
-A minimal ODF source with outer top margin 18pt and minimum header band 54pt was
-converted to ODT and both files exported by LibreOffice. `pdftotext -bbox` reports
-identical top coordinates in both PDFs: HEADER at 18.508449pt and BODY at
-72.508449pt. A page-content anchored 10pt red rectangle begins at (30, 72) in
-both LibreOffice and the shared raster layout. A second probe with a 10pt header
-bottom gap retains the same body coordinate, confirming the gap is not added
-twice to the stated minimum band. These probes are outside the checkout under
-`/workspace/.setup/round6-*`.
-
-The Release build succeeds. **3,887 executed unit tests pass** (3 additional
-skips); the CLI corpus passes **2,320/2,320** checks (105 documented skips).
-Six new cases cover height/minimum-height mapping, unused header styles,
-explicit-distance round trips, page-content anchored objects and excluding
-frame text from first-page selection. No baseline or threshold changed.
-
-Reports: `/workspace/.setup/round6-before.json`, `round6-verified.json` and
-`round6-top10-verified.json`. Before/after runs use identical fresh upstream
-originals, LibreOffice 26.8.1.1, poppler 26.05.0, 72 dpi, unpinned fonts, an 80%
-threshold and a 40-page cap. These versions differ from the issue's reference.
+The comparison still fails overall.

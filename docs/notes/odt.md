@@ -7,173 +7,79 @@ toolkit behind it.
 
 ## Supported Read/Write Subset
 
-Page and shape fills support embedded bitmap patterns, tiled/stretch/single
-placement, single/double/triple hatches, centred gradient geometry, gradient
-border and endpoint intensity, uniform colour opacity, and page-margin bounds.
-Legacy `style:background-image` uses the same embedded-image admission gate;
-external resources are not fetched. An unresolved bitmap is painted in its fill
-colour, as LibreOffice paints a bitmap it cannot load, and reports `odt.fill`.
-Standalone PDF export reports `pdf.write.feature-unsupported` for bitmap fills;
-the raster painter supports them. Gradient geometry uses bounded sampling.
-`odt.fill.opacity` reports bitmap opacity that cannot be painted, or unequal
-gradient endpoint opacities that cannot be written as a uniform opacity.
-
-Basic drawings retain unfilled outlines, `draw:ellipse`, and `draw:line`
-endpoints in either direction. Stroke widths use `svg:stroke-width`; a stated
-solid stroke without a color uses black. Frame `fo:border` supplies a uniform
-outline, including explicit `none`, for text and floating-image frames. Basic
-paths and widths survive ODT export. Asymmetric borders, dash patterns, arrow
-heads, rotated drawings and arbitrary enhanced paths remain approximations.
-
-Text frames retain chain names and empty link destinations. Empty positioned
-text frames remain frames rather than adding spurious body paragraphs. A final
-paragraph-anchored frame keeps a body anchor; page anchors need none. Unrepresented
-nested drawings still take the existing fallback path. The raster layout
-flows styled paragraphs between linked body frames, including paragraph splits
-and list counters. Cycles are bounded; tables within linked frames and links
-inside running content are not routed. PDF export reports this limitation with
-`pdf.write.feature-unsupported`. Minimum-width text frames grow to their text,
-and top/middle/bottom text alignment is retained. Explicit text overflow cannot
-be written by this ODT writer and reports `odt.shape.overflow`.
-Writing linked frames reports `odt.shape.linked`: chain names and text are kept,
-but an authored LibreOffice PDF export clipped text in the source frame even
-while placing its overflow in the destination. Model round trips and raster
-layout are covered; this does not claim identical exported clipping.
+### Package and XML
 
 - Package layout: the `mimetype` entry, `META-INF/manifest.xml`, `content.xml`,
-  and `styles.xml`. Part paths are the normative ones, so nothing has to be
-  resolved through relationships the way an OPC package does.
+  and `styles.xml`. Part paths are the normative ones, so nothing is resolved
+  through relationships the way an OPC package does.
 - The flat single-file form (`.fodt`), read only: one XML file whose
   `office:document` root holds `office:meta`, `office:styles`,
   `office:automatic-styles`, `office:master-styles` and `office:body` side by
-  side. The reader takes each from there instead of from separate parts and the
-  rest of the read is the same. A flat file has no package, so a picture in it is
-  inline `office:binary-data` or a link that is not followed
-  (`odt.image.external`). Its root's `office:mimetype` must be the text or text
-  template media type when it is present (`odt.flat.media-type`). Writing always
-  produces a package, so the descriptor claims `.odt` only, and `-o out.fodt` is
+  side; the rest of the read is the same. A flat file has no package, so a
+  picture in it is inline `office:binary-data` or a link that is not followed
+  (`odt.image.external`). Its root's `office:mimetype`, when present, must be
+  the text or text template media type (`odt.flat.media-type`). Writing always
+  produces a package, so the descriptor claims `.odt` only and `-o out.fodt` is
   not accepted.
 - A prefix a part or flat file uses without declaring it. That is not
-  well-formed XML, but LibreOffice reads it, and some of its own test documents
-  rely on that (`tdf142130.fodt` declares neither `fo:` nor `style:`). When the
-  first parse fails, the reader parses again with the prefixes LibreOffice
-  declares on every document it writes already bound, and reports
-  `odt.xml.prefix`. A declaration the file does make still wins, and a prefix
-  outside that set still fails the read with `odt.xml`.
-- Paragraphs (`text:p`) and headings (`text:h`). A heading is read as an ordinary
+  well-formed XML, but LibreOffice reads it and some of its test documents rely
+  on it (`tdf142130.fodt` declares neither `fo:` nor `style:`). When the first
+  parse fails, the reader parses again with the prefixes LibreOffice declares on
+  every document it writes already bound, and reports `odt.xml.prefix`. A
+  declaration the file does make still wins; a prefix outside that set still
+  fails the read with `odt.xml`.
+- A written package is deterministic: two writes of one document are
+  byte-identical. Every entry carries a fixed timestamp, `mimetype` is first and
+  stored uncompressed per ODF 1.3 part 2 §3.3, and `meta.xml` names the
+  generator and nothing else (a creation date would make two writes differ).
+
+### Paragraphs, text and inline content
+
+- Paragraphs (`text:p`) and headings (`text:h`). A heading is an ordinary
   paragraph carrying whatever its named style resolves to; the model has no
-  heading rank. ODF has no paragraph mark of its own, so a paragraph's
-  `RichTextParagraph.MarkStyle` is its paragraph style's text properties - what
-  an empty paragraph is as tall as. It is not written back: an empty paragraph
+  heading rank. ODF has no paragraph mark of its own, so
+  `RichTextParagraph.MarkStyle` is the paragraph style's text properties (what
+  an empty paragraph is as tall as). It is not written back: an empty paragraph
   written here takes its height from the document's defaults.
-- Block-level containers, walked recursively so their paragraphs are read rather
-  than dropped: lists (`text:list`, including nested lists and `text:list-header`),
-  tables (`table:table`, including the header-row and row-group wrappers),
-  sections (`text:section`), the `text:index-body` of a generated index or table
-  of contents, and the body of a `draw:text-box` frame. A container's paragraphs
-  are read in document order, which for a table is row-major.
-- Tables, as a `DocumentTable` over the paragraphs of their cells: column widths
-  from each `table:table-column`'s style, `table:number-columns-spanned` and
-  `table:number-rows-spanned`, the background and borders a cell's
-  `style:table-cell-properties` state, header rows (`table:table-header-rows`,
-  drawn again at the top of every page the table continues onto, as
-  LibreOffice draws them), the height a row's
-  `style:table-row-properties` asks for, and tables nested in a cell.
-  A `table:covered-table-cell` is what a merge covers, so it holds nothing and is
-  read as the grid position it occupies and nothing more. The cells hold no text
-  of their own: a cell names a range of the document's paragraphs, so a caret, a
-  selection, a style, and every codec's text handling go on working through one
-  flat list. Written back as `table:table`, with a covered cell for every
-  position a span swallowed.
-- A plain, single-paragraph numeric table cell with a General number style
-  displays its finite `office:value` using the application's current culture.
-  Inherited cell number styles are resolved. The CLI enables system locale
-  support; command-line, JSON and protocol numbers retain invariant formatting.
-  Rich content, explicit decimal or language-specific formats, string cells
-  and invalid values retain their cached text. This is display normalization,
-  without formula evaluation or preservation of numeric-cell metadata on write.
-- White-space processing per ODF 1.3 part 3 §3.17: a run of white space in a text
-  node is one space, white space at either edge of a paragraph is nothing, and
-  significant spaces arrive as `text:s`. The writer applies the same rule in
-  reverse, so a leading, trailing, or repeated space is written as `text:s` and
-  survives a round trip, whether or not a style boundary falls inside the run.
-  Which spaces need protecting is a question about the paragraph rather than
-  about the run being written, and asking it run by run cost a character every
-  time a run of spaces was split.
+- Block-level containers, walked recursively so their paragraphs are read in
+  document order (row-major for a table): lists (`text:list`, nested lists,
+  `text:list-header`), tables (`table:table` with its header-row and row-group
+  wrappers), sections (`text:section`), the `text:index-body` of a generated
+  index or table of contents, and the body of a `draw:text-box` frame.
+- White space per ODF 1.3 part 3 §3.17: a run of white space in a text node is
+  one space, white space at either edge of a paragraph is nothing, and
+  significant spaces arrive as `text:s`. The writer reverses the rule, deciding
+  per paragraph rather than per run which spaces need protecting, so a leading,
+  trailing, or repeated space is written as `text:s` and survives a round trip
+  even when a style boundary splits the run.
 
   The surviving space carries the character style of the text node it was
   **written in**, not of whatever follows it: in
   `<text:span>a</text:span> <text:span>b</text:span>` the space is the
-  paragraph's and only the two letters are the spans'. The rule defers a
-  collapsed space until something follows it, so this is a decision rather than
-  an accident, and getting it wrong moves a run boundary without changing a
-  character of text. A white-space run that straddles a boundary — half outside a
-  span and half inside it — has no single style to inherit; the surviving space
-  takes the one it ends in. ODF settles what such a run collapses to and not what
-  it wears, so that half is this codec's choice, and
-  `OdtReaderStyleTests.A_White_Space_Run_That_Straddles_A_Span_Boundary_Takes_The_Style_It_Ends_In`
-  pins it.
+  paragraph's and only the two letters are the spans'. A white-space run that
+  straddles a span boundary takes the style it ends in; ODF settles what such a
+  run collapses to, not what it wears, so that is this codec's choice,
+  pinned by
+  `OdtReaderStyleTests.A_White_Space_Run_That_Straddles_A_Span_Boundary_Takes_The_Style_It_Ends_In`.
 - Inline constructs: `text:span`, `text:a`, `text:s`, `text:tab`,
   `text:line-break`, and `text:ruby` (the `text:ruby-base` text). Fields and
-  marks — `text:date`, `text:bookmark-ref`, and the rest — contribute the value
-  they last computed, which is the text a reader can plainly see on the page.
-- `text:page-number` and `text:page-count` keep the value they last computed
-  too, in a run marked with the field it shows (`InlineStyle.PageField`): what it
+  marks (`text:date`, `text:bookmark-ref`, and the rest) contribute the value
+  they last computed.
+- `text:page-number` and `text:page-count` keep their last computed value too,
+  in a run marked with the field it shows (`InlineStyle.PageField`): what it
   counts, its `style:num-format` (`1`, `i`, `I`, `a`, `A`, or empty for none),
   and the adjustment `text:select-page` (`previous`, `next`) and
   `text:page-adjust` make. A header or footer draws each page's own value; body
   text keeps the saved one. A field with no `style:num-format` is decimal, where
   LibreOffice would take the page style's format. A write puts the field back
   with its value.
-- `style:page-number` on the paragraph or table style that starts a master page
-  restarts the count there (`DocumentSection.PageNumberStart`); `auto` and `0`
-  carry it on. A write cannot keep a restart, because it writes one master page,
-  and reports `odt.section.page-number`.
-- Footnotes and endnotes (`text:note`), as a `DocumentNote` held by one
-  citation character where the note stands. `text:note-class` says which kind,
-  and the paragraphs of `text:note-body` are the note's text; a table or shape
-  in one is read as its text (`odt.note.content`), and a note inside a note,
-  which ODF does not allow, as nothing (`odt.note.nested`). The number in
-  `text:note-citation` is not read: notes are numbered in the order they are
-  cited, as LibreOffice numbers them, and a `text:label` the author typed is
-  kept as the note's own mark. `text:notes-configuration` in `office:styles`
-  gives each kind's `style:num-format` and `text:start-value`, which LibreOffice
-  counts from zero, and whether its `text:citation-style-name` raises the label
-  at the head of the note. All of it is written back the same way.
-- Tracked changes (ODF 1.3 §5.5), as a `TextRevision` on the runs and
-  paragraph marks they mark. `text:tracked-changes` lists the regions, each with
-  its `dc:creator` and `dc:date`; the text between a `text:change-start` and its
-  `text:change-end` is the insertion or change of formatting that region
-  records, and a paragraph break inside an insertion is inserted with it. A
-  deletion's text is put back where its `text:change` stands, as LibreOffice
-  puts it back: the first of its paragraphs joins the text before the mark, the
-  last joins the text after it, those between keep their own styles, and every
-  paragraph break inside it comes back deleted. A table or list in a deletion is
-  read as block content there, and a page break the paragraph before handed on
-  goes to the text after the mark, not to a paragraph the deletion took away.
-  `ShowRedlineChanges` in the view settings - `settings.xml`, or a flat file's
-  `office:settings` - says whether the document shows its changes
-  (`RichTextDocument.ShowsRevisions`). The writer lists a region for each
-  change and marks the body the same way, a deleted paragraph break joining its
-  two paragraphs in the body as ODF holds them, and writes `settings.xml` when
-  the changes are hidden. `JustifyLinesWithShrinking` in the configuration
-  settings, which LibreOffice keeps for a document from Word 2013 or later, is
-  read and written as `DocumentStyleDefaults.ShrinksJustifiedLines`: justified
-  lines may shrink their spaces to take more text, as the DOCX note describes.
-  `TabOverMargin` there, which LibreOffice keeps for a document from Word 2010
-  or earlier, is read and written as `DocumentStyleDefaults.TabsOverMargin`:
-  a tab stop past the right indent keeps its place and the line runs on past
-  it. ODF has no move: each side of one is written as the
-  insertion or deletion it is. A header or footer is written into `styles.xml`,
-  where no region the body lists can be named, so its changes are written
-  accepted.
-- Styles from `styles.xml` and `content.xml`, resolved per ODF 1.3 §16.2: the
-  family's `style:default-style`, then the `style:parent-style-name` chain from
-  its root down to the style the content names, then the next more specific
-  style. Automatic styles and named styles resolve through the same chain, and a
-  content automatic style wins a name collision with a named style. ODF puts
-  almost nothing inline, so this table is not an optimization: without it every
-  ODF document reads as undifferentiated body text.
+- Hyperlinks: absolute `http`, `https` and `mailto`, plus a non-empty
+  `#fragment` whose name carries no whitespace, quote or second `#`. Every other
+  scheme, every relative target and a bare `#` are refused on read and write,
+  the link written as plain text (`odt.link`). One predicate decides it for all
+  five codecs (`DocumentLinkTarget`). A fragment preserves the reference, not a
+  working jump: no codec here reads or writes a bookmark, so the name it points
+  at is not carried.
 - Character formatting: `fo:font-weight` (including the numeric CSS form),
   `fo:font-style`, `style:text-underline-style`/`-type`,
   `style:text-line-through-style`/`-type`, `style:font-name` resolved through
@@ -181,381 +87,496 @@ layout are covered; this does not claim identical exported clipping.
   fallback lists), `fo:font-size` (absolute lengths and percentages of the
   inherited size), `fo:color`, and `fo:background-color`.
 - Capitalization: `fo:text-transform="uppercase"` and
-  `fo:font-variant="small-caps"`, read and written as a style attribute. The text
-  keeps the casing the author typed and the capitals are applied when drawing, so
-  an open-and-save does not rewrite it. A style declaring both draws all capitals.
-- Paragraph formatting: `fo:text-align` (`start`/`left`/`center`/`end`/`right`),
-  `fo:line-height` as a percentage, `fo:margin-top`, `fo:margin-bottom`,
-  `fo:margin-left`, the single-value `fo:margin` shorthand, and `fo:background-color`
-  as `ParagraphStyle.Background`, read and written, with `transparent` taking away
-  an inherited one. Lengths are read
-  in `pt`, `in`, `cm`, `mm`, `pc`, and `px`.
-- Page breaks. `fo:break-before` on `style:paragraph-properties` is
-  `ParagraphStyle.PageBreakBefore`, resolved through the same inheritance chain
-  as the alignment and the margins rather than off the style the content names —
-  a word processor routinely puts the break on a named style and the direct
-  formatting on the automatic style that inherits from it, so the most specific
-  declaration wins. `page` is a break. `auto` is not, and cancels one the chain
-  carried, which is exactly what a producer writes it for. `column` is not a page
-  break either: it moves to the next column of the same page, and is
-  `ParagraphStyle.ColumnBreakBefore`, which a layout takes as a page break only
-  where the page has one column. Each value overrides an inherited one. A write
-  states `fo:break-before="page"` or `"column"` and states nothing at all when
-  there is no break — an automatic style here inherits from `Standard`, which
-  states none, so absence already says it, and writing `auto` would give every
-  ordinary paragraph an automatic style of its own.
+  `fo:font-variant="small-caps"`, read and written as a style attribute. The
+  text keeps the casing the author typed and capitals are applied when drawing,
+  so an open-and-save does not rewrite it. A style declaring both draws all
+  capitals. `fo:text-transform` values `lowercase` and `capitalize` are dropped
+  (`odt.text.transform`); the model draws upper case only.
+- Hidden text (`text:display="none"`) is retained and written back; normal
+  rendering omits it. OpenOffice.org 2.x wrote `text:display` the wrong way
+  round (`true` for hidden, `none` for shown); LibreOffice recognises such a
+  document by the build id in `meta:generator` (`…_project/680m14$Build-9134`)
+  and reads its values inverted (`txtimppr.cxx`, `CTF_TEXT_DISPLAY`), and so
+  does this reader: `fdo114306_2.odt`'s "Скрытый текст" (hidden text) style
+  says `true`. A paragraph whose mark and text are all hidden takes no room in
+  the layout, as in LibreOffice; one whose text is hidden under a shown mark is
+  still an empty line.
 
-  `fo:break-after="page"` is **read onto the paragraph that follows**, not
-  dropped. The two spellings are one break in one gap: a break stated after
-  paragraph five and a break stated before paragraph six put the same page in the
-  same place, and that identity is the whole reason the model holds the near end
-  and not both. Moving the far spelling one paragraph forward is therefore not a
-  guess at what the author meant; it is the same fact written the only way the
-  model can write it, and it is the difference between a `break-after` document
-  paginating here the way it paginates in the application that wrote it and
-  paginating a page short. Nothing is ever written back as `fo:break-after`.
-  `fo:break-after="column"` travels to the next paragraph the same way, as its
-  column break.
-  Where both ends of one gap speak, either asking for a page gets one: a
-  `break-after` above beats a `break-before` of `auto` below, because `auto` says
-  only that this paragraph does not itself start a page.
+### Styles and paragraph formatting
 
-  The carry goes one paragraph and stays inside one flow of text. The body, each
-  header, each footer, and each shape that keeps its own text read their own, so
-  a break at the end of a header cannot come out at the top of the body. A text
-  box read as body content is body content, and its paragraphs are in the body's
-  flow, which is the same rule seen from the other side. Three positions have no
-  following paragraph that could hold the break, and each drops it with an
-  `odt.break.after` warning rather than quietly: after the last paragraph of a
-  flow, where it asks for a page with nothing on it and this model is a sequence
-  of paragraphs rather than of pages; immediately before a table, where the break
-  belongs to the table and putting it on the first cell's paragraph would break
-  the page inside the grid instead of in front of it; and at the end of a table
-  cell, where the next paragraph is the first of the next cell, which is across
-  the grid rather than down the page.
+- Styles from `styles.xml` and `content.xml`, resolved per ODF 1.3 §16.2: the
+  family's `style:default-style`, then the `style:parent-style-name` chain from
+  its root down to the style the content names, then the next more specific
+  style. Automatic and named styles resolve through the same chain, and a
+  content automatic style wins a name collision with a named style. Only the
+  attributes `RichTextDocument` models are resolved; character spacing and
+  scaling, text position, borders, tab stops, drop caps, table and page styles,
+  and list label geometry are ignored.
+- Paragraph formatting: `fo:text-align` (`start`/`left`/`center`/`end`/`right`;
+  `style:writing-mode` is not consulted, so `start`/`end` resolve as
+  left-to-right, and `justify` is read as left-aligned with
+  `odt.align.justify`, the model having no justified alignment),
+  `fo:margin-top`, `fo:margin-bottom`, `fo:margin-left`, the single-value
+  `fo:margin` shorthand, and `fo:background-color` as
+  `ParagraphStyle.Background`, read and written, with `transparent` taking away
+  an inherited one. Lengths are read in `pt`, `in`, `cm`, `mm`, `pc`, and `px`.
+  Exact left/right margins and first-line or hanging offsets are retained for
+  non-list paragraphs. Indentation is one level per quarter inch, matching the
+  DOCX codec; a list paragraph takes its indent from the list nesting rather
+  than `fo:margin-left`, so one written at indent level 0 reads back at level 1.
+- Line height in all three ODF forms: `fo:line-height` as a percentage is a
+  multiple (`ParagraphStyle.LineSpacing`), as a length an exact height, and
+  `style:line-height-at-least` the least a line is
+  (`ParagraphStyle.LineHeightRule` and `LineHeight`). Each replaces whatever
+  form a parent stated, and a write states the same form back. Leading between
+  lines (`style:line-spacing`) is a fourth kind the model does not hold
+  (`odt.linespacing.leading`).
 
-  `fo:break-before` itself is read wherever it is stated, a paragraph inside a
-  table cell included; what a renderer does with a page break in the middle of a
-  grid is the renderer's decision and not the codec's to pre-empt. A page break
-  *implied* by a non-empty `style:master-page-name` is not read as one — every
-  document names a master page on its first block, and the first page of a
-  document is not a break.
-- Lists: the kind comes from the `text:list-style` the list names —
+### Page and column breaks
+
+- `fo:break-before` on `style:paragraph-properties` is
+  `ParagraphStyle.PageBreakBefore`, resolved through the inheritance chain, the
+  most specific declaration winning. `page` is a break; `auto` is not and
+  cancels an inherited one; `column` moves to the next column of the same page
+  (`ParagraphStyle.ColumnBreakBefore`, a page break only where the page has one
+  column). It is read wherever stated, inside a table cell included; what a
+  break mid-grid does is the renderer's decision. A write states `page` or
+  `column` and nothing otherwise: an automatic style here inherits from
+  `Standard`, which states none, and writing `auto` would give every paragraph
+  an automatic style of its own.
+- `fo:break-after="page"` (or `"column"`) is **read onto the paragraph that
+  follows**: a break after paragraph five and one before paragraph six are one
+  break in one gap, and the model holds the near end. Nothing is written back as
+  `fo:break-after`. Where both ends of a gap speak, either asking for a page
+  gets one: a `break-after` above beats a `break-before` of `auto` below.
+- The carry goes one paragraph and stays inside one flow: the body, each
+  header, each footer, and each shape with its own text read their own (a text
+  box read as body content is in the body's flow). Three positions drop the
+  break with an `odt.break.after` warning: after the last paragraph of a flow;
+  immediately before a table (the break belongs to the table, and the first
+  cell would break inside the grid); and at the end of a table cell (the next
+  paragraph is across the grid).
+- A break *implied* by a non-empty `style:master-page-name` is not read as one:
+  every document names a master page on its first block, and the first page is
+  not a break.
+
+### Lists and outline numbering
+
+- The kind comes from the `text:list-style` the list names:
   `text:list-level-style-number` with a `style:num-format` is numbered,
-  `text:list-level-style-bullet` and `text:list-level-style-image` are bulleted —
-  and the level is the nesting depth. Each paragraph also names the list it is
+  `text:list-level-style-bullet` and `text:list-level-style-image` are
+  bulleted; the level is the nesting depth. Each paragraph names the list it is
   numbered in (`ParagraphStyle.List`): the list style's levels, read with
   `style:num-format` (`1`, `a`, `A`, `i`, `I`; an empty one draws no number),
   `style:num-prefix`, `style:num-suffix`, `text:display-levels`,
-  `text:start-value` and `text:bullet-char` (ODF 1.3 §16.30-16.32). Each
-  top-level `text:list` counts afresh unless `text:continue-numbering="true"`
-  carries on the last list in its style or `text:continue-list` names the
-  `xml:id` of the one it carries on; a sub-list counts in the list it is nested
-  in; a `text:list-item`'s `text:start-value` restarts the count there. A
-  `text:list-header` paragraph is in no list.
+  `text:start-value` and `text:bullet-char` (ODF 1.3 §16.30-16.32).
+- Each top-level `text:list` counts afresh unless
+  `text:continue-numbering="true"` carries on the last list in its style or
+  `text:continue-list` names the `xml:id` of the one it carries on; a sub-list
+  counts in the list it is nested in; a `text:list-item`'s `text:start-value`
+  restarts the count there. A `text:list-header` paragraph is in no list.
 - Outline numbering: a `text:h` outside any list is numbered by the document's
   `text:outline-style` at its `text:outline-level`, unless it is a list header;
-  `text:restart-numbering` restarts the count. A level above a heading's that has
-  had no heading yet counts as its start value, as LibreOffice numbers it:
+  `text:restart-numbering` restarts the count. A level above a heading's that
+  has had no heading yet counts as its start value, as LibreOffice numbers it:
   `tdf142694-1.odt` opens at level two with "1.1", and its next level-one
   heading is "2".
-- A written document groups each run of paragraphs in the same list into one
-  `text:list`, nesting deeper levels inside the `text:list-item` they belong to,
-  with a list style (`LD1`, `LD2` ...) per list and `text:continue-numbering` on
-  a later run of the same list; a run of list paragraphs that name no list is
-  written in a plain list style (`L1` bullets, `L2` numbers) that draws them as
-  the layout does. A label whose numbers are not the levels ending at its own
-  joined by full stops loses the text between them (`odt.list.label`), a
-  multi-character bullet keeps its first (`odt.list.label`), leading zeros are
-  written as plain decimal (`odt.list.format`), and DOCX's legal numbering has no
-  ODF form (`odt.list.legal`). Headings are written as paragraphs, so the
-  outline style is not written; their numbers go out as a list.
-- External hyperlinks for `http`, `https`, and `mailto`, plus internal anchor
-  links. Absolute `http`, `https` and `mailto`, plus a non-empty `#fragment` whose name carries no whitespace, quote or second `#`; every other scheme, every relative target and a bare `#` are refused, on write as well as on read, with the link written as plain text. One predicate decides it for all five codecs (`DocumentLinkTarget`), which is what stopped them disagreeing. A fragment preserves the reference the source made and not a working jump: no codec here reads or writes a bookmark and the model has nowhere to put one, so the name it points at is not carried.
-- Embedded pictures, read and written as a single object replacement character
+- A write groups each run of paragraphs in the same list into one `text:list`,
+  nesting deeper levels inside the `text:list-item` they belong to, with a list
+  style (`LD1`, `LD2` ...) per list and `text:continue-numbering` on a later
+  run of the same list. List paragraphs that name no list get a plain list style
+  (`L1` bullets, `L2` numbers) that draws them as the layout does. Headings are
+  written as paragraphs, so the outline style is not written; their numbers go
+  out as a list. List positioning uses the level's default layout. What ODF
+  cannot state is reported (see [Write Diagnostics](#write-diagnostics)).
+
+### Tables
+
+- A `DocumentTable` over the paragraphs of its cells: column widths from each
+  `table:table-column`'s style, `table:number-columns-spanned` and
+  `table:number-rows-spanned`, the background and borders a cell's
+  `style:table-cell-properties` state, header rows (`table:table-header-rows`,
+  repeated on every page the table continues onto, as LibreOffice draws them),
+  row heights (`style:table-row-properties`), and nested tables. A
+  `table:covered-table-cell` is read as the grid position a merge covers and
+  nothing more. A cell holds no text of its own but names a range of the
+  document's paragraphs, so carets, selections, styles and every codec's text
+  handling work through one flat list. Written back as `table:table`, with a
+  covered cell for every position a span swallowed.
+- Row height: `style:min-row-height` is a floor, `style:row-height` is fixed,
+  and if both are present the last attribute wins, as LibreOffice imports it.
+  Fixed rows keep their text in the model and clip its rendered overflow; the
+  writer preserves the distinction. `style:use-optimal-row-height="true"` asks
+  for the height the content needs.
+- A row's `fo:keep-together="always"` keeps it on one page (`TableRow.CanSplit`
+  false); `auto`, or nothing, lets it break across a page, as LibreOffice does.
+  A write states `always` in the row's style and nothing otherwise.
+- A table's `fo:margin-top` and `fo:margin-bottom` are
+  `DocumentTable.SpacingBefore` and `SpacingAfter`, read and written; as above a
+  paragraph, the space above opens no page or column.
+  `style:may-break-between-rows="false"` (LibreOffice's "allow table to split"
+  turned off) keeps the table together, as `fo:keep-together="always"` does; a
+  nested table kept with what follows it is held to it at a cut.
+- A cell whose style states no padding has none: ODF has no default, and
+  LibreOffice sets such text against the edge. Text running past a cell's edge
+  is cut there, as Writer cuts a text portion (`SwTextPainter::DrawTextLine`); a
+  line holding a picture is drawn whole.
+- A plain, single-paragraph numeric cell with a General number style (inherited
+  cell number styles resolved) displays its finite `office:value` in the
+  application's current culture; the CLI enables system locale support, while
+  command-line, JSON and protocol numbers stay invariant. Rich content,
+  explicit decimal or language-specific formats, string cells and invalid
+  values keep their cached text. This is display only: no formula evaluation,
+  and numeric-cell metadata is not written.
+- Tables inside text boxes keep their grid and local paragraph indices, round
+  trip as frame text-box content, and render through the shared and PDF table
+  layouts.
+
+### Notes, tracked changes and settings
+
+- Footnotes and endnotes (`text:note`), as a `DocumentNote` held by one citation
+  character where the note stands. `text:note-class` gives the kind and
+  `text:note-body`'s paragraphs the text; a table or shape in one is read as its
+  text (`odt.note.content`), a note inside a note (not allowed by ODF) as
+  nothing (`odt.note.nested`). `text:note-citation`'s number is not read: notes
+  are numbered in citation order, as LibreOffice does, and a typed `text:label`
+  is kept as the note's own mark.
+  `text:notes-configuration` in `office:styles` gives each kind's
+  `style:num-format` and `text:start-value` (LibreOffice counts from zero), and
+  whether its `text:citation-style-name` raises the label at the head of the
+  note. All of it is written back the same way.
+- Tracked changes (ODF 1.3 §5.5), as a `TextRevision` on the runs and paragraph
+  marks they mark. `text:tracked-changes` lists the regions, each with its
+  `dc:creator` and `dc:date`; the text between a `text:change-start` and its
+  `text:change-end` is the insertion or format change it records, a paragraph
+  break inside an insertion inserted with it. A deletion's text is put back
+  where its `text:change` stands, as LibreOffice does: its first paragraph joins
+  the text before the mark, its last the text after it, those between keep their
+  styles, and every paragraph break inside comes back deleted. A table or list
+  in a deletion is read as block content there, and a page break handed on by
+  the paragraph before goes to the text after the mark.
+- The writer lists a region per change and marks the body the same way, a
+  deleted paragraph break joining its two paragraphs as ODF holds them. ODF has
+  no move, so each side is written as its insertion or deletion. Header and
+  footer changes are written accepted: those parts go into `styles.xml`, where
+  no body region can be named.
+- `settings.xml` (or a flat file's `office:settings`): `ShowRedlineChanges` says
+  whether the document shows its changes (`RichTextDocument.ShowsRevisions`),
+  and the writer writes `settings.xml` when they are hidden.
+  `JustifyLinesWithShrinking`, kept for documents from Word 2013 or later, is
+  `DocumentStyleDefaults.ShrinksJustifiedLines` (justified lines may shrink
+  their spaces, as the DOCX note describes). `TabOverMargin`, kept for documents
+  from Word 2010 or earlier, is `DocumentStyleDefaults.TabsOverMargin` (a tab
+  stop past the right indent keeps its place and the line runs on past it).
+  Both are read and written.
+
+### Pictures
+
+- Embedded pictures, read and written as one object replacement character
   (`U+FFFC`) whose run carries the image. A `draw:frame` holding a `draw:image`
-  is read whether the picture is a package entry named by `xlink:href` or an
-  inline `office:binary-data` payload, and whether or not a `draw:a` wraps it.
-  Display size comes from `svg:width`/`svg:height`, alternative text from
-  `svg:title` (falling back to `svg:desc`). A write stores each distinct image
-  once under `Pictures`, declares it in the manifest, and anchors the frame
-  `as-char`. Raster formats only: PNG, JPEG, GIF, BMP, TIFF, WebP, and ICO.
-  A frame's alternative `draw:image` representations are tried in source order
-  until the loader can carry one, including alternatives inside `draw:a`.
-  A supported first representation keeps priority; unsupported or unavailable
-  ones retain their diagnostics. An embedded PNG may therefore supply the
-  picture when an earlier SVM representation cannot be read. Flat binary-data
-  alternatives work too. External resources are never fetched, and resource
-  policy denial stops extraction rather than trying another representation.
-- The page, from the `style:page-layout` that a master page names: size, and the
-  four margins. Which master page is a question ODF answers from the other end —
-  a master page never says it is the first, the content says which one it is on,
-  through the `style:master-page-name` of the style on its first block. So that
-  is what the reader follows, resolving the attribute through the style
-  inheritance chain (the most specific declaration wins, and an empty one cancels
-  an inherited one, per ODF's rule that empty means no page break occurs). A
-  document whose first block names nothing falls back to the master page called
-  `Standard`, and then to the first one defined. Only the first block is
-  consulted: a name further down starts a later page, and this model holds one
-  page rather than a sequence of them. The reader previously took the first
-  master page outright, which is correct for documents a word processor writes
-  from scratch and wrong for ones it converts — LibreOffice turning HTML into ODF
-  writes `Standard` carrying its own default paper and `HTML` carrying the page
-  the source asked for, and lays the body out on the second. The header and
-  footer are read from the same master page as the paper, because a Letter header
-  on an A4 page is not a thing any document said. `style:header-style` and `style:footer-style` inside `style:page-layout-properties` contribute their height and spacing (`fo:min-height`, `fo:margin-bottom`, `fo:margin-top`) to `PageGeometry.MarginBottom`, `MarginTop`, and band distances, and the writer emits matching styles symmetrically. Header/footer paragraphs anchoring drawings or shapes are retained even when empty of text, so anchored frames remain attached to their running band.
-- The text columns the same page layout divides its page into:
-  `style:columns`' `fo:column-count`, and `fo:column-gap` or, when a producer
-  lists the columns instead, the end indent of the first and the start indent of
-  the second. Listed columns whose `style:rel-width` differs by more than a
-  percent are held as equal ones (`odt.columns.unequal`); LibreOffice's 10922
-  against 10925 is rounding and is not reported. Columns that leave no room keep
-  the page and lose the columns, with `odt.columns.geometry`. A write states the
-  count and the gap. The column separator (`style:column-sep`) is not read.
-- The columns of a `text:section`, read from its section style's
-  `style:section-properties` the way a page layout's are. A section with more
-  than one column, custom margins, or `dontBalanceColumns: true` is a `DocumentSection`
-  over the paragraphs it holds; one without columns, margins, or balancing overrides is only
-  its paragraphs, as before. A section inside another with columns is laid out in the outer
-  one's, so the outer section is the one kept. LibreOffice balances a section's columns
-  where the text after it goes on on the same page, and the layout here does the same;
-  `text:dont-balance-text-columns="true"` is preserved on `DocumentSection.DontBalanceColumns`
-  and skips column balancing at the end of the section in layout. Section margins
-  (`fo:margin-left`, `fo:margin-right`, `fo:margin`) are read as indents,
-  `DocumentSection.LeftIndent` and `RightIndent`, and written back out to
-  `style:section-properties`. An indent is measured in from the text area of
-  whatever page the section is on, which is how LibreOffice applies it; a
-  section's page margins apply only on a page it starts. The indents of nested
-  sections add up.
-- A stretch of the body between two section edges follows on the page it is on.
-  Only a paragraph or table whose style names a master page opens a page. Before
-  that, every stretch started a page, which set the four pages of
-  `fdo114306_2.odt`, a form of a dozen text sections, out on eleven.
-- A write puts each section with columns in a `text:section` named
-  `Section1`, `Section2` and on, with an automatic section style stating its
-  columns. ODF lays a section's columns out inside the page's, where the model
-  lets them stand in for the page's, so a document that has sections and a
-  page of several columns is written with a page of one, and each stretch no
-  section holds goes in a `text:section` with the page's columns. What is laid
-  out in which columns comes back; the page then states one column.
-- The master-page chain, followed by one link. The master page the body begins on
-  supplies the *first* page and the one its `style:next-style-name` names supplies
-  the rest, which is how a letterhead states that the band belongs to page one and
-  the page number to every page after it — read as one master page, the band went
-  on every page and the number on none. One link and not the whole chain, because
-  this model holds three selections rather than a sequence of pages; a document
-  whose third master page differs again is past what can be represented. A master
-  page naming itself is not a chain, which is what a document with one master page
-  and a redundant attribute says.
-- A first page of its own also means a band it does not state is *empty* there
-  rather than the default one, which is what `RunningContent.DifferentFirstPage`
-  carries. ODF's other way of saying the same thing is `style:header-first` and
-  `style:footer-first` on a single master page, and an empty one of those is an
-  answer rather than an omission: it is read as a band that carries nothing, and
-  written that way — as the element holding one empty paragraph, because
-  LibreOffice reads a wholly empty element as no band on *any* page.
-- A master page's header and footer shapes, read onto the running content and
-  written back into the master page. They are placed against the page rather
-  than a paragraph, so a header's `svg:y` is read from the top of the page. Their
-  graphic styles are written into `styles.xml` alongside the master page as well
-  as into `content.xml`, because a style reference resolves only within the part
-  that carries it — without that a stripe arrived unpainted, and an unpainted
-  shape holding no text is not read as a shape at all.
-- Floating pictures: `text:anchor-type="char"` floats at a character anchor;
-  `as-char` is the inline form. Paragraph/page anchors float too; a missing
-  anchor-type retains the reader's legacy inline fallback. Floating pictures
-  are read as shapes carrying the image, boxed by their `svg:x`/`svg:y` against
-  the text column and its paragraph and its `svg:width`/`svg:height`, and keeping
-  the fill, outline, and `style:run-through` of its graphic style. It is written
-  back as a paragraph-anchored `draw:frame` at the same box, with its run-through
-  stated either way, so a stripe the letter is written on top of and a stamp
-  meant to cover it each stay on the side of the text they were authored on. A
-  frame standing between paragraphs is read this way too, where before it was
-  skipped as holding no body text — which lost the picture. A graphic style
-  inherits through `style:parent-style-name`, the nearest statement winning, so
-  a frame whose automatic style says only where it stands takes its paint and
-  wrapping from the named style beneath it, as LibreOffice writes text boxes.
-- A written package is deterministic: two writes of one document produce
-  byte-identical output. Every entry carries a fixed timestamp, `mimetype` is
-  first and stored uncompressed per ODF 1.3 part 2 §3.3, and `meta.xml` names the
-  generator and nothing else — a creation date would be the one field that made
-  two writes differ.
+  is read whether the picture is a package entry named by `xlink:href` or inline
+  `office:binary-data`, and whether or not a `draw:a` wraps it. Display size is
+  `svg:width`/`svg:height`, alternative text `svg:title` (falling back to
+  `svg:desc`). Raster formats only: PNG, JPEG, GIF, BMP, TIFF, WebP, and ICO;
+  SVG, EMF and WMF (what producers store for charts, formulas and object
+  replacement images) cannot be decoded to pixels here and are reported as
+  `odt.image.format` rather than kept as a picture that draws nothing. A write
+  stores each distinct image once under `Pictures`, declares it in the manifest,
+  and anchors the frame `as-char`.
+- A frame's alternative `draw:image` representations, including those inside
+  `draw:a` and flat binary-data ones, are tried in source order until the loader
+  can carry one (so an embedded PNG can stand in for an unreadable SVM); a
+  supported first representation keeps priority, and skipped ones keep their
+  diagnostics. Resource policy denial stops extraction rather than trying
+  another representation.
+- Floating pictures: `text:anchor-type="char"` floats at a character anchor and
+  `as-char` is inline; paragraph and page anchors float too, and a missing
+  anchor-type keeps the reader's legacy inline fallback. A floating picture is
+  read as a shape carrying the image, boxed by `svg:x`/`svg:y` against the text
+  column and its paragraph and by `svg:width`/`svg:height`, keeping its graphic
+  style's fill, outline and `style:run-through`; a frame standing between
+  paragraphs is read this way too. It is written back as a paragraph-anchored
+  `draw:frame` at the same box with its run-through stated, so a stripe under
+  the text and a stamp over it stay on their side. Crops, rotation, and frame
+  effects are dropped.
+
+### Shapes, frames and fills
+
+- Drawings keep unfilled outlines, `draw:ellipse`, and `draw:line` endpoints in
+  either direction. Stroke width is `svg:stroke-width`; a solid stroke with no
+  colour is black. A frame's `fo:border` is a uniform outline, explicit `none`
+  included, for text and floating-image frames. Basic paths and widths survive
+  ODT export. Asymmetric borders, dash patterns, arrow heads, rotated drawings
+  and arbitrary enhanced paths are approximations; unrepresented nested
+  drawings take the existing fallback path.
+- A graphic style inherits through `style:parent-style-name`, the nearest
+  statement winning, so a frame whose automatic style says only where it stands
+  takes paint and wrapping from the named style beneath it, as LibreOffice
+  writes text boxes. Document default graphic properties apply below named and
+  inherited ones, an explicit default `run-through` included.
+- Wrapping: an omitted wrap is top-and-bottom. `style:wrap`'s two names that
+  read backwards are read as ODF means them: `run-through` is text through the
+  shape, `none` is no text beside it. A wrapped line keeps one span down
+  whichever side has more room, so `parallel` gets the larger side.
+- `style:run-through` is the shape against the text and `draw:z-index` the shape
+  against other shapes; both are read and written, and a drawing with no index
+  reads as zero, keeping read order. A style that states no run-through is read
+  as `background` (not ODF's default; a box wrongly in front would hide the
+  text).
+- Text frames keep chain names and empty link destinations; empty positioned
+  ones stay frames rather than adding body paragraphs. A final
+  paragraph-anchored frame keeps a body anchor; page anchors need none. The
+  raster layout flows styled paragraphs between linked body frames, paragraph
+  splits and list counters included; cycles are bounded, and tables within
+  linked frames and links inside running content are not routed (PDF export
+  reports `pdf.write.feature-unsupported`). Writing linked frames reports
+  `odt.shape.linked`: an authored LibreOffice PDF export clipped text in the
+  source frame while placing its overflow in the destination, so only model
+  round trips and raster layout are covered, not identical exported clipping.
+- Text boxes: a frame with no `svg:width` takes its text box's `fo:min-width`,
+  and minimum-width frames grow to their text. A text box's `fo:min-height`
+  makes the frame grow to its text from there (`DocumentShape.GrowsToText`); a
+  frame stating no height either grows from nothing, the layout measuring its
+  lines. A write puts such a box in a frame with no `svg:height` around a text
+  box stating its minimum, as LibreOffice does. A frame that states no box
+  stays in the text. Top/middle/bottom text alignment, `fo:padding` and side
+  overrides round trip, the padding shaping the text area; paragraph spacing
+  and lists are composed in the box's own flow. Fixed-height frames clip
+  overflow; growing frames measure their table content. Explicit text overflow
+  cannot be written (`odt.shape.overflow`).
+- A frame anchored to a page by number (`text:anchor-type="page"` with
+  `text:anchor-page-number`) is `DocumentShape.AnchorPage`: it stands on that
+  page, and the layout makes the pages needed, as LibreOffice does
+  (`tdf146955.odt`, a book whose three hundred boxes stand on the pages they
+  name). Its position comes from the area the graphic style names
+  (`style:horizontal-rel`/`style:vertical-rel` of `page` or `page-content`,
+  `page` when unstated) and from `style:horizontal-pos` and
+  `style:vertical-pos`, turned into the model's terms: across from the text
+  column, down from the page's top edge. A page anchor with no number is the
+  paragraph anchor it amounts to. A write puts a page-anchored drawing in the
+  body ahead of the text, as LibreOffice does, with its number and a style
+  stating both areas.
+- `style:print-content="false"` on a drawing's graphic style is
+  `DocumentShape.Printable` false, read and written. The layout places the
+  shape and keeps text clear of it, but leaves it off the page unless the host
+  sets `LayoutSettings.DrawNonPrintingShapes`, which is how LibreOffice prints
+  and exports to PDF: `fdo114306_2.odt` prints without its crest and heading
+  frame, its title as far down the page as if they were there.
+- A `draw:control` placing a label (`form:fixed-text` in `office:forms`) is a
+  shape holding the label's words in the control's `draw:text-style-name`,
+  centred as `draw:textarea-vertical-align` says and drawn whole even where the
+  control is shorter than its line, with no fill or border. Without
+  `form:multi-line="true"` it stays on one line, its box growing to its text;
+  `form:printable="false"` makes it non-printable. Other controls are not read.
+- Fills (pages and shapes alike): embedded bitmap patterns with
+  tiled/stretch/single placement, repeat mode and simple reference-point
+  alignment; single/double/triple hatches with line directions, angle and
+  spacing; gradients with centred geometry, centre, border and endpoint
+  intensity, sampled with bounds; uniform colour opacity; page-margin bounds.
+  An `axial` gradient puts its start colour along the middle and its end colour
+  at the edges, as LibreOffice draws it. A gradient's `draw:angle` is read with
+  or without a unit (ODF 1.2 typed it as tenths of a degree, ODF 1.3 as an angle
+  with `deg`, `grad` or `rad`, and LibreOffice has written both) and turned a
+  quarter, because ODF measures it from down the page and the model from along
+  it. Percentage bitmap dimensions, repeat offsets and staggered tiling are not
+  applied. Unresolved definitions report `odt.fill`, unknown gradient styles
+  `odt.gradient`. `odt.fill.opacity` reports bitmap opacity the painter cannot
+  apply on read. Standalone PDF export reports `pdf.write.feature-unsupported`
+  for bitmap fills; the raster painter supports them.
+- A bitmap fill whose picture does not load (none named, a missing definition or
+  package entry, a link outside the package) is painted in its
+  `draw:fill-color`, else the default graphic style's, else `#729FCF`, the
+  colour LibreOffice keeps under every bitmap fill (`sdrattributecreator.cxx`),
+  and reports `odt.fill`. Legacy `style:background-image` passes the same
+  embedded-image admission gate and is never fetched: one on a page or
+  paragraph linking outside the package is painted `#729FCF` over any
+  `fo:background-color` beside it, and one naming a missing package entry
+  leaves that colour. Issue #178's first sample is a page of it in LibreOffice
+  24.2's reference ([office-issue-178.md](office-issue-178.md)).
+
+### Page, master pages and sections
+
+- The page comes from the `style:page-layout` a master page names: size and the
+  four margins. The master page is the one named by the `style:master-page-name`
+  of the style on the first block, resolved through the inheritance chain (most
+  specific wins; an empty one cancels an inherited one, per ODF's rule that
+  empty means no page break occurs), falling back to the master page called
+  `Standard`, then to the first defined. A master page never says it is the
+  first: LibreOffice turning HTML into ODF writes `Standard` with its default
+  paper and `HTML` with the source's page, and lays the body out on the second.
+  A name further down starts a later page. Text inside a positioned drawing, a
+  deletion that `text:tracked-changes` keeps ahead of the body, a note or a
+  comment does not count as the first block.
+- Body paragraph and table styles can switch master pages, with their paper,
+  margins, headers and footers. The shared paginator follows bounded
+  master-page chains and their repeating suffix, alternating paper sizes
+  included. A master page named inside a table cell does not switch the body
+  page. These changes are read and rendered only; writing them reports
+  `odt.section.page`.
+- Running content follows the master-page chain one link: the master page the
+  body begins on supplies the *first* page and the one its
+  `style:next-style-name` names the rest (a letterhead's band on page one, the
+  page number after). The model holds three selections rather than a sequence
+  of pages, so a third master page that differs again is not represented. A
+  master page naming itself is not a chain.
+- A first page of its own makes a band it does not state *empty* there, not the
+  default one (`RunningContent.DifferentFirstPage`). An empty
+  `style:header-first` or `style:footer-first` on one master page says the same
+  and is read as a band carrying nothing; it is written as the element holding
+  one empty paragraph, because LibreOffice reads a wholly empty element as no
+  band on *any* page.
+- Header and footer come from the same master page as the paper.
+  `style:header-style` and `style:footer-style` in
+  `style:page-layout-properties` contribute height and spacing
+  (`fo:min-height`, `fo:margin-bottom`, `fo:margin-top`) to
+  `PageGeometry.MarginBottom`, `MarginTop` and the band distances; the writer
+  emits matching styles. Header/footer paragraphs anchoring drawings or shapes
+  are kept even when empty, so their frames stay attached to the band.
+- Header band: for a master page with an enabled header, the outer top margin
+  is `PageGeometry.HeaderDistance`, and the header style's `fo:height` or
+  `fo:min-height` is the band reserved below it; their sum is the body
+  `MarginTop`. The paginator can move body text clear of a header whose content
+  exceeds that minimum. A header style without an enabled header reserves
+  nothing. A write reverses the mapping (outer margin is the header distance,
+  `style:header-style` keeps the remaining minimum band); independent
+  LibreOffice probes verify header/body positions before and after the round
+  trip, page-content anchored objects included. Footer bands are not
+  converted and header padding is not written.
+- A band of fixed height states `svg:height` and no `fo:min-height`, and its
+  height already holds the spacing to the body, as LibreOffice reads it: a
+  0.4 cm header with 0.3 cm spacing starts the body 0.4 cm below the header's
+  top. `PageGeometry.FixedHeaderHeight` and `FixedFooterHeight` say so; the
+  paginator then leaves the body where the margin puts it, and a header or
+  footer taller than its band is cut at the band's edge rather than left out. A
+  fixed band is written back as one that grows.
+- Header and footer shapes are read onto the running content and written back
+  into the master page. They are placed against the page, so a header's `svg:y`
+  is from the top of the page. Their graphic styles are written into
+  `styles.xml` as well as `content.xml`, because a style reference resolves only
+  within its own part, and an unpainted shape holding no text is not read as a
+  shape at all.
+- Page columns: `style:columns`' `fo:column-count`, and `fo:column-gap` or, when
+  a producer lists the columns, the end indent of the first and the start indent
+  of the second. Listed columns whose `style:rel-width` differs by more than a
+  percent are held as equal (`odt.columns.unequal`); LibreOffice's 10922 against
+  10925 is rounding and not reported. Columns leaving no room keep the page and
+  lose the columns (`odt.columns.geometry`). A write states count and gap. The
+  separator (`style:column-sep`) is not read.
+- `style:page-number` on the paragraph or table style that starts a master page
+  restarts the count there (`DocumentSection.PageNumberStart`); `auto` and `0`
+  carry it on. A write has one master page, so it cannot keep a restart
+  (`odt.section.page-number`).
+- Sections (`text:section`) take columns from their section style's
+  `style:section-properties`, as a page layout does. One with more than one
+  column, custom margins, or `dontBalanceColumns: true` is a `DocumentSection`
+  over its paragraphs; any other is only its paragraphs. A columned section
+  inside another is laid out in the outer one's columns, so the outer one is
+  kept. As in LibreOffice, a section's columns are balanced where the text
+  after it continues on the same page, unless
+  `text:dont-balance-text-columns="true"` (`DocumentSection.DontBalanceColumns`).
+  Section margins (`fo:margin-left`, `fo:margin-right`, `fo:margin`) are
+  `DocumentSection.LeftIndent` and `RightIndent`, read and written, measured in
+  from the text area of whatever page the section is on, as LibreOffice applies
+  them; nested indents add up, and a section's page margins apply only on a
+  page it starts. Section background colours are read, painted by the shared
+  paginator, and written, nested overrides included; the standalone PDF layout
+  reports that it does not paint them.
+- A stretch of the body between two section edges follows on the page it is on;
+  only a paragraph or table whose style names a master page opens a page
+  (`fdo114306_2.odt`, a form of a dozen text sections, keeps its four pages).
+- A write puts each columned section in a `text:section` named `Section1`,
+  `Section2` and on, with an automatic section style stating its columns. ODF
+  lays section columns inside the page's, where the model lets them replace the
+  page's, so a document with sections and a multi-column page is written with a
+  one-column page and each stretch outside a section goes in a `text:section`
+  with the page's columns.
+- Unconditionally hidden sections: `text:section text:display="none"` is
+  `DocumentSection.Hidden`. Its paragraphs and tables stay in the model and in
+  plain-text projections, and ODT writing keeps the flag, cell-local sections
+  included. Nested visible sections cannot reveal a hidden parent. The shared
+  paginator omits hidden body content, anchored objects and note numbering
+  contributions; hidden paragraph breaks and page-style selections do not
+  affect visible text, but a break from a preceding visible paragraph still
+  reaches the next visible block. Conditional visibility is not evaluated.
+  Running parts and text frames carry no section collections: a hidden section
+  in a header or footer is left out when read, as LibreOffice never shows it (so
+  a template's file-name footer stays hidden) and does not round trip; one in a
+  text frame is not covered. Other writers report their visibility limitation
+  rather than claiming to keep the flag.
+- The page background is `RichTextDocument.PageBackground`, read from the master
+  page: the `drawing-page` style its `draw:style-name` names (ODF 1.3 §16.10)
+  where that states a `draw:fill`, else the page layout's own `draw:fill`, else
+  its `fo:background-color`. LibreOffice writes all three. A drawing-page fill
+  states its own `draw:background-size`. A page layout's own fill covers the
+  whole page unless the document's `meta:generator` is old: OpenOffice.org, AOO
+  and LibreOffice before 6.3 keep it inside the margins, and LibreOffice 6.3/6.4
+  keep only a single or stretched picture there (LibreOffice's import rule,
+  `PageMasterImportContext.cxx`, with the producer read as `xmlimp.cxx` reads
+  it). A write states the drawing-page fill and its bounds, plus a page-layout
+  fill and flattened `fo:background-color` fallback for colours and gradients,
+  with named gradients and bitmap/hatch definitions in `office:styles`.
 
 ## Intentional Limits
 
 - **Encrypted packages are rejected.** ODF password protection really encrypts
   the parts; there is nothing to read, and this codec asks for no key.
-- A change of formatting is marked but what the text looked like before is
-  not read (ODF does not require it, and LibreOffice does not write it).
+- A change of formatting is marked, but what the text looked like before is not
+  read (ODF does not require it, and LibreOffice does not write it).
   `text:change` marks in headers and footers are not read.
 - Comments (`office:annotation`) are not part of the body and are not imported.
 - Table styles beyond a cell's own background and borders are not applied, and
   cell vertical alignment and a table's own alignment and indent are not
-  represented; a table starts at the left margin.
-- `style:min-row-height` is a floor; `style:row-height` is fixed. If both are
-  present, the last attribute wins, matching LibreOffice's import behaviour.
-  Fixed rows retain their text in the model
-  and clip its rendered overflow. The writer preserves the distinction.
-  `style:use-optimal-row-height="true"` asks for the height the content needs.
-  A cell's paragraphs are a range, so an edit that spans out of a cell and
-  into the body does not keep the grid over what it merged.
-- A row's `fo:keep-together="always"` keeps it on one page and is
-  `TableRow.CanSplit` false; `auto`, or saying nothing, lets it break across a
-  page, as LibreOffice breaks it. A write states `always` in the row's style and
-  nothing otherwise.
-- A floating picture keeps its position, its layer and its wrapping.
-  An omitted wrap defaults to top-and-bottom. Document default graphic
-  properties apply below named and inherited style properties, including an
-  explicit default `run-through`.
-  `style:wrap` is read, and its two names that read backwards are read the way
-  ODF means them: `run-through` is text through the shape, and `none` is no text
-  beside it at all. A wrapped line keeps one span, running down whichever side
-  has more room, so `parallel` gets the larger side rather than text down both.
-  Tables inside text boxes retain their grid and local paragraph indices,
-  round trip as frame text-box content, and render through the shared and PDF
-  table layouts. Fixed-height frames clip overflowing content; growing frames
-  measure their table content.
-  `style:run-through` is the shape against the text and `draw:z-index` is the
-  shape against the other shapes; both are read and both are written, and a
-  drawing that states no index reads as zero, which leaves the order the shapes
-  were read in. A gradient's `draw:angle` is read with or without a unit — ODF 1.2
-  typed it as tenths of a degree and ODF 1.3 as an angle with `deg`, `grad` or
-  `rad`, and LibreOffice changed which it writes, so reading only the older
-  spelling turned every recent gradient into no angle at all. It is then turned a
-  quarter: ODF measures a gradient from down the page and this model measures it
-  from along the page, and the two were being read as if they agreed. A style that
-  states no run-through is
-  read as `background`, which is not ODF's own default; it is what this reader
-  has always done, and a box wrongly in front would hide the text under it. A
-  frame anchored to a page by number (`text:anchor-type="page"` with
-  `text:anchor-page-number`) is `DocumentShape.AnchorPage`: it stands on that
-  page, and the layout makes the pages it needs to have one, as LibreOffice
-  does. Its position is taken from the area the graphic style names -
-  `style:horizontal-rel`/`style:vertical-rel` of `page` or `page-content`, and
-  `page` when the style says nothing - and from `style:horizontal-pos` and
-  `style:vertical-pos`, then turned into the model's terms: across from the text
-  column, down from the page's top edge. A page anchor with no number is read as
-  the paragraph anchor it amounts to. A write puts a page-anchored drawing in the
-  body ahead of the text, as LibreOffice does, with its number and a style
-  stating both areas. A text box whose frame states no `svg:width` takes its
-  text box's `fo:min-width`. A text box's `fo:min-height` makes the frame grow to
-  its text from there (`DocumentShape.GrowsToText`), and one whose frame states
-  no height either grows from nothing; the layout measures its lines. Such a
-  box used to stay in the text, and `tdf146955.odt`, a book whose three hundred
-  boxes stand on the pages they name, had them poured into its first sixteen
-  pages of body. A write puts such a box in a frame with no `svg:height` around
-  a text box stating the least it is, as LibreOffice does. A frame that states
-  no box stays in the text. Crops,
-  rotation, and frame effects are dropped.
-- The page background is `RichTextDocument.PageBackground`, read from the master
-  page: from the `drawing-page` style its `draw:style-name` names (ODF 1.3
-  §16.10) where that states a `draw:fill`, else from the page layout's own
-  `draw:fill`, else from its `fo:background-color`. LibreOffice writes all three.
-  A write states the drawing-page fill and its bounds, plus a page-layout fill
-  and flattened `fo:background-color` fallback for colours/gradients, with
-  named gradients and bitmap/hatch definitions in `office:styles`.
-  An `axial` gradient puts its start colour
-  along the middle and its end colour at the edges, which is what LibreOffice
-  draws. Centred gradients retain their geometry, centre and border. Embedded
-  bitmap fills retain repeat mode and simple reference-point alignment; hatch
-  fills retain line directions, angle and spacing. Unresolved definitions report
-  `odt.fill`; unknown gradient styles report `odt.gradient`. Percentage bitmap
-  dimensions, repeat offsets and staggered tiling are not applied. All of this
-  holds for a shape's fill as well. Legacy embedded `style:background-image`
-  is also read, without fetching external links.
-- A bitmap fill whose picture does not load (none named, a definition or
-  package entry that is missing, a link outside the package) is painted in its
-  `draw:fill-color`, else the default graphic style's, else `#729FCF`, the
-  colour LibreOffice keeps under every bitmap fill
-  (`sdrattributecreator.cxx`). A legacy `style:background-image` on a page or a
-  paragraph that links outside the package is painted `#729FCF` too, over any
-  `fo:background-color` beside it; one naming a package entry that is not there
-  leaves that colour. Issue #178's first sample is a page of it in LibreOffice
-  24.2's reference ([office-issue-178.md](office-issue-178.md)).
-- A page layout's own fill (no drawing-page style) covers the whole page
-  unless the document's `meta:generator` is old: OpenOffice.org, AOO and
-  LibreOffice before 6.3 keep it inside the margins, and LibreOffice 6.3/6.4
-  keep only a single or stretched picture there. This is LibreOffice's import
-  rule (`PageMasterImportContext.cxx`), with the producer read as `xmlimp.cxx`
-  reads it. A drawing-page fill states its own `draw:background-size`.
-- SVG, EMF, and WMF — what a producer stores for charts, formulas, and object
-  replacement images — are not carried, because they cannot be decoded to pixels
-  here. They are reported as `odt.image.format` rather than kept as a picture
-  that would draw as nothing.
-- An image the document links to rather than embeds is not fetched; reading it
-  would mean a network or file request driven by document content (ADR 0004).
-- Justified paragraphs are read as left-aligned with an `odt.align.justify`
-  diagnostic: the model has three alignments and justification is not one of
-  them. `style:writing-mode` is not consulted, so `start`/`end` are resolved as
-  left-to-right.
-- Line height is read in all three of ODF's forms: `fo:line-height` as a
-  percentage is a multiple (`ParagraphStyle.LineSpacing`), as a length an exact
-  height, and `style:line-height-at-least` the least a line is
-  (`ParagraphStyle.LineHeightRule` and `LineHeight`). Each replaces whatever
-  form a parent style stated. A write states the same form back. Leading added
-  between lines (`style:line-spacing`) is a fourth kind, which the model does
-  not hold, and is reported.
-- `fo:text-transform` values of `lowercase` and `capitalize` are reported and
-  dropped; the model draws upper case only.
-- Style resolution covers the attributes `RichTextDocument` models. Everything
-  outside it — character spacing and scaling, text position, borders, tab stops,
-  drop caps, table and page styles, list label geometry — is ignored.
-- Indentation is one level per quarter inch, matching the DOCX codec. A list
-  paragraph takes its indent from the list nesting rather than from
-  `fo:margin-left`, so a list paragraph written at indent level 0 reads back at
-  level 1.
-- Block nesting deeper than `DocumentLimits.MaxGroupDepth` is abandoned with an
-  `odt.limit.depth` diagnostic.
-- ODT packages above `DocumentLimits.MaxDocumentBytes` are not parsed. XML parts
-  and pictures above `DocumentLimits.MaxBinBytes` are skipped, with the limit
-  applied to what actually decompresses rather than to the size the ZIP header
-  claims.
-- Inline DTDs are prohibited when parsing any part, so entity expansion is not an
-  attack surface.
-- Color alpha is not represented by ODF; RGB channels are written with a
-  diagnostic. Control characters XML cannot hold are dropped with a diagnostic.
-- The other OpenDocument document types (`.ods`, `.odp`, `.odg`), packaged or
-  flat, are out of scope. A text *template* (`.ott`) probes as ODT and reads
-  correctly, because its body is the same, but the descriptor claims only
-  `.odt`. Flat text documents are read but never written.
+  represented; a table starts at the left margin. A cell's paragraphs are a
+  range, so an edit spanning out of a cell into the body does not keep the grid
+  over what it merged.
+- A linked (not embedded) image or other external resource is never fetched;
+  that would be a network or file request driven by document content
+  (ADR 0004).
+- Packages above `DocumentLimits.MaxDocumentBytes` are not parsed. XML parts and
+  pictures above `DocumentLimits.MaxBinBytes` are skipped, the limit applied to
+  what actually decompresses rather than to the size the ZIP header claims.
+  Block and inline nesting stops at `DocumentLimits.MaxGroupDepth`.
+- Inline DTDs are prohibited in every part, so entity expansion is not an attack
+  surface.
+- The other OpenDocument types (`.ods`, `.odp`, `.odg`), packaged or flat, are
+  out of scope. A text *template* (`.ott`) probes as ODT and reads correctly,
+  because its body is the same, but the descriptor claims only `.odt`. Flat
+  text documents are read but never written.
 
 ## Read Diagnostics
 
-Every read ends with an `odt.read.summary` info diagnostic carrying the
-paragraph, table, style, list-style, image, and skipped-block counts. It
-exists so a document that opens blank can be told apart from a document that *is*
-blank:
+Every read ends with an `odt.read.summary` info diagnostic, so a document that
+opens blank can be told apart from one that *is* blank.
+`broilerdoc info <file>` prints all diagnostics, the quickest way to see what a
+problem document lost.
 
 | Code | Severity | Meaning |
 | --- | --- | --- |
 | `odt.read.summary` | Info | Paragraph, table, style, list-style, image, and skipped-block counts for the read. |
-| `document.metadata.emitted` | Info | Document properties the caller supplied reached `meta.xml`; the message names the fields. |
-| `document.metadata.narrowed` | Warning | A property reached `meta.xml` in a reduced form — ODF's `meta:initial-creator` holds one name, so authors past the first are not written. |
-| `document.metadata.dropped` | Warning | A property ODF states no equivalent for was not written; the message names the fields. |
 | `odt.document.empty` | Warning | The body held block-level content but produced no paragraphs — a reader gap, not an empty file. |
 | `odt.package.encrypted` | Error | The package is encrypted; nothing was read. |
 | `odt.package.content` | Error | The package has no `content.xml`. |
 | `odt.package.zip` | Error | The bytes are not a readable ZIP package. |
-| `odt.flat.root` | Error | The bytes are XML, but the root element is not `office:document`, so they are not a flat ODT document. |
+| `odt.flat.root` | Error | The bytes are XML, but the root element is not `office:document`. |
 | `odt.flat.media-type` | Error | A flat file's `office:mimetype` names another OpenDocument type, such as a spreadsheet. |
 | `odt.document.body` | Error | `content.xml` has no `office:text` body. |
 | `odt.xml` | Error | A part's XML, or a flat document, could not be parsed; the message names the exception type. |
 | `odt.xml.prefix` | Warning | A part or flat document used namespace prefixes it does not declare, and was read with LibreOffice's prefixes bound. |
 | `odt.limit.bytes` | Error | Input exceeded `MaxDocumentBytes` and was not parsed. |
 | `odt.content.xml` / `odt.styles` / `odt.manifest` / `odt.meta.xml` | Error | A part could not be parsed, or exceeded `MaxBinBytes` (`.limit` suffix). |
-| `odt.meta.date` | Warning | A `meta:creation-date` or `dc:date` stated a timestamp this build could not read, so it was dropped rather than guessed at. |
-| `odt.block.unsupported` | Warning | A block-level element was not understood; the message names the element. Reported once per distinct name. |
+| `odt.meta.date` | Warning | An unreadable `meta:creation-date` or `dc:date` timestamp was dropped rather than guessed at. |
+| `odt.block.unsupported` | Warning | A block-level element was not understood; once per distinct name, which the message gives. |
 | `odt.frame.textbox` | Warning | A text box was read as body content; its frame position is not represented. |
 | `odt.frame.block` | Warning | A page-anchored frame held neither body text nor a picture and was skipped. |
 | `odt.annotation` | Warning | Comment content is not part of the body and was skipped. |
 | `odt.note.nested` | Warning | A note inside a note was read as nothing, or, writing, dropped: ODF cannot nest them. |
 | `odt.note.content` | Warning | A table or shape in a note was read as its text; a note holds paragraphs only. |
-| `odt.settings.xml` | Warning | The settings part could not be read; the document is viewed as by default, its tracked changes shown. |
+| `odt.settings.xml` | Warning | The settings part could not be read; default view, tracked changes shown. |
 | `odt.link` | Warning | A hyperlink with a disallowed or relative target was dropped. |
 | `odt.align.justify` | Warning | A justified paragraph was read as left-aligned. |
 | `odt.linespacing.leading` | Warning | Line spacing stated as leading between lines (`style:line-spacing`) was not represented. |
-| `odt.linespacing.range` | Warning | A positive line-height percentage overflowed or underflowed the model's float multiplier; the inherited spacing was retained. |
-| `odt.break.after` | Warning | A `fo:break-after="page"` had no following paragraph in the same flow to carry it to — the flow ended, or the next block was a table, or the cell did — and was dropped. |
+| `odt.linespacing.range` | Warning | A positive line-height percentage over- or underflowed the float multiplier; the inherited spacing was kept. |
+| `odt.break.after` | Warning | A `fo:break-after="page"` had no following paragraph in its flow (the flow or cell ended, or a table followed) and was dropped. |
 | `odt.text.transform` | Warning | A `lowercase`/`capitalize` transform was dropped. |
 | `odt.styles.unknown` | Warning | A style reference named an undefined style. Once per family and name. |
 | `odt.styles.cycle` | Warning | A `style:parent-style-name` chain was cyclic and was cut short. |
@@ -568,80 +589,68 @@ blank:
 | `odt.image.binary` | Warning | An inline picture payload was not valid base64. |
 | `odt.image.shape` | Warning | A frame held no embedded picture. |
 | `odt.image.anchored` | Warning | A floating picture was anchored to its paragraph. |
-| `odt.image.denied` | Warning | A picture was not read into the document because the caller's resource policy did not permit it; the message names the denial. |
+| `odt.image.denied` | Warning | The caller's resource policy did not permit reading a picture; the message names the denial. |
 | `odt.page.geometry` | Warning | A page layout described a page with no room to write on, so the page was not read. |
 | `odt.gradient` | Warning | An unknown gradient style was approximated by its start colour. |
-| `odt.fill` | Warning | A bitmap or hatch definition could not be resolved, or a background picture linked outside the package was not fetched; a bitmap's area is painted in its fill colour. |
-| `odt.columns.geometry` | Warning | A page layout's `style:columns` left no room to write in a column; the page was kept and read as one column. |
-| `odt.columns.unequal` | Info | A page layout listed columns of different relative widths; they were read as equal columns. |
+| `odt.fill` | Warning | A bitmap or hatch definition did not resolve, or a background picture outside the package was not fetched; a bitmap area is painted in its fill colour. |
+| `odt.fill.opacity` | Warning | A bitmap fill's opacity cannot be painted; the bitmap is kept at full opacity. |
+| `odt.columns.geometry` | Warning | A page layout's `style:columns` left no room in a column; the page was read as one column. |
+| `odt.columns.unequal` | Info | Listed columns of different relative widths were read as equal. |
 | `odt.limit.depth` | Warning | Block or inline nesting hit `MaxGroupDepth`; the deepest content was skipped. |
 | `odt.limit.run` | Warning | A paragraph hit `MaxRunLength` and was truncated. |
 | `odt.limit.spaces` | Warning | A `text:s` count exceeded `MaxRunLength` and was clamped. |
 | `odt.limit.paragraphs` | Warning | Input exceeded `MaxParagraphCount`; remaining paragraphs were dropped. |
 
-Write diagnostics are `odt.link`, `odt.image.placeholder`, `odt.image.size`,
-`odt.color.alpha`, `odt.text.control`, `odt.section.page`, `odt.section.page-number`, `odt.list.label`,
-`odt.list.format`, `odt.list.legal` (the list forms above ODF cannot state), and
-`odt.image.omitted` — the last one reporting a picture the caller's resource
-policy did not permit the write to pass on, which is the writer's counterpart to
-`odt.image.denied`. `odt.section.page` reports a section that states unsupported
-paper size or top/bottom margins, which cannot be represented on an ODF `text:section`:
-relative left and right margins are written as `fo:margin-left` and `fo:margin-right` on `style:section-properties`.
-`odt.section.page-number` reports a section that restarts the page count, which a
-document written with one master page cannot state.
-`odt.text.control` covers every string that comes from the model, a picture's
-description as well as run text; the description path was unguarded and threw
-out of the serializer rather than reporting.
+## Write Diagnostics
 
-`broilerdoc info <file>` prints all of them, which is the quickest way to see
-what a problem document lost.
+| Code | Meaning |
+| --- | --- |
+| `document.metadata.emitted` | Document properties the caller supplied reached `meta.xml` (Info); the message names the fields. |
+| `document.metadata.narrowed` | A property reached `meta.xml` in a reduced form — ODF's `meta:initial-creator` holds one name, so authors past the first are not written. |
+| `document.metadata.dropped` | A property ODF states no equivalent for was not written; the message names the fields. |
+| `odt.link` | A hyperlink target the shared predicate refuses was written as plain text. |
+| `odt.image.placeholder` | An object replacement character with no image attached was dropped. |
+| `odt.image.size` | An image carried no display size and was written one inch square. |
+| `odt.image.omitted` | The caller's resource policy did not permit passing a picture on; the writer's counterpart to `odt.image.denied`. |
+| `odt.color.alpha` | ODF colours hold no alpha; the RGB channels were written. |
+| `odt.text.control` | A control character XML cannot hold was dropped, from any string the model supplies, a picture's description as well as run text. |
+| `odt.fill.opacity` | Unequal gradient endpoint opacities were written with the start opacity for both. |
+| `odt.section.page` | A section states paper size or top/bottom margins, or the body switches master pages; an ODF `text:section` cannot state either. Relative left and right margins are written as `fo:margin-left` and `fo:margin-right` on `style:section-properties`. |
+| `odt.section.page-number` | A section restarts the page count, which a document written with one master page cannot state. |
+| `odt.list.label` | A label whose numbers are not the levels ending at its own joined by full stops lost the text between them, or a multi-character bullet kept only its first character. |
+| `odt.list.format` | Leading-zero numbering was written as plain decimal. |
+| `odt.list.legal` | DOCX legal numbering has no ODF form. |
+| `odt.list.indent` | Exact per-paragraph list offsets were written with the list level's default positioning; non-list indents are kept. |
+| `odt.list.shared-counter` | A list restart that also resets another list's shared counters (a DOCX relationship) was written as an independent restart. |
+| `odt.shape.overflow` | Explicit text-box overflow was not written; the frame and its text are kept. |
+| `odt.shape.linked` | Linked text-frame chain names were kept, but exported clipping of linked text differs between applications. |
+| `odt.note.nested` | A note inside a note was dropped. |
 
 ## Probe Policy
 
-ODF makes probing unusually cheap, because the format was designed to be
-identifiable from its first bytes:
+ODF was designed to be identifiable from its first bytes, so probing is cheap:
 
-- A leading `mimetype` entry — first in the archive, stored uncompressed, per
-  ODF 1.3 part 2 §3.3 — holding the OpenDocument text media type is **certain**
-  confidence, with no filename or MIME hint needed at all.
+- A leading `mimetype` entry (first in the archive, stored uncompressed, per
+  ODF 1.3 part 2 §3.3) holding the OpenDocument text media type is **certain**,
+  with no filename or MIME hint needed.
 - The text *template* media type is high confidence: a template holds the same
   body a document does.
 - Any other OpenDocument media type is **not** claimed, even with an `.odt`
-  filename hint. The package says what it is.
-- A ZIP holding both `content.xml` and `META-INF/manifest.xml` but no `mimetype`
+  hint. The package says what it is.
+- A ZIP holding `content.xml` and `META-INF/manifest.xml` but no `mimetype`
   entry is high confidence.
-- A ZIP with an `.odt` filename or MIME hint and nothing else is high confidence;
-  a generic ZIP with no hint is not claimed.
+- A ZIP with an `.odt` filename or MIME hint and nothing else is high; a generic
+  ZIP with no hint is not claimed.
 - Non-ZIP bytes with an `.odt` or `.fodt` hint are low confidence.
 - XML whose root is `office:document` in the OpenDocument office namespace is a
-  flat document. With the text media type in `office:mimetype` it is **certain**;
-  with the text template type it is high. Another media type is not claimed, even
-  with a `.fodt` hint. A root whose media type does not appear in the probe
-  prefix, because the prefix ended first or the attribute is absent, is medium
-  confidence, or high with an `.odt` or `.fodt` hint. LibreOffice writes the
-  attribute after its namespace declarations, at about byte 2,150, so the default
-  4,096-byte prefix sees it.
+  flat document: **certain** with the text media type in `office:mimetype`, high
+  with the text template type, not claimed with another type even with a
+  `.fodt` hint. When the media type is not in the probe prefix (the prefix ended
+  first or the attribute is absent) it is medium, or high with an `.odt` or
+  `.fodt` hint. LibreOffice writes the attribute after its namespace
+  declarations, at about byte 2,150, so the default 4,096-byte prefix sees it.
 
 ## Standards and rights
-
-Exact left/right margins and first-line or hanging offsets are retained for
-non-list paragraphs. List positioning continues to use the list level's existing
-default layout; writing exact per-paragraph list offsets reports
-`odt.list.indent` rather than silently claiming they survived. Section background
-colours are read, painted by the shared paginator, and written, including nested
-colour overrides. The standalone PDF layout reports that section colours are
-not painted.
-
-Body paragraph and table styles can switch master pages, including their paper,
-margins, headers and footers. The shared paginator follows bounded master-page
-chains and their repeating suffix, including alternating paper sizes. A master
-page named inside a table cell does not switch the body page. These page changes
-remain a read/render feature: writing them reports `odt.section.page`.
-Text-box `fo:padding` and side overrides survive round trips and affect its text
-area. Paragraph spacing and lists are composed in the box's own flow. Hidden
-text (`text:display="none"`) is retained and written back while normal rendering
-omits it. `odt.list.shared-counter` reports a cross-list counter restart written
-as an independent list restart; that DOCX counter relationship is not preserved.
 
 ODF is an OASIS standard, republished as ISO/IEC 26300. Its rights position (the
 OASIS royalty-free mode and the covenants on top of it), the approved labels and
@@ -649,84 +658,3 @@ the provenance findings are in [the ODT register](../ip/odt.md). The position is
 assessed green, which is a risk judgement and not a clearance. Implementing a
 documented subset is not conformance, so nothing describes this codec as
 ODF-conformant, and `OdtClaimGuardTests` fails the build over it.
-
-
-### Unconditionally hidden body sections
-
-`text:section text:display="none"` is retained as `DocumentSection.Hidden`.
-Its paragraphs and tables remain in the model and plain-text projections, and
-ODT writing preserves the visibility flag, including cell-local sections.
-Nested visible sections cannot reveal a hidden parent. The shared paginator
-omits hidden body content, anchored objects and note numbering contributions;
-hidden paragraph breaks and page-style selections do not affect visible text.
-A break from a preceding visible paragraph still reaches the next visible block.
-Conditional visibility is not evaluated. Running parts and text frames do not
-carry their own section collections. A hidden section in a header or footer is
-left out of it when it is read, as LibreOffice never shows it — a template's
-file-name footer is kept that way — so it does not survive a round trip; one in
-a text frame is not covered. Other writers report their visibility limitation
-rather than silently claiming to preserve the flag.
-
-### Hidden text from OpenOffice.org 2.x
-
-OpenOffice.org 2.x wrote `text:display` the wrong way round: `true` for hidden
-text and `none` for shown. LibreOffice recognises such a document by the build
-id in `meta:generator` (`…_project/680m14$Build-9134`) and reads its values
-inverted (`txtimppr.cxx`, `CTF_TEXT_DISPLAY`), and so does this reader:
-`fdo114306_2.odt`'s "Скрытый текст" (hidden text) style says `true`. A paragraph
-whose mark and text are all hidden takes no room in the layout, as in
-LibreOffice; one whose text is hidden under a shown mark is still an empty line.
-
-### What a template keeps off the printed page
-
-A drawing whose graphic style says `style:print-content="false"` is read with
-`DocumentShape.Printable` false and written back with it. The layout places it
-and keeps text clear of it, and leaves it off the page unless the host sets
-`LayoutSettings.DrawNonPrintingShapes`, which is how LibreOffice prints and
-exports to PDF: `fdo114306_2.odt` prints without its crest and heading frame,
-its title as far down the page as if they were there.
-
-A `draw:control` that places a label (`form:fixed-text` in `office:forms`) is a
-shape holding the label's words, set in the control's `draw:text-style-name`,
-centred as `draw:textarea-vertical-align` says and drawn whole even where the
-control is shorter than its line. It has no fill or border. A label without
-`form:multi-line="true"` stays on one line, its box growing to its text, and one
-with `form:printable="false"` is not printable. Other controls are not read.
-
-### Table spacing, splitting and cell overflow
-
-A table's `fo:margin-top` and `fo:margin-bottom` are its space above and below,
-`DocumentTable.SpacingBefore` and `SpacingAfter`, read and written. As above a
-paragraph, the space above opens no page or column. `style:may-break-between-rows="false"`,
-LibreOffice's "allow table to split" turned off, keeps the table together, as
-`fo:keep-together="always"` does; a nested table that is kept with what follows
-it is held to it at a cut. A cell whose style states no padding has none: ODF
-has no default, and LibreOffice sets such a cell's text against its edge. Text
-that runs past the edge of a cell is cut there,
-as Writer cuts a text portion (`SwTextPainter::DrawTextLine`); a line holding a
-picture is drawn whole.
-
-### Header bands and outer page margins
-
-For a master page with an enabled header, its outer top margin is read as
-`PageGeometry.HeaderDistance`. The header style's declared `fo:height` or
-`fo:min-height` supplies the reserved band below it; the sum becomes the model's
-body `MarginTop`. The shared paginator can additionally move body text clear of
-a header whose measured content exceeds that minimum. A header style without an
-enabled header does not reserve space. Text inside a positioned drawing is not
-used to select the body's first master page, nor is the text of a deletion that
-`text:tracked-changes` keeps ahead of the body, or of a note or a comment.
-
-A band of fixed height states `svg:height` and no `fo:min-height`. Its height
-holds the spacing between it and the body already, as LibreOffice reads it: a
-0.4 cm header with 0.3 cm of spacing starts the body 0.4 cm below the header's
-top. `PageGeometry.FixedHeaderHeight` and `FixedFooterHeight` say so, the
-paginator then leaves the body where the margin puts it, and a header or footer
-taller than its band is cut at the band's edge rather than left out.
-
-Writing usable page geometry with a header reverses the mapping: the outer
-margin is the header distance and `style:header-style` retains the remaining
-minimum band. Independent LibreOffice probes verify the header/body positions
-before and after this round trip, including page-content anchored objects.
-This does not add footer-band conversion or header padding, and a fixed band is
-written back as a band that grows.

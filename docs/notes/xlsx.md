@@ -1,15 +1,13 @@
 # XLSX Conformance
 
 `Broiler.Documents.Xlsx` reads and writes Open XML SpreadsheetML workbooks
-(ISO/IEC 29500 / ECMA-376) through the `DocumentCodec` contract. It has no DOM,
-UI, OS, or third-party package dependencies.
-
-Why spreadsheet formats project through the rich-text model rather than a
-standalone model is documented in
-[ADR 0016](../adr/0016-spreadsheet-formats-through-the-rich-text-model.md). In
-addition, `Broiler.Documents.Model.Spreadsheets` provides a typed
-`SpreadsheetWorkbook` object model with bidirectional conversion to and from
-`RichTextDocument`.
+(ISO/IEC 29500 / ECMA-376) through the `DocumentCodec` contract, with no DOM,
+UI, OS, or third-party package dependencies. Why spreadsheets project through
+the rich-text model rather than a standalone one is
+[ADR 0016](../adr/0016-spreadsheet-formats-through-the-rich-text-model.md);
+`Broiler.Documents.Model.Spreadsheets` adds a typed `SpreadsheetWorkbook`
+converted both ways to and from `RichTextDocument`. Rights are in the
+[XLSX IP Register](../ip/xlsx.md).
 
 ## Probe
 
@@ -23,62 +21,66 @@ addition, `Broiler.Documents.Model.Spreadsheets` provides a typed
 
 ## Reading
 
-### Package Structure
+The reader walks the Open Packaging Conventions (OPC) package:
 
-The reader inspects the Open Packaging Conventions (OPC) package:
-1. `_rels/.rels`: Discovers the primary office document relationship target (typically `xl/workbook.xml`).
-2. `xl/workbook.xml`: Discovers sheet definitions (`<sheet name="..." sheetId="..." r:id="..."/>`).
-3. `xl/_rels/workbook.xml.rels`: Resolves sheet relationship IDs to worksheet part paths (`xl/worksheets/sheet{N}.xml`), the shared strings part (`xl/sharedStrings.xml`), and the styles part (`xl/styles.xml`).
+1. `_rels/.rels`: the primary office document relationship target (typically
+   `xl/workbook.xml`).
+2. `xl/workbook.xml`: sheet definitions
+   (`<sheet name="..." sheetId="..." r:id="..."/>`).
+3. `xl/_rels/workbook.xml.rels`: sheet relationship IDs resolved to worksheet
+   parts (`xl/worksheets/sheet{N}.xml`), the shared strings part
+   (`xl/sharedStrings.xml`), and the styles part (`xl/styles.xml`).
 
-### Shared Strings Table
+`xl/sharedStrings.xml` becomes an indexed string table, its memory bounded by
+`DocumentLimits.MaxTextLength`: simple strings (`<si><t>...</t></si>`),
+preserved whitespace (`xml:space="preserve"`), and rich text runs
+(`<si><r><t>...</t></r>...</si>`) concatenated into one string.
 
-`xl/sharedStrings.xml` is parsed into an indexed string table:
-- Simple text strings (`<si><t>...</t></si>`).
-- Preserved whitespace (`xml:space="preserve"`).
-- Rich text runs (`<si><r><t>...</t></r>...</si>`), concatenated into a single string.
-- Memory consumption is bounded by `DocumentLimits.MaxTextLength`.
+`xl/styles.xml` supplies cell formatting:
 
-### Styles and Number Formatting
+- Number formats (`<numFmts>`): built-in codes (such as the standard date/time
+  formats 14-22) and custom date/time formats are recognised so serial numeric
+  dates convert to ISO-8601 strings.
+- Cell formats (`<cellXfs>`): by the zero-based index a cell's `s` attribute
+  names.
+- Fill colours (`<fills>`): solid pattern fills and RGB/theme colours become
+  cell shading background colours.
 
-`xl/styles.xml` provides cell formatting information:
-- Number formats (`<numFmts>`): Built-in format codes (such as standard date/time formats 14-22) and custom date/time formats are identified to convert serial numeric dates into ISO-8601 strings.
-- Cell formats (`<cellXfs>`): Mapped by zero-based index referenced by `s` attributes on cells.
-- Fill colors (`<fills>`): Solid pattern fills and RGB/theme colors are mapped to cell shading background colors.
+Each worksheet (`xl/worksheets/sheet{N}.xml`) becomes a `DocumentTable`:
 
-### Worksheets
+| SpreadsheetML | Model |
+|---|---|
+| The sheet's name in `workbook.xml` | `DocumentTable.Name` and `SpreadsheetWorksheet.Name` |
+| `<cols><col min="..." max="..." width="..." customWidth="1"/></cols>` | Table column widths |
+| `<row r="..." ht="..." customHeight="1"/>` | Row heights |
+| `r="B4"` | Cell position, from A1 notation |
+| `t="s"` | Shared string, by index |
+| `t="inlineStr"` | Inline string from `<is><t>` |
+| `t="b"` | Boolean (`1` true, `0` false) |
+| `t="e"` | Error text (e.g. `#REF!`, `#VALUE!`, `#DIV/0!`) |
+| `t="str"` | Cached string result of a formula |
+| No type / numeric | IEEE 754 floating-point or integer; a serial date with a date number format becomes an ISO-8601 date |
+| Cell values | Typed, in `TableCell.Value` (`CellValue`); number formats in `TableCell.NumberFormat` |
+| `<f>` | `TableCell.Formula` and `SpreadsheetCell.Formula` |
+| `<mergeCells><mergeCell ref="A1:C2"/>` | `ColumnSpan` and `RowSpan` on the anchor cell |
 
-Each worksheet (`xl/worksheets/sheet{N}.xml`) is parsed:
-- **Sheet name**: Preserved from `workbook.xml` onto `DocumentTable.Name` and `SpreadsheetWorksheet.Name`.
-- **Column widths**: Parsed from `<cols><col min="..." max="..." width="..." customWidth="1"/></cols>` and converted to table column widths.
-- **Row heights**: Read from `<row r="..." ht="..." customHeight="1"/>` and mapped to row heights.
-- **Cell references**: Resolved from A1-notation coordinates (`r="B4"`).
-- **Cell value types**:
-  - `t="s"`: Shared string index lookup.
-  - `t="inlineStr"`: Inline string value from `<is><t>`.
-  - `t="b"`: Boolean value (`1` for true, `0` for false).
-  - `t="e"`: Error text (e.g. `#REF!`, `#VALUE!`, `#DIV/0!`).
-  - `t="str"`: Cached string evaluation result.
-  - Default / numeric: Parsed as IEEE 754 floating-point or integer values. Serial date numbers with date number formats are formatted as ISO-8601 dates.
-- **Formulas**: Cell formula expressions `<f>` are stored in `TableCell.Formula` and `SpreadsheetCell.Formula`.
-- **Merged cells**: `<mergeCells><mergeCell ref="A1:C2"/>` defines column and row spans on the anchor cell (`ColumnSpan` and `RowSpan`).
-
-### Model Projection
-
-- Each worksheet becomes a `DocumentTable` in the resulting `RichTextDocument`.
-- The table carries its sheet name in `DocumentTable.Name`.
-- Cells carry typed values in `TableCell.Value` (`CellValue`), formulas in `TableCell.Formula`, and number formats in `TableCell.NumberFormat`.
-- `XlsxReadResult` carries both the `RichTextDocument` and the typed `SpreadsheetWorkbook`.
+`XlsxReadResult` carries both the `RichTextDocument` and the typed
+`SpreadsheetWorkbook`.
 
 ## Writing
 
-The writer generates a valid Open Packaging Conventions (OPC) XLSX package:
-- `[Content_Types].xml`: Registers content types for workbook, worksheet, styles, and shared strings parts.
-- `_rels/.rels`: Standard package root relationship pointing to `xl/workbook.xml`.
-- `xl/workbook.xml`: Declares sheets with unique names and sheet IDs.
-- `xl/_rels/workbook.xml.rels`: Connects workbook to each worksheet part, `styles.xml`, and `sharedStrings.xml`.
-- `xl/styles.xml`: Writes base styles, default font, fills, borders, and number formats.
-- `xl/sharedStrings.xml`: Dedupes and stores text strings across all sheets.
-- `xl/worksheets/sheet{N}.xml`: Serializes sheet dimensions, column widths, rows, cells (with coordinates, types, values, and formulas), and merge cells.
+The writer produces an OPC XLSX package:
+
+- `[Content_Types].xml`: content types for the workbook, worksheet, styles, and
+  shared strings parts.
+- `_rels/.rels`: the package root relationship to `xl/workbook.xml`.
+- `xl/workbook.xml`: sheets with unique names and sheet IDs.
+- `xl/_rels/workbook.xml.rels`: the workbook's links to each worksheet part,
+  `styles.xml`, and `sharedStrings.xml`.
+- `xl/styles.xml`: base styles, default font, fills, borders, and number formats.
+- `xl/sharedStrings.xml`: text strings across all sheets, deduplicated.
+- `xl/worksheets/sheet{N}.xml`: sheet dimensions, column widths, rows, cells
+  (coordinates, types, values, and formulas), and merge cells.
 
 ## Diagnostics
 
@@ -91,7 +93,3 @@ The writer generates a valid Open Packaging Conventions (OPC) XLSX package:
 | `xlsx.styles` | Styles XML part contains malformed XML. |
 | `xlsx.sheet` | A worksheet XML part is malformed or invalid. |
 | `xlsx.rels` | A relationships XML part is malformed or invalid. |
-
-## IP and Governance
-
-See the [XLSX IP Register](../ip/xlsx.md).

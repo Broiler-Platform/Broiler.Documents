@@ -73,17 +73,17 @@ source-faithful round trips nor "preserve layout" conversion.
   validation perform no DNS, file, shell or network access.
 - **Writer output is untagged.** No `/Alt`, no structure tree, no PDF/UA or
   accessibility claim. Alt text in the model stays available for other formats.
-- **Parsing grants nothing.** Semantic projection, metadata projection,
-  transient decode, extraction, byte transfer, transformation, embedding and
-  redistribution are distinct operations, decided separately by the caller's
-  resource policy ([architecture notes](../architecture.md#resources-and-metadata)).
+- **Parsing grants nothing.** Projection, decode, extraction, byte transfer,
+  transformation, embedding and redistribution are distinct operations, each
+  decided by the caller's resource policy
+  ([architecture notes](../architecture.md#resources-and-metadata)).
 
 ## What is implemented
 
 ### Syntax and cross-references
 
-- Bounded tokenization of every object type, with checked offset, length,
-  generation and allocation arithmetic.
+- Bounded tokenization of all eight object types, indirect references and
+  streams, with checked offset, length, generation and allocation arithmetic.
 - Classic cross-reference tables, trailers, `startxref` and incremental `/Prev`
   chains; cross-reference streams, object streams and hybrid `/XRefStm` files,
   all resolved through the same production filter pipeline. There is no
@@ -161,13 +161,13 @@ encryption dictionary.
   resolved through the codec's one authored glyph-name table. Type 1 and
   CID-keyed CFF stay unread.
 - Text turned against the page (sideways, upside down, mirrored, more than about
-  a degree off horizontal) is read along its own baseline, into words, lines and
-  paragraphs as upright text is, and reported as `pdf.text.orientation-not-kept`
-  (information): the model holds no text direction, so the text is set upright,
-  and an untagged page reads it after the text that runs the page's main way.
-  Letters drawn one at a time, each turned its own way as along a curve, share
-  no baseline to read along; they are placed where each lands and reported as
-  `pdf.text.orientation-unsupported`, so such a read is not a clean success.
+  a degree off horizontal) is read along its own baseline into words, lines and
+  paragraphs, set upright because the model holds no text direction, and
+  reported as `pdf.text.orientation-not-kept` (information). An untagged page
+  reads it after the text that runs the page's main way. Letters each turned
+  their own way, as along a curve, share no baseline; they are placed where each
+  lands and reported as `pdf.text.orientation-unsupported`, so such a read is
+  not a clean success.
 
 ### Reading order and page structure
 
@@ -203,8 +203,7 @@ and Indexed at 1, 2, 4 or 8 over a bounded DeviceGray or DeviceRGB palette, with
 to RGBA and admitted through the caller's resource policy. A composed codec's
 RGBA output is taken as it stands.
 
-- **Masks** (added to the subset 2026-09-24). A stencil is painted in its fill
-  colour. Colour-key `/Mask`, explicit `/Mask` and `/SMask` become straight
+- **Masks.** A stencil is painted in its fill colour. Colour-key `/Mask`, explicit `/Mask` and `/SMask` become straight
   alpha, each mapped onto the picture's unit square, and a soft mask's `/Matte`
   is undone over gray and RGB pictures. Nothing is composited.
 - **`ICCBased`** (IP-024). With `IccColorProfileReader` composed, the colour is
@@ -221,10 +220,11 @@ RGBA output is taken as it stands.
   page background.
 - **Inline images** are consumed and inventoried, not decoded.
 - **Links.** Only URI actions admitted by `PdfUriPolicy` become `LinkHref`. It is
-  stricter than the shared `DocumentLinkTarget`: it requires an absolute URI, so a
-  bare `#fragment` is refused, and `http` and `mailto` need a caller opt-in.
-  Internal destinations are reported as dropped until a cross-format anchor model
-  exists. A page with no extractable text reports `pdf.text.ocr-required`.
+  stricter than the shared `DocumentLinkTarget`: a bare `#fragment` is refused,
+  and `http` and `mailto` need a caller opt-in
+  ([extension points §4.3](extension-points.md#43-pdfuripolicy--link-admission)).
+  Internal destinations are reported as dropped until a cross-format anchor
+  model exists. A page with no extractable text reports `pdf.text.ocr-required`.
 
 ### Writer
 
@@ -285,10 +285,11 @@ RGBA output is taken as it stands.
   is consulted.
 - **Resource decisions before construction.** `ExtractToModel` is evaluated
   before an `InlineImage` exists. Without it the image is omitted and reported.
-- **Fonts on the write side come from the caller.** Decided 2026-09-02 (path B,
-  [brief](../../ip/briefs/font-path.md)): the caller configures a font set, the
-  project bundles none, and text with no configured font fails preflight with
-  `pdf.write.no-font-configured`.
+- **Fonts on the write side come from the caller** (path B of the
+  [font-path brief](../../ip/briefs/font-path.md)): the caller configures a font
+  set, the project bundles none, and text with no configured font fails
+  preflight with `pdf.write.no-font-configured`.
 - **Limits compose.** `PdfLimits` composes with the shared `DocumentLimits` and
-  Media limits, and the stricter remaining budget always wins. Delegated work is
-  charged back to the document's counters and never resets them.
+  Media limits, and the stricter remaining budget always wins
+  ([architecture notes](../architecture.md#limits-and-link-policy)). Delegated
+  work is charged back to the document's counters and never resets them.
