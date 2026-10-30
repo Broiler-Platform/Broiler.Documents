@@ -53,6 +53,23 @@ public sealed record PageGeometry(
     bool FixedHeaderHeight = false,
     bool FixedFooterHeight = false)
 {
+    /// <summary>Creates a single-column page using the original eight-argument binary contract.</summary>
+    public PageGeometry(double Width, double Height, double MarginLeft, double MarginRight,
+        double MarginTop, double MarginBottom, double HeaderDistance, double FooterDistance)
+        : this(Width, Height, MarginLeft, MarginRight, MarginTop, MarginBottom,
+            HeaderDistance, FooterDistance, 1, 0, false, false)
+    {
+    }
+
+    /// <summary>Creates a column-aware page using the ten-argument binary contract.</summary>
+    public PageGeometry(double Width, double Height, double MarginLeft, double MarginRight,
+        double MarginTop, double MarginBottom, double HeaderDistance, double FooterDistance,
+        int ColumnCount, double ColumnGap)
+        : this(Width, Height, MarginLeft, MarginRight, MarginTop, MarginBottom,
+            HeaderDistance, FooterDistance, ColumnCount, ColumnGap, false, false)
+    {
+    }
+
     /// <summary>A4 portrait with 1 inch margins, for a document that states none.</summary>
     public static PageGeometry A4 { get; } = new(595.276, 841.89, 72, 72, 72, 72, 36, 36);
 
