@@ -38,6 +38,8 @@ internal static class DocxReader
             if (documentXml is null)
                 return new DocumentReadResult(RichTextDocument.Empty, diagnostics, DocumentResultStatus.Rejected);
 
+            DocxCoreBindings.Apply(documentXml, archive, options.Limits);
+
             string baseDirectory = DocxPackage.BasePartDirectory(documentPart);
             DocxRelationships documentRelationships = DocxPackage.ReadRelationships(
                 archive,
@@ -74,7 +76,7 @@ internal static class DocxReader
                 documentRelationships,
                 baseDirectory,
                 settings.Root,
-                documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body")?.Element(DocxNamespaces.Wordprocessing + "sectPr"),
+                documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"),
                 options.Limits,
                 diagnostics);
             RichTextDocument document = ReadDocumentXml(
@@ -111,6 +113,7 @@ internal static class DocxReader
                 ShrinksJustifiedLines = compatibilityMode >= 15,
                 TabsOverMargin = compatibilityMode <= 14,
                 UndecoratedLinks = true,
+                PreserveOpeningParagraphSpacing = true,
                 WidowOrphanLines = styles.HasParagraphDefaults ? 2 : 0,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
@@ -719,14 +722,6 @@ internal static class DocxReader
         context.Sections!.Advance(context.Builder.CurrentParagraphIndex);
         if (context.Sections.CurrentStartsPage)
             context.Builder.HoldPageBreak();
-
-        if (context.Sections.CurrentWantsParity)
-        {
-            context.Builder.AddDiagnosticOnce(
-                "docx.section.parity",
-                "A DOCX section starting on an odd or even page was read as starting on the next page; " +
-                "the blank page it can put before itself is not made.");
-        }
     }
 
     /// <summary>
@@ -1639,7 +1634,7 @@ internal static class DocxReader
 
         bool read = false;
         bool hasImages = false;
-        foreach (XElement shape in DocxVmlShapeWalker.Shapes(picture, context.Builder.Limits.MaxGroupDepth,
+        foreach (XElement shape in DocxVmlShapeWalker.Shapes(picture, context.PlacementPage, context.Builder.Limits.MaxGroupDepth,
             (code, message) => context.Builder.AddDiagnosticOnce(code, message)))
         {
             Dictionary<string, string> style = DocxVml.ReadStyle((string?)shape.Attribute("style"));
@@ -1709,6 +1704,22 @@ internal static class DocxReader
         RichTextDocument shapeContent = ReadShapeText(shape, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
         BColor outline = ReadVmlOutline(shape);
+        double outlineWidth = DocxVml.TryLength((string?)shape.Attribute("strokeweight") ??
+            (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("weight"), out double strokeWidth) ? strokeWidth : 0.75;
+        string? path = (string?)shape.Attribute("path") ?? (string?)shape.Element(DocxNamespaces.Vml + "path")?.Attribute("v");
+        if (image is null && !string.IsNullOrEmpty(path) && !segment)
+        {
+            if ((fill is null || (!fill.IsGradient && fill.Image is null && fill.Hatch is null)) &&
+                DocxVmlPath.Render(shape, path, width, height, fill?.Start ?? BColor.Empty, outline, outlineWidth) is byte[] png)
+                image = context.Images.AdmitPath(png, width, height, context.Builder);
+            if (image is not null)
+            {
+                fill = null;
+                outline = BColor.Empty;
+            }
+            else
+                context.Builder.AddDiagnosticOnce("docx.shape.geometry", "A VML freeform path could not be rendered and its box was used.");
+        }
         if (segment && outline.IsEmpty)
             return true;
         string? dash = (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("dashstyle");
@@ -1827,7 +1838,7 @@ internal static class DocxReader
             },
             textOverflow: style.GetValueOrDefault("overflow") == "visible",
             geometry: geometry,
-            outlineWidth: DocxVml.TryLength((string?)shape.Attribute("strokeweight") ?? (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("weight"), out double strokeWidth) ? strokeWidth : 0.75,
+            outlineWidth: outlineWidth,
             offsetXFromCell: segment && context.Builder.InTableCell && style.GetValueOrDefault("mso-position-horizontal-relative") == "text"));
         return true;
     }

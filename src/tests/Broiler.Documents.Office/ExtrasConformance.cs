@@ -754,6 +754,20 @@ internal static class ExtrasConformance
                                 .OrderBy(Ordinal, Comparer<int>.Default)];
 
                             int theirPages = raster.Pages.Count;
+                            // Writer's PDF export can omit pages inserted solely to
+                            // satisfy odd/even section starts. Compare the same
+                            // pages when those omissions account for the count gap.
+                            if (ourPages.Length > theirPages && rendered.Json() is JsonElement result &&
+                                result.TryGetProperty("render", out JsonElement renderJson) &&
+                                renderJson.TryGetProperty("parityBlankPages", out JsonElement blanks) &&
+                                blanks.ValueKind == JsonValueKind.Array)
+                            {
+                                var blankNumbers = blanks.EnumerateArray()
+                                    .Where(page => page.TryGetInt32(out _)).Select(page => page.GetInt32()).ToHashSet();
+                                string[] contentPages = [.. ourPages.Where(path => !blankNumbers.Contains(Ordinal(path)))];
+                                if (contentPages.Length == theirPages)
+                                    ourPages = contentPages;
+                            }
                             int pages = Math.Min(theirPages, ourPages.Length);
                             if (pages == 0)
                             {

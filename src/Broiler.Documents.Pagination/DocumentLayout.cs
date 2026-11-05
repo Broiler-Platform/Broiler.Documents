@@ -506,7 +506,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         void BreakPage()
         {
             SetNotes();
-            PaintSectionUntil(contentBottom);
+            PaintSectionUntil(Math.Max(regionDepth, y));
             var inlineLines = new List<LayoutLine>(currentLines);
             var inlineCells = new List<LayoutCell>(currentCells);
             currentLines.AddRange(floatLines);
@@ -858,6 +858,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             NextColumn();
         }
 
+        // ODT text sections can share one page-style sequence. A page break
+        // between them advances the sequence instead of restarting it.
+        bool ContinuesPageStyles(DocumentSection? next) =>
+            next?.PageStyles is PageStyleSequence sequence && ReferenceEquals(sequence, owner?.PageStyles);
+
         // A section that follows on a page with headers of its own takes the
         // page a hard page break inside it starts, its first page sharing the
         // others' parts. That is LibreOffice's reading of such a document, the
@@ -872,7 +877,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 return;
 
             RunningContent own = region.RunningContent ?? _documentRunning;
-            if (setup.Continuous || ReferenceEquals(own, _running))
+            if (setup.Continuous || ContinuesPageStyles(region) || ReferenceEquals(own, _running))
                 return;
 
             pendingOwner = region;
@@ -906,6 +911,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 RunningContent savedRunning = _running;
                 _running = RunningContent.Empty;
                 BreakPage();
+                LayoutPage blank = pages[^1];
+                blank.IsParityBlank = blank.Lines.Count == 0 && blank.Cells.Count == 0 && blank.Shapes.Count == 0;
                 _running = savedRunning;
                 _firstPage = pages.Count + 1;
                 ownerFirstPage = pages.Count + 1;
@@ -948,7 +955,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 }
             }
 
-            PaintSectionUntil(startsPage ? contentBottom : Math.Max(regionDepth, y));
+            PaintSectionUntil(Math.Max(regionDepth, y));
             region = next;
             bool pageHasContent = currentLines.Count > 0 || currentCells.Count > 0 || floatLines.Count > 0 || floatCells.Count > 0;
             paintedSection = opensPage && pageHasContent ? null : next;
@@ -958,13 +965,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // foot; one that follows on a page keeps those of the page it is on.
             if (!pageHasContent)
             {
-                if (!hasOwner || opensPage)
+                if (!hasOwner || (opensPage && !ContinuesPageStyles(next)))
                     TakeOwner(next);
 
                 (pageTop, contentBottom) = BandOf(owner);
                 y = pageTop;
             }
-            else if (opensPage)
+            else if (opensPage && !ContinuesPageStyles(next))
             {
                 // The page break that follows - or, for a section that opens
                 // with a table, which breaks no page here, the next one there is
@@ -1059,7 +1066,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     break;
             }
 
-            if (isSectionStart)
+            if (table is not null && isSectionStart)
             {
                 EnsureParity(section);
                 if (truncated)
@@ -1175,7 +1182,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 foreach (RowBox composedRow in composedRows)
                 {
                     bool inHeader = rowNumber++ < headerCount;
-                    int groupEnd = rowNumber;
+                    // Keep the initial repeated heading with its first body row.
+                    int groupEnd = inHeader ? Math.Min(composedRows.Count, headerCount + 1) : rowNumber;
                     for (int index = rowNumber - 1; index < groupEnd && index < table.Rows.Count; index++)
                     {
                         int spanEnd = index + table.Rows[index].Cells.Select(cell => cell.RowSpan).DefaultIfEmpty(1).Max();
@@ -1324,15 +1332,18 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     _wrap.Add(shape, shape.TopOnPage(y), height: BoxHeight(shape), width: BoxWidth(shape));
             }
 
-            // Space before never opens a page, or a column: a paragraph that
-            // starts one starts at the top margin, the way every page-based
-            // renderer does it.
-            double spacingBefore = ColumnHasContent() ? Math.Max(0, style.SpacingBefore) : 0;
+            // Word honors spacing above the opening paragraph. Subsequent
+            // page and column starts suppress it.
+            bool openingSpacing = _styleDefaults.PreserveOpeningParagraphSpacing &&
+                paragraphIndex == 0 && !style.PageBreakBefore && !style.ColumnBreakBefore;
+            double spacingBefore = ColumnHasContent() || openingSpacing
+                ? Math.Max(0, style.SpacingBefore) : 0;
 
             // Composed against the first column and moved across as it is placed:
             // the columns are equally wide, so a line wraps the same in any of
             // them, and a paragraph that runs out of room part way through
-            // continues in the next one with nothing composed again.
+            // continues in the next one. A different page text area can
+            // require recomposing the part that has yet to be placed.
             ParagraphLines composed = ComposeParagraph(
                 paragraph, marker, setup, paragraphIndex,
                 columnWidthOverride: columns.Width, wrapTop: y + spacingBefore);
@@ -1411,6 +1422,31 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             double[] lineHeights = [.. composed.Lines.Select(line => line.Height + line.LeadingSkip)];
             int segmentEnd = -1;
             bool first = true;
+            RichTextParagraph remaining = paragraph;
+            double composedWidth = columns.Width;
+            double composedLeft = setup.ContentLeftPoints;
+
+            bool ReflowContinuation(int nextLine)
+            {
+                if (first || (composedWidth == columns.Width && composedLeft == setup.ContentLeftPoints))
+                    return false;
+
+                // Keep the source run boundary from the first unplaced line.
+                // An empty line can represent an explicit line break, so only
+                // restart here when the line has a source position of its own.
+                int offset = composed.Lines[nextLine].Pieces.FirstOrDefault(piece => piece.SourceOffset >= 0)?.SourceOffset ?? -1;
+                if (offset <= 0 || offset >= remaining.Length)
+                    return false;
+
+                remaining = remaining.SplitAt(offset).Tail;
+                composed = ComposeParagraph(remaining, marker, setup, paragraphIndex,
+                    columnWidthOverride: columns.Width, wrapTop: y, continuation: true);
+                composedWidth = columns.Width;
+                composedLeft = setup.ContentLeftPoints;
+                lineHeights = [.. composed.Lines.Select(item => item.Height + item.LeadingSkip)];
+                segmentEnd = -1;
+                return true;
+            }
             for (int lineIndex = 0; lineIndex < composed.Lines.Count; lineIndex++)
             {
                 LayoutLine line = composed.Lines[lineIndex];
@@ -1420,6 +1456,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     {
                         regionUnbalanced = true;
                         BreakColumn();
+                        if (truncated)
+                            break;
+                        if (ReflowContinuation(lineIndex))
+                        {
+                            lineIndex = -1;
+                            continue;
+                        }
                     }
                     int fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex,
                         contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0);
@@ -1427,12 +1470,21 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     {
                         regionUnbalanced = true;
                         BreakColumn();
+                        if (truncated)
+                            break;
+                        if (ReflowContinuation(lineIndex))
+                        {
+                            lineIndex = -1;
+                            continue;
+                        }
                         if (first)
                         {
                             ReanchorParagraph(paragraphIndex);
                             composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
                                 columnWidthOverride: columns.Width, wrapTop: y);
                             lineHeights = [.. composed.Lines.Select(item => item.Height + item.LeadingSkip)];
+                            composedWidth = columns.Width;
+                            composedLeft = setup.ContentLeftPoints;
                             line = composed.Lines[lineIndex];
                         }
                         fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex,
@@ -1451,11 +1503,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // backdrop with square wrapping, say - stays on the page with
                 // them, as LibreOffice keeps it. Moved on, it only made a blank
                 // page. A shape that keeps text above and below it moves even an
-                // empty line on, there as here (tdf138039.odt).
+                // empty line on (tdf138039.odt). An as-character frame already
+                // occupies that line, so its empty anchor stays with the frame.
                 bool heldByOwnShapes = first && paragraph.Length == 0 && line.LeadingSkip > 0 &&
-                    currentLines.Count == columnStart &&
-                    _documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex && shape.Wrap == ShapeWrap.Square) &&
-                    !_documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex && shape.Wrap == ShapeWrap.TopAndBottom);
+                    (_documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex && shape.IsAsCharacter) ||
+                     (currentLines.Count == columnStart &&
+                      _documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex && shape.Wrap == ShapeWrap.Square) &&
+                      !_documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex && shape.Wrap == ShapeWrap.TopAndBottom)));
 
                 // A line that cites a footnote needs room for the note at the
                 // foot of the page as well as for itself.
@@ -1464,6 +1518,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     BreakColumn();
                     if (truncated)
                         break;
+
+                    if (ReflowContinuation(lineIndex))
+                    {
+                        lineIndex = -1;
+                        continue;
+                    }
 
                     // The room it moved past was on the page it left.
                     line.LeadingSkip = 0;
@@ -1475,6 +1535,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
                             columnWidthOverride: columns.Width, wrapTop: y);
                         lineHeights = [.. composed.Lines.Select(item => item.Height + item.LeadingSkip)];
+                        composedWidth = columns.Width;
+                        composedLeft = setup.ContentLeftPoints;
                         lineIndex = -1;
                         segmentEnd = -1;
                         continue;
@@ -2373,7 +2435,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // Keep the nested row's legal cuts. Treating every nested row
                 // as indivisible lets a long cell run off the page even when
                 // both its row and the outer row permit splitting.
-                List<RowBox> nestedRows = ComposeTable(nested, document, setup, left, width, keepsDefaultLines);
+                double nestedWidth = width;
+                double nestedLeft = left;
+                if (nested.Position is TablePosition position)
+                {
+                    nestedWidth = nested.FloatingWidthIn(width, setup.WidthPoints);
+                    nestedLeft = position.LeftIn(left, width, nestedWidth, 1);
+                    if (position.VerticalAnchor == TableAnchor.Text && position.VerticalAlignment == TableAlignment.None)
+                        y += Math.Max(0, position.Y);
+                }
+                List<RowBox> nestedRows = ComposeTable(nested, document, setup, nestedLeft, nestedWidth, keepsDefaultLines);
                 double nestedHeight = nestedRows.Sum(row => row.Height);
                 if (nested.KeepTogether && nestedHeight <= capacity)
                 {
@@ -3308,7 +3379,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
     /// <summary>Wraps one paragraph into lines, without deciding which page they land on.</summary>
     private ParagraphLines ComposeParagraph(RichTextParagraph paragraph, string? marker, DocumentPageBox setup, int paragraphIndex,
-        double? columnLeftOverride = null, double? columnWidthOverride = null, double? wrapTop = null)
+        double? columnLeftOverride = null, double? columnWidthOverride = null, double? wrapTop = null, bool continuation = false)
     {
         ParagraphStyle style = paragraph.Style;
         double indent = style.LeftIndentIn(_settings.IndentStepPoints);
@@ -3346,7 +3417,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         TextBand IndentedBand(TextBand band, int index)
         {
-            double offset = index == 0 ? firstIndent : 0;
+            double offset = index == 0 && !continuation ? firstIndent : 0;
             return new TextBand(band.Left + offset, Math.Max(1, band.Width - offset));
         }
 
@@ -3397,7 +3468,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // The marker belongs to the first line only, and sits in the hanging
             // indent rather than in the text column, so wrapped lines align under
             // the text and not under the bullet.
-            if (i == 0 && markerPiece is not null)
+            bool showMarker = i == 0 && !continuation && markerPiece is not null;
+            if (i == 0 && !continuation && markerPiece is not null)
             {
                 markerPiece.X = columnLeft + band.Left + (exactList ? style.FirstLineIndentIn - firstIndent : 0);
                 pieces.Insert(0, markerPiece);
@@ -3405,7 +3477,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             LayoutLine line = PlaceLine(
                 pieces,
-                i == 0 && markerPiece is not null,
+                showMarker,
                 textLeft + band.Left,
                 Math.Max(1, band.Width),
                 style,

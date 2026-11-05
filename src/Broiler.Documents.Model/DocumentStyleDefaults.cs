@@ -153,6 +153,9 @@ public sealed record DocumentStyleDefaults
     /// </remarks>
     public int WidowOrphanLines { get; init; }
 
+    /// <summary>Whether to honor space before the document's opening paragraph.</summary>
+    public bool PreserveOpeningParagraphSpacing { get; init; }
+
     /// <summary>The orphan lines <paramref name="style"/> keeps: its own, or the document's.</summary>
     public int? OrphanLinesOf(ParagraphStyle style) =>
         style.OrphanLines ?? (WidowOrphanLines > 0 ? WidowOrphanLines : null);
@@ -164,7 +167,7 @@ public sealed record DocumentStyleDefaults
     /// <summary>True when this states nothing a consumer would not have assumed.</summary>
     public bool IsDefault =>
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
-        !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0;
+        !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

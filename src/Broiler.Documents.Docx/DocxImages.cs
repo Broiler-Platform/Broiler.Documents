@@ -26,6 +26,7 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
     /// </summary>
     private const double MaxDisplayExtent = 20000.0;
     private readonly DocxDiagram.ReadState _diagrams = new();
+    private long _pathBytes;
     private enum LoadResult { Success, Missing, Limit, Format }
     private readonly Dictionary<string, (MediaPart? Part, LoadResult Result)> _parts = new(StringComparer.OrdinalIgnoreCase);
 
@@ -53,6 +54,14 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
         return image.WithResourceId(id);
     }
 
+
+    public InlineImage? AdmitPath(byte[] png, double width, double height, IDocxImageDiagnostics diagnostics)
+    {
+        if (png.LongLength > limits.MaxBinBytes || png.LongLength > limits.MaxDocumentBytes - _pathBytes)
+            return null;
+        _pathBytes += png.LongLength;
+        return Admit(new InlineImage(png, "image/png", width, height), DocumentResourceDisposition.Embedded, diagnostics);
+    }
 
     /// <summary>Reads an embedded diagram cache through the package's existing XML limits.</summary>
     public DocxDiagram.Cache? ReadDiagram(XElement references, XElement anchor, DocxRelationships relationships,

@@ -341,6 +341,8 @@ public sealed class RenderPipeline
                 ["unmappedFamilies"] = unmapped,
             },
             ["layoutPageCount"] = outcome.Layout.Pages.Count,
+            ["parityBlankPages"] = new JsonArray([.. outcome.Layout.Pages.Where(page => page.IsParityBlank)
+                .Select(page => (JsonNode?)JsonValue.Create(page.Number))]),
             ["renderedPageCount"] = outcome.Pages.Count,
             ["truncated"] = outcome.Layout.Truncated,
             ["imageFormat"] = _format.ToString().ToLowerInvariant(),

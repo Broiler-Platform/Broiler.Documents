@@ -335,6 +335,9 @@ public sealed class LayoutPage : IPaginatedPageArtifact
     public int Number { get; }
     int IPaginatedPageArtifact.PageNumber => Number;
 
+    /// <summary>Whether this page was inserted to satisfy a section's odd/even start.</summary>
+    public bool IsParityBlank { get; internal set; }
+
     public double WidthPoints { get; }
 
     public double HeightPoints { get; }

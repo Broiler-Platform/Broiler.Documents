@@ -188,7 +188,7 @@ internal static class OdtReader
         RichTextDocument document = ReadContent(content, styles, images, page, options.Limits, diagnostics, master);
         document = document.WithRunningContent(
             ReadRunningContent(master, styles, images, options.Limits, diagnostics));
-        document = document.WithPageGeometry(page);
+        document = document.WithPageGeometry(page ?? document.PageGeometry);
         document = document.WithStyleDefaults(ReadStyleDefaults(styles) with
         {
             ShrinksJustifiedLines = OdtRevisions.ConfigFlag(settings, "JustifyLinesWithShrinking"),
@@ -281,6 +281,7 @@ internal static class OdtReader
         context = new OdtReadContext(styles, images, builder, page)
         {
             Regions = OdtRevisions.ReadRegions(body),
+            UsesSoftPageBreaks = (string?)body.Attribute(OdtNamespaces.Text + "use-soft-page-breaks") == "true",
             FormControls = ReadFormControls(body),
             LinkedFrameTargets = content.Descendants(OdtNamespaces.Draw + "text-box")
                 .Select(box => (string?)box.Attribute(OdtNamespaces.Draw + "chain-next-name"))
@@ -296,7 +297,21 @@ internal static class OdtReader
                 // document whose master definition is absent. Keep the active
                 // paper/running content when there is no replacement to read.
                 if (masters is null || !masters.TryGetValue(name, out XElement? master))
+                {
+                    // Writer can name its built-in Landscape style without
+                    // serializing a master-page definition for it.
+                    if (name == "Landscape" && index > 0)
+                    {
+                        page ??= new PageGeometry(595.3, 841.89, 56.69, 56.69, 56.69, 56.69);
+                        starts[0] = starts[0] with { Page = starts[0].Page ?? page };
+                        PageGeometry landscape = page.Width >= page.Height ? page : page with { Width = page.Height, Height = page.Width };
+                        context.ActivePage = landscape;
+                        if (starts[^1].Index == index)
+                            starts.RemoveAt(starts.Count - 1);
+                        starts.Add((index, landscape, starts[^1].Running, null, styles.PageNumberStart(family, style)));
+                    }
                     return index > 0;
+                }
                 PageGeometry? selected = ReadPageGeometry(master, styles, diagnostics) ?? page;
                 context!.ActivePage = selected;
                 int? number = styles.PageNumberStart(family, style);
@@ -355,7 +370,7 @@ internal static class OdtReader
                 textSection?.RightIndent ?? 0,
                 selected.Index == index ? selected.Number : null));
         }
-        return built.WithSections(sections);
+        return built.WithSections(sections).WithPageGeometry(page);
     }
 
     /// <summary>
@@ -804,7 +819,8 @@ internal static class OdtReader
     /// <remarks>
     /// A band that grows to its content states its least height in
     /// <c>fo:min-height</c>, some writers in <c>fo:height</c>, and the space is
-    /// added to it. A band of fixed height states it in <c>svg:height</c>, which
+    /// added to it unless dynamic spacing lets the content use that gap.
+    /// A band of fixed height states it in <c>svg:height</c>, which
     /// holds the space already: LibreOffice starts the body of a page whose
     /// header is 0.4 cm high with 0.3 cm of space 0.4 cm below the header's top,
     /// not 0.7 cm.
@@ -816,7 +832,10 @@ internal static class OdtReader
             OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Svg + "height"), out double fixedHeight))
             return Math.Max(gap, fixedHeight);
 
-        return Math.Max(Length(properties, "height"), Length(properties, "min-height")) + gap;
+        double height = Math.Max(Length(properties, "height"), Length(properties, "min-height"));
+        return (string?)properties.Attribute(OdtNamespaces.Style + "dynamic-spacing") == "true"
+            ? Math.Max(height, gap)
+            : height + gap;
     }
 
     /// <summary>
@@ -949,7 +968,10 @@ internal static class OdtReader
             offsetXFromCell: context.TableDepth > 0 &&
                 ((string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph" or "paragraph-content"),
             cellHorizontalAlignment: ReadCellHorizontalAlignment(graphic),
-            printable: Prints(graphic)));
+            printable: Prints(graphic))
+        {
+            IsAsCharacter = textBox is not null && (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") == "as-char",
+        });
         return true;
     }
 
@@ -2053,7 +2075,9 @@ internal static class OdtReader
                 breakAfter = after;
         }
 
-        if (context.SelectPageStyle?.Invoke("paragraph", styleName, context.Builder.CurrentParagraphIndex) == true)
+        if (context.SelectPageStyle?.Invoke("paragraph", styleName, context.Builder.CurrentParagraphIndex) == true ||
+            (context.UsesSoftPageBreaks && context.TableDepth == 0 && context.HiddenSectionDepth == 0 &&
+             paragraph.FirstNode is XElement softBreak && softBreak.Name == OdtNamespaces.Text + "soft-page-break"))
             paragraphStyle = paragraphStyle with { PageBreakBefore = true, ColumnBreakBefore = false };
 
         // A break handed over by the paragraph above is taken after this
@@ -2355,13 +2379,14 @@ internal static class OdtReader
         builder.Revision = region.Revision;
 
         // A break the paragraph before handed over belongs to the text after
-        // the mark, not to a paragraph the deletion took away, and one a
-        // deleted paragraph asked for went with it.
+        // the mark. A break between deleted paragraphs is handled inside the
+        // deletion and never becomes a pending break in the surrounding flow.
         OdtBreak heldBreak = context.TakeBreak();
 
         OdtDocumentBuilder.OpenParagraph original = builder.Suspend();
         OdtDocumentBuilder.OpenParagraph? open = original;
         bool originalWritten = false;
+        bool deletedPageBreak = false;
 
         List<(XElement Element, OdtListContext? List)> items = [.. DeletedItems(region.Deleted, context, outer: null, depth)];
         for (int i = 0; i < items.Count; i++)
@@ -2372,6 +2397,13 @@ internal static class OdtReader
             if (item.Name == OdtNamespaces.Text + "p" || item.Name == OdtNamespaces.Text + "h")
             {
                 (ParagraphStyle style, InlineStyle inherited) = DeletedParagraphStyle(item, list, context);
+                bool startsPage = deletedPageBreak && open is null;
+                if (startsPage)
+                    style = style with { PageBreakBefore = true, PageBreakBeforeInDeletion = true };
+                deletedPageBreak = context.TableDepth == 0 &&
+                    context.Styles.ParagraphProperties((string?)item.Attribute(OdtNamespaces.Text + "style-name"))
+                        .Select(properties => (string?)properties.Attribute(OdtNamespaces.Fo + "break-after"))
+                        .LastOrDefault(value => value is not null) == "page";
                 if (open is not null)
                 {
                     builder.Resume(open);
@@ -2384,7 +2416,9 @@ internal static class OdtReader
                 }
 
                 ReadInlineContent(item, context, inherited, depth + 1);
-                if (isLast)
+                // Keep the boundary inside the deletion when the last
+                // fragment is an empty paragraph on a page of its own.
+                if (isLast && !(startsPage && original.IsEmpty && string.IsNullOrWhiteSpace(item.Value)))
                 {
                     open = builder.Suspend();
                     continue;
@@ -2426,6 +2460,8 @@ internal static class OdtReader
         if (open is not null)
         {
             builder.Resume(open);
+            if (open.Style.PageBreakBeforeInDeletion && !continued.PageBreakBefore)
+                continued = continued with { PageBreakBefore = true, PageBreakBeforeInDeletion = true, ColumnBreakBefore = false };
             builder.Restyle(continued, original.MarkStyle);
         }
         else

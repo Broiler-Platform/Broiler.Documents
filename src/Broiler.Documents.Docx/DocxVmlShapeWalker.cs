@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Xml.Linq;
+using Broiler.Documents.Model;
 
 namespace Broiler.Documents.Docx;
 
@@ -12,7 +13,7 @@ internal static class DocxVmlShapeWalker
     private sealed record Frame(double X, double Y, double ScaleX, double ScaleY, double OriginX, double OriginY,
         Dictionary<string, string> Style);
 
-    public static IEnumerable<XElement> Shapes(XElement picture, int maxDepth, Action<string, string> report)
+    public static IEnumerable<XElement> Shapes(XElement picture, PageGeometry? page, int maxDepth, Action<string, string> report)
     {
         maxDepth = Math.Min(maxDepth, 16);
         XElement scope = picture.Ancestors().LastOrDefault() ?? picture;
@@ -55,6 +56,19 @@ internal static class DocxVmlShapeWalker
                     Length(style, "top", out double top); Length(style, "margin-top", out double mt);
                     double x = frame is null ? left + ml : frame.X + (left + ml - frame.OriginX) * frame.ScaleX;
                     double y = frame is null ? top + mt : frame.Y + (top + mt - frame.OriginY) * frame.ScaleY;
+                    if (frame is null && page is not null)
+                    {
+                        // Apply group alignment once, against the group's full
+                        // extent. Centering each child would collapse the group.
+                        string? across = style.GetValueOrDefault("mso-position-horizontal-relative");
+                        string? down = style.GetValueOrDefault("mso-position-vertical-relative");
+                        x += Align(style.GetValueOrDefault("mso-position-horizontal"),
+                            (across == "page" ? page.Width : page.ContentWidth) - width);
+                        if (down is "page" or "margin")
+                            y += Align(style.GetValueOrDefault("mso-position-vertical"),
+                                (down == "page" ? page.Height : page.ContentHeight) - height);
+                    }
+
                     var inherited = frame is null ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : new(frame.Style, StringComparer.OrdinalIgnoreCase);
                     foreach (var pair in style) inherited[pair.Key] = pair.Value;
                     var next = new Frame(x, y, width * (frame?.ScaleX ?? 1) / cx, height * (frame?.ScaleY ?? 1) / cy, ox, oy, inherited);
@@ -128,6 +142,13 @@ internal static class DocxVmlShapeWalker
             result.Name = DocxNamespaces.Vml + "oval";
         return result;
     }
+
+    private static double Align(string? position, double slack) => position switch
+    {
+        "center" => slack / 2,
+        "right" or "bottom" => slack,
+        _ => 0,
+    };
 
     private static string Pt(double value) => value.ToString("R", CultureInfo.InvariantCulture) + "pt";
     private static bool Length(Dictionary<string, string> style, string key, out double value) => DocxVml.TryLength(style.GetValueOrDefault(key), out value);

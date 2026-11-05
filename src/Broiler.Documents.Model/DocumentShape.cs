@@ -157,6 +157,9 @@ public sealed class DocumentShape(
     /// </summary>
     public bool Printable { get; } = printable;
 
+    /// <summary>Whether the source anchors this frame as a character in its paragraph.</summary>
+    public bool IsAsCharacter { get; init; }
+
     /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
     /// and therefore on top.

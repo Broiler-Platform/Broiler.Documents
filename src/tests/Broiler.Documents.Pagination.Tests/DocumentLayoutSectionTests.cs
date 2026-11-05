@@ -480,6 +480,7 @@ public sealed class DocumentLayoutSectionTests
 
         // Section 0 spans pages 1 and 2. Next page would be 3 (odd), but Section 1 requires EvenPage -> blank page 3!
         Assert.Equal(4, pages.Count);
+        Assert.Equal(3, Assert.Single(pages, page => page.IsParityBlank).Number);
         Assert.NotEmpty(pages[0].Lines);
         Assert.NotEmpty(pages[1].Lines);
         Assert.Empty(pages[2].Lines);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO.Compression;
+using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
 
@@ -63,7 +64,7 @@ internal sealed class DocxNotes
         DocxRelationships documentRelationships,
         string baseDirectory,
         XElement? settings,
-        XElement? finalSectionProperties,
+        XElement? body,
         DocumentLimits limits,
         List<DocumentDiagnostic> diagnostics)
     {
@@ -72,6 +73,10 @@ internal sealed class DocxNotes
         (Dictionary<int, XElement> endnotes, DocxRelationships endnoteRelationships) = LoadPart(
             archive, documentRelationships, DocxNamespaces.EndnotesRelationship, "endnote", limits, diagnostics);
 
+        RecoverMissingIds(body, "footnoteReference", footnotes, diagnostics);
+        RecoverMissingIds(body, "endnoteReference", endnotes, diagnostics);
+
+        XElement? finalSectionProperties = body?.Element(DocxNamespaces.Wordprocessing + "sectPr");
         NoteNumbering numbering = ReadNumbering(settings, NoteNumbering.Default);
         numbering = ReadNumbering(finalSectionProperties, numbering);
         return new DocxNotes(footnotes, footnoteRelationships, endnotes, endnoteRelationships, numbering);
@@ -80,6 +85,46 @@ internal sealed class DocxNotes
     /// <summary>The note a reference names, or null when the part has no such note.</summary>
     public XElement? Find(NoteKind kind, int id) =>
         (kind == NoteKind.Endnote ? _endnotes : _footnotes).TryGetValue(id, out XElement? note) ? note : null;
+
+    private static void RecoverMissingIds(XElement? body, string referenceName,
+        Dictionary<int, XElement> notes, List<DocumentDiagnostic> diagnostics)
+    {
+        if (body is null || notes.Count == 0)
+            return;
+
+        var references = new List<int>();
+        foreach (XElement reference in body.Descendants(DocxNamespaces.Wordprocessing + referenceName))
+        {
+            if (!DocxValueReader.TryReadInt(reference.Attribute(DocxNamespaces.Wordprocessing + "id"), out int id) ||
+                references.Count >= notes.Count || (references.Count > 0 && id <= references[^1]))
+                return;
+            references.Add(id);
+        }
+
+        if (references.Count != notes.Count || references.All(notes.ContainsKey))
+            return;
+
+        // Recover an otherwise complete series with broken IDs only when
+        // sorting the definitions agrees with every surviving exact match
+        // and at least half the references still have matching IDs.
+        int[] definitionIds = [.. notes.Keys.Order()];
+        int exactMatches = 0;
+        for (int i = 0; i < references.Count; i++)
+        {
+            if (!notes.ContainsKey(references[i]))
+                continue;
+            if (references[i] != definitionIds[i])
+                return;
+            exactMatches++;
+        }
+        if (exactMatches * 2L < references.Count)
+            return;
+
+        for (int i = 0; i < references.Count; i++)
+            notes.TryAdd(references[i], notes[definitionIds[i]]);
+        diagnostics.Add(DocumentDiagnostic.Warning("docx.note.ids",
+            "Missing DOCX note IDs were recovered from a complete numbered series whose surviving references agree with the definition order."));
+    }
 
     private static (Dictionary<int, XElement> Notes, DocxRelationships Relationships) LoadPart(
         ZipArchive archive,

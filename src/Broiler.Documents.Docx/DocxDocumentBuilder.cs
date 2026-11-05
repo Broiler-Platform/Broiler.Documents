@@ -453,6 +453,8 @@ internal sealed class DocxDocumentBuilder(
     /// <summary>The paragraph a shape met right now would be anchored to.</summary>
     public int CurrentParagraphIndex => _paragraphs.Count;
 
+    public bool HasPageBreakBefore(int index) => index < _paragraphs.Count && _paragraphs[index].Style.PageBreakBefore;
+
     public void AddShape(DocumentShape shape) => _shapes.Add(shape);
 
     public RichTextDocument Build()

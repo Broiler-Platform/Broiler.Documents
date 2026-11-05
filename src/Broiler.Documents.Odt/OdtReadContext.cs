@@ -27,6 +27,7 @@ internal sealed record OdtReadContext(
 {
     public PageGeometry? ActivePage { get; set; } = Page;
     public Func<string, string?, int, bool>? SelectPageStyle { get; init; }
+    public bool UsesSoftPageBreaks { get; init; }
     public int TableDepth { get; set; }
     public int HiddenSectionDepth { get; set; }
     public IReadOnlySet<string> LinkedFrameTargets { get; init; } = new HashSet<string>(StringComparer.Ordinal);

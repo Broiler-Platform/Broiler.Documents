@@ -205,8 +205,22 @@ internal static class DocxTableReader
 
         double cellPadding = ReadCellPadding(styleTableParts, properties);
         double leftIndent = DocxValueReader.Twips(TableProperty(styleTableParts, properties, "tblInd"), "w");
-        TablePosition? position = depth <= 1 ? ReadPosition(properties) : null;
-        if (depth <= 1)
+        TablePosition? position = ReadPosition(properties);
+        bool inCell = context.Builder.InTableCell;
+        // Word stores a break before a table on its first cell paragraph,
+        // including when the paragraph inherits it from a style.
+        if (!inCell && rows.Count > 0 && rows[0].Cells.Count > 0 && rows[0].Cells[0].ParagraphCount > 0)
+            pageBreak |= context.Builder.HasPageBreakBefore(rows[0].Cells[0].ParagraphIndex);
+        if (inCell && position is not null && (position.HorizontalAnchor != TableAnchor.Text ||
+            position.VerticalAnchor != TableAnchor.Text || position.VerticalAlignment != TableAlignment.None))
+        {
+            context.Builder.AddDiagnosticOnce(
+                "docx.table.floating",
+                "A DOCX table nested in a cell stated a floating position; it was laid out in its cell.");
+            position = null;
+        }
+
+        if (!inCell || position is not null)
         {
             TableBorder firstLeft = rows.Count > 0 && rows[0].Cells.Count > 0 ? rows[0].Cells[0].Borders.Left : default;
             (position, leftIndent) = PlaceAsWord(position, leftIndent, cellPadding,
@@ -225,13 +239,6 @@ internal static class DocxTableReader
             alignment: ReadAlignment(DocxValueReader.WordValue(TableProperty(styleTableParts, properties, "jc"))),
             leftIndent: leftIndent,
             pageBreakBefore: pageBreak, columnBreakBefore: columnBreak));
-
-        if (depth > 1 && properties?.Element(DocxNamespaces.Wordprocessing + "tblpPr") is not null)
-        {
-            context.Builder.AddDiagnosticOnce(
-                "docx.table.floating",
-                "A DOCX table nested in a cell stated a floating position; it was laid out in its cell.");
-        }
 
         context.Builder.NoteTable();
         string? unapplied = FirstUnappliedStyleProperty(styles.AllTableStyleParts(styleId));

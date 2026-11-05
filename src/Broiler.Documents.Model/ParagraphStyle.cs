@@ -129,6 +129,9 @@ public readonly record struct ParagraphStyle
     /// </remarks>
     public bool PageBreakBefore { get; init; }
 
+    /// <summary>True when the page break itself belongs to a tracked deletion.</summary>
+    public bool PageBreakBeforeInDeletion { get; init; }
+
     /// <summary>Keep this paragraph on the same page or column as the next, when the group fits.</summary>
     public bool KeepWithNext { get; init; }
 

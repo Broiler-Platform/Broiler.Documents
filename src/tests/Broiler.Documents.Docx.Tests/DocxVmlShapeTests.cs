@@ -1,4 +1,5 @@
 using Broiler.Graphics.Color;
+using System.IO.Compression;
 
 namespace Broiler.Documents.Docx.Tests;
 
@@ -24,6 +25,28 @@ public sealed class DocxVmlShapeTests
 
     private static string TextBox(string text) =>
         "<v:textbox><w:txbxContent><w:p><w:r><w:t>" + text + "</w:t></w:r></w:p></w:txbxContent></v:textbox>";
+
+    [Fact]
+    public void A_Grouped_Polygon_Preserves_Transparent_Space_And_Group_Alignment()
+    {
+        var shape = Assert.Single(Read("""
+            <v:group coordsize="100,100" style="width:100pt;height:100pt;mso-position-horizontal:center;mso-position-horizontal-relative:page">
+              <v:shape coordsize="100,100" style="width:100;height:100" fillcolor="red" stroked="f" path="m,l100,,100,100xe"/>
+            </v:group>
+            """).Document.Shapes);
+
+        Assert.Equal((11906 / 20d - 100) / 2 - 72, shape.OffsetX, 3);
+        var image = Assert.IsType<InlineImage>(shape.Image);
+        Assert.Equal("image/png", image.ContentType);
+        byte[] png = image.Data.ToArray();
+        int dataLength = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(png.AsSpan(33, 4));
+        using var data = new MemoryStream(png, 41, dataLength);
+        using var compressor = new ZLibStream(data, CompressionMode.Decompress);
+        var pixels = new byte[200 * 801];
+        compressor.ReadExactly(pixels);
+        Assert.Equal(255, pixels[20 * 801 + 4 * 180 + 4]);
+        Assert.Equal(0, pixels[180 * 801 + 4 * 20 + 4]);
+    }
 
     [Theory]
     [InlineData("t", true)]

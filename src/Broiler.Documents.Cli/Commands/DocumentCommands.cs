@@ -345,7 +345,19 @@ public static class DocumentCommands
         var cellSeparators = new Dictionary<int, char>();
         if (joinsTableRows)
             ReadCellSeparators(document.Tables, cellSeparators);
-        DocumentTable[] floating = [.. document.Tables.Where(table => table.IsFloating)];
+        IEnumerable<DocumentTable> FloatingTables(IEnumerable<DocumentTable> tables)
+        {
+            foreach (DocumentTable table in tables)
+            {
+                if (table.IsFloating)
+                    yield return table;
+                else
+                    foreach (DocumentTable nested in FloatingTables(table.Rows.SelectMany(row => row.Cells).SelectMany(cell => cell.Tables)))
+                        yield return nested;
+            }
+        }
+
+        DocumentTable[] floating = [.. FloatingTables(document.Tables)];
         bool InFloatingTable(int index) =>
             floating.Any(table => index >= table.ParagraphIndex && index < table.ParagraphEnd);
 

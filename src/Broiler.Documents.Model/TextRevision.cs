@@ -244,6 +244,8 @@ public sealed class RevisionDisplay
         {
             RichTextParagraph paragraph = result.Paragraphs[index];
             RichTextParagraph kept = WithoutDeletedRuns(paragraph);
+            if (kept.Style.PageBreakBeforeInDeletion)
+                kept = kept.WithParagraphStyle(kept.Style with { PageBreakBefore = false, PageBreakBeforeInDeletion = false });
             bool markDeleted = paragraph.MarkStyle.Revision?.IsDeletion == true;
             bool canJoin = index + 1 < result.ParagraphCount && !boundaries.Contains(index + 1);
 
@@ -252,7 +254,7 @@ public sealed class RevisionDisplay
                 // A page or column the paragraph started is still started, by
                 // the paragraph that takes its place.
                 RichTextParagraph next = result.Paragraphs[index + 1];
-                ParagraphStyle style = paragraph.Style;
+                ParagraphStyle style = kept.Style;
                 if (style.PageBreakBefore && !next.Style.PageBreakBefore)
                     next = next.WithParagraphStyle(next.Style with { PageBreakBefore = true, ColumnBreakBefore = false });
                 else if (style.ColumnBreakBefore && !next.Style.PageBreakBefore && !next.Style.ColumnBreakBefore)

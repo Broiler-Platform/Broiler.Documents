@@ -23,6 +23,19 @@ public sealed class RevisionDisplayTests
         paragraph.WithMarkStyle(paragraph.MarkStyle with { Revision = DeletedByAnna });
 
     [Fact]
+    public void A_Page_Break_Inside_A_Deletion_Disappears_With_It()
+    {
+        var deleted = WithDeletedMark(RichTextParagraph.Empty.WithParagraphStyle(
+            ParagraphStyle.Default with { PageBreakBefore = true, PageBreakBeforeInDeletion = true }));
+        var document = RichTextDocument.FromParagraphs([deleted, RichTextParagraph.Plain("visible")])
+            .WithShowsRevisions(false);
+
+        var visible = Assert.Single(RevisionDisplay.HideDeletions(document).Paragraphs);
+        Assert.Equal("visible", visible.Text);
+        Assert.False(visible.Style.PageBreakBefore);
+    }
+
+    [Fact]
     public void An_Insertion_Is_Underlined_And_A_Deletion_Struck_Through_In_Their_Authors_Colour()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs(

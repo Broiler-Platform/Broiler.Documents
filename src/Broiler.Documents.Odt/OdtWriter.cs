@@ -260,7 +260,7 @@ public static class OdtWriter
                 OdtNamespaces.Text + "anchor-page-number",
                 shape.AnchorPage.ToString(CultureInfo.InvariantCulture)),
         ]
-        : [new XAttribute(OdtNamespaces.Text + "anchor-type", "paragraph")];
+        : [new XAttribute(OdtNamespaces.Text + "anchor-type", shape.IsAsCharacter ? "as-char" : "paragraph")];
 
     private static XDocument BuildContent(XElement body, OdtWriteContext context)
     {

@@ -290,7 +290,7 @@ public sealed class DocxColumnTests
     }
 
     [Fact]
-    public void A_Section_On_An_Odd_Page_Starts_A_Page_And_Says_What_It_Did_Not_Make()
+    public void A_Section_On_An_Odd_Page_Preserves_Its_Break_Type()
     {
         DocumentReadResult result = Read(
             SectionEnd("first section", string.Empty) +
@@ -298,7 +298,8 @@ public sealed class DocxColumnTests
             Section("<w:type w:val=\"oddPage\"/>"));
 
         Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
-        Assert.True(Reports(result, "docx.section.parity"));
+        Assert.Equal(SectionBreakType.OddPage, result.Document.Sections[1].BreakType);
+        Assert.False(Reports(result, "docx.section.parity"));
     }
 
     [Fact]

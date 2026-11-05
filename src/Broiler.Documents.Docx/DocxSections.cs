@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Xml.Linq;
 using Broiler.Documents.Model;
@@ -72,13 +73,6 @@ internal sealed class DocxSections
         _current < _sections.Count && _sections[_current].StartsPage && _sections[_current].Paragraphs > 0;
 
     /// <summary>
-    /// True when the section the read has just entered starts on a page of a
-    /// given parity, which can put a blank page before it.
-    /// </summary>
-    public bool CurrentWantsParity =>
-        _current < _sections.Count && _sections[_current].WantsParity && _sections[_current].Paragraphs > 0;
-
-    /// <summary>
     /// The columns of the section that holds the most paragraphs, which is
     /// what the model's one page records. A tie goes to the later section, the
     /// way the page size and margins go to the last.
@@ -121,7 +115,7 @@ internal sealed class DocxSections
     {
         var sections = new List<Section>();
         if (body is null)
-            return new DocxSections([new Section(DocxColumns.Single, 0, StartsPage: false, WantsParity: false, Page: null, BreakType: SectionBreakType.NextPage, PageNumberStart: null)]);
+            return new DocxSections([new Section(DocxColumns.Single, 0, StartsPage: false, Page: null, BreakType: SectionBreakType.NextPage, PageNumberStart: null)]);
 
         int paragraphs = 0;
         Section? previous = null;
@@ -180,7 +174,6 @@ internal sealed class DocxSections
         PageGeometry? page = ReadPage(sectPr);
 
         bool startsPage = type is "nextPage" or "oddPage" or "evenPage";
-        bool wantsParity = type is "oddPage" or "evenPage";
 
         // LibreOffice reads nextColumn as nextPage in Word 2013 documents and
         // wherever the column count changes, and a change of orientation as nextPage
@@ -218,7 +211,7 @@ internal sealed class DocxSections
             sectPr?.Element(DocxNamespaces.Wordprocessing + "pgNumType")?.Attribute(DocxNamespaces.Wordprocessing + "start"),
             out int start) && start >= 0 ? start : null;
 
-        return new Section(columns, paragraphs, startsPage, wantsParity, page, breakType, numberStart);
+        return new Section(columns, paragraphs, startsPage, page, breakType, numberStart);
     }
 
     /// <summary>
@@ -245,15 +238,25 @@ internal sealed class DocxSections
             (w, h) = (h, w);
         }
 
+        // Some producers emit fractional bare twips in page margins.
+        double Margin(string name)
+        {
+            XAttribute? attribute = margin?.Attribute(DocxNamespaces.Wordprocessing + name);
+            if (DocxValueReader.TryReadTwips(attribute, out int twips))
+                return twips / 20d;
+            return double.TryParse((string?)attribute, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture, out double value) && double.IsFinite(value) ? value / 20d : 0;
+        }
+
         var geometry = new PageGeometry(
             w,
             h,
-            DocxValueReader.Twips(margin, "left"),
-            DocxValueReader.Twips(margin, "right"),
-            DocxValueReader.Twips(margin, "top"),
-            DocxValueReader.Twips(margin, "bottom"),
-            DocxValueReader.Twips(margin, "header"),
-            DocxValueReader.Twips(margin, "footer"));
+            Margin("left"),
+            Margin("right"),
+            Margin("top"),
+            Margin("bottom"),
+            Margin("header"),
+            Margin("footer"));
         return geometry.IsUsable ? geometry : null;
     }
 
@@ -442,7 +445,7 @@ internal sealed class DocxSections
          value.Equals("0", StringComparison.Ordinal) ||
          value.Equals("off", StringComparison.OrdinalIgnoreCase));
 
-    private sealed record Section(DocxColumns Columns, int Paragraphs, bool StartsPage, bool WantsParity, PageGeometry? Page, SectionBreakType BreakType,
+    private sealed record Section(DocxColumns Columns, int Paragraphs, bool StartsPage, PageGeometry? Page, SectionBreakType BreakType,
         int? PageNumberStart);
 }
 
