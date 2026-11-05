@@ -64,6 +64,15 @@ public enum ListNumberFormat
 
     /// <summary>Traditional Chinese financial numerals.</summary>
     IdeographLegalTraditional,
+
+    /// <summary>一, 二, 三 ... 十, 十一 ... 二十.</summary>
+    IdeographCounting,
+
+    /// <summary>甲, 乙, 丙 ... 癸 (Tian Gan).</summary>
+    TianGan,
+
+    /// <summary>子, 丑, 寅 ... 亥 (Di Zi).</summary>
+    DiZi,
 }
 
 /// <summary>One level of a <see cref="ListDefinition"/>.</summary>

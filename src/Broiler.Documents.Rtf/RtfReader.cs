@@ -332,8 +332,6 @@ public static class RtfReader
                     _bodySectionPending = false;
                 _builder.EndParagraph(_state.Para);
             }
-            // A final frame can belong to an otherwise empty body paragraph.
-            // Keep that anchor even when preceding body paragraphs already exist.
             if (_shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _builder.ParagraphCount))
                 _builder.EndParagraph(_state.Para);
             RichTextDocument document = _builder.Build(_state.Para)
@@ -907,7 +905,7 @@ public static class RtfReader
                 case "sectd":
                     if (_bodySectionPending)
                     {
-                        _bodySectionBreak = BodySectionBreak.Page;
+                        _bodySectionBreak = _builder.PageBreakPending ? BodySectionBreak.Continuous : BodySectionBreak.Page;
                         _bodySectionHasProperties = true;
                     }
                     if (!_pastFirstSection)
@@ -917,6 +915,13 @@ public static class RtfReader
                     if (_state.Dest == RtfDestination.Normal && !_state.Frame.IsFrame && !_state.InTable)
                     {
                         FlushPending();
+                        FinishFrame();
+                        if (!_builder.HasPendingText &&
+                            _shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _builder.ParagraphCount))
+                        {
+                            ApplyBodySectionBreak();
+                            _builder.EndParagraph(_state.Para);
+                        }
                         if (_bodySectionPending)
                         {
                             ApplyBodySectionBreak();
@@ -929,7 +934,7 @@ public static class RtfReader
                         FinishTable();
                         _bodySectionPending = true;
                         _bodySectionHasProperties = false;
-                        _bodySectionBreak = BodySectionBreak.Page;
+                        _bodySectionBreak = _builder.PageBreakPending ? BodySectionBreak.Continuous : BodySectionBreak.Page;
                     }
                     _pastFirstSection = true;
                     return;
@@ -940,7 +945,7 @@ public static class RtfReader
                 case "sbkeven":
                     if (_bodySectionPending)
                     {
-                        _bodySectionBreak = BodySectionBreak.Page;
+                        _bodySectionBreak = _builder.PageBreakPending ? BodySectionBreak.Continuous : BodySectionBreak.Page;
                         _bodySectionHasProperties = true;
                         if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.section.parity"))
                             _diagnostics.Add(DocumentDiagnostic.Warning("rtf.section.parity",
@@ -2298,20 +2303,8 @@ public static class RtfReader
                 if (!_builder.HasPendingText &&
                     _shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _builder.ParagraphCount))
                 {
-                    int anchor = _builder.ParagraphCount;
+                    ApplyBodySectionBreak();
                     _builder.EndParagraph(_state.Para);
-                    for (int i = 0; i < _shapes.Count; i++)
-                    {
-                        DocumentShape shape = _shapes[i];
-                        if (shape.IsPageAnchored || shape.ParagraphIndex != anchor)
-                            continue;
-                        _shapes[i] = new DocumentShape(_builder.ParagraphCount, shape.OffsetX, shape.OffsetY,
-                            shape.Width, shape.Height, shape.Fill, shape.Outline, shape.Paragraphs, shape.Image,
-                            shape.BehindText, shape.Wrap, shape.WrapSide, shape.WrapDistance, shape.ZOrder,
-                            shape.AnchorPage, shape.OffsetFromPage, shape.GrowsToText, shape.Tables, shape.TextPadding,
-                            shape.TextVerticalAlignment, shape.TextOverflow, shape.GrowsWidthToText, shape.FrameName,
-                            shape.NextFrameName, shape.Geometry, shape.OutlineWidth, shape.OffsetXFromCell, shape.CellHorizontalAlignment);
-                    }
                 }
                 if (!_builder.BreakPage(_state.Para))
                     ReportEmptyPage();

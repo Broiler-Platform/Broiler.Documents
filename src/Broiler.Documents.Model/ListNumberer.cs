@@ -219,6 +219,9 @@ public sealed class ListNumberer
         ListNumberFormat.Chicago => value is > 0 and <= 116
             ? new string("*†‡§"[(value - 1) % 4], ((value - 1) / 4) + 1) : string.Empty,
         ListNumberFormat.IdeographLegalTraditional => TraditionalFinancial(value),
+        ListNumberFormat.IdeographCounting => ChineseCounting(value),
+        ListNumberFormat.TianGan => TianGan(value),
+        ListNumberFormat.DiZi => DiZi(value),
         _ => value.ToString(CultureInfo.InvariantCulture),
     };
 
@@ -259,6 +262,61 @@ public sealed class ListNumberer
             _ => "th",
         };
         return value.ToString(CultureInfo.InvariantCulture) + suffix;
+    }
+
+
+    private static string ChineseCounting(int value)
+    {
+        if (value is < 1 or > 99999)
+            return value.ToString(CultureInfo.InvariantCulture);
+
+        const string digits = "零一二三四五六七八九";
+        if (value < 10)
+            return digits[value].ToString();
+
+        if (value < 20)
+            return "十" + (value == 10 ? string.Empty : digits[value % 10].ToString());
+
+        if (value < 100)
+        {
+            int units = value % 10;
+            return digits[value / 10] + "十" + (units == 0 ? string.Empty : digits[units].ToString());
+        }
+
+        if (value >= 10000)
+        {
+            int remainder = value % 10000;
+            return ChineseCounting(value / 10000) + "萬" + (remainder switch
+            {
+                0 => string.Empty,
+                < 1000 => "零" + ChineseCounting(remainder),
+                _ => ChineseCounting(remainder),
+            });
+        }
+
+        (int place, string unit) = value >= 1000 ? (1000, "千") : (100, "百");
+        int tail = value % place;
+        string head = digits[value / place] + unit;
+        if (tail == 0)
+            return head;
+
+        return head + (tail < place / 10 ? "零" : string.Empty) + ChineseCounting(tail);
+    }
+
+    private static string TianGan(int value)
+    {
+        const string stems = "甲乙丙丁戊己庚辛壬癸";
+        return value is >= 1 and <= 10
+            ? stems[value - 1].ToString()
+            : value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string DiZi(int value)
+    {
+        const string branches = "子丑寅卯辰巳午未申酉戌亥";
+        return value is >= 1 and <= 12
+            ? branches[value - 1].ToString()
+            : value.ToString(CultureInfo.InvariantCulture);
     }
 
     private static string TraditionalFinancial(int value)

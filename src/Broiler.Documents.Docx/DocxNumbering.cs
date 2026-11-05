@@ -200,6 +200,11 @@ internal sealed class DocxNumbering
         "ordinal" => ListNumberFormat.Ordinal,
         "chicago" => ListNumberFormat.Chicago,
         "ideographLegalTraditional" => ListNumberFormat.IdeographLegalTraditional,
+        "taiwaneseCountingThousand" or "taiwaneseCounting" or "chineseCounting" or
+            "chineseCountingThousand" or "ideographDigital" or "japaneseCounting" or
+            "koreanDigital2" => ListNumberFormat.IdeographCounting,
+        "ideographTraditional" => ListNumberFormat.TianGan,
+        "ideographZodiac" => ListNumberFormat.DiZi,
         "upperLetter" => ListNumberFormat.UpperLetter,
         "lowerRoman" => ListNumberFormat.LowerRoman,
         "upperRoman" => ListNumberFormat.UpperRoman,

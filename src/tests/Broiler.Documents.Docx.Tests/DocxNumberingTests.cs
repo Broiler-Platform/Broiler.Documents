@@ -1,4 +1,4 @@
-namespace Broiler.Documents.Docx.Tests;
+﻿namespace Broiler.Documents.Docx.Tests;
 
 /// <summary>
 /// Covers <c>word/numbering.xml</c> (ECMA-376 §17.9): which list a paragraph is
@@ -262,6 +262,28 @@ public sealed class DocxNumberingTests
         RichTextDocument document = Read(body, string.Empty);
         Assert.Equal(ListKind.None, document.Paragraphs[0].Style.ListKind);
         Assert.Null(document.Paragraphs[0].Style.List);
+    }
+
+    [Theory]
+    [InlineData("taiwaneseCountingThousand", "\u4E00.", "\u4E8C.")]
+    [InlineData("koreanDigital2", "\u4E00.", "\u4E8C.")]
+    [InlineData("ideographTraditional", "\u7532.", "\u4E59.")]
+    [InlineData("ideographZodiac", "\u5B50.", "\u4E11.")]
+    public void Cjk_List_Number_Formats_Render_Correct_Labels(string numFmt, string expected1, string expected2)
+    {
+        string body = Item(1, 0, "first") + Item(1, 0, "second");
+        string numbering = Abstract(0, Level(0, numFmt, "%1.")) + Num(1, 0);
+        RichTextDocument document = Read(body, numbering);
+        Assert.Equal([expected1, expected2], Labels(document));
+    }
+
+    [Fact]
+    public void TianGan_Number_Format_Renders_Ten_Stems()
+    {
+        string body = string.Concat(Enumerable.Range(1, 10).Select(i => Item(1, 0, $"item {i}")));
+        string numbering = Abstract(0, Level(0, "ideographTraditional", "%1.")) + Num(1, 0);
+        RichTextDocument document = Read(body, numbering);
+        Assert.Equal(["\u7532.", "\u4E59.", "\u4E19.", "\u4E01.", "\u620A.", "\u5DF1.", "\u5E9A.", "\u8F9B.", "\u58EC.", "\u7678."], Labels(document));
     }
 
     private static RichTextParagraph Numbered(string text, ListDefinition definition, int level)

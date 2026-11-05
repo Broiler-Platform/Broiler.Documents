@@ -1,4 +1,7 @@
 using System.Text;
+using Broiler.Documents.Docx;
+using Broiler.Documents.Model;
+using Broiler.Documents.Pagination;
 using Broiler.Documents.Rtf;
 
 namespace Broiler.Documents.Cli.Tests;
@@ -18,10 +21,11 @@ public sealed class DocumentLayoutFramePageTests
             new DocumentPageBox(300, 300, 10, 10, 10, 10));
 
         Assert.Equal(2, result.Pages.Count);
-        Assert.Empty(result.Pages[0].Shapes);
-        Assert.Equal(2, result.Pages[1].Shapes.Count);
-        Assert.Equal(new[] { "first", "second" }, result.Pages[1].Shapes.SelectMany(shape => shape.Lines)
-            .Select(line => string.Concat(line.Pieces.Select(piece => piece.Text))));
-        Assert.Equal(new[] { 20d, 80d }, result.Pages[1].Shapes.Select(shape => shape.Bounds.Top));
+        Assert.Single(result.Pages[0].Shapes);
+        Assert.Single(result.Pages[1].Shapes);
+        Assert.Equal("first", string.Concat(result.Pages[0].Shapes[0].Lines.SelectMany(l => l.Pieces.Select(p => p.Text))));
+        Assert.Equal("second", string.Concat(result.Pages[1].Shapes[0].Lines.SelectMany(l => l.Pieces.Select(p => p.Text))));
+        Assert.Equal(20d, result.Pages[0].Shapes[0].Bounds.Top);
+        Assert.Equal(80d, result.Pages[1].Shapes[0].Bounds.Top);
     }
 }

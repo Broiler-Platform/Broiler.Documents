@@ -155,6 +155,29 @@ public sealed class TextWrapExclusions
 
         return new TextBand(band.Left, band.Width);
     }
+    /// <summary>
+    /// Resolves the earliest vertical position at or below <paramref name="top"/> where
+    /// an object of width <paramref name="requiredWidth"/> and height <paramref name="height"/>
+    /// can fit without overlapping obstacles.
+    /// </summary>
+    public double Clearance(double top, double height, double requiredWidth, double columnWidth)
+    {
+        if (IsEmpty)
+            return top;
+        double y = top;
+        _kernel.ResolveLine(
+            ref y,
+            height,
+            0.0,
+            columnWidth,
+            out _,
+            maxAttempts: 8,
+            descentStep: ClearanceDescentStep.Deepest,
+            fallback: BlockedBandFallback.FullColumnAtCurrentY,
+            minUsableWidth: requiredWidth,
+            defaultSidePolicy: ObstacleSidePolicy.Largest);
+        return y;
+    }
 
     /// <summary>
     /// The span a line occupying <paramref name="top"/> to <paramref name="bottom"/>

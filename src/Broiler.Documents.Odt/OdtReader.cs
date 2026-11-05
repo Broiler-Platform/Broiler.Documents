@@ -995,7 +995,7 @@ internal static class OdtReader
             cellHorizontalAlignment: ReadCellHorizontalAlignment(graphic),
             printable: Prints(graphic))
         {
-            IsAsCharacter = textBox is not null && (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") == "as-char",
+            IsAsCharacter = (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") == "as-char",
         });
         return true;
     }

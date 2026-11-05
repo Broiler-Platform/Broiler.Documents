@@ -408,7 +408,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         bool ColumnHasContent() =>
             currentLines.Count > columnStart || (column == 0 && (regionTop > pageTop || floatBoxes.Count > 0 ||
-                _documentShapes.Any(shape => shape.Wraps && (shape.AnchorPage == pages.Count + 1 ||
+                _documentShapes.Any(shape => (shape.Wraps || shape.IsAsCharacter) && (shape.AnchorPage == pages.Count + 1 ||
                     (!shape.IsPageAnchored && _paragraphTops.ContainsKey(shape.ParagraphIndex))))));
 
         // One count for the body, which the cells of its tables share: a list
@@ -1310,8 +1310,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // below preceding content. An oversized frame is allowed once on a
             // fresh page rather than repeatedly making empty pages.
             if (!setup.Continuous && ColumnHasContent() && _documentShapes.Any(shape =>
-                shape.Wraps && !shape.IsPageAnchored && !shape.OffsetFromPage && shape.ParagraphIndex == paragraphIndex &&
-                shape.TopOnPage(y) + BoxHeight(shape) > contentBottom))
+                (shape.Wraps || shape.IsAsCharacter) && !shape.IsPageAnchored && !shape.OffsetFromPage && shape.ParagraphIndex == paragraphIndex &&
+                ResolvedShapeTop(shape, y, setup) + BoxHeight(shape) > contentBottom))
             {
                 BreakColumn();
                 if (truncated)
@@ -1811,7 +1811,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// <para>
     /// A header sits at its declared distance from the top edge, and where it
     /// runs past the top margin the text starts below it rather than under it:
-    /// ECMA-376 §17.6.11 says a positive top margin pushes the text down to keep
+    /// ECMA-376 Â§17.6.11 says a positive top margin pushes the text down to keep
     /// it off the header, and a positive bottom margin up off the footer, and
     /// Word and LibreOffice both draw it so. This layout used to leave such a
     /// header out. A contract whose last sections set the header at the top
@@ -3037,6 +3037,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// <summary>The height a shape's box is drawn at, grown to its text where it grows.</summary>
     private double BoxHeight(DocumentShape shape) =>
         _grownHeights.TryGetValue(shape, out double grown) ? grown : Math.Max(0, shape.Height);
+
+    private double ResolvedShapeTop(DocumentShape shape, double y, DocumentPageBox setup)
+    {
+        double top = shape.TopOnPage(y);
+        if (shape.IsAsCharacter && !_wrap.IsEmpty)
+            return _wrap.Clearance(top, BoxHeight(shape), BoxWidth(shape), setup.ContentWidthPoints);
+        return top;
+    }
 
     private double BoxWidth(DocumentShape shape) => _grownWidths.GetValueOrDefault(shape, Math.Max(0, shape.Width));
 

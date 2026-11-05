@@ -295,7 +295,7 @@ internal sealed class DocxDocumentBuilder(
             if (_pageBreakLeadsParagraph && _breakKeepsLeadingLabel &&
                 _paragraphStyle.ListKind != ListKind.None)
                 SplitAtPageBreak(keepList: true);
-            else if (_pageBreakLeadsParagraph)
+            else if (_pageBreakLeadsParagraph && (_breakIsColumn || _paragraphStyle.ListKind != ListKind.None || _paragraphs.Count > 0))
                 StartParagraphOnNewPage();
             else
                 SplitAtPageBreak();

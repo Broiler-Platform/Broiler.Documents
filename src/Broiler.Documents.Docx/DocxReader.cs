@@ -175,8 +175,9 @@ internal static class DocxReader
         }
 
         var builder = new DocxDocumentBuilder(limits, diagnostics, reported) { WordCompatibilityMode = compatibilityMode };
-        var context = new DocxReadContext(relationships, numbering, styles, images, builder, page, Sections: sections, Notes: notes);
+        var context = new DocxReadContext(relationships, numbering, styles, images, builder, page, Sections: sections, Notes: notes, Frames: new DocxFrameAccumulator());
         ReadBlockContent(body.Elements(), context, depth: 0);
+        context.Frames?.Finish(context);
         builder.ReportReadSummary(body.Elements().Any(IsContentBlock), styles.Count, images.ImageCount);
         return builder.Build();
     }
@@ -213,6 +214,7 @@ internal static class DocxReader
 
             if (name == DocxNamespaces.Wordprocessing + "tbl")
             {
+                context.Frames?.Finish(context);
                 DocxTableReader.Read(element, context, depth + 1, ReadBlockContent);
                 continue;
             }
@@ -667,6 +669,7 @@ internal static class DocxReader
         // heading number where LibreOffice starts the next chapter.
         if (context.Sections is not null && IsDroppableSectionMark(paragraph, context))
         {
+            context.Frames?.Finish(context);
             EndSection(context);
             return;
         }
@@ -674,6 +677,39 @@ internal static class DocxReader
         XElement? pPr = paragraph.Element(DocxNamespaces.Wordprocessing + "pPr");
         string? paragraphStyleId = DocxValueReader.WordValue(pPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
 
+        DocxFrameProperties? frame = DocxFrameAccumulator.ReadProperties(pPr, paragraphStyleId, context);
+        if (context.Frames is not null)
+        {
+            if (frame is not null)
+            {
+                if (context.Frames.ActiveProperties.HasValue && context.Frames.ActiveProperties.Value != frame.Value)
+                    context.Frames.Finish(context);
+
+                context.Frames.StartOrContinue(frame.Value, context);
+                EmitParagraph(paragraph, pPr, paragraphStyleId, context.ForFrame(context.Frames.ActiveBuilder!));
+                return;
+            }
+
+            context.Frames.Finish(context);
+        }
+
+        EmitParagraph(paragraph, pPr, paragraphStyleId, context);
+
+        // A paragraph belongs to the section it ends, so the cursor moves only
+        // once the paragraph's own breaks have been read against it.
+        if (context.Sections is not null && DocxSections.EndsSection(paragraph))
+        {
+            context.Frames?.Finish(context);
+            EndSection(context);
+        }
+    }
+
+    private static void EmitParagraph(
+        XElement paragraph,
+        XElement? pPr,
+        string? paragraphStyleId,
+        DocxReadContext context)
+    {
         ParagraphStyle paragraphStyle = ReadParagraphStyle(pPr, paragraphStyleId, context);
 
         // An empty paragraph that is there only to end a section is not an item
@@ -704,11 +740,6 @@ internal static class DocxReader
         context.Builder.StartParagraph(paragraphStyle, markStyle);
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
         context.Builder.FinishParagraph();
-
-        // A paragraph belongs to the section it ends, so the cursor moves only
-        // once the paragraph's own breaks have been read against it.
-        if (context.Sections is not null && DocxSections.EndsSection(paragraph))
-            EndSection(context);
     }
 
     /// <summary>

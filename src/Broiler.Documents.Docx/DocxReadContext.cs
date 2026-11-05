@@ -26,9 +26,13 @@ internal enum RunningBand
 /// The package's footnotes and endnotes, or null for a flow that cannot cite
 /// one - a header, a footer, a text box.
 /// </param>
+/// <param name="Frames">
+/// Accumulates consecutive framed paragraphs sharing identical <c>w:framePr</c>
+/// into floating shapes, or null outside the body flow.
+/// </param>
 internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumbering Numbering, DocxStyles Styles,
     DocxImageLoader Images, DocxDocumentBuilder Builder, PageGeometry? Page = null, RunningBand Band = RunningBand.Body,
-    string? TableStyle = null, DocxSections? Sections = null, DocxNotes? Notes = null)
+    string? TableStyle = null, DocxSections? Sections = null, DocxNotes? Notes = null, DocxFrameAccumulator? Frames = null)
 {
     /// <summary>
     /// The parts of its table the cell being read belongs to, which select the
@@ -62,5 +66,8 @@ internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumb
     /// <c>w:del</c> at block level - or null outside one.
     /// </summary>
     public TextRevision? Revision { get; init; }
-}
 
+    /// <summary>Creates a context for reading into a text frame.</summary>
+    public DocxReadContext ForFrame(DocxDocumentBuilder frameBuilder) =>
+        this with { Builder = frameBuilder, Sections = null, Frames = null };
+}

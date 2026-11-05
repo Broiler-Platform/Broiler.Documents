@@ -20,7 +20,7 @@ public sealed class RtfFrameTests
             "{\\pard\\pvpg\\posy800\\absw2000 second\\par}");
 
         Assert.Equal(2, document.Shapes.Count);
-        Assert.Equal(1, document.Shapes[0].ParagraphIndex);
+        Assert.Equal(0, document.Shapes[0].ParagraphIndex);
         Assert.Equal(1, document.Shapes[1].ParagraphIndex);
         Assert.False(document.Paragraphs[0].Style.PageBreakBefore);
         Assert.True(document.Paragraphs[1].Style.PageBreakBefore);
