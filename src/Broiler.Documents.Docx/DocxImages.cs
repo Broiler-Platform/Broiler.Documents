@@ -178,7 +178,7 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
     /// the shape's CSS <c>style</c>. Word wrote this shape for images before
     /// DrawingML and still writes it inside fields and some headers.
     /// </summary>
-    private InlineImage? ReadVmlPicture(XElement pict, DocxRelationships relationships, IDocxImageDiagnostics diagnostics)
+    internal InlineImage? ReadVmlPicture(XElement pict, DocxRelationships relationships, IDocxImageDiagnostics diagnostics)
     {
         XElement? imageData = FindDescendant(pict, DocxNamespaces.Vml + "imagedata");
         if (imageData is null)

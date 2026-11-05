@@ -1633,7 +1633,10 @@ internal static class DocxReader
         foreach (XElement shape in DocxVmlShapeWalker.Shapes(picture, context.Builder.Limits.MaxGroupDepth,
             (code, message) => context.Builder.AddDiagnosticOnce(code, message)))
         {
-            if (shape.Descendants(DocxNamespaces.Vml + "imagedata").Any())
+            Dictionary<string, string> style = DocxVml.ReadStyle((string?)shape.Attribute("style"));
+            bool isAbsolute = string.Equals(style.GetValueOrDefault("position"), "absolute", StringComparison.OrdinalIgnoreCase);
+            bool hasImageData = shape.Descendants(DocxNamespaces.Vml + "imagedata").Any();
+            if (hasImageData && !isAbsolute)
             {
                 hasImages = true;
                 continue;
@@ -1674,7 +1677,21 @@ internal static class DocxReader
             return false;
         }
 
-        ShapeFill? fill = segment ? null : DocxVml.ReadFill(
+        XElement? imageData = shape.Descendants(DocxNamespaces.Vml + "imagedata").FirstOrDefault();
+        InlineImage? image = null;
+        if (imageData is not null)
+        {
+            image = context.Images.ReadVmlPicture(shape, context.Relationships, context.Builder);
+            if (image is not null)
+            {
+                context.Builder.AddDiagnosticOnce(
+                    "docx.image.anchored",
+                    "A floating DOCX picture was anchored to its paragraph; text wraps " +
+                    "around the box it states rather than around the picture's outline.");
+            }
+        }
+
+        ShapeFill? fill = segment || image is not null ? null : DocxVml.ReadFill(
             shape,
             BColor.Empty,
             (code, message) => context.Builder.AddDiagnosticOnce(code, message),
@@ -1689,7 +1706,7 @@ internal static class DocxReader
         if (segment && dash is not null && !string.Equals(dash.Trim(), "solid", StringComparison.OrdinalIgnoreCase))
             context.Builder.AddDiagnosticOnce("docx.shape.stroke",
                 "A VML line dash pattern was approximated by a solid stroke.");
-        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty)
+        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty && image is null)
             return false;
 
         DocxVml.TryLength(style.GetValueOrDefault("left"), out double left);
@@ -1767,6 +1784,8 @@ internal static class DocxReader
             "topAndBottom" => ShapeWrap.TopAndBottom,
             _ => ShapeWrap.None,
         };
+        if (marginTop < -1000)
+            wrap = ShapeWrap.None;
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -1777,7 +1796,7 @@ internal static class DocxReader
             fill,
             outline,
             paragraphs,
-            image: null,
+            image: image,
             behindText: zIndex < 0,
             wrap: wrap,
             wrapSide: (string?)wrapping?.Attribute("side") switch { "left" => WrapSide.Left, "right" => WrapSide.Right, _ => WrapSide.Largest },

@@ -131,4 +131,24 @@ public sealed class RtfLegacyDrawingTests
         Assert.Equal(original.OutlineWidth, restored.OutlineWidth); Assert.Equal(original.OffsetFromPage, restored.OffsetFromPage);
     }
 
+    [Fact]
+    public void A_Two_Point_Polyline_Is_Read_As_A_Line_And_Detects_Ascending_Direction()
+    {
+        // Descending: (x1=10, y1=10) to (x2=100, y2=100) -> dx*dy > 0 -> Line
+        var desc = Assert.Single(Read(Drawing("\\dppolycount2\\dpptx10\\dppty10\\dpptx100\\dppty100", "dppolyline")).Document.Shapes);
+        Assert.Equal(ShapeGeometry.Line, desc.Geometry);
+        Assert.Null(desc.Fill);
+
+        // Ascending: (x1=10, y1=100) to (x2=100, y2=10) -> dx*dy < 0 -> LineAscending
+        var asc = Assert.Single(Read(Drawing("\\dppolycount2\\dpptx10\\dppty100\\dpptx100\\dppty10", "dppolyline")).Document.Shapes);
+        Assert.Equal(ShapeGeometry.LineAscending, asc.Geometry);
+    }
+
+    [Fact]
+    public void A_Polyline_With_Count_Other_Than_Two_Is_Diagnosed_As_Unsupported()
+    {
+        var result = Read(Drawing("\\dppolycount3\\dpptx10\\dppty10\\dpptx50\\dppty50\\dpptx100\\dppty10", "dppolyline"));
+        Assert.Empty(result.Document.Shapes);
+        Assert.Contains(result.Diagnostics, d => d.Code == "rtf.drawing.legacy");
+    }
 }

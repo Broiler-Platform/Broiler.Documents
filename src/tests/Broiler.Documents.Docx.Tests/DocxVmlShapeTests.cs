@@ -135,4 +135,41 @@ public sealed class DocxVmlShapeTests
 
         Assert.Equal(ShapeWrap.Square, shape.Wrap);
     }
+
+    private static DocumentReadResult ReadWithImage(string shapeXml) =>
+        DocxTestPackage.ReadWithMedia(
+            "<w:p><w:r><w:pict " + Vml + ">" + shapeXml + "</w:pict></w:r><w:r><w:t>body</w:t></w:r></w:p>" +
+            Section,
+            DocxTestPackage.ImageRelationship("rImg", "media/image1.png"),
+            new Dictionary<string, byte[]> { ["word/media/image1.png"] = DocxTestPackage.OnePixelPng });
+
+    [Fact]
+    public void An_Absolute_Positioned_Vml_Picture_Is_Read_As_A_Floating_Shape_With_Image()
+    {
+        DocumentReadResult result = ReadWithImage(
+            "<v:shape style=\"position:absolute;left:0;margin-left:10pt;margin-top:20pt;width:100pt;height:50pt\">" +
+            "<v:imagedata r:id=\"rImg\"/></v:shape>");
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.NotNull(shape.Image);
+        Assert.True(shape.HasImage);
+        Assert.Equal(10, shape.OffsetX, 3);
+        Assert.Equal(20, shape.OffsetY, 3);
+        Assert.Equal(100, shape.Width, 3);
+        Assert.Equal(50, shape.Height, 3);
+        Assert.Equal("body", result.Document.PlainText);
+    }
+
+    [Fact]
+    public void An_Extreme_Negative_Top_Margin_Bypasses_Wrapping()
+    {
+        // tdf#78902: when marginTop < -1000 pt, wrap must be None to prevent text
+        // wrapping around an out-of-page graphic.
+        DocumentReadResult result = ReadWithImage(
+            "<v:shape style=\"position:absolute;left:0;margin-left:10pt;margin-top:-1006.4pt;width:100pt;height:50pt\">" +
+            "<w10:wrap type=\"through\"/><v:imagedata r:id=\"rImg\"/></v:shape>");
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.Equal(ShapeWrap.None, shape.Wrap);
+    }
 }
