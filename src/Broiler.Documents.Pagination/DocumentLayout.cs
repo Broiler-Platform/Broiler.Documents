@@ -1129,7 +1129,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 int headerCount = HeaderRowCount(table);
                 bool headerOnly = false;
 
-                void ContinueTable(bool inHeader)
+                void ContinueTable(bool inHeader, RowBox? nextRow = null)
                 {
                     BreakColumn();
                     if (inHeader || truncated || setup.Continuous)
@@ -1148,10 +1148,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     }
                     finally { _lists = saved; }
 
-                    // Header rows as tall as the page leave nothing for the rows
+                    double headerHeight = repeated.Sum(header => header.Height);
                     // they head, so they are not repeated.
-                    if (y + repeated.Sum(header => header.Height) >= contentBottom)
+                    if (y + headerHeight >= contentBottom)
                         return;
+
+                    // cool#16066 / Word: if an unsplittable row cannot fit beneath the repeated header
+                    // but fits on the empty page without it, omit the repeated header on this page so
+                    // the row gets the full page.
+                    if (nextRow is not null && !nextRow.CanSplit &&
+                        y + headerHeight + nextRow.Height > contentBottom)
+                    {
+                        return;
+                    }
 
                     foreach (RowBox header in repeated)
                     {
@@ -1182,7 +1191,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     double requiredToKeep = groupHeight <= contentBottom - pageTop ? groupHeight : minRequired;
 
                     if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom - pageTop && y + requiredToKeep > contentBottom && ColumnHasContent())
-                        ContinueTable(inHeader);
+                        ContinueTable(inHeader, composedRow);
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
                     {
@@ -1196,13 +1205,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                                 headerOnly = false;
                                 row = rest;
                                 if (row is not null)
-                                    ContinueTable(inHeader);
+                                    ContinueTable(inHeader, row);
                                 continue;
                             }
 
                             if (ColumnHasContent() && !headerOnly)
                             {
-                                ContinueTable(inHeader);
+                                ContinueTable(inHeader, row);
                                 continue;
                             }
                         }

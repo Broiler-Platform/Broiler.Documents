@@ -170,10 +170,13 @@ internal static class TextProjection
 
                 // 4b. Characters with no width. A soft hyphen is a
                 //     hyphenation hint, a zero width space is a break
-                //     opportunity, and a stray U+FEFF is neither of those
-                //     and nothing else either.
+                //     opportunity, a zero width joiner or non-joiner connects
+                //     or separates glyphs, and a stray U+FEFF is neither of
+                //     those and nothing else either.
                 case '\u00AD':
                 case '\u200B':
+                case '\u200C':
+                case '\u200D':
                 case '\uFEFF':
                     break;
 

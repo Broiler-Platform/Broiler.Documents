@@ -239,6 +239,15 @@ internal static class DocxReader
                 continue;
             }
 
+            if (name == DocxNamespaces.Wordprocessing + "br")
+            {
+                if (IsPageBreak(element, context))
+                    builder.HoldPageBreak(column: IsColumnBreak(element));
+                else if (IsColumnBreak(element) && context.Sections is not null)
+                    builder.HoldPageBreak(column: true);
+                continue;
+            }
+
             if (name == DocxNamespaces.MarkupCompatibility + "AlternateContent")
             {
                 ReadAlternateContent(element, context, depth + 1);
@@ -2566,8 +2575,10 @@ internal static class DocxReader
                 if (DocxValueReader.TryReadInt(numPr.Element(DocxNamespaces.Wordprocessing + "ilvl")?.Attribute(DocxNamespaces.Wordprocessing + "val"), out int ilvl))
                     indent = Math.Max(indent, ilvl + 1);
 
-                ListKind kind = hasNumId ? numbering.KindFor(numId) : ListKind.Bullet;
-                style = style with { ListKind = kind, IndentLevel = Math.Max(1, indent) };
+                if (hasNumId)
+                    style = style with { ListKind = numbering.KindFor(numId), IndentLevel = Math.Max(1, indent) };
+                else if (style.ListKind != ListKind.None)
+                    style = style with { IndentLevel = Math.Max(1, indent) };
             }
         }
 

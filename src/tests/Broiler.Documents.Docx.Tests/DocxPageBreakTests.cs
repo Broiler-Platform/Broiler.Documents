@@ -322,6 +322,21 @@ public sealed class DocxPageBreakTests
         Assert.True(reread.Paragraphs[1].Style.PageBreakBefore);
     }
 
+    [Fact]
+    public void Block_Level_Page_Break_Starts_Next_Paragraph_On_A_New_Page()
+    {
+        // tdf#108714: out-of-order block-level <w:br w:type="page"/> directly under w:body.
+        DocumentReadResult read = DocxTestPackage.ReadBody(
+            "<w:p><w:r><w:t>page one</w:t></w:r></w:p>" +
+            "<w:br w:type=\"page\"/>" +
+            DocxTestPackage.Paragraph("page two"));
+
+        Assert.Equal(2, read.Document.ParagraphCount);
+        Assert.False(read.Document.Paragraphs[0].Style.PageBreakBefore);
+        Assert.True(read.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.DoesNotContain(read.Diagnostics, d => d.Code == "docx.block.unsupported");
+    }
+
     /// <summary>The <c>w:pPr</c> of one paragraph of a written package.</summary>
     private static XElement ParagraphProperties(byte[] package, int paragraphIndex)
     {

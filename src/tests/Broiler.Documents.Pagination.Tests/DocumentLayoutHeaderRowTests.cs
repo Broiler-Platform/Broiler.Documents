@@ -114,4 +114,44 @@ public sealed class DocumentLayoutHeaderRowTests
         Assert.All(result.Pages.Skip(1), page => Assert.Empty(LinesStarting(page, "Heading", document)));
         Assert.Equal(120, result.Pages.Sum(page => LinesStarting(page, "Row", document).Count()));
     }
+
+    [Fact]
+    public void Repeated_Header_Is_Omitted_When_Unsplittable_Row_Cannot_Fit_Under_It()
+    {
+        // Content height of Letter is 792 - 72 - 72 = 648 pt.
+        // Header is 200 pt tall.
+        // Row 0 is 600 pt tall and unsplittable.
+        // On page 1: header is placed. Row 0 cannot fit (200 + 600 > 648) -> breaks to page 2.
+        // On page 2: row 0 cannot fit beneath repeated header (200 + 600 > 648).
+        // Since row 0 cannot split, the repeated header is omitted on page 2 so row 0 gets the full page.
+        // Row 1 (50 pt) cannot fit in the remaining space on page 2 (648 - 600 = 48 < 50) -> breaks to page 3.
+        // On page 3: row 1 fits easily under the repeated header (200 + 50 <= 648), so the header repeats normally.
+        var paragraphs = new List<RichTextParagraph>
+        {
+            RichTextParagraph.Plain("Heading"),
+            RichTextParagraph.Plain("Tall unsplittable row"),
+            RichTextParagraph.Plain("Small row"),
+            RichTextParagraph.Plain("After"),
+        };
+        var tableRows = new List<TableRow>
+        {
+            new([new TableCell(0, 1, 0)], minHeight: 200, isHeader: true),
+            new([new TableCell(1, 1, 0)], minHeight: 600, canSplit: false),
+            new([new TableCell(2, 1, 0)], minHeight: 50, canSplit: false),
+        };
+        RichTextDocument document = RichTextDocument.FromParagraphs(paragraphs)
+            .WithTables([new DocumentTable(0, 3, tableRows, [300.0])]);
+
+        LayoutResult result = Layout(document);
+
+        Assert.True(result.Pages.Count >= 3);
+        // Page 1 has heading
+        Assert.Single(LinesStarting(result.Pages[0], "Heading", document));
+        // Page 2 omits repeated heading
+        Assert.Empty(LinesStarting(result.Pages[1], "Heading", document));
+        Assert.Single(LinesStarting(result.Pages[1], "Tall unsplittable", document));
+        // Page 3 has repeated heading
+        Assert.Single(LinesStarting(result.Pages[2], "Heading", document));
+        Assert.Single(LinesStarting(result.Pages[2], "Small row", document));
+    }
 }

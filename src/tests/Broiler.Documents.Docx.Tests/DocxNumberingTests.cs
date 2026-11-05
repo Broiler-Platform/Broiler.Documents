@@ -235,6 +235,17 @@ public sealed class DocxNumberingTests
         Assert.Equal(Labels(document), Labels(read));
     }
 
+    [Fact]
+    public void An_Ilvl_Without_NumId_Does_Not_Synthesize_A_Bullet_List()
+    {
+        // ECMA-376: w:numPr requires w:numId to reference a numbering definition.
+        // A style (e.g. Subtitle in n820504.docx) with only w:ilvl is not a list.
+        string body = "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"1\"/></w:numPr></w:pPr><w:r><w:t>Certificate</w:t></w:r></w:p>";
+        RichTextDocument document = Read(body, string.Empty);
+        Assert.Equal(ListKind.None, document.Paragraphs[0].Style.ListKind);
+        Assert.Null(document.Paragraphs[0].Style.List);
+    }
+
     private static RichTextParagraph Numbered(string text, ListDefinition definition, int level)
     {
         var reference = new ListReference(definition, level);

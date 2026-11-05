@@ -202,10 +202,10 @@ internal sealed class DocxDocumentBuilder(
     /// just ended with already does that, and one boundary is one boundary; a
     /// column break held over becomes the page break, which goes further.
     /// </summary>
-    public void HoldPageBreak()
+    public void HoldPageBreak(bool column = false)
     {
         _pageBreakStartsNextParagraph = true;
-        _heldBreakIsColumn = false;
+        _heldBreakIsColumn = column;
     }
 
     /// <summary>Transfers a break between blocks onto a following table, before
