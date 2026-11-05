@@ -559,7 +559,8 @@ problem document lost.
 | `odt.package.zip` | Error | The bytes are not a readable ZIP package. |
 | `odt.flat.root` | Error | The bytes are XML, but the root element is not `office:document`. |
 | `odt.flat.media-type` | Error | A flat file's `office:mimetype` names another OpenDocument type, such as a spreadsheet. |
-| `odt.document.body` | Error | `content.xml` has no `office:text` body. |
+| `odt.document.body` | Error | The document has no recognizable `office:text` body. |
+| `odt.document.body.recovered` | Warning | An unrecognized Office body wrapper contained text blocks and was read as `office:text`. |
 | `odt.xml` | Error | A part's XML, or a flat document, could not be parsed; the message names the exception type. |
 | `odt.xml.prefix` | Warning | A part or flat document used namespace prefixes it does not declare, and was read with LibreOffice's prefixes bound. |
 | `odt.limit.bytes` | Error | Input exceeded `MaxDocumentBytes` and was not parsed. |

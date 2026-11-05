@@ -227,6 +227,10 @@ internal static class DocxTableReader
                 firstLeft.IsVisible ? firstLeft.Width : 0, context.Builder.WordCompatibilityMode);
         }
 
+        // Word moves a multi-row table marked entirely as header rows to
+        // a fresh page. The paginator still lets the oversized table flow.
+        pageBreak |= !inCell && position is null && rows.Count > 1 && rows.All(row => row.IsHeader);
+
         context.Builder.AddTable(new DocumentTable(
             start,
             context.Builder.CurrentParagraphIndex - start,

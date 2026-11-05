@@ -1331,12 +1331,17 @@ public static class OdtWriter
         }
 
         if (numbering.EndnoteFormat != standard.EndnoteFormat || numbering.EndnoteStart != standard.EndnoteStart ||
-            numbering.RaisedLabels)
+            numbering.RaisedLabels || numbering.EndnotesStartOnNewPage)
         {
-            yield return NotesConfiguration("endnote", numbering.EndnoteFormat, numbering.EndnoteStart, numbering.RaisedLabels, context);
+            XElement endnote = NotesConfiguration("endnote", numbering.EndnoteFormat, numbering.EndnoteStart, numbering.RaisedLabels, context);
+            if (numbering.EndnotesStartOnNewPage)
+                endnote.SetAttributeValue(OdtNamespaces.Text + "master-page-name", EndnoteMasterPage);
+
+            yield return endnote;
         }
     }
 
+    private const string EndnoteMasterPage = "Endnote";
     private const string RaisedNoteLabelStyle = "Raised_20_Note_20_Label";
 
     private static XElement NotesConfiguration(
@@ -1753,6 +1758,9 @@ public static class OdtWriter
 
     private static string NumberFormat(ListNumberFormat format, OdtWriteContext context)
     {
+        if (format == ListNumberFormat.OldHungarian)
+            return OdtStyles.OldHungarianNumberFormat;
+
         switch (format)
         {
             case ListNumberFormat.None:
@@ -1843,10 +1851,10 @@ public static class OdtWriter
             // The drawings first: ODF puts a header's shapes in the part beside
             // its paragraphs, and a part that carries only a stripe is still a
             // part rather than nothing.
+            context.InRunning = true;
             foreach (DocumentShape shape in shapes)
                 part.Add(BuildShape(shape, context));
 
-            context.InRunning = true;
             foreach (RichTextParagraph paragraph in paragraphs)
                 part.Add(BuildParagraph(paragraph, context, inList: false));
             context.InRunning = false;
@@ -2114,7 +2122,11 @@ public static class OdtWriter
                     new XAttribute(OdtNamespaces.Style + "name", "Standard"),
                     new XAttribute(OdtNamespaces.Style + "page-layout-name", "pm1"),
                     background is null ? null : new XAttribute(OdtNamespaces.Draw + "style-name", "pagePaint"),
-                    runningParts)));
+                    runningParts),
+                noteNumbering.EndnotesStartOnNewPage ? new XElement(
+                    OdtNamespaces.Style + "master-page",
+                    new XAttribute(OdtNamespaces.Style + "name", EndnoteMasterPage),
+                    new XAttribute(OdtNamespaces.Style + "page-layout-name", "pm1")) : null));
 
         return new XDocument(new XDeclaration("1.0", "UTF-8", null), root);
     }
@@ -2400,7 +2412,7 @@ public static class OdtWriter
                 properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-pos", "from-top"));
                 properties.Add(new XAttribute(OdtNamespaces.Style + "vertical-rel", "page"));
             }
-            else if (shape.OffsetFromPage)
+            else if (shape.OffsetFromPage || InRunning)
             {
                 // Still the paragraph's frame, and still across from its column,
                 // but down from the top of the page the paragraph is on.

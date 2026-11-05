@@ -31,6 +31,39 @@ public enum ListNumberFormat
 
     /// <summary>A bullet: <see cref="ListLevel.Template"/> is the bullet's text.</summary>
     Bullet,
+
+    /// <summary>a, b ... z, aa, ab.</summary>
+    LowerAlphabetic,
+
+    /// <summary>A, B ... Z, AA, AB.</summary>
+    UpperAlphabetic,
+
+    /// <summary>Arabic letters in modern alphabetic order.</summary>
+    ArabicAlpha,
+
+    /// <summary>Arabic letters in traditional Abjad order.</summary>
+    ArabicAbjad,
+
+    /// <summary>Hebrew letters in alphabetic order.</summary>
+    HebrewAlphabetic,
+
+    /// <summary>One, Two, Three.</summary>
+    CardinalText,
+
+    /// <summary>First, Second, Third.</summary>
+    OrdinalText,
+
+    /// <summary>Old Hungarian (Székely rovás) numerals.</summary>
+    OldHungarian,
+
+    /// <summary>1st, 2nd, 3rd.</summary>
+    Ordinal,
+
+    /// <summary>*, †, ‡, §, **.</summary>
+    Chicago,
+
+    /// <summary>Traditional Chinese financial numerals.</summary>
+    IdeographLegalTraditional,
 }
 
 /// <summary>One level of a <see cref="ListDefinition"/>.</summary>

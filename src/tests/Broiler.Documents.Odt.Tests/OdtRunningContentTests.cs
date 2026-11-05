@@ -57,6 +57,27 @@ public sealed class OdtRunningContentTests
     }
 
     [Fact]
+    public void A_Paragraph_Anchored_Footer_Shape_Is_Offset_From_The_Footer()
+    {
+        string styles = "<office:automatic-styles><style:page-layout style:name='page'>" +
+            "<style:page-layout-properties fo:page-width='600pt' fo:page-height='800pt' fo:margin-bottom='60pt'/>" +
+            "<style:footer-style><style:header-footer-properties svg:height='80pt' fo:margin-top='10pt'/>" +
+            "</style:footer-style></style:page-layout><style:style style:name='shape' style:family='graphic'>" +
+            "<style:graphic-properties draw:fill='solid' draw:fill-color='#000000' style:vertical-rel='paragraph'/>" +
+            "</style:style></office:automatic-styles><office:master-styles><style:master-page style:name='Standard' " +
+            "style:page-layout-name='page'><style:footer><text:p><draw:rect text:anchor-type='paragraph' " +
+            "draw:style-name='shape' svg:y='5pt' svg:width='30pt' svg:height='20pt'/></text:p></style:footer>" +
+            "</style:master-page></office:master-styles>";
+        var document = OdtTestPackage.ReadStyled("<text:p>body</text:p>", styles).Document;
+
+        Assert.True(document.StyleDefaults.PreserveOpeningParagraphSpacing);
+        DocumentShape shape = Assert.Single(document.RunningContent.FooterShapes(PageSelection.Default));
+        Assert.Equal(675, shape.OffsetY, 4);
+        Assert.Equal(shape.OffsetY,
+            Assert.Single(RoundTrip(document).RunningContent.FooterShapes(PageSelection.Default)).OffsetY, 4);
+    }
+
+    [Fact]
     public void A_Header_That_Holds_Only_A_Shape_Is_Still_A_Header()
     {
         RichTextDocument source = RichTextDocument.FromPlainText("body").WithRunningContent(

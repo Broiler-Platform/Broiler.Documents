@@ -72,6 +72,24 @@ public sealed class DocxLineHeightTests
     }
 
     [Theory]
+    [InlineData("exact", "", 360, LineHeightRule.Exact, 18f)]
+    [InlineData("exact", "", -360, LineHeightRule.Exact, 12f)]
+    [InlineData("atLeast", "", -360, LineHeightRule.Exact, 18f)]
+    [InlineData("exact", " w:lineRule='exact'", -360, LineHeightRule.AtLeast, 18f)]
+    public void Line_Height_Uses_The_Inherited_Rule_When_Omitted(
+        string inheritedRule, string directRule, int line, LineHeightRule expectedRule, float expectedHeight)
+    {
+        DocumentReadResult result = DocxTestPackage.ReadStyled(
+            "<w:p><w:pPr><w:pStyle w:val='Form'/><w:spacing w:line='" + line + "'" + directRule +
+            "/></w:pPr><w:r><w:t>text</w:t></w:r></w:p>",
+            DocxTestPackage.Style("Form", "<w:pPr><w:spacing w:line='240' w:lineRule='" + inheritedRule + "'/></w:pPr>"));
+
+        ParagraphStyle spacing = Assert.Single(result.Document.Paragraphs).Style;
+        Assert.Equal(expectedRule, spacing.LineHeightRule);
+        Assert.Equal(expectedHeight, spacing.LineHeight);
+    }
+
+    [Theory]
     [InlineData(LineHeightRule.Exact, "exact")]
     [InlineData(LineHeightRule.AtLeast, "atLeast")]
     public void A_Height_Round_Trips_With_Its_Rule(LineHeightRule rule, string written)

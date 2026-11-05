@@ -2530,31 +2530,36 @@ internal static class DocxReader
             if (TryReadTwips(spacing.Attribute(DocxNamespaces.Wordprocessing + "after"), out float after))
                 style = style with { SpacingAfter = after };
 
-            // w:line is 240ths of a line under the auto rule, which is the one
-            // an omitted w:lineRule means, and twips under the other two
-            // (ECMA-376 §17.3.1.33). Each replaces what a style below stated.
+            // w:line is 240ths of a line under the auto rule and twips under
+            // the other two. An omitted rule can come from the paragraph style.
             // Strict writes an auto line as if it were twips too: single
             // spacing is w:line="12pt", which is 240.
             string? lineRule = (string?)spacing.Attribute(DocxNamespaces.Wordprocessing + "lineRule");
             if (DocxValueReader.TryReadTwips(spacing.Attribute(DocxNamespaces.Wordprocessing + "line"), out int line) &&
                 line != 0)
             {
-                style = lineRule switch
+                LineHeightRule rule = lineRule switch
                 {
-                    "exact" => style with
-                    {
-                        LineSpacing = 1f, LineHeightRule = LineHeightRule.Exact, LineHeight = FixedLineHeight(line),
-                    },
-                    "atLeast" => style with
-                    {
-                        LineSpacing = 1f, LineHeightRule = LineHeightRule.AtLeast, LineHeight = FixedLineHeight(line),
-                    },
-                    _ when line > 0 => style with
-                    {
-                        LineSpacing = line / 240f, LineHeightRule = LineHeightRule.Proportional, LineHeight = 0f,
-                    },
-                    _ => style,
+                    "exact" => LineHeightRule.Exact,
+                    "atLeast" => LineHeightRule.AtLeast,
+                    null => style.LineHeightRule,
+                    _ => LineHeightRule.Proportional,
                 };
+
+                // Negative heights in Word documents switch fixed spacing modes.
+                // With an inherited exact rule they leave the inherited height intact.
+                if (line < 0)
+                    rule = rule switch
+                    {
+                        LineHeightRule.AtLeast => LineHeightRule.Exact,
+                        LineHeightRule.Exact when lineRule is not null => LineHeightRule.AtLeast,
+                        _ => LineHeightRule.Proportional,
+                    };
+
+                if (rule != LineHeightRule.Proportional)
+                    style = style with { LineSpacing = 1f, LineHeightRule = rule, LineHeight = FixedLineHeight(line) };
+                else if (line > 0)
+                    style = style with { LineSpacing = line / 240f, LineHeightRule = rule, LineHeight = 0f };
             }
         }
 

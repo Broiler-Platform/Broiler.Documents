@@ -159,6 +159,9 @@ public sealed record NoteNumbering(
     NoteNumberingRestart FootnoteRestart = NoteNumberingRestart.Continuous,
     FootnotePosition FootnotePosition = FootnotePosition.PageBottom)
 {
+    /// <summary>Lay out the endnote block on a separate page in paginated output.</summary>
+    public bool EndnotesStartOnNewPage { get; init; }
+
     /// <summary>The numbering a document that states none takes.</summary>
     public static NoteNumbering Default { get; } = new();
 }

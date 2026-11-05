@@ -26,6 +26,7 @@ internal sealed record OdtReadContext(
     PageGeometry? Page = null)
 {
     public PageGeometry? ActivePage { get; set; } = Page;
+    public double? FooterOrigin { get; init; }
     public Func<string, string?, int, bool>? SelectPageStyle { get; init; }
     public bool UsesSoftPageBreaks { get; init; }
     public int TableDepth { get; set; }

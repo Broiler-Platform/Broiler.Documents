@@ -1,7 +1,10 @@
 using System.Globalization;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using Broiler.Documents.Resources;
+using Broiler.Graphics.Imaging;
 using System.Text;
 using Broiler.Documents.Model;
 using Broiler.Graphics.Color;
@@ -78,8 +81,9 @@ public static class RtfReader
         public bool HasDirectCharFormatting;
     }
 
-    private sealed class ShapeScope
+    private sealed class ShapeScope(RtfDestination host)
     {
+        public RtfDestination Host { get; } = host;
         public bool HasInstructions;
     }
 
@@ -107,6 +111,10 @@ public static class RtfReader
         private readonly Stack<State> _stack = new();
         private readonly Accumulator _builder;
         private readonly Dictionary<RtfDestination, Accumulator> _running = [];
+        private readonly Dictionary<RtfDestination, List<DocumentShape>> _runningShapes = [];
+        private readonly DocumentConversionContextBuilder _resources;
+        private readonly long _maxBinBytes;
+        private InlineImage? _shapeImage;
         // An omitted page is still a page: LibreOffice imports it as Letter
         // with one-inch margins. Leaving these at zero discarded margin-only
         // documents and made the renderer substitute its own paper size.
@@ -236,6 +244,8 @@ public static class RtfReader
             _builder = new Accumulator(options.Limits.MaxParagraphCount);
             _table = new RtfTableBuilder(_colors);
             _maxParagraphs = options.Limits.MaxParagraphCount;
+            _maxBinBytes = options.Limits.MaxBinBytes;
+            _resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
             _state = new State
             {
                 Char = InlineStyle.Default,
@@ -271,6 +281,13 @@ public static class RtfReader
                             _currentStyle = new RtfStyle();
                             _styleName.Clear();
                             _styleSemicolonSeen = false;
+                        }
+                        if (_state.Dest == RtfDestination.ShapePropertyValue &&
+                            next < tokens.Count && tokens[next].Keyword == "pict" &&
+                            _shapePropertyName.ToString().Trim() == "pib")
+                        {
+                            _shapeImage = ReadShapePicture(tokens, ref next);
+                            break;
                         }
                         _stack.Push(_state);
                         break;
@@ -338,7 +355,8 @@ public static class RtfReader
             if (_builder.PageBreakPending)
                 ReportEmptyPage();
 
-            return new DocumentReadResult(document, _diagnostics, DocumentReadResult.StatusFrom(_diagnostics));
+            return new DocumentReadResult(document, _diagnostics, DocumentReadResult.StatusFrom(_diagnostics),
+                _resources.Build());
         }
 
         /// <summary>
@@ -393,7 +411,7 @@ public static class RtfReader
             if (closing.Dest == RtfDestination.ShapeProperty)
                 ApplyShapeProperty();
             else if (closing.Dest == RtfDestination.Shape && closing.ShapeOwnerDepth == _stack.Count)
-                FinishShape();
+                FinishShape(closing.Shape?.Host ?? RtfDestination.Normal);
 
             if (closing.Dest == RtfDestination.LegacyDrawing && closing.LegacyDrawing is { } drawing && drawing.OwnerDepth == _stack.Count)
             {
@@ -949,7 +967,7 @@ public static class RtfReader
                 // \shp opens the shape but does not own the destination: \shpinst
                 // does, and only one group may close as the shape or it would be
                 // finished twice - once for the inner group and once for the outer.
-                case "shp": BeginShape(); _state.Shape = new ShapeScope(); return;
+                case "shp": BeginShape(); _state.Shape = new ShapeScope(_state.Dest); return;
                 case "background": _state.InBackground = true; return;
                 // Whether the background is shown at all, which LibreOffice
                 // takes as Word's w:displayBackgroundShape.
@@ -1710,6 +1728,7 @@ public static class RtfReader
 
         private void BeginShape()
         {
+            _shapeImage = null;
             _shapeFillEnabled = null;
             _shapeFlipHorizontal = false;
             _shapeBehindText = false;
@@ -1858,8 +1877,74 @@ public static class RtfReader
         private static BColor ShapeColor(long value) =>
             new((byte)(value & 0xFF), (byte)((value >> 8) & 0xFF), (byte)((value >> 16) & 0xFF));
 
+        private InlineImage? ReadShapePicture(IReadOnlyList<RtfToken> tokens, ref int next)
+        {
+            using var bytes = new MemoryStream();
+            int depth = 1;
+            int highNibble = -1;
+            bool valid = true;
+            while (next < tokens.Count)
+            {
+                RtfToken token = tokens[next++];
+                if (token.Type == RtfTokenType.GroupStart)
+                    depth++;
+                else if (token.Type == RtfTokenType.GroupEnd && --depth == 0)
+                    break;
+                else if (depth == 1 && token.Type == RtfTokenType.ControlWord && token.Keyword == "bin")
+                    valid = false;
+                else if (valid && depth == 1 && token.Type == RtfTokenType.Text)
+                {
+                    foreach (char character in token.Text)
+                    {
+                        if (char.IsWhiteSpace(character))
+                            continue;
+
+                        int digit = character switch
+                        {
+                            >= '0' and <= '9' => character - '0',
+                            >= 'a' and <= 'f' => character - 'a' + 10,
+                            >= 'A' and <= 'F' => character - 'A' + 10,
+                            _ => -1,
+                        };
+                        if (digit < 0 || bytes.Length >= _maxBinBytes)
+                        {
+                            valid = false;
+                            break;
+                        }
+
+                        if (highNibble < 0)
+                            highNibble = digit;
+                        else
+                        {
+                            bytes.WriteByte((byte)((highNibble << 4) | digit));
+                            highNibble = -1;
+                        }
+                    }
+                }
+            }
+
+            if (!valid || depth != 0 || highNibble >= 0 ||
+                DocumentImageFormats.ContentTypeForSignature(bytes.GetBuffer().AsSpan(0, (int)bytes.Length)) is not string contentType)
+            {
+                ReportEmbedded();
+                return null;
+            }
+
+            var resource = BImageResource.FromEncoded(bytes.ToArray(), contentType);
+            var request = new DocumentResourceRequest(resource, DocumentResourceProvenance.ReadFromSource,
+                DocumentResourceDisposition.Embedded, null, "RTF");
+            if (!_resources.TryAdmit(request, DocumentResourceOperations.ExtractToModel, out DocumentResourceId id, out string? denial))
+            {
+                if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.image.denied"))
+                    _diagnostics.Add(DocumentDiagnostic.Warning("rtf.image.denied", "A picture was skipped because " + denial + "."));
+                return null;
+            }
+
+            return new InlineImage(resource, id);
+        }
+
         /// <summary>Turns the walked group into a shape, when it described one.</summary>
-        private void FinishShape()
+        private void FinishShape(RtfDestination host)
         {
             _shapeWrapDistance = _shapeWrapDistances.Values.DefaultIfEmpty(0).Max();
             double width = ((double)_shapeRight - _shapeLeft) / 20d;
@@ -1900,9 +1985,8 @@ public static class RtfReader
             if (!rule && (width == 0 || (height == 0 && !sizedByText)))
                 return;
 
-            // A picture's frame draws its picture, which is not read, rather than
-            // a box; it is kept only for paint or text of its own.
-            if (fill is null && paragraphs.Count == 0 && (outline.IsEmpty || _shapeType == 75))
+            if (_shapeImage is null && fill is null && paragraphs.Count == 0 &&
+                (outline.IsEmpty || _shapeType == 75))
                 return;
 
             // A shape measured from the page or its top margin is placed from the
@@ -1940,7 +2024,14 @@ public static class RtfReader
             else if (_shapeAlignY is 2 or 3)
                 ReportShapeApproximation("position", "An aligned shape lacked a fixed page-relative height; its stated offset was retained.");
 
-            _shapes.Add(new DocumentShape(
+            bool running = IsRunning(host);
+            if (running && _shapeVerticalFrame == 2)
+            {
+                bool header = host is RtfDestination.Header or RtfDestination.HeaderFirst or RtfDestination.HeaderEven;
+                top += (header ? _headerDistance : (_sectionHeight ?? _paperHeight) - _footerDistance) / 20d;
+            }
+
+            var shape = new DocumentShape(
                 _builder.ParagraphCount,
                 left,
                 top,
@@ -1949,6 +2040,7 @@ public static class RtfReader
                 fill,
                 outline,
                 paragraphs,
+                image: _shapeImage,
                 behindText: _shapeBehindText,
                 wrap: _shapeWrap,
                 wrapSide: _shapeWrapSide,
@@ -1960,27 +2052,37 @@ public static class RtfReader
                 growsToText: _shapeFitsText,
                 geometry: _shapeType == 3 ? ShapeGeometry.Ellipse : _shapeType == 20
                     ? ((width * height < 0) != (_shapeFlipVertical ^ _shapeFlipHorizontal) ? ShapeGeometry.LineAscending : ShapeGeometry.Line) : ShapeGeometry.Rectangle,
-                outlineWidth: _shapeLineWidth));
+                outlineWidth: _shapeLineWidth);
+            if (running)
+            {
+                if (!_runningShapes.TryGetValue(host, out List<DocumentShape>? shapes))
+                    _runningShapes[host] = shapes = [];
+                shapes.Add(shape);
+            }
+            else
+                _shapes.Add(shape);
         }
 
         /// <summary>The headers and footers the document's running destinations collected.</summary>
         private RunningContent BuildRunningContent()
         {
             RunningContent content = RunningContent.Empty.WithDifferentFirstPage(_titlePage);
-            foreach ((RtfDestination destination, Accumulator accumulator) in _running)
+            foreach (RtfDestination destination in _running.Keys.Union(_runningShapes.Keys))
             {
-                IReadOnlyList<RichTextParagraph> paragraphs = accumulator.Build(ParagraphStyle.Default).Paragraphs;
-                if (paragraphs.Count == 0)
+                IReadOnlyList<RichTextParagraph> paragraphs =
+                    _running.GetValueOrDefault(destination)?.Build(ParagraphStyle.Default).Paragraphs ?? [];
+                List<DocumentShape>? shapes = _runningShapes.GetValueOrDefault(destination);
+                if (paragraphs.Count == 0 && shapes is null)
                     continue;
 
                 content = destination switch
                 {
-                    RtfDestination.Header => content.WithHeader(PageSelection.Default, paragraphs),
-                    RtfDestination.HeaderFirst => content.WithHeader(PageSelection.First, paragraphs),
-                    RtfDestination.HeaderEven => content.WithHeader(PageSelection.Even, paragraphs),
-                    RtfDestination.Footer => content.WithFooter(PageSelection.Default, paragraphs),
-                    RtfDestination.FooterFirst => content.WithFooter(PageSelection.First, paragraphs),
-                    _ => content.WithFooter(PageSelection.Even, paragraphs),
+                    RtfDestination.Header => content.WithHeader(PageSelection.Default, paragraphs, shapes),
+                    RtfDestination.HeaderFirst => content.WithHeader(PageSelection.First, paragraphs, shapes),
+                    RtfDestination.HeaderEven => content.WithHeader(PageSelection.Even, paragraphs, shapes),
+                    RtfDestination.Footer => content.WithFooter(PageSelection.Default, paragraphs, shapes),
+                    RtfDestination.FooterFirst => content.WithFooter(PageSelection.First, paragraphs, shapes),
+                    _ => content.WithFooter(PageSelection.Even, paragraphs, shapes),
                 };
             }
 

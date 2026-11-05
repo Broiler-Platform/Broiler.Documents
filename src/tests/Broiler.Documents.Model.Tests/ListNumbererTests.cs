@@ -2,6 +2,18 @@ namespace Broiler.Documents.Model.Tests;
 
 public sealed class ListNumbererTests
 {
+    [Theory]
+    [InlineData(ListNumberFormat.CardinalText, 21, "Twenty-one")]
+    [InlineData(ListNumberFormat.OrdinalText, 20, "Twentieth")]
+    [InlineData(ListNumberFormat.OrdinalText, 121, "One hundred twenty-first")]
+    [InlineData(ListNumberFormat.Ordinal, 112, "112th")]
+    [InlineData(ListNumberFormat.Ordinal, 123, "123rd")]
+    [InlineData(ListNumberFormat.Chicago, 7, "‡‡")]
+    [InlineData(ListNumberFormat.IdeographLegalTraditional, 10021, "壹萬零貳拾壹")]
+    [InlineData(ListNumberFormat.OldHungarian, 205, "\U00010CFA\U00010CFA\U00010CFE\U00010CFB")]
+    public void Formats_Compound_Numbers(ListNumberFormat format, int number, string label) =>
+        Assert.Equal(label, ListNumberer.Format(number, format));
+
     [Fact]
     public void A_Shared_Restart_Resets_The_Family_And_Its_Unused_Level_Starts()
     {

@@ -25,6 +25,23 @@ public sealed class RtfShapeTests
         Encoding.ASCII.GetString(RtfWriter.WriteToArray(document, options));
 
     [Fact]
+    public void A_Picture_Shape_In_A_First_Page_Header_Stays_In_That_Header()
+    {
+        const string rtf = @"{\rtf1\titlepg{\headerf{\shp{\*\shpinst\shpleft0\shptop0\shpright200\shpbottom400" +
+            @"{\sp{\sn shapeType}{\sv 75}}{\sp{\sn pib}{\sv{\pict\pngblip{\*\blipuid 0000}" +
+            @"47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b}}}}}}body}";
+        DocumentReadResult result = RtfReader.Read(Encoding.ASCII.GetBytes(rtf));
+
+        Assert.Empty(result.Document.Shapes);
+        Assert.Empty(result.Document.RunningContent.EffectiveHeaderShapes(PageSelection.Default));
+        DocumentShape shape = Assert.Single(result.Document.RunningContent.EffectiveHeaderShapes(PageSelection.First));
+        Assert.Equal("image/gif", shape.Image?.ContentType);
+        Assert.Equal(10, shape.Width);
+        Assert.Equal(20, shape.Height);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "rtf.embedded");
+    }
+
+    [Fact]
     public void A_Shape_Round_Trips_With_Its_Box()
     {
         DocumentShape shape = Assert.Single(

@@ -53,6 +53,18 @@ public sealed class DocxPageGeometryTests
     }
 
     [Fact]
+    public void Signed_Vertical_Margins_Preserve_The_Stated_Paper()
+    {
+        PageGeometry geometry = Assert.IsType<PageGeometry>(Read(
+            "<w:sectPr><w:pgSz w:w='8392' w:h='5954'/>" +
+            "<w:pgMar w:left='0' w:right='0' w:top='-23' w:bottom='-40'/></w:sectPr>").PageGeometry);
+
+        Assert.Equal(419.6, geometry.Width, 2);
+        Assert.Equal(1.15, geometry.MarginTop, 2);
+        Assert.Equal(2, geometry.MarginBottom, 2);
+    }
+
+    [Fact]
     public void A_Document_Stating_No_Page_Size_Has_No_Geometry()
     {
         Assert.Null(Read("<w:sectPr/>").PageGeometry);

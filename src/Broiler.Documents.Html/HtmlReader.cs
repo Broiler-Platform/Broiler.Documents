@@ -571,11 +571,21 @@ internal static class HtmlReader
             {
                 bool explicitStart = int.TryParse(element.GetAttribute("start"), NumberStyles.Integer,
                     CultureInfo.InvariantCulture, out int start);
-                ListNumberFormat format = element.GetAttribute("type") switch
+                listDeclarations.TryGetValue("list-style-type", out string? listStyleType);
+                ListNumberFormat format = listStyleType?.Trim().ToLowerInvariant() switch
                 {
-                    "a" => ListNumberFormat.LowerLetter, "A" => ListNumberFormat.UpperLetter,
-                    "i" => ListNumberFormat.LowerRoman, "I" => ListNumberFormat.UpperRoman,
-                    _ => ListNumberFormat.Decimal,
+                    "lower-alpha" or "lower-latin" => ListNumberFormat.LowerAlphabetic,
+                    "upper-alpha" or "upper-latin" => ListNumberFormat.UpperAlphabetic,
+                    "lower-roman" => ListNumberFormat.LowerRoman,
+                    "upper-roman" => ListNumberFormat.UpperRoman,
+                    "decimal" => ListNumberFormat.Decimal,
+                    "decimal-leading-zero" => ListNumberFormat.DecimalZero,
+                    _ => element.GetAttribute("type") switch
+                    {
+                        "a" => ListNumberFormat.LowerLetter, "A" => ListNumberFormat.UpperLetter,
+                        "i" => ListNumberFormat.LowerRoman, "I" => ListNumberFormat.UpperRoman,
+                        _ => ListNumberFormat.Decimal,
+                    },
                 };
                 ListDefinition definition = ListDefinition.PlainNumbers.WithLevel(level,
                     ListLevel.DecimalAt(level) with { Start = explicitStart ? start : 1, Format = format });

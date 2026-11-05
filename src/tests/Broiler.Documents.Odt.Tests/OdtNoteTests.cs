@@ -93,6 +93,20 @@ public sealed class OdtNoteTests
     }
 
     [Fact]
+    public void An_Endnote_Master_Page_Requests_Separate_Pagination()
+    {
+        DocumentReadResult result = OdtTestPackage.ReadStyled(
+            "<text:p>x" + Note("end", "endnote") + "</text:p>",
+            "<office:styles><text:notes-configuration text:note-class='endnote' text:master-page-name='Endnote'/>" +
+            "</office:styles>");
+
+        Assert.True(result.Document.NoteNumbering.EndnotesStartOnNewPage);
+
+        using var stream = new MemoryStream(OdtWriter.WriteToArray(result.Document));
+        Assert.True(new OdtDocumentCodec().Read(stream).Document.NoteNumbering.EndnotesStartOnNewPage);
+    }
+
+    [Fact]
     public void A_Document_That_States_No_Configuration_Numbers_As_LibreOffice_Does()
     {
         DocumentReadResult result = OdtTestPackage.ReadBody("<text:p>x" + Note("n") + "</text:p>");

@@ -120,10 +120,9 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     /// </summary>
     public IReadOnlyList<XElement> NotesConfigurations { get; init; } = [];
 
-    /// <summary>
-    /// A <c>style:num-format</c>: <c>1</c>, <c>a</c>, <c>A</c>, <c>i</c> or
-    /// <c>I</c>, empty for no number, and decimal for anything else.
-    /// </summary>
+    public const string OldHungarianNumberFormat = "\U00010CFA, \U00010CFA\U00010CFA, \U00010CFA\U00010CFA\U00010CFA, ...";
+
+    /// <summary>Resolves a supported ODF numbering format, with decimal as the fallback.</summary>
     public static ListNumberFormat NumberFormat(string? value) => value switch
     {
         null or "" => ListNumberFormat.None,
@@ -132,6 +131,7 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
         "A" => ListNumberFormat.UpperLetter,
         "i" => ListNumberFormat.LowerRoman,
         "I" => ListNumberFormat.UpperRoman,
+        OldHungarianNumberFormat => ListNumberFormat.OldHungarian,
         _ => ListNumberFormat.Decimal,
     };
 

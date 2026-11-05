@@ -193,6 +193,7 @@ internal static class OdtReader
         {
             ShrinksJustifiedLines = OdtRevisions.ConfigFlag(settings, "JustifyLinesWithShrinking"),
             TabsOverMargin = OdtRevisions.ConfigFlag(settings, "TabOverMargin"),
+            PreserveOpeningParagraphSpacing = true,
         });
         document = document.WithPageBackground(
             ReadPageBackground(master, PageLayoutProperties(master, styles), styles));
@@ -239,9 +240,7 @@ internal static class OdtReader
         List<DocumentDiagnostic> diagnostics,
         XElement? initialMaster)
     {
-        XElement? body = content.Root
-            ?.Element(OdtNamespaces.Office + "body")
-            ?.Element(OdtNamespaces.Office + "text");
+        XElement? body = FindTextBody(content);
         if (body is null)
         {
             diagnostics.Add(DocumentDiagnostic.Error(
@@ -249,6 +248,10 @@ internal static class OdtReader
                 "The ODT content.xml did not contain an office:text body."));
             return RichTextDocument.Empty;
         }
+
+        if (body.Name != OdtNamespaces.Office + "text")
+            diagnostics.Add(DocumentDiagnostic.Warning("odt.document.body.recovered",
+                "An unrecognized Office body wrapper contained text blocks and was read as office:text."));
 
         var builder = new OdtDocumentBuilder(limits, diagnostics);
         var starts = new List<(int Index, PageGeometry? Page, RunningContent Running, PageStyleSequence? Sequence, int? Number)>();
@@ -456,9 +459,7 @@ internal static class OdtReader
     /// </remarks>
     private static string? FirstBlockMasterPageName(XDocument content, OdtStyles styles)
     {
-        XElement? body = content.Root
-            ?.Element(OdtNamespaces.Office + "body")
-            ?.Element(OdtNamespaces.Office + "text");
+        XElement? body = FindTextBody(content);
         if (body is null)
             return null;
 
@@ -496,6 +497,23 @@ internal static class OdtReader
         }
 
         return null;
+    }
+
+    private static XElement? FindTextBody(XDocument content)
+    {
+        XElement? body = content.Root?.Element(OdtNamespaces.Office + "body");
+        XElement? text = body?.Element(OdtNamespaces.Office + "text");
+        if (text is not null || body is null)
+            return text;
+
+        // Recover an unambiguous text body when the Office wrapper's local
+        // name was damaged. A spreadsheet or drawing body cannot match.
+        if (body.Elements().FirstOrDefault() is not XElement candidate || candidate.Name.Namespace != OdtNamespaces.Office ||
+            body.Elements().Skip(1).Any())
+            return null;
+
+        return candidate.Elements().Any(block => block.Name.Namespace == OdtNamespaces.Text &&
+            block.Name.LocalName is "p" or "h" or "list" or "section") ? candidate : null;
     }
 
     /// <summary>
@@ -580,7 +598,14 @@ internal static class OdtReader
             if (part is null)
                 continue;
 
-            var (paragraphs, shapes) = ReadPart(part, styles, images, limits, diagnostics);
+            PageGeometry? page = !isHeader ? ReadPageGeometry(master, styles, []) : null;
+            XElement? footerProperties = !isHeader ? PageLayoutProperties(master, styles)?.Parent
+                ?.Element(OdtNamespaces.Style + "footer-style")
+                ?.Element(OdtNamespaces.Style + "header-footer-properties") : null;
+            double? footerOrigin = page is PageGeometry geometry
+                ? geometry.Height - geometry.MarginBottom + (footerProperties is null ? 0 : Math.Max(0, Length(footerProperties, "margin-top")))
+                : null;
+            var (paragraphs, shapes) = ReadPart(part, styles, images, limits, diagnostics, page, footerOrigin);
             if (paragraphs.Count == 0 && shapes.Count == 0)
             {
                 // An empty part is an answer for the two selections that would
@@ -887,7 +912,7 @@ internal static class OdtReader
         string? styleName = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
         XElement? graphic = context.Styles.GraphicPropertiesFor(styleName);
         (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) =
-            ReadShapeStyle(styleName, context.Styles);
+            ReadShapeStyle(styleName, context.Styles, implicitSolid: drawing.Name != OdtNamespaces.Draw + "frame");
         double outlineWidth = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Svg + "stroke-width"), out double strokeWidth) ? strokeWidth : 0.75;
         if (drawing.Name == OdtNamespaces.Draw + "frame" && graphic?.Attribute(OdtNamespaces.Fo + "border") is not null)
         {
@@ -1182,13 +1207,23 @@ internal static class OdtReader
                     _ => horizontalLeft + x,
                 };
             }
-            string? verticalRel = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-rel");
-            if (anchorType is "paragraph" or "char" && verticalRel is "page" or "page-content")
+            string? verticalRel = (string?)properties?.Attribute(OdtNamespaces.LibreOffice + "vertical-rel") ??
+                (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-rel");
+            if (anchorType is "paragraph" or "char" && verticalRel is "page" or "page-content" or "page-content-bottom")
             {
-                double frameTop = verticalRel == "page-content" ? context.ActivePage?.MarginTop ?? 0 : 0;
-                double frameHeight = verticalRel == "page-content"
-                    ? context.ActivePage?.ContentHeight ?? 0
-                    : context.ActivePage?.Height ?? 0;
+                double frameTop = verticalRel switch
+                {
+                    "page-content" => context.ActivePage?.MarginTop ?? 0,
+                    "page-content-bottom" when context.ActivePage is PageGeometry pageGeometry =>
+                        pageGeometry.Height - pageGeometry.MarginBottom,
+                    _ => 0,
+                };
+                double frameHeight = verticalRel switch
+                {
+                    "page-content" => context.ActivePage?.ContentHeight ?? 0,
+                    "page" => context.ActivePage?.Height ?? 0,
+                    _ => 0,
+                };
                 double fromTop = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-pos") switch
                 {
                     "top" => frameTop,
@@ -1198,6 +1233,9 @@ internal static class OdtReader
                 };
                 return (0, x, fromTop, true);
             }
+
+            if (anchorType is "paragraph" or "char" && context.FooterOrigin is double footerTop)
+                return (0, x, footerTop + y, true);
 
             return (0, x, y, false);
         }
@@ -1277,7 +1315,7 @@ internal static class OdtReader
     /// <c>style:run-through</c> gets, and for the same reason.
     /// </remarks>
     private static (ShapeFill? Fill, BColor Outline, bool BehindText, ShapeWrap Wrap, WrapSide Side)
-        ReadShapeStyle(string? styleName, OdtStyles styles)
+        ReadShapeStyle(string? styleName, OdtStyles styles, bool implicitSolid = false)
     {
         XElement? properties = styles.GraphicPropertiesFor(styleName);
         if (properties is null)
@@ -1285,7 +1323,7 @@ internal static class OdtReader
             return (null, BColor.Empty, true, ShapeWrap.TopAndBottom, WrapSide.Largest);
         }
 
-        ShapeFill? fill = ReadDrawFill(properties, styles);
+        ShapeFill? fill = ReadDrawFill(properties, styles, implicitSolid);
 
         BColor outline = BColor.Empty;
         string? stroke = (string?)properties.Attribute(OdtNamespaces.Draw + "stroke");
@@ -1346,9 +1384,9 @@ internal static class OdtReader
     /// §20.106): a colour, a named gradient, or null for none or a fill this
     /// does not read.
     /// </summary>
-    private static ShapeFill? ReadDrawFill(XElement properties, OdtStyles styles)
+    private static ShapeFill? ReadDrawFill(XElement properties, OdtStyles styles, bool implicitSolid = false)
     {
-        ShapeFill? fill = ReadDrawFillCore(properties, styles);
+        ShapeFill? fill = ReadDrawFillCore(properties, styles, implicitSolid);
         if (fill is null) return null;
         double opacity = ReadFillPercent(properties, "opacity", 1);
         if (fill.Image is not null && opacity < 1)
@@ -1366,7 +1404,7 @@ internal static class OdtReader
             CultureInfo.InvariantCulture, out double percent) && double.IsFinite(percent) ? Math.Clamp(percent / 100, 0, 1) : fallback;
     }
 
-    private static ShapeFill? ReadDrawFillCore(XElement properties, OdtStyles styles)
+    private static ShapeFill? ReadDrawFillCore(XElement properties, OdtStyles styles, bool implicitSolid)
     {
         string? kind = (string?)properties.Attribute(OdtNamespaces.Draw + "fill");
         if (string.Equals(kind, "gradient", StringComparison.Ordinal))
@@ -1421,7 +1459,7 @@ internal static class OdtReader
             return null;
         }
 
-        return string.Equals(kind, "solid", StringComparison.Ordinal) &&
+        return (kind == "solid" || (kind is null && implicitSolid)) &&
             TryColor((string?)properties.Attribute(OdtNamespaces.Draw + "fill-color"), out BColor solid)
                 ? ShapeFill.Solid(solid)
                 : null;
@@ -1650,10 +1688,12 @@ internal static class OdtReader
         OdtStyles styles,
         OdtImageLoader images,
         DocumentLimits limits,
-        List<DocumentDiagnostic> diagnostics)
+        List<DocumentDiagnostic> diagnostics,
+        PageGeometry? page,
+        double? footerOrigin)
     {
         var builder = new OdtDocumentBuilder(limits, diagnostics);
-        var context = new OdtReadContext(styles, images, builder);
+        var context = new OdtReadContext(styles, images, builder, page) { FooterOrigin = footerOrigin };
         ReadBlockContent(part.Elements(), context, list: null, depth: 0);
         context.DropPageBreak();
 
@@ -2075,9 +2115,13 @@ internal static class OdtReader
                 breakAfter = after;
         }
 
+        // A leading soft marker in a text paragraph records an earlier
+        // layout. Reflow the text, while preserving a marker that constitutes
+        // the entire paragraph (there is no text from which to infer it).
         if (context.SelectPageStyle?.Invoke("paragraph", styleName, context.Builder.CurrentParagraphIndex) == true ||
             (context.UsesSoftPageBreaks && context.TableDepth == 0 && context.HiddenSectionDepth == 0 &&
-             paragraph.FirstNode is XElement softBreak && softBreak.Name == OdtNamespaces.Text + "soft-page-break"))
+             paragraph.FirstNode is XElement softBreak && softBreak.Name == OdtNamespaces.Text + "soft-page-break" &&
+             !softBreak.NodesAfterSelf().Any()))
             paragraphStyle = paragraphStyle with { PageBreakBefore = true, ColumnBreakBefore = false };
 
         // A break handed over by the paragraph above is taken after this
@@ -2622,6 +2666,8 @@ internal static class OdtReader
                 {
                     EndnoteFormat = numFormat is null ? numbering.EndnoteFormat : OdtStyles.NumberFormat(numFormat),
                     EndnoteStart = start ?? numbering.EndnoteStart,
+                    EndnotesStartOnNewPage = !string.IsNullOrEmpty(
+                        (string?)configuration.Attribute(OdtNamespaces.Text + "master-page-name")),
                 };
             }
             else

@@ -7,6 +7,29 @@ namespace Broiler.Documents.Odt.Tests;
 public sealed class OdtListNumberingTests
 {
     [Fact]
+    public void Old_Hungarian_List_Survives_A_Damaged_Body_Wrapper_And_Round_Trips()
+    {
+        const string numberFormat = "\U00010CFA, \U00010CFA\U00010CFA, \U00010CFA\U00010CFA\U00010CFA, ...";
+        string xml = "<office:document " + OdtTestPackage.NamespaceDeclarations +
+            " office:mimetype='" + OdtTestPackage.TextMediaType + "'>" +
+            "<office:automatic-styles><text:list-style style:name='N'>" +
+            "<text:list-level-style-number text:level='1' style:num-format='" + numberFormat +
+            "' style:num-suffix='.'/></text:list-style></office:automatic-styles>" +
+            "<office:body><office:unknown-wrapper><text:list text:style-name='N'>" +
+            "<text:list-item text:start-value='4'><text:p>four</text:p></text:list-item>" +
+            "<text:list-item><text:p>five</text:p></text:list-item>" +
+            "</text:list></office:unknown-wrapper></office:body></office:document>";
+
+        using var input = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(xml));
+        DocumentReadResult result = new OdtDocumentCodec().Read(input);
+        Assert.Contains(result.Diagnostics, d => d.Code == "odt.document.body.recovered");
+        Assert.Equal(["\U00010CFA\U00010CFA\U00010CFA\U00010CFA.", "\U00010CFB."], Labels(result.Document));
+
+        using var output = new MemoryStream(OdtDocumentCodec.WriteToArray(result.Document));
+        Assert.Equal(Labels(result.Document), Labels(new OdtDocumentCodec().Read(output).Document));
+    }
+
+    [Fact]
     public void Only_The_First_Paragraph_Of_An_Item_Has_A_Label_And_Nested_Items_Count_Separately()
     {
         string body = "<text:list text:style-name=\"N\"><text:list-item>" + P("one") + P("continued") +

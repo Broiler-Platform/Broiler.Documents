@@ -20,6 +20,18 @@ public sealed class DocxPageBreakTests
     private const string LineBreak = "\u2028";
 
     [Fact]
+    public void A_Table_Marked_Entirely_As_Headers_Starts_A_Fresh_Page()
+    {
+        const string row = "<w:tr><w:trPr><w:tblHeader/></w:trPr><w:tc><w:p><w:r><w:t>Row</w:t></w:r></w:p></w:tc></w:tr>";
+        var document = DocxTestPackage.ReadBody(
+            DocxTestPackage.Paragraph("Before") + "<w:tbl>" + row + row + "</w:tbl>").Document;
+
+        var table = Assert.Single(document.Tables);
+        Assert.True(table.PageBreakBefore);
+        Assert.All(table.Rows, row => Assert.True(row.IsHeader));
+    }
+
+    [Fact]
     public void Internal_Boundaries_Retain_Run_Formatting_And_Only_Outer_Paragraph_Spacing()
     {
         var result = DocxTestPackage.ReadBody(

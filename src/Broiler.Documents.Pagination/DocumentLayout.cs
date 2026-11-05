@@ -505,8 +505,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         void BreakPage()
         {
+            if (truncated)
+                return;
+
             SetNotes();
-            PaintSectionUntil(Math.Max(regionDepth, y));
+            PaintSectionUntil(contentBottom);
             var inlineLines = new List<LayoutLine>(currentLines);
             var inlineCells = new List<LayoutCell>(currentCells);
             currentLines.AddRange(floatLines);
@@ -1134,6 +1137,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // yet, so a row that does not fit beneath them is placed there
                 // rather than sent on to a column that would repeat them again.
                 int headerCount = HeaderRowCount(table);
+                int firstBodyGroup = Math.Min(composedRows.Count, headerCount + 1);
+                bool keepInitialHeader = composedRows.Take(firstBodyGroup).Sum(row => row.Height) <= contentBottom - pageTop;
                 bool headerOnly = false;
 
                 void ContinueTable(bool inHeader, RowBox? nextRow = null)
@@ -1183,7 +1188,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 {
                     bool inHeader = rowNumber++ < headerCount;
                     // Keep the initial repeated heading with its first body row.
-                    int groupEnd = inHeader ? Math.Min(composedRows.Count, headerCount + 1) : rowNumber;
+                    int groupEnd = inHeader && keepInitialHeader ? firstBodyGroup : rowNumber;
                     for (int index = rowNumber - 1; index < groupEnd && index < table.Rows.Count; index++)
                     {
                         int spanEnd = index + table.Rows[index].Cells.Select(cell => cell.RowSpan).DefaultIfEmpty(1).Max();
@@ -1581,21 +1586,37 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             columns = pageColumns;
             column = 0;
             columnStart = currentLines.Count;
-            if (y + SeparatorBlock > contentBottom && currentLines.Count > 0)
+            bool dedicatedEndnotePage = !setup.Continuous && document.NoteNumbering.EndnotesStartOnNewPage;
+            if ((dedicatedEndnotePage || y + SeparatorBlock > contentBottom) &&
+                (currentLines.Count > 0 || currentCells.Count > 0))
+            {
                 BreakPage();
+                columnStart = 0;
+            }
 
-            currentCells.Add(new LayoutCell(
-                new BRect(_frame?.Left ?? setup.ContentLeftPoints, y + SeparatorGap,
-                    (_frame?.Width ?? setup.ContentWidthPoints) * SeparatorWidthRatio, SeparatorThickness),
-                _settings.DefaultForeground,
-                default));
-            y += SeparatorBlock;
+            if (!truncated && !dedicatedEndnotePage)
+            {
+                currentCells.Add(new LayoutCell(
+                    new BRect(_frame?.Left ?? setup.ContentLeftPoints, y + SeparatorGap,
+                        (_frame?.Width ?? setup.ContentWidthPoints) * SeparatorWidthRatio, SeparatorThickness),
+                    _settings.DefaultForeground,
+                    default));
+                y += SeparatorBlock;
+            }
 
             foreach (DocumentNote note in trailing)
             {
                 for (int i = 0; i < note.Paragraphs.Count && !truncated; i++)
                 {
                     RichTextParagraph paragraph = note.Paragraphs[i];
+                    if (!setup.Continuous && paragraph.Style.PageBreakBefore && currentLines.Count > 0)
+                    {
+                        BreakPage();
+                        if (truncated)
+                            break;
+                        columnStart = 0;
+                    }
+
                     ParagraphLines composed = ComposeNoteParagraph(note, i, setup);
                     y += i == 0 ? 0 : Math.Max(0, paragraph.Style.SpacingBefore);
                     foreach (LayoutLine line in composed.Lines)
@@ -1628,7 +1649,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         var finalInlineCells = new List<LayoutCell>(currentCells);
         currentLines.AddRange(floatLines);
         currentCells.AddRange(floatCells);
-        if (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0)
+        if (!truncated && (currentLines.Count > 0 || currentCells.Count > 0 || pages.Count == 0))
             pages.Add(NewPage(pages.Count + 1, setup, currentLines, currentCells, sectionPaint,
                 pageFloatingTables, finalInlineLines, finalInlineCells));
 
@@ -1711,6 +1732,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         PageSelection selection = SelectionFor(number);
         NotePageStart(number, lines);
+
 
         // The frame the page's text was laid out in. A page made after the text
         // ran out, to stand a page-anchored shape on, has none of its own and
@@ -3594,6 +3616,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double ascent = emptyMetrics.Ascent;
         double descent = emptyMetrics.Descent;
         double lineGap = emptyMetrics.LineGap;
+        double imageAscent = 0;
         double used = 0;
 
         // The marker is placed already and sits outside the text column, so it
@@ -3602,7 +3625,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         int first = hasMarker ? 1 : 0;
         for (int i = 0; i < pieces.Count; i++)
         {
-            ascent = Math.Max(ascent, pieces[i].Ascent);
+            if (pieces[i].IsImage)
+                imageAscent = Math.Max(imageAscent, pieces[i].Ascent);
+            else
+                ascent = Math.Max(ascent, pieces[i].Ascent);
             descent = Math.Max(descent, pieces[i].Descent);
             lineGap = Math.Max(lineGap, pieces[i].LineGap);
             if (i >= first)
@@ -3655,7 +3681,13 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // is not what a document that says "line spacing 2" is asking for. A
         // line made taller by an at-least height keeps its text at the top too,
         // as LibreOffice draws it.
-        return new LayoutLine(pieces, 0, style.LineBoxHeight(natural), ascent, paragraphIndex);
+        // Proportional leading follows the text metrics. Inline objects
+        // enlarge the box by the space they need above the text baseline.
+        double objectOverhang = Math.Max(0, imageAscent - ascent);
+        double height = style.LineHeightRule == LineHeightRule.Proportional
+            ? Math.Max(imageAscent, style.LineBoxHeight(natural) + objectOverhang)
+            : style.LineBoxHeight(natural + objectOverhang);
+        return new LayoutLine(pieces, 0, height, ascent + objectOverhang, paragraphIndex);
     }
 
     /// <summary>

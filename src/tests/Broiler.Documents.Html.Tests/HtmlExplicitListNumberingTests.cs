@@ -22,6 +22,15 @@ public sealed class HtmlExplicitListNumberingTests
     }
 
     [Fact]
+    public void Css_List_Style_Overrides_Type_And_Uses_Bijective_Letters()
+    {
+        Assert.Equal(new string?[] { "z.", "aa.", "ab.", "III.", "IV." }, Labels(
+            "<html><head><style>ol { list-style-type: upper-roman }</style></head><body>" +
+            "<ol type='I' start='26' style='list-style-type: lower-latin'><li>a</li><li>b</li><li>c</li></ol>" +
+            "<ol type='a' start='3'><li>d</li><li>e</li></ol></body></html>"));
+    }
+
+    [Fact]
     public void Item_Value_Restarts_The_Counter_And_Following_Items_Continue()
     {
         Assert.Equal(new string?[] { "1.", "10.", "11." }, Labels("<ol><li>one</li><li value='10'>ten</li><li>eleven</li></ol>"));

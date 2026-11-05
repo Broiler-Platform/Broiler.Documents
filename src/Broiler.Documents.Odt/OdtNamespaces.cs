@@ -19,6 +19,7 @@ internal static class OdtNamespaces
     public static readonly XNamespace Draw = "urn:oasis:names:tc:opendocument:xmlns:drawing:1.0";
     public static readonly XNamespace Manifest = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
     public static readonly XNamespace Meta = "urn:oasis:names:tc:opendocument:xmlns:meta:1.0";
+    public static readonly XNamespace LibreOffice = "urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0";
 
     /// <summary>The XSL-FO compatible namespace: most character and paragraph properties live here.</summary>
     public static readonly XNamespace Fo = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0";
@@ -77,7 +78,7 @@ internal static class OdtNamespaces
             ["tableooo"] = "http://openoffice.org/2009/table",
             ["drawooo"] = "http://openoffice.org/2010/draw",
             ["rpt"] = "http://openoffice.org/2005/report",
-            ["loext"] = "urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0",
+            ["loext"] = LibreOffice.NamespaceName,
             ["calcext"] = "urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0",
             ["field"] = "urn:openoffice:names:experimental:ooo-ms-interop:xmlns:field:1.0",
             ["formx"] = "urn:openoffice:names:experimental:ooxml-odf-interop:xmlns:form:1.0",

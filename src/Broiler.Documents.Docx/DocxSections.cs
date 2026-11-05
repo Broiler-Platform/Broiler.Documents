@@ -253,8 +253,10 @@ internal sealed class DocxSections
             h,
             Margin("left"),
             Margin("right"),
-            Margin("top"),
-            Margin("bottom"),
+            // The shared geometry models nonnegative distances. Preserve
+            // paper size and the other margins when Word uses a signed edge.
+            Math.Abs(Margin("top")),
+            Math.Abs(Margin("bottom")),
             Margin("header"),
             Margin("footer"));
         return geometry.IsUsable ? geometry : null;

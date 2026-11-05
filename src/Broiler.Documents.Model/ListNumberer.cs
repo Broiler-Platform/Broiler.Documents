@@ -205,8 +205,20 @@ public sealed class ListNumberer
             : value.ToString(CultureInfo.InvariantCulture),
         ListNumberFormat.LowerLetter => Letters(value, 'a'),
         ListNumberFormat.UpperLetter => Letters(value, 'A'),
+        ListNumberFormat.LowerAlphabetic => Alphabetic(value),
+        ListNumberFormat.UpperAlphabetic => Alphabetic(value, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+        ListNumberFormat.ArabicAlpha => Alphabetic(value, "أبتثجحخدذرزسشصضطظعغفقكلمنهوى"),
+        ListNumberFormat.ArabicAbjad => Alphabetic(value, "ابجدهوزحطيكلمنسعفصقرشتثخذضظغ"),
+        ListNumberFormat.HebrewAlphabetic => Alphabetic(value, "אבגדהוזחטיכלמנסעפצקרשת"),
         ListNumberFormat.LowerRoman => Roman(value, upper: false),
         ListNumberFormat.UpperRoman => Roman(value, upper: true),
+        ListNumberFormat.CardinalText => EnglishNumber(value, ordinal: false),
+        ListNumberFormat.OrdinalText => EnglishNumber(value, ordinal: true),
+        ListNumberFormat.OldHungarian => OldHungarian(value),
+        ListNumberFormat.Ordinal => Ordinal(value),
+        ListNumberFormat.Chicago => value is > 0 and <= 116
+            ? new string("*†‡§"[(value - 1) % 4], ((value - 1) / 4) + 1) : string.Empty,
+        ListNumberFormat.IdeographLegalTraditional => TraditionalFinancial(value),
         _ => value.ToString(CultureInfo.InvariantCulture),
     };
 
@@ -220,17 +232,146 @@ public sealed class ListNumberer
         return new string((char)(first + ((value - 1) % 26)), repeat);
     }
 
-    private static string Alphabetic(int value)
+    private static string Alphabetic(int value, string alphabet = "abcdefghijklmnopqrstuvwxyz")
     {
+        if (value <= 0)
+            return value.ToString(CultureInfo.InvariantCulture);
+
         var builder = new StringBuilder();
         while (value > 0)
         {
             value--;
-            builder.Insert(0, (char)('a' + (value % 26)));
-            value /= 26;
+            builder.Insert(0, alphabet[value % alphabet.Length]);
+            value /= alphabet.Length;
         }
 
-        return builder.Length == 0 ? "a" : builder.ToString();
+        return builder.ToString();
+    }
+
+    private static string Ordinal(int value)
+    {
+        long magnitude = Math.Abs((long)value);
+        string suffix = magnitude % 100 is >= 11 and <= 13 ? "th" : (magnitude % 10) switch
+        {
+            1 => "st",
+            2 => "nd",
+            3 => "rd",
+            _ => "th",
+        };
+        return value.ToString(CultureInfo.InvariantCulture) + suffix;
+    }
+
+    private static string TraditionalFinancial(int value)
+    {
+        if (value is < 0 or > 999999)
+            return string.Empty;
+
+        const string digits = "零壹貳參肆伍陸柒捌玖";
+        if (value < 10)
+            return digits[value].ToString();
+
+        if (value >= 10000)
+        {
+            int remainder = value % 10000;
+            return TraditionalFinancial(value / 10000) + "萬" + (remainder switch
+            {
+                0 => string.Empty,
+                < 1000 => "零" + TraditionalFinancial(remainder),
+                _ => TraditionalFinancial(remainder),
+            });
+        }
+
+        (int place, string unit) = value switch
+        {
+            >= 1000 => (1000, "仟"),
+            >= 100 => (100, "佰"),
+            _ => (10, "拾"),
+        };
+        int tail = value % place;
+        string head = digits[value / place] + unit;
+        if (tail == 0)
+            return head;
+
+        return head + (tail < place / 10 ? "零" : string.Empty) + TraditionalFinancial(tail);
+    }
+
+    private static readonly string[] CardinalUnits =
+        ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+         "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+
+    private static readonly string[] OrdinalUnits =
+        ["zeroth", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth",
+         "tenth", "eleventh", "twelfth", "thirteenth", "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth", "nineteenth"];
+
+    private static readonly string[] Tens =
+        ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+
+    private static string EnglishNumber(int value, bool ordinal)
+    {
+        string words = value < 0 ? "minus " + SpellNumber(-(long)value, ordinal) : SpellNumber(value, ordinal);
+        return char.ToUpperInvariant(words[0]) + words[1..];
+    }
+
+    private static string SpellNumber(long value, bool ordinal)
+    {
+        if (value < 20)
+            return (ordinal ? OrdinalUnits : CardinalUnits)[value];
+
+        if (value < 100)
+        {
+            string tens = Tens[value / 10];
+            long units = value % 10;
+            return units > 0 ? tens + "-" + SpellNumber(units, ordinal)
+                : ordinal ? tens[..^1] + "ieth" : tens;
+        }
+
+        (long scale, string name) = value switch
+        {
+            >= 1_000_000_000 => (1_000_000_000, "billion"),
+            >= 1_000_000 => (1_000_000, "million"),
+            >= 1_000 => (1_000, "thousand"),
+            _ => (100, "hundred"),
+        };
+        string head = SpellNumber(value / scale, ordinal: false) + " " + name;
+        long remainder = value % scale;
+        return remainder > 0 ? head + " " + SpellNumber(remainder, ordinal)
+            : ordinal ? head + "th" : head;
+    }
+
+    private static string OldHungarian(int value)
+    {
+        if (value <= 0)
+            return value.ToString(CultureInfo.InvariantCulture);
+
+        var result = new StringBuilder();
+        // Hundreds use a multiplier. Each successive group of three digits
+        // adds one thousand sign to the group's suffix.
+        ReadOnlySpan<int> scales = [1_000_000_000, 1_000_000, 1_000, 100];
+        for (int i = 0; i < scales.Length; i++)
+        {
+            int count = value / scales[i];
+            if (count == 0)
+                continue;
+
+            if (count > 1)
+                result.Append(OldHungarian(count));
+            if (i == 3)
+                result.Append("\U00010CFE");
+            else
+                for (int sign = i; sign < 3; sign++)
+                    result.Append("\U00010CFF");
+            value %= scales[i];
+        }
+
+        ReadOnlySpan<int> units = [1, 5, 10, 50];
+        for (int i = units.Length - 1; i >= 0; i--)
+        {
+            for (int count = value / units[i]; count > 0; count--)
+                result.Append(char.ConvertFromUtf32(0x10CFA + i));
+            value %= units[i];
+        }
+
+        return result.ToString();
     }
 
     private static string Roman(int value, bool upper)

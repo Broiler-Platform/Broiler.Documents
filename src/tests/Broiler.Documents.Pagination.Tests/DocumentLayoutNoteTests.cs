@@ -91,6 +91,47 @@ public sealed class DocumentLayoutNoteTests
     }
 
     [Fact]
+    public void An_Endnote_Separator_Cannot_Add_A_Page_Beyond_The_Limit()
+    {
+        using var images = new ImageStore();
+        var endnote = new DocumentNote(NoteKind.Endnote, [RichTextParagraph.Plain("At the end.")]);
+        var body = Citing("Body", endnote).WithParagraphStyle(ParagraphStyle.Default with
+        {
+            LineHeight = 20,
+            LineHeightRule = LineHeightRule.Exact,
+        });
+        var document = RichTextDocument.FromParagraphs([body]);
+        var box = new DocumentPageBox(612, 164, 72, 72, 72, 72);
+
+        LayoutResult result = new DocumentLayout(new LayoutSettings { MaxPages = 1 }, images).Layout(document, box);
+
+        Assert.True(result.Truncated);
+        LayoutPage page = Assert.Single(result.Pages);
+        Assert.Equal("Bodyi", TextOf(Assert.Single(page.Lines)));
+        Assert.Empty(page.Cells);
+    }
+
+    [Fact]
+    public void A_Dedicated_Endnote_Page_And_A_Break_Within_It_Are_Respected()
+    {
+        var endnote = new DocumentNote(NoteKind.Endnote,
+        [
+            RichTextParagraph.Plain("Endnote"),
+            RichTextParagraph.Plain("Continuation").WithParagraphStyle(ParagraphStyle.Default with { PageBreakBefore = true }),
+        ]);
+        var document = RichTextDocument.FromParagraphs([Citing("Body", endnote)])
+            .WithNoteNumbering(NoteNumbering.Default with { EndnotesStartOnNewPage = true });
+
+        LayoutResult result = Layout(document);
+
+        Assert.Equal(3, result.Pages.Count);
+        Assert.Equal("Bodyi", TextOf(Assert.Single(result.Pages[0].Lines)));
+        Assert.Equal("iEndnote", TextOf(Assert.Single(result.Pages[1].Lines)));
+        Assert.Empty(result.Pages[1].Cells);
+        Assert.Equal("Continuation", TextOf(Assert.Single(result.Pages[2].Lines)));
+    }
+
+    [Fact]
     public void Endnotes_Follow_The_Body()
     {
         var endnote = new DocumentNote(NoteKind.Endnote, [RichTextParagraph.Plain("At the end.")]);

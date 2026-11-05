@@ -45,6 +45,27 @@ public sealed class DocumentLayoutLineHeightTests
     }
 
     [Fact]
+    public void Proportional_Spacing_Adds_Leading_Without_Scaling_The_Inline_Image()
+    {
+        var image = InlineImage.CreateMissingPayload(30, 90);
+        RichTextParagraph paragraph = RichTextParagraph.Create("text",
+            InlineStyle.Default with { FontSize = 12f }, ParagraphStyle.Default)
+            .InsertText(4, InlineImage.Placeholder.ToString(), InlineStyle.Default with { Image = image });
+        using var images = new ImageStore();
+        var layout = new DocumentLayout(new LayoutSettings(), images);
+
+        LayoutLine LineAt(float spacing) => Assert.Single(layout.Layout(RichTextDocument.FromParagraphs(
+            [paragraph.WithParagraphStyle(ParagraphStyle.Default with { LineSpacing = spacing })]), Letter).Pages[0].Lines);
+
+        LayoutLine single = LineAt(1);
+        LayoutLine spaced = LineAt(6);
+        double textHeight = Assert.Single(Layout(ParagraphStyle.Default).Lines).Height;
+        Assert.Equal(single.Height + 5 * textHeight, spaced.Height, 6);
+        Assert.Equal(single.Baseline, spaced.Baseline, 6);
+        Assert.Equal(90, Assert.Single(spaced.Pieces, piece => piece.IsImage).Ascent, 6);
+    }
+
+    [Fact]
     public void Exact_Lines_Follow_One_Another_At_Their_Height()
     {
         LayoutPage page = Layout(

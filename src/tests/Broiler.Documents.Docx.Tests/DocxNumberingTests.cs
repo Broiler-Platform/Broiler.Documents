@@ -7,6 +7,24 @@ namespace Broiler.Documents.Docx.Tests;
 public sealed class DocxNumberingTests
 {
     [Theory]
+    [InlineData("arabicAlpha", "أ.", "ب.")]
+    [InlineData("arabicAbjad", "ا.", "ب.")]
+    [InlineData("hebrew2", "א.", "ב.")]
+    [InlineData("cardinalText", "One.", "Two.")]
+    [InlineData("ordinalText", "First.", "Second.")]
+    [InlineData("ordinal", "1st.", "2nd.")]
+    [InlineData("chicago", "*.", "†.")]
+    [InlineData("ideographLegalTraditional", "壹.", "貳.")]
+    public void Specialized_Numbering_Round_Trips(string format, string first, string second)
+    {
+        var document = Read(Item(1, 0, "first") + Item(1, 0, "second"), Abstract(0, Level(0, format, "%1.")) + Num(1, 0));
+        Assert.Equal(new[] { first, second }, Labels(document));
+
+        using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(document));
+        Assert.Equal(new[] { first, second }, Labels(new DocxDocumentCodec().Read(stream).Document));
+    }
+
+    [Theory]
     [InlineData("page", false)]
     [InlineData("column", false)]
     [InlineData("column", true)]

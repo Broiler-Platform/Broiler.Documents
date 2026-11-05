@@ -11,6 +11,28 @@ namespace Broiler.Documents.Odt.Tests;
 public sealed class OdtShapeTests
 {
     [Fact]
+    public void An_Extended_Page_Bottom_Anchor_Keeps_Its_Position_And_Default_Fill()
+    {
+        string styles = "<office:styles><style:default-style style:family='graphic'>" +
+            "<style:graphic-properties draw:fill-color='#729fcf'/></style:default-style></office:styles>" +
+            "<office:automatic-styles><style:page-layout style:name='page'><style:page-layout-properties " +
+            "fo:page-width='600pt' fo:page-height='800pt' fo:margin-bottom='60pt'/></style:page-layout>" +
+            "</office:automatic-styles><office:master-styles><style:master-page style:name='Standard' " +
+            "style:page-layout-name='page'/></office:master-styles>";
+        string automatic = "<style:style style:name='rectangle' style:family='graphic'>" +
+            "<style:graphic-properties xmlns:loext='urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0' " +
+            "loext:vertical-rel='page-content-bottom' style:vertical-pos='from-top'/></style:style>";
+        var document = OdtTestPackage.ReadStyled("<text:p><draw:rect text:anchor-type='paragraph' " +
+            "draw:style-name='rectangle' svg:y='-80pt' svg:width='50pt' svg:height='40pt'/></text:p>",
+            styles, automatic).Document;
+
+        DocumentShape shape = Assert.Single(document.Shapes);
+        Assert.True(shape.OffsetFromPage);
+        Assert.Equal(660, shape.OffsetY, 4);
+        Assert.Equal(new BColor(114, 159, 207), shape.Fill!.Start);
+    }
+
+    [Fact]
     public void A_Text_Frame_Keeps_Its_Cell_Alignment_On_Round_Trip()
     {
         string styles = "<style:style style:name=\"frame\" style:family=\"graphic\">" +

@@ -1,7 +1,7 @@
 {
   "$schema": "extras-reference-defects.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-10-29",
+  "updated": "2026-11-05",
   "policy": {
     "records": "Samples of LibreOffice's sw/qa/extras corpus that the LibreOffice the references come from draws with a LibreOffice defect a later LibreOffice release fixed. The corpus is LibreOffice's master tree and the references come from the release reference-data workflow pins, which is older, so a sample added with an upstream fix tests that fix and the pinned release draws it the way the fix corrected.",
     "rule": "While the reference LibreOffice's major.minor is older than a row's fixedIn, the checks the row names (pixel, text) are not compared for its samples: each is reported as skipped with the bug and the note that shows it, and the sample is listed under Known Reference Defects. broilerdoc still reads, dumps and renders it and has to end each in a documented exit code, and every check the row does not name runs and ranks as usual. A row stops applying by itself once references come from a fixed release.",
@@ -10,6 +10,45 @@
     "adding": "A new row needs the bug (tdf#N; gerrit#N, the LibreOffice core review that merged the fix, only where the fix names no bug), the first release with the fix (major.minor), the fixing commits on LibreOffice core, the upstream tests (where the fix came with none, an empty list and an untested field saying so and naming what pins the fixed rendering instead, such as a later release's output and the producer's own saved layout), which checks it affects, every sample it covers, the evidence in prose and a repository note that shows it. The guard checks the fields, that fixedIn is newer than the baseline's LibreOffice, that no sample is listed twice and that the note exists and names the bug."
   },
   "defects": [
+    {
+      "id": "tdf161368-large-page-line-width",
+      "bug": "tdf#161368",
+      "fixedIn": "24.8",
+      "fixCommits": [
+        "7e9c23894bd45e015accf26ae0a77035b7eed452"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/layout/layout3.cxx testTdf161368"
+      ],
+      "axes": [
+        "pixel"
+      ],
+      "samples": [
+        "layout/data/tdf161368.fodt"
+      ],
+      "evidence": "The pinned 24.2 PDF wraps the three paragraphs into four pages of near-single-character lines despite a 120 cm page width. The upstream regression test asserts one page with three single-line paragraphs after widening the twip values. Local LibreOffice 26.2.6.3 also exported one full-width page.",
+      "reference": "docs/notes/office-issue-199.md"
+    },
+    {
+      "id": "tdf138020-all-rows-marked-header",
+      "bug": "tdf#138020",
+      "fixedIn": "26.8",
+      "fixCommits": [
+        "f431a2b02fbe85bd6e83491e5bcb26149df325c3"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlexport/ooxmlexport25.cxx testTdf138020_all_rows_tblHeader"
+      ],
+      "axes": [
+        "pixel"
+      ],
+      "samples": [
+        "ooxmlexport/data/tdf138020_all_rows_tblHeader.docx"
+      ],
+      "evidence": "The pinned PDF places the table on page two but clips its final rows, leaving page three blank. The 26.8 import test requires the table to flow across pages two and three with zero repeated header rows. The pinned plain-text projection retains the clipped text.",
+      "reference": "docs/notes/office-issue-199.md"
+    },
+
     {
       "id": "tdf163894-character-style-reference",
       "bug": "tdf#163894",
@@ -118,6 +157,25 @@
       ],
       "evidence": "In LibreOffice 24.2, an unsplittable row under a repeated table header that exceeded the remaining page height reached past the bottom of the page and was truncated, keeping the document on 2 pages with dropped text. Commit f0e78f28ee6e8586d66fa8d988366a1ae02aae77 ('cool#16066 sw: omit the repeated heading where a row needs the full page', Mike Kaganski, Gerrit review 209269) fixed this in LibreOffice 26.8, pinned by testCool16066_headlineAndUnsplittableRow in layout6.cxx, matching Word by omitting the repeated heading on the page where the unsplittable row requires the full page. The office-references-v3 PDF, produced by LibreOffice 24.2.7.2, truncates the row, whereas modern LibreOffice and Word render the full content.",
       "reference": "docs/notes/office-issue-197.md"
+    },
+    {
+      "id": "tdf125469-omitted-line-rule",
+      "bug": "tdf#125469",
+      "fixedIn": "25.2",
+      "fixCommits": [
+        "e3dfb54117f5325d8f38f58ef892c2808d601e54"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlexport/ooxmlexport21.cxx testTdf125469_singleSpacing"
+      ],
+      "axes": [
+        "pixel"
+      ],
+      "samples": [
+        "ooxmlexport/data/tdf125469_singleSpacing.docx"
+      ],
+      "evidence": "The pinned LibreOffice 24.2.7.2 PDF has four pages, three blank. The upstream fix uses automatic spacing when no line rule was specified or inherited. LibreOffice 26.2.6.3 and broilerdoc with Calibri each render one page containing all four paragraphs. The narrower fit depends on the selected font.",
+      "reference": "docs/notes/office-issue-199.md"
     }
   ]
 }

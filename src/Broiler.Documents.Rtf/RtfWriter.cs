@@ -976,13 +976,6 @@ public static class RtfWriter
     /// Writes a floating picture at the head of the paragraph it is anchored to,
     /// in the text rather than beside it.
     /// </summary>
-    /// <remarks>
-    /// A picture inside a shape is a <c>pib</c> shape property, and this codec's
-    /// reader knows fill and line properties only - so a shape written that way
-    /// would come back with no picture and no paint, which is a shape it drops.
-    /// The image is worth more than the position, so the position is what gives
-    /// way, and the note says which.
-    /// </remarks>
     private static void WriteFloatingPicture(
         StringBuilder sb,
         DocumentShape shape,
