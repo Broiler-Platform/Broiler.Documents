@@ -1056,6 +1056,8 @@ public static class RtfReader
                 case "nowrap": _state.Frame = _state.Frame with { Wrap = RtfFrameWrap.NotBeside }; break;
                 case "overlay": _state.Frame = _state.Frame with { Wrap = RtfFrameWrap.None }; break;
                 case "wrapthrough": _state.Frame = _state.Frame with { Wrap = RtfFrameWrap.Through }; break;
+                case "wraptight": _state.Frame = _state.Frame with { Wrap = RtfFrameWrap.Tight }; break;
+                case "wrapdefault": _state.Frame = _state.Frame with { Wrap = RtfFrameWrap.Auto }; break;
                 case "dxfrtext":
                     if (has)
                         _state.Frame = _state.Frame with { HorizontalSpace = p, VerticalSpace = p };
@@ -2304,6 +2306,9 @@ public static class RtfReader
             // awaiting their next unframed paragraph travel with that paragraph.
             if (_state.Dest == RtfDestination.Normal && !_state.InTable)
             {
+                if (_state.Frame.IsFrame)
+                    return;
+
                 FinishFrame();
                 if (!_builder.HasPendingText &&
                     _shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _builder.ParagraphCount))
@@ -2565,7 +2570,7 @@ public static class RtfReader
         public bool BreakPage(ParagraphStyle style)
         {
             bool displaced = PageBreakPending && _current.Length == 0;
-            if (_current.Length > 0)
+            if (_current.Length > 0 || (_paragraphs.Count == 0 && !PageBreakPending))
                 EndParagraph(style);
 
             PageBreakPending = true;

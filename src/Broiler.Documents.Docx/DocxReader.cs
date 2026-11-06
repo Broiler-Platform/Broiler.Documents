@@ -779,9 +779,16 @@ internal static class DocxReader
             return false;
 
         // After a table it is what closes the section below the table, which is
-        // Word's own shape for a section ending in one; it stays.
+        // Word's own shape for a section ending in one; it stays unless the
+        // section break starts a new page.
         if (paragraph.ElementsBeforeSelf().LastOrDefault()?.Name == DocxNamespaces.Wordprocessing + "tbl")
-            return false;
+        {
+            XElement? sectPr = paragraph.Element(DocxNamespaces.Wordprocessing + "pPr")?.Element(DocxNamespaces.Wordprocessing + "sectPr");
+            string type = DocxValueReader.WordValue(sectPr?.Element(DocxNamespaces.Wordprocessing + "type")) ?? "nextPage";
+            bool startsPage = type is "nextPage" or "oddPage" or "evenPage";
+            if (!startsPage)
+                return false;
+        }
 
         foreach (XElement child in paragraph.Elements())
         {

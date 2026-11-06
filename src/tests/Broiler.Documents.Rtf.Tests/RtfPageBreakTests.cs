@@ -53,13 +53,28 @@ public sealed class RtfPageBreakTests
     }
 
     [Fact]
-    public void A_Page_Before_Any_Text_Belongs_To_The_First_Paragraph()
+    public void A_Page_Before_Any_Text_Opens_A_Blank_Page_And_Breaks_On_The_Following_Paragraph()
     {
+        // An explicit \page at document start before any text opens a blank page (fdo81892)
         RichTextDocument document = Read("{\\rtf1\\page only\\par}");
 
-        Assert.Equal(1, document.ParagraphCount);
-        Assert.Equal("only", document.Paragraphs[0].Text);
-        Assert.True(BreaksAt(document, 0));
+        Assert.Equal(2, document.ParagraphCount);
+        Assert.Equal(string.Empty, document.Paragraphs[0].Text);
+        Assert.Equal("only", document.Paragraphs[1].Text);
+        Assert.False(BreaksAt(document, 0));
+        Assert.True(BreaksAt(document, 1));
+    }
+
+    [Fact]
+    public void Opening_Page_Break_Before_Paragraph_Renders_Two_Pages()
+    {
+        // fdo81892: \pard \qc \page Performance \par at document start renders on page 2.
+        RichTextDocument document = Read("{\\rtf1\\pard\\qc\\page Performance\\par}");
+
+        Assert.Equal(2, document.ParagraphCount);
+        Assert.Equal(string.Empty, document.Paragraphs[0].Text);
+        Assert.Equal("Performance", document.Paragraphs[1].Text);
+        Assert.True(BreaksAt(document, 1));
     }
 
     [Fact]

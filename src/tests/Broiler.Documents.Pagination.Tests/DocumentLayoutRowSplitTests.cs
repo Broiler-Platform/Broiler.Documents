@@ -55,6 +55,24 @@ public sealed class DocumentLayoutRowSplitTests
         Assert.Equal(12, page.Lines.Count);
     }
 
+    [Fact]
+    public void A_row_with_minimum_height_exceeding_page_height_splits_across_pages()
+    {
+        // Letter text area is 648 pt tall. A row with minHeight 1500 pt splits across 3 pages:
+        // Page 1: 648 pt, Page 2: 648 pt, Page 3: 1500 - 648*2 = 204 pt.
+        RichTextParagraph[] paragraphs = Enumerable.Range(0, 30).Select(i => RichTextParagraph.Plain($"line {i}")).ToArray();
+        RichTextDocument document = RichTextDocument.FromParagraphs(paragraphs)
+            .WithTables([new DocumentTable(0, 30,
+                [new TableRow([new TableCell(0, 30, 0)], minHeight: 1500, canSplit: true)], [200], cellPadding: 0)]);
+
+        LayoutResult result = Layout(document);
+
+        Assert.Equal(3, result.Pages.Count);
+        Assert.Equal(648, result.Pages[0].Cells[0].Bounds.Height, 3);
+        Assert.Equal(648, result.Pages[1].Cells[0].Bounds.Height, 3);
+        Assert.Equal(204, result.Pages[2].Cells[0].Bounds.Height, 3);
+    }
+
     /// <summary>US Letter with one-inch margins: a text area 648 points tall.</summary>
     private static readonly DocumentPageBox Letter = new(612, 792, 72, 72, 72, 72);
 

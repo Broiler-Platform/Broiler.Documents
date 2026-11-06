@@ -248,4 +248,16 @@ public sealed class RtfFrameTests
         Assert.Equal(42, shape.OffsetX, 3);
         Assert.Equal(56, shape.OffsetY, 3);
     }
+
+    [Fact]
+    public void A_Page_Break_Inside_A_Frame_Is_Lost()
+    {
+        // tdf158586: a page break inside a text frame has no paginated flow and is lost.
+        RichTextDocument document = Read(
+            "\\pard\\plain \\wraptight \\page \\sect \\sectd \\sbknone \\pard\\plain First page\\par");
+
+        Assert.Single(document.Paragraphs);
+        Assert.Equal("First page", document.Paragraphs[0].Text);
+        Assert.False(document.Paragraphs[0].Style.PageBreakBefore);
+    }
 }

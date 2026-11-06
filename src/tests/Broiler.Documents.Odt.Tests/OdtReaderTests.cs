@@ -410,4 +410,53 @@ public sealed class OdtReaderTests
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.document.empty");
         Assert.Equal(DocumentResultStatus.Success, result.Status);
     }
+
+    [Fact]
+    public void Reads_Inline_Content_Control()
+    {
+        // tdf172169: text inside loext:content-control should be preserved.
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:p>before <loext:content-control><text:span>inside</text:span></loext:content-control> after</text:p>");
+
+        Assert.Equal("before inside after", result.Document.Paragraphs[0].Text);
+    }
+
+    [Fact]
+    public void Reads_Block_Content_Control()
+    {
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<loext:content-control><text:p>p1</text:p><text:p>p2</text:p></loext:content-control>");
+
+        Assert.Equal(2, result.Document.ParagraphCount);
+        Assert.Equal("p1", result.Document.Paragraphs[0].Text);
+        Assert.Equal("p2", result.Document.Paragraphs[1].Text);
+    }
+
+    [Fact]
+    public void Soft_Page_Break_On_Trailing_Empty_Paragraph_Does_Not_Force_Page_Break()
+    {
+        string contentXml =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+            "<office:document-content " + OdtTestPackage.NamespaceDeclarations + " office:version=\"1.3\">" +
+            "<office:body><office:text text:use-soft-page-breaks=\"true\">" +
+            "<text:p>Content</text:p>" +
+            "<text:p><text:soft-page-break/></text:p>" +
+            "</office:text></office:body></office:document-content>";
+
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            var manifest = archive.CreateEntry("META-INF/manifest.xml");
+            using (var writer = new StreamWriter(manifest.Open(), Encoding.UTF8))
+                writer.Write("<?xml version=\"1.0\" encoding=\"UTF-8\"?><manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.3\"><manifest:file-entry manifest:full-path=\"/\" manifest:media-type=\"application/vnd.oasis.opendocument.text\"/><manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/></manifest:manifest>");
+            var content = archive.CreateEntry("content.xml");
+            using (var writer = new StreamWriter(content.Open(), Encoding.UTF8))
+                writer.Write(contentXml);
+        }
+        stream.Position = 0;
+        var result = new OdtDocumentCodec().Read(stream);
+        Assert.True(result.IsUsable);
+        Assert.Equal(2, result.Document.ParagraphCount);
+        Assert.False(result.Document.Paragraphs[1].Style.PageBreakBefore);
+    }
 }

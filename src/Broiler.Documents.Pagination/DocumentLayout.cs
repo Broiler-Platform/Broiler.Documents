@@ -2761,11 +2761,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         {
             // A row whose stated floor fits on a fresh page must move there,
             // even when its few text lines would fit in the space left here.
-            if (room < MinimumHeight)
+            if (room < MinimumHeight && !allowStranding)
                 return null;
 
             var cuts = new double?[Contents.Count];
-            bool kept = false;
+            bool kept = Contents.All(c => c.Pieces.Count == 0);
             bool carried = false;
             bool anyCellStranded = false;
             for (int i = 0; i < Contents.Count; i++)
@@ -2798,10 +2798,28 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if (!allowStranding && anyCellStranded)
                 return null;
             if (!carried)
+            {
+                if (MinimumHeight > room)
+                {
+                    var fit = new RowBox { Height = room, CanSplit = true, MinimumHeight = Math.Min(MinimumHeight, room) };
+                    var remainder = new RowBox { CanSplit = true, MinimumHeight = Math.Max(0, MinimumHeight - room), Height = Math.Max(0, MinimumHeight - room) };
+                    fit.Boxes.AddRange(Boxes);
+                    remainder.Boxes.AddRange(Boxes);
+                    for (int i = 0; i < Contents.Count; i++)
+                    {
+                        CellLines content = Contents[i];
+                        fit.Lines.AddRange(content.Lines);
+                        fit.Cells.AddRange(content.Cells);
+                        fit.Contents.Add(content);
+                        remainder.Contents.Add(CellLines.Empty);
+                    }
+                    return (fit, remainder);
+                }
                 return (this, null);
+            }
 
-            var fitted = new RowBox { Height = room, CanSplit = true };
-            var rest = new RowBox { CanSplit = true };
+            var fitted = new RowBox { Height = room, CanSplit = true, MinimumHeight = Math.Min(MinimumHeight, room) };
+            var rest = new RowBox { CanSplit = true, MinimumHeight = Math.Max(0, MinimumHeight - room) };
             fitted.Boxes.AddRange(Boxes);
             rest.Boxes.AddRange(Boxes);
             for (int i = 0; i < Contents.Count; i++)
@@ -2875,7 +2893,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 rest.Lines.AddRange(after);
                 rest.Cells.AddRange(boxesAfter);
                 rest.Contents.Add(new CellLines(after, boxesAfter, piecesAfter, remaining, content.Cell, IsSplit: content.IsSplit || cut > 0));
-                rest.Height = Math.Max(rest.Height, remaining);
+                rest.Height = Math.Max(rest.Height, Math.Max(remaining, rest.MinimumHeight));
             }
 
             return (fitted, rest);

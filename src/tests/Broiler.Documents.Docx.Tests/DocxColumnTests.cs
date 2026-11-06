@@ -579,6 +579,23 @@ public sealed class DocxColumnTests
     }
 
     [Fact]
+    public void A_NextPage_Section_Mark_After_A_Table_Is_Dropped()
+    {
+        // tdf158855: an empty paragraph following a table holding only a next-page
+        // section mark is dropped so it does not spill over into an extra blank page.
+        DocumentReadResult result = Read(
+            "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>" +
+            "<w:p><w:pPr><w:sectPr><w:type w:val=\"nextPage\"/></w:sectPr></w:pPr></w:p>" +
+            DocxTestPackage.Paragraph("next") +
+            Section());
+
+        RichTextDocument document = result.Document;
+        Assert.Equal("cell\nnext", document.PlainText);
+        Assert.Equal(2, document.ParagraphCount);
+        Assert.True(document.Paragraphs[1].Style.PageBreakBefore);
+    }
+
+    [Fact]
     public void A_Section_With_Its_Own_Margins_Keeps_Them()
     {
         // The middle section is two inches in from either side; the others, and

@@ -1831,6 +1831,12 @@ internal static class OdtReader
                 continue;
             }
 
+            if (name == OdtNamespaces.LibreOffice + "content-control" || name.LocalName == "content-control")
+            {
+                ReadBlockContent(element.Elements(), context, list, depth + 1);
+                continue;
+            }
+
             // A section is a named region of ordinary body content; an index is a
             // generated one whose text:index-body holds real paragraphs. Both are
             // walked so the words inside them survive.
@@ -2128,7 +2134,8 @@ internal static class OdtReader
         if (context.SelectPageStyle?.Invoke("paragraph", styleName, context.Builder.CurrentParagraphIndex) == true ||
             (context.UsesSoftPageBreaks && context.TableDepth == 0 && context.HiddenSectionDepth == 0 &&
              paragraph.FirstNode is XElement softBreak && softBreak.Name == OdtNamespaces.Text + "soft-page-break" &&
-             !softBreak.NodesAfterSelf().Any()))
+             !softBreak.NodesAfterSelf().Any() &&
+             paragraph.ElementsAfterSelf().Any()))
             paragraphStyle = paragraphStyle with { PageBreakBefore = true, ColumnBreakBefore = false };
 
         // A break handed over by the paragraph above is taken after this
@@ -2270,6 +2277,19 @@ internal static class OdtReader
                     spanStyle = ApplyTextProperties(properties, spanStyle, context.Styles, builder);
 
                 ReadInlineContent(element, context, spanStyle, depth + 1);
+                continue;
+            }
+
+            if (name == OdtNamespaces.LibreOffice + "content-control" || name.LocalName == "content-control")
+            {
+                InlineStyle contentStyle = style;
+                string? styleName = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
+                if (!string.IsNullOrEmpty(styleName))
+                {
+                    foreach (XElement properties in context.Styles.TextPropertiesForSpan(styleName))
+                        contentStyle = ApplyTextProperties(properties, contentStyle, context.Styles, builder);
+                }
+                ReadInlineContent(element, context, contentStyle, depth + 1);
                 continue;
             }
 

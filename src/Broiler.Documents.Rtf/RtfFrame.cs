@@ -47,6 +47,7 @@ internal enum RtfFrameWrap
     NotBeside,
     None,
     Through,
+    Tight,
 }
 
 /// <summary>
