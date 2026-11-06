@@ -113,6 +113,22 @@ public sealed class OdtNonPrintingTests
     }
 
     [Fact]
+    public void Date_Form_Controls_Are_Read_As_Shapes_With_Current_Value()
+    {
+        // dateFormFormats: form:date control is read as a shape with value and as-char anchor
+        string body = Forms("<form:date form:name=\"Date1\" form:id=\"c1\" form:current-value=\"2024-01-15\"/>") +
+            "<text:p><draw:control text:anchor-type=\"as-char\" draw:control=\"c1\" svg:width=\"60pt\" svg:height=\"15pt\"/>body</text:p>";
+
+        RichTextDocument document = OdtTestPackage.ReadBody(body).Document;
+
+        DocumentShape shape = Assert.Single(document.Shapes);
+        Assert.Equal("2024-01-15", Assert.Single(shape.Paragraphs).Text);
+        Assert.True(shape.IsAsCharacter);
+        Assert.Equal(60, shape.Width);
+        Assert.Equal(15, shape.Height);
+    }
+
+    [Fact]
     public void A_Hidden_Section_In_A_Footer_Is_Not_Part_Of_It()
     {
         string styles =

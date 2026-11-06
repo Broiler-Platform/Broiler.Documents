@@ -201,8 +201,8 @@ internal sealed class DocxNumbering
         "chicago" => ListNumberFormat.Chicago,
         "ideographLegalTraditional" => ListNumberFormat.IdeographLegalTraditional,
         "taiwaneseCountingThousand" or "taiwaneseCounting" or "chineseCounting" or
-            "chineseCountingThousand" or "ideographDigital" or "japaneseCounting" or
-            "koreanDigital2" => ListNumberFormat.IdeographCounting,
+            "chineseCountingThousand" or "ideographDigital" or "japaneseCounting" => ListNumberFormat.IdeographCounting,
+        "koreanDigital2" => ListNumberFormat.KoreanDigital2,
         "ideographTraditional" => ListNumberFormat.TianGan,
         "ideographZodiac" => ListNumberFormat.DiZi,
         "upperLetter" => ListNumberFormat.UpperLetter,

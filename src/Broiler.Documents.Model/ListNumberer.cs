@@ -222,6 +222,7 @@ public sealed class ListNumberer
         ListNumberFormat.IdeographCounting => ChineseCounting(value),
         ListNumberFormat.TianGan => TianGan(value),
         ListNumberFormat.DiZi => DiZi(value),
+        ListNumberFormat.KoreanDigital2 => KoreanDigital2(value),
         _ => value.ToString(CultureInfo.InvariantCulture),
     };
 
@@ -309,6 +310,19 @@ public sealed class ListNumberer
         return value is >= 1 and <= 10
             ? stems[value - 1].ToString()
             : value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string KoreanDigital2(int value)
+    {
+        if (value <= 0)
+            return value.ToString(CultureInfo.InvariantCulture);
+
+        const string digits = "〇一二三四五六七八九";
+        string s = value.ToString(CultureInfo.InvariantCulture);
+        var sb = new StringBuilder(s.Length);
+        foreach (char c in s)
+            sb.Append(digits[c - '0']);
+        return sb.ToString();
     }
 
     private static string DiZi(int value)

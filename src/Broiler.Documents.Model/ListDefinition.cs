@@ -73,6 +73,9 @@ public enum ListNumberFormat
 
     /// <summary>子, 丑, 寅 ... 亥 (Di Zi).</summary>
     DiZi,
+
+    /// <summary>〇, 一, 二 ... 一〇, 一一 ... 二〇 (Korean Hanja digital).</summary>
+    KoreanDigital2,
 }
 
 /// <summary>One level of a <see cref="ListDefinition"/>.</summary>

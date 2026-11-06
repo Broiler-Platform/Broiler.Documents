@@ -1047,12 +1047,16 @@ internal static class OdtReader
     {
         string? id = (string?)drawing.Attribute(OdtNamespaces.Draw + "control");
         if (id is null || !context.FormControls.TryGetValue(id, out XElement? control) ||
-            control.Name != OdtNamespaces.Form + "fixed-text")
+            (control.Name != OdtNamespaces.Form + "fixed-text" &&
+             control.Name != OdtNamespaces.Form + "date" &&
+             control.Name != OdtNamespaces.Form + "date-field"))
             return;
 
-        string label = (string?)control.Attribute(OdtNamespaces.Form + "label") ?? "";
-        if (string.IsNullOrWhiteSpace(label) ||
-            !OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "width"), out double width) ||
+        string label = (string?)control.Attribute(OdtNamespaces.Form + "label")
+            ?? (string?)control.Attribute(OdtNamespaces.Form + "current-value")
+            ?? (string?)control.Attribute(OdtNamespaces.Form + "value")
+            ?? "";
+        if (!OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "width"), out double width) ||
             !OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "height"), out double height) ||
             width <= 0 || height <= 0)
             return;
@@ -1096,7 +1100,10 @@ internal static class OdtReader
             growsWidthToText: (string?)control.Attribute(OdtNamespaces.Form + "multi-line") != "true",
             offsetXFromCell: context.TableDepth > 0 &&
                 ((string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph" or "paragraph-content"),
-            printable: (string?)control.Attribute(OdtNamespaces.Form + "printable") != "false"));
+            printable: (string?)control.Attribute(OdtNamespaces.Form + "printable") != "false")
+        {
+            IsAsCharacter = (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") == "as-char",
+        });
     }
 
     private static bool ReadShapeLine(XElement drawing, OdtReadContext context)

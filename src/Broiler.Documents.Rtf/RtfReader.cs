@@ -928,7 +928,12 @@ public static class RtfReader
                             _builder.EndParagraph(_state.Para);
                         }
                         else if (_builder.ParagraphCount == 0)
+                        {
+                            bool heldPageBreak = _builder.PageBreakPending;
+                            bool heldColumnBreak = _builder.ColumnBreakPending;
                             _builder.EndParagraph(_state.Para);
+                            _builder.RestorePendingBreaks(heldPageBreak, heldColumnBreak);
+                        }
                         else
                             _builder.EndPendingParagraph(_state.Para);
                         FinishTable();
@@ -2523,6 +2528,12 @@ public static class RtfReader
 
         /// <summary>Whether a <c>\column</c> is still waiting for a paragraph.</summary>
         public bool ColumnBreakPending { get; private set; }
+
+        public void RestorePendingBreaks(bool page, bool column)
+        {
+            if (page) PageBreakPending = true;
+            if (column) ColumnBreakPending = true;
+        }
 
         /// <summary>
         /// Takes a column break before whatever comes next, closing the paragraph

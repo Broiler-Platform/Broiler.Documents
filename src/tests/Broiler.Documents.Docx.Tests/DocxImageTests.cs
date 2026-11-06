@@ -485,4 +485,30 @@ public sealed class DocxImageTests
         Assert.DoesNotContain(archive.Entries, e => e.FullName.StartsWith("word/media/", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Reads_Embedded_Object_Fallback_Preview_Image()
+    {
+        // tdf119039: embedded compound object with fallback image preview in v:imagedata
+        string objectXml =
+            "<w:p><w:r>" +
+            "<w:object xmlns:v=\"urn:schemas-microsoft-com:vml\">" +
+            "<v:shape id=\"_x0000_i1025\" style=\"width:100pt;height:50pt\">" +
+            "<v:imagedata r:id=\"rId7\"/>" +
+            "</v:shape>" +
+            "</w:object>" +
+            "</w:r></w:p>";
+
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            objectXml,
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            Media("word/media/image1.png"));
+
+        RichTextParagraph paragraph = Assert.Single(result.Document.Paragraphs);
+        Assert.Equal(InlineImage.PlaceholderText, paragraph.Text);
+
+        StyleRun run = Assert.Single(paragraph.Runs);
+        InlineImage image = Assert.IsType<InlineImage>(run.Style.Image);
+        Assert.Equal("image/png", image.ContentType);
+        Assert.Equal(DocxTestPackage.OnePixelPng, image.Data.ToArray());
+    }
 }

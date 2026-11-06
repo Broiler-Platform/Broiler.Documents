@@ -1503,6 +1503,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 }
                 y += line.LeadingSkip;
 
+                double asCharHeight = lineIndex == 0
+                    ? _documentShapes.Where(s => s.ParagraphIndex == paragraphIndex && s.IsAsCharacter).Select(s => BoxHeight(s)).DefaultIfEmpty(0).Max()
+                    : 0;
+                if (asCharHeight > 0)
+                    line.Height = Math.Max(line.Height, asCharHeight);
+
                 // An empty paragraph first in its column, pushed off the page by
                 // shapes of its own that text may run beside - a full-page
                 // backdrop with square wrapping, say - stays on the page with

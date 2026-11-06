@@ -286,20 +286,7 @@ internal sealed class DocxDocumentBuilder(
             SplitAtPageBreak(breaks: false);
         }
 
-        // Text after a page break run is the case NotePageBreak cannot
-        // carry: the break is inside the paragraph rather than at the end
-        // of it. Deciding here, on the first content that follows, keeps the
-        // reader a single forward pass.
-        if (_pageBreakSeen)
-        {
-            if (_pageBreakLeadsParagraph && _breakKeepsLeadingLabel &&
-                _paragraphStyle.ListKind != ListKind.None)
-                SplitAtPageBreak(keepList: true);
-            else if (_pageBreakLeadsParagraph && (_breakIsColumn || _paragraphStyle.ListKind != ListKind.None || _paragraphs.Count > 0))
-                StartParagraphOnNewPage();
-            else
-                SplitAtPageBreak();
-        }
+        EnsureBreakApplied();
 
         if (text.Length > limits.MaxRunLength)
         {
@@ -366,6 +353,24 @@ internal sealed class DocxDocumentBuilder(
             "An inline page or column break was preserved as paragraph fragments; the source paragraph structure is approximated.");
     }
 
+    /// <summary>
+    /// Consumes any pending inline page or column break before content that follows it,
+    /// so shapes or images that follow the break are anchored to the correct paragraph.
+    /// </summary>
+    public void EnsureBreakApplied()
+    {
+        if (!_pageBreakSeen)
+            return;
+
+        if (_pageBreakLeadsParagraph && _breakKeepsLeadingLabel &&
+            _paragraphStyle.ListKind != ListKind.None)
+            SplitAtPageBreak(keepList: true);
+        else if (_pageBreakLeadsParagraph && (_breakIsColumn || _paragraphStyle.ListKind != ListKind.None || _paragraphs.Count > 0))
+            StartParagraphOnNewPage();
+        else
+            SplitAtPageBreak();
+    }
+
     public void FinishParagraph()
     {
         // A column break that ends a cell's paragraph splits nothing.
@@ -405,6 +410,29 @@ internal sealed class DocxDocumentBuilder(
         _segments.Clear();
         _paragraphStyle = ParagraphStyle.Default;
         _markStyle = InlineStyle.Default;
+    }
+
+    /// <summary>
+    /// Trims trailing line breaks (\u2028) from the end of a paragraph that ends a section,
+    /// matching Word and LibreOffice's deferred line break behavior (tdf#126287).
+    /// </summary>
+    public void TrimSectionParagraphEnd()
+    {
+        while (_segments.Count > 0)
+        {
+            Segment last = _segments[^1];
+            string kept = last.Text.TrimEnd('\u2028');
+            if (kept.Length == last.Text.Length)
+                break;
+
+            if (kept.Length > 0)
+            {
+                _segments[^1] = last with { Text = kept };
+                break;
+            }
+
+            _segments.RemoveAt(_segments.Count - 1);
+        }
     }
 
     /// <summary>
@@ -454,6 +482,12 @@ internal sealed class DocxDocumentBuilder(
     public int CurrentParagraphIndex => _paragraphs.Count;
 
     public bool HasPageBreakBefore(int index) => index < _paragraphs.Count && _paragraphs[index].Style.PageBreakBefore;
+
+    /// <summary>Whether a page break has been held over to start the next paragraph.</summary>
+    public bool HasPendingPageBreak => _pageBreakStartsNextParagraph;
+
+    /// <summary>Whether any shape is anchored at the given paragraph index.</summary>
+    public bool HasShapeAnchoredAt(int index) => _shapes.Exists(s => s.ParagraphIndex == index);
 
     public void AddShape(DocumentShape shape) => _shapes.Add(shape);
 

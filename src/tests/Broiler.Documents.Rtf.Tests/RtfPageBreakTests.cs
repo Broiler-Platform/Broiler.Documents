@@ -63,6 +63,18 @@ public sealed class RtfPageBreakTests
     }
 
     [Fact]
+    public void Page_Before_Section_Break_At_Document_Start_Breaks_On_Following_Section()
+    {
+        // tdf158586: \page \sect \sbknone at document start before any text
+        RichTextDocument document = Read("{\\rtf1\\page\\sect\\sbknone Hello\\par}");
+
+        Assert.Equal(2, document.ParagraphCount);
+        Assert.Equal(string.Empty, document.Paragraphs[0].Text);
+        Assert.Equal("Hello", document.Paragraphs[1].Text);
+        Assert.True(BreaksAt(document, 1));
+    }
+
+    [Fact]
     public void A_Page_Between_Two_Pars_Keeps_The_Blank_Paragraph_And_Breaks_On_It()
     {
         RichTextDocument document = Read("{\\rtf1 a\\par\\page\\par b\\par}");

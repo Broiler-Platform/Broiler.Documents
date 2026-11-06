@@ -178,6 +178,11 @@ internal static class DocxReader
         var context = new DocxReadContext(relationships, numbering, styles, images, builder, page, Sections: sections, Notes: notes, Frames: new DocxFrameAccumulator());
         ReadBlockContent(body.Elements(), context, depth: 0);
         context.Frames?.Finish(context);
+        if (builder.HasPendingPageBreak && builder.HasShapeAnchoredAt(builder.CurrentParagraphIndex))
+        {
+            builder.StartParagraph(ParagraphStyle.Default);
+            builder.FinishParagraph();
+        }
         builder.ReportReadSummary(body.Elements().Any(IsContentBlock), styles.Count, images.ImageCount);
         return builder.Build();
     }
@@ -739,6 +744,8 @@ internal static class DocxReader
 
         context.Builder.StartParagraph(paragraphStyle, markStyle);
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
+        if (context.Sections is not null && DocxSections.EndsSection(paragraph))
+            context.Builder.TrimSectionParagraphEnd();
         context.Builder.FinishParagraph();
     }
 
@@ -1129,7 +1136,27 @@ internal static class DocxReader
             }
 
             if (child.Name == DocxNamespaces.Wordprocessing + "object")
-                builder.AddDiagnosticOnce("docx.skip.embedded", "Embedded DOCX object content was skipped.");
+            {
+                // Embedded objects (OLE) include a cached visual presentation
+                // (a VML shape/pict or DrawingML drawing) as a fallback preview.
+                if (child.Element(DocxNamespaces.Wordprocessing + "drawing") is { } drawing)
+                    ReadPicture(drawing, context, style);
+                else if (child.Element(DocxNamespaces.Wordprocessing + "pict") is { } pict)
+                    ReadPicture(pict, context, style);
+                else if (child.Element(DocxNamespaces.MarkupCompatibility + "AlternateContent") is { } alt)
+                {
+                    XElement? branch = alt.Element(DocxNamespaces.MarkupCompatibility + "Choice") ??
+                                       alt.Element(DocxNamespaces.MarkupCompatibility + "Fallback");
+                    if (branch is not null)
+                        ReadRunContent(branch.Elements(), context, style);
+                }
+                else if (child.Descendants(DocxNamespaces.Vml + "imagedata").Any() || child.Descendants(DocxNamespaces.Vml + "shape").Any())
+                    ReadPicture(child, context, style);
+                else
+                    builder.AddDiagnosticOnce("docx.skip.embedded", "Embedded DOCX object content was skipped.");
+
+                continue;
+            }
         }
 
         // A reference whose custom mark never came is numbered after all.
@@ -1253,6 +1280,7 @@ internal static class DocxReader
     /// </summary>
     private static void ReadPicture(XElement picture, DocxReadContext context, InlineStyle style)
     {
+        context.Builder.EnsureBreakApplied();
         if (ReadDiagram(picture, context)) return;
 
         // A w:drawing is either a picture or a shape. A shape reports nothing when

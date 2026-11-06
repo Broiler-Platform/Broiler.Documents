@@ -67,4 +67,19 @@ public sealed class DocumentLayoutWrappingFrameTests
         Assert.Equal(shape.Lines[0].Top, shape.Lines[1].Top, 3);
         Assert.True(shape.Bounds.Height >= 10);
     }
+
+    [Fact]
+    public void As_Character_Shape_Advances_Line_Height_In_Paragraph()
+    {
+        // dateFormFormats: as-char shape expands line.Height to match shape height
+        var shape = new DocumentShape(0, 0, 0, 100, 50) { IsAsCharacter = true };
+        var document = RichTextDocument.FromParagraphs([Paragraph("first"), Paragraph("second")])
+            .WithShapes([shape]);
+        using var images = new ImageStore();
+        var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 200, 10, 10, 10, 10)).Pages;
+
+        var page = Assert.Single(pages);
+        Assert.True(page.Lines[1].Top >= 50);
+    }
 }

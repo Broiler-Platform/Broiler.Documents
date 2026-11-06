@@ -135,7 +135,7 @@ public sealed class LayoutLine : IPaginatedLineArtifact
     /// </remarks>
     public double LeadingSkip { get; internal set; }
 
-    public double Height { get; }
+    public double Height { get; internal set; }
 
     /// <summary>Visible height within a fixed table row, relative to Top; null leaves the line unclipped.</summary>
     public double? ClipHeight { get; internal set; }

@@ -156,4 +156,28 @@ public sealed class DocxParagraphFrameTests
         Assert.Equal("W", result.Document.Paragraphs[0].Text);
         Assert.Equal("ord", result.Document.Paragraphs[1].Text);
     }
+
+    [Fact]
+    public void Framed_Section_Following_Page_Break_Preserves_Break_And_Anchors_Shape()
+    {
+        // fdo55381: when all paragraphs in a section are framed shapes, the pending
+        // page break from the preceding section break must not be dropped.
+        string bodyXml =
+            "<w:p><w:r><w:t>Page 1 text</w:t></w:r><w:pPr><w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/></w:sectPr></w:pPr></w:p>" +
+            "<w:p>" +
+            "<w:pPr><w:framePr w:wrap=\"notBeside\" w:vAnchor=\"page\" w:hAnchor=\"page\" w:x=\"1000\" w:y=\"1000\"/></w:pPr>" +
+            "<w:r><w:t>Frame on page 2</w:t></w:r>" +
+            "</w:p>" +
+            A4Section;
+
+        DocumentReadResult result = DocxTestPackage.ReadBody(bodyXml);
+
+        Assert.Equal(2, result.Document.Paragraphs.Count);
+        Assert.Equal("Page 1 text", result.Document.Paragraphs[0].Text);
+        Assert.Equal("", result.Document.Paragraphs[1].Text);
+        Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.Single(result.Document.Shapes);
+        Assert.Equal(1, result.Document.Shapes[0].ParagraphIndex);
+        Assert.Equal("Frame on page 2", result.Document.Shapes[0].Paragraphs![0].Text);
+    }
 }

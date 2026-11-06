@@ -15,6 +15,7 @@ public sealed class DocxNumberingTests
     [InlineData("ordinal", "1st.", "2nd.")]
     [InlineData("chicago", "*.", "†.")]
     [InlineData("ideographLegalTraditional", "壹.", "貳.")]
+    [InlineData("koreanDigital2", "一.", "二.")]
     public void Specialized_Numbering_Round_Trips(string format, string first, string second)
     {
         var document = Read(Item(1, 0, "first") + Item(1, 0, "second"), Abstract(0, Level(0, format, "%1.")) + Num(1, 0));
@@ -22,6 +23,17 @@ public sealed class DocxNumberingTests
 
         using var stream = new MemoryStream(DocxDocumentCodec.WriteToArray(document));
         Assert.Equal(new[] { first, second }, Labels(new DocxDocumentCodec().Read(stream).Document));
+    }
+
+    [Theory]
+    [InlineData(1, "一")]
+    [InlineData(9, "九")]
+    [InlineData(10, "一〇")]
+    [InlineData(11, "一一")]
+    [InlineData(20, "二〇")]
+    public void KoreanDigital2_Formats_Digits_Directly_To_Hanja(int value, string expected)
+    {
+        Assert.Equal(expected, ListNumberer.Format(value, ListNumberFormat.KoreanDigital2));
     }
 
     [Theory]

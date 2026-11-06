@@ -349,6 +349,41 @@ public sealed class DocxPageBreakTests
         Assert.DoesNotContain(read.Diagnostics, d => d.Code == "docx.block.unsupported");
     }
 
+    [Fact]
+    public void Drawing_Immediately_Following_Page_Break_Applies_Break_Before_Shape()
+    {
+        // tdf146984: an inline page break followed immediately by a drawing in the same paragraph
+        // consumes the pending break before anchoring the shape.
+        string bodyXml =
+            "<w:p>" +
+            "<w:r><w:br w:type=\"page\"/></w:r>" +
+            DocxTestPackage.DrawingRun("rId7", 914400, 914400) +
+            "</w:p>";
+
+        DocumentReadResult result = DocxTestPackage.ReadWithMedia(
+            bodyXml,
+            DocxTestPackage.ImageRelationship("rId7", "media/image1.png"),
+            new Dictionary<string, byte[]>(StringComparer.Ordinal) { ["word/media/image1.png"] = DocxTestPackage.OnePixelPng });
+
+        Assert.Equal(2, result.Document.Paragraphs.Count);
+        Assert.True(result.Document.Paragraphs[1].Style.PageBreakBefore);
+    }
+
+    [Fact]
+    public void Trailing_Line_Break_At_Section_End_Is_Trimmed()
+    {
+        // tdf126287: trailing line break before section break should be trimmed to prevent spurious extra page.
+        string bodyXml =
+            "<w:p><w:r><w:t>Page 1</w:t><w:br/></w:r><w:pPr><w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/></w:sectPr></w:pPr></w:p>" +
+            "<w:p><w:r><w:t>Page 2</w:t></w:r></w:p>";
+
+        DocumentReadResult result = DocxTestPackage.ReadBody(bodyXml);
+
+        Assert.Equal(2, result.Document.Paragraphs.Count);
+        Assert.Equal("Page 1", result.Document.Paragraphs[0].Text);
+        Assert.Equal("Page 2", result.Document.Paragraphs[1].Text);
+    }
+
     /// <summary>The <c>w:pPr</c> of one paragraph of a written package.</summary>
     private static XElement ParagraphProperties(byte[] package, int paragraphIndex)
     {
