@@ -32,6 +32,8 @@ internal sealed record OdtReadContext(
     public int TableDepth { get; set; }
     public int HiddenSectionDepth { get; set; }
     public IReadOnlySet<string> LinkedFrameTargets { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, string> Variables { get; init; } =
+        new Dictionary<string, string>(StringComparer.Ordinal);
 
     /// <summary>The document's form controls by id, which a <c>draw:control</c> names.</summary>
     public IReadOnlyDictionary<string, XElement> FormControls { get; init; } = new Dictionary<string, XElement>(StringComparer.Ordinal);

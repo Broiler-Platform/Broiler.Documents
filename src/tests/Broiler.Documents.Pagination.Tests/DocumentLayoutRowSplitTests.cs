@@ -188,7 +188,7 @@ public sealed class DocumentLayoutRowSplitTests
     }
 
     [Fact]
-    public void A_Row_That_May_Not_Split_And_Cannot_Fit_A_Page_Is_Placed_Whole()
+    public void A_Row_That_May_Not_Split_And_Cannot_Fit_A_Page_Splits_Across_Pages()
     {
         // Waiting for room it will never have would stop the layout.
         int perPage = PerPage();
@@ -196,7 +196,8 @@ public sealed class DocumentLayoutRowSplitTests
 
         LayoutResult result = Layout(document);
 
-        Assert.Equal(perPage + 10, LinesStarting(result.Pages[0], "Left", document).Count());
+        Assert.Equal(perPage, LinesStarting(result.Pages[0], "Left", document).Count());
+        Assert.Equal(10, LinesStarting(result.Pages[1], "Left", document).Count());
     }
 
     /// <summary>
