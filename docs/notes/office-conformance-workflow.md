@@ -116,6 +116,26 @@ character style differed from LibreOffice's plain one.
 decides it (#180). The other display defaults are [still
 open](#the-runners-render-carries-screen-defaults).
 
+### Cluster-aware diversity capping in top differences ranking
+
+Raised in #207. When a single unsupported subsystem (such as DrawingML `<c:chart>` vector shapes without bitmaps, emitting `docx.image.shape`) fails multiple samples, its raw severity score (~943–965) allowed 7 identical chart omissions to dominate the top 20 differences, crowding out real table pagination, margin and formatting bugs.
+`ExtrasConformance.TopDifferences()` now implements cluster-aware diversity capping (`maxPerCluster = Math.Max(2, limit / 5)`): samples sharing the same primary diagnostic code are capped at 2 per cluster when diverse alternatives exist, deferring excess duplicates. If diverse alternatives do not fill the requested limit, deferred samples backfill the remaining slots so no failure is ever lost.
+
+### Font rasterization noise dampening in severity calculation
+
+Raised in #207 (`uiwriter/data/tdf132321.odt`). When a document has 100% text match, identical page count, matching page box geometry, close ink coverage, and tight/near ink box alignment, subtle subpixel hinting and FreeType antialiasing differences on small text areas can produce a high blur diff ratio and poor cosine profile similarity, resulting in a misleadingly high severity score (940+).
+`ExtrasConformance.ComputeSeverityScore()` now detects pure rasterization noise on structurally clean documents and halves the score (`score *= 0.5`), keeping subtle rendering nuances below actual layout breaks.
+
+### Point of first divergence tracking
+
+In multi-page documents where a break or line height delta on an early page shifts subsequent pages, the worst page reported by `RenderRow` is often a later page comparing mismatched content.
+`ExtrasConformance.EvaluateSampleAsync()` now tracks `firstDivergencePage` across per-page band measurements and reports it in the check failure detail when it differs from the worst page ("worst page 9, first divergence page 2"), pointing developers directly to where layout diverged.
+
+### Single-sample evaluation and verbose reproduction CLI
+
+Triaging a single sample previously required writing a temporary sample list text file and passing `--sample-list`.
+`broilerdoc-office` now accepts `--sample <id>` directly, validating and running that single extras sample alone. In addition, passing `--verbose` now prints the complete, unshortened `broilerdoc render` reproduction command without eliding font mappings.
+
 ## Open
 
 Ordered by how much of the ranking they distort or how much triage time they

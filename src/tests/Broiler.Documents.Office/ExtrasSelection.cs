@@ -8,6 +8,14 @@ namespace Broiler.Documents.Office;
 /// <summary>Exact, portable extras IDs; never filesystem or download destinations supplied unchecked.</summary>
 internal static class ExtrasSelection
 {
+    public static IReadOnlySet<string>? Resolve(string? sampleListPath, string? singleSampleId)
+    {
+        if (singleSampleId is not null)
+            return Validate([singleSampleId]);
+        if (sampleListPath is not null)
+            return Load(sampleListPath);
+        return null;
+    }
     public static IReadOnlySet<string> Load(string path) => Validate(File.ReadAllLines(path)
         .Select(line => line.Trim()).Where(line => line.Length > 0 && line != "#" && !line.StartsWith("# ", StringComparison.Ordinal)));
 
