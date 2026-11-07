@@ -30,9 +30,13 @@ internal enum RunningBand
 /// Accumulates consecutive framed paragraphs sharing identical <c>w:framePr</c>
 /// into floating shapes, or null outside the body flow.
 /// </param>
+/// <param name="DropCaps">
+/// Tracks pending drop-cap paragraphs so their runs prepend to the subsequent body paragraph.
+/// </param>
 internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumbering Numbering, DocxStyles Styles,
     DocxImageLoader Images, DocxDocumentBuilder Builder, PageGeometry? Page = null, RunningBand Band = RunningBand.Body,
-    string? TableStyle = null, DocxSections? Sections = null, DocxNotes? Notes = null, DocxFrameAccumulator? Frames = null)
+    string? TableStyle = null, DocxSections? Sections = null, DocxNotes? Notes = null, DocxFrameAccumulator? Frames = null,
+    DocxDropCapTracker? DropCaps = null)
 {
     /// <summary>
     /// The parts of its table the cell being read belongs to, which select the
@@ -69,5 +73,5 @@ internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumb
 
     /// <summary>Creates a context for reading into a text frame.</summary>
     public DocxReadContext ForFrame(DocxDocumentBuilder frameBuilder) =>
-        this with { Builder = frameBuilder, Sections = null, Frames = null };
+        this with { Builder = frameBuilder, Sections = null, Frames = null, DropCaps = null };
 }

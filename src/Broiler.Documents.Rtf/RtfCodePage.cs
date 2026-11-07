@@ -20,6 +20,13 @@ internal static class RtfCodePage
     // Each single-byte code page's 256 characters, or null for one the runtime
     // does not carry or that is not single-byte. Built once per code page.
     private static readonly ConcurrentDictionary<int, char[]?> Tables = new();
+    private static readonly ConcurrentDictionary<int, Encoding?> Encodings = new();
+
+    public static bool IsDbcsCodePage(int codePage) =>
+        codePage is 932 or 936 or 949 or 950 or 1361;
+
+    public static Encoding? EncodingFor(int codePage) =>
+        codePage <= 0 ? null : Encodings.GetOrAdd(codePage, cp => CodePagesEncodingProvider.Instance.GetEncoding(cp));
 
     /// <summary>True when <paramref name="codePage"/> decodes byte-for-byte without loss here.</summary>
     public static bool IsFullySupported(int codePage) =>

@@ -175,7 +175,7 @@ internal static class DocxReader
         }
 
         var builder = new DocxDocumentBuilder(limits, diagnostics, reported) { WordCompatibilityMode = compatibilityMode };
-        var context = new DocxReadContext(relationships, numbering, styles, images, builder, page, Sections: sections, Notes: notes, Frames: new DocxFrameAccumulator());
+        var context = new DocxReadContext(relationships, numbering, styles, images, builder, page, Sections: sections, Notes: notes, Frames: new DocxFrameAccumulator(), DropCaps: new DocxDropCapTracker());
         ReadBlockContent(body.Elements(), context, depth: 0);
         context.Frames?.Finish(context);
         if (builder.HasPendingPageBreak && builder.HasShapeAnchoredAt(builder.CurrentParagraphIndex))
@@ -216,6 +216,8 @@ internal static class DocxReader
                 ReadParagraph(element, context);
                 continue;
             }
+
+            FlushPendingDropCap(context);
 
             if (name == DocxNamespaces.Wordprocessing + "tbl")
             {
@@ -269,6 +271,8 @@ internal static class DocxReader
 
             builder.AddUnsupportedBlock(name);
         }
+
+        FlushPendingDropCap(context);
     }
 
     /// <summary>
@@ -554,7 +558,7 @@ internal static class DocxReader
             ?.Elements(DocxNamespaces.Wordprocessing + "sectPr")
             .LastOrDefault();
 
-        if (sectPr?.Element(DocxNamespaces.Wordprocessing + "pgSz") is null)
+        if (sectPr is null)
             return null;
 
         if (DocxSections.ReadPage(sectPr) is not PageGeometry geometry)
@@ -663,6 +667,17 @@ internal static class DocxReader
         return (part.Paragraphs, part.Shapes);
     }
 
+    private static void FlushPendingDropCap(DocxReadContext context)
+    {
+        if (context.DropCaps?.Pending is { } dropCap)
+        {
+            context.DropCaps.Pending = null;
+            XElement? pPr = dropCap.Element(DocxNamespaces.Wordprocessing + "pPr");
+            string? styleId = DocxValueReader.WordValue(pPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
+            EmitParagraph(dropCap, pPr, styleId, context);
+        }
+    }
+
     private static void ReadParagraph(XElement paragraph, DocxReadContext context)
     {
         // An empty paragraph that holds nothing but its section's properties is
@@ -674,6 +689,7 @@ internal static class DocxReader
         // heading number where LibreOffice starts the next chapter.
         if (context.Sections is not null && IsDroppableSectionMark(paragraph, context))
         {
+            FlushPendingDropCap(context);
             context.Frames?.Finish(context);
             EndSection(context);
             return;
@@ -682,11 +698,36 @@ internal static class DocxReader
         XElement? pPr = paragraph.Element(DocxNamespaces.Wordprocessing + "pPr");
         string? paragraphStyleId = DocxValueReader.WordValue(pPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
 
+        if (context.DropCaps is not null)
+        {
+            if (DocxFrameAccumulator.IsDropCap(pPr, paragraphStyleId, context))
+            {
+                FlushPendingDropCap(context);
+                context.DropCaps.Pending = paragraph;
+                return;
+            }
+        }
+
+        XElement? dropCap = null;
+        if (context.DropCaps?.Pending is not null)
+        {
+            dropCap = context.DropCaps.Pending;
+            context.DropCaps.Pending = null;
+        }
+
         DocxFrameProperties? frame = DocxFrameAccumulator.ReadProperties(pPr, paragraphStyleId, context);
         if (context.Frames is not null)
         {
             if (frame is not null)
             {
+                if (dropCap is not null)
+                {
+                    XElement? dropPPr = dropCap.Element(DocxNamespaces.Wordprocessing + "pPr");
+                    string? dropStyleId = DocxValueReader.WordValue(dropPPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
+                    EmitParagraph(dropCap, dropPPr, dropStyleId, context);
+                    dropCap = null;
+                }
+
                 if (context.Frames.ActiveProperties.HasValue && context.Frames.ActiveProperties.Value != frame.Value)
                     context.Frames.Finish(context);
 
@@ -698,7 +739,7 @@ internal static class DocxReader
             context.Frames.Finish(context);
         }
 
-        EmitParagraph(paragraph, pPr, paragraphStyleId, context);
+        EmitParagraph(paragraph, pPr, paragraphStyleId, context, dropCap);
 
         // A paragraph belongs to the section it ends, so the cursor moves only
         // once the paragraph's own breaks have been read against it.
@@ -713,7 +754,8 @@ internal static class DocxReader
         XElement paragraph,
         XElement? pPr,
         string? paragraphStyleId,
-        DocxReadContext context)
+        DocxReadContext context,
+        XElement? dropCapParagraph = null)
     {
         ParagraphStyle paragraphStyle = ReadParagraphStyle(pPr, paragraphStyleId, context);
 
@@ -743,6 +785,13 @@ internal static class DocxReader
         }
 
         context.Builder.StartParagraph(paragraphStyle, markStyle);
+        if (dropCapParagraph is not null)
+        {
+            XElement? dropPPr = dropCapParagraph.Element(DocxNamespaces.Wordprocessing + "pPr");
+            string? dropStyleId = DocxValueReader.WordValue(dropPPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
+            InlineStyle dropInherited = ReadInheritedRunStyle(dropStyleId, context);
+            ReadParagraphChildren(dropCapParagraph.Elements(), context, dropInherited);
+        }
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
         if (context.Sections is not null && DocxSections.EndsSection(paragraph))
             context.Builder.TrimSectionParagraphEnd();
@@ -906,6 +955,17 @@ internal static class DocxReader
                 continue;
             }
 
+            if (element.Name == DocxNamespaces.Wordprocessing + "ruby")
+            {
+                XElement? rubyBase = element.Element(DocxNamespaces.Wordprocessing + "rubyBase");
+                if (rubyBase is not null)
+                {
+                    ReadParagraphChildren(rubyBase.Elements(), context, style);
+                    context.Builder.AddDiagnosticOnce("docx.ruby", "Phonetic guide ruby text was omitted; base text was retained.");
+                }
+                continue;
+            }
+
             if (element.Name == DocxNamespaces.Wordprocessing + "sdt")
             {
                 XElement? content = element.Element(DocxNamespaces.Wordprocessing + "sdtContent");
@@ -993,8 +1053,14 @@ internal static class DocxReader
             if (child.Name == DocxNamespaces.Wordprocessing + "fldChar")
             {
                 // A page field Word saved no result for still shows a number.
-                if (builder.Fields.Read(child, context.Styles, runStyle) is PageField empty)
+                (PageField? empty, string? fallbackText) = builder.Fields.Read(child, context.Styles, runStyle);
+                if (empty is not null)
                     builder.AppendText(ListNumberer.Format(1, empty.Format), runStyle with { PageField = empty });
+                else if (fallbackText is not null)
+                {
+                    builder.AppendText(fallbackText, runStyle);
+                    builder.AddDiagnosticOnce("docx.field.ruby", "An empty-result ruby equation field was read as its base text; phonetic annotation layout is not represented.");
+                }
                 style = builder.Fields.Apply(runStyle);
                 continue;
             }
@@ -1049,6 +1115,26 @@ internal static class DocxReader
                 child.Name == DocxNamespaces.Wordprocessing + "endnoteRef")
             {
                 context.SkipNoteLabel?.Invoke(child.Parent);
+                continue;
+            }
+
+            if (child.Name == DocxNamespaces.Wordprocessing + "ruby")
+            {
+                XElement? rubyBase = child.Element(DocxNamespaces.Wordprocessing + "rubyBase");
+                if (rubyBase is not null)
+                {
+                    var runs = rubyBase.Elements(DocxNamespaces.Wordprocessing + "r").ToList();
+                    if (runs.Count > 0)
+                    {
+                        foreach (XElement r in runs)
+                            ReadRun(r, context, style);
+                    }
+                    else
+                    {
+                        ReadRunContent(rubyBase.Elements(), context, style);
+                    }
+                    builder.AddDiagnosticOnce("docx.ruby", "Phonetic guide ruby text was omitted; base text was retained.");
+                }
                 continue;
             }
 

@@ -65,9 +65,11 @@ public sealed class DocxPageGeometryTests
     }
 
     [Fact]
-    public void A_Document_Stating_No_Page_Size_Has_No_Geometry()
+    public void A_Document_Stating_No_Page_Size_Defaults_To_Letter()
     {
-        Assert.Null(Read("<w:sectPr/>").PageGeometry);
+        PageGeometry geometry = Assert.IsType<PageGeometry>(Read("<w:sectPr/>").PageGeometry);
+        Assert.Equal(612, geometry.Width, 2);
+        Assert.Equal(792, geometry.Height, 2);
     }
 
     [Fact]

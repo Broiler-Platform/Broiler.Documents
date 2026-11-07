@@ -138,8 +138,10 @@ public sealed class DocxParagraphFrameTests
     }
 
     [Fact]
-    public void DropCap_Is_Not_Treated_As_Frame_Shape()
+    public void DropCap_Is_Prepended_To_Host_Paragraph()
     {
+        // Drop cap paragraph in Word OOXML is a preceding framed paragraph with w:dropCap="drop".
+        // Its runs prepend to the subsequent body paragraph, matching Word and LibreOffice.
         string bodyXml =
             "<w:p>" +
             "<w:pPr><w:framePr w:dropCap=\"drop\" w:lines=\"3\"/></w:pPr>" +
@@ -150,11 +152,26 @@ public sealed class DocxParagraphFrameTests
 
         DocumentReadResult result = DocxTestPackage.ReadBody(bodyXml);
 
-        // Drop cap should remain in the document body flow, not be made into a floating shape
         Assert.Empty(result.Document.Shapes);
-        Assert.Equal(2, result.Document.Paragraphs.Count);
+        Assert.Single(result.Document.Paragraphs);
+        Assert.Equal("Word", result.Document.Paragraphs[0].Text);
+    }
+
+    [Fact]
+    public void DropCap_Without_Following_Paragraph_Flushes_As_Standalone_Paragraph()
+    {
+        string bodyXml =
+            "<w:p>" +
+            "<w:pPr><w:framePr w:dropCap=\"drop\" w:lines=\"3\"/></w:pPr>" +
+            "<w:r><w:t>W</w:t></w:r>" +
+            "</w:p>" +
+            A4Section;
+
+        DocumentReadResult result = DocxTestPackage.ReadBody(bodyXml);
+
+        Assert.Empty(result.Document.Shapes);
+        Assert.Single(result.Document.Paragraphs);
         Assert.Equal("W", result.Document.Paragraphs[0].Text);
-        Assert.Equal("ord", result.Document.Paragraphs[1].Text);
     }
 
     [Fact]
