@@ -816,6 +816,16 @@ internal static class ExtrasConformance
                                     .ThenByDescending(m => m.Composite)
                                     .First();
 
+                                int firstDivergencePage = 0;
+                                for (int i = 0; i < measurements.Count; i++)
+                                {
+                                    if (!Bands.IsBest(measurements[i].Bands))
+                                    {
+                                        firstDivergencePage = measurements[i].Page;
+                                        break;
+                                    }
+                                }
+
                                 renderRow = new RenderRow(
                                     sample.Id,
                                     sample.Format,
@@ -841,11 +851,16 @@ internal static class ExtrasConformance
                                 }
                                 else
                                 {
+                                    string divergenceInfo = firstDivergencePage > 0 && firstDivergencePage != renderRow.WorstPage
+                                        ? ", first divergence page " + firstDivergencePage.ToString(CultureInfo.InvariantCulture)
+                                        : string.Empty;
+
                                     results.Add(CheckResult.Fail(
                                         "pixel",
                                         "pixel/" + sample.Id,
                                         RenderingThreshold.Describe(similarityPercent, threshold) + " " + Bands.Describe(renderRow.Bands) +
                                         " (worst page " + renderRow.WorstPage.ToString(CultureInfo.InvariantCulture) +
+                                        divergenceInfo +
                                         ", blur diff " + renderRow.Observed.BlurDiffRatio.ToString("0.0000", CultureInfo.InvariantCulture) +
                                         ", profile similarity " + renderRow.Observed.InkProfileSimilarity.ToString("0.000", CultureInfo.InvariantCulture) +
                                         ", pages: broilerdoc=" + renderRow.BroilerdocPages.ToString(CultureInfo.InvariantCulture) +
@@ -1123,6 +1138,23 @@ internal static class ExtrasConformance
             score += Math.Min(semantic.Diagnostics.Count, 10) * 5.0;
         }
 
+        // When page count and text are identical, geometry matches, ink box aligns,
+        // and coverage delta is near zero, the visual difference is font rasterization
+        // and antialiasing nuance. Dampen the visual score so that subtle font rendering
+        // on clean text does not outrank broken document layouts or missing elements.
+        bool isPureRasterizationNoise = !broilerReadFailed && !libreOfficeFailed
+            && render is not null
+            && render.BroilerdocPages == render.LibreOfficePages
+            && semantic is not null && semantic.Differences.Count == 0
+            && render.Bands.Geometry == "match"
+            && (render.Bands.Coverage is "exact" or "close")
+            && (render.Bands.InkBox is "tight" or "near");
+
+        if (isPureRasterizationNoise)
+        {
+            score *= 0.5;
+        }
+
         return Math.Round(score, 4);
     }
 
@@ -1131,17 +1163,77 @@ internal static class ExtrasConformance
     /// major differences. Crash-regression inputs are not ranked: their failures,
     /// if any, are reported by <see cref="CrashRegressionFailures"/> instead.
     /// </summary>
+    private static string? PrimaryClusterKey(ExtrasDifference diff)
+    {
+        if (diff.Semantic?.Diagnostics is { Count: > 0 } diagnostics)
+        {
+            string? code = diagnostics.FirstOrDefault(d => !d.EndsWith(".read.summary", StringComparison.Ordinal));
+            if (!string.IsNullOrEmpty(code))
+                return "diag:" + code;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Ranks the evaluated documents and returns the top <paramref name="topCount"/>
+    /// major differences. Crash-regression inputs are not ranked: their failures,
+    /// if any, are reported by <see cref="CrashRegressionFailures"/> instead.
+    /// Repetitive samples sharing the same primary diagnostic signature are capped
+    /// to ensure diverse coverage across different subsystems.
+    /// </summary>
     public static IReadOnlyList<ExtrasDifference> TopDifferences(
         IEnumerable<ExtrasDifference> differences,
         int topCount = DefaultTopDifferences)
     {
         int limit = Math.Max(1, topCount);
-        return differences
+        var ordered = differences
             .Where(diff => !diff.SetAside && diff.HasDifference)
             .OrderByDescending(diff => diff.SeverityScore)
             .ThenBy(diff => diff.Sample.Id, StringComparer.Ordinal)
-            .Take(limit)
-            .ToArray();
+            .ToList();
+
+        if (ordered.Count <= limit)
+            return ordered;
+
+        // Cap repetitive samples that share the exact same primary diagnostic signature
+        // so that a single missing feature does not crowd out all other failures.
+        int maxPerCluster = Math.Max(2, limit / 5);
+        var clusterCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var selected = new List<ExtrasDifference>(limit);
+        var deferred = new List<ExtrasDifference>();
+
+        foreach (ExtrasDifference diff in ordered)
+        {
+            string? cluster = PrimaryClusterKey(diff);
+            if (cluster is not null)
+            {
+                int count = clusterCounts.GetValueOrDefault(cluster, 0);
+                if (count >= maxPerCluster)
+                {
+                    deferred.Add(diff);
+                    continue;
+                }
+                clusterCounts[cluster] = count + 1;
+            }
+
+            selected.Add(diff);
+            if (selected.Count == limit)
+                break;
+        }
+
+        // If diverse alternatives did not fill the requested limit, backfill from deferred.
+        if (selected.Count < limit && deferred.Count > 0)
+        {
+            foreach (ExtrasDifference diff in deferred)
+            {
+                selected.Add(diff);
+                if (selected.Count == limit)
+                    break;
+            }
+        }
+
+        return selected;
     }
 
     /// <summary>

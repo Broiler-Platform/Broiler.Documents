@@ -39,7 +39,7 @@ internal static class OfficeReporting
                 output.WriteLine("  " + result.Name);
                 output.WriteLine("    " + result.Detail);
                 if (result.Command is not null)
-                    output.WriteLine("    re-run: " + Shorten(result.Command));
+                    output.WriteLine("    re-run: " + (verbose ? result.Command : Shorten(result.Command)));
             }
         }
 

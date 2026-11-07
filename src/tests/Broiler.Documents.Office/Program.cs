@@ -85,7 +85,7 @@ internal static class Program
 
         Guard(workspace, root);
 
-        if (options.SampleList is not null) _ = ExtrasSelection.Load(options.SampleList);
+        if (options.SampleList is not null || options.SingleSample is not null) _ = ExtrasSelection.Resolve(options.SampleList, options.SingleSample);
         if (options.PreviousTriage is not null) _ = ExtrasTriage.Load(options.PreviousTriage);
 
         var log = new RunLog();
@@ -378,7 +378,7 @@ internal static class Program
 
             IReadOnlyList<ExtrasSample> samples = await ExtrasConformance
                 .AcquireSamplesAsync(workspace, options.ExtrasUrl, options.ExtrasDirectory, options.Only, options.MaxFiles,
-                    options.SampleList is null ? null : ExtrasSelection.Load(options.SampleList))
+                    ExtrasSelection.Resolve(options.SampleList, options.SingleSample))
                 .ConfigureAwait(false);
 
             OfficeReferences? references = null;
@@ -850,6 +850,7 @@ internal static class Program
         int MaxPages,
         TimeSpan LibreOfficeTimeout,
         string? SampleList = null,
+        string? SingleSample = null,
         string? TriageDirectory = null,
         string? PreviousTriage = null,
         string? ReferencesDirectory = null,
@@ -859,14 +860,14 @@ internal static class Program
         bool AcceptReferenceMismatch = false)
     {
         public bool IsExtrasRun => !SeedCorpus && (ExtrasUrl is not null || ExtrasDirectory is not null ||
-            SampleList is not null || TriageDirectory is not null || ReferencesDirectory is not null || PrepareReferences is not null);
+            SampleList is not null || SingleSample is not null || TriageDirectory is not null || ReferencesDirectory is not null || PrepareReferences is not null);
 
         public static Options Parse(string[] arguments)
         {
             string? tool = null, soffice = null, pdftoppm = null, manifest = null, baseline = null;
             string? tools = null, workspace = null, fontSet = null, only = null, json = null, junit = null;
             string? extrasUrl = null, extrasDir = null, issueOut = null, githubRepo = null;
-            string? crashRegressions = null, sampleList = null, triageDirectory = null, previousTriage = null;
+            string? crashRegressions = null, sampleList = null, singleSample = null, triageDirectory = null, previousTriage = null;
             string? referencesDirectory = null, prepareReferences = null, referenceProducer = null, referenceDefects = null;
             string axis = "all";
             var fontDirectories = new List<string>();
@@ -912,6 +913,7 @@ internal static class Program
                     case "--font-dir": fontDirectories.Add(Value(argument)); break;
                     case "--font-set": fontSet = Value(argument); break;
                     case "--only": only = Value(argument); break;
+                    case "--sample": singleSample = Value(argument); break;
                     case "--sample-list": sampleList = Value(argument); break;
                     case "--triage-dir": triageDirectory = Value(argument); break;
                     case "--previous-triage": previousTriage = Value(argument); break;
@@ -964,11 +966,13 @@ internal static class Program
                 }
             }
 
-            if (sampleList is not null && createIssue)
-                throw new ArgumentException("--sample-list cannot update the global GitHub ranking issue; use the triage artifacts for focused runs.");
-            if (sampleList is not null && (only is not null || maxFiles is not null))
-                throw new ArgumentException("--sample-list cannot be combined with --only or --max-files; all selected IDs must run.");
-            if ((sampleList is not null || triageDirectory is not null || previousTriage is not null) && (seedCorpus || update))
+            if ((sampleList is not null || singleSample is not null) && createIssue)
+                throw new ArgumentException("--sample and --sample-list cannot update the global GitHub ranking issue; use the triage artifacts for focused runs.");
+            if (singleSample is not null && sampleList is not null)
+                throw new ArgumentException("--sample and --sample-list are mutually exclusive.");
+            if ((sampleList is not null || singleSample is not null) && (only is not null || maxFiles is not null))
+                throw new ArgumentException("--sample and --sample-list cannot be combined with --only or --max-files; all selected IDs must run.");
+            if ((sampleList is not null || singleSample is not null || triageDirectory is not null || previousTriage is not null) && (seedCorpus || update))
                 throw new ArgumentException("Sample lists and triage reports apply to extras runs, not seed/baseline updates.");
             if (previousTriage is not null && triageDirectory is null)
                 throw new ArgumentException("--previous-triage requires --triage-dir.");
@@ -978,7 +982,7 @@ internal static class Program
                     throw new ArgumentException("--references-dir and --prepare-references are mutually exclusive.");
                 if (seedCorpus || update)
                     throw new ArgumentException("Reference archives apply to extras runs only.");
-                if (prepareReferences is not null && (axis != "all" || only is not null || maxFiles is not null || sampleList is not null))
+                if (prepareReferences is not null && (axis != "all" || only is not null || maxFiles is not null || sampleList is not null || singleSample is not null))
                     throw new ArgumentException("Reference generation requires the complete corpus and --axis all.");
             }
             // A ranking scored against references made for another toolchain is a
@@ -992,7 +996,7 @@ internal static class Program
                 tool, soffice, pdftoppm, manifest, baseline, tools, workspace, fontDirectories, fontSet,
                 axis, only, json, junit, extrasUrl, extrasDir, issueOut, githubRepo, crashRegressions, topDifferences,
                 maxFiles, createIssue, seedCorpus, keep, verbose, update, restamp, allowPending, help,
-                jobs, dpi, threshold, maxPages, TimeSpan.FromSeconds(timeout), sampleList, triageDirectory, previousTriage,
+                jobs, dpi, threshold, maxPages, TimeSpan.FromSeconds(timeout), sampleList, singleSample, triageDirectory, previousTriage,
                 referencesDirectory, prepareReferences, referenceProducer, referenceDefects, acceptReferenceMismatch);
         }
 
@@ -1035,6 +1039,7 @@ internal static class Program
             output.WriteLine("  --font-dir <dir>         Pin a font directory for both sides. Repeatable.");
             output.WriteLine("  --font-set <name>        The name the baseline stamp records for that set.");
             output.WriteLine("  --axis <kind>            semantic, pixel, or all. (default all)");
+            output.WriteLine("  --sample <id>            Exact extras ID to evaluate alone without a sample list file.");
             output.WriteLine("  --sample-list <path>     Exact extras IDs, one per line; fails if any is missing.");
             output.WriteLine("  --triage-dir <path>      Write structured triage, Markdown summary and top-sample replay list.");
             output.WriteLine("  --previous-triage <json> Compare against a previous triage.json with input/environment guards.");

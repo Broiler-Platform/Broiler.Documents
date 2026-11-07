@@ -96,4 +96,86 @@ public sealed class IssueThresholdTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void TopDifferences_Caps_Repetitive_Diagnostic_Clusters_When_Diverse_Alternatives_Exist()
+    {
+        // 5 samples sharing docx.image.shape with high scores
+        var chartSamples = Enumerable.Range(1, 5).Select(i =>
+        {
+            var s = new ExtrasSample($"chart{i}.docx", ".docx", "docx", $"chart{i}.docx", null);
+            var sem = new SemanticReading(s.Id, "docx", "text", [], ["docx.image.shape"]);
+            return new ExtrasDifference(s, false, 0, null, false, sem, Render(), null, 900 + i, "chart missing",
+                [CheckResult.Fail("pixel", "pixel/" + s.Id, "missing shape")]);
+        }).ToList();
+
+        // 2 samples with diverse diagnostics and lower scores
+        var otherSamples = Enumerable.Range(1, 2).Select(i =>
+        {
+            var s = new ExtrasSample($"table{i}.docx", ".docx", "docx", $"table{i}.docx", null);
+            var sem = new SemanticReading(s.Id, "docx", "text", [], [$"docx.table.layout{i}"]);
+            return new ExtrasDifference(s, false, 0, null, false, sem, Render(), null, 800 + i, "table issue",
+                [CheckResult.Fail("pixel", "pixel/" + s.Id, "table diff")]);
+        }).ToList();
+
+        var all = chartSamples.Concat(otherSamples).ToList();
+        // Request top 4: maxPerCluster for limit 4 is Math.Max(2, 4/5) = 2.
+        var top = ExtrasConformance.TopDifferences(all, topCount: 4);
+
+        Assert.Equal(4, top.Count);
+        // Only 2 chart samples should be included; the 2 other samples must be prioritized over excess chart samples.
+        Assert.Equal(2, top.Count(d => d.Semantic!.Diagnostics.Contains("docx.image.shape")));
+        Assert.Contains(top, d => d.Sample.Id == "table1.docx");
+        Assert.Contains(top, d => d.Sample.Id == "table2.docx");
+    }
+
+    [Fact]
+    public void TopDifferences_Backfills_Deferred_Samples_When_Few_Alternatives_Exist()
+    {
+        var chartSamples = Enumerable.Range(1, 5).Select(i =>
+        {
+            var s = new ExtrasSample($"chart{i}.docx", ".docx", "docx", $"chart{i}.docx", null);
+            var sem = new SemanticReading(s.Id, "docx", "text", [], ["docx.image.shape"]);
+            return new ExtrasDifference(s, false, 0, null, false, sem, Render(), null, 900 + i, "chart missing",
+                [CheckResult.Fail("pixel", "pixel/" + s.Id, "missing shape")]);
+        }).ToList();
+
+        var top = ExtrasConformance.TopDifferences(chartSamples, topCount: 4);
+        // Even though maxPerCluster is 2, backfill ensures all 4 requested slots are filled.
+        Assert.Equal(4, top.Count);
+    }
+
+    [Fact]
+    public void ComputeSeverityScore_Dampens_Pure_Rasterization_Noise()
+    {
+        var semClean = new SemanticReading("clean.odt", "odt", "text", [], []);
+        var semDiff = new SemanticReading("diff.odt", "odt", "text", ["line diff"], []);
+
+        var render = Render(); // 1 vs 1 page, geometry match, coverage close, ink box delta 10
+
+        double scoreClean = ExtrasConformance.ComputeSeverityScore(
+            broilerReadFailed: false, broilerExitCode: 0, libreOfficeFailed: false,
+            semantic: semClean, render: render);
+
+        double scoreDiff = ExtrasConformance.ComputeSeverityScore(
+            broilerReadFailed: false, broilerExitCode: 0, libreOfficeFailed: false,
+            semantic: semDiff, render: render);
+
+        // When text has differences, score is not dampened.
+        // When text is identical and ink aligns, score is halved.
+        Assert.True(scoreClean < scoreDiff * 0.6);
+    }
+
+    [Fact]
+    public void Program_Options_Parses_Single_Sample()
+    {
+        var options = Program.Options.Parse(["--sample", "layout/data/tdf106390.odt"]);
+        Assert.Equal("layout/data/tdf106390.odt", options.SingleSample);
+        Assert.Null(options.SampleList);
+        Assert.True(options.IsExtrasRun);
+
+        var selection = ExtrasSelection.Resolve(options.SampleList, options.SingleSample);
+        Assert.NotNull(selection);
+        Assert.Contains("layout/data/tdf106390.odt", selection);
+    }
 }
