@@ -46,6 +46,39 @@ public sealed class RtfPlainCodePageTests
         Assert.DoesNotContain(diagnostics, d => d.Code == "rtf.codepage");
     }
 
+    [Theory]
+    [InlineData(136, "'a4'40'a4'47'a4'54", "一二三")]
+    [InlineData(128, "'82'a0'82'a2'82'a4", "あいう")]
+    [InlineData(134, "'d6'd0'ce'c4", "中文")]
+    public void A_Double_Byte_Code_Page_Decodes_MultiByte_Sequences(int charset, string bytes, string expected)
+    {
+        RtfResult(@"{\rtf1\ansi{\fonttbl{\f0\fcharset" + charset + @" Arial;}}\f0 " + bytes.Replace("'", @"\'") + @"\par}",
+            out RichTextDocument document, out IReadOnlyList<DocumentDiagnostic> diagnostics);
+
+        Assert.Equal(expected, document.PlainText);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "rtf.codepage");
+    }
+
+    [Fact]
+    public void A_Double_Byte_Code_Page_Decodes_Hex_Lead_With_Ascii_Trail_Byte()
+    {
+        RtfResult(@"{\rtf1\ansi{\fonttbl{\f0\fcharset136 MingLiU;}}\f0 \'a4@\par}",
+            out RichTextDocument document, out IReadOnlyList<DocumentDiagnostic> diagnostics);
+
+        Assert.Equal("一", document.PlainText);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "rtf.codepage");
+    }
+
+    [Fact]
+    public void A_Double_Byte_Code_Page_Decodes_Font_Name_In_FontTable()
+    {
+        // Big5: 新細明體
+        RtfResult(@"{\rtf1\ansi{\fonttbl{\f0\fcharset136 \'b7\'73\'b2\'d3\'a9\'fa\'c5\'e9;}}\f0 text\par}",
+            out _, out IReadOnlyList<DocumentDiagnostic> diagnostics);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "rtf.codepage");
+    }
+
     [Fact]
     public void A_Double_Byte_Code_Page_Still_Falls_Back_And_Says_So()
     {

@@ -82,6 +82,17 @@ public sealed class DocumentLayoutTableFlowTests
     }
 
     [Fact]
+    public void A_table_with_splittable_following_paragraph_moves_when_only_orphan_lines_fit()
+    {
+        // Table (60 pt) + entire following paragraph (40 pt) exceeds page capacity (80 pt),
+        // but table + opening line of following paragraph (70 pt) fits on a fresh page.
+        // It must move to the next page rather than splitting on the current page after filler.
+        LayoutResult kept = Layout(TableAfterFiller(true, tableLines: 6, followingLines: 4));
+        Assert.Equal(6, kept.Pages[0].Lines.Count);
+        Assert.Equal(1, kept.Pages[1].Lines[0].ParagraphIndex);
+    }
+
+    [Fact]
     public void Oversized_kept_tables_still_split_and_keep_all_lines()
     {
         LayoutResult result = Layout(TableAfterFiller(true, tableLines: 12));

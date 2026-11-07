@@ -221,14 +221,19 @@ internal sealed class DocxSections
     /// </summary>
     public static PageGeometry? ReadPage(XElement? sectPr)
     {
-        XElement? size = sectPr?.Element(DocxNamespaces.Wordprocessing + "pgSz");
-        if (size is null)
+        if (sectPr is null)
             return null;
 
-        XElement? margin = sectPr!.Element(DocxNamespaces.Wordprocessing + "pgMar");
-        double w = DocxValueReader.Twips(size, "w");
-        double h = DocxValueReader.Twips(size, "h");
-        string? orient = (string?)size.Attribute(DocxNamespaces.Wordprocessing + "orient");
+        XElement? size = sectPr.Element(DocxNamespaces.Wordprocessing + "pgSz");
+        XElement? margin = sectPr.Element(DocxNamespaces.Wordprocessing + "pgMar");
+
+        // ECMA-376 Part 1, §17.6.11: default size is 12240 x 15840 twips (8.5 x 11 in, Letter).
+        double w = size is not null ? DocxValueReader.Twips(size, "w") : 12240d / 20d;
+        double h = size is not null ? DocxValueReader.Twips(size, "h") : 15840d / 20d;
+        if (w <= 0) w = 12240d / 20d;
+        if (h <= 0) h = 15840d / 20d;
+
+        string? orient = (string?)size?.Attribute(DocxNamespaces.Wordprocessing + "orient");
         if (string.Equals(orient, "landscape", StringComparison.OrdinalIgnoreCase) && w < h && w > 0)
         {
             (w, h) = (h, w);
@@ -238,27 +243,34 @@ internal sealed class DocxSections
             (w, h) = (h, w);
         }
 
+        // ECMA-376 Part 1, §17.6.10: default margins are 1440 twips (72 pt = 1 in) for edges,
+        // 720 twips (36 pt = 0.5 in) for header/footer.
+        double defaultMargin = margin is not null ? 0d : 72d;
+        double defaultHeaderFooter = margin is not null ? 0d : 36d;
+
         // Some producers emit fractional bare twips in page margins.
-        double Margin(string name)
+        double Margin(string name, double fallback)
         {
             XAttribute? attribute = margin?.Attribute(DocxNamespaces.Wordprocessing + name);
+            if (attribute is null)
+                return fallback;
             if (DocxValueReader.TryReadTwips(attribute, out int twips))
                 return twips / 20d;
             return double.TryParse((string?)attribute, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
-                CultureInfo.InvariantCulture, out double value) && double.IsFinite(value) ? value / 20d : 0;
+                CultureInfo.InvariantCulture, out double value) && double.IsFinite(value) ? value / 20d : fallback;
         }
 
         var geometry = new PageGeometry(
             w,
             h,
-            Margin("left"),
-            Margin("right"),
+            Margin("left", defaultMargin),
+            Margin("right", defaultMargin),
             // The shared geometry models nonnegative distances. Preserve
             // paper size and the other margins when Word uses a signed edge.
-            Math.Abs(Margin("top")),
-            Math.Abs(Margin("bottom")),
-            Margin("header"),
-            Margin("footer"));
+            Math.Abs(Margin("top", defaultMargin)),
+            Math.Abs(Margin("bottom", defaultMargin)),
+            Margin("header", defaultHeaderFooter),
+            Margin("footer", defaultHeaderFooter));
         return geometry.IsUsable ? geometry : null;
     }
 

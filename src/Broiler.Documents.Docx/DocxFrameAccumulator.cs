@@ -152,6 +152,21 @@ internal sealed class DocxFrameAccumulator
             width, height, heightRule, x, y, hAnchor, vAnchor, xAlign, yAlign, wrap, hSpace, vSpace);
     }
 
+    public static bool IsDropCap(XElement? pPr, string? paragraphStyleId, DocxReadContext context)
+    {
+        if (context.Band != RunningBand.Body || context.InNote || context.Builder.InTableCell)
+            return false;
+
+        IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions);
+        for (int i = 0; i < chain.Count; i++)
+        {
+            if ((string?)chain[i].Element(DocxNamespaces.Wordprocessing + "framePr")?.Attribute(DocxNamespaces.Wordprocessing + "dropCap") is "drop" or "margin")
+                return true;
+        }
+
+        return (string?)pPr?.Element(DocxNamespaces.Wordprocessing + "framePr")?.Attribute(DocxNamespaces.Wordprocessing + "dropCap") is "drop" or "margin";
+    }
+
     public static DocumentShape CreateFrameShape(
         DocxFrameProperties frame,
         IReadOnlyList<RichTextParagraph> paragraphs,

@@ -1,7 +1,7 @@
 {
   "$schema": "extras-reference-defects.schema.json",
   "schemaVersion": 1,
-  "updated": "2026-11-05",
+  "updated": "2026-11-07",
   "policy": {
     "records": "Samples of LibreOffice's sw/qa/extras corpus that the LibreOffice the references come from draws with a LibreOffice defect a later LibreOffice release fixed. The corpus is LibreOffice's master tree and the references come from the release reference-data workflow pins, which is older, so a sample added with an upstream fix tests that fix and the pinned release draws it the way the fix corrected.",
     "rule": "While the reference LibreOffice's major.minor is older than a row's fixedIn, the checks the row names (pixel, text) are not compared for its samples: each is reported as skipped with the bug and the note that shows it, and the sample is listed under Known Reference Defects. broilerdoc still reads, dumps and renders it and has to end each in a documented exit code, and every check the row does not name runs and ranks as usual. A row stops applying by itself once references come from a fixed release.",
@@ -48,7 +48,6 @@
       "evidence": "The pinned PDF places the table on page two but clips its final rows, leaving page three blank. The 26.8 import test requires the table to flow across pages two and three with zero repeated header rows. The pinned plain-text projection retains the clipped text.",
       "reference": "docs/notes/office-issue-199.md"
     },
-
     {
       "id": "tdf163894-character-style-reference",
       "bug": "tdf#163894",
@@ -64,7 +63,9 @@
         "sw/qa/extras/ooxmlexport/ooxmlexport14.cxx testTdf163894_from_top_to_beginning_of_the_documentMarguerite",
         "sw/qa/extras/layout/layout2.cxx testTdf163894"
       ],
-      "axes": ["pixel"],
+      "axes": [
+        "pixel"
+      ],
       "samples": [
         "ooxmlexport/data/tdf163894.docx",
         "ooxmlexport/data/tdf163894_hidden.docx",
@@ -84,7 +85,9 @@
       "upstreamTests": [
         "sw/qa/extras/layout/layout6.cxx testInlineTableShiftDown"
       ],
-      "axes": ["pixel"],
+      "axes": [
+        "pixel"
+      ],
       "samples": [
         "layout/data/floattable-center-shift-down.docx"
       ],
@@ -100,7 +103,10 @@
       ],
       "upstreamTests": [],
       "untested": "The fix is part of a refactoring series (\"writerfilter: move even more members to SubstreamContext\") that moved the importer's per-paragraph state into each substream's own; it added no test. What pins the fixed rendering: LibreOffice 26.2.6.3 draws the sample with the heading whole, \"1.3 Status Filter-Strömungstest\" on page 5 and chapter 2 \"Beschreibung der Räume\" on page 7, and the table of contents Word saved in the document, with its PAGEREF results, numbers and places the chapters the same way.",
-      "axes": ["pixel", "text"],
+      "axes": [
+        "pixel",
+        "text"
+      ],
       "samples": [
         "ooxmlexport/data/wDateValueFormat.docx"
       ],
@@ -117,7 +123,9 @@
       "upstreamTests": [
         "sw/qa/extras/ooxmlexport/ooxmlexport21.cxx testTdf126533_pageBitmap"
       ],
-      "axes": ["pixel"],
+      "axes": [
+        "pixel"
+      ],
       "samples": [
         "ooxmlexport/data/tdf126533_pageBitmap.docx"
       ],
@@ -134,7 +142,9 @@
       "upstreamTests": [
         "sw/qa/extras/ooxmlexport/ooxmlexport21.cxx testEmptyObjectRange"
       ],
-      "axes": ["pixel"],
+      "axes": [
+        "pixel"
+      ],
       "samples": [
         "ooxmlexport/data/cloud.docx"
       ],
@@ -151,7 +161,9 @@
       "upstreamTests": [
         "sw/qa/extras/layout/layout6.cxx testCool16066_headlineAndUnsplittableRow"
       ],
-      "axes": ["pixel"],
+      "axes": [
+        "pixel"
+      ],
       "samples": [
         "layout/data/Cool16066_headlineAndUnsplittableRow.fodt"
       ],
@@ -176,6 +188,78 @@
       ],
       "evidence": "The pinned LibreOffice 24.2.7.2 PDF has four pages, three blank. The upstream fix uses automatic spacing when no line rule was specified or inherited. LibreOffice 26.2.6.3 and broilerdoc with Calibri each render one page containing all four paragraphs. The narrower fit depends on the selected font.",
       "reference": "docs/notes/office-issue-199.md"
+    },
+    {
+      "id": "tdf162342-rtf-page-size-before-page-break",
+      "bug": "tdf#162342",
+      "fixedIn": "26.2",
+      "fixCommits": [
+        "1567f48ec9fe096da386bdaf370bc95414c8d923"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/rtfexport/rtfexport8.cxx testTdf162342"
+      ],
+      "axes": [
+        "pixel"
+      ],
+      "samples": [
+        "rtfexport/data/tdf162342.rtf"
+      ],
+      "evidence": "In LibreOffice 24.2, an out-of-order context stack pop during RTF import caused m_pTopContext to be empty when section properties were applied before a page break (\\page), causing section geometry (\\paperw, \\paperh, margins) to be ignored or misapplied on following pages. Mike Kaganski fixed this in commit 1567f48ec9fe096da386bdaf370bc95414c8d923 ('tdf#162342: workaround out-of-order context stack pop', Gerrit 188449), pinned by testTdf162342. The office-references-v3 PDF produced by LibreOffice 24.2.7.2 exhibits visual layout mismatch due to the dropped section geometry, whereas modern LibreOffice and broilerdoc preserve the specified page dimensions.",
+      "reference": "docs/notes/office-issue-205.md"
+    },
+    {
+      "id": "tdf130214-bibliography-footnote-import-truncation",
+      "bug": "tdf#130214",
+      "fixedIn": "26.8",
+      "fixCommits": [
+        "eca00082c78fddf79f247057227404738be8806c"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlimport/ooxmlimport2.cxx testTdf130214"
+      ],
+      "axes": [
+        "pixel",
+        "text"
+      ],
+      "samples": [
+        "ooxmlimport/data/tdf130214.docx"
+      ],
+      "evidence": "In LibreOffice, an import error during handling of a bibliography field split across paragraphs in a footnote leaves m_aTextAppendStack empty. Commit eca00082c78fddf79f247057227404738be8806c ('tdf#130214: workaround invalid state resulting from error on import', Gerrit 87595) added an early return to avoid crashing, aborting document import after the first footnote reference ('entrepreneur1'). The upstream test testTdf130214 only asserts that createSwDoc does not crash. The office-references-v3 PDF and text projections produced by LibreOffice 24.2.7.2 are truncated to 1 page containing only that first sentence, whereas Word and broilerdoc render all 3 pages and full text.",
+      "reference": "docs/notes/office-issue-205.md"
+    },
+    {
+      "id": "tdf172169-linespacing-height-calculation",
+      "bug": "tdf#172169",
+      "fixedIn": "26.8",
+      "fixCommits": [
+        "882b75b93dc25b1d4e9d42e1d18e3437fb0150d3",
+        "83303053d7c296db96e747fb053e76bc2a8ccf7d"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlexport/ooxmlexport23.cxx testTdf172169_intraLinespacing",
+        "sw/qa/extras/ooxmlexport/ooxmlexport23.cxx testTdf172169_linespacingBidi",
+        "sw/qa/extras/ooxmlexport/ooxmlexport23.cxx testTdf172169_linespacingDoubleLineText",
+        "sw/qa/extras/ooxmlexport/ooxmlexport23.cxx testTdf172169_linespacingFirstPortion",
+        "sw/qa/extras/ooxmlexport/ooxmlexport23.cxx testTdf172169_linespacingFootnote",
+        "sw/qa/extras/ooxmlexport/ooxmlexport23.cxx testTdf172169_linespacingSecondPortion",
+        "sw/qa/extras/ooxmlexport/ooxmlexport23.cxx testTdf172169_linespacingVerticalText"
+      ],
+      "axes": [
+        "pixel",
+        "text"
+      ],
+      "samples": [
+        "ooxmlexport/data/tdf172169_intraLinespacing.odt",
+        "ooxmlexport/data/tdf172169_linespacingBidi.odt",
+        "ooxmlexport/data/tdf172169_linespacingDoubleLineText.odt",
+        "ooxmlexport/data/tdf172169_linespacingFirstPortion.odt",
+        "ooxmlexport/data/tdf172169_linespacingFootnote.odt",
+        "ooxmlexport/data/tdf172169_linespacingSecondPortion.odt",
+        "ooxmlexport/data/tdf172169_linespacingVerticalText.odt"
+      ],
+      "evidence": "In LibreOffice 7.1, line spacing height calculation unintentionally changed to only use SwTextPortion, breaking vertical portion positioning across lines with mixed font sizes, footnotes, bidi text, and double line text (tdf#172169). Justin Luth fixed this upstream in commits 882b75b93dc25b1d4e9d42e1d18e3437fb0150d3 and 83303053d7c296db96e747fb053e76bc2a8ccf7d ('tdf#172169: line spacing height calculation unintentionally changed in LO 7.1'), targeted for LibreOffice 26.8 and verified by tests in ooxmlexport23.cxx. The office-references-v3 baseline generated by headless LibreOffice 24.2.7.2 renders with this regression.",
+      "reference": "docs/notes/office-issue-205.md"
     }
   ]
 }

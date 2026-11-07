@@ -221,6 +221,7 @@ public static class RtfReader
         private bool _colorSeen;
 
         private int _pendingUnicodeSkip;
+        private byte _leadByte;
         private bool _sawStar;
         private bool _reportedCodePage;
         private bool _reportedFrameAlignment;
@@ -267,6 +268,7 @@ public static class RtfReader
                 switch (token.Type)
                 {
                     case RtfTokenType.GroupStart:
+                        FlushLeadByte();
                         _sawStar = false;
                         // A scope delimiter ends Unicode fallback data before
                         // the delimiter; the next group's text is real text.
@@ -363,6 +365,7 @@ public static class RtfReader
         /// </summary>
         private bool HandleGroupEnd()
         {
+            FlushLeadByte();
             _sawStar = false;
             _pendingUnicodeSkip = 0;
             State closing = _state;
@@ -524,6 +527,7 @@ public static class RtfReader
 
         private void HandleControlWord(RtfToken token)
         {
+            FlushLeadByte();
             bool star = _sawStar;
             _sawStar = false;
             string kw = token.Keyword;
@@ -1187,6 +1191,7 @@ public static class RtfReader
 
         private void HandleControlSymbol(char symbol)
         {
+            FlushLeadByte();
             if (symbol == '*')
             {
                 _sawStar = true;
@@ -1255,54 +1260,81 @@ public static class RtfReader
             }
         }
 
-        private void HandleByte(byte value)
+        private void FlushLeadByte()
+        {
+            if (_leadByte == 0)
+                return;
+            byte orphan = _leadByte;
+            _leadByte = 0;
+            ReportCodePageIfNeeded(orphan);
+            EmitChar(RtfCodePage.DecodeByte(orphan, _state.CodePage));
+        }
+
+        private void EmitChar(char ch)
         {
             if (_state.Dest == RtfDestination.StyleSheet)
             {
-                if (_pendingUnicodeSkip > 0)
-                    _pendingUnicodeSkip--;
-                else
-                {
-                    ReportCodePageIfNeeded(value);
-                    char ch = (char)RtfCodePage.DecodeByte(value, _state.CodePage);
-                    if (ch == ';')
-                        _styleSemicolonSeen = true;
-                    else if (!_styleSemicolonSeen)
-                        _styleName.Append(ch);
-                }
+                if (ch == ';')
+                    _styleSemicolonSeen = true;
+                else if (!_styleSemicolonSeen)
+                    _styleName.Append(ch);
                 return;
             }
 
             if (_state.Dest == RtfDestination.FieldInstruction)
             {
-                if (_pendingUnicodeSkip > 0) _pendingUnicodeSkip--;
-                else _state.Field?.Instruction.Append(RtfCodePage.DecodeByte(value, _state.CodePage));
+                _state.Field?.Instruction.Append(ch);
                 return;
             }
+
             if (_state.Dest == RtfDestination.FontTable)
             {
-                if (_pendingUnicodeSkip > 0)
-                    _pendingUnicodeSkip--;
-                else
-                {
-                    ReportCodePageIfNeeded(value);
-                    _fontName.Append((char)RtfCodePage.DecodeByte(value, _state.CodePage));
-                }
-
+                _fontName.Append(ch);
                 return;
             }
 
             if (!KeepsText(_state.Dest))
                 return;
 
+            AppendChar(ch);
+        }
+
+        private void HandleByte(byte value)
+        {
             if (_pendingUnicodeSkip > 0)
             {
                 _pendingUnicodeSkip--;
                 return;
             }
 
+            if (RtfCodePage.IsDbcsCodePage(_state.CodePage))
+            {
+                if (_leadByte == 0)
+                {
+                    if (value >= 0x80)
+                    {
+                        _leadByte = value;
+                        return;
+                    }
+                }
+                else
+                {
+                    byte lead = _leadByte;
+                    _leadByte = 0;
+                    if (RtfCodePage.EncodingFor(_state.CodePage) is { } enc)
+                    {
+                        Span<byte> bytes = [lead, value];
+                        Span<char> chars = stackalloc char[2];
+                        int count = enc.GetChars(bytes, chars);
+                        for (int i = 0; i < count; i++)
+                            EmitChar(chars[i]);
+                        return;
+                    }
+                }
+            }
+
             ReportCodePageIfNeeded(value);
-            AppendChar(RtfCodePage.DecodeByte(value, _state.CodePage));
+            EmitChar(RtfCodePage.DecodeByte(value, _state.CodePage));
         }
 
         /// <summary>
@@ -1378,11 +1410,49 @@ public static class RtfReader
                 return;
 
             var decoded = new StringBuilder(text.Length - i);
+            Span<char> chars = stackalloc char[2];
+            Span<byte> bytes = stackalloc byte[2];
             for (; i < text.Length; i++)
             {
                 char ch = text[i];
                 if (ch <= 0xFF)
                 {
+                    if (RtfCodePage.IsDbcsCodePage(_state.CodePage))
+                    {
+                        if (_leadByte != 0)
+                        {
+                            byte lead = _leadByte;
+                            _leadByte = 0;
+                            if (RtfCodePage.EncodingFor(_state.CodePage) is { } enc)
+                            {
+                                bytes[0] = lead;
+                                bytes[1] = (byte)ch;
+                                int count = enc.GetChars(bytes, chars);
+                                for (int c = 0; c < count; c++)
+                                    decoded.Append(chars[c]);
+                            }
+                            continue;
+                        }
+
+                        if (ch >= 0x80)
+                        {
+                            if (i + 1 < text.Length && text[i + 1] <= 0xFF)
+                            {
+                                bytes[0] = (byte)ch;
+                                bytes[1] = (byte)text[++i];
+                                if (RtfCodePage.EncodingFor(_state.CodePage) is { } enc)
+                                {
+                                    int count = enc.GetChars(bytes, chars);
+                                    for (int c = 0; c < count; c++)
+                                        decoded.Append(chars[c]);
+                                }
+                                continue;
+                            }
+                            _leadByte = (byte)ch;
+                            continue;
+                        }
+                    }
+
                     ReportCodePageIfNeeded((byte)ch);
                     decoded.Append(RtfCodePage.DecodeByte((byte)ch, _state.CodePage));
                 }
@@ -1397,6 +1467,7 @@ public static class RtfReader
 
         private void HandleUnicode(int parameter)
         {
+            FlushLeadByte();
             if (_state.Dest == RtfDestination.StyleSheet)
             {
                 int codePoint = parameter < 0 ? parameter + 65536 : parameter;

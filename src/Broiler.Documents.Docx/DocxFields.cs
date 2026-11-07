@@ -83,7 +83,7 @@ internal sealed class DocxFields
     /// here without any result text stands for, which the caller writes as
     /// the first page's number for the layout to replace; null otherwise.
     /// </summary>
-    public PageField? Read(XElement fieldCharacter, DocxStyles styles, InlineStyle runStyle)
+    public (PageField? Page, string? FallbackText) Read(XElement fieldCharacter, DocxStyles styles, InlineStyle runStyle)
     {
         switch ((string?)fieldCharacter.Attribute(DocxNamespaces.Wordprocessing + "fldCharType"))
         {
@@ -102,11 +102,42 @@ internal sealed class DocxFields
             case "end" when _open.Count > 0:
                 Field ended = _open[^1];
                 _open.RemoveAt(_open.Count - 1);
-                if (!ended.HasResultText && (ended.Page ?? Page(ended.Code.ToString())) is PageField empty)
-                    return empty;
+                if (!ended.HasResultText)
+                {
+                    if ((ended.Page ?? Page(ended.Code.ToString())) is PageField empty)
+                        return (empty, null);
+                    if (ExtractRubyBase(ended.Code.ToString()) is string ruby)
+                        return (null, ruby);
+                }
                 break;
         }
 
+        return (null, null);
+    }
+
+    /// <summary>
+    /// Extracts the base text from an empty-result equation ruby field of the form
+    /// <c>EQ \o(\s\up N(phonetic),base)</c>.
+    /// </summary>
+    public static string? ExtractRubyBase(string instruction)
+    {
+        if (!instruction.TrimStart().StartsWith("EQ ", StringComparison.OrdinalIgnoreCase)) return null;
+        int overlay = instruction.IndexOf("\\o", StringComparison.OrdinalIgnoreCase);
+        if (overlay < 0) return null;
+        int open = instruction.IndexOf('(', overlay), comma = -1, depth = 0;
+        if (open < 0) return null;
+        for (int i = open; i < instruction.Length; i++)
+        {
+            char ch = instruction[i];
+            if (ch == '(') depth++;
+            else if (ch == ')' && --depth == 0)
+            {
+                if (comma < 0 || !instruction.AsSpan(open, comma - open).Contains("\\s\\up", StringComparison.OrdinalIgnoreCase)) return null;
+                string value = instruction[(comma + 1)..i].Trim();
+                return value.Length > 0 && !value.Contains('\\') ? value : null;
+            }
+            else if (ch == ',' && depth == 1) comma = i;
+        }
         return null;
     }
 

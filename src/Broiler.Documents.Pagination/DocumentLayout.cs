@@ -1119,11 +1119,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         ListNumberer probe = numbering.Snapshot();
                         ParagraphLines next = ComposeParagraph(following, probe.Advance(following.Style), setup,
                             table.ParagraphEnd, columnWidthOverride: columns.Width);
-                        double nextHeight = next.Lines.Sum(line => line.Height);
-                        if (nextHeight > contentBottom - pageTop)
-                            nextHeight = next.Lines.Take(Math.Max(1, following.Style.OrphanLines ?? 1)).Sum(line => line.Height);
-                        double required = composedRows.Sum(row => row.Height) + Math.Max(0, following.Style.SpacingBefore) + nextHeight;
-                        if (required <= contentBottom - pageTop && y + required > contentBottom && ColumnHasContent())
+                        double nextOpening = following.Style.KeepTogether || next.Lines.Count <= 1
+                            ? next.Lines.Sum(line => line.Height)
+                            : next.Lines.Take(Math.Max(1, following.Style.OrphanLines ?? 1))
+                                .Sum(line => line.Height);
+                        double required = totalTableHeight + Math.Max(0, following.Style.SpacingBefore) + nextOpening;
+                        if (totalTableHeight <= contentBottom - pageTop && y + required > contentBottom && ColumnHasContent())
                         {
                             regionUnbalanced = true;
                             BreakColumn();
