@@ -140,6 +140,7 @@ public static class RtfReader
         private bool _pastFirstSection;
         private bool _bodySectionPending;
         private bool _bodySectionHasProperties;
+        private BodySectionBreak _sectionBreak = BodySectionBreak.Page;
         private BodySectionBreak _bodySectionBreak = BodySectionBreak.Page;
         private enum BodySectionBreak { Continuous, Page, Column }
         private readonly RtfTableBuilder _table;
@@ -907,9 +908,10 @@ public static class RtfReader
                 // \sectd puts the section back to its defaults, which for the
                 // page are the document's.
                 case "sectd":
+                    _sectionBreak = BodySectionBreak.Page;
                     if (_bodySectionPending)
                     {
-                        _bodySectionBreak = _builder.PageBreakPending ? BodySectionBreak.Continuous : BodySectionBreak.Page;
+                        _bodySectionBreak = _sectionBreak;
                         _bodySectionHasProperties = true;
                     }
                     if (!_pastFirstSection)
@@ -943,7 +945,7 @@ public static class RtfReader
                         FinishTable();
                         _bodySectionPending = true;
                         _bodySectionHasProperties = false;
-                        _bodySectionBreak = _builder.PageBreakPending ? BodySectionBreak.Continuous : BodySectionBreak.Page;
+                        _bodySectionBreak = _sectionBreak;
                     }
                     _pastFirstSection = true;
                     return;
@@ -952,9 +954,10 @@ public static class RtfReader
                 case "sbkcol": SetBodySectionBreak(BodySectionBreak.Column); return;
                 case "sbkodd":
                 case "sbkeven":
+                    _sectionBreak = BodySectionBreak.Page;
                     if (_bodySectionPending)
                     {
-                        _bodySectionBreak = _builder.PageBreakPending ? BodySectionBreak.Continuous : BodySectionBreak.Page;
+                        _bodySectionBreak = _sectionBreak;
                         _bodySectionHasProperties = true;
                         if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.section.parity"))
                             _diagnostics.Add(DocumentDiagnostic.Warning("rtf.section.parity",
@@ -2509,6 +2512,9 @@ public static class RtfReader
             if (_bodySectionBreak == BodySectionBreak.Page ||
                 (_bodySectionBreak == BodySectionBreak.Column && _columns <= 1))
             {
+                if (_builder.PageBreakPending)
+                    _builder.EndParagraph(_state.Para);
+
                 if (!_builder.BreakPage(_state.Para))
                     ReportEmptyPage();
             }
@@ -2518,6 +2524,7 @@ public static class RtfReader
 
         private void SetBodySectionBreak(BodySectionBreak kind)
         {
+            _sectionBreak = kind;
             if (_bodySectionPending)
             {
                 _bodySectionBreak = kind;

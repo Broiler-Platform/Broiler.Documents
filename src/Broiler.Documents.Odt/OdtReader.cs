@@ -283,6 +283,7 @@ internal static class OdtReader
         OdtReadContext? context = null;
         context = new OdtReadContext(styles, images, builder, page)
         {
+            Variables = ReadVariables(content),
             Regions = OdtRevisions.ReadRegions(body),
             UsesSoftPageBreaks = (string?)body.Attribute(OdtNamespaces.Text + "use-soft-page-breaks") == "true",
             FormControls = ReadFormControls(body),
@@ -1030,6 +1031,83 @@ internal static class OdtReader
         return controls;
     }
 
+    private static Dictionary<string, string> ReadVariables(XDocument content)
+    {
+        var variables = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (XElement decl in content.Descendants())
+        {
+            if (decl.Name == OdtNamespaces.Text + "user-field-decl" ||
+                decl.Name == OdtNamespaces.Text + "variable-decl")
+            {
+                string? name = (string?)decl.Attribute(OdtNamespaces.Text + "name");
+                if (!string.IsNullOrEmpty(name))
+                {
+                    string? value = (string?)decl.Attribute(OdtNamespaces.Office + "value") ??
+                        (string?)decl.Attribute(OdtNamespaces.Office + "string-value") ??
+                        (string?)decl.Attribute(OdtNamespaces.Office + "boolean-value") ?? "";
+                    variables[name] = value;
+                }
+            }
+        }
+        return variables;
+    }
+
+    private static bool EvaluateCondition(string condition, IReadOnlyDictionary<string, string> variables)
+    {
+        if (string.Equals(condition, "true", StringComparison.OrdinalIgnoreCase) || condition == "1")
+            return true;
+        if (string.Equals(condition, "false", StringComparison.OrdinalIgnoreCase) || condition == "0")
+            return false;
+
+        string[] tokens = condition.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length >= 3)
+        {
+            string lhs = tokens[0];
+            if (lhs.StartsWith("ooow:", StringComparison.OrdinalIgnoreCase))
+                lhs = lhs[5..];
+            lhs = lhs.Trim('"', '\'');
+
+            string op = tokens[1].ToUpperInvariant();
+            string rhs = string.Join(" ", tokens.Skip(2)).Trim('"', '\'');
+
+            string lhsVal = variables.TryGetValue(lhs, out string? val) ? val : "";
+
+            bool isEq;
+            if (double.TryParse(lhsVal, NumberStyles.Float, CultureInfo.InvariantCulture, out double numLhs) &&
+                double.TryParse(rhs, NumberStyles.Float, CultureInfo.InvariantCulture, out double numRhs))
+            {
+                isEq = Math.Abs(numLhs - numRhs) < 1e-6;
+            }
+            else
+            {
+                isEq = string.Equals(lhsVal, rhs, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return op switch
+            {
+                "EQ" or "==" or "=" => isEq,
+                "NE" or "!=" or "<>" => !isEq,
+                _ => false,
+            };
+        }
+
+        return false;
+    }
+
+    private static bool IsSectionHidden(XElement section, OdtReadContext context)
+    {
+        string? display = (string?)section.Attribute(OdtNamespaces.Text + "display");
+        if (display == "none")
+            return true;
+        if (display == "condition")
+        {
+            string? condition = (string?)section.Attribute(OdtNamespaces.Text + "condition");
+            if (!string.IsNullOrWhiteSpace(condition))
+                return EvaluateCondition(condition.Trim(), context.Variables);
+        }
+        return false;
+    }
+
     /// <summary>
     /// Reads a <c>draw:control</c> that places a label (<c>form:fixed-text</c>)
     /// as a box holding the label's words, set in the control's
@@ -1216,6 +1294,13 @@ internal static class OdtReader
             }
             string? verticalRel = (string?)properties?.Attribute(OdtNamespaces.LibreOffice + "vertical-rel") ??
                 (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-rel");
+            if (anchorType is "paragraph" or "char" && verticalRel is "line" or "text")
+            {
+                string? verticalPos = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-pos");
+                if (verticalPos == "top")
+                    y = -height + y;
+            }
+
             if (anchorType is "paragraph" or "char" && verticalRel is "page" or "page-content" or "page-content-bottom")
             {
                 double frameTop = verticalRel switch
@@ -1657,7 +1742,7 @@ internal static class OdtReader
         int depth)
     {
         var builder = new OdtDocumentBuilder(context.Builder.Limits, context.Builder.Diagnostics);
-        var nested = new OdtReadContext(context.Styles, context.Images, builder);
+        var nested = new OdtReadContext(context.Styles, context.Images, builder) { Variables = context.Variables };
         // A custom shape holds its geometry alongside its text. The geometry is
         // the shape's form, not content, and walking it as a block reports an
         // unsupported element for something the reader is deliberately not using.
@@ -1845,7 +1930,7 @@ internal static class OdtReader
             if (name == OdtNamespaces.Text + "section")
             {
                 int sectionStart = builder.CurrentParagraphIndex;
-                bool hidden = (string?)element.Attribute(OdtNamespaces.Text + "display") == "none";
+                bool hidden = IsSectionHidden(element, context);
                 OdtBreak pending = hidden ? context.TakeBreak() : OdtBreak.None;
                 if (hidden) context.HiddenSectionDepth++;
                 try
@@ -2647,7 +2732,7 @@ internal static class OdtReader
         {
             Revision = context.Builder.Revision,
         };
-        var nested = new OdtReadContext(context.Styles, context.Images, builder) { InNote = true, Regions = context.Regions };
+        var nested = new OdtReadContext(context.Styles, context.Images, builder) { InNote = true, Regions = context.Regions, Variables = context.Variables };
         XElement? body = note.Element(OdtNamespaces.Text + "note-body");
         if (body is not null)
             ReadBlockContent(body.Elements(), nested, list: null, depth + 1);

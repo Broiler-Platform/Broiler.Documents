@@ -245,6 +245,7 @@ internal sealed class RtfTableBuilder
                 break;
             case "brdrnone":
             case "brdrnil":
+            case "brdrtbl":
                 border.Drawn = false;
                 break;
             case "brdrsp":
@@ -273,6 +274,7 @@ internal sealed class RtfTableBuilder
                 break;
             case "brdrnone":
             case "brdrnil":
+            case "brdrtbl":
                 border.Drawn = false;
                 break;
             case "brdrsp":

@@ -1192,7 +1192,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     int groupEnd = inHeader && keepInitialHeader ? firstBodyGroup : rowNumber;
                     for (int index = rowNumber - 1; index < groupEnd && index < table.Rows.Count; index++)
                     {
-                        int spanEnd = index + table.Rows[index].Cells.Select(cell => cell.RowSpan).DefaultIfEmpty(1).Max();
+                        int spanEnd = index + 1;
+                        foreach (CellLines cellContent in composedRows[index].Contents.Where(c => c.Cell is { RowSpan: > 1 }))
+                        {
+                            double accumulated = 0;
+                            int maxSpan = Math.Min(composedRows.Count, index + cellContent.Cell!.RowSpan);
+                            for (int r = index; r < maxSpan; r++)
+                            {
+                                accumulated += composedRows[r].Height;
+                                spanEnd = Math.Max(spanEnd, r + 1);
+                                if (accumulated >= cellContent.Height - 0.01)
+                                    break;
+                            }
+                        }
                         int keepEnd = table.Rows[index].KeepWithNext ? index + 2 : index + 1;
                         groupEnd = Math.Min(table.Rows.Count, Math.Max(groupEnd, Math.Max(spanEnd, keepEnd)));
                     }
@@ -1204,14 +1216,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         (composedRows[groupEnd - 1].CanSplit ? composedRows[groupEnd - 1].NestedPieces().FirstOrDefault().Bottom : composedRows[groupEnd - 1].Height);
                     double requiredToKeep = groupHeight <= contentBottom - pageTop ? groupHeight : minRequired;
 
-                    if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom - pageTop && y + requiredToKeep > contentBottom && ColumnHasContent())
+if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom - pageTop && y + requiredToKeep > contentBottom && ColumnHasContent())
                         ContinueTable(inHeader, composedRow);
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
                     {
                         if (y + row.Height > contentBottom - NotesHeight(row.Lines))
                         {
-                            bool canSplitRow = row.CanSplit && !(table.KeepTogether && totalTableHeight <= contentBottom - pageTop);
+                            bool hasNestedTables = row.Contents.Any(c => c.Cell is not null && c.Cell.Tables.Count > 0);
+                            bool canSplitRow = !inHeader
+                                && (row.CanSplit || (!hasNestedTables && row.Height > contentBottom - pageTop && !row.ExactHeight))
+                                && !(table.KeepTogether && totalTableHeight <= contentBottom - pageTop);
                             if (canSplitRow && row.SplitAt(contentBottom - y, allowStranding: !ColumnHasContent() || headerOnly) is (RowBox fitted, var rest))
                             {
                                 PlaceRow(fitted);
