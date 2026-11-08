@@ -152,14 +152,16 @@ internal static class SemanticChecks
         }
         else
         {
-            ToolRun dumped = await tool
-                .RunAsync(["dump", document.Path, "--as", "text", .. TextProjection.DumpArguments(space.LibreOfficeVersion), "--quiet"])
+            bool isSpreadsheet = OfficeWorkspace.IsSpreadsheetExtension(Path.GetExtension(document.Path));
+            ToolRun dumped = await (isSpreadsheet
+                ? tool.RunAsync(["convert", document.Path, "--out", "-", "--to", "csv", "--quiet"])
+                : tool.RunAsync(["dump", document.Path, "--as", "text", .. TextProjection.DumpArguments(space.LibreOfficeVersion), "--quiet"]))
                 .ConfigureAwait(false);
 
             if (dumped.ExitCode != 0)
             {
                 results.Add(CheckResult.Fail("text", "text/" + id + "/" + via,
-                    "dump --as text exited " + dumped.ExitCode.ToString(CultureInfo.InvariantCulture) + ".",
+                    (isSpreadsheet ? "convert to csv exited " : "dump --as text exited ") + dumped.ExitCode.ToString(CultureInfo.InvariantCulture) + ".",
                     dumped.CommandLine()));
             }
             else

@@ -645,9 +645,11 @@ internal static class ExtrasConformance
             else
             {
                 libreOfficeAnswered = true;
-                ToolRun dumped = await tool
-                    .RunAsync(["dump", inputSourcePath, .. fromArgs, "--as", "text",
-                        .. TextProjection.DumpArguments(referenceLibreOffice), "--quiet"])
+                bool isSpreadsheet = OfficeWorkspace.IsSpreadsheetExtension(sample.Extension);
+                ToolRun dumped = await (isSpreadsheet
+                    ? tool.RunAsync(["convert", inputSourcePath, .. fromArgs, "--out", "-", "--to", "csv", "--quiet"])
+                    : tool.RunAsync(["dump", inputSourcePath, .. fromArgs, "--as", "text",
+                        .. TextProjection.DumpArguments(referenceLibreOffice), "--quiet"]))
                     .ConfigureAwait(false);
 
                 if (dumped.ExitCode != 0)
@@ -658,7 +660,7 @@ internal static class ExtrasConformance
                     results.Add(CheckResult.Fail(
                         "text",
                         "text/" + sample.Id,
-                        "broilerdoc dump --as text exited " + dumped.ExitCode.ToString(CultureInfo.InvariantCulture) + ".",
+                        (isSpreadsheet ? "broilerdoc convert to csv exited " : "broilerdoc dump --as text exited ") + dumped.ExitCode.ToString(CultureInfo.InvariantCulture) + ".",
                         dumped.CommandLine()));
                 }
                 else if (referenceDefect?.Covers("text") == true)
@@ -959,7 +961,14 @@ internal static class ExtrasConformance
         if (axis is "semantic" or "all")
         {
             commands.Add(["info", sample.LocalPath, .. FormatArguments(sample), "--json", "--quiet"]);
-            commands.Add(["dump", sample.LocalPath, .. FormatArguments(sample), "--as", "text", "--quiet"]);
+            if (OfficeWorkspace.IsSpreadsheetExtension(sample.Extension))
+            {
+                commands.Add(["convert", sample.LocalPath, .. FormatArguments(sample), "--out", "-", "--to", "csv", "--quiet"]);
+            }
+            else
+            {
+                commands.Add(["dump", sample.LocalPath, .. FormatArguments(sample), "--as", "text", "--quiet"]);
+            }
         }
 
         if (axis is "pixel" or "all")

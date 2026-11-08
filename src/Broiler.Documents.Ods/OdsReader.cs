@@ -211,10 +211,16 @@ internal static class OdsReader
                     }
                 }
 
+                while (cells.Count > 0 && cells[^1].Value.IsEmpty && string.IsNullOrEmpty(cells[^1].Formula))
+                    cells.RemoveAt(cells.Count - 1);
+
                 if (cells.Count > 0 || hasNonEmptyCell)
                     rows.Add(new SpreadsheetRow(rIdx, cells));
             }
         }
+
+        while (rows.Count > 0 && rows[^1].Cells.Count == 0)
+            rows.RemoveAt(rows.Count - 1);
 
         return new SpreadsheetWorksheet(sheetName, rows, columnWidths);
     }
