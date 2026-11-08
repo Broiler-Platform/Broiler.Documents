@@ -72,3 +72,4 @@ The writer produces an OASIS OpenDocument Spreadsheet package:
 | `ods.missing-content` | `content.xml` was not found in the package. |
 | `ods.content` | `content.xml` has invalid XML or empty root. |
 | `ods.missing-spreadsheet` | `content.xml` contains no `office:spreadsheet` element. |
+| `ods.text.control` | A control character that XML cannot represent was dropped. |

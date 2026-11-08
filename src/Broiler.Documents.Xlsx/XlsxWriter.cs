@@ -13,12 +13,16 @@ namespace Broiler.Documents.Xlsx;
 
 internal static class XlsxWriter
 {
+    private static readonly DateTimeOffset ZipTimestamp = new(new DateTime(1980, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
     public static DocumentWriteResult Write(DocumentWriteRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         long startPos = request.Destination.CanSeek ? request.Destination.Position : 0;
         SpreadsheetWorkbook workbook = SpreadsheetWorkbook.FromRichTextDocument(request.Document);
+        var diagnostics = new List<DocumentDiagnostic>();
+        var diagnosticOnce = new HashSet<string>(StringComparer.Ordinal);
 
         // Collect unique shared strings
         var sharedStrings = new List<string>();
@@ -33,7 +37,7 @@ internal static class XlsxWriter
                     if (string.IsNullOrEmpty(cell.Formula) &&
                         (cell.Value.IsText || (!cell.Value.IsNumber && !cell.Value.IsBoolean && !cell.Value.IsError && !string.IsNullOrEmpty(cell.CachedText))))
                     {
-                        string str = cell.Value.IsText ? (cell.Value.Text ?? string.Empty) : cell.CachedText;
+                        string str = XmlText(cell.Value.IsText ? (cell.Value.Text ?? string.Empty) : cell.CachedText, diagnostics, diagnosticOnce);
                         if (!stringMap.ContainsKey(str))
                         {
                             stringMap[str] = sharedStrings.Count;
@@ -56,7 +60,7 @@ internal static class XlsxWriter
             WriteWorkbookRelationships(archive, workbook.Sheets.Count);
 
             // 4. xl/workbook.xml
-            WriteWorkbookXml(archive, workbook);
+            WriteWorkbookXml(archive, workbook, diagnostics, diagnosticOnce);
 
             // 5. xl/styles.xml
             WriteStylesXml(archive);
@@ -67,12 +71,12 @@ internal static class XlsxWriter
             // 7. xl/worksheets/sheet{i}.xml
             for (int i = 0; i < workbook.Sheets.Count; i++)
             {
-                WriteWorksheetXml(archive, workbook.Sheets[i], i + 1, stringMap);
+                WriteWorksheetXml(archive, workbook.Sheets[i], i + 1, stringMap, diagnostics, diagnosticOnce);
             }
         }
 
         long bytesWritten = request.Destination.CanSeek ? Math.Max(0, request.Destination.Position - startPos) : 0;
-        return new DocumentWriteResult(bytesWritten, null, DocumentResultStatus.Success);
+        return new DocumentWriteResult(bytesWritten, diagnostics, DocumentWriteResult.StatusFrom(diagnostics));
     }
 
     private static void WriteContentTypes(ZipArchive archive, int sheetCount)
@@ -140,14 +144,18 @@ internal static class XlsxWriter
         WriteXmlEntry(archive, "xl/_rels/workbook.xml.rels", new XDocument(root));
     }
 
-    private static void WriteWorkbookXml(ZipArchive archive, SpreadsheetWorkbook workbook)
+    private static void WriteWorkbookXml(
+        ZipArchive archive,
+        SpreadsheetWorkbook workbook,
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> diagnosticOnce)
     {
         var sheetsElem = new XElement(XlsxNamespaces.Spreadsheet + "sheets");
 
         for (int i = 0; i < workbook.Sheets.Count; i++)
         {
             sheetsElem.Add(new XElement(XlsxNamespaces.Spreadsheet + "sheet",
-                new XAttribute("name", workbook.Sheets[i].Name),
+                new XAttribute("name", XmlText(workbook.Sheets[i].Name, diagnostics, diagnosticOnce)),
                 new XAttribute("sheetId", i + 1),
                 new XAttribute(XlsxNamespaces.Relationships + "id", $"rIdSheet{i + 1}")));
         }
@@ -224,7 +232,9 @@ internal static class XlsxWriter
         ZipArchive archive,
         SpreadsheetWorksheet sheet,
         int sheetNumber,
-        Dictionary<string, int> stringMap)
+        Dictionary<string, int> stringMap,
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> diagnosticOnce)
     {
         var root = new XElement(XlsxNamespaces.Spreadsheet + "worksheet",
             new XAttribute("xmlns", XlsxNamespaces.Spreadsheet.NamespaceName),
@@ -268,10 +278,10 @@ internal static class XlsxWriter
 
                 if (!string.IsNullOrEmpty(cell.Formula))
                 {
-                    string f = cell.Formula.TrimStart('=');
+                    string f = XmlText(cell.Formula.TrimStart('='), diagnostics, diagnosticOnce);
                     cElem.Add(new XElement(XlsxNamespaces.Spreadsheet + "f", f));
                     if (!string.IsNullOrEmpty(cell.CachedText))
-                        cElem.Add(new XElement(XlsxNamespaces.Spreadsheet + "v", cell.CachedText));
+                        cElem.Add(new XElement(XlsxNamespaces.Spreadsheet + "v", XmlText(cell.CachedText, diagnostics, diagnosticOnce)));
                 }
                 else if (cell.Value.IsNumber)
                 {
@@ -290,7 +300,7 @@ internal static class XlsxWriter
                 }
                 else
                 {
-                    string str = cell.Value.IsText ? (cell.Value.Text ?? string.Empty) : cell.CachedText;
+                    string str = XmlText(cell.Value.IsText ? (cell.Value.Text ?? string.Empty) : cell.CachedText, diagnostics, diagnosticOnce);
                     if (!string.IsNullOrEmpty(str))
                     {
                         if (stringMap.TryGetValue(str, out int sstIdx))
@@ -339,6 +349,7 @@ internal static class XlsxWriter
     private static void WriteXmlEntry(ZipArchive archive, string entryName, XDocument document)
     {
         ZipArchiveEntry entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+        entry.LastWriteTime = ZipTimestamp;
         using Stream stream = entry.Open();
         using var writer = XmlWriter.Create(stream, new XmlWriterSettings
         {
@@ -347,5 +358,55 @@ internal static class XlsxWriter
             Indent = false
         });
         document.WriteTo(writer);
+    }
+
+    private static void AddDiagnosticOnce(List<DocumentDiagnostic> diagnostics, HashSet<string> seen, string code, string message)
+    {
+        if (seen.Add(code))
+            diagnostics.Add(DocumentDiagnostic.Warning(code, message));
+    }
+
+    private static string XmlText(string value, List<DocumentDiagnostic> diagnostics, HashSet<string> seen)
+    {
+        int first = -1;
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (!XmlConvert.IsXmlChar(value[i]))
+            {
+                first = i;
+                break;
+            }
+        }
+
+        if (first < 0)
+            return value;
+
+        var clean = new StringBuilder(value.Length);
+        clean.Append(value, 0, first);
+
+        for (int i = first; i < value.Length; i++)
+        {
+            char character = value[i];
+
+            if (char.IsHighSurrogate(character) &&
+                i + 1 < value.Length &&
+                char.IsLowSurrogate(value[i + 1]))
+            {
+                clean.Append(character).Append(value[i + 1]);
+                i++;
+                continue;
+            }
+
+            if (XmlConvert.IsXmlChar(character))
+            {
+                clean.Append(character);
+            }
+            else
+            {
+                AddDiagnosticOnce(diagnostics, seen, XlsxDiagnosticCodes.ControlCharacterDropped, "A control character that XML cannot represent was dropped.");
+            }
+        }
+
+        return clean.ToString();
     }
 }

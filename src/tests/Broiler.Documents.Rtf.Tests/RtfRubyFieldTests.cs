@@ -58,4 +58,19 @@ public sealed class RtfRubyFieldTests
         var paragraph = Assert.Single(Read(@"{\rtf1{\field{\*\fldinst HYPERLINK \\l ""\uc1\u233?""}{\fldrslt target}}\par}").Document.Paragraphs);
         Assert.Equal("#é", paragraph.Runs[0].Style.LinkHref);
     }
+    [Fact]
+    public void Title_Field_Without_Result_Falls_Back_To_Info_Title()
+    {
+        string rtf = @"{\rtf1{\info{\title DocTitle}}{\field{\*\fldinst TITLE}}{\field{\*\fldinst  TITLE }}\par}";
+        var result = Read(rtf);
+        Assert.Equal("DocTitleDocTitle", result.Document.PlainText);
+    }
+
+    [Fact]
+    public void Title_Field_With_Cached_Result_Prefers_Cached_Result()
+    {
+        string rtf = @"{\rtf1{\info{\title FallbackTitle}}{\field{\*\fldinst TITLE}{\fldrslt CachedTitle}}\par}";
+        var result = Read(rtf);
+        Assert.Equal("CachedTitle", result.Document.PlainText);
+    }
 }

@@ -435,4 +435,35 @@ public sealed class OdtShapeTests
         // ODF's top-and-bottom, over the grandparent's parallel.
         Assert.Equal(ShapeWrap.TopAndBottom, shape.Wrap);
     }
+    [Fact]
+    public void A_Text_Box_With_Zero_Width_Is_Read_And_Grows_Width_To_Text()
+    {
+        string frame = "<draw:frame svg:x=\"10pt\" svg:y=\"20pt\" svg:width=\"0cm\" svg:height=\"1cm\" text:anchor-type=\"paragraph\">" +
+            "<draw:text-box><text:p>Dot.</text:p></draw:text-box></draw:frame>";
+        var document = OdtTestPackage.ReadBody("<text:p>" + frame + "</text:p>").Document;
+        DocumentShape shape = Assert.Single(document.Shapes);
+        Assert.True(shape.GrowsWidthToText);
+        Assert.Equal("Dot.", Assert.Single(shape.Paragraphs).Text);
+    }
+
+    [Fact]
+    public void A_Block_Level_Drawing_Group_Is_Read_With_Children_And_Inherits_Anchor()
+    {
+        string styles = "<style:style style:name=\"shape\" style:family=\"graphic\">" +
+            "<style:graphic-properties draw:fill=\"solid\" draw:fill-color=\"#729fcf\"/>" +
+            "</style:style>";
+        string group =
+            "<draw:g text:anchor-type=\"page\" text:anchor-page-number=\"1\" svg:x=\"50pt\" svg:y=\"60pt\">" +
+            "<draw:rect draw:style-name=\"shape\" svg:x=\"10pt\" svg:y=\"20pt\" svg:width=\"30pt\" svg:height=\"40pt\"/>" +
+            "<draw:ellipse draw:style-name=\"shape\" svg:x=\"20pt\" svg:y=\"30pt\" svg:width=\"50pt\" svg:height=\"60pt\"/>" +
+            "</draw:g>";
+        var result = OdtTestPackage.ReadBody(group, automaticStylesXml: styles);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.block.unsupported");
+        Assert.Equal(2, result.Document.Shapes.Count);
+        DocumentShape first = result.Document.Shapes[0];
+        Assert.Equal(60, first.OffsetX);
+        Assert.Equal(80, first.OffsetY);
+        Assert.Equal(1, first.AnchorPage);
+        Assert.False(first.OffsetFromPage);
+    }
 }

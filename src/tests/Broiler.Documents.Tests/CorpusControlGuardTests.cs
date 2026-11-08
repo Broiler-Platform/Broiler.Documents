@@ -132,7 +132,7 @@ public sealed class CorpusControlGuardTests
         // narrows that to the corpus directories, so a stray file left by a run
         // is reported against the thing that produced it rather than as a
         // mysterious failure elsewhere.
-        string[] extensions = [".rtf", ".docx", ".dotx", ".html", ".htm", ".odt", ".ott"];
+        string[] extensions = [".rtf", ".docx", ".dotx", ".html", ".htm", ".odt", ".ott", ".xlsx", ".xlsm", ".xltx", ".ods", ".ots", ".fods", ".csv", ".tsv"];
 
         string[] strays =
         [

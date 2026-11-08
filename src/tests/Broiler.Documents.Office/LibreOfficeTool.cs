@@ -577,6 +577,7 @@ internal sealed class LibreOfficeTool
         {
             "html" or "htm" => "HTML (StarWriter)",
             "fodt" => "OpenDocument Text Flat XML",
+            "fods" => "OpenDocument Spreadsheet Flat XML",
             _ => null,
         };
     }

@@ -887,17 +887,26 @@ internal static class OdtReader
     /// nor text is left to the caller, which is what keeps a picture frame going
     /// down the picture path rather than becoming an empty box.
     /// </remarks>
-    private static bool ReadShape(XElement drawing, OdtReadContext context, int depth)
+    private static bool ReadShape(
+        XElement drawing,
+        OdtReadContext context,
+        int depth,
+        double offsetX = 0,
+        double offsetY = 0,
+        string? inheritedAnchor = null,
+        int inheritedAnchorPage = 0)
     {
         if (drawing.Name == OdtNamespaces.Draw + "line")
-            return ReadShapeLine(drawing, context);
-        if (!TryReadFrameWidth(drawing, out double width) || width <= 0)
+            return ReadShapeLine(drawing, context, offsetX, offsetY, inheritedAnchor, inheritedAnchorPage);
+        if (!TryReadFrameWidth(drawing, out double width))
+            return false;
+        XElement? textBox = drawing.Element(OdtNamespaces.Draw + "text-box");
+        if (width < 0 || (width <= 0 && textBox is null))
             return false;
 
         // A text box that states fo:min-height grows to its text from there
         // (ODF 1.3, `fo:min-height` on a text box), whether or not the frame states a height too; one
         // that states neither is sized by its text alone.
-        XElement? textBox = drawing.Element(OdtNamespaces.Draw + "text-box");
         bool statedHeight = OdtUnits.TryParseLength(
             (string?)drawing.Attribute(OdtNamespaces.Svg + "height"), out double height);
         bool grows = OdtUnits.TryParseLength(
@@ -948,13 +957,13 @@ internal static class OdtReader
         if (height == 0 && paragraphs.Count == 0 && !linked)
             return false;
 
-        double x = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "x"), out double left)
+        double x = offsetX + (OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "x"), out double left)
             ? left
-            : 0;
-        double y = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "y"), out double top)
+            : 0);
+        double y = offsetY + (OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "y"), out double top)
             ? top
-            : 0;
-        (int anchorPage, x, y, bool fromPage) = PlaceOnPage(drawing, styleName, x, y, width, height, context);
+            : 0);
+        (int anchorPage, x, y, bool fromPage) = PlaceOnPage(drawing, styleName, x, y, width, height, context, inheritedAnchor, inheritedAnchorPage);
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -982,6 +991,7 @@ internal static class OdtReader
                 _ => CellVerticalAlignment.Top,
             },
             growsWidthToText: (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-width") == "true" ||
+                (width <= 0 && textBox is not null) ||
                 (drawing.Attribute(OdtNamespaces.Svg + "width") is null &&
                 textBox?.Attribute(OdtNamespaces.Fo + "min-width") is not null &&
                 (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-width") != "false" &&
@@ -996,7 +1006,7 @@ internal static class OdtReader
             cellHorizontalAlignment: ReadCellHorizontalAlignment(graphic),
             printable: Prints(graphic))
         {
-            IsAsCharacter = (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") == "as-char",
+            IsAsCharacter = ((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") ?? inheritedAnchor) == "as-char",
         });
         return true;
     }
@@ -1184,10 +1194,16 @@ internal static class OdtReader
         });
     }
 
-    private static bool ReadShapeLine(XElement drawing, OdtReadContext context)
+    private static bool ReadShapeLine(
+        XElement drawing,
+        OdtReadContext context,
+        double offsetX = 0,
+        double offsetY = 0,
+        string? inheritedAnchor = null,
+        int inheritedAnchorPage = 0)
     {
         double Point(string name) => OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + name), out double value) ? value : 0;
-        double x1 = Point("x1"), y1 = Point("y1"), x2 = Point("x2"), y2 = Point("y2");
+        double x1 = offsetX + Point("x1"), y1 = offsetY + Point("y1"), x2 = offsetX + Point("x2"), y2 = offsetY + Point("y2");
         double width = Math.Abs(x2 - x1), height = Math.Abs(y2 - y1);
         if (width == 0 && height == 0) return false;
         string? name = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
@@ -1196,7 +1212,7 @@ internal static class OdtReader
         if ((string?)properties?.Attribute(OdtNamespaces.Draw + "stroke") == "none") return true;
         BColor outline = paint.Outline.IsEmpty ? BColor.Black : paint.Outline;
         double thickness = OdtUnits.TryParseLength((string?)properties?.Attribute(OdtNamespaces.Svg + "stroke-width"), out double value) ? value : 0.75;
-        (int page, double x, double y, bool fromPage) = PlaceOnPage(drawing, name, Math.Min(x1, x2), Math.Min(y1, y2), width, height, context);
+        (int page, double x, double y, bool fromPage) = PlaceOnPage(drawing, name, Math.Min(x1, x2), Math.Min(y1, y2), width, height, context, inheritedAnchor, inheritedAnchorPage);
         context.Builder.AddShape(new DocumentShape(context.Builder.CurrentParagraphIndex, x, y, width, height,
             outline: outline, behindText: paint.BehindText, wrap: paint.Wrap, wrapSide: paint.Side,
             zOrder: ZIndex(drawing), anchorPage: page, offsetFromPage: fromPage,
@@ -1264,18 +1280,20 @@ internal static class OdtReader
     /// </para>
     /// </remarks>
     private static (int Page, double X, double Y, bool FromPage) PlaceOnPage(
-        XElement drawing, string? styleName, double x, double y, double width, double height, OdtReadContext context)
+        XElement drawing, string? styleName, double x, double y, double width, double height, OdtReadContext context,
+        string? anchorTypeOverride = null, int anchorPageOverride = 0)
     {
         XElement? properties = context.Styles.GraphicPropertiesFor(styleName);
 
-        string? anchorType = (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type");
-        if (!string.Equals(anchorType, "page", StringComparison.Ordinal) ||
-            !int.TryParse(
+        string? anchorType = anchorTypeOverride ?? (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type");
+        int page = anchorPageOverride > 0
+            ? anchorPageOverride
+            : (int.TryParse(
                 (string?)drawing.Attribute(OdtNamespaces.Text + "anchor-page-number"),
                 NumberStyles.Integer,
                 CultureInfo.InvariantCulture,
-                out int page) ||
-            page < 1)
+                out int parsedPage) ? parsedPage : 0);
+        if (!string.Equals(anchorType, "page", StringComparison.Ordinal) || page < 1)
         {
             // A paragraph/character anchor moves with its paragraph, but its
             // horizontal coordinates can still refer to the whole page.
@@ -1858,6 +1876,45 @@ internal static class OdtReader
     /// than dropped. Anything genuinely not understood raises a diagnostic
     /// instead of vanishing.
     /// </summary>
+    private static void ReadDrawGroup(
+        XElement group,
+        OdtReadContext context,
+        double parentX = 0,
+        double parentY = 0,
+        string? inheritedAnchor = null,
+        int inheritedAnchorPage = 0,
+        int depth = 0)
+    {
+        if (depth > 16)
+            return;
+
+        double groupX = OdtUnits.TryParseLength((string?)group.Attribute(OdtNamespaces.Svg + "x"), out double gx) ? gx : 0;
+        double groupY = OdtUnits.TryParseLength((string?)group.Attribute(OdtNamespaces.Svg + "y"), out double gy) ? gy : 0;
+        double totalX = parentX + groupX;
+        double totalY = parentY + groupY;
+
+        string? anchorType = (string?)group.Attribute(OdtNamespaces.Text + "anchor-type") ?? inheritedAnchor;
+        int anchorPage = int.TryParse((string?)group.Attribute(OdtNamespaces.Text + "anchor-page-number"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int ap) ? ap : inheritedAnchorPage;
+
+        foreach (XElement child in group.Elements())
+        {
+            if (child.Name == OdtNamespaces.Draw + "g")
+            {
+                ReadDrawGroup(child, context, totalX, totalY, anchorType, anchorPage, depth + 1);
+            }
+            else if (child.Name == OdtNamespaces.Draw + "custom-shape" || child.Name == OdtNamespaces.Draw + "line" ||
+                     child.Name == OdtNamespaces.Draw + "ellipse" || child.Name == OdtNamespaces.Draw + "rect")
+            {
+                ReadShape(child, context, depth, totalX, totalY, anchorType, anchorPage);
+            }
+            else if (child.Name == OdtNamespaces.Draw + "frame")
+            {
+                if (!ReadShape(child, context, depth, totalX, totalY, anchorType, anchorPage))
+                    ReadFloatingPicture(child, context, totalX, totalY, anchorType, anchorPage);
+            }
+        }
+    }
+
     private static void ReadBlockContent(
         IEnumerable<XElement> elements,
         OdtReadContext context,
@@ -1998,6 +2055,12 @@ internal static class OdtReader
 
             // A drawing that carries paint or text of its own is a floating shape
             // beside the body, not body content.
+            if (name == OdtNamespaces.Draw + "g")
+            {
+                ReadDrawGroup(element, context, parentX: 0, parentY: 0, inheritedAnchor: null, inheritedAnchorPage: 0, depth: depth + 1);
+                continue;
+            }
+
             if (name == OdtNamespaces.Draw + "custom-shape" || name == OdtNamespaces.Draw + "line" ||
                 name == OdtNamespaces.Draw + "ellipse" || name == OdtNamespaces.Draw + "rect")
             {
@@ -2399,6 +2462,12 @@ internal static class OdtReader
             if (name == OdtNamespaces.Text + "line-break")
             {
                 builder.AppendLiteral(((char)0x2028).ToString(), style);
+                continue;
+            }
+
+            if (name == OdtNamespaces.Draw + "g")
+            {
+                ReadDrawGroup(element, context, parentX: 0, parentY: 0, inheritedAnchor: null, inheritedAnchorPage: 0, depth: 0);
                 continue;
             }
 
@@ -3058,7 +3127,13 @@ internal static class OdtReader
     /// has nothing to float at, and the caller then places the picture in the
     /// text - so nothing is loaded, or counted, twice over.
     /// </remarks>
-    private static bool ReadFloatingPicture(XElement frame, OdtReadContext context)
+    private static bool ReadFloatingPicture(
+        XElement frame,
+        OdtReadContext context,
+        double offsetX = 0,
+        double offsetY = 0,
+        string? inheritedAnchor = null,
+        int inheritedAnchorPage = 0)
     {
         if (!OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "width"), out double width) ||
             !OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "height"), out double height) ||
@@ -3083,13 +3158,13 @@ internal static class OdtReader
             outlineWidth = border.Width;
         }
 
-        double x = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "x"), out double left)
+        double x = offsetX + (OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "x"), out double left)
             ? left
-            : 0;
-        double y = OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "y"), out double top)
+            : 0);
+        double y = offsetY + (OdtUnits.TryParseLength((string?)frame.Attribute(OdtNamespaces.Svg + "y"), out double top)
             ? top
-            : 0;
-        (int anchorPage, x, y, bool fromPage) = PlaceOnPage(frame, styleName, x, y, width, height, context);
+            : 0);
+        (int anchorPage, x, y, bool fromPage) = PlaceOnPage(frame, styleName, x, y, width, height, context, inheritedAnchor, inheritedAnchorPage);
 
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,

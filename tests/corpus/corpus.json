@@ -442,6 +442,85 @@
         }
       ],
       "notes": "The mimetype part is stored rather than deflated and is written first, which is what the format requires and what a probe reads. The content exercises text:h, nested text:list, text:s, text:tab, text:line-break, a table, and two link targets - and the plain text on either side of a span, which is where this corpus has already caught the reader once."
+    },
+    {
+      "id": "csv-table",
+      "title": "A comma-separated values table with quoting and escapes",
+      "format": "csv",
+      "kind": "text",
+      "content": "\"Heading 1\",\"Heading 2\",\"Heading 3\"\n\"Alpha\",\"Beta, with comma\",\"Gamma\"\n\"Delta\",\"\"\"Quoted\"\" cell\",\"Epsilon\"\n",
+      "notes": "CSV with quotes, embedded commas, and doubled-quote escapes, exercising RFC 4180 parsing."
+    },
+    {
+      "id": "tsv-table",
+      "title": "A tab-separated values table",
+      "format": "tsv",
+      "kind": "text",
+      "content": "Col1\tCol2\tCol3\nVal1\tVal2\tVal3\nRow2A\tRow2B\tRow2C\n",
+      "notes": "Simple tab-delimited records exercising the TSV reader without ambiguous quoting."
+    },
+    {
+      "id": "xlsx-package",
+      "title": "An Open XML SpreadsheetML package assembled by hand",
+      "format": "xlsx",
+      "kind": "package",
+      "parts": [
+        {
+          "path": "[Content_Types].xml",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/sharedStrings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml\"/></Types>"
+        },
+        {
+          "path": "_rels/.rels",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>"
+        },
+        {
+          "path": "xl/_rels/workbook.xml.rels",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings\" Target=\"sharedStrings.xml\"/></Relationships>"
+        },
+        {
+          "path": "xl/workbook.xml",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Sheet1\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>"
+        },
+        {
+          "path": "xl/sharedStrings.xml",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" count=\"2\" uniqueCount=\"2\"><si><t>Shared Header</t></si><si><t>Shared Cell</t></si></sst>"
+        },
+        {
+          "path": "xl/worksheets/sheet1.xml",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData><row r=\"1\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\"><v>42</v></c></row><row r=\"2\"><c r=\"A2\" t=\"s\"><v>1</v></c><c r=\"B2\"><v>100</v></c></row></sheetData></worksheet>"
+        }
+      ],
+      "notes": "Minimal SpreadsheetML package exercising shared strings and numeric cells without optional styles or drawings."
+    },
+    {
+      "id": "ods-package",
+      "title": "An OpenDocument Spreadsheet package assembled by hand",
+      "format": "ods",
+      "kind": "package",
+      "parts": [
+        {
+          "path": "mimetype",
+          "stored": true,
+          "content": "application/vnd.oasis.opendocument.spreadsheet"
+        },
+        {
+          "path": "META-INF/manifest.xml",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.2\"><manifest:file-entry manifest:full-path=\"/\" manifest:media-type=\"application/vnd.oasis.opendocument.spreadsheet\"/><manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/></manifest:manifest>"
+        },
+        {
+          "path": "content.xml",
+          "stored": false,
+          "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><office:document-content xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\" xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\" office:version=\"1.2\"><office:body><office:spreadsheet><table:table table:name=\"Sheet1\"><table:table-column/><table:table-column/><table:table-row><table:table-cell office:value-type=\"string\"><text:p>Col A</text:p></table:table-cell><table:table-cell office:value-type=\"string\"><text:p>Col B</text:p></table:table-cell></table:table-row><table:table-row><table:table-cell office:value-type=\"float\" office:value=\"10\"><text:p>10</text:p></table:table-cell><table:table-cell office:value-type=\"string\"><text:p>Text B</text:p></table:table-cell></table:table-row></table:table></office:spreadsheet></office:body></office:document-content>"
+        }
+      ],
+      "notes": "Minimal OpenDocument Spreadsheet package with stored mimetype entry and tabular content."
     }
   ],
   "malformed": [

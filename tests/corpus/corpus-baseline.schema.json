@@ -115,6 +115,6 @@
         }
       ]
     },
-    "format": { "enum": ["docx", "odt", "rtf", "html", "markdown"] }
+    "format": { "enum": ["docx", "odt", "rtf", "html", "markdown", "csv", "tsv", "xlsx", "ods"] }
   }
 }

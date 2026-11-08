@@ -408,7 +408,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         bool ColumnHasContent() =>
             currentLines.Count > columnStart || (column == 0 && (regionTop > pageTop || floatBoxes.Count > 0 ||
-                _documentShapes.Any(shape => (shape.Wraps || shape.IsAsCharacter) && (shape.AnchorPage == pages.Count + 1 ||
+                _documentShapes.Any(shape => shape.Wraps && (shape.AnchorPage == pages.Count + 1 ||
                     (!shape.IsPageAnchored && _paragraphTops.ContainsKey(shape.ParagraphIndex))))));
 
         // One count for the body, which the cells of its tables share: a list
@@ -1532,9 +1532,10 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                 // page. A shape that keeps text above and below it moves even an
                 // empty line on (tdf138039.odt). An as-character frame already
                 // occupies that line, so its empty anchor stays with the frame.
-                bool heldByOwnShapes = first && paragraph.Length == 0 && line.LeadingSkip > 0 &&
-                    (_documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex && shape.IsAsCharacter) ||
-                     (currentLines.Count == columnStart &&
+                bool heldByOwnShapes = first && paragraph.Length == 0 &&
+                    ((currentLines.Count == columnStart && _documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex && shape.IsAsCharacter)) ||
+                     (line.LeadingSkip > 0 &&
+                      currentLines.Count == columnStart &&
                       _documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex && shape.Wrap == ShapeWrap.Square) &&
                       !_documentShapes.Any(shape => shape.ParagraphIndex == paragraphIndex && shape.Wrap == ShapeWrap.TopAndBottom)));
 
@@ -3067,7 +3068,7 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
             width = Math.Max(width, shape.Tables.Select(table => table.TotalWidth).DefaultIfEmpty(0).Max());
             _grownWidths[shape] = Math.Max(Math.Max(0, shape.Width), Math.Min(20000, width + shape.TextPadding.Left + shape.TextPadding.Right));
         }
-        if (!shape.GrowsToText || ShapeParagraphs(shape).Count == 0 || shape.Width <= 0 || _grownHeights.ContainsKey(shape))
+        if (!shape.GrowsToText || ShapeParagraphs(shape).Count == 0 || BoxWidth(shape) <= 0 || _grownHeights.ContainsKey(shape))
             return;
 
         double height = ComposeShapeBlocks(shape, setup, 0).Height + shape.TextPadding.Top + shape.TextPadding.Bottom;

@@ -22,6 +22,10 @@ internal sealed record CorpusFormat(string Key, string ToolName, string Extensio
         new("rtf", "RTF", ".rtf"),
         new("html", "HTML", ".html"),
         new("markdown", "Markdown", ".md"),
+        new("csv", "CSV", ".csv"),
+        new("tsv", "TSV", ".tsv"),
+        new("xlsx", "XLSX", ".xlsx"),
+        new("ods", "ODS", ".ods"),
     ];
 
     public static CorpusFormat ByKey(string key) =>

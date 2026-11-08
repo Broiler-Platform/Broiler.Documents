@@ -1011,8 +1011,8 @@ internal static class Program
             output.WriteLine("  --tool <path>            The built broilerdoc. Located from this build when absent.");
             output.WriteLine("  --soffice <path>         The LibreOffice binary. Probed when absent.");
             output.WriteLine("  --pdftoppm <path>        The poppler rasteriser. Probed when absent.");
-            output.WriteLine("  --extras-url <url>       GitHub tree URL for LibreOffice sw/qa/extras samples.");
-            output.WriteLine("  --extras-dir <dir>       Local directory of sw/qa/extras samples.");
+            output.WriteLine("  --extras-url <url>       GitHub tree URL for LibreOffice QA extras (e.g. sw/qa/extras or sc/qa/extras).");
+            output.WriteLine("  --extras-dir <dir>       Local directory of extras samples.");
             output.WriteLine("  --prepare-references <dir> Generate a complete immutable text/PDF reference set.");
             output.WriteLine("  --references-dir <dir>   Validate and reuse prepared LibreOffice references (no conversions).");
             output.WriteLine("  --reference-producer <name> Generator identity recorded in the manifest (default local).");

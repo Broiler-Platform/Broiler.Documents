@@ -430,4 +430,33 @@ public sealed class DocxShapeTests
 
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.fill.extended");
     }
+    [Fact]
+    public void AlternateContent_Wrapped_Position_And_Extent_Are_Read()
+    {
+        string xml =
+            "<w:r><w:drawing>" +
+            "<wp:anchor xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" " +
+            "xmlns:mc=\"http://schemas.openxmlformats.org/markup-compatibility/2006\">" +
+            "<mc:AlternateContent>" +
+            "<mc:Choice Requires=\"wps\">" +
+            "<wp:positionH relativeFrom=\"column\"><wp:posOffset>914400</wp:posOffset></wp:positionH>" +
+            "<wp:positionV relativeFrom=\"paragraph\"><wp:posOffset>1828800</wp:posOffset></wp:positionV>" +
+            "</mc:Choice>" +
+            "</mc:AlternateContent>" +
+            "<wp:extent cx=\"1270000\" cy=\"2540000\"/>" +
+            "<a:graphic xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\">" +
+            "<a:graphicData uri=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\">" +
+            "<wps:wsp xmlns:wps=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\">" +
+            "<wps:spPr><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>" +
+            "<a:solidFill><a:srgbClr val=\"FFFFFF\"/></a:solidFill>" +
+            "</wps:spPr>" +
+            "</wps:wsp>" +
+            "</a:graphicData></a:graphic></wp:anchor>" +
+            "</w:drawing></w:r>";
+
+        RichTextDocument document = Read(xml);
+        DocumentShape shape = Assert.Single(document.Shapes);
+        Assert.Equal(72, shape.OffsetX, 1);
+        Assert.Equal(144, shape.OffsetY, 1);
+    }
 }

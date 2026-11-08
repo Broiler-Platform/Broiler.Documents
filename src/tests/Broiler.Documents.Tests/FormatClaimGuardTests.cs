@@ -161,7 +161,7 @@ public sealed partial class FormatClaimGuardTests
         // third-party document of all to drop into a test directory, and its
         // licence is the one nobody reads.
         string root = PdfGuardRoots.Component;
-        string[] extensions = [".rtf", ".docx", ".dotx", ".html", ".htm", ".odt", ".ott", ".fodt", ".csv", ".xlsx", ".xlsm", ".xltx", ".ods", ".ots", ".fods"];
+        string[] extensions = [".rtf", ".docx", ".dotx", ".html", ".htm", ".odt", ".ott", ".fodt", ".csv", ".tsv", ".xlsx", ".xlsm", ".xltx", ".ods", ".ots", ".fods"];
 
         string[] documents = [.. Directory
             .EnumerateFiles(root, "*", SearchOption.AllDirectories)

@@ -86,7 +86,7 @@ jobs:
           git init "$CORPUS_ROOT"
           git -C "$CORPUS_ROOT" remote add origin https://github.com/LibreOffice/core.git
           git -C "$CORPUS_ROOT" sparse-checkout init --cone
-          git -C "$CORPUS_ROOT" sparse-checkout set sw/qa/extras
+          git -C "$CORPUS_ROOT" sparse-checkout set sw/qa/extras sc/qa/extras
           git -C "$CORPUS_ROOT" -c protocol.version=2 fetch --depth=1 --filter=blob:none origin "$CORPUS_REVISION"
           git -C "$CORPUS_ROOT" checkout --detach FETCH_HEAD
           test "$(git -C "$CORPUS_ROOT" rev-parse HEAD)" = "$CORPUS_REVISION"

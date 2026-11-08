@@ -117,6 +117,14 @@ internal static class ExtrasConformance
             [".md"] = "md",
             [".markdown"] = "md",
             [".csv"] = "csv",
+            [".tsv"] = "tsv",
+            [".tab"] = "tsv",
+            [".xlsx"] = "xlsx",
+            [".xlsm"] = "xlsx",
+            [".xltx"] = "xlsx",
+            [".ods"] = "ods",
+            [".ots"] = "ods",
+            [".fods"] = "ods",
             [".pdf"] = "pdf",
         };
 

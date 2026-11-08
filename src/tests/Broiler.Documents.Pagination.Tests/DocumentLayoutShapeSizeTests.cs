@@ -92,4 +92,42 @@ public sealed class DocumentLayoutShapeSizeTests
     {
         Assert.Empty(Layout(WithShape(new DocumentShape(0, 10, 20, 0, 120))).Pages[0].Shapes);
     }
+    [Fact]
+    public void An_As_Character_Tall_Shape_Does_Not_Create_Spurious_Extra_Pages()
+    {
+        var doc = RichTextDocument.FromParagraphs(
+            [
+                RichTextParagraph.Plain("First paragraph on page one"),
+                RichTextParagraph.Plain("")
+            ])
+            .WithShapes(
+            [
+                new DocumentShape(
+                    1,
+                    0,
+                    0,
+                    200,
+                    640) { IsAsCharacter = true }
+            ]);
+
+        using var images = new ImageStore();
+        var pageBox = new DocumentPageBox(612, 792, 72, 72, 72, 72);
+        LayoutResult result = new DocumentLayout(new LayoutSettings(), images).Layout(doc, pageBox);
+
+        Assert.Equal(2, result.Pages.Count);
+    }
+
+    [Fact]
+    public void A_Box_With_Zero_Stated_Width_That_Grows_Width_To_Text_Computes_Height()
+    {
+        var shape = new DocumentShape(
+            0, 0, 0, width: 0, height: 0,
+            paragraphs: [RichTextParagraph.Plain("Sample text")],
+            growsToText: true,
+            growsWidthToText: true);
+
+        LayoutShape layoutShape = Assert.Single(Layout(WithShape(shape)).Pages[0].Shapes);
+        Assert.True(layoutShape.Bounds.Width > 0);
+        Assert.True(layoutShape.Bounds.Height > 0);
+    }
 }

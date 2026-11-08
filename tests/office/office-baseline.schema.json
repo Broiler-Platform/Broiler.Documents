@@ -242,7 +242,7 @@
       "description": "When they classified it. The regenerator never fills this in, even though it knows the date: a date here is a person's claim about when they looked, and a program stamping it would turn the whole quartet into decoration."
     },
     "format": {
-      "enum": ["docx", "odt", "rtf", "html", "md"],
+      "enum": ["docx", "odt", "rtf", "html", "md", "csv", "tsv", "xlsx", "ods"],
       "description": "The formats both implementations claim to read. PDF is absent because LibreOffice does not read one back, so there is no comparison to make."
     }
   }

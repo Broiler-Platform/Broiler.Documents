@@ -292,4 +292,17 @@ public sealed class OdtImageTests
         Assert.DoesNotContain(archive.Entries, e => e.FullName.StartsWith("Pictures/", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Reads_A_Picture_Held_Inline_As_Unpadded_Base64()
+    {
+        string unpaddedBase64 = Convert.ToBase64String(OdtTestPackage.OnePixelPng).TrimEnd('=');
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:p><draw:frame text:anchor-type=\"as-char\" svg:width=\"1in\" svg:height=\"1in\">" +
+            "<draw:image><office:binary-data>" + unpaddedBase64 + "</office:binary-data></draw:image>" +
+            "</draw:frame></text:p>");
+
+        InlineImage image = Assert.IsType<InlineImage>(result.Document.Paragraphs[0].StyleAt(0).Image);
+        Assert.Equal("image/png", image.ContentType);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.image.binary");
+    }
 }

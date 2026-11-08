@@ -168,7 +168,7 @@ internal sealed partial class OfficeManifest
     /// time, never an exception at load time and never a silent pass.
     /// </remarks>
     public static readonly IReadOnlyList<string> KnownFormats =
-        ["docx", "odt", "rtf", "html", "md"];
+        ["docx", "odt", "rtf", "html", "md", "csv", "tsv", "xlsx", "ods"];
 
     /// <summary>
     /// Every family reference the manifest is allowed to write, in the one
@@ -200,6 +200,9 @@ internal sealed partial class OfficeManifest
                 MyRegex(),
                 new Regex("font-family:", RegexOptions.CultureInvariant)),
             ["fodt"] = (
+                new Regex("(?:style:font-name|svg:font-family)=\"([^\"]*)\"", RegexOptions.CultureInvariant),
+                new Regex("(?:style:font-name|svg:font-family|fo:font-family)=", RegexOptions.CultureInvariant)),
+            ["fods"] = (
                 new Regex("(?:style:font-name|svg:font-family)=\"([^\"]*)\"", RegexOptions.CultureInvariant),
                 new Regex("(?:style:font-name|svg:font-family|fo:font-family)=", RegexOptions.CultureInvariant)),
         };

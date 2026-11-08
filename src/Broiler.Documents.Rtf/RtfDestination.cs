@@ -74,4 +74,16 @@ internal enum RtfDestination
 
     /// <summary>A <c>\footnote</c> group cited from the body: the note's own text.</summary>
     Note,
+
+    /// <summary>The <c>\info</c> document information destination.</summary>
+    Info,
+
+    /// <summary>The <c>\title</c> destination inside <c>\info</c>.</summary>
+    InfoTitle,
+
+    /// <summary>The <c>\author</c> destination inside <c>\info</c>.</summary>
+    InfoAuthor,
+
+    /// <summary>The <c>\subject</c> destination inside <c>\info</c>.</summary>
+    InfoSubject,
 }

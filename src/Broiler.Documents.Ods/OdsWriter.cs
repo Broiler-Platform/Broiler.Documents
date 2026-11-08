@@ -13,12 +13,16 @@ namespace Broiler.Documents.Ods;
 
 internal static class OdsWriter
 {
+    private static readonly DateTimeOffset ZipTimestamp = new(new DateTime(1980, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
     public static DocumentWriteResult Write(DocumentWriteRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         long startPos = request.Destination.CanSeek ? request.Destination.Position : 0;
         SpreadsheetWorkbook workbook = SpreadsheetWorkbook.FromRichTextDocument(request.Document);
+        var diagnostics = new List<DocumentDiagnostic>();
+        var diagnosticOnce = new HashSet<string>(StringComparer.Ordinal);
 
         using (var archive = new ZipArchive(request.Destination, ZipArchiveMode.Create, leaveOpen: true))
         {
@@ -32,16 +36,17 @@ internal static class OdsWriter
             WriteStylesXml(archive);
 
             // 4. content.xml
-            WriteContentXml(archive, workbook);
+            WriteContentXml(archive, workbook, diagnostics, diagnosticOnce);
         }
 
         long bytesWritten = request.Destination.CanSeek ? Math.Max(0, request.Destination.Position - startPos) : 0;
-        return new DocumentWriteResult(bytesWritten, null, DocumentResultStatus.Success);
+        return new DocumentWriteResult(bytesWritten, diagnostics, DocumentWriteResult.StatusFrom(diagnostics));
     }
 
     private static void WriteMimeType(ZipArchive archive)
     {
         ZipArchiveEntry entry = archive.CreateEntry("mimetype", CompressionLevel.NoCompression);
+        entry.LastWriteTime = ZipTimestamp;
         using Stream stream = entry.Open();
         byte[] bytes = Encoding.ASCII.GetBytes(OdsNamespaces.PackageMediaType);
         stream.Write(bytes, 0, bytes.Length);
@@ -75,14 +80,18 @@ internal static class OdsWriter
         WriteXmlEntry(archive, "styles.xml", new XDocument(root));
     }
 
-    private static void WriteContentXml(ZipArchive archive, SpreadsheetWorkbook workbook)
+    private static void WriteContentXml(
+        ZipArchive archive,
+        SpreadsheetWorkbook workbook,
+        List<DocumentDiagnostic> diagnostics,
+        HashSet<string> diagnosticOnce)
     {
         var spreadsheetElem = new XElement(OdsNamespaces.Office + "spreadsheet");
 
         foreach (SpreadsheetWorksheet sheet in workbook.Sheets)
         {
             var tableElem = new XElement(OdsNamespaces.Table + "table",
-                new XAttribute(OdsNamespaces.Table + "name", sheet.Name));
+                new XAttribute(OdsNamespaces.Table + "name", XmlText(sheet.Name, diagnostics, diagnosticOnce)));
 
             int maxCol = Math.Max(1, sheet.ColumnCount);
             tableElem.Add(new XElement(OdsNamespaces.Table + "table-column",
@@ -124,7 +133,7 @@ internal static class OdsWriter
 
                     if (!string.IsNullOrEmpty(cell.Formula))
                     {
-                        string f = cell.Formula.TrimStart('=');
+                        string f = XmlText(cell.Formula.TrimStart('='), diagnostics, diagnosticOnce);
                         cellElem.Add(new XAttribute(OdsNamespaces.Table + "formula", $"of:={f}"));
                     }
 
@@ -143,7 +152,7 @@ internal static class OdsWriter
                         cellElem.Add(new XAttribute(OdsNamespaces.Office + "value-type", "string"));
                     }
 
-                    string text = !string.IsNullOrEmpty(cell.CachedText) ? cell.CachedText : (cell.Value.Text ?? string.Empty);
+                    string text = XmlText(!string.IsNullOrEmpty(cell.CachedText) ? cell.CachedText : (cell.Value.Text ?? string.Empty), diagnostics, diagnosticOnce);
                     cellElem.Add(new XElement(OdsNamespaces.Text + "p", text));
 
                     rowElem.Add(cellElem);
@@ -169,6 +178,7 @@ internal static class OdsWriter
     private static void WriteXmlEntry(ZipArchive archive, string entryName, XDocument document)
     {
         ZipArchiveEntry entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+        entry.LastWriteTime = ZipTimestamp;
         using Stream stream = entry.Open();
         using var writer = XmlWriter.Create(stream, new XmlWriterSettings
         {
@@ -177,5 +187,55 @@ internal static class OdsWriter
             Indent = false
         });
         document.WriteTo(writer);
+    }
+
+    private static void AddDiagnosticOnce(List<DocumentDiagnostic> diagnostics, HashSet<string> seen, string code, string message)
+    {
+        if (seen.Add(code))
+            diagnostics.Add(DocumentDiagnostic.Warning(code, message));
+    }
+
+    private static string XmlText(string value, List<DocumentDiagnostic> diagnostics, HashSet<string> seen)
+    {
+        int first = -1;
+        for (int i = 0; i < value.Length; i++)
+        {
+            if (!XmlConvert.IsXmlChar(value[i]))
+            {
+                first = i;
+                break;
+            }
+        }
+
+        if (first < 0)
+            return value;
+
+        var clean = new StringBuilder(value.Length);
+        clean.Append(value, 0, first);
+
+        for (int i = first; i < value.Length; i++)
+        {
+            char character = value[i];
+
+            if (char.IsHighSurrogate(character) &&
+                i + 1 < value.Length &&
+                char.IsLowSurrogate(value[i + 1]))
+            {
+                clean.Append(character).Append(value[i + 1]);
+                i++;
+                continue;
+            }
+
+            if (XmlConvert.IsXmlChar(character))
+            {
+                clean.Append(character);
+            }
+            else
+            {
+                AddDiagnosticOnce(diagnostics, seen, OdsDiagnosticCodes.ControlCharacterDropped, "A control character that XML cannot represent was dropped.");
+            }
+        }
+
+        return clean.ToString();
     }
 }

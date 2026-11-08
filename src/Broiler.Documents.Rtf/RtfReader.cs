@@ -216,6 +216,9 @@ public static class RtfReader
 
         // Table/field parsing scratch.
         private readonly StringBuilder _fontName = new();
+        private readonly StringBuilder _infoTitle = new();
+        private readonly StringBuilder _infoAuthor = new();
+        private readonly StringBuilder _infoSubject = new();
         private int _fontIndex;
         private int _fontCharset;
         private int _r, _g, _b;
@@ -378,15 +381,25 @@ public static class RtfReader
             }
             else if (closing.Dest == RtfDestination.FontTable && _fontName.Length > 0)
                 CommitFont();
-            else if (closing.Dest == RtfDestination.Field && closing.Field is { Characters: 0, RubyBase: string ruby } &&
+            else if (closing.Dest == RtfDestination.Field && closing.Field is { Characters: 0 } field &&
                 (_stack.Count == 0 || _stack.Peek().Field != closing.Field))
             {
-                _state.Dest = closing.FieldHost;
-                AppendBody(ruby);
-                FlushPending();
-                _state.Dest = closing.Dest;
-                if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.field.ruby"))
-                    _diagnostics.Add(DocumentDiagnostic.Warning("rtf.field.ruby", "An empty-result ruby equation field was read as its base text; phonetic annotation layout is not represented."));
+                if (field.RubyBase is string ruby)
+                {
+                    _state.Dest = closing.FieldHost;
+                    AppendBody(ruby);
+                    FlushPending();
+                    _state.Dest = closing.Dest;
+                    if (!_diagnostics.Any(diagnostic => diagnostic.Code == "rtf.field.ruby"))
+                        _diagnostics.Add(DocumentDiagnostic.Warning("rtf.field.ruby", "An empty-result ruby equation field was read as its base text; phonetic annotation layout is not represented."));
+                }
+                else if (ResolveFieldFallback(field.Instruction.ToString()) is string fallback && fallback.Length > 0)
+                {
+                    _state.Dest = closing.FieldHost;
+                    AppendBody(fallback);
+                    FlushPending();
+                    _state.Dest = closing.Dest;
+                }
             }
 
             FlushPending();
@@ -609,6 +622,28 @@ public static class RtfReader
                 return;
             }
 
+            if (_state.Dest == RtfDestination.Info)
+            {
+                switch (kw)
+                {
+                    case "title":
+                        _state.Dest = RtfDestination.InfoTitle;
+                        _infoTitle.Clear();
+                        return;
+                    case "author":
+                        _state.Dest = RtfDestination.InfoAuthor;
+                        _infoAuthor.Clear();
+                        return;
+                    case "subject":
+                        _state.Dest = RtfDestination.InfoSubject;
+                        _infoSubject.Clear();
+                        return;
+                    default:
+                        _state.Dest = RtfDestination.Skip;
+                        return;
+                }
+            }
+
             // Destination-setting keywords take effect in every destination the
             // reader walks rather than skips.
             switch (kw)
@@ -722,6 +757,8 @@ public static class RtfReader
                     _stylesheetDepth = _stack.Count;
                     return;
                 case "info":
+                    _state.Dest = RtfDestination.Info;
+                    return;
                 case "annotation":
                 case "colorschememapping":
                 case "latentstyles":
@@ -746,6 +783,10 @@ public static class RtfReader
             switch (_state.Dest)
             {
                 case RtfDestination.Skip:
+                case RtfDestination.Info:
+                case RtfDestination.InfoTitle:
+                case RtfDestination.InfoAuthor:
+                case RtfDestination.InfoSubject:
                 case RtfDestination.Field:
                 case RtfDestination.Generator:
                 case RtfDestination.RevisionTable:
@@ -1237,6 +1278,18 @@ public static class RtfReader
                 return;
             }
 
+            if (_state.Dest is RtfDestination.InfoTitle or RtfDestination.InfoAuthor or RtfDestination.InfoSubject)
+            {
+                switch (symbol)
+                {
+                    case '\\': HandleText("\\"); break;
+                    case '{': HandleText("{"); break;
+                    case '}': HandleText("}"); break;
+                }
+
+                return;
+            }
+
             if (!KeepsText(_state.Dest))
                 return;
 
@@ -1287,6 +1340,22 @@ public static class RtfReader
             if (_state.Dest == RtfDestination.FieldInstruction)
             {
                 _state.Field?.Instruction.Append(ch);
+                return;
+            }
+
+            if (_state.Dest == RtfDestination.InfoTitle)
+            {
+                _infoTitle.Append(ch);
+                return;
+            }
+            if (_state.Dest == RtfDestination.InfoAuthor)
+            {
+                _infoAuthor.Append(ch);
+                return;
+            }
+            if (_state.Dest == RtfDestination.InfoSubject)
+            {
+                _infoSubject.Append(ch);
                 return;
             }
 
@@ -1382,6 +1451,9 @@ public static class RtfReader
                     foreach (char character in text.AsSpan(skipped))
                         _state.Field?.Instruction.Append(character <= 255 ? RtfCodePage.DecodeByte((byte)character, _state.CodePage) : character);
                     break;
+                case RtfDestination.InfoTitle: _infoTitle.Append(text); break;
+                case RtfDestination.InfoAuthor: _infoAuthor.Append(text); break;
+                case RtfDestination.InfoSubject: _infoSubject.Append(text); break;
                 case RtfDestination.Generator: _generator.Append(text); break;
                 case RtfDestination.RevisionTable: HandleRevisionTableText(text); break;
                 case RtfDestination.Normal:
@@ -1487,6 +1559,17 @@ public static class RtfReader
             {
                 int value = parameter < 0 ? parameter + 65536 : parameter;
                 _state.Field?.Instruction.Append((char)(value is >= 0 and <= 0xFFFF ? value : 0xFFFD));
+                _pendingUnicodeSkip = _state.UnicodeSkip;
+                return;
+            }
+
+            if (_state.Dest is RtfDestination.InfoTitle or RtfDestination.InfoAuthor or RtfDestination.InfoSubject)
+            {
+                int value = parameter < 0 ? parameter + 65536 : parameter;
+                char ch = (char)(value is >= 0 and <= 0xFFFF ? value : 0xFFFD);
+                if (_state.Dest == RtfDestination.InfoTitle) _infoTitle.Append(ch);
+                else if (_state.Dest == RtfDestination.InfoAuthor) _infoAuthor.Append(ch);
+                else _infoSubject.Append(ch);
                 _pendingUnicodeSkip = _state.UnicodeSkip;
                 return;
             }
@@ -2467,6 +2550,20 @@ public static class RtfReader
             }
 
             _pending.Append(text);
+        }
+
+        private string? ResolveFieldFallback(string instruction)
+        {
+            string code = instruction.Trim();
+            int space = code.IndexOf(' ');
+            string keyword = (space > 0 ? code[..space] : code).Trim();
+            if (keyword.Equals("TITLE", StringComparison.OrdinalIgnoreCase))
+                return _infoTitle.ToString().Trim();
+            if (keyword.Equals("AUTHOR", StringComparison.OrdinalIgnoreCase))
+                return _infoAuthor.ToString().Trim();
+            if (keyword.Equals("SUBJECT", StringComparison.OrdinalIgnoreCase))
+                return _infoSubject.ToString().Trim();
+            return null;
         }
 
         private static string? ExtractRubyBase(string instruction)

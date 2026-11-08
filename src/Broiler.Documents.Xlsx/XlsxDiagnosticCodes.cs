@@ -25,4 +25,7 @@ public static class XlsxDiagnosticCodes
 
     /// <summary>A package relationships part is invalid or empty.</summary>
     public const string RelationshipsInvalid = "xlsx.rels";
+
+    /// <summary>A control character that XML cannot represent was dropped.</summary>
+    public const string ControlCharacterDropped = "xlsx.text.control";
 }

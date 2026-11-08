@@ -1507,11 +1507,14 @@ internal static class DocxReader
 
         XElement? anchor =
             drawing.Element(DocxNamespaces.WordDrawing + "anchor") ??
-            drawing.Element(DocxNamespaces.WordDrawing + "inline");
+            drawing.Element(DocxNamespaces.WordDrawing + "inline") ??
+            drawing.Descendants(DocxNamespaces.WordDrawing + "anchor").FirstOrDefault() ??
+            drawing.Descendants(DocxNamespaces.WordDrawing + "inline").FirstOrDefault();
         if (anchor is null)
             return false;
 
-        XElement? extent = anchor.Element(DocxNamespaces.WordDrawing + "extent");
+        XElement? extent = anchor.Element(DocxNamespaces.WordDrawing + "extent") ??
+            anchor.Descendants(DocxNamespaces.WordDrawing + "extent").FirstOrDefault();
         double width = EmuToPoints((string?)extent?.Attribute("cx"));
         double height = EmuToPoints((string?)extent?.Attribute("cy"));
         if (width < 0 || height < 0 || (width == 0 && height == 0))
@@ -2083,9 +2086,30 @@ internal static class DocxReader
             ? (int)Math.Min(height, int.MaxValue)
             : 0;
 
+    private static XElement? PositionElement(XElement anchor, string axis)
+    {
+        XName name = DocxNamespaces.WordDrawing + axis;
+        XElement? direct = anchor.Element(name);
+        if (direct is not null)
+            return direct;
+
+        foreach (XElement alt in anchor.Elements(DocxNamespaces.MarkupCompatibility + "AlternateContent"))
+        {
+            foreach (XElement choice in alt.Elements(DocxNamespaces.MarkupCompatibility + "Choice"))
+            {
+                if (choice.Element(name) is { } chosen)
+                    return chosen;
+            }
+
+            if (alt.Element(DocxNamespaces.MarkupCompatibility + "Fallback")?.Element(name) is { } fallback)
+                return fallback;
+        }
+
+        return anchor.Descendants(name).FirstOrDefault();
+    }
+
     private static string? PositionOffset(XElement anchor, string axis) =>
-        (string?)anchor.Element(DocxNamespaces.WordDrawing + axis)
-            ?.Element(DocxNamespaces.WordDrawing + "posOffset");
+        (string?)PositionElement(anchor, axis)?.Element(DocxNamespaces.WordDrawing + "posOffset");
 
     /// <summary>
     /// The wrap an anchor states, as the three modes layout distinguishes.
@@ -2099,7 +2123,27 @@ internal static class DocxReader
     /// </remarks>
     private static (ShapeWrap Wrap, WrapSide Side, double Distance) ReadWrap(XElement anchor)
     {
-        foreach (XElement child in anchor.Elements())
+        IEnumerable<XElement> ChildElements(XElement parent)
+        {
+            foreach (XElement child in parent.Elements())
+            {
+                if (child.Name == DocxNamespaces.MarkupCompatibility + "AlternateContent")
+                {
+                    foreach (XElement branch in child.Elements(DocxNamespaces.MarkupCompatibility + "Choice")
+                        .Concat(child.Elements(DocxNamespaces.MarkupCompatibility + "Fallback")))
+                    {
+                        foreach (XElement grandChild in branch.Elements())
+                            yield return grandChild;
+                    }
+                }
+                else
+                {
+                    yield return child;
+                }
+            }
+        }
+
+        foreach (XElement child in ChildElements(anchor))
         {
             if (child.Name.Namespace != DocxNamespaces.WordDrawing)
                 continue;
@@ -2139,7 +2183,7 @@ internal static class DocxReader
 
     /// <summary>The frame an axis states its offset against, or null for none.</summary>
     private static string? RelativeFrom(XElement anchor, string axis) =>
-        (string?)anchor.Element(DocxNamespaces.WordDrawing + axis)?.Attribute("relativeFrom");
+        (string?)PositionElement(anchor, axis)?.Attribute("relativeFrom");
 
     /// <summary>
     /// The horizontal offset in points from the text column's left edge, which is

@@ -93,3 +93,4 @@ The writer produces an OPC XLSX package:
 | `xlsx.styles` | Styles XML part contains malformed XML. |
 | `xlsx.sheet` | A worksheet XML part is malformed or invalid. |
 | `xlsx.rels` | A relationships XML part is malformed or invalid. |
+| `xlsx.text.control` | A control character that XML cannot represent was dropped. |

@@ -184,9 +184,12 @@ internal sealed class OfficeWorkspace
     public LibreOfficeRun ExtractText(OfficeDocument document)
     {
         string target = Path.Combine(Directory, "text", document.Seed.Id, document.Via);
+        string filter = IsSpreadsheetExtension(Path.GetExtension(document.Path))
+            ? LibreOfficeFilters.CalcText
+            : LibreOfficeFilters.Text;
         return _libreOffice.Convert(
             document.Path,
-            LibreOfficeFilters.Text,
+            filter,
             target,
             NextProfile(),
             _timeout,
@@ -197,9 +200,12 @@ internal sealed class OfficeWorkspace
     public LibreOfficeRun ExportPdf(OfficeDocument document)
     {
         string target = Path.Combine(Directory, "pdf", document.Seed.Id, document.Via);
+        string filter = IsSpreadsheetExtension(Path.GetExtension(document.Path))
+            ? LibreOfficeFilters.CalcPdf
+            : LibreOfficeFilters.Pdf;
         return _libreOffice.Convert(
             document.Path,
-            LibreOfficeFilters.Pdf,
+            filter,
             target,
             NextProfile(),
             _timeout,
@@ -218,14 +224,24 @@ internal sealed class OfficeWorkspace
     public LibreOfficeRun ExtractTextOfOurs(OfficeDocument document, string ourPath)
     {
         string target = Path.Combine(Directory, "interop-text", document.Seed.Id, document.Via);
+        string filter = IsSpreadsheetExtension(Path.GetExtension(ourPath))
+            ? LibreOfficeFilters.CalcText
+            : LibreOfficeFilters.Text;
         return _libreOffice.Convert(
             ourPath,
-            LibreOfficeFilters.Text,
+            filter,
             target,
             NextProfile(),
             _timeout,
             LibreOfficeTool.InputFilterFor(Path.GetExtension(ourPath)));
     }
+
+    public static bool IsSpreadsheetExtension(string extension) =>
+        extension.ToLowerInvariant() switch
+        {
+            ".xlsx" or ".xlsm" or ".xltx" or ".ods" or ".ots" or ".fods" or ".csv" or ".tsv" => true,
+            _ => false,
+        };
 
     /// <summary>A directory inside the workspace for one purpose, created on demand.</summary>
     public string Area(string name, params string[] parts)
@@ -335,7 +351,7 @@ internal sealed class OfficeWorkspace
     /// </remarks>
     private static long MinimumSize(string via) => via switch
     {
-        "docx" or "odt" => 1024,
+        "docx" or "odt" or "xlsx" or "ods" => 1024,
         _ => 64,
     };
 
@@ -365,6 +381,8 @@ internal static class LibreOfficeFilters
 {
     public const string Text = "txt:Text (encoded):UTF8";
     public const string Pdf = "pdf:writer_pdf_Export";
+    public const string CalcPdf = "pdf:calc_pdf_Export";
+    public const string CalcText = "csv:Text - txt - csv (StarCalc)";
 
     public static string For(string via) => via switch
     {
@@ -373,6 +391,10 @@ internal static class LibreOfficeFilters
         "rtf" => "rtf:Rich Text Format",
         "html" => "html:HTML (StarWriter)",
         "md" => "md:Markdown",
+        "xlsx" => "xlsx:Calc MS Excel 2007 XML",
+        "ods" => "ods:calc8",
+        "csv" => "csv:Text - txt - csv (StarCalc)",
+        "tsv" => "tsv:Text - txt - csv (StarCalc)",
         _ => throw new ArgumentException("No LibreOffice filter is recorded for '" + via + "'.", nameof(via)),
     };
 
@@ -392,6 +414,10 @@ internal static class LibreOfficeFilters
         "rtf" => "RTF",
         "html" => "HTML",
         "md" => "Markdown",
+        "xlsx" => "XLSX",
+        "ods" => "ODS",
+        "csv" => "CSV",
+        "tsv" => "TSV",
         _ => via.ToUpperInvariant(),
     };
 }

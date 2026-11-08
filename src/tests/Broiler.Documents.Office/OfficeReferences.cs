@@ -246,15 +246,29 @@ internal sealed class OfficeReferences
 
     // Shared by live evaluation and generation so their filters/fallbacks cannot drift.
     public static LibreOfficeRun Text(LibreOfficeTool tool, ExtrasSample sample, string workspace,
-        Func<string> nextProfile, TimeSpan timeout) => tool.Convert(sample.LocalPath, LibreOfficeFilters.Text,
-        Path.Combine(workspace, "lo-text"), nextProfile(), timeout, LibreOfficeTool.InputFilterFor(sample.Extension));
+        Func<string> nextProfile, TimeSpan timeout)
+    {
+        bool isSpreadsheet = OfficeWorkspace.IsSpreadsheetExtension(sample.Extension);
+        string filter = isSpreadsheet ? LibreOfficeFilters.CalcText : LibreOfficeFilters.Text;
+        string output = Path.Combine(workspace, "lo-text");
+        LibreOfficeRun run = tool.Convert(sample.LocalPath, filter,
+            output, nextProfile(), timeout, LibreOfficeTool.InputFilterFor(sample.Extension));
+        if (isSpreadsheet && (!File.Exists(run.OutputPath) || run.ExitCode != 0))
+        {
+            run = tool.Convert(sample.LocalPath, "csv", output, nextProfile(), timeout, LibreOfficeTool.InputFilterFor(sample.Extension));
+        }
+        return run;
+    }
+
+
+
 
     public static LibreOfficeRun Pdf(LibreOfficeTool tool, ExtrasSample sample, string workspace,
         Func<string> nextProfile, TimeSpan timeout)
     {
         string output = Path.Combine(workspace, "lo-pdf");
         LibreOfficeRun run = tool.Convert(sample.LocalPath,
-            sample.Extension == ".pdf" ? "pdf" : LibreOfficeFilters.Pdf, output, nextProfile(), timeout,
+            sample.Extension == ".pdf" ? "pdf" : (OfficeWorkspace.IsSpreadsheetExtension(sample.Extension) ? LibreOfficeFilters.CalcPdf : LibreOfficeFilters.Pdf), output, nextProfile(), timeout,
             LibreOfficeTool.InputFilterFor(sample.Extension));
         bool available = !run.TimedOut && run.ExitCode == 0 && run.OutputPath is not null && File.Exists(run.OutputPath);
         if (sample.Extension == ".pdf")

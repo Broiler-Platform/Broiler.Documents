@@ -59,7 +59,7 @@ on:
         required: false
         default: '80'
       extrasUrl:
-        description: GitHub tree URL for LibreOffice sw/qa/extras samples
+        description: GitHub tree URL for LibreOffice QA extras samples (e.g. sw/qa/extras or sc/qa/extras)
         required: false
         default: 'https://github.com/LibreOffice/core/tree/master/sw/qa/extras'
       topDifferences:

@@ -16,4 +16,7 @@ public static class OdsDiagnosticCodes
 
     /// <summary>content.xml contains no office:spreadsheet element.</summary>
     public const string MissingSpreadsheet = "ods.missing-spreadsheet";
+
+    /// <summary>A control character that XML cannot represent was dropped.</summary>
+    public const string ControlCharacterDropped = "ods.text.control";
 }

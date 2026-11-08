@@ -33,10 +33,10 @@ public sealed partial class OfficeControlGuardTests
     private const string Runner = "src/tests/Broiler.Documents.Office";
 
     private static readonly string[] DocumentExtensions =
-        [".docx", ".dotx", ".odt", ".ott", ".fodt", ".rtf", ".html", ".htm"];
+        [".docx", ".dotx", ".odt", ".ott", ".fodt", ".rtf", ".html", ".htm", ".xlsx", ".xlsm", ".xltx", ".ods", ".ots", ".fods", ".csv", ".tsv"];
 
     /// <summary>The markup properties a seed may carry, exactly one of which it must.</summary>
-    private static readonly string[] SeedLanguages = ["html", "fodt"];
+    private static readonly string[] SeedLanguages = ["html", "fodt", "fods"];
 
     private static JsonDocument Load(string relative) =>
         JsonDocument.Parse(File.ReadAllText(Path.Combine(PdfGuardRoots.Component, relative)));

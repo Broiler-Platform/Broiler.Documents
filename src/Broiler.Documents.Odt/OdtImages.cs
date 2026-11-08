@@ -258,7 +258,20 @@ internal sealed class OdtImageLoader(
     /// </summary>
     private PicturePart? LoadFromBinaryData(XElement binary, IOdtImageDiagnostics diagnostics, out LoadResult result)
     {
-        string encoded = binary.Value;
+        string raw = binary.Value;
+        var sb = new System.Text.StringBuilder(raw.Length);
+        foreach (char c in raw)
+        {
+            if (!char.IsWhiteSpace(c))
+                sb.Append(c);
+        }
+        int rem = sb.Length % 4;
+        if (rem == 2)
+            sb.Append("==");
+        else if (rem == 3)
+            sb.Append('=');
+        string encoded = sb.ToString();
+
         if ((long)encoded.Length / 4 * 3 > _limits.MaxBinBytes)
         {
             diagnostics.AddDiagnosticOnce(

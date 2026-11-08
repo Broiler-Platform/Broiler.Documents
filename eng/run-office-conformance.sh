@@ -3,7 +3,7 @@
 # pinned font set, and run the office conformance suite against them.
 #
 # By default, downloads supported sample documents from LibreOffice's
-# sw/qa/extras corpus, renders them with LibreOffice headless and broilerdoc,
+# QA extras corpus (sw/qa/extras, sc/qa/extras), renders them with LibreOffice headless and broilerdoc,
 # compares the results, and reports (or files a GitHub issue with) the top x
 # major differences (default x = 3). Pass --seed-corpus to run the authored seed
 # corpus against tests/office/office-baseline.json instead.
@@ -15,9 +15,9 @@
 #
 # Options:
 #     --output-dir <dir>       Where the log and reports go (default: ./test-results)
-#     --extras-url <url>       GitHub tree URL for LibreOffice sw/qa/extras
+#     --extras-url <url>       GitHub tree URL for LibreOffice QA extras (e.g. sw/qa/extras or sc/qa/extras)
 #                              (default: https://github.com/LibreOffice/core/tree/master/sw/qa/extras)
-#     --extras-dir <dir>       Local directory of sw/qa/extras samples
+#     --extras-dir <dir>       Local directory of extras samples
 #     --references-dir <dir>   Reuse validated LibreOffice text/PDF references
 #     --accept-reference-mismatch
 #                              Use references made for another platform, font set
