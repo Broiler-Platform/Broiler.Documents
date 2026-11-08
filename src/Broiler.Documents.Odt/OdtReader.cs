@@ -1009,6 +1009,7 @@ internal static class OdtReader
             IsAsCharacter = ((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") ?? inheritedAnchor) == "as-char",
             IsCustomShape = drawing.Name != OdtNamespaces.Draw + "frame",
             FitsText = drawing.Name == OdtNamespaces.Draw + "custom-shape" && paragraphs.Count > 0,
+            WrapMargins = ReadWrapMargins(graphic),
         });
         return true;
     }
@@ -1245,6 +1246,15 @@ internal static class OdtReader
         double all = Length("padding");
         return new TableCellPadding(Length("padding-left", all), Length("padding-top", all),
             Length("padding-right", all), Length("padding-bottom", all));
+    }
+
+    private static TableCellPadding ReadWrapMargins(XElement? properties)
+    {
+        double Length(string name, double fallback = 0) => OdtUnits.TryParseLength(
+            (string?)properties?.Attribute(OdtNamespaces.Fo + name), out double value) ? Math.Clamp(value, 0, 20000) : fallback;
+        double all = Length("margin");
+        return new TableCellPadding(Length("margin-left", all), Length("margin-top", all),
+            Length("margin-right", all), Length("margin-bottom", all));
     }
 
     /// <summary>
@@ -2544,6 +2554,13 @@ internal static class OdtReader
                 continue;
             }
 
+            if (name == OdtNamespaces.Text + "author-name" &&
+                string.Equals((string?)element.Attribute(OdtNamespaces.Text + "fixed"), "false", StringComparison.Ordinal))
+            {
+                builder.AppendCollapsed("Unknown Author", style);
+                continue;
+            }
+
             if (name == OdtNamespaces.Text + "ruby")
             {
                 XElement? rubyBase = element.Element(OdtNamespaces.Text + "ruby-base");
@@ -3210,7 +3227,10 @@ internal static class OdtReader
             offsetXFromCell: context.TableDepth > 0 &&
                 ((string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph" or "paragraph-content"),
             cellHorizontalAlignment: ReadCellHorizontalAlignment(graphic),
-            printable: Prints(graphic)));
+            printable: Prints(graphic))
+        {
+            WrapMargins = ReadWrapMargins(graphic),
+        });
         return true;
     }
 

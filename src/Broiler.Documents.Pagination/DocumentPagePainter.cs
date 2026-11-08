@@ -40,6 +40,7 @@ public sealed class DocumentPagePainter
 
     private readonly LayoutSettings _settings;
     private readonly ImageStore _images;
+    private bool _verticalWriting;
 
     public DocumentPagePainter(LayoutSettings settings, ImageStore images)
     {
@@ -86,6 +87,7 @@ public sealed class DocumentPagePainter
         ArgumentNullException.ThrowIfNull(box);
         ArgumentNullException.ThrowIfNull(list);
         ArgumentNullException.ThrowIfNull(resolveImage);
+        _verticalWriting = page.VerticalWriting;
 
         // The page's own colour goes under everything, the content box included.
         if (page.Background is ShapeFill background)
@@ -947,7 +949,9 @@ public sealed class DocumentPagePainter
                 }
             }
 
-            if (piece.Text.Length == 0)
+            if (piece.Text.Length == 0 ||
+                (_verticalWriting && _settings.TextMeasurer is Fonts.PaginationFontAdapter adapter &&
+                 adapter.HasUnmappedVerticalCjk(piece.Text, piece.Font)))
                 continue;
 
             // The renderer puts the baseline at origin.Y + size * 0.8, and the

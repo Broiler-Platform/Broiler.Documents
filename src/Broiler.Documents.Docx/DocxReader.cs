@@ -71,6 +71,7 @@ internal static class DocxReader
             DocxSections sections = DocxSections.Read(documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body"));
             PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
             int compatibilityMode = WordCompatibilityMode(settings.Root);
+            bool splitPgBreakAndParaMark = HasSplitPgBreakAndParaMark(settings.Root);
             DocxNotes notes = DocxNotes.Load(
                 archive,
                 documentRelationships,
@@ -91,7 +92,8 @@ internal static class DocxReader
                 page,
                 sections,
                 notes,
-                compatibilityMode);
+                compatibilityMode,
+                splitPgBreakAndParaMark);
             IReadOnlyList<RunningContent> running = ReadRunningContent(
                 archive,
                 documentXml,
@@ -104,7 +106,8 @@ internal static class DocxReader
                 reported,
                 page,
                 settings.EvenAndOddHeaders,
-                compatibilityMode);
+                compatibilityMode,
+                splitPgBreakAndParaMark);
             document = document.WithRunningContent(running[^1]);
             document = document.WithPageGeometry(page);
             document = document.WithSections(sections.ToModel(document.ParagraphCount, page, running));
@@ -163,7 +166,8 @@ internal static class DocxReader
         PageGeometry? page,
         DocxSections sections,
         DocxNotes notes,
-        int compatibilityMode)
+        int compatibilityMode,
+        bool splitPgBreakAndParaMark)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         if (body is null)
@@ -174,7 +178,11 @@ internal static class DocxReader
             return RichTextDocument.Empty;
         }
 
-        var builder = new DocxDocumentBuilder(limits, diagnostics, reported) { WordCompatibilityMode = compatibilityMode };
+        var builder = new DocxDocumentBuilder(limits, diagnostics, reported)
+        {
+            WordCompatibilityMode = compatibilityMode,
+            SplitPgBreakAndParaMark = splitPgBreakAndParaMark,
+        };
         var context = new DocxReadContext(relationships, numbering, styles, images, builder, page, Sections: sections, Notes: notes, Frames: new DocxFrameAccumulator(), DropCaps: new DocxDropCapTracker());
         ReadBlockContent(body.Elements(), context, depth: 0);
         context.Frames?.Finish(context);
@@ -346,7 +354,8 @@ internal static class DocxReader
         HashSet<string> reported,
         PageGeometry? page,
         bool evenAndOddHeaders,
-        int compatibilityMode)
+        int compatibilityMode,
+        bool splitPgBreakAndParaMark)
     {
         XElement? body = documentXml.Root?.Element(DocxNamespaces.Wordprocessing + "body");
         if (body?.Elements(DocxNamespaces.Wordprocessing + "sectPr").LastOrDefault() is null)
@@ -414,7 +423,8 @@ internal static class DocxReader
                         archive, relationship.Target, numbering, styles, images, limits, diagnostics, reported,
                         isHeader ? RunningBand.Header : RunningBand.Footer,
                         page,
-                        compatibilityMode);
+                        compatibilityMode,
+                        splitPgBreakAndParaMark);
                     parts.Add((relationshipId, isHeader), part);
                 }
 
@@ -495,6 +505,11 @@ internal static class DocxReader
             displayBackground is not null && ReadOnOff(displayBackground),
             root);
     }
+
+    private static bool HasSplitPgBreakAndParaMark(XElement? settings) =>
+        settings?.Element(DocxNamespaces.Wordprocessing + "compat")
+            ?.Element(DocxNamespaces.Wordprocessing + "splitPgBreakAndParaMark") is XElement split &&
+        ReadOnOff(split);
 
     /// <summary>
     /// The Word version whose layout the document asks for: the highest
@@ -636,7 +651,8 @@ internal static class DocxReader
         HashSet<string> reported,
         RunningBand band,
         PageGeometry? page,
-        int compatibilityMode)
+        int compatibilityMode,
+        bool splitPgBreakAndParaMark)
     {
         ZipArchiveEntry? entry = DocxPackage.FindEntry(archive, partPath);
         if (entry is null)
@@ -658,7 +674,11 @@ internal static class DocxReader
             limits,
             diagnostics);
 
-        var builder = new DocxDocumentBuilder(limits, diagnostics, reported) { WordCompatibilityMode = compatibilityMode };
+        var builder = new DocxDocumentBuilder(limits, diagnostics, reported)
+        {
+            WordCompatibilityMode = compatibilityMode,
+            SplitPgBreakAndParaMark = splitPgBreakAndParaMark,
+        };
         var context = new DocxReadContext(
             partRelationships, numbering, styles, images, builder, page, band);
         ReadBlockContent(partXml.Root.Elements(), context, depth: 0);
@@ -1297,6 +1317,7 @@ internal static class DocxReader
             context.Builder.Reported)
         {
             WordCompatibilityMode = context.Builder.WordCompatibilityMode,
+            SplitPgBreakAndParaMark = context.Builder.SplitPgBreakAndParaMark,
         };
         bool skipping = false;
         DocxNotes notes = context.Notes;
@@ -1373,12 +1394,16 @@ internal static class DocxReader
     /// </summary>
     private static void ReadPicture(XElement picture, DocxReadContext context, InlineStyle style)
     {
-        // tdf#153613: Anchored shapes ignore a preceding page break in the same paragraph
-        // so they anchor to the current paragraph rather than advancing to the next page.
-        // Inline pictures remain part of the text flow and apply the break before the image.
+        // tdf#153613: In Word 2010 and earlier compatibility modes without
+        // w:splitPgBreakAndParaMark, a non-textbox anchored drawing after a page
+        // break in the same paragraph stays anchored to the pre-break paragraph.
         bool isAnchor = picture.Element(DocxNamespaces.WordDrawing + "anchor") is not null ||
                         picture.Descendants(DocxNamespaces.WordDrawing + "anchor").Any();
-        if (!isAnchor)
+        bool hasTextBox = picture.Descendants(DocxNamespaces.Wordprocessing + "txbxContent").Any();
+        bool deferBreakAfterAnchor = isAnchor && !hasTextBox &&
+            context.Builder.WordCompatibilityMode is > 0 and <= 14 &&
+            !context.Builder.SplitPgBreakAndParaMark;
+        if (!deferBreakAfterAnchor)
             context.Builder.EnsureBreakApplied();
         if (ReadDiagram(picture, context)) return;
 
@@ -2522,6 +2547,7 @@ internal static class DocxReader
             context.Builder.Reported)
         {
             WordCompatibilityMode = context.Builder.WordCompatibilityMode,
+            SplitPgBreakAndParaMark = context.Builder.SplitPgBreakAndParaMark,
         };
         var nested = new DocxReadContext(
             context.Relationships, context.Numbering, context.Styles, context.Images, builder,

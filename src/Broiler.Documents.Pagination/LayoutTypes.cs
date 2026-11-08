@@ -338,6 +338,9 @@ public sealed class LayoutPage : IPaginatedPageArtifact
     /// <summary>Whether this page was inserted to satisfy a section's odd/even start.</summary>
     public bool IsParityBlank { get; internal set; }
 
+    /// <summary>Whether this page uses vertical writing direction (e.g., East Asian tbRl).</summary>
+    public bool VerticalWriting { get; internal set; }
+
     public double WidthPoints { get; }
 
     public double HeightPoints { get; }

@@ -206,4 +206,36 @@ public sealed class OdtNonPrintingTests
         Assert.Equal(inverted, paragraph.StyleAt(0).Hidden);
         Assert.Equal(!inverted, paragraph.StyleAt(1).Hidden);
     }
+
+    [Fact]
+    public void Non_Fixed_Author_Name_Field_Uses_Headless_Default_And_Fixed_Retains_Stored_Name()
+    {
+        string body =
+            "<text:p><text:author-name text:fixed=\"false\">Stored Author</text:author-name></text:p>" +
+            "<text:p><text:author-name text:fixed=\"true\">Stored Author</text:author-name></text:p>";
+
+        RichTextDocument document = OdtTestPackage.ReadBody(body).Document;
+
+        Assert.Equal("Unknown Author", document.Paragraphs[0].Text);
+        Assert.Equal("Stored Author", document.Paragraphs[1].Text);
+    }
+
+    [Fact]
+    public void Frame_Graphic_Properties_Margins_Are_Read_Into_WrapMargins()
+    {
+        string styles =
+            "<office:automatic-styles><style:style style:name=\"fr1\" style:family=\"graphic\">" +
+            "<style:graphic-properties style:wrap=\"parallel\" fo:margin-left=\"12pt\" fo:margin-right=\"15pt\"/>" +
+            "</style:style></office:automatic-styles>";
+        string body =
+            "<text:p><draw:frame draw:style-name=\"fr1\" text:anchor-type=\"paragraph\" svg:width=\"50pt\" svg:height=\"40pt\">" +
+            "<draw:text-box><text:p>frame</text:p></draw:text-box></draw:frame>body</text:p>";
+
+        RichTextDocument document = OdtTestPackage.ReadStyled(body, styles).Document;
+
+        DocumentShape shape = Assert.Single(document.Shapes);
+        Assert.NotNull(shape.WrapMargins);
+        Assert.Equal(12, shape.WrapMargins.Value.Left);
+        Assert.Equal(15, shape.WrapMargins.Value.Right);
+    }
 }

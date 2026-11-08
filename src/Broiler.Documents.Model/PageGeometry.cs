@@ -82,6 +82,9 @@ public sealed record PageGeometry(
     /// <summary>True when the page is wider than it is tall.</summary>
     public bool IsLandscape => Width > Height;
 
+    /// <summary>True when the page or section uses vertical writing mode (e.g. tbRl).</summary>
+    public bool VerticalWriting { get; init; }
+
     /// <summary>True when the text area is divided into more than one column.</summary>
     public bool HasColumns => ColumnCount > 1;
 

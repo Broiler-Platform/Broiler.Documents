@@ -166,6 +166,9 @@ public sealed class DocumentShape(
     /// <summary>True when this shape's box shrinks/fits to its text content centered in the declared bounds.</summary>
     public bool FitsText { get; init; }
 
+    /// <summary>Optional per-side wrap clearance margins in points (Left, Top, Right, Bottom).</summary>
+    public TableCellPadding? WrapMargins { get; init; }
+
     /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
     /// and therefore on top.
@@ -286,6 +289,7 @@ public sealed class DocumentShape(
             IsAsCharacter = IsAsCharacter,
             IsCustomShape = IsCustomShape,
             FitsText = FitsText,
+            WrapMargins = WrapMargins,
         };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>

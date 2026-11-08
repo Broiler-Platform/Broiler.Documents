@@ -1,18 +1,16 @@
 # Office Conformance Issue 213
 
-Investigation and fixes for top-ranked differences identified in [issue #213](https://github.com/Broiler-Platform/Broiler.Documents/issues/213) (Run 135 triage against headless LibreOffice 24.2.7.2 with reference set `office-references-v4`).
+Investigation and fixes for all differences with severity $\ge 930$ identified in [issue #213](https://github.com/Broiler-Platform/Broiler.Documents/issues/213) (Run 135 triage against headless LibreOffice 24.2.7.2 with reference set `office-references-v4`).
 
-All 7 differences with severity $\ge 950$ in Run 135 have been resolved or reduced below 950:
+All differences with severity $\ge 930$ in Run 135 have been resolved or reduced below 930 (see also `docs/notes/office-issue-214.md` for ranks 8–19):
 
-1. `layout/data/tdf152106.odt` (rank 1, initial severity 991.02 -> < 600)
-2. `ooxmlexport/data/tdf146955.odt` (rank 2, initial severity 967.06 -> 0.0, reference defect)
-3. `ooxmlexport/data/tdf128207.docx` (rank 3, initial severity 965.73 -> < 600)
-4. `layout/data/tdf130031.docx` (rank 4, initial severity 964.92 -> < 600)
-5. `layout/data/testAreaChartNumberFormat.docx` (rank 5, initial severity 961.90 -> < 600)
-6. `layout/data/tox-update-wrong-pages.odt` (rank 6, initial severity 961.68 -> 0.0, reference defect)
-7. `layout/data/tdf130380.docx` (rank 7, initial severity 953.78 -> < 600)
-
-(Rank 8 is `943.92`, which is below the 950 threshold).
+1. `layout/data/tdf152106.odt` (rank 1, initial severity 991.02 $\to$ 0.0, 4 vs 4 pages)
+2. `ooxmlexport/data/tdf146955.odt` (rank 2, initial severity 967.06 $\to$ 0.0, reference defect)
+3. `ooxmlexport/data/tdf128207.docx` (rank 3, initial severity 965.73 $\to$ 827.65)
+4. `layout/data/tdf130031.docx` (rank 4, initial severity 964.92 $\to$ 867.84)
+5. `layout/data/testAreaChartNumberFormat.docx` (rank 5, initial severity 961.90 $\to$ 869.41)
+6. `layout/data/tox-update-wrong-pages.odt` (rank 6, initial severity 961.68 $\to$ 0.0, reference defect)
+7. `layout/data/tdf130380.docx` (rank 7, initial severity 953.78 $\to$ 863.32)
 
 ---
 
@@ -40,32 +38,34 @@ All 7 differences with severity $\ge 950$ in Run 135 have been resolved or reduc
    - Added unit test `Reads_Drawingml_Chart_As_Missing_Payload_Placeholder_Shape`.
 5. Result:
    - A placeholder shape with matching dimensions and bounds is rendered for DrawingML charts.
-   - Eliminates the `blank-vs-inked` penalty, dropping severity across all 4 files from ~965 to < 600.
+   - Eliminates the `blank-vs-inked` penalty, dropping severity across all 4 files below 870.
 
 ---
 
-## 2. Rank 1: `layout/data/tdf152106.odt` — Page-Relative Frame Text Wrapping on Page 1
+## 2. Rank 1: `layout/data/tdf152106.odt` — Page-Relative Multi-Column Frame Text Wrapping
 
 ### Findings and Root Causes
-- Upstream bug: `tdf#152106` (ODT wrapping frame anchored to paragraph with page-relative alignment).
-- The document contains 3 wrapping frames (`Frame1`, `Frame2`, `Frame3`).
-- `Frame1` is anchored to paragraph 4 (`text:anchor-type="paragraph"`), but has `style:vertical-rel="page"`, `style:horizontal-rel="page"`, and `style:wrap="parallel"`.
-- In LibreOffice Writer, a frame anchored to a paragraph on page 1 with page-relative alignment wraps text across the entire opening page, including paragraphs 0–3 that precede its anchor paragraph.
-- Previously, `DocumentLayout.cs` only registered wrap exclusion obstacles for a paragraph when reaching or after that paragraph's position. Paragraphs 0–3 thus flowed without wrapping around `Frame1`, packing text too tightly into 3 pages.
-- With 3 pages instead of 4, `Frame3` landed on page 3 instead of page 4, resulting in a 92.1% blur diff on page 3 and an overall severity score of 991.02.
+- Upstream bug: `tdf#152106` (ODT wrapping frames anchored to paragraphs with page-relative alignment in a 2-column layout).
+- The document contains 3 wrapping frames (`Frame1`, `Frame2`, `Frame3`) with `<style:graphic-properties fo:margin-left="0.4cm" fo:margin-right="0.4cm" style:wrap="parallel"/>`.
+- Four issues prevented matching LibreOffice's 4-page layout:
+  1. `Frame1` is anchored to paragraph 4 (`text:anchor-type="paragraph"`), with `style:vertical-rel="page"` and `style:horizontal-rel="page"`. In LibreOffice Writer, a frame anchored on page 1 with page-relative alignment wraps text across the opening page, including paragraphs 0–3, while `Frame2` (`ParagraphIndex = 15`, on page 3 after multi-line paragraphs) must not be pre-registered on page 1.
+  2. `OdtReader` did not read `fo:margin-left` / `fo:margin-right` from `<style:graphic-properties>` onto `DocumentShape.WrapMargins`.
+  3. `ComposeParagraph`, `BandFor`, and `ExactLineSkip` resolved `_wrap` at `columnLeft = 0` even when laying out column 2 (`columns.Offset(column)`), and `ReflowContinuation` did not reflow a paragraph's continuation lines when crossing from column 1 to column 2 around a wrapping shape.
+  4. When paragraph 15 (carrying `Frame2` with `OffsetFromPage = true` and `Height = 234.1pt`) was reached near the bottom of page 2, column 2 (`y > shape.OffsetY + BoxHeight(shape)` and `y + BoxHeight(shape) > contentBottom`), `DocumentLayout` did not break the column to move the anchor paragraph and `Frame2` together to page 3.
 
 ### Fix
-1. In `src/Broiler.Documents.Model/TextWrapExclusions.cs`:
-   - Added `_shapes` set (`HashSet<DocumentShape>`) to prevent duplicate obstacle registration if a shape is registered early.
-2. In `src/Broiler.Documents.Pagination/DocumentLayout.cs`:
-   - Added helper `BelongsToOpeningPage(DocumentShape shape)` which checks whether the anchor paragraph fits on the opening page without preceding page breaks.
-   - In `AddPageExclusions(1)`, pre-registered opening page-relative wrapping shapes into the wrap obstacle table before laying out paragraphs 0–3.
-3. In `src/tests/Broiler.Documents.Pagination.Tests/DocumentLayoutWrappingFrameTests.cs`:
-   - Added test `Page_Relative_Wrapping_Frame_Anchored_To_Later_Paragraph_Wraps_Preceding_Text_On_Opening_Page`.
-4. Result:
-   - Paragraphs 0–3 wrap alongside `Frame1`, producing 86 lines across 2 columns on Page 1.
-   - Text flows naturally across 4 pages, with `Frame3` placed on Page 4, matching LibreOffice's page count and layout structure.
-   - Severity drops from 991.02 to < 600.
+1. In `src/Broiler.Documents.Model/DocumentShape.cs` & `src/Broiler.Documents.Model/TextWrapExclusions.cs`:
+   - Added `WrapMargins` (`TableCellPadding?`) on `DocumentShape`, applied per-side wrap margins in `TextWrapExclusions.Add`, and updated `TextWrapExclusions.Resolve` to accept `columnLeft`.
+2. In `src/Broiler.Documents.Odt/OdtReader.cs`:
+   - Added `ReadWrapMargins` to read `fo:margin`, `fo:margin-left`, `fo:margin-top`, `fo:margin-right`, `fo:margin-bottom` from `<style:graphic-properties>`.
+3. In `src/Broiler.Documents.Pagination/DocumentLayout.cs`:
+   - Updated `BelongsToOpeningPage(DocumentShape shape)` to estimate multi-line paragraph heights across columns.
+   - Passed `wrapColumnLeft: columns.Offset(column)` to `ComposeParagraph`, `BandFor`, and `ExactLineSkip`, and reflowed continuation lines in `ReflowContinuation` when `columns.Offset(column)` or wrap exclusions apply.
+   - Broke the column before a paragraph carrying a page-offset wrapping shape when the column has already passed the shape's vertical band and cannot fit the shape's height.
+4. In `src/tests/Broiler.Documents.Pagination.Tests/DocumentLayoutWrappingFrameTests.cs`:
+   - Added tests `Page_Relative_Wrapping_Frame_Anchored_To_Later_Paragraph_Wraps_Preceding_Text_On_Opening_Page` and `Wrapping_Frame_With_WrapMargins_Narrows_Second_Column_When_Paragraph_Continues_Across_Columns`.
+5. Result:
+   - Text flows across 4 pages (4 vs 4 pages) with > 80% similarity on every page, passing all `read`, `text`, and `pixel` checks (severity **0.0**).
 
 ---
 

@@ -63,4 +63,33 @@ public sealed class PaginationFontAdapter : IDocumentTextMeasurer
     public bool HasItalicFace(string? family) => _fontService.HasItalicFace(family);
 
     public double GetWhitespaceWidth(BFontStyle font) => MeasureAdvance(" ", font);
+
+    public bool HasUnmappedVerticalCjk(string text, BFontStyle font)
+    {
+        if (string.IsNullOrEmpty(text))
+            return false;
+
+        bool bold = font.Weight >= BFontWeight.Bold;
+        bool italic = font.Slant is BFontSlant.Italic or BFontSlant.Oblique;
+
+        ResolvedFontFace? face = _fontService.ResolveFace(font.FamilyName, bold, italic);
+        if (face?.TrueType is not { } tt)
+            return false;
+
+        bool hasCjk = false;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (char.IsWhiteSpace(c))
+                continue;
+            int codepoint = char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])
+                ? char.ConvertToUtf32(c, text[++i])
+                : c;
+            if (codepoint < 0x3000 || tt.GetGlyphIndex(codepoint) != 0)
+                return false;
+            hasCjk = true;
+        }
+
+        return hasCjk;
+    }
 }
