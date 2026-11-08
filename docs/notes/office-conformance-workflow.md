@@ -29,7 +29,7 @@ asked for.
 
 Now the workflow installs and copies `fonts-liberation`, fails the step when a
 package contributes no TrueType file, and names the set `office-fonts-2`;
-`tests/office/reference-source.json` names `office-references-v3`. Cached
+`tests/office/reference-source.json` names `office-references-v4`. Cached
 conformance runs read the font-set name from the archive's manifest instead of
 the office image's `BROILER_OFFICE_FONT_SET`, so a new font set needs no new
 image. `eng/run-office-conformance.sh` installs `fonts-liberation` too (its

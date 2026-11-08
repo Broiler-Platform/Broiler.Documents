@@ -62,7 +62,7 @@ image digest. The reference generator does not pull or run that image.
 To bootstrap after these changes reach the default branch:
 
 1. Dispatch **Office reference data**. The configured release is
-   `office-references-v3`, the first with the `office-fonts-2` font set.
+   `office-references-v4`.
    Generation uses four workers directly on the VM.
 2. Wait for generation, archive upload, and release publication to finish.
 3. Dispatch **Office conformance**, or let the nightly schedule run. Default-source
