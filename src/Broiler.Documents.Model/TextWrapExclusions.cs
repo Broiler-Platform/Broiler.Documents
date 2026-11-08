@@ -86,11 +86,15 @@ public sealed class TextWrapExclusions
             return;
 
         double margin = Math.Max(0, shape.WrapDistance) * scale;
+        double marginLeft = shape.WrapMargins is { } wmL ? Math.Max(0, wmL.Left) * scale : margin;
+        double marginTop = shape.WrapMargins is { } wmT ? Math.Max(0, wmT.Top) * scale : margin;
+        double marginRight = shape.WrapMargins is { } wmR ? Math.Max(0, wmR.Right) * scale : margin;
+        double marginBottom = shape.WrapMargins is { } wmB ? Math.Max(0, wmB.Bottom) * scale : margin;
         var rect = new ExclusionRect(
-            (shape.OffsetX * scale) - margin,
-            top - margin,
-            ((shape.OffsetX + boxWidth) * scale) + margin,
-            top + (boxHeight * scale) + margin);
+            (shape.OffsetX * scale) - marginLeft,
+            top - marginTop,
+            ((shape.OffsetX + boxWidth) * scale) + marginRight,
+            top + (boxHeight * scale) + marginBottom);
 
         var wrapKind = shape.Wrap switch
         {
@@ -140,12 +144,12 @@ public sealed class TextWrapExclusions
     /// The span a line starting at <paramref name="top"/> has, after moving it
     /// down past anything that leaves it no room to be written in.
     /// </summary>
-    public TextBand Resolve(ref double top, double height, double columnWidth, out double skip)
+    public TextBand Resolve(ref double top, double height, double columnWidth, out double skip, double columnLeft = 0.0)
     {
         var band = _kernel.ResolveLine(
             ref top,
             height,
-            0.0,
+            columnLeft,
             columnWidth,
             out skip,
             maxAttempts: 8,
@@ -154,7 +158,7 @@ public sealed class TextWrapExclusions
             minUsableWidth: 1.0e-9,
             defaultSidePolicy: ObstacleSidePolicy.Largest);
 
-        return new TextBand(band.Left, band.Width);
+        return new TextBand(band.Left - columnLeft, band.Width);
     }
     /// <summary>
     /// Resolves the earliest vertical position at or below <paramref name="top"/> where

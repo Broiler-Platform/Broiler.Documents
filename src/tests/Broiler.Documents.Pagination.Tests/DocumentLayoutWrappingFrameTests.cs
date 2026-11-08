@@ -97,4 +97,25 @@ public sealed class DocumentLayoutWrappingFrameTests
         Assert.Single(page.Shapes);
         Assert.True(page.Lines[0].Pieces[0].X >= 50);
     }
+
+    [Fact]
+    public void Wrapping_Frame_With_WrapMargins_Narrows_Second_Column_When_Paragraph_Continues_Across_Columns()
+    {
+        var shape = new DocumentShape(0, 80, 10, 40, 40, wrap: ShapeWrap.Square, offsetFromPage: true)
+        {
+            WrapMargins = new TableCellPadding(10, 0, 10, 0),
+        };
+        var pageGeometry = new PageGeometry(220, 120, 10, 10, 10, 10).WithColumns(2, 0);
+        string longText = string.Join(" ", System.Linq.Enumerable.Repeat("word", 60));
+        var document = RichTextDocument.FromParagraphs([Paragraph(longText)])
+            .WithPageGeometry(pageGeometry)
+            .WithShapes([shape]);
+        using var images = new ImageStore();
+        var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            DocumentPageBox.Default.WithGeometry(pageGeometry)).Pages;
+
+        var page = pages[0];
+        // Second column starts at x = 10 + 100 = 110; shape spans [90..130] + 10pt right margin = 140
+        Assert.Contains(page.Lines, line => line.Pieces.Count > 0 && line.Pieces[0].X >= 135);
+    }
 }

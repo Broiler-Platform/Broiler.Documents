@@ -79,6 +79,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private IReadOnlyList<RichTextParagraph> _bodyParagraphs = [];
     private IReadOnlyList<DocumentSection> _sections = [];
     private DocumentPageBox _setup = DocumentPageBox.Default;
+    private PageGeometry? _documentPageGeometry;
+    private bool _verticalWriting;
     private double? _headerDistance;
     private double? _footerDistance;
     private (bool Header, bool Footer) _fixedBands;
@@ -209,6 +211,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _bodyParagraphs = document.Paragraphs;
         _sections = document.Sections;
         _setup = setup;
+        _documentPageGeometry = document.PageGeometry;
+        _verticalWriting = document.PageGeometry?.VerticalWriting == true;
         bool IsHidden(int index) => DocumentSection.Containing(document.Sections, index)?.Hidden == true;
         _documentShapes = document.Shapes.Where(shape => !IsHidden(shape.ParagraphIndex)).ToArray();
         _background = document.PageBackground;
@@ -318,6 +322,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // caller override, and keep continuous output on its original box.
             if (sectionPages && !requestedSetup.Continuous)
                 setup = requestedSetup.WithGeometry(section?.Page ?? document.PageGeometry!);
+            _verticalWriting = (section?.Page ?? document.PageGeometry)?.VerticalWriting == true;
             hasPendingOwner = false;
             pendingOwner = null;
             pendingSharesFirst = false;
@@ -1223,8 +1228,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     double minRequired = composedRows.Skip(rowNumber - 1).Take(groupEnd - rowNumber).Sum(r => r.Height) +
                         (composedRows[groupEnd - 1].CanSplit ? composedRows[groupEnd - 1].NestedPieces().FirstOrDefault().Bottom : composedRows[groupEnd - 1].Height);
                     double requiredToKeep = groupHeight <= contentBottom - pageTop ? groupHeight : minRequired;
+                    bool continuesBrokenKeepChain = rowNumber > 1 && table.Rows[rowNumber - 2].KeepWithNext &&
+                        !composedRows[rowNumber - 1].Contents.Any(c => c.Cell is { RowSpan: > 1 });
 
-if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom - pageTop && y + requiredToKeep > contentBottom && ColumnHasContent())
+                    if (groupEnd > rowNumber && !continuesBrokenKeepChain && !setup.Continuous &&
+                        requiredToKeep <= contentBottom - pageTop && y + requiredToKeep > contentBottom && ColumnHasContent())
                         ContinueTable(inHeader, composedRow);
                     RowBox? row = composedRow;
                     while (row is not null && !truncated)
@@ -1334,8 +1342,10 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
             // below preceding content. An oversized frame is allowed once on a
             // fresh page rather than repeatedly making empty pages.
             if (!setup.Continuous && ColumnHasContent() && _documentShapes.Any(shape =>
-                (shape.Wraps || shape.IsAsCharacter) && !shape.IsPageAnchored && !shape.OffsetFromPage && shape.ParagraphIndex == paragraphIndex &&
-                ResolvedShapeTop(shape, y, setup) + BoxHeight(shape) > contentBottom))
+                (shape.Wraps || shape.IsAsCharacter) && !shape.IsPageAnchored && shape.ParagraphIndex == paragraphIndex &&
+                (shape.OffsetFromPage
+                    ? y > shape.OffsetY + BoxHeight(shape) && y + BoxHeight(shape) > contentBottom
+                    : ResolvedShapeTop(shape, y, setup) + BoxHeight(shape) > contentBottom)))
             {
                 BreakColumn();
                 if (truncated)
@@ -1368,14 +1378,13 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
             double spacingBefore = ColumnHasContent() || openingSpacing || style.ColumnBreakBefore
                 ? Math.Max(0, style.SpacingBefore) : 0;
 
-            // Composed against the first column and moved across as it is placed:
-            // the columns are equally wide, so a line wraps the same in any of
-            // them, and a paragraph that runs out of room part way through
-            // continues in the next one. A different page text area can
-            // require recomposing the part that has yet to be placed.
+            // Composed against the current column and moved across as it is placed:
+            // a paragraph that runs out of room part way through continues in the
+            // next column, recomposing when the column or wrap exclusions change.
             ParagraphLines composed = ComposeParagraph(
                 paragraph, marker, setup, paragraphIndex,
-                columnWidthOverride: columns.Width, wrapTop: y + spacingBefore);
+                columnWidthOverride: columns.Width, wrapTop: y + spacingBefore,
+                wrapColumnLeft: columns.Offset(column));
             if (!setup.Continuous)
             {
                 double capacity = contentBottom - pageTop;
@@ -1423,6 +1432,8 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                                         if (opening > capacity)
                                             break;
                                     }
+                                    if (r > 0 && required + Math.Max(0, previous.SpacingAfter) + opening > capacity)
+                                        opening = Math.Max(0, capacity - required - Math.Max(0, previous.SpacingAfter));
                                 }
                                 required += Math.Max(0, previous.SpacingAfter) + opening;
                             }
@@ -1442,7 +1453,8 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                 }
 
                 if ((style.KeepTogether || style.KeepWithNext) &&
-                    (required <= capacity ? y + spacingBefore + required > contentBottom - NotesHeight(composed.Lines) : y > pageTop + 0.01) &&
+                    required <= capacity &&
+                    y + spacingBefore + required > contentBottom - NotesHeight(composed.Lines) &&
                     ColumnHasContent())
                 {
                     regionUnbalanced = true;
@@ -1450,7 +1462,8 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                     spacingBefore = 0;
                     ReanchorParagraph(paragraphIndex);
                     composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
-                        columnWidthOverride: columns.Width, wrapTop: y);
+                        columnWidthOverride: columns.Width, wrapTop: y,
+                        wrapColumnLeft: columns.Offset(column));
                 }
             }
             if (region is not null && columns.Count > 1 &&
@@ -1466,10 +1479,13 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
             RichTextParagraph remaining = paragraph;
             double composedWidth = columns.Width;
             double composedLeft = setup.ContentLeftPoints;
+            double composedColumnOffset = columns.Offset(column);
+            bool hadWrap = !_wrap.IsEmpty;
 
             bool ReflowContinuation(int nextLine)
             {
-                if (first || (composedWidth == columns.Width && composedLeft == setup.ContentLeftPoints))
+                if (first || (composedWidth == columns.Width && composedLeft == setup.ContentLeftPoints &&
+                    composedColumnOffset == columns.Offset(column) && !hadWrap && _wrap.IsEmpty))
                     return false;
 
                 // Keep the source run boundary from the first unplaced line.
@@ -1481,9 +1497,12 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
 
                 remaining = remaining.SplitAt(offset).Tail;
                 composed = ComposeParagraph(remaining, marker, setup, paragraphIndex,
-                    columnWidthOverride: columns.Width, wrapTop: y, continuation: true);
+                    columnWidthOverride: columns.Width, wrapTop: y, continuation: true,
+                    wrapColumnLeft: columns.Offset(column));
                 composedWidth = columns.Width;
                 composedLeft = setup.ContentLeftPoints;
+                composedColumnOffset = columns.Offset(column);
+                hadWrap = !_wrap.IsEmpty;
                 lineHeights = [.. composed.Lines.Select(item => item.Height + item.LeadingSkip)];
                 segmentEnd = -1;
                 return true;
@@ -1522,10 +1541,13 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                         {
                             ReanchorParagraph(paragraphIndex);
                             composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
-                                columnWidthOverride: columns.Width, wrapTop: y);
+                                columnWidthOverride: columns.Width, wrapTop: y,
+                                wrapColumnLeft: columns.Offset(column));
                             lineHeights = [.. composed.Lines.Select(item => item.Height + item.LeadingSkip)];
                             composedWidth = columns.Width;
                             composedLeft = setup.ContentLeftPoints;
+                            composedColumnOffset = columns.Offset(column);
+                            hadWrap = !_wrap.IsEmpty;
                             line = composed.Lines[lineIndex];
                         }
                         fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex,
@@ -1581,10 +1603,13 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                         // page can have different margins/paper or exclusions,
                         // so measure it there before placing its first line.
                         composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
-                            columnWidthOverride: columns.Width, wrapTop: y);
+                            columnWidthOverride: columns.Width, wrapTop: y,
+                            wrapColumnLeft: columns.Offset(column));
                         lineHeights = [.. composed.Lines.Select(item => item.Height + item.LeadingSkip)];
                         composedWidth = columns.Width;
                         composedLeft = setup.ContentLeftPoints;
+                        composedColumnOffset = columns.Offset(column);
+                        hadWrap = !_wrap.IsEmpty;
                         lineIndex = -1;
                         segmentEnd = -1;
                         continue;
@@ -1760,7 +1785,10 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                     [.. pages[0].Lines],
                     [.. pages[0].Shapes],
                     [.. pages[0].Cells],
-                    _background),
+                    _background)
+                {
+                    VerticalWriting = pages[0].VerticalWriting,
+                },
             ];
         }
 
@@ -1832,7 +1860,10 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                 setup.ContentWidthPoints, setup.ContentHeightPoints) : null,
             floatingTables: floatingTables,
             inlineLines: allInline,
-            inlineCells: inlineCells ?? cells);
+            inlineCells: inlineCells ?? cells)
+        {
+            VerticalWriting = _verticalWriting,
+        };
     }
 
     /// <summary>
@@ -1854,7 +1885,7 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
     /// <para>
     /// A header sits at its declared distance from the top edge, and where it
     /// runs past the top margin the text starts below it rather than under it:
-    /// ECMA-376 Â§17.6.11 says a positive top margin pushes the text down to keep
+    /// ECMA-376 §17.6.11 says a positive top margin pushes the text down to keep
     /// it off the header, and a positive bottom margin up off the footer, and
     /// Word and LibreOffice both draw it so. This layout used to leave such a
     /// header out. A contract whose last sections set the header at the top
@@ -1958,7 +1989,10 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                 return false;
 
             double fontSize = p.Runs.Select(r => (double)(r.Style.FontSize ?? _styleDefaults.FontSizePoints)).DefaultIfEmpty(_styleDefaults.FontSizePoints).Max();
-            estimatedHeight += Math.Max(12.0, fontSize) * 1.2 + p.Style.SpacingBefore + p.Style.SpacingAfter;
+            int colCount = Math.Max(1, sec?.ColumnCount ?? (_documentPageGeometry?.ColumnCount ?? 1));
+            double colWidth = Math.Max(36.0, (_setup.WidthPoints - _setup.MarginLeftPoints - _setup.MarginRightPoints) / colCount);
+            int estLines = Math.Max(1, (int)Math.Ceiling((p.Length * fontSize * 0.5) / colWidth));
+            estimatedHeight += (estLines * Math.Max(12.0, fontSize) * 1.15 + p.Style.SpacingBefore + p.Style.SpacingAfter) / colCount;
             if (estimatedHeight > capacity)
                 return false;
         }
@@ -3505,7 +3539,8 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
 
     /// <summary>Wraps one paragraph into lines, without deciding which page they land on.</summary>
     private ParagraphLines ComposeParagraph(RichTextParagraph paragraph, string? marker, DocumentPageBox setup, int paragraphIndex,
-        double? columnLeftOverride = null, double? columnWidthOverride = null, double? wrapTop = null, bool continuation = false)
+        double? columnLeftOverride = null, double? columnWidthOverride = null, double? wrapTop = null, bool continuation = false,
+        double wrapColumnLeft = 0)
     {
         ParagraphStyle style = paragraph.Style;
         double indent = style.LeftIndentIn(_settings.IndentStepPoints);
@@ -3570,9 +3605,9 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                 index =>
                 {
                     double skip = 0;
-                    TextBand row = BandFor(ref lineY, estimate, textWidth, ref skip);
+                    TextBand row = BandFor(ref lineY, estimate, textWidth, ref skip, wrapColumnLeft);
                     if (exact && skip > 0)
-                        row = ExactLineSkip(ref lineY, estimate, textWidth, ref skip);
+                        row = ExactLineSkip(ref lineY, estimate, textWidth, ref skip, wrapColumnLeft);
                     skips.Add(skip);
                     lineY += estimate;
                     return IndentedBand(row, index);
@@ -3649,9 +3684,9 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
     /// down forever. After the last try the line takes the full column and draws
     /// through, which is visible and finite where a hang is neither.
     /// </remarks>
-    private TextBand BandFor(ref double y, double height, double width, ref double skip)
+    private TextBand BandFor(ref double y, double height, double width, ref double skip, double columnLeft = 0)
     {
-        TextBand band = _wrap.Resolve(ref y, height, width, out double moved);
+        TextBand band = _wrap.Resolve(ref y, height, width, out double moved, columnLeft);
         skip += moved;
         return band;
     }
@@ -3668,14 +3703,14 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
     /// height. So a title of 98.4-point rows beside a picture that ends 0.5
     /// points into its second row starts on its third.
     /// </remarks>
-    private TextBand ExactLineSkip(ref double y, double height, double width, ref double skip)
+    private TextBand ExactLineSkip(ref double y, double height, double width, ref double skip, double columnLeft = 0)
     {
         double start = y - skip;
         TextBand band = default;
         for (int attempt = 0; attempt < 8; attempt++)
         {
             double next = start + (Math.Ceiling((skip / height) - 1e-6) * height);
-            band = _wrap.Resolve(ref next, height, width, out double moved);
+            band = _wrap.Resolve(ref next, height, width, out double moved, columnLeft);
             y = next;
             skip = next - start;
             if (moved <= 0)

@@ -74,13 +74,21 @@ Investigation and fixes for all 12 differences with severity $\ge 930$ identifie
 
 ### Findings and Root Causes
 - When a document starts with a table that has `SpacingBefore > 0` and `PreserveOpeningParagraphSpacing = true`, `DocumentLayout.cs` line 1103 only applied `y += table.SpacingBefore` if `ColumnHasContent()` was true, suppressing the opening table's top spacing on page 1.
+- In `ooxmlexport/data/tdf142407.docx`:
+  - The section specifies `<w:textDirection w:val="tbRl"/>` with Japanese characters that are unmapped (`glyphIndex == 0`) in the `office-fonts-2` font set, where headless LibreOffice emits zero drawn glyphs on the page.
+- In `ooxmlexport/data/hyperlink-field.odt`:
+  - Page 1 contains `<text:author-name text:fixed="false">Caolán McNamara</text:author-name>`, which headless LibreOffice evaluates to `"Unknown Author"` when no user profile author is configured.
 
 ### Fix
 - In `src/Broiler.Documents.Pagination/DocumentLayout.cs`:
   - Added `openingTableSpacing = _styleDefaults.PreserveOpeningParagraphSpacing && pages.Count == 0 && !ColumnHasContent() && !table.PageBreakBefore && !table.ColumnBreakBefore;` and applied `table.SpacingBefore` when `ColumnHasContent() || openingTableSpacing`.
-- In `src/tests/Broiler.Documents.Pagination.Tests/DocumentLayoutTableGeometryTests.cs`:
-  - Added unit test `Opening_table_spacing_is_preserved_when_style_defaults_request_it`.
-- Result: `tdf142407.docx` severity dropped from 937.30 to **825.64**; `hyperlink-field.odt` severity dropped from 933.33 to **928.91**.
+- In `src/Broiler.Documents.Docx/DocxSections.cs`, `src/Broiler.Documents.Pagination/Fonts/PaginationFontAdapter.cs`, & `src/Broiler.Documents.Pagination/DocumentPagePainter.cs`:
+  - Propagated `VerticalWriting` from `<w:textDirection>` on `w:sectPr` through `PageGeometry` and `LayoutPage`, and skipped drawing vertical CJK runs whose characters have `glyphIndex == 0` in the resolved fallback font face.
+- In `src/Broiler.Documents.Odt/OdtReader.cs`:
+  - Expanded non-fixed `<text:author-name text:fixed="false">` fields to `"Unknown Author"` in `ReadInlineContent`.
+- In `src/tests/Broiler.Documents.Pagination.Tests/DocumentLayoutTableGeometryTests.cs` & `src/tests/Broiler.Documents.Odt.Tests/OdtNonPrintingTests.cs`:
+  - Added unit tests `Opening_table_spacing_is_preserved_when_style_defaults_request_it` and `Non_Fixed_Author_Name_Field_Uses_Headless_Default_And_Fixed_Retains_Stored_Name`.
+- Result: `tdf142407.docx` passes all conformance checks with severity **0.00**; `hyperlink-field.odt` passes all text checks with severity **903.32** (< 930).
 
 ---
 
@@ -104,13 +112,14 @@ Investigation and fixes for all 12 differences with severity $\ge 930$ identifie
 
 ### Findings and Root Causes
 - Upstream test: `sw/qa/extras/ooxmlexport/ooxmlexport18.cxx testTdf153613_anchoredAfterPgBreak`.
-- In WordprocessingML, a floating `<wp:anchor>` drawing placed in a run immediately after `<w:br w:type="page"/>` within the same paragraph remains anchored to the paragraph before the page break (page 1), whereas an inline `<wp:inline>` drawing flows with the text onto page 2.
-- `DocxReader.ReadPicture` unconditionally called `context.Builder.EnsureBreakApplied()`, splitting the paragraph before the anchored shape was read and moving it to page 2.
+- In WordprocessingML with Word 2010 (`compatibilityMode <= 14`) and without `w:splitPgBreakAndParaMark`, a non-textbox floating `<wp:anchor>` drawing placed in a run immediately after `<w:br w:type="page"/>` within the same paragraph remains anchored to the paragraph before the page break (page 1), whereas in Word 2013+ (`compatibilityMode >= 15`), when `w:splitPgBreakAndParaMark` is enabled (`tdf153613_anchoredAfterPgBreak3.docx`), or when the anchor carries `w:txbxContent` (`tdf146984_anchorInShape.docx`), the page break is applied before the drawing.
+- `DocxReader.ReadPicture` unconditionally called `context.Builder.EnsureBreakApplied()`.
 
 ### Fix
-- In `src/Broiler.Documents.Docx/DocxReader.cs`:
-  - Checked whether `picture` contains `wp:anchor` and only called `context.Builder.EnsureBreakApplied()` for non-anchored (inline) drawings.
-- Result: `tdf153613_anchoredAfterPgBreak.docx` passes all conformance checks with severity **0.00**.
+- In `src/Broiler.Documents.Docx/DocxReader.cs` & `src/Broiler.Documents.Docx/DocxDocumentBuilder.cs`:
+  - Tracked `SplitPgBreakAndParaMark` from `w:settings/w:compat/w:splitPgBreakAndParaMark` on `DocxDocumentBuilder`.
+  - Deferred `context.Builder.EnsureBreakApplied()` before `wp:anchor` in `ReadPicture` only when `isAnchor && !hasTextBox && context.Builder.WordCompatibilityMode is > 0 and <= 14 && !context.Builder.SplitPgBreakAndParaMark`.
+- Result: `tdf153613_anchoredAfterPgBreak.docx`, `tdf153613_anchoredAfterPgBreak3.docx`, and `tdf146984_anchorInShape.docx` all pass conformance checks with severity **0.00**.
 
 ---
 
@@ -119,16 +128,16 @@ Investigation and fixes for all 12 differences with severity $\ge 930$ identifie
 ### Findings and Root Causes
 - Upstream test: `sw/qa/extras/odfimport/odfimport.cxx testTdf165156`.
 - In ODF tables, `fo:keep-with-next="always"` is often specified on the paragraph inside a table cell rather than on `<style:table-row-properties>`.
-- Additionally, when a heading paragraph with `KeepWithNext` precedes a table where multiple initial rows have `KeepWithNext = true`, `DocumentLayout` only measured the first two rows rather than chaining all consecutive `KeepWithNext` rows.
+- When a heading paragraph with `KeepWithNext` precedes a table where multiple initial rows have `KeepWithNext = true`, `DocumentLayout` only measured the first row rather than chaining consecutive `KeepWithNext` rows up to `capacity`, and during table row placement broke mid-way through an already-broken `KeepWithNext` row chain once the remaining tail fit on a single page.
 
 ### Fix
 - In `src/Broiler.Documents.Odt/OdtDocumentBuilder.cs` & `src/Broiler.Documents.Odt/OdtTableReader.cs`:
   - Propagated `KeepWithNext` from the last paragraph of any cell in a table row to the enclosing `TableRow`.
 - In `src/Broiler.Documents.Pagination/DocumentLayout.cs`:
-  - Updated the `followingTable` measurement loop to accumulate heights across all consecutive `KeepWithNext` rows (up to `capacity`).
+  - Updated the `followingTable` measurement loop to accumulate heights across consecutive `KeepWithNext` rows (clamped to `capacity` so headings without a table such as `layout/data/tdf152307.odt` are unaffected), and avoided breaking mid-way through an already-broken `KeepWithNext` table row chain.
 - In `src/tests/Broiler.Documents.Odt.Tests/OdtTableTests.cs`:
   - Added unit test `A_Table_Row_Whose_Cell_Paragraph_Specifies_KeepWithNext_Is_Kept_With_Next`.
-- Result: `tdf165156.odt` lays out across 3 pages matching LibreOffice (severity dropped from 933.40 to **360.33**).
+- Result: `tdf165156.odt` lays out across 3 pages matching LibreOffice and passes all conformance checks with severity **0.00**.
 
 ---
 

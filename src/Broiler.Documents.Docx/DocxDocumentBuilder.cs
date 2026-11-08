@@ -64,6 +64,11 @@ internal sealed class DocxDocumentBuilder(
     /// </summary>
     public int WordCompatibilityMode { get; init; } = -1;
 
+    /// <summary>
+    /// Whether <c>w:splitPgBreakAndParaMark</c> is enabled in <c>w:compat</c>.
+    /// </summary>
+    public bool SplitPgBreakAndParaMark { get; init; }
+
     /// <summary>Counts a table for the read summary.</summary>
     public void NoteTable() => _tableCount++;
 

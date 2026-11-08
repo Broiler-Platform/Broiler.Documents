@@ -181,4 +181,29 @@ public sealed class OdsCodecTests
         Assert.Equal(DocumentResultStatus.Rejected, result.Status);
         Assert.Contains(result.Diagnostics, d => d.Code == "ods.corrupt");
     }
+
+    [Fact]
+    public void Roundtrip_Preserves_Interior_Empty_Rows_And_Trims_Trailing_Empty_Rows()
+    {
+        RichTextDocument doc = RichTextDocument.FromParagraphs([
+            RichTextParagraph.Plain("First."),
+            RichTextParagraph.Empty,
+            RichTextParagraph.Plain("Third."),
+            RichTextParagraph.Empty,
+            RichTextParagraph.Plain("Last.")
+        ]);
+
+        using var stream = new MemoryStream();
+        _codec.Write(doc, stream);
+
+        stream.Position = 0;
+        var readResult = (OdsReadResult)_codec.Read(stream);
+
+        Assert.Equal(5, readResult.Document.ParagraphCount);
+        Assert.Equal("First.", readResult.Document.Paragraphs[0].Text);
+        Assert.Equal("", readResult.Document.Paragraphs[1].Text);
+        Assert.Equal("Third.", readResult.Document.Paragraphs[2].Text);
+        Assert.Equal("", readResult.Document.Paragraphs[3].Text);
+        Assert.Equal("Last.", readResult.Document.Paragraphs[4].Text);
+    }
 }

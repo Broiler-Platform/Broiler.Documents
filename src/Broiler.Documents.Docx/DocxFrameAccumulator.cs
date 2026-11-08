@@ -45,6 +45,7 @@ internal sealed class DocxFrameAccumulator
                 context.Builder.Reported)
             {
                 WordCompatibilityMode = context.Builder.WordCompatibilityMode,
+                SplitPgBreakAndParaMark = context.Builder.SplitPgBreakAndParaMark,
             };
         }
     }

@@ -211,7 +211,8 @@ internal static class OdsReader
                     }
                 }
 
-                while (cells.Count > 0 && cells[^1].Value.IsEmpty && string.IsNullOrEmpty(cells[^1].Formula))
+                int minCells = hasNonEmptyCell ? 0 : 1;
+                while (cells.Count > minCells && cells[^1].Value.IsEmpty && string.IsNullOrEmpty(cells[^1].Formula))
                     cells.RemoveAt(cells.Count - 1);
 
                 if (cells.Count > 0 || hasNonEmptyCell)
@@ -219,7 +220,7 @@ internal static class OdsReader
             }
         }
 
-        while (rows.Count > 0 && rows[^1].Cells.Count == 0)
+        while (rows.Count > 0 && rows[^1].Cells.All(c => c.Value.IsEmpty && string.IsNullOrEmpty(c.Formula)))
             rows.RemoveAt(rows.Count - 1);
 
         return new SpreadsheetWorksheet(sheetName, rows, columnWidths);

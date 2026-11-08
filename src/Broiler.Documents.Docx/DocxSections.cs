@@ -260,6 +260,11 @@ internal sealed class DocxSections
                 CultureInfo.InvariantCulture, out double value) && double.IsFinite(value) ? value / 20d : fallback;
         }
 
+        string? textDir = DocxValueReader.WordValue(sectPr.Element(DocxNamespaces.Wordprocessing + "textDirection"));
+        bool verticalWriting = string.Equals(textDir, "tbRl", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(textDir, "tbRlV", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(textDir, "btLr", StringComparison.OrdinalIgnoreCase);
+
         var geometry = new PageGeometry(
             w,
             h,
@@ -270,7 +275,10 @@ internal sealed class DocxSections
             Math.Abs(Margin("top", defaultMargin)),
             Math.Abs(Margin("bottom", defaultMargin)),
             Margin("header", defaultHeaderFooter),
-            Margin("footer", defaultHeaderFooter));
+            Margin("footer", defaultHeaderFooter))
+        {
+            VerticalWriting = verticalWriting,
+        };
         return geometry.IsUsable ? geometry : null;
     }
 
@@ -354,7 +362,8 @@ internal sealed class DocxSections
         section is null || page is null ||
         (Near(section.Width, page.Width) && Near(section.Height, page.Height) &&
          Near(section.MarginLeft, page.MarginLeft) && Near(section.MarginRight, page.MarginRight) &&
-         Near(section.MarginTop, page.MarginTop) && Near(section.MarginBottom, page.MarginBottom));
+         Near(section.MarginTop, page.MarginTop) && Near(section.MarginBottom, page.MarginBottom) &&
+         section.VerticalWriting == page.VerticalWriting);
 
     private static bool Near(double a, double b) => Math.Abs(a - b) < 0.01;
 
