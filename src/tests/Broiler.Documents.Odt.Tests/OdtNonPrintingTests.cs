@@ -113,6 +113,26 @@ public sealed class OdtNonPrintingTests
     }
 
     [Fact]
+    public void Button_Form_Controls_Are_Read_As_Shapes_With_Label_And_Default_Button_Fill()
+    {
+        string body = Forms("<form:button form:name=\"Push Button 1\" form:id=\"c1\" form:label=\"Push Button\"/>") +
+            "<text:p><draw:control text:anchor-type=\"paragraph\" draw:control=\"c1\" svg:width=\"100pt\" svg:height=\"30pt\" svg:x=\"10pt\" svg:y=\"20pt\"/>body</text:p>";
+
+        RichTextDocument document = OdtTestPackage.ReadBody(body).Document;
+
+        DocumentShape shape = Assert.Single(document.Shapes);
+        Assert.Equal("Push Button", Assert.Single(shape.Paragraphs).Text);
+        Assert.False(shape.IsAsCharacter);
+        Assert.Equal(100, shape.Width);
+        Assert.Equal(30, shape.Height);
+        Assert.False(shape.GrowsWidthToText);
+        Assert.Equal(CellVerticalAlignment.Center, shape.TextVerticalAlignment);
+        Assert.NotNull(shape.Fill);
+        Assert.Equal(192, shape.Fill!.Start.R);
+        Assert.Equal(160, shape.Outline.R);
+    }
+
+    [Fact]
     public void Date_Form_Controls_Are_Read_As_Shapes_With_Current_Value()
     {
         // dateFormFormats: form:date control is read as a shape with value and as-char anchor

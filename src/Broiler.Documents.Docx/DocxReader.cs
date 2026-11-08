@@ -1373,7 +1373,13 @@ internal static class DocxReader
     /// </summary>
     private static void ReadPicture(XElement picture, DocxReadContext context, InlineStyle style)
     {
-        context.Builder.EnsureBreakApplied();
+        // tdf#153613: Anchored shapes ignore a preceding page break in the same paragraph
+        // so they anchor to the current paragraph rather than advancing to the next page.
+        // Inline pictures remain part of the text flow and apply the break before the image.
+        bool isAnchor = picture.Element(DocxNamespaces.WordDrawing + "anchor") is not null ||
+                        picture.Descendants(DocxNamespaces.WordDrawing + "anchor").Any();
+        if (!isAnchor)
+            context.Builder.EnsureBreakApplied();
         if (ReadDiagram(picture, context)) return;
 
         // A w:drawing is either a picture or a shape. A shape reports nothing when

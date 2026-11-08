@@ -471,4 +471,19 @@ public sealed class OdtTableTests
 
         Assert.True(Assert.Single(result.Document.Tables).KeepTogether);
     }
+
+    [Fact]
+    public void A_Table_Row_Whose_Cell_Paragraph_Specifies_KeepWithNext_Is_Kept_With_Next()
+    {
+        // tdf165156: In ODF, cell paragraphs with fo:keep-with-next="always"
+        // cause the row itself to keep with the next row.
+        var result = OdtTestPackage.ReadBody(
+            "<table:table><table:table-row><table:table-cell><text:p text:style-name=\"keep\">Cell</text:p></table:table-cell></table:table-row>" +
+            "<table:table-row><table:table-cell><text:p>Next</text:p></table:table-cell></table:table-row></table:table>",
+            "<style:style style:name=\"keep\" style:family=\"paragraph\"><style:paragraph-properties fo:keep-with-next=\"always\"/></style:style>");
+
+        var table = Assert.Single(result.Document.Tables);
+        Assert.True(table.Rows[0].KeepWithNext);
+        Assert.False(table.Rows[1].KeepWithNext);
+    }
 }

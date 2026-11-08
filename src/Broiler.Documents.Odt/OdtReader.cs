@@ -1007,6 +1007,8 @@ internal static class OdtReader
             printable: Prints(graphic))
         {
             IsAsCharacter = ((string?)drawing.Attribute(OdtNamespaces.Text + "anchor-type") ?? inheritedAnchor) == "as-char",
+            IsCustomShape = drawing.Name != OdtNamespaces.Draw + "frame",
+            FitsText = drawing.Name == OdtNamespaces.Draw + "custom-shape" && paragraphs.Count > 0,
         });
         return true;
     }
@@ -1137,9 +1139,11 @@ internal static class OdtReader
         if (id is null || !context.FormControls.TryGetValue(id, out XElement? control) ||
             (control.Name != OdtNamespaces.Form + "fixed-text" &&
              control.Name != OdtNamespaces.Form + "date" &&
-             control.Name != OdtNamespaces.Form + "date-field"))
+             control.Name != OdtNamespaces.Form + "date-field" &&
+             control.Name != OdtNamespaces.Form + "button"))
             return;
 
+        bool isButton = control.Name == OdtNamespaces.Form + "button";
         string label = (string?)control.Attribute(OdtNamespaces.Form + "label")
             ?? (string?)control.Attribute(OdtNamespaces.Form + "current-value")
             ?? (string?)control.Attribute(OdtNamespaces.Form + "value")
@@ -1157,7 +1161,15 @@ internal static class OdtReader
 
         string? styleName = (string?)drawing.Attribute(OdtNamespaces.Draw + "style-name");
         XElement? graphic = context.Styles.GraphicPropertiesFor(styleName);
-        (_, _, bool behindText, ShapeWrap wrap, WrapSide wrapSide) = ReadShapeStyle(styleName, context.Styles);
+        (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) = ReadShapeStyle(styleName, context.Styles);
+        if (isButton)
+        {
+            fill ??= ShapeFill.Solid(new BColor(192, 192, 192));
+            if (outline.IsEmpty)
+            {
+                outline = new BColor(160, 160, 160);
+            }
+        }
         double x = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "x"), out double left) ? left : 0;
         double y = OdtUnits.TryParseLength((string?)drawing.Attribute(OdtNamespaces.Svg + "y"), out double top) ? top : 0;
         (int anchorPage, x, y, bool fromPage) = PlaceOnPage(drawing, styleName, x, y, width, height, context);
@@ -1168,6 +1180,8 @@ internal static class OdtReader
             y,
             width,
             height,
+            fill: fill,
+            outline: outline,
             paragraphs: content.Paragraphs,
             behindText: behindText,
             wrap: wrap,
@@ -1179,13 +1193,13 @@ internal static class OdtReader
             {
                 "middle" => CellVerticalAlignment.Center,
                 "bottom" => CellVerticalAlignment.Bottom,
-                _ => CellVerticalAlignment.Top,
+                _ => isButton ? CellVerticalAlignment.Center : CellVerticalAlignment.Top,
             },
             // A label is drawn whole about its alignment even where its box is
             // shorter than its line, as a control sized to the text's cap height
             // is, and on one line unless it says it may take more.
             textOverflow: true,
-            growsWidthToText: (string?)control.Attribute(OdtNamespaces.Form + "multi-line") != "true",
+            growsWidthToText: !isButton && (string?)control.Attribute(OdtNamespaces.Form + "multi-line") != "true",
             offsetXFromCell: context.TableDepth > 0 &&
                 ((string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph" or "paragraph-content"),
             printable: (string?)control.Attribute(OdtNamespaces.Form + "printable") != "false")
@@ -1317,6 +1331,12 @@ internal static class OdtReader
                 string? verticalPos = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-pos");
                 if (verticalPos == "top")
                     y = -height + y;
+            }
+            else if (anchorType is "paragraph" or "char" && (verticalRel is null or "paragraph" or "paragraph-content"))
+            {
+                string? verticalPos = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-pos");
+                if (verticalPos == "top")
+                    y = 0;
             }
 
             if (anchorType is "paragraph" or "char" && verticalRel is "page" or "page-content" or "page-content-bottom")
@@ -1595,7 +1615,9 @@ internal static class OdtReader
         _ = OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-width"), out double width);
         _ = OdtUnits.TryParseLength((string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-height"), out double height);
         string position = (string?)properties.Attribute(OdtNamespaces.Draw + "fill-image-ref-point") ?? "center";
-        var repeat = (string?)properties.Attribute(OdtNamespaces.Style + "repeat") switch
+        string? repeatStr = (string?)properties.Element(OdtNamespaces.Style + "background-image")?.Attribute(OdtNamespaces.Style + "repeat") ??
+                            (string?)properties.Attribute(OdtNamespaces.Style + "repeat");
+        var repeat = repeatStr switch
             { "stretch" => ImageFillRepeat.Stretch, "no-repeat" => ImageFillRepeat.Single, _ => ImageFillRepeat.Tile };
         return ShapeFill.Solid(BColor.Empty) with { Image = new ImageFill(image, repeat, width, height,
             position.Contains("left", StringComparison.Ordinal) ? 0 : position.Contains("right", StringComparison.Ordinal) ? 1 : 0.5,
@@ -1701,8 +1723,10 @@ internal static class OdtReader
 
         if ((string?)layoutProperties.Attribute(OdtNamespaces.Draw + "fill") is string kind)
         {
+            string? repeat = (string?)layoutProperties.Element(OdtNamespaces.Style + "background-image")?.Attribute(OdtNamespaces.Style + "repeat") ??
+                             (string?)layoutProperties.Attribute(OdtNamespaces.Style + "repeat");
             return WithPageBounds(ReadDrawFill(layoutProperties, styles), layoutProperties, kind,
-                (string?)layoutProperties.Attribute(OdtNamespaces.Style + "repeat"), styles);
+                repeat, styles);
         }
 
         if (layoutProperties.Element(OdtNamespaces.Style + "background-image") is XElement legacy &&

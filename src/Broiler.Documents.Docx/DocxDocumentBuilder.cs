@@ -344,7 +344,7 @@ internal sealed class DocxDocumentBuilder(
         {
             PageBreakBefore = breaks && !column,
             ColumnBreakBefore = breaks && column,
-            SpacingBefore = 0,
+            SpacingBefore = keepList ? original.SpacingBefore : 0,
             FirstLineIndent = keepList ? original.FirstLineIndent : 0,
             ListKind = keepList ? original.ListKind : ListKind.None,
             List = keepList ? original.List : null,

@@ -57,6 +57,16 @@ public sealed class DocumentLayoutTableGeometryTests
     }
 
     [Fact]
+    public void Opening_table_spacing_is_preserved_when_style_defaults_request_it()
+    {
+        RichTextDocument document = RichTextDocument.FromParagraphs([Para("cell")])
+            .WithStyleDefaults(DocumentStyleDefaults.Default with { PreserveOpeningParagraphSpacing = true })
+            .WithTables([new DocumentTable(0, 1, [new TableRow([new TableCell(0, 1, 0)])], [180], spacingBefore: 40)]);
+        LayoutPage page = Assert.Single(Layout(document).Pages);
+        Assert.Equal(10 + 40, page.Cells[0].Bounds.Top, 3);
+    }
+
+    [Fact]
     public void Indentation_moves_the_table_and_its_contents()
     {
         LayoutPage page = Assert.Single(Layout(Document(indent: 18)).Pages);

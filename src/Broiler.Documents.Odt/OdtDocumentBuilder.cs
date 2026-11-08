@@ -276,6 +276,9 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
         _markStyle = InlineStyle.Default;
     }
 
+    public bool ParagraphHasKeepWithNext(int index) =>
+        index >= 0 && index < _paragraphs.Count && _paragraphs[index].Style.KeepWithNext;
+
     /// <summary>The paragraph a shape met right now would be anchored to.</summary>
     public int CurrentParagraphIndex => _paragraphs.Count;
 

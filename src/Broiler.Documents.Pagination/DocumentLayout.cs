@@ -1099,8 +1099,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 ListNumberer headerStart = numbering.Snapshot();
 
                 // Space above a table, as above a paragraph, opens no page or
-                // column: a table that starts one starts at its top.
-                if (ColumnHasContent())
+                // column: a table that starts one starts at its top, unless opening
+                // spacing is preserved for the document.
+                bool openingTableSpacing = _styleDefaults.PreserveOpeningParagraphSpacing &&
+                    pages.Count == 0 && !ColumnHasContent() && !table.PageBreakBefore && !table.ColumnBreakBefore;
+                if (ColumnHasContent() || openingTableSpacing)
                     y += table.SpacingBefore;
                 List<RowBox> composedRows = ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width);
                 y = BelowFloats(y, composedRows, columns.Offset(column));
@@ -1362,7 +1365,7 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
             // page and column starts suppress it.
             bool openingSpacing = _styleDefaults.PreserveOpeningParagraphSpacing &&
                 paragraphIndex == 0 && !style.PageBreakBefore && !style.ColumnBreakBefore;
-            double spacingBefore = ColumnHasContent() || openingSpacing
+            double spacingBefore = ColumnHasContent() || openingSpacing || style.ColumnBreakBefore
                 ? Math.Max(0, style.SpacingBefore) : 0;
 
             // Composed against the first column and moved across as it is placed:
@@ -1410,8 +1413,17 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                                     ? rows[0].NestedPieces().FirstOrDefault().Bottom : rows[0].Height;
                                 if (followingTable.KeepTogether && rows.Sum(r => r.Height) <= capacity)
                                     opening = rows.Sum(r => r.Height);
-                                else if (followingTable.Rows.Count > 0 && followingTable.Rows[0].KeepWithNext && rows.Count > 1)
-                                    opening += rows[1].CanSplit ? rows[1].NestedPieces().FirstOrDefault().Bottom : rows[1].Height;
+                                else if (followingTable.Rows.Count > 0)
+                                {
+                                    int r = 0;
+                                    while (r < followingTable.Rows.Count && followingTable.Rows[r].KeepWithNext && r + 1 < rows.Count)
+                                    {
+                                        r++;
+                                        opening += rows[r].CanSplit ? rows[r].NestedPieces().FirstOrDefault().Bottom : rows[r].Height;
+                                        if (opening > capacity)
+                                            break;
+                                    }
+                                }
                                 required += Math.Max(0, previous.SpacingAfter) + opening;
                             }
                             break;
@@ -1429,8 +1441,9 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                     }
                 }
 
-                if ((style.KeepTogether || style.KeepWithNext) && required <= capacity &&
-                    y + spacingBefore + required > contentBottom - NotesHeight(composed.Lines) && ColumnHasContent())
+                if ((style.KeepTogether || style.KeepWithNext) &&
+                    (required <= capacity ? y + spacingBefore + required > contentBottom - NotesHeight(composed.Lines) : y > pageTop + 0.01) &&
+                    ColumnHasContent())
                 {
                     regionUnbalanced = true;
                     BreakColumn();
@@ -1443,6 +1456,8 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
             if (region is not null && columns.Count > 1 &&
                 (style.KeepTogether || style.KeepWithNext || style.OrphanLines is > 0 || style.WidowLines is > 0))
                 regionUnbalanced = true;
+            if (column == 0 && currentLines.Count == columnStart && spacingBefore > 0)
+                regionTop = y + spacingBefore;
             y += spacingBefore;
 
             double[] lineHeights = [.. composed.Lines.Select(line => line.Height + line.LeadingSkip)];
@@ -1492,7 +1507,7 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                     }
                     int fit = ParagraphPagination.LinesThatFit(lineHeights, lineIndex,
                         contentBottom - y, style.OrphanLines ?? 0, style.WidowLines ?? 0);
-                    if (fit == 0 && ColumnHasContent())
+                    if (fit == 0 && (ColumnHasContent() || y > pageTop + 0.01))
                     {
                         regionUnbalanced = true;
                         BreakColumn();
@@ -1546,7 +1561,7 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
 
                 // A line that cites a footnote needs room for the note at the
                 // foot of the page as well as for itself.
-                if (y + line.Height > contentBottom - NotesHeight([line]) && ColumnHasContent() && !heldByOwnShapes)
+                if (y + line.Height > contentBottom - NotesHeight([line]) && (ColumnHasContent() || y > pageTop + 0.01) && !heldByOwnShapes)
                 {
                     BreakColumn();
                     if (truncated)
@@ -1982,7 +1997,7 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
             if (!Draws(shape))
                 continue;
             var bounds = new BRect(
-                setup.ContentLeftPoints + shape.OffsetX,
+                setup.ContentLeftPoints + (shape.FitsText ? shape.OffsetX + (shape.Width - BoxWidth(shape)) / 2 : shape.OffsetX),
                 shape.OffsetY,
                 BoxWidth(shape),
                 BoxHeight(shape));
@@ -2047,7 +2062,7 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
                 TextAlignment.Left => 0,
                 TextAlignment.Center => (area.Width - BoxWidth(shape)) / 2,
                 TextAlignment.Right => area.Width - BoxWidth(shape),
-                _ => shape.OffsetX,
+                _ => shape.FitsText ? shape.OffsetX + (shape.Width - BoxWidth(shape)) / 2 : shape.OffsetX,
             };
             var bounds = new BRect(area.Left + offset, shape.TopOnPage(anchorTop),
                 BoxWidth(shape), BoxHeight(shape));
@@ -3098,20 +3113,21 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
     /// </summary>
     private void NoteGrownHeight(DocumentShape shape, DocumentPageBox setup)
     {
-        if (shape.GrowsWidthToText && !_grownWidths.ContainsKey(shape))
+        if ((shape.GrowsWidthToText || shape.FitsText) && !_grownWidths.ContainsKey(shape))
         {
             double width = 0;
             foreach (RichTextParagraph paragraph in shape.Paragraphs)
                 foreach (LayoutLine line in ComposeParagraph(paragraph, null, setup, -1, 0, 20000).Lines)
                     width = Math.Max(width, line.Pieces.Sum(piece => piece.Width) + paragraph.Style.LeftIndentIn(_settings.IndentStepPoints) + paragraph.Style.RightIndentIn);
             width = Math.Max(width, shape.Tables.Select(table => table.TotalWidth).DefaultIfEmpty(0).Max());
-            _grownWidths[shape] = Math.Max(Math.Max(0, shape.Width), Math.Min(20000, width + shape.TextPadding.Left + shape.TextPadding.Right));
+            double textWidth = Math.Min(20000, width + shape.TextPadding.Left + shape.TextPadding.Right);
+            _grownWidths[shape] = shape.FitsText ? textWidth : Math.Max(Math.Max(0, shape.Width), textWidth);
         }
-        if (!shape.GrowsToText || ShapeParagraphs(shape).Count == 0 || BoxWidth(shape) <= 0 || _grownHeights.ContainsKey(shape))
+        if ((!shape.GrowsToText && !shape.FitsText) || ShapeParagraphs(shape).Count == 0 || BoxWidth(shape) <= 0 || _grownHeights.ContainsKey(shape))
             return;
 
         double height = ComposeShapeBlocks(shape, setup, 0).Height + shape.TextPadding.Top + shape.TextPadding.Bottom;
-        _grownHeights[shape] = Math.Max(Math.Max(0, shape.Height), height);
+        _grownHeights[shape] = shape.FitsText ? height : Math.Max(Math.Max(0, shape.Height), height);
     }
 
     /// <summary>The height a shape's box is drawn at, grown to its text where it grows.</summary>

@@ -370,7 +370,7 @@ public static class DocumentCommands
             {
                 body = [.. Enumerable.Range(floating[0].ParagraphIndex, floating[0].ParagraphCount)];
             }
-            else if (document.Shapes.FirstOrDefault(shape => shape.HasText) is DocumentShape only)
+            else if (document.Shapes.FirstOrDefault(shape => shape.HasText && !shape.IsCustomShape) is DocumentShape only)
             {
                 return LabelledText(RichTextDocument.FromParagraphs(only.Paragraphs).WithTables(only.Tables)
                     .WithNoteNumbering(document.NoteNumbering), joinsTableRows);

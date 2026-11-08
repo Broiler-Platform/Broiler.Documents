@@ -331,4 +331,20 @@ public sealed class ExclusionGeometryKernelTests
     }
 
     #endregion
+
+    [Fact]
+    public void DocumentShape_AsCharacter_Never_Wraps_Even_When_Wrap_Specified()
+    {
+        var shape = new DocumentShape(0, 0, 0, 100, 100, wrap: ShapeWrap.TopAndBottom)
+        {
+            IsAsCharacter = true
+        };
+        Assert.False(shape.Wraps);
+
+        var floatingShape = new DocumentShape(0, 0, 0, 100, 100, wrap: ShapeWrap.TopAndBottom)
+        {
+            IsAsCharacter = false
+        };
+        Assert.True(floatingShape.Wraps);
+    }
 }

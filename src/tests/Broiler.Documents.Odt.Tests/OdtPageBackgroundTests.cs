@@ -121,6 +121,39 @@ public sealed class OdtPageBackgroundTests
     };
 
     [Fact]
+    public void Stretched_Background_Image_Overrides_Outer_NoRepeat_Repeat_Mode()
+    {
+        // tdf#92586: LibreOffice writes draw:fill="bitmap" style:repeat="no-repeat" on page-layout-properties,
+        // but child <style:background-image style:repeat="stretch"/> specifies stretch.
+        byte[] tinyPng = [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+            0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41,
+            0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
+            0x00, 0x03, 0x01, 0x01, 0x00, 0x18, 0xDD, 0x8D,
+            0xB0, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
+            0x44, 0xAE, 0x42, 0x60, 0x82
+        ];
+        string base64 = Convert.ToBase64String(tinyPng);
+        string styles =
+            "<office:styles/>" +
+            "<office:automatic-styles>" +
+            "<style:page-layout style:name=\"pm1\"><style:page-layout-properties " + Page + " " +
+            "draw:fill=\"bitmap\" style:repeat=\"no-repeat\">" +
+            "<style:background-image style:repeat=\"stretch\"><office:binary-data>" + base64 + "</office:binary-data></style:background-image>" +
+            "</style:page-layout-properties></style:page-layout>" +
+            "</office:automatic-styles>" +
+            "<office:master-styles><style:master-page style:name=\"Standard\" style:page-layout-name=\"pm1\"/></office:master-styles>";
+        DocumentReadResult result = OdtTestPackage.ReadStyled(OdtTestPackage.Paragraph("body"), styles);
+
+        var bg = Assert.IsType<ShapeFill>(result.Document.PageBackground);
+        Assert.NotNull(bg.Image);
+        Assert.Equal(ImageFillRepeat.Stretch, bg.Image.Repeat);
+    }
+
+    [Fact]
     public void An_Axial_Shape_Fill_Survives_A_Round_Trip()
     {
         var fill = new ShapeFill(BColor.FromArgb(255, 0, 0), BColor.FromArgb(0, 0, 255), 90, Axial: true);

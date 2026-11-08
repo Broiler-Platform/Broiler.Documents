@@ -128,7 +128,8 @@ internal static class OdtTableReader
                 ReadRowMinHeight(row, context.Styles),
                 ReadRowCanSplit(row, context.Styles),
                 exactHeight: IsFixedRow(row, context.Styles),
-                keepWithNext: (string?)rowProperties?.Attribute(OdtNamespaces.Fo + "keep-with-next") == "always"));
+                keepWithNext: (string?)rowProperties?.Attribute(OdtNamespaces.Fo + "keep-with-next") == "always" ||
+                    cells.Any(c => c.ParagraphCount > 0 && context.Builder.ParagraphHasKeepWithNext(c.ParagraphIndex + c.ParagraphCount - 1))));
         }
 
         (List<double> widths, bool relativeGrid) = ReadColumnWidths(table, context.Styles, depth);

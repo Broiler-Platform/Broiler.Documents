@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -706,7 +706,7 @@ internal sealed class PdfPageLayout(
                     "A floating image was dropped. This build composes no image emitter, so images are omitted rather than rasterized or transcoded.");
             }
 
-            double left = setup.MarginLeft + shape.OffsetX;
+            double left = setup.MarginLeft + (shape.FitsText ? shape.OffsetX + (shape.Width - BoxWidth(shape)) / 2 : shape.OffsetX);
             double top = setup.Height - shape.OffsetY;
             page.Shapes.Add(new PdfPlacedShape(
                 left,
@@ -1151,7 +1151,7 @@ internal sealed class PdfPageLayout(
                     "A floating image was dropped. This build composes no image emitter, so images are omitted rather than rasterized or transcoded.");
             }
 
-            double left = setup.MarginLeft + shape.OffsetX;
+            double left = setup.MarginLeft + (shape.FitsText ? shape.OffsetX + (shape.Width - BoxWidth(shape)) / 2 : shape.OffsetX);
             // Measured from the page's top edge rather than the paragraph's where
             // the shape says so, on whichever page the paragraph is.
             double top = shape.OffsetFromPage ? setup.Height - shape.OffsetY : anchor.Top - shape.OffsetY;
@@ -1200,12 +1200,15 @@ internal sealed class PdfPageLayout(
     private double BoxHeight(DocumentShape shape)
     {
         double stated = Math.Max(0, shape.Height);
-        if (!shape.GrowsToText || !shape.HasText || shape.Width <= 0)
+        if ((!shape.GrowsToText && !shape.FitsText) || !shape.HasText || shape.Width <= 0)
             return stated;
 
         RichTextDocument content = RichTextDocument.FromParagraphs(shape.Paragraphs).WithTables(shape.Tables);
-        return Math.Max(stated, ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, 0, ShapeTextWidth(shape)).Height +
-            shape.TextPadding.Top + shape.TextPadding.Bottom);
+        double textHeight = ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, 0, ShapeTextWidth(shape)).Height +
+            shape.TextPadding.Top + shape.TextPadding.Bottom;
+        return shape.FitsText ? textHeight : Math.Max(stated, textHeight);
+
+
     }
 
     private void PlaceShapeContent(PdfLayoutPage page, DocumentShape shape, double left, double top, double height)
@@ -1239,12 +1242,13 @@ internal sealed class PdfPageLayout(
 
     private double BoxWidth(DocumentShape shape)
     {
-        if (!shape.GrowsWidthToText)
+        if (!shape.GrowsWidthToText && !shape.FitsText)
             return Math.Max(0, shape.Width);
         double width = shape.Paragraphs.SelectMany(paragraph => BreakParagraph(paragraph, 20000, string.Empty))
             .Select(line => line.Width).DefaultIfEmpty(0).Max();
         width = Math.Max(width, shape.Tables.Select(table => table.TotalWidth).DefaultIfEmpty(0).Max());
-        return Math.Max(Math.Max(0, shape.Width), Math.Min(20000, width + shape.TextPadding.Left + shape.TextPadding.Right));
+        double textWidth = Math.Min(20000, width + shape.TextPadding.Left + shape.TextPadding.Right);
+        return shape.FitsText ? textWidth : Math.Max(Math.Max(0, shape.Width), textWidth);
     }
 
     private double ShapeTextWidth(DocumentShape shape) => Math.Max(1, BoxWidth(shape) - shape.TextPadding.Left - shape.TextPadding.Right);

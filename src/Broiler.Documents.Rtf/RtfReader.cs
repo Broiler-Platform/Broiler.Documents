@@ -969,6 +969,16 @@ public static class RtfReader
                             ApplyBodySectionBreak();
                             _builder.EndParagraph(_state.Para);
                         }
+                        if (_builder.PageBreakPending && _builder.ParagraphCount == 1 && !_pastFirstSection)
+                        {
+                            for (int i = 0; i < _shapes.Count; i++)
+                            {
+                                DocumentShape shape = _shapes[i];
+                                if (shape.IsPageAnchored || shape.ParagraphIndex != 0)
+                                    continue;
+                                _shapes[i] = shape.WithParagraphIndex(1);
+                            }
+                        }
                         if (_bodySectionPending)
                         {
                             ApplyBodySectionBreak();

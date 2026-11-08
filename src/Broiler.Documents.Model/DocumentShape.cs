@@ -160,6 +160,12 @@ public sealed class DocumentShape(
     /// <summary>Whether the source anchors this frame as a character in its paragraph.</summary>
     public bool IsAsCharacter { get; init; }
 
+    /// <summary>True when this shape is a custom drawing shape rather than a text frame.</summary>
+    public bool IsCustomShape { get; init; }
+
+    /// <summary>True when this shape's box shrinks/fits to its text content centered in the declared bounds.</summary>
+    public bool FitsText { get; init; }
+
     /// <summary>
     /// Where the shape sits among the other shapes: a higher number draws later,
     /// and therefore on top.
@@ -200,7 +206,7 @@ public sealed class DocumentShape(
     public double WrapDistance { get; } = double.IsFinite(wrapDistance) && wrapDistance > 0 ? wrapDistance : 0;
 
     /// <summary>True when the body text has to keep clear of this shape.</summary>
-    public bool Wraps => Wrap != ShapeWrap.None;
+    public bool Wraps => !IsAsCharacter && Wrap != ShapeWrap.None;
 
     /// <summary>
     /// The page the shape stands on, counted from one, or zero when it is
@@ -272,6 +278,15 @@ public sealed class DocumentShape(
     /// </summary>
     public double TopOnPage(double paragraphTop) =>
         IsPageAnchored || OffsetFromPage ? OffsetY : paragraphTop + OffsetY;
+
+    /// <summary>Creates a copy of this shape anchored to a different paragraph.</summary>
+    public DocumentShape WithParagraphIndex(int paragraphIndex) =>
+        new(paragraphIndex, OffsetX, OffsetY, Width, Height, Fill, Outline, Paragraphs, Image, BehindText, Wrap, WrapSide, WrapDistance, ZOrder, AnchorPage, OffsetFromPage, GrowsToText, Tables, TextPadding, TextVerticalAlignment, TextOverflow, GrowsWidthToText, FrameName, NextFrameName, Geometry, OutlineWidth, OffsetXFromCell, CellHorizontalAlignment, Printable)
+        {
+            IsAsCharacter = IsAsCharacter,
+            IsCustomShape = IsCustomShape,
+            FitsText = FitsText,
+        };
 
     /// <summary>The shape's own text, empty when it holds none.</summary>
     public IReadOnlyList<RichTextParagraph> Paragraphs { get; } = paragraphs is null || paragraphs.Count == 0
