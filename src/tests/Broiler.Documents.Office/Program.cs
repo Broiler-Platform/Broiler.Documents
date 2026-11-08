@@ -85,6 +85,8 @@ internal static class Program
 
         Guard(workspace, root);
 
+        string failedDocsPath = options.FailedDocumentsPath ?? FailedDocuments.DefaultPath(root);
+        if (options.Incremental) _ = FailedDocuments.Load(failedDocsPath);
         if (options.SampleList is not null || options.SingleSample is not null) _ = ExtrasSelection.Resolve(options.SampleList, options.SingleSample);
         if (options.PreviousTriage is not null) _ = ExtrasTriage.Load(options.PreviousTriage);
 
@@ -376,9 +378,40 @@ internal static class Program
                 }
             }
 
+            string failedDocsPath = options.FailedDocumentsPath ?? FailedDocuments.DefaultPath(RepositoryRoot());
+            IReadOnlySet<string>? sampleIds = null;
+            IReadOnlySet<string> previouslyTracked = new SortedSet<string>(StringComparer.Ordinal);
+
+            if (options.Incremental)
+            {
+                previouslyTracked = FailedDocuments.Load(failedDocsPath);
+                if (previouslyTracked.Count == 0)
+                {
+                    Console.WriteLine("incremental no failed documents tracked in " + failedDocsPath + "; nothing to recheck.");
+                    return 0;
+                }
+
+                sampleIds = previouslyTracked;
+                if (options.Only is not null)
+                {
+                    sampleIds = sampleIds.Where(id => id.Contains(options.Only, StringComparison.OrdinalIgnoreCase)).ToHashSet(StringComparer.Ordinal);
+                    if (sampleIds.Count == 0)
+                    {
+                        Console.WriteLine("incremental no tracked failed documents match --only '" + options.Only + "'.");
+                        return 0;
+                    }
+                }
+
+                Console.WriteLine("incremental rechecking " + sampleIds.Count.ToString(CultureInfo.InvariantCulture) + " tracked failed document(s)");
+            }
+            else
+            {
+                sampleIds = ExtrasSelection.Resolve(options.SampleList, options.SingleSample);
+            }
+
             IReadOnlyList<ExtrasSample> samples = await ExtrasConformance
-                .AcquireSamplesAsync(workspace, options.ExtrasUrl, options.ExtrasDirectory, options.Only, options.MaxFiles,
-                    ExtrasSelection.Resolve(options.SampleList, options.SingleSample))
+                .AcquireSamplesAsync(workspace, options.ExtrasUrl, options.ExtrasDirectory, options.Incremental ? null : options.Only, options.MaxFiles,
+                    sampleIds)
                 .ConfigureAwait(false);
 
             OfficeReferences? references = null;
@@ -583,6 +616,39 @@ internal static class Program
             OfficeReporting.WriteConsole(Console.Out, results, options.Verbose);
 
             int failed = results.Count(result => result.Outcome == CheckOutcome.Failed);
+
+            if (options.Incremental)
+            {
+                var evaluatedIds = samples.Select(s => s.Id);
+                var failedIds = differences.Where(d => d.HasDifference).Select(d => d.Sample.Id);
+                var updated = FailedDocuments.UpdateTracked(previouslyTracked, evaluatedIds, failedIds);
+                try
+                {
+                    FailedDocuments.Save(failedDocsPath, updated);
+                    Console.WriteLine("tracked     " + updated.Count.ToString(CultureInfo.InvariantCulture) + " failed document(s) in " + failedDocsPath);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine("warning: could not update tracked failed documents in " + failedDocsPath + ": " + ex.Message);
+                }
+            }
+            else if (options.SampleList is null && options.SingleSample is null && options.Only is null && options.MaxFiles is null)
+            {
+                var evaluatedIds = samples.Select(s => s.Id);
+                var failedIds = differences.Where(d => d.HasDifference).Select(d => d.Sample.Id);
+                var prior = File.Exists(failedDocsPath) ? FailedDocuments.Load(failedDocsPath) : (IReadOnlySet<string>)new SortedSet<string>(StringComparer.Ordinal);
+                var updated = FailedDocuments.UpdateTracked(prior, evaluatedIds, failedIds);
+                try
+                {
+                    FailedDocuments.Save(failedDocsPath, updated);
+                    Console.WriteLine("tracked     " + updated.Count.ToString(CultureInfo.InvariantCulture) + " failed document(s) in " + failedDocsPath);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine("warning: could not update tracked failed documents in " + failedDocsPath + ": " + ex.Message);
+                }
+            }
+
             return OfficeExitCodes.ForFailures(failed);
         }
         finally
@@ -857,10 +923,12 @@ internal static class Program
         string? PrepareReferences = null,
         string? ReferenceProducer = null,
         string? ReferenceDefects = null,
-        bool AcceptReferenceMismatch = false)
+        bool AcceptReferenceMismatch = false,
+        bool Incremental = false,
+        string? FailedDocumentsPath = null)
     {
         public bool IsExtrasRun => !SeedCorpus && (ExtrasUrl is not null || ExtrasDirectory is not null ||
-            SampleList is not null || SingleSample is not null || TriageDirectory is not null || ReferencesDirectory is not null || PrepareReferences is not null);
+            SampleList is not null || SingleSample is not null || Incremental || TriageDirectory is not null || ReferencesDirectory is not null || PrepareReferences is not null);
 
         public static Options Parse(string[] arguments)
         {
@@ -869,6 +937,8 @@ internal static class Program
             string? extrasUrl = null, extrasDir = null, issueOut = null, githubRepo = null;
             string? crashRegressions = null, sampleList = null, singleSample = null, triageDirectory = null, previousTriage = null;
             string? referencesDirectory = null, prepareReferences = null, referenceProducer = null, referenceDefects = null;
+            string? failedDocumentsPath = null;
+            bool incremental = false;
             string axis = "all";
             var fontDirectories = new List<string>();
             bool keep = false, verbose = false, update = false, restamp = false;
@@ -913,6 +983,8 @@ internal static class Program
                     case "--font-dir": fontDirectories.Add(Value(argument)); break;
                     case "--font-set": fontSet = Value(argument); break;
                     case "--only": only = Value(argument); break;
+                    case "--incremental": incremental = true; break;
+                    case "--failed-documents": failedDocumentsPath = Value(argument); break;
                     case "--sample": singleSample = Value(argument); break;
                     case "--sample-list": sampleList = Value(argument); break;
                     case "--triage-dir": triageDirectory = Value(argument); break;
@@ -966,6 +1038,12 @@ internal static class Program
                 }
             }
 
+            if (incremental && (sampleList is not null || singleSample is not null))
+                throw new ArgumentException("--incremental, --sample, and --sample-list are mutually exclusive.");
+            if (incremental && createIssue)
+                throw new ArgumentException("--incremental cannot update the global GitHub ranking issue; use the triage artifacts for focused runs.");
+            if (incremental && (seedCorpus || update))
+                throw new ArgumentException("--incremental applies to extras runs, not seed/baseline updates.");
             if ((sampleList is not null || singleSample is not null) && createIssue)
                 throw new ArgumentException("--sample and --sample-list cannot update the global GitHub ranking issue; use the triage artifacts for focused runs.");
             if (singleSample is not null && sampleList is not null)
@@ -997,7 +1075,8 @@ internal static class Program
                 axis, only, json, junit, extrasUrl, extrasDir, issueOut, githubRepo, crashRegressions, topDifferences,
                 maxFiles, createIssue, seedCorpus, keep, verbose, update, restamp, allowPending, help,
                 jobs, dpi, threshold, maxPages, TimeSpan.FromSeconds(timeout), sampleList, singleSample, triageDirectory, previousTriage,
-                referencesDirectory, prepareReferences, referenceProducer, referenceDefects, acceptReferenceMismatch);
+                referencesDirectory, prepareReferences, referenceProducer, referenceDefects, acceptReferenceMismatch,
+                incremental, failedDocumentsPath);
         }
 
         public static void WriteUsage(TextWriter output)
@@ -1039,6 +1118,8 @@ internal static class Program
             output.WriteLine("  --font-dir <dir>         Pin a font directory for both sides. Repeatable.");
             output.WriteLine("  --font-set <name>        The name the baseline stamp records for that set.");
             output.WriteLine("  --axis <kind>            semantic, pixel, or all. (default all)");
+            output.WriteLine("  --incremental            Recheck only previously failed documents tracked in the repository.");
+            output.WriteLine("  --failed-documents <path> Path to tracked failed documents file (default tests/office/failed-documents.txt).");
             output.WriteLine("  --sample <id>            Exact extras ID to evaluate alone without a sample list file.");
             output.WriteLine("  --sample-list <path>     Exact extras IDs, one per line; fails if any is missing.");
             output.WriteLine("  --triage-dir <path>      Write structured triage, Markdown summary and top-sample replay list.");

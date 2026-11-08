@@ -1,4 +1,4 @@
-﻿# The office conformance suite
+# The office conformance suite
 
 `src/tests/Broiler.Documents.Office` is a console runner that asks LibreOffice to
 write the documents, reads them back with the built `broilerdoc`, and holds the
@@ -905,6 +905,17 @@ new issue for their own run. The CLI still rejects
 global ranking issue; the workflow's separate publisher has no such restriction.
 To compare CI artifacts
 locally, extract a previous `triage.json` and pass it via `--previous-triage`.
+
+### Incremental conformance rechecking
+
+To recheck only previously failed documents without running the entire 3,900+ sample corpus:
+
+```bash
+bash eng/run-office-conformance.sh --incremental
+```
+
+In GitHub Actions, activate the **incremental** workflow input on dispatch.
+The runner reads `tests/office/failed-documents.txt` (or a custom list via `--failed-documents <path>`), evaluates only those documents, and updates the tracked list upon completion (pruning documents that now pass, while keeping any remaining failures). Full corpus runs automatically refresh the tracked failed documents list.
 
 ### Recovering a .NET download failure
 

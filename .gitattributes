@@ -16,4 +16,5 @@ tests/corpus/*.json text eol=lf
 # documents, so a regeneration on the other host would look like a change to
 # the corpus rather than to the file's line endings.
 tests/office/*.json text eol=lf
+tests/office/*.txt text eol=lf
 tests/office/tools/*.json text eol=lf

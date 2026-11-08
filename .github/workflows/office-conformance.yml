@@ -46,6 +46,11 @@ on:
         description: 'semantic, pixel, or all'
         required: false
         default: 'all'
+      incremental:
+        description: 'Recheck only previously failed documents tracked in the repository'
+        type: boolean
+        required: false
+        default: false
       only:
         description: Substring filter, or @path/to/sample-list.txt in the checkout for exact extras IDs
         required: false
@@ -93,7 +98,7 @@ permissions:
   issues: write
 
 concurrency:
-  group: office-conformance-${{ startsWith(inputs.only, '@') && github.run_id || 'full' }}
+  group: office-conformance-${{ (startsWith(inputs.only, '@') || inputs.incremental) && github.run_id || 'full' }}
   cancel-in-progress: false
 
 jobs:
@@ -161,6 +166,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OFFICE_AXIS: ${{ inputs.axis || 'all' }}
+          OFFICE_INCREMENTAL: ${{ inputs.incremental && 'true' || 'false' }}
           OFFICE_THRESHOLD: ${{ inputs.threshold || '80' }}
           OFFICE_DPI: ${{ inputs.dpi || '144' }}
           OFFICE_ONLY: ${{ inputs.only || '' }}
@@ -205,6 +211,9 @@ jobs:
             fi
           else
             ARGS+=(--extras-url "$OFFICE_EXTRAS_URL")
+          fi
+          if [ "$OFFICE_INCREMENTAL" = "true" ]; then
+            ARGS+=(--incremental)
           fi
           if [ -n "$OFFICE_ONLY" ]; then
             ARGS+=(--only "$OFFICE_ONLY")
@@ -252,7 +261,7 @@ jobs:
               exit 1
             fi
           fi
-          if grep -qE '^0/0 passed' ./test-results/office-results.log; then
+          if [ "$OFFICE_INCREMENTAL" != "true" ] && grep -qE '^0/0 passed' ./test-results/office-results.log; then
             echo "::error::The suite executed no checks. Either a tool could not be driven or the corpus is empty; the log names which."
             exit 1
           fi
@@ -265,6 +274,7 @@ jobs:
         env:
           OFFICE_JOB_STATUS: ${{ job.status }}
           OFFICE_REPORT_EXPECTED: ${{ !inputs.seedCorpus && !inputs.updateBaseline }}
+          OFFICE_INCREMENTAL: ${{ inputs.incremental && 'true' || 'false' }}
         with:
           script: |
             const fs = require('node:fs');
@@ -289,12 +299,17 @@ jobs:
               core.warning(`No valid conformance results: ${error.message}`);
               results = null;
             }
+            const isIncremental = process.env.OFFICE_INCREMENTAL === 'true';
             const missingReport = process.env.OFFICE_REPORT_EXPECTED === 'true' && !fs.existsSync(reportPath);
+            const noChecks = !results || results.passed + results.failed === 0;
             const verdict = !results || missingReport || partial ? 'results incomplete'
               : results.failed > 0 ? `${results.failed} failed checks`
+              : noChecks && isIncremental ? 'no failed documents to recheck'
               : results.passed === 0 ? 'no checks executed' : 'no failed checks';
             const counts = results
               ? `Checks: **${results.passed} passed, ${results.failed} failed, ${results.skipped} skipped**.`
+              : isIncremental && noChecks
+              ? '**All tracked documents passed; no failing documents remained to recheck.**'
               : '**No valid check counts available; conformance has not been established.**';
             const partialReportPath = path.join(resultsDir, 'office-partial-differences.md');
             const selectedReport = !partial && fs.existsSync(reportPath) ? reportPath : partialReportPath;
@@ -309,6 +324,7 @@ jobs:
               `Status before issue publication: **${status}**`,
               `Commit: ${context.sha}`,
               `Trigger: ${context.eventName}`,
+              ...(isIncremental ? ['Execution mode: **Incremental** (rechecking tracked failed documents)'] : []),
               ...(fs.existsSync(path.join(resultsDir, 'office-reference-source.json'))
                 ? [`Reference set: ${JSON.parse(fs.readFileSync(path.join(resultsDir, 'office-reference-source.json'), 'utf8')).releaseTag}`]
                 : []),
@@ -319,18 +335,22 @@ jobs:
             const suffix = '\n\nReport truncated; the full report is available in the workflow artifacts.';
             const issue = await github.rest.issues.create({
               ...context.repo,
-              title: `Office conformance: run ${context.runNumber}, attempt ${attempt} (${verdict})`,
+              title: `Office conformance${isIncremental ? ' (incremental)' : ''}: run ${context.runNumber}, attempt ${attempt} (${verdict})`,
               body: body.length > limit ? body.slice(0, limit - suffix.length) + suffix : body,
             });
             core.info(`Created ${issue.data.html_url}`);
             await core.summary.addLink('Office conformance issue', issue.data.html_url).write();
-            if (!results || missingReport || partial || results.passed + results.failed === 0)
+            if (!results || missingReport || partial || (results.passed + results.failed === 0 && !isIncremental))
               core.setFailed('Conformance results are missing, incomplete or contain no executed checks. See the issue and run logs.');
 
       # The dispatch input offers a regenerated baseline, so it has to arrive
       # somewhere a person can fetch it. It is deliberately not committed: a row
       # is classified by a reviewer, and a workflow that pushed one would be
       # writing the reviewer's half of the file.
+      - name: Collect tracked failed documents
+        if: always()
+        run: cp tests/office/failed-documents.txt ./test-results/failed-documents.txt || true
+
       - name: Collect the regenerated baseline
         if: ${{ always() && inputs.updateBaseline == true }}
         run: cp tests/office/office-baseline.json ./test-results/office-baseline.regenerated.json || true

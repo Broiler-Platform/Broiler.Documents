@@ -136,6 +136,17 @@ In multi-page documents where a break or line height delta on an early page shif
 Triaging a single sample previously required writing a temporary sample list text file and passing `--sample-list`.
 `broilerdoc-office` now accepts `--sample <id>` directly, validating and running that single extras sample alone. In addition, passing `--verbose` now prints the complete, unshortened `broilerdoc render` reproduction command without eliding font mappings.
 
+### Incremental conformance rechecking
+
+Re-running the complete `sw/qa/extras` corpus (over 3,900 documents) to verify fixes for a small number of regressions takes substantial time and resources.
+An `incremental` option is now supported in `.github/workflows/office-conformance.yml`, `eng/run-office-conformance.sh`, and `broilerdoc-office`:
+
+- When `--incremental` is active, the runner loads the failed documents tracked in the repository at `tests/office/failed-documents.txt` (overridable with `--failed-documents <path>`).
+- Only the tracked failing documents are rechecked.
+- On completion of an incremental run, documents that now pass are pruned from `tests/office/failed-documents.txt`, while any remaining failures are retained.
+- Full extras corpus runs automatically record all failing documents to `tests/office/failed-documents.txt`.
+- In the GitHub Actions workflow, dispatching with `incremental: true` runs with independent concurrency, indicates incremental mode in the published issue metadata and title, and archives the updated `failed-documents.txt` in the workflow artifacts.
+
 ## Open
 
 Ordered by how much of the ranking they distort or how much triage time they

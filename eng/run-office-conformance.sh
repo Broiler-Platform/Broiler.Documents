@@ -30,6 +30,8 @@
 #     --seed-corpus            Run the authored seed corpus instead of sw/qa/extras
 #     --axis <kind>            semantic, pixel, or all (default: all)
 #     --sample-list <path>     Exact extras IDs, one per line (no --only/--max-files)
+#     --incremental            Recheck only previously failed documents from tests/office/failed-documents.txt
+#     --failed-documents <path> Custom path for tracked failed documents (default: tests/office/failed-documents.txt)
 #     --triage-dir <dir>       Triage JSON/Markdown and replay lists (default: output-dir/triage)
 #     --previous-triage <json> Compare with a previous triage.json
 #     --only <substring>       Run only documents whose seed/format key contains this
@@ -82,6 +84,8 @@ SEED_CORPUS=false
 AXIS="all"
 ONLY=""
 SAMPLE_LIST=""
+INCREMENTAL=false
+FAILED_DOCUMENTS=""
 TRIAGE_DIR=""
 PREVIOUS_TRIAGE=""
 JOBS=""
@@ -133,6 +137,8 @@ while [[ $# -gt 0 ]]; do
         --axis) AXIS="$2"; shift 2 ;;
         --only) ONLY="$2"; shift 2 ;;
         --sample-list) SAMPLE_LIST="$2"; shift 2 ;;
+        --incremental) INCREMENTAL=true; shift ;;
+        --failed-documents) FAILED_DOCUMENTS="$2"; shift 2 ;;
         --triage-dir) TRIAGE_DIR="$2"; shift 2 ;;
         --previous-triage) PREVIOUS_TRIAGE="$2"; shift 2 ;;
         --jobs) JOBS="$2"; shift 2 ;;
@@ -153,8 +159,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$SEED_CORPUS" == "true" || "$UPDATE_BASELINE" == "true" ]] && \
-   [[ -n "$SAMPLE_LIST" || -n "$TRIAGE_DIR" || -n "$PREVIOUS_TRIAGE" ]]; then
-    echo "Sample lists and triage reports apply to extras runs only." >&2
+   [[ -n "$SAMPLE_LIST" || -n "$TRIAGE_DIR" || -n "$PREVIOUS_TRIAGE" || "$INCREMENTAL" == "true" ]]; then
+    echo "Sample lists, triage reports, and incremental runs apply to extras runs only." >&2
     exit 99
 fi
 
@@ -416,6 +422,8 @@ else
     RUNNER_ARGS+=(--top-differences "$TOP_DIFFERENCES" --issue-out "$ISSUE_FILE")
     RUNNER_ARGS+=(--triage-dir "${TRIAGE_DIR:-$OUTPUT_DIR/triage}")
     [[ -n "$SAMPLE_LIST" ]] && RUNNER_ARGS+=(--sample-list "$SAMPLE_LIST")
+    [[ "$INCREMENTAL" == "true" ]] && RUNNER_ARGS+=(--incremental)
+    [[ -n "$FAILED_DOCUMENTS" ]] && RUNNER_ARGS+=(--failed-documents "$FAILED_DOCUMENTS")
     [[ -n "$PREVIOUS_TRIAGE" ]] && RUNNER_ARGS+=(--previous-triage "$PREVIOUS_TRIAGE")
     [[ -n "$MAX_FILES" ]] && RUNNER_ARGS+=(--max-files "$MAX_FILES")
     [[ "$CREATE_GITHUB_ISSUE" == "true" ]] && RUNNER_ARGS+=(--create-github-issue)
