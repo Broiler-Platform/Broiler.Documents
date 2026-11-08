@@ -108,6 +108,11 @@ public sealed class ImageStore : IDisposable
             return existing;
 
         var entry = new Entry();
+        if (image.IsMissingPayload)
+        {
+            _entries[image] = entry;
+            return entry;
+        }
 
         // A picture recovered from inside a container arrives as samples a
         // decoder already produced — a PDF image is the case that matters — and

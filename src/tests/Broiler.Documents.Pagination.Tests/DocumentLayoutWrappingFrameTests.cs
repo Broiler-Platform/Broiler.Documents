@@ -82,4 +82,19 @@ public sealed class DocumentLayoutWrappingFrameTests
         var page = Assert.Single(pages);
         Assert.True(page.Lines[1].Top >= 50);
     }
+
+    [Fact]
+    public void Page_Relative_Wrapping_Frame_Anchored_To_Later_Paragraph_Wraps_Preceding_Text_On_Opening_Page()
+    {
+        var shape = new DocumentShape(1, 0, 10, 50, 40, wrap: ShapeWrap.Square, offsetFromPage: true);
+        var document = RichTextDocument.FromParagraphs([Paragraph("preceding text that wraps"), Paragraph("anchor text")])
+            .WithShapes([shape]);
+        using var images = new ImageStore();
+        var pages = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 200, 10, 10, 10, 10)).Pages;
+
+        var page = Assert.Single(pages);
+        Assert.Single(page.Shapes);
+        Assert.True(page.Lines[0].Pieces[0].X >= 50);
+    }
 }

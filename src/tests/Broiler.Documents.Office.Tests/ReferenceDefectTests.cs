@@ -75,6 +75,30 @@ public sealed class ReferenceDefectTests
     }
 
     [Fact]
+    public void The_Repository_File_Loads_And_Covers_The_Issue_213_Samples()
+    {
+        string root = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(root, "Broiler.Documents.slnx")))
+            root = Path.GetDirectoryName(root) ?? throw new DirectoryNotFoundException("repository root");
+
+        ReferenceDefects defects = ReferenceDefects.Load(Path.Combine(root, "tests", "office", "extras-reference-defects.json"));
+
+        var tdf146955 = new ExtrasSample("ooxmlexport/data/tdf146955.odt", ".odt", "odt", "tdf146955.odt", null);
+        ReferenceDefect? defect146955 = defects.For(tdf146955, "LibreOffice 24.2.7.2 420(Build:2)");
+        Assert.NotNull(defect146955);
+        Assert.Equal("tdf#146955", defect146955.Bug);
+        Assert.True(defect146955.Covers("pixel"));
+        Assert.False(defect146955.Covers("text"));
+
+        var tox = new ExtrasSample("layout/data/tox-update-wrong-pages.odt", ".odt", "odt", "tox-update-wrong-pages.odt", null);
+        ReferenceDefect? defectTox = defects.For(tox, "LibreOffice 24.2.7.2 420(Build:2)");
+        Assert.NotNull(defectTox);
+        Assert.Equal("tdf#172169", defectTox.Bug);
+        Assert.True(defectTox.Covers("pixel"));
+        Assert.False(defectTox.Covers("text"));
+    }
+
+    [Fact]
     public void The_Report_Lists_Known_Defects_And_Does_Not_Rank_A_Sample_For_Them()
     {
         ReferenceDefect defect = Load(File163894).For(Hidden, "LibreOffice 24.2.7.2")!;

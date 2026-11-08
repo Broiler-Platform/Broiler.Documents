@@ -77,6 +77,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private readonly List<(int Paragraph, int Offset)?> _pageStartsFound = [];
     private IReadOnlyList<(int Paragraph, int Offset)?>? _pageStarts;
     private IReadOnlyList<RichTextParagraph> _bodyParagraphs = [];
+    private IReadOnlyList<DocumentSection> _sections = [];
+    private DocumentPageBox _setup = DocumentPageBox.Default;
     private double? _headerDistance;
     private double? _footerDistance;
     private (bool Header, bool Footer) _fixedBands;
@@ -204,6 +206,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         _footerDistance = document.PageGeometry?.FooterDistance;
         _fixedBands = (document.PageGeometry?.FixedHeaderHeight == true, document.PageGeometry?.FixedFooterHeight == true);
         _frame = null;
+        _bodyParagraphs = document.Paragraphs;
+        _sections = document.Sections;
+        _setup = setup;
         bool IsHidden(int index) => DocumentSection.Containing(document.Sections, index)?.Hidden == true;
         _documentShapes = document.Shapes.Where(shape => !IsHidden(shape.ParagraphIndex)).ToArray();
         _background = document.PageBackground;
@@ -1907,9 +1912,43 @@ if (groupEnd > rowNumber && !setup.Continuous && requiredToKeep <= contentBottom
     {
         foreach (DocumentShape shape in _documentShapes)
         {
-            if (shape.Wraps && shape.AnchorPage == number)
+            if (shape.Wraps && (shape.AnchorPage == number || (number == 1 && BelongsToOpeningPage(shape))))
                 _wrap.Add(shape, shape.OffsetY, height: BoxHeight(shape), width: BoxWidth(shape));
         }
+    }
+
+    /// <summary>
+    /// True when a shape with page-relative vertical offset belongs to the opening page,
+    /// so its text wrap exclusions are active from the start of page 1.
+    /// </summary>
+    private bool BelongsToOpeningPage(DocumentShape shape)
+    {
+        if (!shape.Wraps || shape.IsPageAnchored || !shape.OffsetFromPage)
+            return false;
+
+        if (shape.ParagraphIndex < 0 || shape.ParagraphIndex >= _bodyParagraphs.Count)
+            return false;
+
+        double capacity = _setup.HeightPoints - _setup.MarginTopPoints - _setup.MarginBottomPoints;
+        double estimatedHeight = 0;
+        for (int i = 0; i <= shape.ParagraphIndex; i++)
+        {
+            RichTextParagraph p = _bodyParagraphs[i];
+            if (p.Style.PageBreakBefore)
+                return false;
+
+            DocumentSection? sec = DocumentSection.Containing(_sections, i);
+            if (sec is not null && sec.ParagraphIndex == i &&
+                sec.BreakType is SectionBreakType.NextPage or SectionBreakType.OddPage or SectionBreakType.EvenPage)
+                return false;
+
+            double fontSize = p.Runs.Select(r => (double)(r.Style.FontSize ?? _styleDefaults.FontSizePoints)).DefaultIfEmpty(_styleDefaults.FontSizePoints).Max();
+            estimatedHeight += Math.Max(12.0, fontSize) * 1.2 + p.Style.SpacingBefore + p.Style.SpacingAfter;
+            if (estimatedHeight > capacity)
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>True when <paramref name="setup"/> is the paper and margins <paramref name="page"/> states.</summary>

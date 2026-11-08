@@ -22,6 +22,9 @@ internal static class DocxNamespaces
     /// <summary>DrawingML picture, the <c>pic:pic</c> shape a drawing embeds.</summary>
     public static readonly XNamespace Picture = "http://schemas.openxmlformats.org/drawingml/2006/picture";
 
+    /// <summary>DrawingML chart namespace.</summary>
+    public static readonly XNamespace DrawingChart = "http://schemas.openxmlformats.org/drawingml/2006/chart";
+
     /// <summary>VML, used by the legacy <c>w:pict</c> image shape.</summary>
     public static readonly XNamespace Vml = "urn:schemas-microsoft-com:vml";
 

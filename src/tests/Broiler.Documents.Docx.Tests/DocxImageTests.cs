@@ -511,4 +511,34 @@ public sealed class DocxImageTests
         Assert.Equal("image/png", image.ContentType);
         Assert.Equal(DocxTestPackage.OnePixelPng, image.Data.ToArray());
     }
+
+    [Fact]
+    public void Reads_Drawingml_Chart_As_Missing_Payload_Placeholder_Shape()
+    {
+        string drawingXml =
+            "<w:p><w:r><w:drawing>" +
+            "<wp:inline xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" " +
+            "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" " +
+            "xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\">" +
+            "<wp:extent cx=\"914400\" cy=\"457200\"/>" +
+            "<wp:docPr id=\"1\" name=\"Chart 1\" descr=\"Sample Chart\"/>" +
+            "<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\">" +
+            "<c:chart r:id=\"rId1\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"/>" +
+            "</a:graphicData></a:graphic>" +
+            "</wp:inline>" +
+            "</w:drawing></w:r></w:p>";
+
+        DocumentReadResult result = DocxTestPackage.ReadBody(drawingXml);
+        RichTextParagraph paragraph = Assert.Single(result.Document.Paragraphs);
+        Assert.Equal(InlineImage.PlaceholderText, paragraph.Text);
+
+        StyleRun run = Assert.Single(paragraph.Runs);
+        InlineImage image = Assert.IsType<InlineImage>(run.Style.Image);
+        Assert.True(image.IsMissingPayload);
+        Assert.Equal(72, image.Width!.Value, 3);
+        Assert.Equal(36, image.Height!.Value, 3);
+        Assert.Equal("Sample Chart", image.AltText);
+        Assert.Equal("Chart 1", image.Name);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.shape");
+    }
 }

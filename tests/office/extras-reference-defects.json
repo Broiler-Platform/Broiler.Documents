@@ -279,6 +279,45 @@
       ],
       "evidence": "In LibreOffice 24.2.7.2, an extra blank 4th page is generated (ink bbox: None) when endnotes contain index and bibliography sections. Modern LibreOffice (26.2+) and broilerdoc render the 3 actual content pages without the trailing blank page, with 100% semantic text projection match.",
       "reference": "docs/notes/office-issue-212.md"
+    },
+    {
+      "id": "tdf146955-corrupted-export-fixture",
+      "bug": "tdf#146955",
+      "fixedIn": "26.2",
+      "fixCommits": [
+        "95f32f369c14b4f76c2ea1616d2c18cc2ce4e48b"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlexport/ooxmlexport17.cxx testTdf146955"
+      ],
+      "axes": [
+        "pixel"
+      ],
+      "samples": [
+        "ooxmlexport/data/tdf146955.odt"
+      ],
+      "evidence": "The pinned 24.2 reference PDF was generated from an upstream corrupted fixture with 466 frames and 367 phantom page anchors where text content was corrupted into a TOC section during export and ceased around page 28, leaving pages 29-30 blank with header-only ink. Upstream commit 95f32f369c14b4f76c2ea1616d2c18cc2ce4e48b in LibreOffice 26.2 replaced this corrupted fixture with a minimal test document.",
+      "reference": "docs/notes/office-issue-213.md"
+    },
+    {
+      "id": "tdf172169-tox-linespacing-pagination",
+      "bug": "tdf#172169",
+      "fixedIn": "26.8",
+      "fixCommits": [
+        "882b75b93dc25b1d4e9d42e1d18e3437fb0150d3",
+        "83303053d7c296db96e747fb053e76bc2a8ccf7d"
+      ],
+      "upstreamTests": [
+        "sw/qa/extras/ooxmlexport/ooxmlexport23.cxx testTdf172169_intraLinespacing"
+      ],
+      "axes": [
+        "pixel"
+      ],
+      "samples": [
+        "layout/data/tox-update-wrong-pages.odt"
+      ],
+      "evidence": "Upstream bug tdf#172169 addressed line spacing height calculation regressions in LibreOffice Writer. In pinned LibreOffice 24.2, the document renders 13 pages due to pre-fix line spacing, whereas in LibreOffice 26.8 with the fix it renders 14 pages. The semantic text projection has 0 differences across all pages.",
+      "reference": "docs/notes/office-issue-213.md"
     }
   ]
 }

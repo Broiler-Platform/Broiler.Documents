@@ -36,6 +36,7 @@ public readonly record struct TextBand(double Left, double Width);
 public sealed class TextWrapExclusions
 {
     private readonly ExclusionBandQueryEngine _kernel;
+    private readonly HashSet<DocumentShape> _shapes = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>The underlying unit-neutral geometry engine.</summary>
     public ExclusionBandQueryEngine Kernel => _kernel;
@@ -81,7 +82,7 @@ public sealed class TextWrapExclusions
     {
         double boxHeight = height ?? shape.Height;
         double boxWidth = width ?? shape.Width;
-        if (shape.Wrap == ShapeWrap.None || boxWidth <= 0 || boxHeight <= 0)
+        if (shape.Wrap == ShapeWrap.None || boxWidth <= 0 || boxHeight <= 0 || !_shapes.Add(shape))
             return;
 
         double margin = Math.Max(0, shape.WrapDistance) * scale;

@@ -155,6 +155,13 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
             if (blip is null)
             {
                 diagnostics.AddDiagnosticOnce("docx.image.shape", "A DOCX drawing held no embedded picture and was skipped.");
+                bool isChart = FindDescendant(wrapper, DocxNamespaces.DrawingChart + "chart") is not null ||
+                    (string?)FindDescendant(wrapper, DocxNamespaces.Drawing + "graphicData")?.Attribute("uri") == "http://schemas.openxmlformats.org/drawingml/2006/chart";
+                if (isChart && width > 0 && height > 0)
+                {
+                    return Admit(InlineImage.CreateMissingPayload(width, height, altText, name),
+                        DocumentResourceDisposition.Embedded, diagnostics);
+                }
                 return null;
             }
 
