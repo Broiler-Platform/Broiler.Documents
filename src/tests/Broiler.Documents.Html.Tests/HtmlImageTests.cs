@@ -139,6 +139,23 @@ public sealed class HtmlImageTests
     }
 
     [Fact]
+    public void Sized_External_Image_Keeps_Its_Box_As_A_Missing_Payload()
+    {
+        string html = "<p><img src=\"libreoffice.jpg\" alt=\"Pic\" width=\"70%\"/></p>";
+
+        DocumentReadResult result = ReadResult(html);
+
+        Assert.Contains(result.Diagnostics, d => d.Code == "html.skip.external");
+        InlineImage image = Assert.Single(result.Document.Paragraphs
+            .SelectMany(p => p.Runs)
+            .Select(r => r.Style.Image)
+            .OfType<InlineImage>());
+        Assert.True(image.IsMissingPayload);
+        PageGeometry a4 = PageGeometry.A4;
+        Assert.Equal((a4.Width - a4.MarginLeft - a4.MarginRight) * 0.7, image.Width!.Value, 3);
+    }
+
+    [Fact]
     public void Embedded_Image_Survives_Html_Round_Trip()
     {
         var originalImage = new InlineImage(SamplePng, "image/png", 50, 25, "roundtrip logo", "logo");

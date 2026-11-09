@@ -1156,6 +1156,22 @@ internal static class HtmlReader
         if (!src.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
         {
             builder.AddDiagnosticOnce("html.skip.external", "External or embedded HTML content was skipped.");
+
+            // The payload is not fetched, but a picture that states its size
+            // still takes that room on the page: LibreOffice draws the linked
+            // file there, and leaving nothing put the rest of the page out of
+            // place (issue #218). One that states no size has no box to keep.
+            TryParseImageDimensions(element, styleSheet, out double? statedWidth, out double? statedHeight);
+            if (statedWidth is null && statedHeight is null)
+                return;
+
+            string? externalAlt = element.GetAttribute("alt");
+            string? externalName = element.GetAttribute("name") ?? element.GetAttribute("title");
+            double side = statedWidth ?? statedHeight!.Value;
+            builder.AppendImage(
+                InlineImage.CreateMissingPayload(statedWidth ?? side, statedHeight ?? side, externalAlt, externalName),
+                inlineStyle,
+                paragraphStyle);
             return;
         }
 
@@ -1225,11 +1241,19 @@ internal static class HtmlReader
         string? attrWidth = element.GetAttribute("width");
         string? attrHeight = element.GetAttribute("height");
 
-        TryParseDimension(attrWidth, cssWidth, out width);
-        TryParseDimension(attrHeight, cssHeight, out height);
+        TryParseDimension(attrWidth, cssWidth, out width, PercentBase(PageGeometry.A4, horizontal: true));
+        TryParseDimension(attrHeight, cssHeight, out height, PercentBase(PageGeometry.A4, horizontal: false));
     }
 
-    private static bool TryParseDimension(string? attrValue, string? cssValue, out double? points)
+    /// <summary>
+    /// What a percentage size is a share of: the text area of the default page,
+    /// which is the containing block an image directly in the body has.
+    /// </summary>
+    private static double PercentBase(PageGeometry page, bool horizontal) => horizontal
+        ? page.Width - page.MarginLeft - page.MarginRight
+        : page.Height - page.MarginTop - page.MarginBottom;
+
+    private static bool TryParseDimension(string? attrValue, string? cssValue, out double? points, double percentBase = 0)
     {
         points = null;
         string? val = cssValue;
@@ -1239,6 +1263,18 @@ internal static class HtmlReader
             return false;
 
         val = val.Trim();
+        if (val.EndsWith('%') && percentBase > 0 &&
+            double.TryParse(val[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out double percent))
+        {
+            if (percent > 0 && double.IsFinite(percent))
+            {
+                points = percentBase * Math.Min(percent, 100) / 100d;
+                return true;
+            }
+
+            return false;
+        }
+
         if (double.TryParse(val, NumberStyles.Float, CultureInfo.InvariantCulture, out double pxVal))
         {
             if (pxVal > 0 && double.IsFinite(pxVal))

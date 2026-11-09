@@ -1492,10 +1492,19 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // An empty line can represent an explicit line break, so only
                 // restart here when the line has a source position of its own.
                 int offset = composed.Lines[nextLine].Pieces.FirstOrDefault(piece => piece.SourceOffset >= 0)?.SourceOffset ?? -1;
-                if (offset <= 0 || offset >= remaining.Length)
+
+                // Nothing of this composition was placed: the continuation was
+                // composed against the page it then left, a full-page wrap there
+                // pushing its first line down by the page's height. Composed again
+                // as it stands here, rather than kept with that skip, which went on
+                // to overflow this page too and leave it blank (issue #218).
+                if (nextLine == 0 && remaining.Length > 0)
+                    offset = 0;
+                else if (offset <= 0 || offset >= remaining.Length)
                     return false;
 
-                remaining = remaining.SplitAt(offset).Tail;
+                if (offset > 0)
+                    remaining = remaining.SplitAt(offset).Tail;
                 composed = ComposeParagraph(remaining, marker, setup, paragraphIndex,
                     columnWidthOverride: columns.Width, wrapTop: y, continuation: true,
                     wrapColumnLeft: columns.Offset(column));
