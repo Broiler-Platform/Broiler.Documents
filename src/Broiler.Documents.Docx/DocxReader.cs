@@ -374,6 +374,24 @@ internal static class DocxReader
             // this reader drew the default one carrying a stale cached page number.
             XElement? titlePage = sections[index].Element(DocxNamespaces.Wordprocessing + "titlePg");
             bool differentFirstPage = titlePage is not null && ReadOnOff(titlePage);
+
+            // A later titlePg section that names no header or footer of its own,
+            // and has no first-page one to continue either, takes its page
+            // style from the section before it: LibreOffice draws the default
+            // bands on its first page (issue #218, a landscape closing section
+            // whose page was left blank here while LibreOffice carried the
+            // header and footer). The first section keeps Word's reading, a
+            // first page with no bands.
+            if (differentFirstPage && index > 0 &&
+                !sections[index].Elements().Any(element =>
+                    element.Name == DocxNamespaces.Wordprocessing + "headerReference" ||
+                    element.Name == DocxNamespaces.Wordprocessing + "footerReference") &&
+                !ContinuedReferences(sections, index).Any(reference =>
+                    SelectionFor((string?)reference.Attribute(DocxNamespaces.Wordprocessing + "type")) == PageSelection.First))
+            {
+                differentFirstPage = false;
+            }
+
             RunningContent content = RunningContent.Empty.WithDifferentFirstPage(differentFirstPage);
 
             foreach (XElement reference in ContinuedReferences(sections, index))
@@ -436,10 +454,113 @@ internal static class DocxReader
                     : content.WithFooter(selection, paragraphs, shapes);
             }
 
+            content = WithPageBorder(content, sections[index]);
             contents.Add(content);
         }
 
         return contents;
+    }
+
+    /// <summary>
+    /// The section's running content with its page border (<c>w:pgBorders</c>,
+    /// ECMA-376 §17.6.10) added as an outline shape in the header band of the
+    /// pages <c>w:display</c> names: every page, the section's first page, or
+    /// every page but the first.
+    /// </summary>
+    /// <remarks>
+    /// The border is drawn as one rectangle stroked at the widest side's width,
+    /// the four sides' own styles (double, thin-thick and the like) being read
+    /// as a single line. LibreOffice draws it on the page whether or not the
+    /// page has a header, which is why it is carried as a header shape: those
+    /// are placed against the page and repeat on exactly the pages chosen.
+    /// </remarks>
+    internal static RunningContent WithPageBorder(RunningContent content, XElement section)
+    {
+        XNamespace w = DocxNamespaces.Wordprocessing;
+        XElement? borders = section.Element(w + "pgBorders");
+        XElement? size = section.Element(w + "pgSz");
+        if (borders is null || size is null)
+            return content;
+
+        double Twips(XElement? element, string name, double fallback) =>
+            double.TryParse((string?)element?.Attribute(w + name), NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
+                ? value / 20d
+                : fallback;
+
+        double width = Twips(size, "w", 0);
+        double height = Twips(size, "h", 0);
+        if (width <= 0 || height <= 0)
+            return content;
+
+        XElement? margins = section.Element(w + "pgMar");
+        double marginLeft = Twips(margins, "left", 72);
+        double marginRight = Twips(margins, "right", 72);
+        double marginTop = Math.Abs(Twips(margins, "top", 72));
+        double marginBottom = Math.Abs(Twips(margins, "bottom", 72));
+
+        bool fromText = (string?)borders.Attribute(w + "offsetFrom") == "text";
+        double strokeWidth = 0;
+        BColor color = BColor.Black;
+        var space = new Dictionary<string, double>();
+        foreach (string side in new[] { "top", "left", "bottom", "right" })
+        {
+            XElement? border = borders.Element(w + side);
+            string? value = (string?)border?.Attribute(w + "val");
+            if (border is null || value is null or "nil" or "none")
+                continue;
+
+            space[side] = double.TryParse((string?)border.Attribute(w + "space"), NumberStyles.Float, CultureInfo.InvariantCulture, out double pt) ? pt : 0;
+            if (double.TryParse((string?)border.Attribute(w + "sz"), NumberStyles.Float, CultureInfo.InvariantCulture, out double eighths))
+                strokeWidth = Math.Max(strokeWidth, eighths / 8d);
+
+            string? hex = (string?)border.Attribute(w + "color");
+            if (hex is { Length: 6 } && hex != "auto" &&
+                int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int rgb))
+            {
+                color = new BColor((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+            }
+        }
+
+        if (space.Count == 0)
+            return content;
+
+        double S(string side) => space.TryGetValue(side, out double value) ? value : 0;
+        double left = fromText ? marginLeft - S("left") : S("left");
+        double top = fromText ? marginTop - S("top") : S("top");
+        double right = fromText ? width - marginRight + S("right") : width - S("right");
+        double bottom = fromText ? height - marginBottom + S("bottom") : height - S("bottom");
+        if (right - left <= 0 || bottom - top <= 0)
+            return content;
+
+        var shape = new DocumentShape(
+            paragraphIndex: 0,
+            offsetX: left - marginLeft,
+            offsetY: top,
+            width: right - left,
+            height: bottom - top,
+            fill: null,
+            outline: color,
+            behindText: true,
+            outlineWidth: Math.Max(0.25, strokeWidth));
+
+        string display = (string?)borders.Attribute(w + "display") ?? "allPages";
+        PageSelection[] selections = display switch
+        {
+            "firstPage" => [PageSelection.First],
+            "notFirstPage" => [PageSelection.Default, PageSelection.Even],
+            _ => [PageSelection.Default, PageSelection.First, PageSelection.Even],
+        };
+
+        // Each slot takes what the page draws today plus the border, read before
+        // any slot is replaced so a slot that falls back to the default copies
+        // the default without the border twice.
+        var resolved = selections
+            .Select(selection => (selection, content.EffectiveHeader(selection), content.EffectiveHeaderShapes(selection)))
+            .ToList();
+        foreach ((PageSelection selection, IReadOnlyList<RichTextParagraph> paragraphs, IReadOnlyList<DocumentShape> shapes) in resolved)
+            content = content.WithHeader(selection, paragraphs, [.. shapes, shape]);
+
+        return content;
     }
 
     /// <summary>
@@ -2236,6 +2357,12 @@ internal static class DocxReader
         if (context.PlacementPage is not PageGeometry page)
             return offset;
 
+        // wp:align and wp14:pctPosHOffset place the object within its frame
+        // rather than at a distance from its edge. They are resolved on the page
+        // and turned back into the column-relative offset the model holds.
+        if (AlignedOrRelativeH(anchor, from, page) is double pageX)
+            return pageX - page.MarginLeft;
+
         switch (from)
         {
             // The page's left edge and the left margin's both sit MarginLeft to
@@ -2344,6 +2471,106 @@ internal static class DocxReader
         "bottomMargin" when page is not null => offset + page.Height - page.MarginBottom,
         _ => null,
     };
+
+    /// <summary>The Word 2010 drawing namespace (<c>wp14</c>), which holds the percentage positions.</summary>
+    private static readonly XNamespace WordDrawing2010 = "http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing";
+
+    /// <summary>
+    /// The anchor's own extent in points, the box <c>wp:align</c> aligns. A
+    /// group's anchor states the group's, so a right-aligned group is aligned
+    /// as one box and its children keep their places inside it.
+    /// </summary>
+    private static (double Width, double Height) AnchorExtent(XElement anchor)
+    {
+        XElement? extent = anchor.Element(DocxNamespaces.WordDrawing + "extent");
+        return (EmuToPoints((string?)extent?.Attribute("cx")), EmuToPoints((string?)extent?.Attribute("cy")));
+    }
+
+    /// <summary>
+    /// A horizontal position stated by <c>wp:align</c> or
+    /// <c>wp14:pctPosHOffset</c>, as points from the page's left edge, or null
+    /// when the anchor states a plain offset or a frame this cannot place.
+    /// </summary>
+    internal static double? AlignedOrRelativeH(XElement anchor, string? from, PageGeometry page)
+    {
+        XElement? position = PositionElement(anchor, "positionH");
+        if (position is null || position.Element(DocxNamespaces.WordDrawing + "posOffset") is not null)
+            return null;
+
+        (double start, double end) = from switch
+        {
+            "page" => (0d, page.Width),
+            "leftMargin" or "insideMargin" => (0d, page.MarginLeft),
+            "rightMargin" or "outsideMargin" => (page.Width - page.MarginRight, page.Width),
+            "margin" or "column" or "character" or null => (page.MarginLeft, page.Width - page.MarginRight),
+            _ => (double.NaN, double.NaN),
+        };
+        if (double.IsNaN(start))
+            return null;
+
+        double width = AnchorExtent(anchor).Width;
+        if ((string?)position.Element(DocxNamespaces.WordDrawing + "align") is string align)
+        {
+            return align.Trim() switch
+            {
+                "left" or "inside" => start,
+                "right" or "outside" => end - width,
+                "center" => start + ((end - start - width) / 2),
+                _ => null,
+            };
+        }
+
+        if ((string?)position.Element(WordDrawing2010 + "pctPosHOffset") is string pct &&
+            double.TryParse(pct, NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+        {
+            return start + ((end - start) * value / 100000d);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A vertical position stated by <c>wp:align</c> or
+    /// <c>wp14:pctPosVOffset</c>, as points from the page's top edge, or null
+    /// when the anchor states a plain offset or a paragraph or line frame.
+    /// </summary>
+    internal static double? AlignedOrRelativeV(XElement anchor, string? from, PageGeometry page)
+    {
+        XElement? position = PositionElement(anchor, "positionV");
+        if (position is null || position.Element(DocxNamespaces.WordDrawing + "posOffset") is not null)
+            return null;
+
+        (double start, double end) = from switch
+        {
+            "page" => (0d, page.Height),
+            "topMargin" => (0d, page.MarginTop),
+            "bottomMargin" => (page.Height - page.MarginBottom, page.Height),
+            "margin" => (page.MarginTop, page.Height - page.MarginBottom),
+            _ => (double.NaN, double.NaN),
+        };
+        if (double.IsNaN(start))
+            return null;
+
+        double height = AnchorExtent(anchor).Height;
+        if ((string?)position.Element(DocxNamespaces.WordDrawing + "align") is string align)
+        {
+            return align.Trim() switch
+            {
+                "top" or "inside" => start,
+                "bottom" or "outside" => end - height,
+                "center" => start + ((end - start - height) / 2),
+                _ => null,
+            };
+        }
+
+        if ((string?)position.Element(WordDrawing2010 + "pctPosVOffset") is string pct &&
+            double.TryParse(pct, NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+        {
+            return start + ((end - start) * value / 100000d);
+        }
+
+        return null;
+    }
 
     /// <summary>English Metric Units to points: 12700 EMU to the point.</summary>
     private static double EmuToPoints(string? value) =>
