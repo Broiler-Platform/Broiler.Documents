@@ -38,6 +38,22 @@ public sealed class OdtImageTests
     }
 
     [Fact]
+    public void Relative_Inline_Image_Width_Scales_The_Declared_Height()
+    {
+        string base64 = Convert.ToBase64String(OdtTestPackage.OnePixelPng);
+        DocumentReadResult result = OdtTestPackage.ReadBody(
+            "<text:p><draw:frame text:anchor-type='as-char' svg:width='2cm' svg:height='1cm' " +
+            "style:rel-width='50%' style:rel-height='scale'>" +
+            "<draw:image><office:binary-data>" + base64 + "</office:binary-data></draw:image>" +
+            "</draw:frame></text:p>");
+
+        var image = Assert.IsType<InlineImage>(result.Document.Paragraphs[0].StyleAt(0).Image);
+        double columnWidth = (result.Document.PageGeometry ?? PageGeometry.A4).ColumnWidth;
+        Assert.Equal(columnWidth / 2, image.Width!.Value, 3);
+        Assert.Equal(columnWidth / 4, image.Height!.Value, 3);
+    }
+
+    [Fact]
     public void Reads_A_Picture_Through_The_Draw_A_A_Clickable_Image_Wraps_It_In()
     {
         DocumentReadResult result = OdtTestPackage.ReadWithPictures(

@@ -40,6 +40,44 @@ public sealed class DocxDiagramTests
     }
 
     [Fact]
+    public void An_Uncached_Alternating_Process_Retains_All_Steps_In_Connection_Order()
+    {
+        const string diagram = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
+        const string layoutType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramLayout";
+        string body = "<w:p>" + Drawing().Replace("r:dm='data'", "r:dm='data' r:lo='layout'") + "</w:p>";
+        var parts = new Dictionary<string, string>
+        {
+            ["word/_rels/document.xml.rels"] = Relationships(
+                Relation("data", DataType, "odd/data.xml") + Relation("layout", layoutType, "odd/layout.xml")),
+            ["word/odd/layout.xml"] = $"<dgm:layoutDef xmlns:dgm='{diagram}' uniqueId='urn:microsoft.com/office/officeart/2005/8/layout/hProcess11'/>",
+            ["word/odd/data.xml"] = $"""
+                <dgm:dataModel xmlns:dgm="{diagram}" xmlns:a="{A}">
+                  <dgm:ptLst>
+                    <dgm:pt modelId="root" type="doc"/>
+                    <dgm:pt modelId="later"><dgm:t><a:p><a:r><a:t>Second</a:t></a:r></a:p></dgm:t></dgm:pt>
+                    <dgm:pt modelId="earlier"><dgm:t><a:p><a:r><a:rPr b="1"/><a:t>First</a:t></a:r></a:p></dgm:t></dgm:pt>
+                  </dgm:ptLst>
+                  <dgm:cxnLst>
+                    <dgm:cxn srcId="root" destId="later" srcOrd="1"/>
+                    <dgm:cxn srcId="root" destId="earlier" srcOrd="0"/>
+                  </dgm:cxnLst>
+                </dgm:dataModel>
+                """,
+        };
+
+        var result = Read("", body: body, changes: parts);
+        var shapes = result.Document.Shapes;
+        var labels = shapes.Where(shape => shape.HasText).ToArray();
+        Assert.Equal(["First", "Second"], labels.Select(shape => shape.Paragraphs[0].Text));
+        Assert.True(labels[0].Paragraphs[0].StyleAt(0).Bold);
+        Assert.True(labels[0].OffsetY < labels[1].OffsetY);
+        Assert.Equal(2, shapes.Count(shape => shape.Geometry == ShapeGeometry.Ellipse));
+        Assert.Equal("image/png", Assert.Single(shapes, shape => shape.Image is not null).Image!.ContentType);
+        Assert.All(shapes, shape => Assert.True(shape.IsCustomShape));
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "docx.diagram.process");
+    }
+
+    [Fact]
     public void Each_Diagram_Resolves_Its_Own_Data_And_All_Cached_Siblings()
     {
         var changes = new Dictionary<string, string>

@@ -20,6 +20,25 @@ public sealed class OdtNoteTests
         Assert.Single(document.Notes);
 
     [Fact]
+    public void Separate_Sections_With_The_Same_Style_Restart_Footnotes_Independently()
+    {
+        const string startSection = "<text:section text:style-name='Collect'>";
+        const string endSection = "</text:section>";
+        string style = OdtTestPackage.Style("Collect",
+            "<style:section-properties><text:notes-configuration text:note-class='footnote' text:start-value='1'/>" +
+            "</style:section-properties>", "section");
+        var document = OdtTestPackage.ReadBody(
+            startSection + "<text:p>" + Note("first") + Note("second") + "</text:p>" + endSection +
+            startSection + "<text:p>" + Note("third") + "</text:p>" + endSection, style).Document;
+
+        Assert.Equal(2, document.Sections.Count);
+        Assert.Same(document.Notes[0].Section, Assert.Single(document.Sections[0].FootnotesEnding));
+        Assert.Same(document.Notes[2].Section, Assert.Single(document.Sections[1].FootnotesEnding));
+        var numberer = new NoteNumberer();
+        Assert.Equal(["1", "2", "1"], document.Notes.Select(numberer.Label));
+    }
+
+    [Fact]
     public void A_Footnote_Is_One_Citation_Holding_Its_Paragraphs()
     {
         DocumentReadResult result = OdtTestPackage.ReadBody(

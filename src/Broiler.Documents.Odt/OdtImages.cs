@@ -41,7 +41,7 @@ internal sealed class OdtImageLoader(
     /// Reads a <c>draw:frame</c>. Returns null, after recording why, when the
     /// frame holds no picture this codec can carry.
     /// </summary>
-    public InlineImage? Read(XElement frame, IOdtImageDiagnostics diagnostics)
+    public InlineImage? Read(XElement frame, IOdtImageDiagnostics diagnostics, PageGeometry? inlinePage = null)
     {
         PicturePart? part = null;
         bool foundImage = false;
@@ -54,7 +54,7 @@ internal sealed class OdtImageLoader(
                 break;
         }
 
-        (double width, double height) = ReadExtent(frame);
+        (double width, double height) = ReadExtent(frame, inlinePage);
         (string? altText, string? name) = ReadDescription(frame);
 
         if (part is null)
@@ -319,15 +319,40 @@ internal sealed class OdtImageLoader(
     }
 
     /// <summary>
-    /// The display size of a frame, from <c>svg:width</c> and <c>svg:height</c>.
+    /// The frame's declared size, adjusted by relative sizing for an inline frame.
     /// A missing or unusable extent yields zero, which means draw the image at
     /// its own size.
     /// </summary>
-    private static (double Width, double Height) ReadExtent(XElement frame)
+    private static (double Width, double Height) ReadExtent(XElement frame, PageGeometry? inlinePage)
     {
         double width = ReadLength(frame, "width");
         double height = ReadLength(frame, "height");
-        return (width, height);
+        if (inlinePage is null)
+            return (width, height);
+
+        string? relativeWidth = (string?)frame.Attribute(OdtNamespaces.Style + "rel-width");
+        string? relativeHeight = (string?)frame.Attribute(OdtNamespaces.Style + "rel-height");
+        double resolvedWidth = ResolveRelative(relativeWidth, inlinePage.ColumnWidth, width);
+        double resolvedHeight = ResolveRelative(relativeHeight, inlinePage.ContentHeight, height);
+        if (width > 0 && height > 0)
+        {
+            if (relativeHeight == "scale")
+                resolvedHeight = Bounded(resolvedWidth * (height / width), height);
+            else if (relativeWidth == "scale")
+                resolvedWidth = Bounded(resolvedHeight * (width / height), width);
+        }
+
+        return (resolvedWidth, resolvedHeight);
+
+        static double ResolveRelative(string? value, double reference, double fallback)
+        {
+            if (!OdtUnits.TryParsePercentage(value, out double multiplier))
+                return fallback;
+            return Bounded(reference * multiplier, fallback);
+        }
+
+        static double Bounded(double extent, double fallback) =>
+            extent > 0 ? Math.Min(extent, OdtUnits.MaxLengthPoints) : fallback;
     }
 
     private static double ReadLength(XElement frame, string attributeName)

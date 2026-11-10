@@ -137,6 +137,9 @@ public sealed class DocumentSection(
     /// </summary>
     public int? PageNumberStart { get; } = pageNumberStart is >= 0 ? pageNumberStart : null;
 
+    /// <summary>Footnote collections whose original sections end at this boundary.</summary>
+    public IReadOnlyList<SectionFootnotes> FootnotesEnding { get; init; } = [];
+
     /// <summary>True when <paramref name="paragraphIndex"/> is one of the section's paragraphs.</summary>
     public bool Contains(int paragraphIndex) => paragraphIndex >= ParagraphIndex && paragraphIndex < ParagraphEnd;
 
@@ -177,7 +180,7 @@ public sealed class DocumentSection(
             return this;
 
         (int index, int count) = DocumentTable.ShiftRange(ParagraphIndex, ParagraphCount, at, removed, inserted, affinity);
-        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart);
+        return count <= 0 ? null : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart) { FootnotesEnding = FootnotesEnding };
     }
 
     /// <summary>
@@ -202,7 +205,7 @@ public sealed class DocumentSection(
             BreakType,
             LeftIndent,
             RightIndent,
-            PageNumberStart);
+            PageNumberStart) { FootnotesEnding = FootnotesEnding };
     }
 
     /// <summary>
@@ -213,6 +216,6 @@ public sealed class DocumentSection(
         (int index, int count) = DocumentTable.RelocateRange(ParagraphIndex, ParagraphCount, sourceStart, sourceCount, destinationIndex);
         return count <= 0
             ? null
-            : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart);
+            : new DocumentSection(index, count, ColumnCount, ColumnGap, Page, RunningContent, Background, PageStyles, Hidden, DontBalanceColumns, BreakType, LeftIndent, RightIndent, PageNumberStart) { FootnotesEnding = FootnotesEnding };
     }
 }

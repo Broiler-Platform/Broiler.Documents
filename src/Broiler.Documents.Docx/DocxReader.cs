@@ -118,6 +118,7 @@ internal static class DocxReader
                 UndecoratedLinks = true,
                 PreserveOpeningParagraphSpacing = true,
                 WidowOrphanLines = styles.HasParagraphDefaults ? 2 : 0,
+                KeepWithNextOpeningLines = true,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
@@ -831,7 +832,10 @@ internal static class DocxReader
         if (context.Sections is not null && IsDroppableSectionMark(paragraph, context))
         {
             FlushPendingDropCap(context);
-            context.Frames?.Finish(context);
+            // A frame immediately before the removed section mark belongs to
+            // the closing section. The next surviving paragraph may be on a
+            // different page with different geometry.
+            context.Frames?.Finish(context, context.Builder.CurrentParagraphIndex - 1);
             EndSection(context);
             return;
         }
@@ -1586,7 +1590,7 @@ internal static class DocxReader
         // A saved diagram's explicit root extent is already in display EMUs;
         // the Word inline extent reserves flow but does not rescale that cache.
         if (!ReadShapeGroup(cache.Group, placement, cachedWidth > 0 ? cachedWidth : width, cachedHeight > 0 ? cachedHeight : height,
-            context with { Relationships = cache.Relationships }))
+            context with { Relationships = cache.Relationships, InDiagram = true }))
             context.Builder.AddDiagnosticOnce("docx.diagram.empty", "A saved diagram contained no supported painted shapes or text.");
         return true;
     }
@@ -1619,7 +1623,7 @@ internal static class DocxReader
         if (!image.TryGetDisplaySize(out double boxWidth, out double boxHeight))
             return false;
 
-        (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
+        (ShapeWrap Wrap, WrapSide Side, TableCellPadding Margins) = ReadWrap(anchor);
         (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -1634,9 +1638,12 @@ internal static class DocxReader
             behindText: BehindDoc(anchor),
             wrap: Wrap,
             wrapSide: Side,
-            wrapDistance: Distance,
+            wrapDistance: Math.Max(Margins.Left, Margins.Right),
             zOrder: RelativeHeight(anchor),
-            offsetFromPage: fromPage));
+            offsetFromPage: fromPage)
+        {
+            WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
+        });
         return true;
     }
 
@@ -1758,13 +1765,17 @@ internal static class DocxReader
                 InlineImage? image = context.Images.ReadGroupedPicture(child, w, h, context.Relationships, context.Builder);
                 if (image is null)
                     continue;
-                (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
+                (ShapeWrap Wrap, WrapSide Side, TableCellPadding Margins) = ReadWrap(anchor);
                 (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
                 context.Builder.AddShape(new DocumentShape(context.Builder.CurrentParagraphIndex,
                     HorizontalOffset(anchor, context) + x, offsetY + y, w, h,
                     fill: null, outline: default, paragraphs: null, image: image,
-                    behindText: BehindDoc(anchor), wrap: Wrap, wrapSide: Side, wrapDistance: Distance,
-                    zOrder: RelativeHeight(anchor), offsetFromPage: fromPage));
+                    behindText: BehindDoc(anchor), wrap: Wrap, wrapSide: Side,
+                    wrapDistance: Math.Max(Margins.Left, Margins.Right),
+                    zOrder: RelativeHeight(anchor), offsetFromPage: fromPage)
+                {
+                    WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
+                });
             }
             else if (child.Name == DocxNamespaces.WordGroup + "grpSp" && depth < MaxGroupDepth)
             {
@@ -1851,12 +1862,25 @@ internal static class DocxReader
         bool flipped = ((string?)transform?.Attribute("flipH") is "1" or "true") != ((string?)transform?.Attribute("flipV") is "1" or "true");
         ShapeGeometry geometry = preset == "ellipse" ? ShapeGeometry.Ellipse : preset is "line" or "straightConnector1"
             ? (flipped ? ShapeGeometry.LineAscending : ShapeGeometry.Line) : ShapeGeometry.Rectangle;
+        InlineImage? image = null;
+        if (preset == "notchedRightArrow" && fill is { IsGradient: false, HasExtendedPaint: false } &&
+            outline.IsEmpty && width > 0 && height > 0)
+        {
+            byte[]? png = DocxVmlPath.RenderNotchedArrow(width, height, fill.Start,
+                (string?)transform?.Attribute("flipH") is "1" or "true");
+            if (png is not null)
+            {
+                image = context.Images.AdmitGeneratedImage(png, width, height, context.Builder);
+                if (image is not null)
+                    fill = null;
+            }
+        }
         RichTextDocument shapeContent = ReadShapeText(wsp, context);
         IReadOnlyList<RichTextParagraph> paragraphs = ShapeParagraphs(shapeContent);
-        if (fill is null && paragraphs.Count == 0 && outline.IsEmpty)
+        if (image is null && fill is null && paragraphs.Count == 0 && outline.IsEmpty)
             return false;
 
-        (ShapeWrap Wrap, WrapSide Side, double Distance) = ReadWrap(anchor);
+        (ShapeWrap Wrap, WrapSide Side, TableCellPadding Margins) = ReadWrap(anchor);
         (double offsetY, bool fromPage) = VerticalOffset(anchor, context);
         context.Builder.AddShape(new DocumentShape(
             context.Builder.CurrentParagraphIndex,
@@ -1867,11 +1891,11 @@ internal static class DocxReader
             fill,
             outline,
             paragraphs,
-            image: null,
+            image: image,
             behindText: BehindDoc(anchor),
             wrap: Wrap,
             wrapSide: Side,
-            wrapDistance: Distance,
+            wrapDistance: Math.Max(Margins.Left, Margins.Right),
             zOrder: RelativeHeight(anchor),
             offsetFromPage: fromPage,
             growsToText: wsp.Element(DocxNamespaces.WordShape + "bodyPr")?.Element(DocxNamespaces.Drawing + "spAutoFit") is not null,
@@ -1887,7 +1911,11 @@ internal static class DocxReader
             geometry: geometry,
             outlineWidth: long.TryParse((string?)spPr?.Element(DocxNamespaces.Drawing + "ln")?.Attribute("w"), out long lineWidth) && lineWidth >= 0 ? lineWidth / 12700d : 0.75,
             offsetXFromCell: context.Builder.InTableCell && RelativeFrom(anchor, "positionH") == "column" &&
-                (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor))));
+                (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)))
+        {
+            IsCustomShape = context.InDiagram,
+            WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
+        });
         return true;
     }
 
@@ -2018,7 +2046,7 @@ internal static class DocxReader
         {
             if ((fill is null || (!fill.IsGradient && fill.Image is null && fill.Hatch is null)) &&
                 DocxVmlPath.Render(shape, path, width, height, fill?.Start ?? BColor.Empty, outline, outlineWidth) is byte[] png)
-                image = context.Images.AdmitPath(png, width, height, context.Builder);
+                image = context.Images.AdmitGeneratedImage(png, width, height, context.Builder);
             if (image is not null)
             {
                 fill = null;
@@ -2273,7 +2301,7 @@ internal static class DocxReader
     /// leaving it out and reads as no wrap, which is what every anchor got before
     /// any of them were read.
     /// </remarks>
-    private static (ShapeWrap Wrap, WrapSide Side, double Distance) ReadWrap(XElement anchor)
+    private static (ShapeWrap Wrap, WrapSide Side, TableCellPadding Margins) ReadWrap(XElement anchor)
     {
         IEnumerable<XElement> ChildElements(XElement parent)
         {
@@ -2319,19 +2347,13 @@ internal static class DocxReader
                 _ => WrapSide.Largest,
             };
 
-            return (wrap, side, WrapDistance(anchor));
+            double Distance(string axis) => Math.Max(0, EmuToPoints((string?)(child.Attribute(axis) ?? anchor.Attribute(axis))));
+            return (wrap, side, new TableCellPadding(
+                Distance("distL"), Distance("distT"), Distance("distR"), Distance("distB")));
         }
 
-        return (ShapeWrap.None, WrapSide.Largest, 0);
+        return (ShapeWrap.None, WrapSide.Largest, default);
     }
-
-    /// <summary>
-    /// The clearance the text keeps beside a wrapping shape, as the wider of the
-    /// two horizontal distances the anchor states.
-    /// </summary>
-    private static double WrapDistance(XElement anchor) => Math.Max(
-        EmuToPoints((string?)anchor.Attribute("distL")),
-        EmuToPoints((string?)anchor.Attribute("distR")));
 
     /// <summary>The frame an axis states its offset against, or null for none.</summary>
     private static string? RelativeFrom(XElement anchor, string axis) =>
@@ -2805,7 +2827,33 @@ internal static class DocxReader
             style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style, context.Styles.Theme);
 
         style = ApplyParagraphProperties(pPr, context.Numbering, style, context.Styles.Theme);
+        if (context.Band != RunningBand.Body || context.InParagraphFrame)
+            style = style with { Border = ReadParagraphBorder(chain, pPr, context.Styles.Theme) };
         return ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
+    }
+
+    private static ParagraphBorder? ReadParagraphBorder(IReadOnlyList<XElement> chain, XElement? direct, DocxTheme theme)
+    {
+        XNamespace w = DocxNamespaces.Wordprocessing;
+        CellBorders edges = default;
+        TableCellPadding spacing = default;
+        foreach (XElement? properties in chain.Append(direct))
+        {
+            if (properties?.Element(w + "pBdr") is not { } border)
+                continue;
+
+            TableBorder? left = DocxTableReader.ReadBorderEdge(border, "left", theme);
+            TableBorder? top = DocxTableReader.ReadBorderEdge(border, "top", theme);
+            TableBorder? right = DocxTableReader.ReadBorderEdge(border, "right", theme);
+            TableBorder? bottom = DocxTableReader.ReadBorderEdge(border, "bottom", theme);
+            edges = new CellBorders(left ?? edges.Left, top ?? edges.Top, right ?? edges.Right, bottom ?? edges.Bottom);
+            spacing = new TableCellPadding(Space("left", spacing.Left), Space("top", spacing.Top),
+                Space("right", spacing.Right), Space("bottom", spacing.Bottom));
+
+            double Space(string side, double inherited) => border.Element(w + side) is not { } edge ? inherited :
+                DocxValueReader.TryReadInt(edge.Attribute(w + "space"), out int points) ? Math.Clamp(points, 0, 31) : 0;
+        }
+        return edges.IsVisible ? new ParagraphBorder(edges, spacing) : null;
     }
 
     /// <summary>

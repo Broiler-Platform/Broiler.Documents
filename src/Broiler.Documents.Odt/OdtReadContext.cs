@@ -29,8 +29,10 @@ internal sealed record OdtReadContext(
     public double? FooterOrigin { get; init; }
     public Func<string, string?, int, bool>? SelectPageStyle { get; init; }
     public bool UsesSoftPageBreaks { get; init; }
+    public int SoftPageNumber { get; set; } = 1;
     public int TableDepth { get; set; }
     public int HiddenSectionDepth { get; set; }
+    public SectionFootnotes? SectionFootnotes { get; set; }
     public IReadOnlySet<string> LinkedFrameTargets { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     public IReadOnlyDictionary<string, string> Variables { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);

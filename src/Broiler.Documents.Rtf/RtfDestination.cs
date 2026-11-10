@@ -56,6 +56,7 @@ internal enum RtfDestination
 
     /// <summary>A legacy drawing-object destination.</summary>
     LegacyDrawing,
+    LegacyDrawingText,
 
     /// <summary>One <c>\sp</c> property pair inside a shape.</summary>
     ShapeProperty,

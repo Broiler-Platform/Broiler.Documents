@@ -153,6 +153,9 @@ public sealed record DocumentStyleDefaults
     /// </remarks>
     public int WidowOrphanLines { get; init; }
 
+    /// <summary>Keep a heading with the opening lines of its splittable successor.</summary>
+    public bool KeepWithNextOpeningLines { get; init; }
+
     /// <summary>Whether to honor space before the document's opening paragraph.</summary>
     public bool PreserveOpeningParagraphSpacing { get; init; }
 
@@ -167,7 +170,8 @@ public sealed record DocumentStyleDefaults
     /// <summary>True when this states nothing a consumer would not have assumed.</summary>
     public bool IsDefault =>
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
-        !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing;
+        !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing &&
+        !KeepWithNextOpeningLines;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

@@ -10,6 +10,19 @@ namespace Broiler.Documents.Docx.Tests;
 /// </summary>
 public sealed class DocxImageTests
 {
+    [Fact]
+    public void Anchored_Wrap_Uses_The_Distance_On_Each_Edge()
+    {
+        string drawing = DocxTestPackage.AnchoredDrawingRun("image", 914400, 457200)
+            .Replace("simplePos=", "distL='114300' distR='25400' distT='12700' distB='38100' simplePos=")
+            .Replace("<wp:wrapSquare wrapText=\"bothSides\"/>", "<wp:wrapSquare wrapText='bothSides' distT='0'/>");
+        var result = DocxTestPackage.ReadWithMedia("<w:p>" + drawing + "</w:p>",
+            DocxTestPackage.ImageRelationship("image", "media/image.png"),
+            new Dictionary<string, byte[]> { ["word/media/image.png"] = DocxTestPackage.OnePixelPng });
+
+        Assert.Equal(new TableCellPadding(9, 0, 2, 3), Assert.Single(result.Document.Shapes).WrapMargins);
+    }
+
     /// <summary>914400 EMUs per inch; one inch square is the size these tests use.</summary>
     private const long OneInchEmus = 914400;
 
@@ -512,8 +525,10 @@ public sealed class DocxImageTests
         Assert.Equal(DocxTestPackage.OnePixelPng, image.Data.ToArray());
     }
 
-    [Fact]
-    public void Reads_Drawingml_Chart_As_Missing_Payload_Placeholder_Shape()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Drawingml_Chart_Keeps_Its_Inline_Extent_And_Draws_Supported_Cached_Values(bool hasCache)
     {
         string drawingXml =
             "<w:p><w:r><w:drawing>" +
@@ -528,17 +543,32 @@ public sealed class DocxImageTests
             "</wp:inline>" +
             "</w:drawing></w:r></w:p>";
 
-        DocumentReadResult result = DocxTestPackage.ReadBody(drawingXml);
+        DocumentReadResult result = hasCache
+            ? DocxTestPackage.ReadWithMedia(drawingXml,
+                "<Relationship Id='rId1' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart' Target='charts/chart1.xml'/>",
+                new Dictionary<string, byte[]>
+                {
+                    ["word/charts/chart1.xml"] = """
+                        <c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart">
+                          <c:chart><c:plotArea><c:barChart><c:barDir val="col"/><c:grouping val="clustered"/>
+                            <c:ser><c:val><c:numLit><c:pt idx="0"><c:v>4</c:v></c:pt></c:numLit></c:val></c:ser>
+                          </c:barChart></c:plotArea></c:chart>
+                        </c:chartSpace>
+                        """u8.ToArray(),
+                })
+            : DocxTestPackage.ReadBody(drawingXml);
         RichTextParagraph paragraph = Assert.Single(result.Document.Paragraphs);
         Assert.Equal(InlineImage.PlaceholderText, paragraph.Text);
 
         StyleRun run = Assert.Single(paragraph.Runs);
         InlineImage image = Assert.IsType<InlineImage>(run.Style.Image);
-        Assert.True(image.IsMissingPayload);
+        Assert.Equal(!hasCache, image.IsMissingPayload);
         Assert.Equal(72, image.Width!.Value, 3);
         Assert.Equal(36, image.Height!.Value, 3);
         Assert.Equal("Sample Chart", image.AltText);
         Assert.Equal("Chart 1", image.Name);
-        Assert.Contains(result.Diagnostics, d => d.Code == "docx.image.shape");
+        Assert.Contains(result.Diagnostics, d => d.Code == (hasCache ? "docx.chart.preview" : "docx.image.shape"));
+        if (hasCache)
+            Assert.Equal("image/png", image.ContentType);
     }
 }

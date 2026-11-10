@@ -882,7 +882,7 @@ internal static class DocxTableReader
     /// <c>w:val="none"</c> or <c>"nil"</c> is a border turned off - which is
     /// stated, and so is not the same as saying nothing.
     /// </summary>
-    private static TableBorder? ReadBorderEdge(XElement borders, string edge, DocxTheme theme)
+    internal static TableBorder? ReadBorderEdge(XElement borders, string edge, DocxTheme theme)
     {
         XElement? element = borders.Element(DocxNamespaces.Wordprocessing + edge);
         if (element is null)

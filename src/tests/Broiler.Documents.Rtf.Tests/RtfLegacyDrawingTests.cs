@@ -68,6 +68,24 @@ public sealed class RtfLegacyDrawingTests
     }
 
     [Fact]
+    public void Legacy_Text_Box_Keeps_Styled_Text_Inside_Its_Hollow_Frame()
+    {
+        const string text = @"\dptxbxmar40{\dptxbxtext\vertalc\qc\fs30 label {\b bold}{\*\unknown ignored}\par}\dplinehollow0";
+        var result = Read("body" + Drawing(text, "dptxbx") + " after");
+        var shape = Assert.Single(result.Document.Shapes);
+        var paragraph = Assert.Single(shape.Paragraphs);
+
+        Assert.Equal("body after", result.Document.PlainText);
+        Assert.Equal("label bold", paragraph.Text);
+        Assert.Equal(TextAlignment.Center, paragraph.Style.Alignment);
+        Assert.Equal(15, paragraph.StyleAt(0).FontSize);
+        Assert.True(paragraph.StyleAt(6).Bold);
+        Assert.Equal(CellVerticalAlignment.Center, shape.TextVerticalAlignment);
+        Assert.Equal(new TableCellPadding(2, 2, 2, 2), shape.TextPadding);
+        Assert.True(shape.Outline.IsEmpty);
+    }
+
+    [Fact]
     public void A_Horizontal_Line_With_Zero_Height_Is_Retained()
     {
         var shape = Assert.Single(Read(Drawing("\\dpysize0", "dpline")).Document.Shapes);

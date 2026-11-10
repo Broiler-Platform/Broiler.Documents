@@ -46,6 +46,8 @@ internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumb
 
     /// <summary>True for the flow of a note's own text.</summary>
     public bool InNote { get; init; }
+    public bool InParagraphFrame { get; init; }
+    public bool InDiagram { get; init; }
 
     /// <summary>
     /// The page a floating object's offsets are converted against: the page the
@@ -73,5 +75,5 @@ internal sealed record DocxReadContext(DocxRelationships Relationships, DocxNumb
 
     /// <summary>Creates a context for reading into a text frame.</summary>
     public DocxReadContext ForFrame(DocxDocumentBuilder frameBuilder) =>
-        this with { Builder = frameBuilder, Sections = null, Frames = null, DropCaps = null };
+        this with { Builder = frameBuilder, Sections = null, Frames = null, DropCaps = null, InParagraphFrame = true };
 }

@@ -151,6 +151,7 @@ public static class RtfReader
         private readonly StringBuilder _shapePropertyValue = new();
         private readonly List<DocumentShape> _shapes = [];
         private Accumulator? _shapeText;
+        private Accumulator? _legacyDrawingText;
 
         // The note being read: its text, whether \ftnalt made it an endnote,
         // and the character formatting where it was cited, which its citation
@@ -428,10 +429,15 @@ public static class RtfReader
             else if (closing.Dest == RtfDestination.Shape && closing.ShapeOwnerDepth == _stack.Count)
                 FinishShape(closing.Shape?.Host ?? RtfDestination.Normal);
 
+            if (closing.Dest == RtfDestination.LegacyDrawingText && closing.LegacyDrawing?.TextDepth == _stack.Count)
+                _legacyDrawingText?.EndPendingParagraph(closing.Para);
+
             if (closing.Dest == RtfDestination.LegacyDrawing && closing.LegacyDrawing is { } drawing && drawing.OwnerDepth == _stack.Count)
             {
                 DocumentShape? shape = drawing.Build(_builder.ParagraphCount,
-                    (_sectionLeft ?? _marginLeft) / 20d, (_sectionTop ?? _marginTop) / 20d, _diagnostics);
+                    (_sectionLeft ?? _marginLeft) / 20d, (_sectionTop ?? _marginTop) / 20d,
+                    _legacyDrawingText?.Build(ParagraphStyle.Default).Paragraphs, _diagnostics);
+                _legacyDrawingText = null;
                 if (shape is not null) _shapes.Add(shape);
             }
 
@@ -580,9 +586,41 @@ public static class RtfReader
                 // Unknown ignorable subgroups remain opaque inside a drawing too.
                 if (star || kw is "pict" or "object")
                     _state.Dest = RtfDestination.Skip;
+                else if (kw == "dptxbxtext" && _state.LegacyDrawing is { } drawing &&
+                         _stack.Count > drawing.OwnerDepth)
+                {
+                    _state.Dest = RtfDestination.LegacyDrawingText;
+                    drawing.TextDepth = _stack.Count;
+                }
                 else
                     _state.LegacyDrawing?.Read(kw, token.Parameter, token.HasParameter);
                 return;
+            }
+
+            if (_state.Dest == RtfDestination.LegacyDrawingText)
+            {
+                if (star || kw is "pict" or "object" or "field" or "shp" or "do" or "footnote" or
+                    "header" or "headerf" or "headerl" or "headerr" or "footer" or "footerf" or
+                    "footerl" or "footerr" or "fonttbl" or "colortbl" or "stylesheet")
+                {
+                    _state.Dest = RtfDestination.Skip;
+                    return;
+                }
+                if (kw is "vertalt" or "vertalc" or "vertalb")
+                {
+                    _state.LegacyDrawing!.TextAlignment = kw switch
+                    {
+                        "vertalc" => CellVerticalAlignment.Center,
+                        "vertalb" => CellVerticalAlignment.Bottom,
+                        _ => CellVerticalAlignment.Top,
+                    };
+                    return;
+                }
+                if (kw is not ("plain" or "pard" or "f" or "fs" or "cf" or "highlight" or "b" or "i" or
+                    "ul" or "ulnone" or "strike" or "super" or "sub" or "nosupersub" or "uc" or "u" or
+                    "ql" or "qr" or "qc" or "qj" or "par" or "line" or "tab" or "ltrch" or "rtlch" or
+                    "ltrpar" or "rtlpar" or "emdash" or "endash" or "bullet"))
+                    return;
             }
 
             // A note's text is the note's: a header, a font or colour table or a
@@ -1475,6 +1513,7 @@ public static class RtfReader
                 case RtfDestination.FooterFirst:
                 case RtfDestination.FooterEven:
                 case RtfDestination.Note:
+                case RtfDestination.LegacyDrawingText:
                 case RtfDestination.ShapeText: HandleBodyText(text); break;
                 case RtfDestination.ShapePropertyName: _shapePropertyName.Append(text); break;
                 case RtfDestination.ShapePropertyValue: _shapePropertyValue.Append(text); break;
@@ -1811,6 +1850,9 @@ public static class RtfReader
                 if (destination == RtfDestination.ShapeText)
                     return _shapeText ??= new Accumulator(_maxParagraphs);
 
+                if (destination == RtfDestination.LegacyDrawingText)
+                    return _legacyDrawingText ??= new Accumulator(_maxParagraphs);
+
                 if (destination == RtfDestination.Note)
                     return _noteText ??= new Accumulator(_maxParagraphs);
 
@@ -1850,7 +1892,7 @@ public static class RtfReader
         /// than carry one.
         /// </remarks>
         private static bool KeepsText(RtfDestination destination) =>
-            destination is RtfDestination.Normal or RtfDestination.FieldResult or RtfDestination.ShapeText or RtfDestination.Note ||
+            destination is RtfDestination.Normal or RtfDestination.FieldResult or RtfDestination.ShapeText or RtfDestination.LegacyDrawingText or RtfDestination.Note ||
             IsRunning(destination);
 
         private static bool IsRunning(RtfDestination destination) => destination is

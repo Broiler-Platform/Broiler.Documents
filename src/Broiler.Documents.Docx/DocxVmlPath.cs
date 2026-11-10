@@ -14,6 +14,18 @@ namespace Broiler.Documents.Docx;
 /// <summary>Materializes VML polygonal freeforms into the model's picture format.</summary>
 internal static class DocxVmlPath
 {
+    public static byte[]? RenderNotchedArrow(double width, double height, BColor fill, bool reverse)
+    {
+        const int size = 10000;
+        int head = (int)Math.Round(size * Math.Min(0.5, height / (2 * width)));
+        int shaft = size - head;
+        int X(int x) => reverse ? size - x : x;
+        string path = FormattableString.Invariant(
+            $"m{X(0)},2500 l{X(shaft)},2500,{X(shaft)},0,{X(size)},5000,{X(shaft)},10000,{X(shaft)},7500,{X(0)},7500,{X(head / 2)},5000 xe");
+        return Render(new XElement("shape", new XAttribute("coordsize", "10000,10000")),
+            path, width, height, fill, BColor.Empty, 0);
+    }
+
     public static byte[]? Render(XElement shape, string path, double width, double height, BColor fill, BColor stroke, double strokeWidth)
     {
         if (path.Length > 65536 || !Pair((string?)shape.Attribute("coordsize"), out double spaceX, out double spaceY) ||
@@ -102,7 +114,7 @@ internal static class DocxVmlPath
 
     // The codec can run before the application's image catalog is composed.
     // Encode the generated RGBA pixels as a single, unfiltered PNG image.
-    private static byte[] EncodePng(BBitmap bitmap)
+    internal static byte[] EncodePng(BBitmap bitmap)
     {
         using var png = new MemoryStream();
         png.Write([137, 80, 78, 71, 13, 10, 26, 10]);

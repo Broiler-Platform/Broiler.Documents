@@ -9,6 +9,8 @@ namespace Broiler.Documents.Rtf;
 internal sealed class RtfLegacyDrawing(int ownerDepth)
 {
     public int OwnerDepth { get; } = ownerDepth;
+    public int TextDepth { get; set; }
+    public CellVerticalAlignment TextAlignment { get; set; }
     private readonly Dictionary<string, int> _values = new(StringComparer.Ordinal);
     private readonly List<int> _pointX = [];
     private readonly List<int> _pointY = [];
@@ -20,12 +22,12 @@ internal sealed class RtfLegacyDrawing(int ownerDepth)
     {
         if (keyword is "dobxpage" or "dobxmargin" or "dobxcolumn") _horizontal = keyword;
         else if (keyword is "dobypage" or "dobymargin" or "dobypara") _vertical = keyword;
-        else if (keyword is "dprect" or "dpline" or "dpellipse" or "dppolyline")
+        else if (keyword is "dprect" or "dpline" or "dpellipse" or "dppolyline" or "dptxbx")
         {
             if (_primitive is not null) _unsupported = true;
             _primitive = keyword;
         }
-        else if (keyword is "dpgroup" or "dpendgroup" or "dppolygon" or "dptxbx" or "dparc" or "dpcallout")
+        else if (keyword is "dpgroup" or "dpendgroup" or "dppolygon" or "dparc" or "dpcallout")
             _unsupported = true;
         else if (keyword == "dpptx" && hasValue)
             _pointX.Add(value);
@@ -35,7 +37,8 @@ internal sealed class RtfLegacyDrawing(int ownerDepth)
             _values[keyword] = hasValue ? value : 1;
     }
 
-    public DocumentShape? Build(int paragraph, double marginLeft, double marginTop, List<DocumentDiagnostic> diagnostics)
+    public DocumentShape? Build(int paragraph, double marginLeft, double marginTop,
+        IReadOnlyList<RichTextParagraph>? paragraphs, List<DocumentDiagnostic> diagnostics)
     {
         void Report(string message)
         {
@@ -86,12 +89,18 @@ internal sealed class RtfLegacyDrawing(int ownerDepth)
         else
             geometry = ShapeGeometry.Rectangle;
 
+        bool textBox = _primitive == "dptxbx";
+        double padding = Math.Max(0, _values.GetValueOrDefault("dptxbxmar")) / 20d;
         return new DocumentShape(paragraph, x, y, Math.Abs(width), Math.Abs(height),
             fill: hasFill ? ShapeFill.Solid(Color("dpfillbgc")) : null,
             outline: hollow ? BColor.Empty :
                 _values.ContainsKey("dplinecor") || _values.ContainsKey("dplinecog") || _values.ContainsKey("dplinecob")
-                    ? Color("dplineco") : BColor.FromArgb(52, 101, 164), paragraphs: null,
+                    ? Color("dplineco") : BColor.FromArgb(52, 101, 164),
+            paragraphs: textBox ? paragraphs : null,
             offsetFromPage: _vertical != "dobypara", zOrder: _values.GetValueOrDefault("dodhgt"),
+            textPadding: new TableCellPadding(padding, padding, padding, padding),
+            textVerticalAlignment: TextAlignment,
+            textOverflow: textBox,
             geometry: geometry,
             outlineWidth: _values.TryGetValue("dplinew", out int pen) && pen >= 0 ? pen / 20d : 0.75);
     }

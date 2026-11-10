@@ -50,13 +50,13 @@ internal sealed class DocxFrameAccumulator
         }
     }
 
-    public void Finish(DocxReadContext context)
+    public void Finish(DocxReadContext context, int? lastAnchorInSection = null)
     {
         if (ActiveBuilder is null || !ActiveProperties.HasValue)
             return;
 
         DocxFrameProperties props = ActiveProperties.Value;
-        int anchorIndex = AnchorParagraphIndex;
+        int anchorIndex = Math.Min(AnchorParagraphIndex, lastAnchorInSection ?? AnchorParagraphIndex);
         RichTextDocument frameDoc = ActiveBuilder.Build();
 
         ActiveBuilder = null;
@@ -218,17 +218,30 @@ internal sealed class DocxFrameAccumulator
             _ => (ShapeWrap.Square, (frame.HorizontalSpace ?? 0) / 20d),
         };
 
+        ParagraphBorder? border = paragraphs.Count > 0 ? paragraphs[0].Style.Border : null;
+        TableBorder outline = default;
+        TableCellPadding padding = default;
+        if (border is { Edges.Top.Style: TableBorderStyle.Solid } uniform &&
+            uniform.Edges == CellBorders.All(uniform.Edges.Top))
+        {
+            outline = uniform.Edges.Top;
+            padding = uniform.Spacing;
+        }
+
         return new DocumentShape(
             anchorParagraphIndex,
             x,
             y,
             width,
             height,
+            outline: outline.Color,
             paragraphs: paragraphs,
             behindText: false,
             wrap: wrap,
             wrapDistance: distance,
             offsetFromPage: !fromParagraph,
-            growsToText: frame.HeightRule != "exact");
+            growsToText: frame.HeightRule != "exact",
+            textPadding: padding,
+            outlineWidth: outline.IsVisible ? outline.Width : 1);
     }
 }

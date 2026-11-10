@@ -14,6 +14,13 @@ public enum NoteKind
     Endnote,
 }
 
+/// <summary>Identifies a section that collects its footnotes, with optional independent numbering.</summary>
+public sealed class SectionFootnotes(int? start = null, ListNumberFormat? format = null)
+{
+    public int? Start { get; } = start;
+    public ListNumberFormat? Format { get; } = format;
+}
+
 /// <summary>
 /// A footnote or an endnote: the paragraphs of its text, held by the one
 /// character in the body that cites it.
@@ -71,6 +78,9 @@ public sealed class DocumentNote
 
     /// <summary>The label the author chose, or null for a note that is numbered.</summary>
     public string? CustomMark { get; }
+
+    /// <summary>The section collecting this footnote, or null for ordinary placement.</summary>
+    public SectionFootnotes? Section { get; init; }
 
     /// <summary>The note's paragraphs joined with newlines.</summary>
     public string PlainText
@@ -180,6 +190,7 @@ public sealed class NoteNumberer
 {
     private readonly NoteNumbering _numbering;
     private readonly Dictionary<DocumentNote, string> _labels = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<SectionFootnotes, int> _sectionCounts = [];
     private int _footnotes;
     private int _endnotes;
 
@@ -214,9 +225,15 @@ public sealed class NoteNumberer
             label = ListNumberer.Format(_numbering.EndnoteStart + _endnotes, _numbering.EndnoteFormat);
             _endnotes++;
         }
+        else if (note.Section is { Start: int start } section)
+        {
+            int offset = _sectionCounts.GetValueOrDefault(section);
+            label = ListNumberer.Format(start + offset, section.Format ?? _numbering.FootnoteFormat);
+            _sectionCounts[section] = offset + 1;
+        }
         else
         {
-            label = ListNumberer.Format(_numbering.FootnoteStart + _footnotes, _numbering.FootnoteFormat);
+            label = ListNumberer.Format(_numbering.FootnoteStart + _footnotes, note.Section?.Format ?? _numbering.FootnoteFormat);
             _footnotes++;
         }
 

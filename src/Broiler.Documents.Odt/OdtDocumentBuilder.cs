@@ -344,14 +344,18 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
                 previous.ColumnCount == outer.ColumnCount && previous.ColumnGap == outer.ColumnGap &&
                 previous.Page == outer.Page && previous.RunningContent == outer.RunningContent && previous.Background == background && previous.Hidden == hidden &&
                 previous.DontBalanceColumns == outer.DontBalanceColumns && previous.BreakType == outer.BreakType &&
-                previous.LeftIndent == leftIndent && previous.RightIndent == rightIndent)
+                previous.LeftIndent == leftIndent && previous.RightIndent == rightIndent && previous.FootnotesEnding.Count == 0)
             {
                 resolved.RemoveAt(resolved.Count - 1);
                 start = previous.ParagraphIndex;
             }
             resolved.Add(new DocumentSection(start, edges[i + 1] - start, outer.ColumnCount, outer.ColumnGap,
                 outer.Page, outer.RunningContent, background, hidden: hidden, dontBalanceColumns: outer.DontBalanceColumns, breakType: outer.BreakType,
-                leftIndent: leftIndent, rightIndent: rightIndent));
+                leftIndent: leftIndent, rightIndent: rightIndent)
+            {
+                FootnotesEnding = [.. covering.Reverse().Where(section => section.ParagraphEnd == edges[i + 1])
+                    .SelectMany(section => section.FootnotesEnding)],
+            });
         }
         return resolved;
     }

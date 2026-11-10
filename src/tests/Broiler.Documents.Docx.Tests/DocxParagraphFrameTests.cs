@@ -21,6 +21,21 @@ public sealed class DocxParagraphFrameTests
     private const double MarginLeftPoints = 1417 / 20d;
 
     [Fact]
+    public void Frame_Before_A_Removed_Section_Mark_Stays_In_The_Closing_Section()
+    {
+        string body =
+            "<w:p><w:r><w:t>First page</w:t></w:r></w:p>" +
+            "<w:p><w:pPr><w:framePr w:vAnchor='page' w:y='1000'/></w:pPr><w:r><w:t>Frame</w:t></w:r></w:p>" +
+            "<w:p><w:pPr>" + A4Section + "</w:pPr></w:p>" +
+            "<w:p><w:r><w:t>Second page</w:t></w:r></w:p>" + A4Section;
+
+        var document = DocxTestPackage.ReadBody(body).Document;
+        Assert.Equal(["First page", "Second page"], document.Paragraphs.Select(p => p.Text));
+        Assert.Equal(0, Assert.Single(document.Shapes).ParagraphIndex);
+        Assert.True(document.Paragraphs[1].Style.PageBreakBefore);
+    }
+
+    [Fact]
     public void Direct_FramePr_Creates_DocumentShape_And_Removes_From_Body_Paragraphs()
     {
         // Matches tdf148671: paragraph with framePr positioned relative to page

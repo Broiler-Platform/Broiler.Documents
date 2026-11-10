@@ -434,6 +434,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // footnotes follow the body with the endnotes.
         var pageNotes = new List<DocumentNote>();
         var placedNotes = new HashSet<DocumentNote>(ReferenceEqualityComparer.Instance);
+        var sectionNoteEnds = new Dictionary<SectionFootnotes, (int End, int Order)>();
+        foreach (DocumentSection section in document.Sections)
+            foreach (SectionFootnotes collection in section.FootnotesEnding)
+                sectionNoteEnds[collection] = (section.ParagraphEnd, sectionNoteEnds.Count);
+        var sectionNotes = sectionNoteEnds.Count == 0
+            ? new Queue<(int End, DocumentNote[] Notes)>()
+            : new Queue<(int End, DocumentNote[] Notes)>(DocumentNote.CitedIn(document.Paragraphs.Where((_, index) => !IsHidden(index)))
+                .Distinct<DocumentNote>(ReferenceEqualityComparer.Instance)
+                .Where(note => note.Section is not null && sectionNoteEnds.ContainsKey(note.Section))
+                .GroupBy(note => note.Section!)
+                .OrderBy(group => sectionNoteEnds[group.Key])
+                .Select(group => (End: sectionNoteEnds[group.Key].End, Notes: group.ToArray())));
+
+        bool IsCollected(DocumentNote note) => note.Section is not null && sectionNoteEnds.ContainsKey(note.Section);
         double noteArea = 0;
 
         // The height the footnotes cited in these lines would add to the page.
@@ -446,7 +460,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             bool first = pageNotes.Count == 0;
             foreach (DocumentNote note in CitedNotes(lines))
             {
-                if (note.Kind != NoteKind.Footnote || placedNotes.Contains(note))
+                if (note.Kind != NoteKind.Footnote || IsCollected(note) || placedNotes.Contains(note))
                     continue;
 
                 if (first)
@@ -469,7 +483,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             foreach (DocumentNote note in CitedNotes(lines))
             {
-                if (note.Kind != NoteKind.Footnote || !placedNotes.Add(note))
+                if (note.Kind != NoteKind.Footnote || IsCollected(note) || !placedNotes.Add(note))
                     continue;
 
                 double height = NoteBlockFor(note, setup).Height + (pageNotes.Count == 0 ? SeparatorBlock : 0);
@@ -1035,9 +1049,45 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             AddFloatExclusions();
         }
 
+        void PlaceSectionNotes(int paragraphEnd)
+        {
+            while (!truncated && sectionNotes.TryPeek(out var group) && group.End <= paragraphEnd)
+            {
+                sectionNotes.Dequeue();
+                y += SeparatorGap;
+                foreach (DocumentNote note in group.Notes)
+                {
+                    for (int i = 0; i < note.Paragraphs.Count && !truncated; i++)
+                    {
+                        RichTextParagraph paragraph = note.Paragraphs[i];
+                        double composedLeft = setup.ContentLeftPoints + columns.Offset(column);
+                        ParagraphLines composed = ComposeNoteParagraph(note, i, setup, composedLeft, columns.Width);
+                        y += Math.Max(0, paragraph.Style.SpacingBefore);
+                        foreach (LayoutLine line in composed.Lines)
+                        {
+                            if (y + line.Height > contentBottom && ColumnHasContent())
+                            {
+                                BreakColumn();
+                                if (truncated)
+                                    break;
+                            }
+                            line.Shift(setup.ContentLeftPoints + columns.Offset(column) - composedLeft);
+                            line.Top = y;
+                            currentLines.Add(line);
+                            y += line.Height;
+                        }
+                        y += Math.Max(0, paragraph.Style.SpacingAfter);
+                    }
+                }
+            }
+        }
+
         int paragraphIndex = 0;
         while (paragraphIndex < document.ParagraphCount && !truncated)
         {
+            PlaceSectionNotes(paragraphIndex);
+            if (truncated)
+                break;
             DocumentTable? table = DocumentTable.StartingAt(document.Tables, paragraphIndex);
             DocumentSection? section = DocumentSection.Containing(document.Sections, paragraphIndex);
             if (section?.Hidden == true && (table is null || table.ParagraphEnd <= section.ParagraphEnd))
@@ -1047,10 +1097,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
             bool isSectionStart = section is not null && section.ParagraphIndex == paragraphIndex;
             bool sectionBreaksPage = isSectionStart && section!.BreakType is SectionBreakType.NextPage or SectionBreakType.OddPage or SectionBreakType.EvenPage;
+            bool softPageBreak = table is null && document.Paragraphs[paragraphIndex].Style.SoftPageBreakBefore > pages.Count + 1;
 
             if (!ReferenceEquals(section, region))
             {
-                bool opensPage = (table?.PageBreakBefore ?? document.Paragraphs[paragraphIndex].Style.PageBreakBefore) || sectionBreaksPage;
+                bool opensPage = (table?.PageBreakBefore ?? document.Paragraphs[paragraphIndex].Style.PageBreakBefore) || sectionBreaksPage || softPageBreak;
                 // Finish floating content on its owning section's paper before a
                 // following section changes the page geometry or running content.
                 if (opensPage && !setup.Continuous)
@@ -1290,7 +1341,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             // Not in continuous mode, where there are no pages to break between.
             // Silently doing nothing would be the wrong kind of quiet, so the
             // note below says the breaks were ignored and why.
-            bool styleBreaksPage = style.PageBreakBefore || sectionBreaksPage;
+            bool styleBreaksPage = style.PageBreakBefore || sectionBreaksPage || softPageBreak;
             if (styleBreaksPage && !setup.Continuous && (currentLines.Count > 0 || floatLines.Count > 0))
             {
                 OwnBreak();
@@ -1442,9 +1493,20 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         ParagraphLines measured = ComposeParagraph(following, probe.Advance(following.Style),
                             setup, next, columnWidthOverride: columns.Width);
                         double followingHeight = measured.Lines.Sum(line => line.Height);
-                        if (!following.Style.KeepWithNext && followingHeight > capacity)
-                            followingHeight = measured.Lines.Take(Math.Max(1, following.Style.OrphanLines ?? 1))
+                        if (!following.Style.KeepWithNext && (followingHeight > capacity ||
+                            (_styleDefaults.KeepWithNextOpeningLines && !following.Style.KeepTogether)))
+                        {
+                            // A splittable DOCX paragraph only needs enough of its
+                            // opening to share the column with the heading.
+                            int opening = _styleDefaults.KeepWithNextOpeningLines
+                                ? _styleDefaults.OrphanLinesOf(following.Style) ?? 1
+                                : following.Style.OrphanLines ?? 1;
+                            if (followingHeight <= capacity &&
+                                measured.Lines.Count < (long)Math.Max(1, opening) + Math.Max(1, following.Style.WidowLines ?? 1))
+                                opening = measured.Lines.Count;
+                            followingHeight = measured.Lines.Take(Math.Max(1, opening))
                                 .Sum(line => line.Height);
+                        }
                         required += Math.Max(0, previous.SpacingAfter) + Math.Max(0, following.Style.SpacingBefore) + followingHeight;
                         previous = following.Style;
                         if (required > capacity)
@@ -1649,6 +1711,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             paragraphIndex++;
         }
 
+        PlaceSectionNotes(paragraphIndex);
         PaintSectionUntil(Math.Max(regionDepth, y));
         paintedSection = null;
 
@@ -1656,7 +1719,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // they are cited; in a continuous render the footnotes go with them.
         List<DocumentNote> trailing = [.. DocumentNote.CitedIn(document.Paragraphs)
             .Distinct<DocumentNote>(ReferenceEqualityComparer.Instance)
-            .Where(note => note.Kind == NoteKind.Endnote || setup.Continuous)];
+            .Where(note => note.Kind == NoteKind.Endnote || (setup.Continuous && !IsCollected(note)))];
         if (trailing.Count > 0 && !truncated)
         {
             region = null;
@@ -1824,10 +1887,12 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 _headerDistance, _footerDistance, setup.ContentLeftPoints, setup.ContentWidthPoints, _fixedBands);
 
         int pageNumber = _numbering.Number + number - _numbering.Page;
+        var runningBorders = new List<LayoutCell>();
         var headerLines = RunningLines(
             WithPageFields(_running.EffectiveHeader(selection), pageNumber, number),
             setup,
             frame,
+            runningBorders,
             top: 0,
             band: frame.TextTop,
             topDistance: frame.HeaderDistance);
@@ -1835,6 +1900,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             WithPageFields(_running.EffectiveFooter(selection), pageNumber, number),
             setup,
             frame,
+            runningBorders,
             top: frame.TextBottom,
             band: setup.HeightPoints - frame.TextBottom,
             bottomDistance: frame.FooterDistance);
@@ -1864,12 +1930,15 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         shapes.AddRange(PlaceRunningShapes(_running.EffectiveFooterShapes(selection), setup));
         shapes = [.. shapes.OrderBy(shape => shape.ZOrder)];
 
-        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, cells, _background,
+        List<LayoutCell> allCells = runningBorders.Count == 0 ? cells : [.. cells, .. runningBorders];
+        IReadOnlyList<LayoutCell> allInlineCells = inlineCells is null ? allCells :
+            runningBorders.Count == 0 ? inlineCells : [.. inlineCells, .. runningBorders];
+        return new LayoutPage(number, setup.WidthPoints, setup.HeightPoints, all, shapes, allCells, _background,
             _background?.ContentOnly == true ? new BRect(setup.ContentLeftPoints, setup.ContentTopPoints,
                 setup.ContentWidthPoints, setup.ContentHeightPoints) : null,
             floatingTables: floatingTables,
             inlineLines: allInline,
-            inlineCells: inlineCells ?? cells)
+            inlineCells: allInlineCells)
         {
             VerticalWriting = _verticalWriting,
         };
@@ -2753,8 +2822,10 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             if (shapeWidth <= 0 || shapeHeight <= 0)
                 continue;
 
-            double margin = Math.Max(0, shape.WrapDistance);
-            yield return (shapeTop - margin, shapeTop + shapeHeight + margin, shapeLeft - margin, shapeLeft + shapeWidth + margin);
+            double margin = shape.WrapDistance;
+            TableCellPadding clearance = shape.WrapMargins ?? new TableCellPadding(margin, margin, margin, margin);
+            yield return (shapeTop - Math.Max(0, clearance.Top), shapeTop + shapeHeight + Math.Max(0, clearance.Bottom),
+                shapeLeft - Math.Max(0, clearance.Left), shapeLeft + shapeWidth + Math.Max(0, clearance.Right));
         }
     }
 
@@ -3262,7 +3333,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// the body.
     /// </summary>
     private List<LayoutLine> RunningLines(IReadOnlyList<RichTextParagraph> paragraphs, DocumentPageBox setup, PageFrame frame,
-        double top, double band, double? bottomDistance = null, double? topDistance = null)
+        List<LayoutCell> borders, double top, double band, double? bottomDistance = null, double? topDistance = null)
     {
         (List<LayoutLine> lines, double height) = ComposeRunning(paragraphs, setup, frame.Left, frame.Width);
         if (lines.Count == 0)
@@ -3286,24 +3357,28 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     kept.Add(line);
             }
 
+            AddBorders(kept);
             return kept;
         }
 
-        if (height > band)
+        // FrameFor can grow this band to exactly the required height. Subtracting
+        // the resulting text boundary from the page can lose a fraction of a point.
+        const double fitTolerance = 0.01;
+        if (height > band + fitTolerance)
         {
             _notes.Add("a header or footer was taller than its page margin and was not drawn.");
             return [];
         }
 
         if (bottomDistance is double distance &&
-            (!double.IsFinite(distance) || distance < 0 || distance + height > band))
+            (!double.IsFinite(distance) || distance < 0 || distance + height > band + fitTolerance))
         {
             _notes.Add("a footer could not fit at its declared distance inside the bottom margin and was not drawn.");
             return [];
         }
 
         if (topDistance is double headerDistance &&
-            (!double.IsFinite(headerDistance) || headerDistance < 0 || headerDistance + height > band))
+            (!double.IsFinite(headerDistance) || headerDistance < 0 || headerDistance + height > band + fitTolerance))
         {
             _notes.Add("a header could not fit at its declared distance inside the top margin and was not drawn.");
             return [];
@@ -3319,7 +3394,29 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             line.Top += y;
         }
 
+        AddBorders(lines);
         return lines;
+
+        void AddBorders(List<LayoutLine> placed)
+        {
+            if (!paragraphs.Any(paragraph => paragraph.Style.Border is not null))
+                return;
+
+            foreach (var paragraphLines in placed.GroupBy(line => -1 - line.ParagraphIndex))
+            {
+                ParagraphStyle style = paragraphs[paragraphLines.Key].Style;
+                if (style.Border is not { } border)
+                    continue;
+                LayoutLine first = paragraphLines.First(), last = paragraphLines.Last();
+                double left = frame.Left + style.LeftIndentIn(_settings.IndentStepPoints);
+                double right = frame.Left + frame.Width - style.RightIndentIn;
+                double upper = first.Top - border.Spacing.Top;
+                double lower = last.Top + last.Height + border.Spacing.Bottom;
+                borders.Add(new LayoutCell(new BRect(left - border.Spacing.Left, upper,
+                    Math.Max(0, right - left + border.Spacing.Left + border.Spacing.Right), lower - upper),
+                    default, border.Edges));
+            }
+        }
     }
 
     /// <summary>
@@ -3445,15 +3542,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         var lines = new List<LayoutLine>();
         double height = 0;
-        foreach (RichTextParagraph paragraph in paragraphs)
+        for (int index = 0; index < paragraphs.Count; index++)
         {
+            RichTextParagraph paragraph = paragraphs[index];
             if (IsWhollyHidden(paragraph))
                 continue;
 
             if (lines.Count > 0)
                 height += Math.Max(0, paragraph.Style.SpacingBefore);
 
-            foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1, left, width).Lines)
+            foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1 - index, left, width).Lines)
             {
                 line.Top = height;
                 lines.Add(line);
@@ -3527,20 +3625,21 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// and followed by a space where the document sets labels as Word does, in
     /// the hanging indent where it sets them as LibreOffice does.
     /// </summary>
-    private ParagraphLines ComposeNoteParagraph(DocumentNote note, int index, DocumentPageBox setup)
+    private ParagraphLines ComposeNoteParagraph(DocumentNote note, int index, DocumentPageBox setup,
+        double? left = null, double? width = null)
     {
         RichTextParagraph paragraph = note.Paragraphs[index];
         if (index > 0)
-            return ComposeParagraph(paragraph, marker: null, setup, -1);
+            return ComposeParagraph(paragraph, marker: null, setup, -1, left, width);
 
         if (!_raisedNoteLabels)
-            return ComposeParagraph(paragraph, _noteLabels.Label(note), setup, -1);
+            return ComposeParagraph(paragraph, _noteLabels.Label(note), setup, -1, left, width);
 
         InlineStyle style = (paragraph.Length > 0 ? paragraph.StyleAt(0) : paragraph.MarkStyle) with { Note = null, Image = null };
         RichTextParagraph labelled = paragraph
             .InsertText(0, " ", style)
             .InsertText(0, DocumentNote.PlaceholderText, style with { Note = note });
-        return ComposeParagraph(labelled, marker: null, setup, -1);
+        return ComposeParagraph(labelled, marker: null, setup, -1, left, width);
     }
 
     /// <summary>A note's composed lines, each with its offset from the note's top, and the note's height.</summary>

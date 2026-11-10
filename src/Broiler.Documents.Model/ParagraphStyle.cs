@@ -3,6 +3,9 @@ using Broiler.Graphics.Color;
 
 namespace Broiler.Documents.Model;
 
+/// <summary>Paragraph border edges and their spacing from the text box.</summary>
+public readonly record struct ParagraphBorder(CellBorders Edges, TableCellPadding Spacing);
+
 /// <summary>
 /// A fully resolved paragraph style. Use <see cref="Default"/> rather than
 /// <c>default(ParagraphStyle)</c> so line spacing is single-spaced.
@@ -16,6 +19,11 @@ namespace Broiler.Documents.Model;
 /// </remarks>
 public readonly record struct ParagraphStyle
 {
+    /// <summary>The saved page number of a leading layout hint, or zero when absent.</summary>
+    public int SoftPageBreakBefore { get; init; }
+
+    public ParagraphBorder? Border { get; init; }
+
     public TextAlignment Alignment { get; init; }
 
     /// <summary>Explicit tab stops; null uses the renderer's default tab interval.</summary>

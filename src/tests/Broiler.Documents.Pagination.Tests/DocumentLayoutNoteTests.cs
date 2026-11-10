@@ -23,6 +23,24 @@ public sealed class DocumentLayoutNoteTests
     private static string TextOf(LayoutLine line) => string.Concat(line.Pieces.Select(piece => piece.Text));
 
     [Fact]
+    public void Collected_Footnotes_Appear_Before_The_Next_Sections_Text()
+    {
+        var first = new SectionFootnotes(1);
+        var second = new SectionFootnotes(1);
+        var document = RichTextDocument.FromParagraphs(
+        [
+            Citing("First", new DocumentNote(NoteKind.Footnote, [RichTextParagraph.Plain("alpha")]) { Section = first }),
+            Citing("Second", new DocumentNote(NoteKind.Footnote, [RichTextParagraph.Plain("beta")]) { Section = second }),
+        ]).WithSections(
+        [
+            new DocumentSection(0, 1, 1, 0) { FootnotesEnding = [first] },
+            new DocumentSection(1, 1, 1, 0) { FootnotesEnding = [second] },
+        ]);
+
+        Assert.Equal(["First1", "1alpha", "Second1", "1beta"], Assert.Single(Layout(document).Pages).Lines.Select(TextOf));
+    }
+
+    [Fact]
     public void A_Footnote_Is_Set_At_The_Foot_Of_The_Page_Under_A_Line()
     {
         RichTextDocument document = RichTextDocument.FromParagraphs([Citing("Body", Footnote("The note."))]);

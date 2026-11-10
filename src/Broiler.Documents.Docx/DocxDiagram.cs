@@ -7,13 +7,15 @@ using System.Xml.Linq;
 
 namespace Broiler.Documents.Docx;
 
-/// <summary>Imports saved SmartArt drawing caches, without running a diagram layout engine.</summary>
+/// <summary>Imports saved SmartArt drawing caches and known layouts without a cache.</summary>
 internal static class DocxDiagram
 {
     internal static readonly XNamespace Diagram = "http://schemas.openxmlformats.org/drawingml/2006/diagram";
     internal static readonly XNamespace Saved = "http://schemas.microsoft.com/office/drawing/2008/diagram";
     private const string DataRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramData";
     private const string DrawingRelationship = "http://schemas.microsoft.com/office/2007/relationships/diagramDrawing";
+    private const string LayoutRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramLayout";
+    private const string ColorsRelationship = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/diagramColors";
     private static readonly XNamespace A = DocxNamespaces.Drawing, W = DocxNamespaces.Wordprocessing;
 
     internal sealed record Cache(XElement Group, DocxRelationships Relationships);
@@ -65,9 +67,13 @@ internal static class DocxDiagram
             state.Parts[relationship.Target] = (root, length);
             return root;
         }
-        string? id = (string?)references.Attribute(DocxNamespaces.Relationships + "dm");
-        DocxRelationship? data = null;
-        if (id is not null) owner.TryGet(id, out data);
+        DocxRelationship? RelatedPart(string attribute)
+        {
+            string? id = (string?)references.Attribute(DocxNamespaces.Relationships + attribute);
+            return id is not null && owner.TryGet(id, out DocxRelationship? part) ? part : null;
+        }
+
+        DocxRelationship? data = RelatedPart("dm");
         XElement? model = LoadPart(data, DataRelationship);
         string? cacheId = (string?)model?.Descendants(Saved + "dataModelExt").FirstOrDefault()?.Attribute("relId");
         DocxRelationship? drawing = null;
@@ -78,12 +84,23 @@ internal static class DocxDiagram
             dataRelationships.TryGet(cacheId, out drawing);
         }
         XElement? tree = LoadPart(drawing, DrawingRelationship)?.Element(Saved + "spTree");
+        DocxRelationships relationships = DocxRelationships.Empty;
+        if (tree is not null)
+            relationships = RelationshipsFor(drawing!.Target);
+        else if (model is not null && cacheId is null &&
+                 LoadPart(RelatedPart("lo"), LayoutRelationship) is XElement layout &&
+                 DocxProcessDiagram.Supports(layout))
+        {
+            tree = DocxProcessDiagram.Build(model, LoadPart(RelatedPart("cs"), ColorsRelationship),
+                anchor, theme, builder.Limits.MaxParagraphCount);
+            if (tree is not null)
+                Report("docx.diagram.process", "An uncached SmartArt timeline was laid out with simplified shape styling.");
+        }
         if (tree is null)
         {
             Report("docx.diagram.cache", "A SmartArt diagram had no readable embedded drawing cache; its layout was not synthesized.");
             return null;
         }
-        DocxRelationships relationships = RelationshipsFor(drawing!.Target);
         int count = 0;
         XElement group = Group(tree, true, 0);
         return new Cache(group, relationships);
@@ -134,7 +151,7 @@ internal static class DocxDiagram
             var result = new XElement(shapeNamespace + "wsp");
             var properties = new XElement(shapeNamespace + "spPr", source.Element(Saved + "spPr")?.Attributes(), source.Element(Saved + "spPr")?.Nodes());
             string? preset = (string?)properties.Element(A + "prstGeom")?.Attribute("prst");
-            if (preset is not (null or "rect" or "ellipse" or "line" or "straightConnector1"))
+            if (preset is not (null or "rect" or "ellipse" or "line" or "straightConnector1" or "notchedRightArrow"))
                 Report("docx.diagram.geometry", "A saved diagram's unsupported preset geometry was approximated by a rectangle.");
             if (properties.Element(A + "custGeom") is not null || source.Element(Saved + "txXfrm") is not null)
                 Report("docx.diagram.geometry", "Saved diagram custom geometry or a separate text transform was approximated by the shape's text frame.");

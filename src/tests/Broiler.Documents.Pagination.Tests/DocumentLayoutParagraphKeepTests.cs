@@ -84,6 +84,21 @@ public sealed class DocumentLayoutParagraphKeepTests
         Assert.Equal(new[] { 7, 3 }, result.Pages.Select(p => p.Lines.Count));
     }
 
+    [Theory]
+    [InlineData(false, 8, 2)]
+    [InlineData(true, 4, 6)]
+    public void KeepNext_Can_Keep_Only_The_Opening_Of_A_Splittable_Successor(bool keepTogether, int first, int second)
+    {
+        using var images = new ImageStore();
+        var document = RichTextDocument.FromParagraphs(
+            [Para(4), Para(1, Style with { KeepWithNext = true }), Para(5, Style with { KeepTogether = keepTogether })])
+            .WithStyleDefaults(DocumentStyleDefaults.Default with { KeepWithNextOpeningLines = true });
+        var result = new DocumentLayout(new LayoutSettings(), images).Layout(document,
+            new DocumentPageBox(200, 100, 10, 10, 10, 10));
+
+        Assert.Equal(new[] { first, second }, result.Pages.Select(page => page.Lines.Count));
+    }
+
     [Fact]
     public void KeepNext_chains_are_measured_together()
     {

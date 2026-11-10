@@ -372,7 +372,10 @@ internal static class OdtReader
                 breakType,
                 textSection?.LeftIndent ?? 0,
                 textSection?.RightIndent ?? 0,
-                selected.Index == index ? selected.Number : null));
+                selected.Index == index ? selected.Number : null)
+            {
+                FootnotesEnding = textSection?.ParagraphEnd == edges[i + 1] ? textSection.FootnotesEnding : [],
+            });
         }
         return built.WithSections(sections).WithPageGeometry(page);
     }
@@ -2022,6 +2025,20 @@ internal static class OdtReader
             {
                 int sectionStart = builder.CurrentParagraphIndex;
                 bool hidden = IsSectionHidden(element, context);
+                string? sectionStyle = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
+                XElement? sectionProperties = sectionStyle is null ? null : context.Styles.SectionProperties.GetValueOrDefault(sectionStyle);
+                XElement? noteConfiguration = sectionProperties?.Elements(OdtNamespaces.Text + "notes-configuration")
+                    .FirstOrDefault(configuration => (string?)configuration.Attribute(OdtNamespaces.Text + "note-class") == "footnote");
+                SectionFootnotes? previousFootnotes = context.SectionFootnotes;
+                SectionFootnotes? footnotes = null;
+                if (noteConfiguration is not null)
+                {
+                    int? start = int.TryParse((string?)noteConfiguration.Attribute(OdtNamespaces.Text + "start-value"),
+                        NumberStyles.Integer, CultureInfo.InvariantCulture, out int number) && number is > 0 and < 100000 ? number : null;
+                    string? format = (string?)noteConfiguration.Attribute(OdtNamespaces.Style + "num-format");
+                    footnotes = new SectionFootnotes(start, format is null ? null : OdtStyles.NumberFormat(format));
+                    context.SectionFootnotes = footnotes;
+                }
                 OdtBreak pending = hidden ? context.TakeBreak() : OdtBreak.None;
                 if (hidden) context.HiddenSectionDepth++;
                 try
@@ -2030,15 +2047,14 @@ internal static class OdtReader
                 }
                 finally
                 {
+                    context.SectionFootnotes = previousFootnotes;
                     if (hidden)
                     {
                         context.HiddenSectionDepth--;
                         context.HoldBreak(pending);
                     }
                 }
-                string? sectionStyle = (string?)element.Attribute(OdtNamespaces.Text + "style-name");
-                if (sectionStyle is not null &&
-                    context.Styles.SectionProperties.TryGetValue(sectionStyle, out XElement? sectionProperties))
+                if (sectionProperties is not null)
                 {
                     (int count, double gap) = TryReadColumns(sectionProperties, builder.AddDiagnosticOnce) ?? (1, 0);
                     TryColor((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "background-color"), out BColor background);
@@ -2052,7 +2068,7 @@ internal static class OdtReader
                     double mr = OdtUnits.TryParseLength((string?)sectionProperties.Attribute(OdtNamespaces.Fo + "margin-right"), out double rightVal) ? rightVal : uniformMargin;
                     bool indented = ml > 0 || mr > 0;
 
-                    if (count > 1 || (!background.IsEmpty && background.A > 0) || indented || dontBalance || hidden)
+                    if (count > 1 || (!background.IsEmpty && background.A > 0) || indented || dontBalance || hidden || footnotes is not null)
                     {
                         builder.AddSection(new DocumentSection(
                             sectionStart, builder.CurrentParagraphIndex - sectionStart, count, gap,
@@ -2060,7 +2076,10 @@ internal static class OdtReader
                             hidden: hidden,
                             dontBalanceColumns: dontBalance,
                             leftIndent: Math.Max(0, ml),
-                            rightIndent: Math.Max(0, mr)));
+                            rightIndent: Math.Max(0, mr))
+                        {
+                            FootnotesEnding = footnotes is null ? [] : [footnotes],
+                        });
                     }
                 }
                 else if (hidden)
@@ -2313,12 +2332,20 @@ internal static class OdtReader
         // A leading soft marker in a text paragraph records an earlier
         // layout. Reflow the text, while preserving a marker that constitutes
         // the entire paragraph (there is no text from which to infer it).
-        if (context.SelectPageStyle?.Invoke("paragraph", styleName, context.Builder.CurrentParagraphIndex) == true ||
-            (context.UsesSoftPageBreaks && context.TableDepth == 0 && context.HiddenSectionDepth == 0 &&
-             paragraph.FirstNode is XElement softBreak && softBreak.Name == OdtNamespaces.Text + "soft-page-break" &&
-             !softBreak.NodesAfterSelf().Any() &&
-             paragraph.ElementsAfterSelf().Any()))
+        if (context.SelectPageStyle?.Invoke("paragraph", styleName, context.Builder.CurrentParagraphIndex) == true)
             paragraphStyle = paragraphStyle with { PageBreakBefore = true, ColumnBreakBefore = false };
+        if (context.UsesSoftPageBreaks && context.TableDepth == 0 && context.HiddenSectionDepth == 0)
+        {
+            XName softPageBreak = OdtNamespaces.Text + "soft-page-break";
+            if (paragraph.FirstNode is XElement softBreak && softBreak.Name == softPageBreak &&
+                !softBreak.NodesAfterSelf().Any() && paragraph.ElementsAfterSelf().Any())
+            {
+                paragraphStyle = paragraphStyle with { SoftPageBreakBefore = context.SoftPageNumber + 1 };
+            }
+            context.SoftPageNumber += paragraph.Descendants(softPageBreak).Count(marker =>
+                marker.Ancestors().First(ancestor => ancestor.Name == OdtNamespaces.Text + "p" ||
+                    ancestor.Name == OdtNamespaces.Text + "h") == paragraph);
+        }
 
         // A break handed over by the paragraph above is taken after this
         // paragraph's own properties have been applied, so it wins over an
@@ -2856,7 +2883,10 @@ internal static class OdtReader
                 "A table or shape in an ODT note was read as its text; a note holds paragraphs only.");
         }
 
-        var documentNote = new DocumentNote(kind, built.Paragraphs, label?.Trim());
+        var documentNote = new DocumentNote(kind, built.Paragraphs, label?.Trim())
+        {
+            Section = kind == NoteKind.Footnote ? context.SectionFootnotes : null,
+        };
         context.Builder.AppendLiteral(DocumentNote.PlaceholderText, style with { Note = documentNote, Image = null });
     }
 
@@ -3144,7 +3174,8 @@ internal static class OdtReader
                 return;
         }
 
-        InlineImage? image = context.Images.Read(frame, context.Builder);
+        InlineImage? image = context.Images.Read(frame, context.Builder,
+            IsAnchoredInText(frame) && context.TableDepth == 0 ? context.ActivePage ?? PageGeometry.A4 : null);
         if (image is null)
             return;
 

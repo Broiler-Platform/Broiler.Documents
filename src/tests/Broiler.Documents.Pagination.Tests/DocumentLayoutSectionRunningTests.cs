@@ -32,6 +32,33 @@ public sealed class DocumentLayoutSectionRunningTests
         page.Lines.Any(line => string.Concat(line.Pieces.Select(piece => piece.Text)).Contains(text, StringComparison.Ordinal));
 
     [Fact]
+    public void An_Already_Reached_Soft_Page_Does_Not_Force_Another_Break()
+    {
+        var hint = Body("saved on page two").WithParagraphStyle(ParagraphStyle.Default with { SoftPageBreakBefore = 2 });
+        var result = Layout(RichTextDocument.FromParagraphs([Body("one"), Body("two", pageBreakBefore: true), hint]));
+
+        Assert.Equal(2, result.Pages.Count);
+        Assert.True(Holds(result.Pages[1], "saved on page two"));
+    }
+
+    [Fact]
+    public void A_Running_Paragraph_Can_Draw_A_Border_Without_Text()
+    {
+        var edge = new TableBorder(new Broiler.Graphics.Color.BColor(0, 0, 128), 1.5);
+        var footer = RichTextParagraph.Empty.WithParagraphStyle(ParagraphStyle.Default with
+        {
+            Border = new ParagraphBorder(new CellBorders(Top: edge, Left: default, Right: default, Bottom: default), default),
+        });
+        var document = RichTextDocument.FromParagraphs([Body("text")])
+            .WithRunningContent(RunningContent.Empty.WithFooter(PageSelection.Default, [footer]));
+
+        var border = Assert.Single(Assert.Single(Layout(document).Pages).Cells);
+        Assert.Equal(edge, border.Borders.Top);
+        Assert.Equal(468, border.Bounds.Width);
+        Assert.True(border.Bounds.Top >= 720);
+    }
+
+    [Fact]
     public void Each_Page_Carries_The_Header_Of_The_Section_That_Started_It()
     {
         RichTextDocument document = RichTextDocument

@@ -1821,10 +1821,10 @@ public static class DocxWriter
     {
         var anchor = new XElement(
             DocxNamespaces.WordDrawing + "anchor",
-            new XAttribute("distT", "0"),
-            new XAttribute("distB", "0"),
-            new XAttribute("distL", PointsToEmu(shape.WrapDistance)),
-            new XAttribute("distR", PointsToEmu(shape.WrapDistance)),
+            new XAttribute("distT", PointsToEmu(shape.WrapMargins?.Top ?? 0)),
+            new XAttribute("distB", PointsToEmu(shape.WrapMargins?.Bottom ?? 0)),
+            new XAttribute("distL", PointsToEmu(shape.WrapMargins?.Left ?? shape.WrapDistance)),
+            new XAttribute("distR", PointsToEmu(shape.WrapMargins?.Right ?? shape.WrapDistance)),
             new XAttribute("simplePos", "0"),
             new XAttribute(
                 "relativeHeight",

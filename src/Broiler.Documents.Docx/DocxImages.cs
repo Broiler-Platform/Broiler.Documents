@@ -26,7 +26,8 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
     /// </summary>
     private const double MaxDisplayExtent = 20000.0;
     private readonly DocxDiagram.ReadState _diagrams = new();
-    private long _pathBytes;
+    private long _generatedImageBytes;
+    private long _chartBytes;
     private enum LoadResult { Success, Missing, Limit, Format }
     private readonly Dictionary<string, (MediaPart? Part, LoadResult Result)> _parts = new(StringComparer.OrdinalIgnoreCase);
 
@@ -55,12 +56,13 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
     }
 
 
-    public InlineImage? AdmitPath(byte[] png, double width, double height, IDocxImageDiagnostics diagnostics)
+    public InlineImage? AdmitGeneratedImage(byte[] png, double width, double height, IDocxImageDiagnostics diagnostics,
+        string? altText = null, string? name = null)
     {
-        if (png.LongLength > limits.MaxBinBytes || png.LongLength > limits.MaxDocumentBytes - _pathBytes)
+        if (png.LongLength > limits.MaxBinBytes || png.LongLength > limits.MaxDocumentBytes - _generatedImageBytes)
             return null;
-        _pathBytes += png.LongLength;
-        return Admit(new InlineImage(png, "image/png", width, height), DocumentResourceDisposition.Embedded, diagnostics);
+        _generatedImageBytes += png.LongLength;
+        return Admit(new InlineImage(png, "image/png", width, height, altText, name), DocumentResourceDisposition.Embedded, diagnostics);
     }
 
     /// <summary>Reads an embedded diagram cache through the package's existing XML limits.</summary>
@@ -154,14 +156,31 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
             XElement? blip = FindDescendant(wrapper, DocxNamespaces.Drawing + "blip");
             if (blip is null)
             {
-                diagnostics.AddDiagnosticOnce("docx.image.shape", "A DOCX drawing held no embedded picture and was skipped.");
-                bool isChart = FindDescendant(wrapper, DocxNamespaces.DrawingChart + "chart") is not null ||
+                XElement? chart = FindDescendant(wrapper, DocxNamespaces.DrawingChart + "chart");
+                bool isChart = chart is not null ||
                     (string?)FindDescendant(wrapper, DocxNamespaces.Drawing + "graphicData")?.Attribute("uri") == "http://schemas.openxmlformats.org/drawingml/2006/chart";
                 if (isChart && width > 0 && height > 0)
                 {
+                    string? id = (string?)chart?.Attribute(DocxNamespaces.Relationships + "id");
+                    if (id is not null && relationships.TryGet(id, out DocxRelationship? relationship) &&
+                        relationship is { TargetModeExternal: false, Type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" } &&
+                        DocxPackage.FindEntry(archive, relationship.Target) is { } part &&
+                        part.Length <= limits.MaxDocumentBytes - _chartBytes &&
+                        diagnostics is DocxDocumentBuilder builder)
+                    {
+                        _chartBytes += part.Length;
+                        XElement? root = DocxPackage.LoadEntryXml(part, limits, builder.Diagnostics, "docx.chart.xml")?.Root;
+                        if (root is not null && DocxChartPreview.Render(root, width, height) is byte[] png)
+                        {
+                            diagnostics.AddDiagnosticOnce("docx.chart.preview", "A clustered column chart was drawn from its cached values with simplified axes and styling.");
+                            return AdmitGeneratedImage(png, width, height, diagnostics, altText, name);
+                        }
+                    }
+                    diagnostics.AddDiagnosticOnce("docx.image.shape", "A DOCX chart had no supported embedded preview and retained its display size.");
                     return Admit(InlineImage.CreateMissingPayload(width, height, altText, name),
                         DocumentResourceDisposition.Embedded, diagnostics);
                 }
+                diagnostics.AddDiagnosticOnce("docx.image.shape", "A DOCX drawing held no embedded picture and was skipped.");
                 return null;
             }
 
