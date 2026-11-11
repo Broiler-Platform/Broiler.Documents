@@ -2085,11 +2085,23 @@ internal static class DocxReader
         if (segment)
         {
             double[]? points = ReadVmlSegmentPoints(shape);
-            if (points is null || style.ContainsKey("rotation"))
+            if (points is null)
             {
                 context.Builder.AddDiagnosticOnce("docx.shape.geometry",
-                    "A VML line used unsupported coordinates, rotation or more than two points and was skipped.");
+                    "A VML line used unsupported coordinates or more than two points and was skipped.");
                 return true;
+            }
+            // A rotated line turns about its box's centre (tdf137765): rotate
+            // the end points there and draw the result unrotated.
+            if (style.Remove("rotation", out string? turn) && DocxVmlShapeWalker.Rotation(turn) is double angle and not 0)
+            {
+                double centerX = (points[0] + points[2]) / 2, centerY = (points[1] + points[3]) / 2;
+                for (int i = 0; i < 4; i += 2)
+                {
+                    double dx = points[i] - centerX, dy = points[i + 1] - centerY;
+                    points[i] = centerX + dx * Math.Cos(angle) - dy * Math.Sin(angle);
+                    points[i + 1] = centerY + dx * Math.Sin(angle) + dy * Math.Cos(angle);
+                }
             }
             lineLeft = Math.Min(points[0], points[2]);
             lineTop = Math.Min(points[1], points[3]);

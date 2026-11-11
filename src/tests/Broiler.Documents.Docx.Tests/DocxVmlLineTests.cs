@@ -45,11 +45,24 @@ public sealed class DocxVmlLineTests
         Assert.Equal(ShapeGeometry.LineAscending, shape.Geometry);
     }
 
+    [Fact]
+    public void A_Rotated_Line_Turns_Its_End_Points_About_Its_Centre()
+    {
+        // tdf137765: a rotated v:line was skipped. Rotation 90 turns a falling
+        // diagonal clockwise into a rising one in the same box.
+        var shape = Assert.Single(Read("<v:line from='0pt,0pt' to='10pt,10pt' style='rotation:90'/>").Document.Shapes);
+        Assert.Equal(0, shape.OffsetX, 3);
+        Assert.Equal(0, shape.OffsetY, 3);
+        Assert.Equal(10, shape.Width, 3);
+        Assert.Equal(10, shape.Height, 3);
+        Assert.Equal(ShapeGeometry.LineAscending, shape.Geometry);
+        Assert.Equal(0, shape.RotationRadians, 6);
+    }
+
     [Theory]
     [InlineData("<v:polyline points='0,0,10,10,20,20'/>")]
     [InlineData("<v:polyline points='20pt,60pt 140pt,60pt'/>")]
     [InlineData("<v:polyline points='0,0,10,10' coordsize='100,100'/>")]
-    [InlineData("<v:line from='0,0' to='10pt,10pt' style='rotation:90'/>")]
     [InlineData("<v:line to='0,0,10pt,10pt'/>")]
     [InlineData("<v:line from='0,0' to='1e999pt,10pt'/>")]
     public void Unsupported_Or_Malformed_Line_Geometry_Is_Diagnosed(string xml)
