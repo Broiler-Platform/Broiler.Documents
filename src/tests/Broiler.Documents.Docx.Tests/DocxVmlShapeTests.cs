@@ -276,4 +276,19 @@ public sealed class DocxVmlShapeTests
         Assert.Contains(box.Paragraphs, p => p.Text.Contains("Homer was sleeping"));
         Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.shape.geometry");
     }
+
+    [Fact]
+    public void An_Arc_Path_With_Fill_And_Stroke_Switches_Is_Drawn_As_A_Picture()
+    {
+        // tdf104115: the built-in arc (o:spt 19) writes wr arcs and nf/ns
+        // switches, which the path reader refused, so only the box was drawn.
+        DocumentReadResult result = Read(
+            "<v:shape coordsize='21600,19987' style='position:absolute;left:0;top:0;width:10pt;height:20pt;flip:y' " +
+            "filled='f' strokeweight='3pt' path='wr-21600,-1613,21600,41587,8190,,21600,19987nfewr-21600,-1613,21600,41587," +
+            "8190,,21600,19987l,19987nsxe'/>");
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.NotNull(shape.Image);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.shape.geometry");
+    }
 }

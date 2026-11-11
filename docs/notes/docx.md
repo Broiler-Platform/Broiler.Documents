@@ -599,6 +599,11 @@ LibreOffice's `DomainMapperTableHandler` does:
 - A rotated VML `v:line` (`tdf137765_testVmlLineShapeRotated.docx`) turns its
   end points about their midpoint, clockwise by `rotation`, and is drawn as
   the unrotated line between them; it was skipped before.
+- VML freeform paths read the arc commands `wa`, `wr`, `at` and `ar`, the
+  `nf`/`ns` fill and stroke switches (reset at each `e`, which no longer ends
+  the path), and the style's `flip`. `tdf104115.docx`'s built-in arc drew
+  its box before; LibreOffice collapses that arc to a zero-length butt-capped
+  path and draws no ink, which is not mimicked.
 - Text boxes keep DrawingML `bodyPr` insets and VML `inset`, explicit zero
   included; defaults are 7.2 points across and 3.6 down, and their paragraph
   spacing and list numbering lie inside. A box too short for its first line
