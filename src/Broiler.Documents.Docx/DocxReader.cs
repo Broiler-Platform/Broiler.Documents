@@ -1705,8 +1705,36 @@ internal static class DocxReader
             offsetFromPage: fromPage)
         {
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
+            WrapPolygon = Wrap == ShapeWrap.None ? null : ReadWrapPolygon(anchor),
         });
         return true;
+    }
+
+    /// <summary>
+    /// The <c>wp:wrapPolygon</c> of a <c>wrapTight</c> or <c>wrapThrough</c>
+    /// anchor, as fractions of the picture's box: its coordinates run 0 to
+    /// 21600 across each axis whatever the picture's size.
+    /// </summary>
+    private static IReadOnlyList<(double X, double Y)>? ReadWrapPolygon(XElement anchor)
+    {
+        XElement? polygon = anchor.Descendants(DocxNamespaces.WordDrawing + "wrapPolygon").FirstOrDefault();
+        if (polygon is null || polygon.Parent?.Name.LocalName is not ("wrapTight" or "wrapThrough"))
+            return null;
+
+        var points = new List<(double X, double Y)>();
+        foreach (XElement point in polygon.Elements())
+        {
+            if (point.Name.LocalName is not ("start" or "lineTo") ||
+                !double.TryParse((string?)point.Attribute("x"), NumberStyles.Float, CultureInfo.InvariantCulture, out double x) ||
+                !double.TryParse((string?)point.Attribute("y"), NumberStyles.Float, CultureInfo.InvariantCulture, out double y))
+            {
+                continue;
+            }
+
+            points.Add((Math.Clamp(x / 21600d, 0, 1), Math.Clamp(y / 21600d, 0, 1)));
+        }
+
+        return points.Count >= 3 ? points : null;
     }
 
     /// <summary>

@@ -187,6 +187,24 @@ public sealed class SharedLayoutExclusionsPriority2Tests
     }
 
     [Fact]
+    public void TextWrapExclusions_WrapPolygon_LeavesTheOutlinesOpenCornerToText()
+    {
+        // tdf123163-1.docx: a wrapThrough picture whose outline covers its
+        // whole width at the top and only its left part below.
+        var exclusions = new TextWrapExclusions();
+        exclusions.Add(new DocumentShape(0, 0, 0, 400, 100, wrap: ShapeWrap.Square)
+        {
+            WrapPolygon = [(0, 0), (1, 0), (1, 0.5), (0.25, 0.5), (0.25, 1), (0, 1)],
+        }, top: 0, scale: 1, height: null, width: null);
+
+        var upper = exclusions.Band(top: 10, bottom: 20, columnWidth: 500);
+        Assert.Equal(400, upper.Left);
+        var lower = exclusions.Band(top: 60, bottom: 70, columnWidth: 500);
+        Assert.Equal(100, lower.Left);
+        Assert.Equal(400, lower.Width);
+    }
+
+    [Fact]
     public void TextWrapExclusions_Resolve_DescendsBelowTopAndBottomShape()
     {
         var exclusions = new TextWrapExclusions();

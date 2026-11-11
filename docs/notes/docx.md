@@ -776,6 +776,16 @@ it stays at its anchor and is cut off at the foot of the body. A first floating
 row whose first line fits but whose fused piece does not is now placed clipped
 (`RowBox.Clipped`) in the same way; a row that does not fit at all still moves.
 
+## Wrap polygons
+
+`tdf123163-1.docx` anchors full-width pictures with `wrapThrough` and a
+`wp:wrapPolygon` that covers the whole width at the top and only one side below,
+so LibreOffice runs text into the open corner. The polygon was ignored and the
+picture's whole box excluded text, pushing columns onto later pages. Pictures
+now carry `DocumentShape.WrapPolygon` (vertices as fractions of the box, from
+the 0-21600 coordinates), and `TextWrapExclusions` adds one rectangle per band
+between vertex heights, as wide as the outline in that band.
+
 ## Standards and rights
 
 DOCX is ECMA-376, republished as ISO/IEC 29500. Its rights position (the

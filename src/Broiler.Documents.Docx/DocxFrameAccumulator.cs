@@ -93,6 +93,7 @@ internal sealed class DocxFrameAccumulator
             FitsText = inner.FitsText,
             RotationRadians = inner.RotationRadians,
             WrapMargins = inner.WrapMargins,
+            WrapPolygon = inner.WrapPolygon,
         };
     }
 

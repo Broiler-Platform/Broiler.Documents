@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Broiler.Documents.Model.Exclusions;
 
 namespace Broiler.Documents.Model;
@@ -95,6 +96,10 @@ public sealed class TextWrapExclusions
             top - marginTop,
             ((shape.OffsetX + boxWidth) * scale) + marginRight,
             top + (boxHeight * scale) + marginBottom);
+        IReadOnlyList<ExclusionRect> rects = shape.WrapPolygon is { Count: >= 3 } polygon && shape.Wrap == ShapeWrap.Square
+            ? PolygonBands(polygon, shape.OffsetX * scale, top, boxWidth * scale, boxHeight * scale,
+                marginLeft, marginTop, marginRight, marginBottom)
+            : [rect];
 
         var wrapKind = shape.Wrap switch
         {
@@ -110,7 +115,52 @@ public sealed class TextWrapExclusions
             _ => ObstacleSidePolicy.Largest,
         };
 
-        _kernel.Add(new ExclusionObstacle(rect, wrapKind, sidePolicy, zOrder: shape.ZOrder, tag: shape));
+        foreach (ExclusionRect band in rects)
+            _kernel.Add(new ExclusionObstacle(band, wrapKind, sidePolicy, zOrder: shape.ZOrder, tag: shape));
+    }
+
+    /// <summary>
+    /// A wrap polygon as a stack of rectangles, one per band between its
+    /// vertices' heights, each as wide as the outline is within that band, so
+    /// text runs into the parts of the box the outline leaves open.
+    /// </summary>
+    private static List<ExclusionRect> PolygonBands(IReadOnlyList<(double X, double Y)> polygon,
+        double left, double top, double width, double height,
+        double marginLeft, double marginTop, double marginRight, double marginBottom)
+    {
+        double[] levels = [.. polygon.Select(point => point.Y).Distinct().Order()];
+        var bands = new List<ExclusionRect>();
+        for (int i = 0; i + 1 < levels.Length; i++)
+        {
+            double from = levels[i], to = levels[i + 1];
+            double min = double.MaxValue, max = double.MinValue;
+            for (int k = 0; k < polygon.Count; k++)
+            {
+                var (ax, ay) = polygon[k];
+                var (bx, by) = polygon[(k + 1) % polygon.Count];
+                if (ay == by)
+                    continue;
+                double low = Math.Max(Math.Min(ay, by), from), high = Math.Min(Math.Max(ay, by), to);
+                if (high <= low)
+                    continue;
+                foreach (double y in (double[])[low, high])
+                {
+                    double x = ax + ((bx - ax) * (y - ay) / (by - ay));
+                    min = Math.Min(min, x);
+                    max = Math.Max(max, x);
+                }
+            }
+
+            if (max <= min)
+                continue;
+            bands.Add(new ExclusionRect(
+                left + (min * width) - marginLeft,
+                top + (from * height) - (i == 0 ? marginTop : 0),
+                left + (max * width) + marginRight,
+                top + (to * height) + (i + 2 == levels.Length ? marginBottom : 0)));
+        }
+
+        return bands.Count > 0 ? bands : [new ExclusionRect(left - marginLeft, top - marginTop, left + width + marginRight, top + height + marginBottom)];
     }
 
     /// <summary>
