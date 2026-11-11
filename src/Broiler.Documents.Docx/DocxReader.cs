@@ -61,7 +61,7 @@ internal static class DocxReader
                 diagnostics);
 
             var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
-            var images = new DocxImageLoader(archive, options.Limits, resources);
+            var images = new DocxImageLoader(archive, options.Limits, resources, styles.Theme);
             var reported = new HashSet<string>(StringComparer.Ordinal);
             // Read before the content, not after it: an anchor states which frame
             // its offsets are measured from, and converting one to the column the
@@ -959,9 +959,28 @@ internal static class DocxReader
             context.Builder.TrimSectionParagraphEnd();
         else if (context.Builder.JoinsFieldCodeParagraph())
             return;
+        context.Builder.ApplyContextualSpacing(
+            (string.IsNullOrEmpty(paragraphStyleId) ? context.Styles.DefaultParagraphStyleId : paragraphStyleId) ?? string.Empty,
+            HasContextualSpacing(pPr, paragraphStyleId, context));
         if (context.Band == RunningBand.Body && context.PlacementPage is PageGeometry placement)
             context.Builder.ApplyIncreasedAnchoredObjectSpacing(placement.ContentWidth);
         context.Builder.FinishParagraph();
+    }
+
+    /// <summary>
+    /// Whether <c>w:contextualSpacing</c> is on for the paragraph: its own
+    /// <c>w:pPr</c> wins over its style chain, and the last style to state it
+    /// over the ones it is based on.
+    /// </summary>
+    private static bool HasContextualSpacing(XElement? pPr, string? paragraphStyleId, DocxReadContext context)
+    {
+        XElement? stated = pPr?.Element(DocxNamespaces.Wordprocessing + "contextualSpacing");
+        if (stated is null)
+        {
+            foreach (XElement properties in context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions))
+                stated = properties.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") ?? stated;
+        }
+        return stated is not null && ReadOnOff(stated);
     }
 
     /// <summary>
@@ -1252,6 +1271,14 @@ internal static class DocxReader
             }
 
             if (builder.Fields.SuppressesResult)
+                continue;
+
+            // A line break or tab between a field's begin and separator is part
+            // of its instruction, which Word does not display: an ADDRESSBLOCK
+            // writes one w:cr per line of its format string (tdf129520).
+            if (builder.Fields.InCode && child.Name.Namespace == DocxNamespaces.Wordprocessing &&
+                (child.Name.LocalName is "cr" or "tab" ||
+                 child.Name.LocalName == "br" && !IsPageBreak(child, context) && !IsColumnBreak(child)))
                 continue;
 
             if (child.Name == DocxNamespaces.Wordprocessing + "t")
@@ -1577,45 +1604,61 @@ internal static class DocxReader
         if (picture.Name != DocxNamespaces.Wordprocessing + "pict")
             return false;
         XElement? shape = picture.Elements(DocxNamespaces.Vml + "shape").FirstOrDefault();
-        XElement? textPath = shape?.Element(DocxNamespaces.Vml + "textpath");
-        if (shape is null || textPath is null)
+        Dictionary<string, string> shapeStyle = DocxVml.ReadStyle((string?)shape?.Attribute("style"));
+        if (shape is null ||
+            string.Equals(shapeStyle.GetValueOrDefault("position"), "absolute", StringComparison.OrdinalIgnoreCase) ||
+            !DocxVml.TryLength(shapeStyle.GetValueOrDefault("width"), out double width) ||
+            !DocxVml.TryLength(shapeStyle.GetValueOrDefault("height"), out double height) || width <= 0 || height <= 0 ||
+            ReadVmlTextPath(shape, width, height, style) is not { } wordArt)
             return false;
+
+        context.Builder.AppendText(string.Join((char)0x2028, wordArt.Lines), wordArt.Style with
+        {
+            Foreground = DocxVml.TryColor((string?)shape.Attribute("fillcolor"), out BColor color) ? color : style.Foreground,
+        });
+        context.Builder.AddDiagnosticOnce("docx.shape.wordart",
+            "A VML WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
+        return true;
+    }
+
+    /// <summary>
+    /// The lines of a VML shape's active <c>v:textpath</c> (WordArt) and the
+    /// style they are drawn in: the path's font, sized so the longest line
+    /// fits <paramref name="width"/> and the lines <paramref name="height"/>.
+    /// Null when the shape has no text path, or one that is off or empty.
+    /// </summary>
+    private static (string[] Lines, InlineStyle Style)? ReadVmlTextPath(XElement shape, double width, double height, InlineStyle style)
+    {
+        XElement? textPath = shape.Element(DocxNamespaces.Vml + "textpath");
+        if (textPath is null)
+            return null;
         // The shape's v:textpath usually inherits on="t" from its v:shapetype,
         // which may sit in the other branch of an mc:AlternateContent. A text
         // box's content is read detached from the document (fdo78300), so the
         // type is looked up from the topmost ancestor rather than the document.
         string? typeId = ((string?)shape.Attribute("type"))?.TrimStart('#');
         string? on = (string?)textPath.Attribute("on") ?? (string.IsNullOrEmpty(typeId) ? null :
-            (string?)picture.AncestorsAndSelf().Last().Descendants(DocxNamespaces.Vml + "shapetype")
+            (string?)shape.AncestorsAndSelf().Last().Descendants(DocxNamespaces.Vml + "shapetype")
                 .FirstOrDefault(type => (string?)type.Attribute("id") == typeId)
                 ?.Element(DocxNamespaces.Vml + "textpath")?.Attribute("on"));
-        if (on is not ("t" or "true" or "1"))
-            return false;
         string? text = (string?)textPath.Attribute("string");
-        Dictionary<string, string> shapeStyle = DocxVml.ReadStyle((string?)shape.Attribute("style"));
-        if (string.IsNullOrWhiteSpace(text) ||
-            string.Equals(shapeStyle.GetValueOrDefault("position"), "absolute", StringComparison.OrdinalIgnoreCase) ||
-            !DocxVml.TryLength(shapeStyle.GetValueOrDefault("width"), out double width) ||
-            !DocxVml.TryLength(shapeStyle.GetValueOrDefault("height"), out double height) || width <= 0 || height <= 0)
-            return false;
+        if (on is not ("t" or "true" or "1") || string.IsNullOrWhiteSpace(text))
+            return null;
 
         string[] lines = text.Replace("\r\n", "\n").Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0).ToArray();
         if (lines.Length == 0)
-            return false;
+            return null;
         Dictionary<string, string> textStyle = DocxVml.ReadStyle((string?)textPath.Attribute("style"));
         string? family = textStyle.GetValueOrDefault("font-family")?.Trim().Trim('"', '\'');
         // Half an em per character is a narrow face's average advance.
         double size = Math.Min(height / lines.Length / 1.2, width / (lines.Max(line => line.Length) * 0.5));
-        InlineStyle wordArt = style with
+        return (lines, style with
         {
             FontFamily = string.IsNullOrEmpty(family) ? style.FontFamily : family,
             FontSize = (float)Math.Clamp(size, 1, 400),
-            Foreground = DocxVml.TryColor((string?)shape.Attribute("fillcolor"), out BColor color) ? color : style.Foreground,
-        };
-        context.Builder.AppendText(string.Join((char)0x2028, lines), wordArt);
-        context.Builder.AddDiagnosticOnce("docx.shape.wordart",
-            "A VML WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
-        return true;
+            Bold = textStyle.GetValueOrDefault("font-weight")?.Trim() is "bold" or "700" or "800" or "900" || style.Bold,
+            Italic = textStyle.GetValueOrDefault("font-style")?.Trim() == "italic" || style.Italic,
+        });
     }
 
     private static void ReadPicture(XElement picture, DocxReadContext context, InlineStyle style)
@@ -2338,6 +2381,28 @@ internal static class DocxReader
         double outlineWidth = DocxVml.TryLength((string?)shape.Attribute("strokeweight") ??
             (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("weight"), out double strokeWidth) ? strokeWidth : 0.75;
         string? path = (string?)shape.Attribute("path") ?? (string?)shape.Element(DocxNamespaces.Vml + "path")?.Attribute("v");
+        TableCellPadding textPadding = ReadVmlPadding(shape.Element(DocxNamespaces.Vml + "textbox"));
+        CellVerticalAlignment textAlignment = style.GetValueOrDefault("v-text-anchor") switch
+        {
+            "middle" or "middle-center" => CellVerticalAlignment.Center,
+            "bottom" or "bottom-center" => CellVerticalAlignment.Bottom,
+            _ => CellVerticalAlignment.Top,
+        };
+        // A floating WordArt shape (a text watermark, tdf138739): its fill and
+        // stroke paint the glyphs, and its path is only the envelope they are
+        // fitted to, so neither the box nor the path is drawn.
+        if (image is null && !segment && ReadVmlTextPath(shape, width, height, InlineStyle.Default) is { } wordArt)
+        {
+            BColor ink = fill is { IsGradient: false, Image: null, Hatch: null } && !fill.Start.IsEmpty ? fill.Start : outline;
+            InlineStyle glyphs = wordArt.Style with { Foreground = ink.IsEmpty ? InlineStyle.Default.Foreground : ink };
+            paragraphs = [.. wordArt.Lines.Select(line => RichTextParagraph.Empty
+                .WithParagraphStyle(ParagraphStyle.Default with { Alignment = TextAlignment.Center })
+                .InsertText(0, line, glyphs))];
+            (fill, outline, path) = (null, BColor.Empty, null);
+            (textPadding, textAlignment) = (default, CellVerticalAlignment.Center);
+            context.Builder.AddDiagnosticOnce("docx.shape.wordart",
+                "A VML WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
+        }
         if (image is null && !string.IsNullOrEmpty(path) && !segment)
         {
             if ((fill is null || (!fill.IsGradient && fill.Image is null && fill.Hatch is null)) &&
@@ -2463,13 +2528,8 @@ internal static class DocxReader
             growsToText: DocxVml.ReadStyle((string?)shape.Element(DocxNamespaces.Vml + "textbox")?.Attribute("style"))
                 .GetValueOrDefault("mso-fit-shape-to-text")?.Trim().ToLowerInvariant() is "t" or "true" or "1",
             tables: shapeContent.Tables,
-            textPadding: ReadVmlPadding(shape.Element(DocxNamespaces.Vml + "textbox")),
-            textVerticalAlignment: style.GetValueOrDefault("v-text-anchor") switch
-            {
-                "middle" or "middle-center" => CellVerticalAlignment.Center,
-                "bottom" or "bottom-center" => CellVerticalAlignment.Bottom,
-                _ => CellVerticalAlignment.Top,
-            },
+            textPadding: textPadding,
+            textVerticalAlignment: textAlignment,
             textOverflow: style.GetValueOrDefault("overflow") == "visible",
             geometry: geometry,
             outlineWidth: outlineWidth,

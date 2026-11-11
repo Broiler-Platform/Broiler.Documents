@@ -148,7 +148,9 @@ internal static class DocxVmlShapeWalker
         var chain = new List<XElement> { source };
         var seen = new HashSet<string>(StringComparer.Ordinal);
         XElement current = source;
-        while (((string?)current.Attribute("type")) is string id && id.StartsWith('#') && types.TryGetValue(id[1..], out XElement? parent))
+        // The reference is a fragment, "#_x0000_t136"; LibreOffice also takes
+        // the bare id some writers leave (watermark-shapetype.docx).
+        while (((string?)current.Attribute("type")) is string id && types.TryGetValue(id.TrimStart('#'), out XElement? parent))
         {
             if (!seen.Add(id) || chain.Count >= maxDepth)
             {
@@ -174,7 +176,7 @@ internal static class DocxVmlShapeWalker
             foreach (XElement child in element.Elements())
             {
                 XElement? existing = inherited.FirstOrDefault(e => e.Name == child.Name && e.Parent is not null);
-                if (existing is not null && child.Name.Namespace == DocxNamespaces.Vml && child.Name.LocalName is "fill" or "stroke")
+                if (existing is not null && child.Name.Namespace == DocxNamespaces.Vml && child.Name.LocalName is "fill" or "stroke" or "textpath")
                 {
                     var merged = new XElement(existing);
                     foreach (var attr in child.Attributes()) merged.SetAttributeValue(attr.Name, attr.Value);
