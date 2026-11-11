@@ -1146,7 +1146,7 @@ internal static class OdtReader
         return variables;
     }
 
-    private static bool EvaluateCondition(string condition, IReadOnlyDictionary<string, string> variables)
+    private static bool? EvaluateCondition(string condition, IReadOnlyDictionary<string, string> variables)
     {
         if (string.Equals(condition, "true", StringComparison.OrdinalIgnoreCase) || condition == "1")
             return true;
@@ -1164,7 +1164,8 @@ internal static class OdtReader
             string op = tokens[1].ToUpperInvariant();
             string rhs = string.Join(" ", tokens.Skip(2)).Trim('"', '\'');
 
-            string lhsVal = variables.TryGetValue(lhs, out string? val) ? val : "";
+            if (!variables.TryGetValue(lhs, out string? lhsVal))
+                return null;
 
             bool isEq;
             if (double.TryParse(lhsVal, NumberStyles.Float, CultureInfo.InvariantCulture, out double numLhs) &&
@@ -1181,11 +1182,11 @@ internal static class OdtReader
             {
                 "EQ" or "==" or "=" => isEq,
                 "NE" or "!=" or "<>" => !isEq,
-                _ => false,
+                _ => null,
             };
         }
 
-        return false;
+        return null;
     }
 
     private static bool IsSectionHidden(XElement section, OdtReadContext context)
@@ -1196,8 +1197,13 @@ internal static class OdtReader
         if (display == "condition")
         {
             string? condition = (string?)section.Attribute(OdtNamespaces.Text + "condition");
-            if (!string.IsNullOrWhiteSpace(condition))
-                return EvaluateCondition(condition.Trim(), context.Variables);
+            if (!string.IsNullOrWhiteSpace(condition) &&
+                EvaluateCondition(condition.Trim(), context.Variables) is bool evaluated)
+                return evaluated;
+            // A condition this cannot evaluate (no spaces around the operator, a
+            // variable the document never declares, a formula) falls back to
+            // text:is-hidden, the result LibreOffice stored when it saved.
+            return (string?)section.Attribute(OdtNamespaces.Text + "is-hidden") == "true";
         }
         return false;
     }

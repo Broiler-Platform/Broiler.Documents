@@ -177,6 +177,21 @@ public sealed class OdtNonPrintingTests
         Assert.Empty(document.RunningContent.Footer(PageSelection.Default));
     }
 
+    [Theory]
+    [InlineData("ooow:Hide==0", "true", true)]   // no spaces around the operator (uiwriter HiddenSection.odt)
+    [InlineData("ooow:Undeclared == 0", "true", true)]
+    [InlineData("ooow:Undeclared == 0", "false", false)]
+    public void A_Condition_That_Cannot_Be_Evaluated_Keeps_The_Stored_Is_Hidden(string condition, string isHidden, bool hidden)
+    {
+        string body =
+            $"<text:section text:name=\"S\" text:condition=\"{condition}\" text:is-hidden=\"{isHidden}\" text:display=\"condition\">" +
+            OdtTestPackage.Paragraph("inside") + "</text:section>" + OdtTestPackage.Paragraph("after");
+
+        RichTextDocument document = OdtTestPackage.ReadBody(body).Document;
+
+        Assert.Equal(hidden, document.Sections.Any(section => section.Hidden));
+    }
+
     private static RichTextDocument WithGenerator(string generator, string body, string styles)
     {
         string meta = "<office:document-meta " + OdtTestPackage.NamespaceDeclarations +
