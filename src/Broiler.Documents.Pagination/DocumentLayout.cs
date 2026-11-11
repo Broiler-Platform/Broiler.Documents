@@ -2902,11 +2902,22 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 orphans = widows = 1;
             bool keepAll = paragraph.Style.KeepTogether && height <= capacity;
             var paragraphPieces = new List<CutPiece>();
+            List<(double Top, double Bottom)> blockers = CellObjectsLeavingNoRoom(document, index, anchorTop, width);
             double cutTop = y;
             for (int lineIndex = 0; lineIndex < count; lineIndex++)
             {
                 LayoutLine line = composed.Lines[lineIndex];
+                for (int b = 0; b < blockers.Count; b++)
+                {
+                    if (y < blockers[b].Bottom && y + line.Height > blockers[b].Top)
+                    {
+                        y = blockers[b].Bottom;
+                        b = -1;
+                    }
+                }
                 line.Top = y;
+                if (lineIndex == 0)
+                    line.AnchorSkip = y - anchorTop;
                 lines.Add(line);
                 y += line.Height;
                 bool last = lineIndex == count - 1;
@@ -2949,6 +2960,65 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
 
         return (lines, cells, pieces, y);
+    }
+
+    /// <summary>
+    /// The bands, from the top of the cell's flow, that the wrapping objects
+    /// anchored in a cell's paragraph keep its lines out of entirely: an object
+    /// that wraps top and bottom, or one that leaves too little room beside it
+    /// in the cell's text area for a line to run down.
+    /// </summary>
+    /// <remarks>
+    /// Writer moves such a line below the object (<c>SwTextFly</c> finds no
+    /// usable room beside it), and the cell grows to hold the line there.
+    /// <c>tdf132911.odt</c>'s empty paragraphs under 6 cm pictures in 8.5 cm
+    /// cells each add a line below their pictures, which carries the second row
+    /// onto the next page. Where a line has room beside the object, it is left
+    /// where it was.
+    /// </remarks>
+    private List<(double Top, double Bottom)> CellObjectsLeavingNoRoom(RichTextDocument document, int index, double anchorTop, double width)
+    {
+        var blockers = new List<(double Top, double Bottom)>();
+        foreach (DocumentShape shape in document.Shapes)
+        {
+            if (shape.ParagraphIndex != index || !shape.OffsetXFromCell || !shape.Wraps || shape.IsPageAnchored ||
+                shape.OffsetFromPage)
+                continue;
+
+            double boxWidth = BoxWidth(shape);
+            double boxHeight = BoxHeight(shape);
+            if (boxWidth <= 0 || boxHeight <= 0)
+                continue;
+
+            double margin = Math.Max(0, shape.WrapDistance);
+            TableCellPadding? margins = shape.WrapMargins;
+            double marginLeft = margins is { } l ? Math.Max(0, l.Left) : margin;
+            double marginRight = margins is { } r ? Math.Max(0, r.Right) : margin;
+            double marginTop = margins is { } t ? Math.Max(0, t.Top) : margin;
+            double marginBottom = margins is { } bm ? Math.Max(0, bm.Bottom) : margin;
+            double left = shape.CellHorizontalAlignment switch
+            {
+                TextAlignment.Left => 0,
+                TextAlignment.Center => (width - boxWidth) / 2,
+                TextAlignment.Right => width - boxWidth,
+                _ => shape.OffsetX,
+            };
+            double roomLeft = left - marginLeft;
+            double roomRight = width - (left + boxWidth + marginRight);
+            double room = shape.WrapSide switch
+            {
+                WrapSide.Left => roomLeft,
+                WrapSide.Right => roomRight,
+                _ => Math.Max(roomLeft, roomRight),
+            };
+            bool blocks = shape.Wrap == ShapeWrap.TopAndBottom ||
+                room <= 0 ||
+                (shape.WrapSide == WrapSide.Largest && room < shape.MinimumWrapRoom);
+            if (blocks)
+                blockers.Add((anchorTop + shape.OffsetY - marginTop, anchorTop + shape.OffsetY + boxHeight + marginBottom));
+        }
+
+        return blockers;
     }
 
     /// <summary>
@@ -3316,7 +3386,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 line.Top += top;
                 line.Shift(shift);
                 lines.Add(line);
-                paragraphTops.TryAdd(line.ParagraphIndex, line.Top);
+                paragraphTops.TryAdd(line.ParagraphIndex, line.Top - line.AnchorSkip);
             }
         }
     }
@@ -4907,7 +4977,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // A paragraph's anchor moves with its first line: the line that
                 // starts it, or, in a cell, the line its top was taken from.
                 if (paragraphTops.TryGetValue(line.ParagraphIndex, out double anchor) &&
-                    (item.StartsParagraph || Math.Abs(anchor - line.Top) < 0.001))
+                    (item.StartsParagraph || Math.Abs(anchor - (line.Top - line.AnchorSkip)) < 0.001))
                 {
                     paragraphTops[line.ParagraphIndex] = anchor + down;
                 }

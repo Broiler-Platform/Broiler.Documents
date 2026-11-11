@@ -32,8 +32,10 @@ public sealed class DocumentLayoutCellShapeTests
             new DocumentPageBox(200, 100, 10, 10, 10, 10));
     }
 
+    // A top-and-bottom object over its anchor's line moves that line below it,
+    // as Writer does (issue 240): the empty anchor line, then the caption.
     [Theory]
-    [InlineData(ShapeWrap.TopAndBottom, 70)]
+    [InlineData(ShapeWrap.TopAndBottom, 80)]
     [InlineData(ShapeWrap.Square, 70)]
     [InlineData(ShapeWrap.None, 20)]
     public void A_Wrapping_Cell_Object_Leaves_Room_For_Its_Caption(ShapeWrap wrap, double height)
@@ -64,7 +66,8 @@ public sealed class DocumentLayoutCellShapeTests
         var shape = Assert.Single(result.Pages[1].Shapes);
         Assert.Equal(93, shape.Bounds.Left, 3);
         Assert.Equal(10, shape.Bounds.Top, 3);
-        Assert.Equal(60, result.Pages[1].Lines.Single(line => line.ParagraphIndex == 3).Top, 3);
+        // The anchor's empty line stands below the object, and the caption below it.
+        Assert.Equal(70, result.Pages[1].Lines.Single(line => line.ParagraphIndex == 3).Top, 3);
     }
 
     [Fact]
