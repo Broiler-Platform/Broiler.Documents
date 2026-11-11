@@ -248,8 +248,11 @@ public sealed class DocxColumnTests
             ColumnBreakFirst("on its own page") +
             Section("<w:type w:val=\"continuous\"/>"));
 
-        RichTextParagraph inColumns = result.Document.Paragraphs[0];
-        RichTextParagraph ownPage = result.Document.Paragraphs[2];
+        // The document's first paragraph leaves an empty paragraph before its
+        // break, as writerfilter does (tdf153964_firstIndentAfterBreak14.docx).
+        Assert.Equal("", result.Document.Paragraphs[0].Text);
+        RichTextParagraph inColumns = result.Document.Paragraphs[1];
+        RichTextParagraph ownPage = result.Document.Paragraphs[3];
         Assert.True(inColumns.Style.ColumnBreakBefore);
         Assert.False(inColumns.Style.PageBreakBefore);
         Assert.True(ownPage.Style.PageBreakBefore);
@@ -267,9 +270,12 @@ public sealed class DocxColumnTests
             DocxTestPackage.Paragraph("after") +
             Section("<w:type w:val=\"continuous\"/>"));
 
-        Assert.True(result.Document.Paragraphs[0].Style.ColumnBreakBefore);
-        Assert.False(result.Document.Paragraphs[0].Style.PageBreakBefore);
+        // The empty paragraph writerfilter leaves before a break that opens the
+        // document comes first.
+        Assert.Equal("last of the columns", result.Document.Paragraphs[1].Text);
+        Assert.True(result.Document.Paragraphs[1].Style.ColumnBreakBefore);
         Assert.False(result.Document.Paragraphs[1].Style.PageBreakBefore);
+        Assert.False(result.Document.Paragraphs[2].Style.PageBreakBefore);
     }
 
     [Theory]

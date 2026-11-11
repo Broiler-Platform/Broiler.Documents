@@ -451,6 +451,20 @@
       ],
       "evidence": "LibreOffice 24.2 imports DOCX endnotes without its ContinuousEndnotes setting, so it collects them on a page of their own in its Endnote page style: a default-size page with no header or footer, after the last page of the body. Word sets them right after the body text. The fix reimplemented continuous endnotes as an endnote section after the body (commit 6885dcd7, 2024-05-14) and enabled it for DOCX import (commit 1ae5ea3f, 2024-05-21); both are in libreoffice-24.8.0.1 and not in 24.2.7.2. Each listed sample has a two-page 24.2 reference whose second page holds only endnotes; local LibreOffice 26.2.6.3 sets the endnotes after the body, on one page for ten of them, and on the body's own page size with its header for tdf141231_arabicHebrewNumbering.docx. broilerdoc draws the same page count as 26.2 for each. The text export holds the endnote text either way, so only the pixel check is affected.",
       "reference": "docs/notes/office-issue-236-docx-layout.md"
+    },
+    {
+      "id": "tdf168607-default-tab-stop-zero",
+      "bug": "tdf#168607",
+      "fixedIn": "26.2",
+      "fixCommits": [
+        "5c6b8d25b27f3f30d486588daa87b33926ec2e5c",
+        "1888a96efbbb355fad13f336314b865932d9983f"
+      ],
+      "upstreamTests": ["sw/qa/extras/ooxmlexport/ooxmlexport27.cxx testTdf168607_tabstopZero"],
+      "axes": ["pixel"],
+      "samples": ["ooxmlexport/data/tdf168607_tabstopZero.docx"],
+      "evidence": "The settings state w:defaultTabStop 65536, a default tab distance Word reads as zero. LibreOffice 24.2 imports it as 65536 twips, a 3,277 pt tab distance, so each of the ten 72 pt tabs after the centred '10' breaks the line, and the pinned PDF runs the paragraph over three pages, '10' alone on page two and 'Tabstops' on page three. The fix ('writerfilter: import PROP_TAB_STOP_DISTANCE 0', then 'as uInt16', master 2025-08) came with this sample and a test asserting one page before and after a round trip. broilerdoc draws one page.",
+      "reference": "docs/notes/office-issue-240-docx-layout.md"
     }
   ]
 }

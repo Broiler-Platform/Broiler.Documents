@@ -218,7 +218,18 @@ internal sealed class DocxDocumentBuilder(
         // Two breaks with nothing between them are two page boundaries and
         // a blank page in the middle. The flag holds one, and the one kept
         // is the first: honouring the later one instead would move the
-        // paragraph a page further on than the document put it.
+        // paragraph a page further on than the document put it. A page break
+        // straight after a column break that opened an empty paragraph goes
+        // further, and is the one kept; it then passes to the next paragraph
+        // as a lone page break does (tdf153964_topMarginAfterBreak14.docx's
+        // last paragraph, which LibreOffice gives no break).
+        if (_pageBreakSeen && _breakIsColumn && !column && _pageBreakLeadsParagraph && _segments.Count == 0)
+        {
+            _breakIsColumn = false;
+            _breakKeepsLeadingLabel = false;
+            return;
+        }
+
         if (_pageBreakSeen)
         {
             AddDiagnosticOnce(
@@ -517,9 +528,19 @@ internal sealed class DocxDocumentBuilder(
         }
 
         _paragraphStyle = _breakIsColumn
-            ? _paragraphStyle with { ColumnBreakBefore = true }
-            : _paragraphStyle with { PageBreakBefore = true };
+            ? _paragraphStyle with { ColumnBreakBefore = true, SpacingBefore = KeepsSpaceAboveLeadingBreak ? _paragraphStyle.SpacingBefore : 0 }
+            : _paragraphStyle with { PageBreakBefore = true, PageBreakKeepsSpaceAbove = KeepsSpaceAboveLeadingBreak };
     }
+
+    /// <summary>
+    /// Whether a paragraph that a run's break opens, with nothing visible
+    /// before the break, keeps its space above on the page or column the break
+    /// starts. writerfilter applies it there for Word 2010 and earlier
+    /// (<c>compatibilityMode</c> 14 or below, or none) and never for Word 2013
+    /// and later (tdf#153964): <c>tdf153964_topMarginAfterBreak14.docx</c>'s
+    /// "column break2" keeps its 60 points, its mode 15 twin's does not.
+    /// </summary>
+    private bool KeepsSpaceAboveLeadingBreak => WordCompatibilityMode < 15;
 
     /// <summary>Preserves an inline boundary as two paragraph fragments.
     /// Ordinary continuations have no repeated label or first-line indent;
@@ -537,7 +558,7 @@ internal sealed class DocxDocumentBuilder(
         {
             PageBreakBefore = breaks && !column,
             ColumnBreakBefore = breaks && column,
-            SpacingBefore = keepList ? original.SpacingBefore : 0,
+            SpacingBefore = keepList && KeepsSpaceAboveLeadingBreak ? original.SpacingBefore : 0,
             FirstLineIndent = keepList ? original.FirstLineIndent : 0,
             ListKind = keepList ? original.ListKind : ListKind.None,
             List = keepList ? original.List : null,
@@ -557,6 +578,12 @@ internal sealed class DocxDocumentBuilder(
 
         if (_pageBreakLeadsParagraph && _breakKeepsLeadingLabel &&
             _paragraphStyle.ListKind != ListKind.None)
+            SplitAtPageBreak(keepList: true);
+        else if (_pageBreakLeadsParagraph && _breakIsColumn && _paragraphs.Count == 0)
+            // The document's first paragraph does not take the break itself:
+            // writerfilter leaves an empty paragraph with its properties before
+            // the break, and the text after it keeps its first-line indent and,
+            // below mode 15, its space above (tdf153964_firstIndentAfterBreak14.docx).
             SplitAtPageBreak(keepList: true);
         else if (_pageBreakLeadsParagraph && (_breakIsColumn || _paragraphStyle.ListKind != ListKind.None || _paragraphs.Count > 0))
             StartParagraphOnNewPage();
@@ -627,7 +654,13 @@ internal sealed class DocxDocumentBuilder(
 
         // A page break that reached the end of its paragraph is the break
         // the next paragraph starts with, whatever that paragraph's own
-        // w:pPr says.
+        // w:pPr says. A paragraph holding nothing but a column break takes
+        // that break itself, where a lone page break passes on: writerfilter
+        // reads tdf153964_topMarginAfterBreak14.docx's lone column break as a
+        // column break before its empty paragraph, and its lone page break as
+        // one before the paragraph that follows.
+        if (_pageBreakSeen && _breakIsColumn && _pageBreakLeadsParagraph && _segments.Count == 0 && !InTableCell)
+            StartParagraphOnNewPage();
         if (_pageBreakSeen)
         {
             _pageBreakSeen = false;

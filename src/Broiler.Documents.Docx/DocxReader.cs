@@ -121,6 +121,7 @@ internal static class DocxReader
                 WidowOrphanLines = styles.HasParagraphDefaults ? 2 : 0,
                 KeepWithNextOpeningLines = true,
                 CollapsesParagraphSpacing = styles.HtmlParagraphAutoSpacing,
+                LaysOutBodyParagraphBorders = true,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
@@ -3303,8 +3304,7 @@ internal static class DocxReader
 
         style = ApplyParagraphProperties(pPr, context.Numbering, style, context.Styles.Theme);
         style = ApplyAutoSpacing(style, chain, pPr, paragraph, context.Styles.HtmlParagraphAutoSpacing);
-        if (context.Band != RunningBand.Body || context.InParagraphFrame)
-            style = style with { Border = ReadParagraphBorder(chain, pPr, context.Styles.Theme) };
+        style = style with { Border = ReadParagraphBorder(chain, pPr, context.Styles.Theme) };
         style = ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
         return context.Styles.HtmlParagraphAutoSpacing && style.ListKind != ListKind.None && paragraph is not null
             ? TrimListAutoSpacing(style, chain, pPr, paragraph, paragraphStyleId)

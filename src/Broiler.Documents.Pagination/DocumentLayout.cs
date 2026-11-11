@@ -395,6 +395,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         var regionLines = new List<FlowItem>();
         bool regionUnbalanced = false;
         double spacingAfterPrevious = 0;
+        // The bordered body paragraph just placed, which the next one may join.
+        ParagraphStyle? borderedAbove = null;
+        double borderBelowPrevious = 0;
         var sectionPaint = new List<LayoutShape>();
         DocumentSection? paintedSection = null;
         double paintTop = y;
@@ -1385,6 +1388,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 }
 
                 spacingAfterPrevious = table.SpacingAfter;
+                borderedAbove = null;
+                borderBelowPrevious = 0;
                 y += spacingAfterPrevious;
                 paragraphIndex = table.ParagraphEnd;
                 continue;
@@ -1624,9 +1629,28 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 (style.KeepTogether || style.KeepWithNext ||
                  (composed.Lines.Count > 1 && (style.OrphanLines is > 0 || style.WidowLines is > 0))))
                 regionUnbalanced = true;
-            if (column == 0 && currentLines.Count == columnStart && spacingBefore > 0)
-                regionTop = y + spacingBefore;
-            y += spacingBefore;
+            // A body paragraph's border takes its line and its distance from the
+            // text above the first line and below the last, except between
+            // neighbours that share it, which Writer draws as one box (d1 to d10
+            // in docs/notes/office-issue-240-docx-layout.md). At the top of a
+            // column the box opens again. Atop a page of several columns the
+            // room counts twice, once in the upper space Writer gives the
+            // section from its first paragraph and once in the paragraph.
+            ParagraphBorder? border = _styleDefaults.LaysOutBodyParagraphBorders ? style.Border : null;
+            bool joinsAbove = border is not null && borderedAbove is { } above && SharesParagraphBorder(above, style);
+            bool joinsBelow = border is not null && paragraphIndex + 1 < document.ParagraphCount &&
+                DocumentTable.StartingAt(document.Tables, paragraphIndex + 1) is null &&
+                SharesParagraphBorder(style, document.Paragraphs[paragraphIndex + 1].Style);
+            double borderTop = border is { } opened && (!joinsAbove || !ColumnHasContent())
+                ? BorderRoom(opened.Edges.Top, opened.Spacing.Top) : 0;
+            double borderBottom = border is { } closed && !joinsBelow
+                ? BorderRoom(closed.Edges.Bottom, closed.Spacing.Bottom) : 0;
+            double regionUpper = spacingBefore +
+                (columns.Count > 1 && column == 0 && currentLines.Count == columnStart ? borderTop : 0);
+            if (column == 0 && currentLines.Count == columnStart && regionUpper > 0)
+                regionTop = y + regionUpper;
+            y += regionUpper + borderTop;
+            double borderTopAtColumnTop = border is { } reopened ? BorderRoom(reopened.Edges.Top, reopened.Spacing.Top) : 0;
 
             double[] lineHeights = [.. composed.Lines.Select(line => line.Height + line.LeadingSkip)];
             int segmentEnd = -1;
@@ -1705,6 +1729,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         }
                         if (first)
                         {
+                            y += borderTopAtColumnTop;
                             ReanchorParagraph(paragraphIndex);
                             composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
                                 columnWidthOverride: columns.Width, wrapTop: y,
@@ -1777,6 +1802,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         // No line of this paragraph was placed yet. Its new
                         // page can have different margins/paper or exclusions,
                         // so measure it there before placing its first line.
+                        y += borderTopAtColumnTop;
                         if (carriesShapes)
                             ReanchorParagraph(paragraphIndex);
                         composed = ComposeParagraph(paragraph, marker, setup, paragraphIndex,
@@ -1795,6 +1821,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 line.Top = y;
                 line.Shift(columns.Offset(column));
+                if (border is not null)
+                {
+                    line.Border = border;
+                    line.BorderJoinsPrevious = first && joinsAbove;
+                }
                 currentLines.Add(line);
                 TakeNotes([line]);
                 y += line.Height;
@@ -1804,7 +1835,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 if (region is not null && columns.Count > 1)
                 {
                     double between = line.LeadingSkip +
-                        (first ? spacingAfterPrevious + _styleDefaults.SpaceAbove(style.SpacingBefore, spacingAfterPrevious) : 0);
+                        (first ? spacingAfterPrevious + _styleDefaults.SpaceAbove(style.SpacingBefore, spacingAfterPrevious) +
+                            borderBelowPrevious + borderTop : 0);
                     regionLines.Add(new FlowItem(
                         [line], [], line.Top, line.Height, column, between, line.LeadingSkip, first));
                 }
@@ -1812,6 +1844,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 first = false;
             }
 
+            y += borderBottom;
+            borderBelowPrevious = borderBottom;
+            borderedAbove = border is not null ? style : null;
             spacingAfterPrevious = Math.Max(0, style.SpacingAfter);
             y += spacingAfterPrevious;
             paragraphIndex++;
@@ -3690,6 +3725,25 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         }
     }
 
+    /// <summary>
+    /// The room a paragraph border's edge takes beside the text: its line and
+    /// its distance from the text, or nothing where no line is drawn.
+    /// </summary>
+    internal static double BorderRoom(TableBorder edge, double distance) =>
+        edge.IsVisible ? Math.Max(0, edge.Width) + Math.Max(0, distance) : 0;
+
+    /// <summary>
+    /// Whether two neighbouring paragraphs draw one border box: the same
+    /// border and the same indents, the first line's included (Writer's
+    /// <c>SwBorderAttrs::JoinedWithPrev</c>): in tdf153964_numberingAfterBreak14.docx
+    /// a hanging list item and a plain paragraph at the same left indent keep
+    /// a box each.
+    /// </summary>
+    private static bool SharesParagraphBorder(ParagraphStyle above, ParagraphStyle below) =>
+        above.Border is { } upper && below.Border is { } lower && upper.Equals(lower) &&
+        above.LeftIndent == below.LeftIndent && above.RightIndent == below.RightIndent &&
+        above.FirstLineIndentIn == below.FirstLineIndentIn;
+
     private LayoutCell ParagraphBorderCell(ParagraphStyle style, ParagraphBorder border, LayoutLine first, LayoutLine last,
         double left, double width)
     {
@@ -4169,6 +4223,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 line.BackgroundWidth = columnWidth;
             }
 
+            line.IndentLeft = columnLeft;
+            line.IndentWidth = columnWidth;
             line.TextAreaLeft = columnLeft - indent;
             line.TextAreaWidth = columnWidthOverride ?? setup.ContentWidthPoints;
             lines.Add(line);

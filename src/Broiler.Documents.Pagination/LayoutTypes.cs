@@ -180,6 +180,24 @@ public sealed class LayoutLine : IPaginatedLineArtifact
     /// <summary>How wide the paragraph's shading is: from its indent to its column's edge.</summary>
     public double BackgroundWidth { get; internal set; }
 
+    /// <summary>
+    /// The border drawn round the body paragraph this line belongs to, or null
+    /// for none; set only where the body flow laid out the room for it.
+    /// </summary>
+    public ParagraphBorder? Border { get; internal set; }
+
+    /// <summary>
+    /// Whether this line opens a paragraph whose border joins the one above it:
+    /// the two share one box, as Writer draws neighbours with the same border.
+    /// </summary>
+    public bool BorderJoinsPrevious { get; internal set; }
+
+    /// <summary>Where the paragraph's indented text area starts across.</summary>
+    public double IndentLeft { get; internal set; }
+
+    /// <summary>How wide the paragraph's indented text area is.</summary>
+    public double IndentWidth { get; internal set; }
+
     /// <summary>Adds a piece drawn on the line after the ones it was laid out with.</summary>
     internal void AddPiece(LayoutPiece piece) => _pieces.Add(piece);
 
@@ -189,6 +207,7 @@ public sealed class LayoutLine : IPaginatedLineArtifact
             return;
 
         BackgroundLeft += dx;
+        IndentLeft += dx;
         TextAreaLeft += dx;
         if (ClipRight is double right)
             ClipRight = right + dx;
