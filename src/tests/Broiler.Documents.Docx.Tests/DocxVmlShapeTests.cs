@@ -224,4 +224,17 @@ public sealed class DocxVmlShapeTests
         DocumentShape shape = Assert.Single(result.Document.Shapes);
         Assert.Equal(ShapeWrap.None, shape.Wrap);
     }
+
+    [Fact]
+    public void An_Inline_WordArt_Shape_Draws_Its_String()
+    {
+        DocumentReadResult result = Read(
+            "<v:shapetype id='t172'><v:textpath on='t'/></v:shapetype>" +
+            "<v:shape type='#t172' style='width:60pt;height:91.5pt' fillcolor='black'>" +
+            "<v:textpath style='font-family:\"Arial Narrow\";font-size:12pt' string='Watch LIVE&#xA;ask'/></v:shape>");
+
+        RichTextParagraph paragraph = Assert.Single(result.Document.Paragraphs);
+        Assert.StartsWith("Watch LIVE\u2028ask", paragraph.Text);
+        Assert.Contains(result.Diagnostics, d => d.Code == "docx.shape.wordart");
+    }
 }
