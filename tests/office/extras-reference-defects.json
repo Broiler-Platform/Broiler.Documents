@@ -159,15 +159,17 @@
         "f0e78f28ee6e8586d66fa8d988366a1ae02aae77"
       ],
       "upstreamTests": [
-        "sw/qa/extras/layout/layout6.cxx testCool16066_headlineAndUnsplittableRow"
+        "sw/qa/extras/layout/layout6.cxx testCool16066_headlineAndUnsplittableRow",
+        "sw/qa/extras/layout/layout6.cxx testCool16066_addRowsUnderOmittedHeading"
       ],
       "axes": [
         "pixel"
       ],
       "samples": [
-        "layout/data/Cool16066_headlineAndUnsplittableRow.fodt"
+        "layout/data/Cool16066_headlineAndUnsplittableRow.fodt",
+        "layout/data/Cool16066_addRowsUnderOmittedHeading.docx"
       ],
-      "evidence": "In LibreOffice 24.2, an unsplittable row under a repeated table header that exceeded the remaining page height reached past the bottom of the page and was truncated, keeping the document on 2 pages with dropped text. Commit f0e78f28ee6e8586d66fa8d988366a1ae02aae77 ('cool#16066 sw: omit the repeated heading where a row needs the full page', Mike Kaganski, Gerrit review 209269) fixed this in LibreOffice 26.8, pinned by testCool16066_headlineAndUnsplittableRow in layout6.cxx, matching Word by omitting the repeated heading on the page where the unsplittable row requires the full page. The office-references-v3 PDF, produced by LibreOffice 24.2.7.2, truncates the row, whereas modern LibreOffice and Word render the full content.",
+      "evidence": "In LibreOffice 24.2, an unsplittable row under a repeated table header that exceeded the remaining page height reached past the bottom of the page and was truncated, keeping the document on 2 pages with dropped text. Commit f0e78f28ee6e8586d66fa8d988366a1ae02aae77 ('cool#16066 sw: omit the repeated heading where a row needs the full page', Mike Kaganski, Gerrit review 209269) fixed this in LibreOffice 26.8, pinned by testCool16066_headlineAndUnsplittableRow in layout6.cxx, matching Word by omitting the repeated heading on the page where the unsplittable row requires the full page. The office-references-v3 PDF, produced by LibreOffice 24.2.7.2, truncates the row, whereas modern LibreOffice and Word render the full content. The same commit added Cool16066_addRowsUnderOmittedHeading.docx, a 10 cm repeated heading row over one unsplittable 40-line row: the office-references-v4 PDF (24.2.7.2), like a local 26.2.6.3, keeps the row under the heading and runs it past the page foot, hiding lines 33 to 40, where broilerdoc, as the fix does, leaves the heading alone on page 1 and gives the row page 2 (docs/notes/office-issue-238-docx-layout.md).",
       "reference": "docs/notes/office-issue-197.md"
     },
     {
