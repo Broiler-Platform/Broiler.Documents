@@ -264,6 +264,21 @@ internal sealed class DocxDocumentBuilder(
         _paragraphStyle = style;
     }
 
+    /// <summary>The length of the text the open paragraph holds so far.</summary>
+    public int CurrentParagraphLength
+    {
+        get
+        {
+            int length = 0;
+            foreach (Segment segment in _segments)
+                length += segment.Text.Length;
+            return length;
+        }
+    }
+
+    /// <summary>Sets the open paragraph's opening characters as a drop cap.</summary>
+    public void SetDropCap(DropCap dropCap) => _paragraphStyle = _paragraphStyle with { DropCap = dropCap };
+
     /// <summary>Reserves the line occupied by a diagram that is the paragraph's only content.</summary>
     public double ReserveDiagramBlock(double width, double height, PageGeometry? page)
     {

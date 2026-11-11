@@ -194,6 +194,33 @@ public sealed class DocxParagraphFrameTests
         Assert.Empty(result.Document.Shapes);
         Assert.Single(result.Document.Paragraphs);
         Assert.Equal("Word", result.Document.Paragraphs[0].Text);
+        Assert.Equal(new DropCap(3, 1, 0), result.Document.Paragraphs[0].Style.DropCap);
+    }
+
+    [Fact]
+    public void DropCap_Reads_Its_Lines_Distance_And_Margin_Placement()
+    {
+        string bodyXml =
+            "<w:p>" +
+            "<w:pPr><w:framePr w:dropCap=\"margin\" w:lines=\"2\" w:hSpace=\"144\" w:wrap=\"around\" w:vAnchor=\"text\" w:hAnchor=\"text\"/></w:pPr>" +
+            "<w:r><w:rPr><w:sz w:val=\"96\"/></w:rPr><w:t>Dr</w:t></w:r>" +
+            "</w:p>" +
+            "<w:p><w:r><w:t>op</w:t></w:r></w:p>" +
+            A4Section;
+
+        DocumentReadResult result = DocxTestPackage.ReadBody(bodyXml);
+
+        RichTextParagraph paragraph = Assert.Single(result.Document.Paragraphs);
+        Assert.Equal("Drop", paragraph.Text);
+        Assert.Equal(new DropCap(2, 2, 7.2f) { InMargin = true }, paragraph.Style.DropCap);
+    }
+
+    [Fact]
+    public void A_Paragraph_Without_A_Drop_Cap_States_None()
+    {
+        DocumentReadResult result = DocxTestPackage.ReadBody("<w:p><w:r><w:t>Plain</w:t></w:r></w:p>" + A4Section);
+
+        Assert.Null(Assert.Single(result.Document.Paragraphs).Style.DropCap);
     }
 
     [Fact]

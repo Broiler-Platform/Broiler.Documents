@@ -936,6 +936,14 @@ internal static class DocxReader
             string? dropStyleId = DocxValueReader.WordValue(dropPPr?.Element(DocxNamespaces.Wordprocessing + "pStyle"));
             InlineStyle dropInherited = ReadInheritedRunStyle(dropStyleId, context);
             ReadParagraphChildren(dropCapParagraph.Elements(), context, dropInherited);
+
+            // The characters stay the paragraph's, as LibreOffice's import
+            // keeps them, and are set apart as its drop cap rather than drawn
+            // as an inline run at the drop's size, which made the first line
+            // as tall as the drop and the page run long.
+            int length = context.Builder.CurrentParagraphLength;
+            if (length > 0)
+                context.Builder.SetDropCap(DocxFrameAccumulator.ReadDropCap(dropPPr, dropStyleId, context, length));
         }
         ReadParagraphChildren(paragraph.Elements(), context, inherited);
         if (context.Sections is not null && DocxSections.EndsSection(paragraph))
