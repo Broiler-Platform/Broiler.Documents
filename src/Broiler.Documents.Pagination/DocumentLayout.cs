@@ -528,6 +528,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                     currentLines.Add(line);
                 }
 
+                foreach ((LayoutCell cell, double offset) in block.Cells)
+                {
+                    currentCells.Add(new LayoutCell(
+                        new BRect(cell.Bounds.Left + left - setup.ContentLeftPoints, noteTop + offset + cell.Bounds.Top,
+                            cell.Bounds.Width, cell.Bounds.Height),
+                        cell.Shading, cell.Borders));
+                }
+
                 noteTop += block.Height;
             }
 
@@ -1197,7 +1205,9 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 // spacing is preserved for the document.
                 bool openingTableSpacing = _styleDefaults.PreserveOpeningParagraphSpacing &&
                     pages.Count == 0 && !ColumnHasContent() && !table.PageBreakBefore && !table.ColumnBreakBefore;
-                if (ColumnHasContent() || openingTableSpacing)
+                if (ColumnHasContent() && _styleDefaults.CollapsesParagraphSpacing)
+                    y += _styleDefaults.SpaceAbove(table.SpacingBefore, spacingAfterPrevious);
+                else if (ColumnHasContent() || openingTableSpacing)
                     y += table.SpacingBefore;
                 List<RowBox> composedRows = ComposeTable(table, document, setup, setup.ContentLeftPoints, columns.Width);
                 y = BelowFloats(y, composedRows, columns.Offset(column));
@@ -1226,7 +1236,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             ? next.Lines.Sum(line => line.Height)
                             : next.Lines.Take(Math.Max(1, following.Style.OrphanLines ?? 1))
                                 .Sum(line => line.Height);
-                        followingOpening = table.SpacingAfter + Math.Max(0, following.Style.SpacingBefore) + nextOpening;
+                        followingOpening = table.SpacingAfter + _styleDefaults.SpaceAbove(following.Style.SpacingBefore, table.SpacingAfter) + nextOpening;
                         double required = totalTableHeight + followingOpening;
                         bool keptWithPrevious = paragraphIndex > 0 &&
                             document.Paragraphs[paragraphIndex - 1].Style.KeepWithNext;
@@ -1384,6 +1394,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             ParagraphStyle style = paragraph.Style;
             string? marker = numbering.Advance(style);
 
+            // A page number in the body text is the page the paragraph starts
+            // on, as Writer computes it, not the result Word saved
+            // (tdf170003_bottomSpacing.docx's "- 2 -" is drawn as 2). The page
+            // a break before the paragraph opens is the next one.
+            if (paragraph.Runs.Any(run => run.Style.PageField is { Kind: PageFieldKind.PageNumber }) && !setup.Continuous)
+            {
+                bool opensPage = (style.PageBreakBefore || sectionBreaksPage) && (currentLines.Count > 0 || floatLines.Count > 0);
+                int number = pages.Count + (opensPage ? 2 : 1);
+                paragraph = WithPageFields([paragraph], _numbering.Number + number - _numbering.Page, number)[0];
+            }
+
             // A break the document asked for, taken before the paragraph is
             // measured. The guard on currentLines is what stops a break on the
             // first paragraph emitting an empty page in front of it - a document
@@ -1487,11 +1508,16 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
 
             // Word honors spacing above the opening paragraph. Subsequent
-            // page and column starts suppress it.
+            // page and column starts suppress it, except a page whose break
+            // the reader says keeps it: Writer keeps the space above at the top
+            // of a page the paragraph's own break or page style opens
+            // (SwFlowFrame::HasParaSpaceAtPages, tdf170003_bottomSpacing.docx).
             bool openingSpacing = _styleDefaults.PreserveOpeningParagraphSpacing &&
-                paragraphIndex == 0 && !style.PageBreakBefore && !style.ColumnBreakBefore;
-            double spacingBefore = ColumnHasContent() || openingSpacing || style.ColumnBreakBefore
-                ? Math.Max(0, style.SpacingBefore) : 0;
+                (paragraphIndex == 0
+                    ? !style.PageBreakBefore && !style.ColumnBreakBefore
+                    : style.PageBreakBefore && style.PageBreakKeepsSpaceAbove);
+            double spacingBefore = ColumnHasContent() ? _styleDefaults.SpaceAbove(style.SpacingBefore, spacingAfterPrevious)
+                : openingSpacing || style.ColumnBreakBefore ? Math.Max(0, style.SpacingBefore) : 0;
 
             // Composed against the current column and moved across as it is placed:
             // a paragraph that runs out of room part way through continues in the
@@ -1571,7 +1597,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                             followingHeight = measured.Lines.Take(Math.Max(1, opening))
                                 .Sum(line => line.Height);
                         }
-                        required += Math.Max(0, previous.SpacingAfter) + Math.Max(0, following.Style.SpacingBefore) + followingHeight;
+                        required += Math.Max(0, previous.SpacingAfter) + _styleDefaults.SpaceAbove(following.Style.SpacingBefore, previous.SpacingAfter) + followingHeight;
                         previous = following.Style;
                         if (required > capacity)
                             break;
@@ -1778,7 +1804,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 if (region is not null && columns.Count > 1)
                 {
                     double between = line.LeadingSkip +
-                        (first ? spacingAfterPrevious + Math.Max(0, style.SpacingBefore) : 0);
+                        (first ? spacingAfterPrevious + _styleDefaults.SpaceAbove(style.SpacingBefore, spacingAfterPrevious) : 0);
                     regionLines.Add(new FlowItem(
                         [line], [], line.Top, line.Height, column, between, line.LeadingSkip, first));
                 }
@@ -2262,6 +2288,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 cells, shape.Geometry, shape.OutlineWidth)
             {
                 RotationRadians = shape.RotationRadians,
+                TextFlow = shape.TextFlow,
             });
         }
 
@@ -2329,6 +2356,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 shape.Image, shape.BehindText, shape.ZOrder, cells, shape.Geometry, shape.OutlineWidth)
             {
                 RotationRadians = shape.RotationRadians,
+                TextFlow = shape.TextFlow,
             });
         }
 
@@ -2785,6 +2813,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         double y = 0;
         double capacity = setup.ContentHeightPoints;
         bool keepPrevious = false;
+        double spaceBelowPrevious = 0;
 
         int index = Math.Max(0, from);
         while (index < Math.Min(to, document.ParagraphCount))
@@ -2843,6 +2872,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
                 // A table kept with what follows is held to it as a paragraph is.
                 keepPrevious = nested.KeepWithNext;
+                spaceBelowPrevious = 0;
                 index = nested.ParagraphEnd;
                 continue;
             }
@@ -2857,7 +2887,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             ParagraphLines composed = ComposeParagraph(paragraph, numbering.Advance(paragraph.Style), setup, index, left, width);
 
-            y += Math.Max(0, paragraph.Style.SpacingBefore);
+            y += _styleDefaults.SpaceAbove(paragraph.Style.SpacingBefore, spaceBelowPrevious);
 
             double anchorTop = y;
             double height = composed.Lines.Sum(line => line.Height);
@@ -2913,7 +2943,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             pieces.AddRange(paragraphPieces);
             keepPrevious = paragraph.Style.KeepWithNext && !inTableCell;
 
-            y += Math.Max(0, paragraph.Style.SpacingAfter);
+            spaceBelowPrevious = Math.Max(0, paragraph.Style.SpacingAfter);
+            y += spaceBelowPrevious;
             index++;
         }
 
@@ -3398,6 +3429,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     /// </summary>
     private void NoteGrownHeight(DocumentShape shape, DocumentPageBox setup)
     {
+        // Turned text runs along the box's height, so the box keeps its height
+        // and a box fitted to its text takes the width its turned lines need,
+        // as LibreOffice fits tdf127825.docx's downward text box to its two
+        // lines rather than to the 186 points it states.
+        if (shape.TextFlow != ShapeTextFlow.Horizontal)
+        {
+            if (shape.GrowsToText && ShapeParagraphs(shape).Count > 0 && shape.Height > 0 && !_grownWidths.ContainsKey(shape))
+                _grownWidths[shape] = ComposeShapeBlocks(shape, setup, 0, shape.Height).Height +
+                    shape.TextPadding.Top + shape.TextPadding.Bottom;
+            return;
+        }
         if ((shape.GrowsWidthToText || shape.FitsText) && !_grownWidths.ContainsKey(shape))
         {
             double width = 0;
@@ -3410,13 +3452,43 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             }
             width = Math.Max(width, shape.Tables.Select(table => table.TotalWidth).DefaultIfEmpty(0).Max());
             double textWidth = Math.Min(20000, width + shape.TextPadding.Left + shape.TextPadding.Right);
-            _grownWidths[shape] = shape.FitsText ? textWidth : Math.Max(Math.Max(0, shape.Width), textWidth);
+            _grownWidths[shape] = shape.FitsText ? textWidth : Math.Max(Math.Max(0, shape.Width), Math.Min(textWidth, GrownWidthLimit(shape, setup)));
+        }
+        else if (shape.ShrinksWidthToText && !_grownWidths.ContainsKey(shape))
+        {
+            // The widest unwrapped line, no wider than the box allows; an
+            // empty paragraph keeps the sliver Writer draws for it.
+            double width = 0;
+            foreach (RichTextParagraph paragraph in shape.Paragraphs)
+            {
+                width = Math.Max(width, paragraph.Length == 0 ? 4.5 : 0);
+                foreach (LayoutLine line in ComposeParagraph(paragraph, null, setup, -1, 0, 20000).Lines)
+                    width = Math.Max(width, line.Pieces.Sum(piece => piece.Width) + paragraph.Style.LeftIndentIn(_settings.IndentStepPoints) + paragraph.Style.RightIndentIn);
+            }
+            _grownWidths[shape] = Math.Min(Math.Max(0, shape.Width), width + shape.TextPadding.Left + shape.TextPadding.Right);
         }
         if ((!shape.GrowsToText && !shape.FitsText) || ShapeParagraphs(shape).Count == 0 || BoxWidth(shape) <= 0 || _grownHeights.ContainsKey(shape))
             return;
 
         double height = ComposeShapeBlocks(shape, setup, 0).Height + shape.TextPadding.Top + shape.TextPadding.Bottom;
         _grownHeights[shape] = shape.FitsText ? height : Math.Max(Math.Max(0, shape.Height), height);
+    }
+
+    /// <summary>
+    /// The widest a box that grows to its text may become: the text column, less
+    /// what the box's offset already uses of it.
+    /// </summary>
+    /// <remarks>
+    /// Writer measures an auto-width frame's text set on one line no wider than the
+    /// page's print area (<c>SwTextFrame::CalcFitToContent</c>), and then keeps the
+    /// frame inside the text column it is anchored in (<c>SwFlyFreeFrame::CheckClip</c>),
+    /// so a frame offset into the column wraps its text at the column's right edge.
+    /// A box placed from a table cell's text area keeps the whole column.
+    /// </remarks>
+    private static double GrownWidthLimit(DocumentShape shape, DocumentPageBox setup)
+    {
+        double column = Math.Max(1, setup.ContentWidthPoints);
+        return shape.OffsetXFromCell ? column : Math.Max(1, column - Math.Max(0, shape.OffsetX));
     }
 
     /// <summary>The height a shape's box is drawn at, grown to its text where it grows.</summary>
@@ -3434,14 +3506,14 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     private double BoxWidth(DocumentShape shape) => _grownWidths.GetValueOrDefault(shape, Math.Max(0, shape.Width));
 
     private (List<LayoutLine> Lines, List<LayoutCell> Cells, List<CutPiece> Pieces, double Height) ComposeShapeBlocks(
-        DocumentShape shape, DocumentPageBox setup, double left)
+        DocumentShape shape, DocumentPageBox setup, double left, double? boxWidth = null)
     {
         ListNumberer bodyLists = _lists;
         _lists = _linkedStarts.TryGetValue(shape, out ListNumberer? start) ? start.Snapshot() : new ListNumberer();
         try
         {
             RichTextDocument content = RichTextDocument.FromParagraphs(ShapeParagraphs(shape)).WithTables(shape.Tables);
-            double width = Math.Max(1, BoxWidth(shape) - shape.TextPadding.Left - shape.TextPadding.Right);
+            double width = Math.Max(1, (boxWidth ?? BoxWidth(shape)) - shape.TextPadding.Left - shape.TextPadding.Right);
             return ComposeBlocks(content, shape.Tables, 0, content.ParagraphCount, setup, left, width, drawParagraphBorders: true);
         }
         finally
@@ -3454,12 +3526,17 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     {
         if (ShapeParagraphs(shape).Count == 0)
             return ([], []);
+        // Turned text is laid out in the box turned with it, about the same
+        // centre; the painter turns the lines back onto the box.
+        if (shape.TextFlow != ShapeTextFlow.Horizontal)
+            bounds = LayoutShape.TextFrame(bounds, shape.TextFlow);
+        double? turnedWidth = shape.TextFlow == ShapeTextFlow.Horizontal ? null : bounds.Width;
         bounds = new BRect(bounds.Left + shape.TextPadding.Left, bounds.Top + shape.TextPadding.Top,
             Math.Max(0, bounds.Width - shape.TextPadding.Left - shape.TextPadding.Right),
             Math.Max(0, bounds.Height - shape.TextPadding.Top - shape.TextPadding.Bottom));
         if (bounds.Width <= 0 || bounds.Height <= 0)
             return ([], []);
-        var content = ComposeShapeBlocks(shape, setup, bounds.Left);
+        var content = ComposeShapeBlocks(shape, setup, bounds.Left, turnedWidth);
         double spare = Math.Max(0, bounds.Height - content.Height);
         double down = shape.TextVerticalAlignment switch { CellVerticalAlignment.Center => spare / 2, CellVerticalAlignment.Bottom => spare, _ => 0 };
         var lines = new List<LayoutLine>();
@@ -3777,6 +3854,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
         var lines = new List<LayoutLine>();
         double height = 0;
+        double spaceBelowPrevious = 0;
         for (int index = 0; index < paragraphs.Count; index++)
         {
             RichTextParagraph paragraph = paragraphs[index];
@@ -3784,7 +3862,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 continue;
 
             if (lines.Count > 0)
-                height += Math.Max(0, paragraph.Style.SpacingBefore);
+                height += _styleDefaults.SpaceAbove(paragraph.Style.SpacingBefore, spaceBelowPrevious);
 
             foreach (LayoutLine line in ComposeParagraph(paragraph, marker: null, setup, -1 - index, left, width).Lines)
             {
@@ -3793,7 +3871,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 height += line.Height;
             }
 
-            height += Math.Max(0, paragraph.Style.SpacingAfter);
+            spaceBelowPrevious = Math.Max(0, paragraph.Style.SpacingAfter);
+            height += spaceBelowPrevious;
         }
 
         return (lines, height);
@@ -3833,12 +3912,34 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             return block;
 
         var lines = new List<(LayoutLine, double)>();
+        var cells = new List<(LayoutCell, double)>();
         double y = 0;
         for (int i = 0; i < note.Paragraphs.Count; i++)
         {
+            // A table in the note is set as one in a cell or a frame is, at
+            // the note area's width; the label stays on the paragraph that
+            // opens the note.
+            if (i > 0 && DocumentTable.StartingAt(note.Tables, i) is DocumentTable table && table.ParagraphEnd > i)
+            {
+                y += Math.Max(0, table.SpacingBefore);
+                RichTextDocument content = RichTextDocument.FromParagraphs(note.Paragraphs).WithTables(note.Tables);
+                var blocks = ComposeBlocks(content, note.Tables, i, table.ParagraphEnd, setup,
+                    setup.ContentLeftPoints, setup.ContentWidthPoints);
+                foreach (LayoutLine line in blocks.Lines)
+                {
+                    line.ParagraphIndex = -1;
+                    lines.Add((line, y + line.Top));
+                }
+                foreach (LayoutCell cell in blocks.Cells)
+                    cells.Add((cell, y));
+                y += blocks.Height + Math.Max(0, table.SpacingAfter);
+                i = table.ParagraphEnd - 1;
+                continue;
+            }
+
             RichTextParagraph paragraph = note.Paragraphs[i];
             if (i > 0)
-                y += Math.Max(0, paragraph.Style.SpacingBefore);
+                y += _styleDefaults.SpaceAbove(paragraph.Style.SpacingBefore, note.Paragraphs[i - 1].Style.SpacingAfter);
 
             ParagraphLines composed = ComposeNoteParagraph(note, i, setup);
             foreach (LayoutLine line in composed.Lines)
@@ -3851,7 +3952,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                 y += Math.Max(0, paragraph.Style.SpacingAfter);
         }
 
-        block = new NoteBlock(lines, y);
+        block = new NoteBlock(lines, y, cells);
         _noteBlocks.Add(note, block);
         return block;
     }
@@ -3879,7 +3980,8 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
     }
 
     /// <summary>A note's composed lines, each with its offset from the note's top, and the note's height.</summary>
-    private sealed record NoteBlock(List<(LayoutLine Line, double Offset)> Lines, double Height);
+    private sealed record NoteBlock(List<(LayoutLine Line, double Offset)> Lines, double Height,
+        List<(LayoutCell Cell, double Offset)> Cells);
 
     /// <summary>Wraps one paragraph into lines, without deciding which page they land on.</summary>
     private ParagraphLines ComposeParagraph(RichTextParagraph paragraph, string? marker, DocumentPageBox setup, int paragraphIndex,
@@ -4190,8 +4292,22 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
         // contributes to the line's height but not to the width alignment
         // distributes.
         int first = hasMarker ? 1 : 0;
+
+        // A tab does not make its line taller where the line holds anything
+        // else: Writer sizes the line by its text, so a tab run set larger than
+        // the words beside it leaves the line at the words' height
+        // (tdf164905.docx's table of contents, whose tab runs are 11 pt and
+        // whose entries are 9 pt).
+        bool tabsSized = pieces.All(piece => piece.IsTab);
         for (int i = 0; i < pieces.Count; i++)
         {
+            if (pieces[i].IsTab && !tabsSized)
+            {
+                if (i >= first)
+                    used += pieces[i].Width;
+                continue;
+            }
+
             if (pieces[i].IsImage)
                 imageAscent = Math.Max(imageAscent, pieces[i].Ascent);
             else

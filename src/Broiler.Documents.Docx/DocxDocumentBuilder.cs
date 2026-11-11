@@ -103,6 +103,7 @@ internal sealed class DocxDocumentBuilder(
     /// <summary>Collects the tables read from here until the matching pop.</summary>
     public void PushTableSink(List<DocumentTable> sink)
     {
+        _flowBoundaries++;
         // A table ends a paragraph held open for a field's instruction.
         if (_joinsNextParagraph)
             FinishParagraph();
@@ -120,6 +121,7 @@ internal sealed class DocxDocumentBuilder(
 
     public void PopTableSink()
     {
+        _flowBoundaries++;
         if (_tableSinks.Count > 0)
             _tableSinks.Pop();
         if (_cellStarts.Count > 0)
@@ -237,11 +239,19 @@ internal sealed class DocxDocumentBuilder(
     /// just ended with already does that, and one boundary is one boundary; a
     /// column break held over becomes the page break, which goes further.
     /// </summary>
-    public void HoldPageBreak(bool column = false)
+    public void HoldPageBreak(bool column = false, bool keepsSpaceAbove = true)
     {
         _pageBreakStartsNextParagraph = true;
         _heldBreakIsColumn = column;
+        _heldBreakKeepsSpaceAbove = !column && keepsSpaceAbove;
     }
+
+    /// <summary>
+    /// Whether the held page break is a section's, whose page keeps the next
+    /// paragraph's space above (tdf170003_bottomSpacing.docx), rather than one
+    /// a run wrote.
+    /// </summary>
+    private bool _heldBreakKeepsSpaceAbove;
 
     /// <summary>
     /// Holds a line break written between blocks - a <c>w:br</c> directly in
@@ -338,6 +348,12 @@ internal sealed class DocxDocumentBuilder(
         }
         _markStyle = markStyle;
 
+        // Word 2013 and later (compatibility mode 15) start the page a
+        // paragraph's own w:pageBreakBefore opens at its top, as earlier modes
+        // keep the paragraph's space above there.
+        if (style.PageBreakKeepsSpaceAbove && WordCompatibilityMode >= 15)
+            style = style with { PageBreakKeepsSpaceAbove = false };
+
         // The two spellings mean one break. A paragraph reached by a
         // w:br that also states w:pageBreakBefore starts one page, not two,
         // so this sets the flag rather than counting anything.
@@ -345,9 +361,14 @@ internal sealed class DocxDocumentBuilder(
         {
             style = _heldBreakIsColumn
                 ? style with { ColumnBreakBefore = true }
-                : style with { PageBreakBefore = true };
+                : style with
+                {
+                    PageBreakBefore = true,
+                    PageBreakKeepsSpaceAbove = (style.PageBreakBefore && style.PageBreakKeepsSpaceAbove) || _heldBreakKeepsSpaceAbove,
+                };
             _pageBreakStartsNextParagraph = false;
             _heldBreakIsColumn = false;
+            _heldBreakKeepsSpaceAbove = false;
         }
 
         _paragraphStyle = style;
@@ -570,6 +591,34 @@ internal sealed class DocxDocumentBuilder(
         return true;
     }
 
+    // Table and cell boundaries crossed so far: paragraphs either side of one
+    // are not neighbours for contextual spacing.
+    private int _flowBoundaries;
+    private (string StyleId, bool Contextual, int Index, int Boundaries)? _previousSpacing;
+
+    /// <summary>
+    /// Applies <c>w:contextualSpacing</c> between the paragraph being read and
+    /// the one before it in the same text flow (ECMA-376 §17.3.1.9): where
+    /// both have the paragraph style <paramref name="styleId"/>, a paragraph
+    /// with the setting loses its space before, and the one before it, when it
+    /// has the setting, its space after. Word's "Don't add space between
+    /// paragraphs of the same style", which LibreOffice imports as its
+    /// context margin.
+    /// </summary>
+    public void ApplyContextualSpacing(string styleId, bool contextual)
+    {
+        int index = _paragraphs.Count;
+        var previous = _previousSpacing;
+        _previousSpacing = (styleId, contextual, index, _flowBoundaries);
+        if (previous is not { } before || before.Index != index - 1 || before.Boundaries != _flowBoundaries ||
+            !string.Equals(before.StyleId, styleId, StringComparison.Ordinal))
+            return;
+        if (contextual)
+            _paragraphStyle = _paragraphStyle with { SpacingBefore = 0 };
+        if (before.Contextual)
+            _paragraphs[index - 1] = _paragraphs[index - 1].WithParagraphStyle(_paragraphs[index - 1].Style with { SpacingAfter = 0 });
+    }
+
     public void FinishParagraph()
     {
         _joinsNextParagraph = false;
@@ -584,6 +633,7 @@ internal sealed class DocxDocumentBuilder(
             _pageBreakSeen = false;
             _pageBreakStartsNextParagraph = true;
             _heldBreakIsColumn = _breakIsColumn;
+            _heldBreakKeepsSpaceAbove = false;
         }
 
         if (_paragraphs.Count >= limits.MaxParagraphCount)
@@ -688,6 +738,9 @@ internal sealed class DocxDocumentBuilder(
 
     /// <summary>Whether a page break has been held over to start the next paragraph.</summary>
     public bool HasPendingPageBreak => _pageBreakStartsNextParagraph;
+
+    /// <summary>Whether the paragraph being built holds any text yet.</summary>
+    public bool HasTextInParagraph => _segments.Exists(segment => segment.Text.Length > 0);
 
     /// <summary>Whether any shape is anchored at the given paragraph index.</summary>
     public bool HasShapeAnchoredAt(int index) => _shapes.Exists(s => s.ParagraphIndex == index);

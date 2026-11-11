@@ -166,8 +166,32 @@ public sealed class DocumentShape(
     /// <summary>True when this shape's box shrinks/fits to its text content centered in the declared bounds.</summary>
     public bool FitsText { get; init; }
 
+    /// <summary>
+    /// True when <see cref="Width"/> is the most the box may take and it
+    /// narrows to its widest unwrapped line: a Word frame of one paragraph
+    /// that states no width, which Writer imports at the minimum width and
+    /// fits to its text (tdf135035.docx).
+    /// </summary>
+    public bool ShrinksWidthToText { get; init; }
+
     /// <summary>Clockwise rotation in radians around the shape's top-left corner.</summary>
     public double RotationRadians { get; init; }
+
+    /// <summary>
+    /// Which way the shape's text runs inside its box, which stays where it is:
+    /// a text box whose words read down or up its side, as a spine label or a
+    /// margin tab does.
+    /// </summary>
+    /// <remarks>
+    /// DrawingML states it as <c>a:bodyPr vert="vert"</c> or <c>"vert270"</c>,
+    /// VML as <c>v:textbox style="layout-flow:vertical"</c>, with
+    /// <c>mso-layout-flow-alt:bottom-to-top</c> for the upward one. The text is
+    /// laid out as if the box were turned with it: its lines are as long as the
+    /// box is tall, <see cref="TextPadding"/> and
+    /// <see cref="TextVerticalAlignment"/> apply to that turned box, and the
+    /// shape does not grow to its text.
+    /// </remarks>
+    public ShapeTextFlow TextFlow { get; init; }
 
     /// <summary>Optional per-side wrap clearance margins in points (Left, Top, Right, Bottom).</summary>
     public TableCellPadding? WrapMargins { get; init; }
@@ -322,12 +346,30 @@ public sealed class DocumentShape(
 
     /// <summary>Creates a copy of this shape anchored to a different paragraph.</summary>
     public DocumentShape WithParagraphIndex(int paragraphIndex) =>
-        new(paragraphIndex, OffsetX, OffsetY, Width, Height, Fill, Outline, Paragraphs, Image, BehindText, Wrap, WrapSide, WrapDistance, ZOrder, AnchorPage, OffsetFromPage, GrowsToText, Tables, TextPadding, TextVerticalAlignment, TextOverflow, GrowsWidthToText, FrameName, NextFrameName, Geometry, OutlineWidth, OffsetXFromCell, CellHorizontalAlignment, Printable)
+        WithPlacement(paragraphIndex, OffsetX, OffsetY, AnchorPage, OffsetFromPage, Wrap, ZOrder);
+
+    /// <summary>
+    /// Creates a copy of this shape placed somewhere else: another anchor and
+    /// offset, how the body text treats it, and where it stacks. A reader uses
+    /// it to lift a frame nested in another frame's text out to the frame's
+    /// own anchor.
+    /// </summary>
+    public DocumentShape WithPlacement(
+        int paragraphIndex,
+        double offsetX,
+        double offsetY,
+        int anchorPage,
+        bool offsetFromPage,
+        ShapeWrap wrap,
+        int zOrder) =>
+        new(paragraphIndex, offsetX, offsetY, Width, Height, Fill, Outline, Paragraphs, Image, BehindText, wrap, WrapSide, WrapDistance, zOrder, anchorPage, offsetFromPage, GrowsToText, Tables, TextPadding, TextVerticalAlignment, TextOverflow, GrowsWidthToText, FrameName, NextFrameName, Geometry, OutlineWidth, OffsetXFromCell, CellHorizontalAlignment, Printable)
         {
             IsAsCharacter = IsAsCharacter,
             IsCustomShape = IsCustomShape,
             FitsText = FitsText,
+            ShrinksWidthToText = ShrinksWidthToText,
             RotationRadians = RotationRadians,
+            TextFlow = TextFlow,
             WrapMargins = WrapMargins,
             WrapPolygon = WrapPolygon,
             MinimumWrapRoom = MinimumWrapRoom,
@@ -363,5 +405,21 @@ public sealed class DocumentShape(
         ((Width <= 0 && Height > 0) || (Height <= 0 && Width > 0));
 }
 
-/// <summary>Basic shape paths; line directions use page coordinates with y increasing downwards.</summary>
-public enum ShapeGeometry { Rectangle, Ellipse, Line, LineAscending, RoundedRectangle, Triangle }
+/// <summary>
+/// Basic shape paths; line directions use page coordinates with y increasing downwards.
+/// <see cref="Diamond"/> joins the midpoints of the box's four edges.
+/// </summary>
+public enum ShapeGeometry { Rectangle, Ellipse, Line, LineAscending, RoundedRectangle, Triangle, Diamond }
+
+/// <summary>Which way a shape's lines of text run inside its box.</summary>
+public enum ShapeTextFlow
+{
+    /// <summary>Left to right, lines stacked downwards: the ordinary case.</summary>
+    Horizontal,
+
+    /// <summary>Turned a quarter clockwise: lines read downwards, stacked from right to left.</summary>
+    TopToBottom,
+
+    /// <summary>Turned a quarter anticlockwise: lines read upwards, stacked from left to right.</summary>
+    BottomToTop,
+}

@@ -29,6 +29,9 @@ internal sealed class DocxStyles
     private readonly XElement? _defaultParagraphProperties;
     private readonly XElement? _defaultRunProperties;
     private readonly string? _defaultParagraphStyleId;
+
+    /// <summary>The paragraph style an unstyled paragraph takes, or null when the part names none.</summary>
+    public string? DefaultParagraphStyleId => _defaultParagraphStyleId;
     private readonly string? _defaultTableStyleId;
     private readonly int _maxChainDepth;
     private readonly List<DocumentDiagnostic> _diagnostics;
@@ -61,6 +64,14 @@ internal sealed class DocxStyles
 
     /// <summary>Theme fonts, needed to resolve <c>w:rFonts</c> theme references.</summary>
     public DocxTheme Theme { get; }
+
+    /// <summary>
+    /// Whether the settings leave HTML paragraph auto spacing on, as they do
+    /// unless they state <c>w:doNotUseHTMLParagraphAutoSpacing</c>: automatic
+    /// space above and below is then 14 pt, adjusted at the edges of a cell or
+    /// the document, rather than 5 pt (writerfilter's <c>DomainMapper</c>).
+    /// </summary>
+    public bool HtmlParagraphAutoSpacing { get; set; } = true;
 
     /// <summary>
     /// Whether <c>w:docDefaults</c> holds a <c>w:rPrDefault</c>, which decides

@@ -240,6 +240,22 @@ public sealed class LayoutShape : IPaginatedShapeArtifact
     public double OutlineWidth { get; }
     public double RotationRadians { get; init; }
 
+    /// <summary>
+    /// Which way the shape's text runs. Turned text is placed in
+    /// <see cref="TextFrame(BRect, ShapeTextFlow)"/> of <see cref="Bounds"/>,
+    /// and the painter turns it a quarter about the box's centre onto the box.
+    /// </summary>
+    public ShapeTextFlow TextFlow { get; init; }
+
+    /// <summary>
+    /// The box turned text is laid out in: <paramref name="bounds"/> with its
+    /// width and height exchanged, about the same centre.
+    /// </summary>
+    public static BRect TextFrame(BRect bounds, ShapeTextFlow flow) => flow == ShapeTextFlow.Horizontal
+        ? bounds
+        : new BRect(bounds.Left + (bounds.Width - bounds.Height) / 2, bounds.Top + (bounds.Height - bounds.Width) / 2,
+            bounds.Height, bounds.Width);
+
     /// <summary>The picture the box draws, filling <see cref="Bounds"/>, or null.</summary>
     public InlineImage? Image { get; }
 

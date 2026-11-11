@@ -66,7 +66,8 @@ internal sealed class DocxFrameAccumulator
         if (frameDoc.ParagraphCount == 0 && (props.Height ?? 0) == 0)
             return;
 
-        DocumentShape shape = CreateFrameShape(props, frameDoc.Paragraphs, anchorIndex, context.PlacementPage);
+        DocumentShape shape = CreateFrameShape(props, frameDoc.Paragraphs, anchorIndex, context.PlacementPage,
+            context.Sections?.CurrentColumns);
         context.Builder.AddShape(shape);
 
         // Drawings read inside the frame's paragraphs (a VML group in a framed
@@ -91,19 +92,29 @@ internal sealed class DocxFrameAccumulator
             IsAsCharacter = inner.IsAsCharacter,
             IsCustomShape = inner.IsCustomShape,
             FitsText = inner.FitsText,
+            ShrinksWidthToText = inner.ShrinksWidthToText,
             RotationRadians = inner.RotationRadians,
+            TextFlow = inner.TextFlow,
             WrapMargins = inner.WrapMargins,
             WrapPolygon = inner.WrapPolygon,
             BoundedByPage = inner.BoundedByPage,
         };
     }
 
+    /// <remarks>
+    /// In a header or footer only a frame placed on the page is read as one: a
+    /// <c>w:vAnchor</c> of <c>page</c> or <c>margin</c>, which is where Word and
+    /// LibreOffice draw it whatever the band holds, as <c>tdf112446_frameStyle.docx</c>'s
+    /// page number 237 points down a 297-point page. A running band's frame
+    /// that hangs from its paragraph (<c>vAnchor="text"</c>, the usual page
+    /// number at the band's right) stays a paragraph of the band, as before.
+    /// </remarks>
     public static DocxFrameProperties? ReadProperties(
         XElement? pPr,
         string? paragraphStyleId,
         DocxReadContext context)
     {
-        if (context.Band != RunningBand.Body || context.InNote || context.Builder.InTableCell)
+        if (context.InNote || context.Builder.InTableCell)
             return null;
 
         IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions);
@@ -173,9 +184,23 @@ internal sealed class DocxFrameAccumulator
 
         for (int i = 0; i < chain.Count; i++)
             Apply(chain[i]);
+
+        // A position the paragraph states itself replaces the alignment its
+        // style gives: tdf112446_frameStyle.docx's page number names x="3742"
+        // over a style's xAlign="right", and LibreOffice places it at x
+        // (HoriOrient NONE in its test for the bug).
+        XElement? own = pPr?.Element(DocxNamespaces.Wordprocessing + "framePr");
+        if (own?.Attribute(DocxNamespaces.Wordprocessing + "x") is not null &&
+            own.Attribute(DocxNamespaces.Wordprocessing + "xAlign") is null)
+            xAlign = null;
+        if (own?.Attribute(DocxNamespaces.Wordprocessing + "y") is not null &&
+            own.Attribute(DocxNamespaces.Wordprocessing + "yAlign") is null)
+            yAlign = null;
         Apply(pPr);
 
         if (dropCap is "drop" or "margin" || width == 0 && height == 0 && heightRule == "exact")
+            return null;
+        if (context.Band != RunningBand.Body && (vAnchor is not ("page" or "margin") || yAlign == "inline"))
             return null;
 
         return new DocxFrameProperties(
@@ -235,7 +260,8 @@ internal sealed class DocxFrameAccumulator
         DocxFrameProperties frame,
         IReadOnlyList<RichTextParagraph> paragraphs,
         int anchorParagraphIndex,
-        PageGeometry? page)
+        PageGeometry? page,
+        DocxColumns? columns = null)
     {
         double pageWidth = page?.Width ?? PageGeometry.A4.Width;
         double marginLeft = page?.MarginLeft ?? PageGeometry.A4.MarginLeft;
@@ -245,7 +271,18 @@ internal sealed class DocxFrameAccumulator
 
         bool fromPage = frame.HorizontalAnchor == "page";
         double referenceWidth = fromPage ? pageWidth : textWidth;
-        double width = frame.Width is > 0 ? frame.Width.Value / 20d : textWidth;
+        // A frame that states no width is as wide as the column it stands in,
+        // and one of a single paragraph placed by its offset narrows to its
+        // text: writerfilter imports it at Writer's minimum width, and Writer
+        // fits only a lone paragraph's frame to its content
+        // (tdf135035.docx, three frames in a three-column section).
+        bool autoWidth = frame.Width is not > 0;
+        DocxColumns sectionColumns = columns ?? DocxColumns.Single;
+        double columnWidth = sectionColumns.Count > 1 && !sectionColumns.Unequal
+            ? Math.Max(0, (textWidth - sectionColumns.Gap * (sectionColumns.Count - 1)) / sectionColumns.Count)
+            : textWidth;
+        double width = autoWidth ? columnWidth : frame.Width!.Value / 20d;
+        bool shrinksToText = autoWidth && paragraphs.Count == 1 && frame.HorizontalAlign is null or "left";
         double height = frame.Height.HasValue ? Math.Abs((double)frame.Height.Value) / 20d : 0d;
 
         double x = frame.HorizontalAlign switch
@@ -310,6 +347,9 @@ internal sealed class DocxFrameAccumulator
             offsetFromPage: !fromParagraph,
             growsToText: frame.HeightRule != "exact",
             textPadding: padding,
-            outlineWidth: outline.IsVisible ? outline.Width : 1);
+            outlineWidth: outline.IsVisible ? outline.Width : 1)
+        {
+            ShrinksWidthToText = shrinksToText,
+        };
     }
 }

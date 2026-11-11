@@ -168,6 +168,7 @@ public static class RtfReader
         private BodySectionBreak _bodySectionBreak = BodySectionBreak.Page;
         private enum BodySectionBreak { Continuous, Page, Column }
         private readonly RtfTableBuilder _table;
+        private readonly RtfPageBorders _pageBorders;
         private readonly List<DocumentTable> _tables = [];
         private int _columns = 1;
         private int _columnGap = 720;
@@ -222,6 +223,12 @@ public static class RtfReader
         private bool _shapeFlipVertical;
         private bool _shapeInBackground;
         private double _shapeFillFocus;
+
+        // WordArt: fGtext turns the shape into its gtextUNICODE string, drawn in
+        // gtextFont and the shape's fill colour.
+        private bool _shapeGtext;
+        private string? _shapeGtextString;
+        private string? _shapeGtextFont;
         private bool? _shapeFillEnabled;
         private bool _shapeFlipHorizontal;
         private bool _shapeBehindText;
@@ -279,6 +286,7 @@ public static class RtfReader
             _diagnostics.AddRange(tokenizerDiagnostics);
             _builder = new Accumulator(options.Limits.MaxParagraphCount);
             _table = new RtfTableBuilder(_colors);
+            _pageBorders = new RtfPageBorders(_colors);
             _maxParagraphs = options.Limits.MaxParagraphCount;
             _maxBinBytes = options.Limits.MaxBinBytes;
             _resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
@@ -929,6 +937,10 @@ public static class RtfReader
 
         private void HandleBodyControlWord(string kw, int p, bool has)
         {
+            // The first section's page border; a later section's page is not read.
+            if (_pageBorders.Handle(kw, p, has, record: !_pastFirstSection))
+                return;
+
             if (_table.HandleDefinitionWord(kw, p, has))
                 return;
 
@@ -1077,7 +1089,10 @@ public static class RtfReader
                         _bodySectionHasProperties = true;
                     }
                     if (!_pastFirstSection)
+                    {
                         _sectionWidth = _sectionHeight = _sectionLeft = _sectionRight = _sectionTop = _sectionBottom = null;
+                        _pageBorders.Reset();
+                    }
                     return;
                 case "sect":
                     if (_state.Dest == RtfDestination.Normal && !_state.Frame.IsFrame && !_state.InTable)
@@ -2052,7 +2067,7 @@ public static class RtfReader
             };
 
             if (geometry.IsUsable)
-                return BuildColumns(geometry);
+                return _pageBorders.ApplyTo(BuildColumns(geometry));
 
             _diagnostics.Add(DocumentDiagnostic.Warning(
                 "rtf.page.geometry",
@@ -2117,6 +2132,8 @@ public static class RtfReader
             _shapeInBackground = _state.InBackground;
             _shapeFillFocus = 0;
             _shapeText = null;
+            _shapeGtext = false;
+            _shapeGtextString = _shapeGtextFont = null;
         }
 
         private void BeginShapeProperty()
@@ -2137,6 +2154,12 @@ public static class RtfReader
         {
             string name = _shapePropertyName.ToString().Trim();
             string value = _shapePropertyValue.ToString().Trim();
+            switch (name)
+            {
+                case "gtextUNICODE": _shapeGtextString = _shapePropertyValue.ToString(); return;
+                case "gtextFont": _shapeGtextFont = value; return;
+            }
+
             if (name.Length == 0 || !long.TryParse(
                     value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long number))
             {
@@ -2209,6 +2232,9 @@ public static class RtfReader
                     break;
                 case "fLine":
                     _shapeHasLine = number != 0;
+                    break;
+                case "fGtext":
+                    _shapeGtext = number != 0;
                     break;
                 case "posrelv":
                     // 3 is the line, which the model holds as its paragraph.
@@ -2365,6 +2391,16 @@ public static class RtfReader
             if (paragraphs.Count == 1 && paragraphs[0].Length == 0)
                 paragraphs = [];
 
+            if (WordArtParagraphs(width, height) is { } wordArt)
+            {
+                paragraphs = wordArt;
+                _shapeFillEnabled = false;
+                _shapeHasLine = false;
+                _shapePadding = default;
+                _shapeAlignment = CellVerticalAlignment.Center;
+                _shapeFitsText = false;
+            }
+
             ShapeFill? fill = null;
             if ((_shapeFillEnabled ?? (_shapeHasFill || _shapeType != 75)) && !_shapeFillStart.IsEmpty)
             {
@@ -2480,6 +2516,54 @@ public static class RtfReader
             }
             else
                 _shapes.Add(shape);
+        }
+
+        /// <summary>
+        /// A WordArt shape's text (<c>fGtext</c>): its <c>gtextUNICODE</c> string
+        /// in <c>gtextFont</c>, centred in the box, coloured with the shape's fill
+        /// and sized so its longest line fits the box's width and its lines the
+        /// height. Null when the shape is not WordArt or has no text.
+        /// </summary>
+        /// <remarks>
+        /// Word and LibreOffice stretch each glyph to fill the box instead, and the
+        /// shape's own fill is the colour of those glyphs, not a box behind them:
+        /// drawn as a box it covers the page (watermark.rtf, Word's
+        /// <c>PowerPlusWaterMarkObject</c>). The size follows the DOCX reader's VML
+        /// WordArt, with a wider advance per character (<see cref="WordArtAdvance"/>):
+        /// a reader has no font metrics, and a line that is too wide wraps and
+        /// loses its last letters below the box, where a narrower one only leaves
+        /// the box's ends empty.
+        /// </remarks>
+        /// <summary>
+        /// The advance a WordArt character is assumed to take, in ems: about that
+        /// of a capital in a wide sans face such as DejaVu Sans, which Word's
+        /// watermarks use.
+        /// </summary>
+        private const double WordArtAdvance = 0.7;
+
+        private IReadOnlyList<RichTextParagraph>? WordArtParagraphs(double width, double height)
+        {
+            if (!_shapeGtext || string.IsNullOrWhiteSpace(_shapeGtextString))
+                return null;
+
+            string[] lines = _shapeGtextString.Replace("\r\n", "\n").Split('\n', '\r', '\u2028')
+                .Select(line => line.Trim())
+                .Where(line => line.Length > 0)
+                .ToArray();
+            if (lines.Length == 0)
+                return null;
+
+            ReportShapeApproximation("wordart", "An RTF WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
+            double size = Math.Min(Math.Abs(height) / lines.Length / 1.2, Math.Abs(width) / (lines.Max(line => line.Length) * WordArtAdvance));
+            BColor color = _shapeFillStart.IsEmpty ? BColor.Black : ShapeOpacity(_shapeFillStart, _shapeFillOpacity);
+            InlineStyle style = InlineStyle.Default with
+            {
+                FontFamily = string.IsNullOrWhiteSpace(_shapeGtextFont) ? InlineStyle.Default.FontFamily : _shapeGtextFont,
+                FontSize = (float)Math.Clamp(size, 1, 400),
+                Foreground = color,
+            };
+            var paragraph = ParagraphStyle.Default with { Alignment = TextAlignment.Center };
+            return [.. lines.Select(line => RichTextParagraph.Create(line, style, paragraph))];
         }
 
         /// <summary>The headers and footers the document's running destinations collected.</summary>

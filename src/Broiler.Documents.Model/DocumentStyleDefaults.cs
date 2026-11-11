@@ -159,6 +159,31 @@ public sealed record DocumentStyleDefaults
     /// <summary>Whether to honor space before the document's opening paragraph.</summary>
     public bool PreserveOpeningParagraphSpacing { get; init; }
 
+    /// <summary>
+    /// Whether the space between two paragraphs is the larger of the first's
+    /// space below and the second's space above, rather than both.
+    /// </summary>
+    /// <remarks>
+    /// A DOCX lays its paragraphs out so unless its settings state
+    /// <c>w:doNotUseHTMLParagraphAutoSpacing</c>: writerfilter sets Writer's
+    /// <c>AddParaTableSpacing</c> from that flag, and without it
+    /// <c>SwFlowFrame::CalcUpperSpace</c> takes the larger of the two
+    /// (tdf164905.docx, whose table of contents entries have 6 pt above and
+    /// below and stand 6 pt apart). An RTF and an ODT add both.
+    /// </remarks>
+    public bool CollapsesParagraphSpacing { get; init; }
+
+    /// <summary>
+    /// The space a block that asks for <paramref name="spaceAbove"/> opens
+    /// with below one that left <paramref name="spaceBelowPrevious"/> beneath
+    /// it, which the caller has already added.
+    /// </summary>
+    public double SpaceAbove(double spaceAbove, double spaceBelowPrevious)
+    {
+        double above = Math.Max(0, spaceAbove);
+        return CollapsesParagraphSpacing ? Math.Max(0, above - Math.Max(0, spaceBelowPrevious)) : above;
+    }
+
     /// <summary>The orphan lines <paramref name="style"/> keeps: its own, or the document's.</summary>
     public int? OrphanLinesOf(ParagraphStyle style) =>
         style.OrphanLines ?? (WidowOrphanLines > 0 ? WidowOrphanLines : null);
@@ -171,7 +196,7 @@ public sealed record DocumentStyleDefaults
     public bool IsDefault =>
         FontSizePoints == FallbackFontSizePoints && FontFamily is null && !WidensSpaceRuns && !ShrinksJustifiedLines &&
         !TabsOverMargin && !UndecoratedLinks && WidowOrphanLines == 0 && !PreserveOpeningParagraphSpacing &&
-        !KeepWithNextOpeningLines;
+        !KeepWithNextOpeningLines && !CollapsesParagraphSpacing;
 
     /// <summary>
     /// What <see cref="WidensSpaceRuns"/> adds to the width of

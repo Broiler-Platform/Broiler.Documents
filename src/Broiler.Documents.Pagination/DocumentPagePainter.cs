@@ -241,6 +241,12 @@ public sealed class DocumentPagePainter
                 list.FillRoundedRect(bounds, fill.Start, radius, radius);
             else if (shape.Geometry == ShapeGeometry.Triangle && !fill.IsGradient && !fill.HasExtendedPaint)
                 list.FillTriangle(apex, lowerLeft, lowerRight, fill.Start);
+            else if (shape.Geometry == ShapeGeometry.Diamond && !fill.IsGradient && !fill.HasExtendedPaint)
+            {
+                (BPoint top, BPoint right, BPoint bottom, BPoint left) = DiamondCorners(bounds);
+                list.FillTriangle(top, right, bottom, fill.Start);
+                list.FillTriangle(top, bottom, left, fill.Start);
+            }
             else DrawFill(list, shape.Bounds, fill, resolveImage);
         }
 
@@ -261,13 +267,39 @@ public sealed class DocumentPagePainter
                 DrawSegment(list, lowerLeft, lowerRight, shape.Outline, thickness);
                 DrawSegment(list, lowerRight, apex, shape.Outline, thickness);
             }
+            else if (shape.Geometry == ShapeGeometry.Diamond)
+            {
+                (BPoint top, BPoint right, BPoint bottom, BPoint left) = DiamondCorners(bounds);
+                DrawSegment(list, top, right, shape.Outline, thickness);
+                DrawSegment(list, right, bottom, shape.Outline, thickness);
+                DrawSegment(list, bottom, left, shape.Outline, thickness);
+                DrawSegment(list, left, top, shape.Outline, thickness);
+            }
             else list.StrokeRect(shape.Bounds, shape.Outline, thickness);
         }
 
-        DrawCells(list, shape.Cells);
-        DrawParagraphShading(list, shape.Lines);
-        foreach (LayoutLine line in shape.Lines)
-            DrawLine(list, line, resolveImage);
+        // Turned text was laid out in the box turned with it; a quarter turn
+        // about the box's centre puts it back: clockwise for text that reads
+        // downwards, anticlockwise for text that reads upwards.
+        bool turned = shape.TextFlow != ShapeTextFlow.Horizontal;
+        if (turned)
+        {
+            double sin = shape.TextFlow == ShapeTextFlow.TopToBottom ? 1 : -1;
+            double cx = bounds.Left + bounds.Width / 2, cy = bounds.Top + bounds.Height / 2;
+            list.PushTransform(new BMatrix3x2(0, sin, -sin, 0, cx + cy * sin, cy - cx * sin));
+        }
+        try
+        {
+            DrawCells(list, shape.Cells);
+            DrawParagraphShading(list, shape.Lines);
+            foreach (LayoutLine line in shape.Lines)
+                DrawLine(list, line, resolveImage);
+        }
+        finally
+        {
+            if (turned)
+                list.PopTransform();
+        }
     }
 
     /// <summary>
@@ -285,6 +317,14 @@ public sealed class DocumentPagePainter
             list.FillRect(new BRect(bounds.Left - (width / 2), bounds.Top, width, bounds.Height), shape.Outline);
         else if (bounds.Height <= 0 && bounds.Width > 0)
             list.FillRect(new BRect(bounds.Left, bounds.Top - (width / 2), bounds.Width, width), shape.Outline);
+    }
+
+    /// <summary>The midpoints of a box's four edges, the corners of the diamond it holds.</summary>
+    private static (BPoint Top, BPoint Right, BPoint Bottom, BPoint Left) DiamondCorners(BRect bounds)
+    {
+        double middleX = bounds.Left + bounds.Width / 2, middleY = bounds.Top + bounds.Height / 2;
+        return (new BPoint(middleX, bounds.Top), new BPoint(bounds.Right, middleY),
+            new BPoint(middleX, bounds.Bottom), new BPoint(bounds.Left, middleY));
     }
 
     private static void DrawSegment(BRenderList list, BPoint start, BPoint end, BColor color, double width)

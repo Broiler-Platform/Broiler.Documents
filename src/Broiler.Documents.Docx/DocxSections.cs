@@ -63,6 +63,9 @@ internal sealed class DocxSections
     /// </summary>
     public int CurrentColumnCount => _sections[Math.Min(_current, _sections.Count - 1)].Columns.Count;
 
+    /// <summary>The columns of the section the read has reached.</summary>
+    public DocxColumns CurrentColumns => _sections[Math.Min(_current, _sections.Count - 1)].Columns;
+
     /// <summary>
     /// True when the section the read has just entered starts on a new page:
     /// ECMA-376's <c>nextPage</c>, <c>oddPage</c> and <c>evenPage</c>, and

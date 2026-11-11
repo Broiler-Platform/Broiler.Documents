@@ -28,7 +28,7 @@ internal enum RunningBand
 /// </param>
 /// <param name="Frames">
 /// Accumulates consecutive framed paragraphs sharing identical <c>w:framePr</c>
-/// into floating shapes, or null outside the body flow.
+/// into floating shapes, or null where no frame is read (a note, a table cell).
 /// </param>
 /// <param name="DropCaps">
 /// Tracks pending drop-cap paragraphs so their runs prepend to the subsequent body paragraph.

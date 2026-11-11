@@ -102,6 +102,7 @@ public sealed class RenderPipeline
         OptionSpec.Value("page-size","size","Paper size: " + string.Join(", ", PageSetup.NamedSizeNames) + ", or WxH with a unit (210x297mm).","a4"),
         OptionSpec.Flag("landscape", "Swap the page width and height."),
         OptionSpec.Value("margin", "length", "Page margin: one, two, or four comma-separated lengths.", "1in"),
+        OptionSpec.Value("default-margin", "length", "Page margin for a document that states no page; one that does keeps its own. --margin overrides both.", "1in"),
         OptionSpec.Value("dpi", "n", "Output resolution. 96 makes a point 1.333 pixels.", "96"),
         OptionSpec.Flag("continuous","Render the whole document as one tall page instead of paginating. Localizes a difference to where it is."),
         OptionSpec.Value("background", "color", "Page colour.", "#FFFFFF"),

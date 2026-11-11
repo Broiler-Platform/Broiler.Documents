@@ -61,7 +61,7 @@ internal static class DocxReader
                 diagnostics);
 
             var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
-            var images = new DocxImageLoader(archive, options.Limits, resources);
+            var images = new DocxImageLoader(archive, options.Limits, resources, styles.Theme);
             var reported = new HashSet<string>(StringComparer.Ordinal);
             // Read before the content, not after it: an anchor states which frame
             // its offsets are measured from, and converting one to the column the
@@ -72,6 +72,7 @@ internal static class DocxReader
             PageGeometry? page = ReadPageGeometry(documentXml, sections, diagnostics);
             int compatibilityMode = WordCompatibilityMode(settings.Root);
             bool splitPgBreakAndParaMark = HasSplitPgBreakAndParaMark(settings.Root);
+            styles.HtmlParagraphAutoSpacing = !HasCompatFlag(settings.Root, "doNotUseHTMLParagraphAutoSpacing");
             DocxNotes notes = DocxNotes.Load(
                 archive,
                 documentRelationships,
@@ -119,6 +120,7 @@ internal static class DocxReader
                 PreserveOpeningParagraphSpacing = true,
                 WidowOrphanLines = styles.HasParagraphDefaults ? 2 : 0,
                 KeepWithNextOpeningLines = true,
+                CollapsesParagraphSpacing = styles.HtmlParagraphAutoSpacing,
             });
             document = document.WithNoteNumbering(notes.Numbering with { RaisedLabels = notes.LabelsRaised ?? false });
             document = document.WithShowsRevisions(DocxRevisions.Shown(settings.Root));
@@ -635,6 +637,12 @@ internal static class DocxReader
             ?.Element(DocxNamespaces.Wordprocessing + "splitPgBreakAndParaMark") is XElement split &&
         ReadOnOff(split);
 
+    /// <summary>Whether the settings' <c>w:compat</c> turns <paramref name="name"/> on.</summary>
+    private static bool HasCompatFlag(XElement? settings, string name) =>
+        settings?.Element(DocxNamespaces.Wordprocessing + "compat")
+            ?.Element(DocxNamespaces.Wordprocessing + name) is XElement flag &&
+        ReadOnOff(flag);
+
     /// <summary>
     /// The Word version whose layout the document asks for: the highest
     /// <c>compatibilityMode</c> its settings state, as Word and LibreOffice
@@ -810,8 +818,9 @@ internal static class DocxReader
             SplitPgBreakAndParaMark = splitPgBreakAndParaMark,
         };
         var context = new DocxReadContext(
-            partRelationships, numbering, styles, images, builder, page, band);
+            partRelationships, numbering, styles, images, builder, page, band, Frames: new DocxFrameAccumulator());
         ReadBlockContent(partXml.Root.Elements(), context, depth: 0);
+        context.Frames?.Finish(context);
 
         RichTextDocument part = builder.Build();
         return (part.Paragraphs, part.Shapes, part.Tables);
@@ -844,7 +853,7 @@ internal static class DocxReader
             // the closing section. The next surviving paragraph may be on a
             // different page with different geometry.
             context.Frames?.Finish(context, context.Builder.CurrentParagraphIndex - 1);
-            EndSection(context);
+            EndSection(context, markKept: false);
             return;
         }
 
@@ -899,7 +908,7 @@ internal static class DocxReader
         if (context.Sections is not null && DocxSections.EndsSection(paragraph))
         {
             context.Frames?.Finish(context);
-            EndSection(context);
+            EndSection(context, markKept: true);
         }
     }
 
@@ -910,7 +919,7 @@ internal static class DocxReader
         DocxReadContext context,
         XElement? dropCapParagraph = null)
     {
-        ParagraphStyle paragraphStyle = ReadParagraphStyle(pPr, paragraphStyleId, context);
+        ParagraphStyle paragraphStyle = ReadParagraphStyle(pPr, paragraphStyleId, context, paragraph);
 
         // An empty paragraph that is there only to end a section is not an item
         // of the list its style numbers. Word writes the section break on a
@@ -958,9 +967,28 @@ internal static class DocxReader
             context.Builder.TrimSectionParagraphEnd();
         else if (context.Builder.JoinsFieldCodeParagraph())
             return;
+        context.Builder.ApplyContextualSpacing(
+            (string.IsNullOrEmpty(paragraphStyleId) ? context.Styles.DefaultParagraphStyleId : paragraphStyleId) ?? string.Empty,
+            HasContextualSpacing(pPr, paragraphStyleId, context));
         if (context.Band == RunningBand.Body && context.PlacementPage is PageGeometry placement)
             context.Builder.ApplyIncreasedAnchoredObjectSpacing(placement.ContentWidth);
         context.Builder.FinishParagraph();
+    }
+
+    /// <summary>
+    /// Whether <c>w:contextualSpacing</c> is on for the paragraph: its own
+    /// <c>w:pPr</c> wins over its style chain, and the last style to state it
+    /// over the ones it is based on.
+    /// </summary>
+    private static bool HasContextualSpacing(XElement? pPr, string? paragraphStyleId, DocxReadContext context)
+    {
+        XElement? stated = pPr?.Element(DocxNamespaces.Wordprocessing + "contextualSpacing");
+        if (stated is null)
+        {
+            foreach (XElement properties in context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions))
+                stated = properties.Element(DocxNamespaces.Wordprocessing + "contextualSpacing") ?? stated;
+        }
+        return stated is not null && ReadOnOff(stated);
     }
 
     /// <summary>
@@ -969,11 +997,19 @@ internal static class DocxReader
     /// had ended on one, and a page break that paragraph did end on is the same
     /// boundary rather than a second.
     /// </summary>
-    private static void EndSection(DocxReadContext context)
+    /// <remarks>
+    /// The page the section opens keeps its first paragraph's space above
+    /// below compatibility mode 15 (tdf170003_bottomSpacing.docx, mode 14),
+    /// and in mode 15 where the paragraph holding the section mark stays
+    /// (tdf165047_consolidatedTopMargin.docx), not where LibreOffice drops an
+    /// empty one (tdf124637_sectionMargin.docx's headings sit at the top
+    /// margin in the 24.2 reference).
+    /// </remarks>
+    private static void EndSection(DocxReadContext context, bool markKept)
     {
         context.Sections!.Advance(context.Builder.CurrentParagraphIndex);
         if (context.Sections.CurrentStartsPage)
-            context.Builder.HoldPageBreak();
+            context.Builder.HoldPageBreak(keepsSpaceAbove: markKept || context.Builder.WordCompatibilityMode < 15);
     }
 
     /// <summary>
@@ -1253,13 +1289,24 @@ internal static class DocxReader
             if (builder.Fields.SuppressesResult)
                 continue;
 
+            // A line break or tab between a field's begin and separator is part
+            // of its instruction, which Word does not display: an ADDRESSBLOCK
+            // writes one w:cr per line of its format string (tdf129520).
+            if (builder.Fields.InCode && child.Name.Namespace == DocxNamespaces.Wordprocessing &&
+                (child.Name.LocalName is "cr" or "tab" ||
+                 child.Name.LocalName == "br" && !IsPageBreak(child, context) && !IsColumnBreak(child)))
+                continue;
+
             if (child.Name == DocxNamespaces.Wordprocessing + "t")
             {
                 if (awaitingMark is not null)
                 {
                     // w:customMarkFollows: the text after the reference is the
                     // note's own label, not body text.
-                    var marked = new DocumentNote(awaitingMark.Kind, awaitingMark.Paragraphs, DocxValueReader.RunText(child).Trim());
+                    var marked = new DocumentNote(awaitingMark.Kind, awaitingMark.Paragraphs, DocxValueReader.RunText(child).Trim())
+                    {
+                        Tables = awaitingMark.Tables,
+                    };
                     builder.AppendText(DocumentNote.PlaceholderText, awaitingStyle with { Note = marked });
                     awaitingMark = null;
                     continue;
@@ -1323,6 +1370,19 @@ internal static class DocxReader
             if (child.Name == DocxNamespaces.Wordprocessing + "tab")
             {
                 builder.AppendText("\t", style);
+                continue;
+            }
+
+            // A positional tab is read as a tab, which the paragraph's own
+            // tab stops place, as writerfilter reads it; one aligned left after
+            // text on the line is a line break (DomainMapper_Impl::HandlePTab).
+            // tdf164905.docx's header spreads three placeholders over the
+            // header style's centre and right stops this way.
+            if (child.Name == DocxNamespaces.Wordprocessing + "ptab")
+            {
+                bool lineBreak = (string?)child.Attribute(DocxNamespaces.Wordprocessing + "alignment") == "left" &&
+                    builder.HasTextInParagraph;
+                builder.AppendText(lineBreak ? ((char)0x2028).ToString() : "\t", style);
                 continue;
             }
 
@@ -1513,18 +1573,21 @@ internal static class DocxReader
         ReadBlockContent(note.Elements(), nested, depth: 0);
 
         RichTextDocument built = builder.Build();
-        if (built.Tables.Count > 0 || built.Shapes.Count > 0)
+        if (built.Shapes.Count > 0)
         {
             context.Builder.AddDiagnosticOnce(
                 "docx.note.content",
-                "A table or shape in a DOCX note was read as its text; a note holds paragraphs only.");
+                "A shape in a DOCX note was read as its text; a note holds paragraphs and tables only.");
         }
 
         IReadOnlyList<RichTextParagraph> paragraphs = built.Paragraphs;
         if (skipping && paragraphs.Count > 0)
             paragraphs = [TrimLeadingSpace(paragraphs[0]), .. paragraphs.Skip(1)];
 
-        return new DocumentNote(kind, paragraphs);
+        // A table in a note keeps its cells' paragraphs among the note's, so
+        // its text reads as before, and the footnote area lays it out as a
+        // table (tdf136778.docx's 4 x 2 grid).
+        return new DocumentNote(kind, paragraphs) { Tables = built.Tables };
     }
 
     /// <summary>
@@ -1576,45 +1639,61 @@ internal static class DocxReader
         if (picture.Name != DocxNamespaces.Wordprocessing + "pict")
             return false;
         XElement? shape = picture.Elements(DocxNamespaces.Vml + "shape").FirstOrDefault();
-        XElement? textPath = shape?.Element(DocxNamespaces.Vml + "textpath");
-        if (shape is null || textPath is null)
+        Dictionary<string, string> shapeStyle = DocxVml.ReadStyle((string?)shape?.Attribute("style"));
+        if (shape is null ||
+            string.Equals(shapeStyle.GetValueOrDefault("position"), "absolute", StringComparison.OrdinalIgnoreCase) ||
+            !DocxVml.TryLength(shapeStyle.GetValueOrDefault("width"), out double width) ||
+            !DocxVml.TryLength(shapeStyle.GetValueOrDefault("height"), out double height) || width <= 0 || height <= 0 ||
+            ReadVmlTextPath(shape, width, height, style) is not { } wordArt)
             return false;
+
+        context.Builder.AppendText(string.Join((char)0x2028, wordArt.Lines), wordArt.Style with
+        {
+            Foreground = DocxVml.TryColor((string?)shape.Attribute("fillcolor"), out BColor color) ? color : style.Foreground,
+        });
+        context.Builder.AddDiagnosticOnce("docx.shape.wordart",
+            "A VML WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
+        return true;
+    }
+
+    /// <summary>
+    /// The lines of a VML shape's active <c>v:textpath</c> (WordArt) and the
+    /// style they are drawn in: the path's font, sized so the longest line
+    /// fits <paramref name="width"/> and the lines <paramref name="height"/>.
+    /// Null when the shape has no text path, or one that is off or empty.
+    /// </summary>
+    private static (string[] Lines, InlineStyle Style)? ReadVmlTextPath(XElement shape, double width, double height, InlineStyle style)
+    {
+        XElement? textPath = shape.Element(DocxNamespaces.Vml + "textpath");
+        if (textPath is null)
+            return null;
         // The shape's v:textpath usually inherits on="t" from its v:shapetype,
         // which may sit in the other branch of an mc:AlternateContent. A text
         // box's content is read detached from the document (fdo78300), so the
         // type is looked up from the topmost ancestor rather than the document.
         string? typeId = ((string?)shape.Attribute("type"))?.TrimStart('#');
         string? on = (string?)textPath.Attribute("on") ?? (string.IsNullOrEmpty(typeId) ? null :
-            (string?)picture.AncestorsAndSelf().Last().Descendants(DocxNamespaces.Vml + "shapetype")
+            (string?)shape.AncestorsAndSelf().Last().Descendants(DocxNamespaces.Vml + "shapetype")
                 .FirstOrDefault(type => (string?)type.Attribute("id") == typeId)
                 ?.Element(DocxNamespaces.Vml + "textpath")?.Attribute("on"));
-        if (on is not ("t" or "true" or "1"))
-            return false;
         string? text = (string?)textPath.Attribute("string");
-        Dictionary<string, string> shapeStyle = DocxVml.ReadStyle((string?)shape.Attribute("style"));
-        if (string.IsNullOrWhiteSpace(text) ||
-            string.Equals(shapeStyle.GetValueOrDefault("position"), "absolute", StringComparison.OrdinalIgnoreCase) ||
-            !DocxVml.TryLength(shapeStyle.GetValueOrDefault("width"), out double width) ||
-            !DocxVml.TryLength(shapeStyle.GetValueOrDefault("height"), out double height) || width <= 0 || height <= 0)
-            return false;
+        if (on is not ("t" or "true" or "1") || string.IsNullOrWhiteSpace(text))
+            return null;
 
         string[] lines = text.Replace("\r\n", "\n").Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0).ToArray();
         if (lines.Length == 0)
-            return false;
+            return null;
         Dictionary<string, string> textStyle = DocxVml.ReadStyle((string?)textPath.Attribute("style"));
         string? family = textStyle.GetValueOrDefault("font-family")?.Trim().Trim('"', '\'');
         // Half an em per character is a narrow face's average advance.
         double size = Math.Min(height / lines.Length / 1.2, width / (lines.Max(line => line.Length) * 0.5));
-        InlineStyle wordArt = style with
+        return (lines, style with
         {
             FontFamily = string.IsNullOrEmpty(family) ? style.FontFamily : family,
             FontSize = (float)Math.Clamp(size, 1, 400),
-            Foreground = DocxVml.TryColor((string?)shape.Attribute("fillcolor"), out BColor color) ? color : style.Foreground,
-        };
-        context.Builder.AppendText(string.Join((char)0x2028, lines), wordArt);
-        context.Builder.AddDiagnosticOnce("docx.shape.wordart",
-            "A VML WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
-        return true;
+            Bold = textStyle.GetValueOrDefault("font-weight")?.Trim() is "bold" or "700" or "800" or "900" || style.Bold,
+            Italic = textStyle.GetValueOrDefault("font-style")?.Trim() == "italic" || style.Italic,
+        });
     }
 
     private static void ReadPicture(XElement picture, DocxReadContext context, InlineStyle style)
@@ -2120,6 +2199,7 @@ internal static class DocxReader
                 (geometry is ShapeGeometry.Line or ShapeGeometry.LineAscending || LaysOutInCell(anchor)))
         {
             IsCustomShape = context.InDiagram,
+            TextFlow = ReadShapeTextFlow(wsp.Element(DocxNamespaces.WordShape + "bodyPr")),
             WrapMargins = Wrap == ShapeWrap.None ? null : Margins,
             BoundedByPage = !context.Builder.InTableCell,
         });
@@ -2159,6 +2239,34 @@ internal static class DocxReader
             long.TryParse((string?)body?.Attribute(attribute), NumberStyles.Integer, CultureInfo.InvariantCulture, out long value)
                 ? Math.Clamp(value / 12700d, 0, 20000) : fallback;
         return new TableCellPadding(Length("lIns", 7.2), Length("tIns", 3.6), Length("rIns", 7.2), Length("bIns", 3.6));
+    }
+
+    /// <summary>
+    /// The way a DrawingML text box's lines run, from <c>a:bodyPr</c>'s
+    /// <c>vert</c>: <c>vert</c> and <c>eaVert</c> read downwards, <c>vert270</c>
+    /// upwards, as LibreOffice's import turns them (<c>TextVerticalType</c>).
+    /// </summary>
+    internal static ShapeTextFlow ReadShapeTextFlow(XElement? body) => (string?)body?.Attribute("vert") switch
+    {
+        "vert" or "eaVert" => ShapeTextFlow.TopToBottom,
+        "vert270" => ShapeTextFlow.BottomToTop,
+        _ => ShapeTextFlow.Horizontal,
+    };
+
+    /// <summary>
+    /// The way a VML text box's lines run, from its <c>layout-flow</c>:
+    /// <c>vertical</c> reads downwards unless <c>mso-layout-flow-alt</c> says
+    /// <c>bottom-to-top</c>, which Word writes beside it for upward text.
+    /// </summary>
+    internal static ShapeTextFlow ReadVmlTextFlow(XElement? textBox)
+    {
+        Dictionary<string, string> style = DocxVml.ReadStyle((string?)textBox?.Attribute("style"));
+        string? flow = style.GetValueOrDefault("layout-flow")?.Trim().ToLowerInvariant();
+        if (flow is not ("vertical" or "vertical-ideographic"))
+            return ShapeTextFlow.Horizontal;
+        return style.GetValueOrDefault("mso-layout-flow-alt")?.Trim().ToLowerInvariant() == "bottom-to-top"
+            ? ShapeTextFlow.BottomToTop
+            : ShapeTextFlow.TopToBottom;
     }
 
     /// <summary>
@@ -2308,6 +2416,28 @@ internal static class DocxReader
         double outlineWidth = DocxVml.TryLength((string?)shape.Attribute("strokeweight") ??
             (string?)shape.Element(DocxNamespaces.Vml + "stroke")?.Attribute("weight"), out double strokeWidth) ? strokeWidth : 0.75;
         string? path = (string?)shape.Attribute("path") ?? (string?)shape.Element(DocxNamespaces.Vml + "path")?.Attribute("v");
+        TableCellPadding textPadding = ReadVmlPadding(shape.Element(DocxNamespaces.Vml + "textbox"));
+        CellVerticalAlignment textAlignment = style.GetValueOrDefault("v-text-anchor") switch
+        {
+            "middle" or "middle-center" => CellVerticalAlignment.Center,
+            "bottom" or "bottom-center" => CellVerticalAlignment.Bottom,
+            _ => CellVerticalAlignment.Top,
+        };
+        // A floating WordArt shape (a text watermark, tdf138739): its fill and
+        // stroke paint the glyphs, and its path is only the envelope they are
+        // fitted to, so neither the box nor the path is drawn.
+        if (image is null && !segment && ReadVmlTextPath(shape, width, height, InlineStyle.Default) is { } wordArt)
+        {
+            BColor ink = fill is { IsGradient: false, Image: null, Hatch: null } && !fill.Start.IsEmpty ? fill.Start : outline;
+            InlineStyle glyphs = wordArt.Style with { Foreground = ink.IsEmpty ? InlineStyle.Default.Foreground : ink };
+            paragraphs = [.. wordArt.Lines.Select(line => RichTextParagraph.Empty
+                .WithParagraphStyle(ParagraphStyle.Default with { Alignment = TextAlignment.Center })
+                .InsertText(0, line, glyphs))];
+            (fill, outline, path) = (null, BColor.Empty, null);
+            (textPadding, textAlignment) = (default, CellVerticalAlignment.Center);
+            context.Builder.AddDiagnosticOnce("docx.shape.wordart",
+                "A VML WordArt shape was drawn as plain text in its box; its glyphs are not fitted to the text path.");
+        }
         if (image is null && !string.IsNullOrEmpty(path) && !segment)
         {
             if ((fill is null || (!fill.IsGradient && fill.Image is null && fill.Hatch is null)) &&
@@ -2433,19 +2563,15 @@ internal static class DocxReader
             growsToText: DocxVml.ReadStyle((string?)shape.Element(DocxNamespaces.Vml + "textbox")?.Attribute("style"))
                 .GetValueOrDefault("mso-fit-shape-to-text")?.Trim().ToLowerInvariant() is "t" or "true" or "1",
             tables: shapeContent.Tables,
-            textPadding: ReadVmlPadding(shape.Element(DocxNamespaces.Vml + "textbox")),
-            textVerticalAlignment: style.GetValueOrDefault("v-text-anchor") switch
-            {
-                "middle" or "middle-center" => CellVerticalAlignment.Center,
-                "bottom" or "bottom-center" => CellVerticalAlignment.Bottom,
-                _ => CellVerticalAlignment.Top,
-            },
+            textPadding: textPadding,
+            textVerticalAlignment: textAlignment,
             textOverflow: style.GetValueOrDefault("overflow") == "visible",
             geometry: geometry,
             outlineWidth: outlineWidth,
             offsetXFromCell: segment && context.Builder.InTableCell && style.GetValueOrDefault("mso-position-horizontal-relative") == "text")
         {
             RotationRadians = rotation,
+            TextFlow = ReadVmlTextFlow(shape.Element(DocxNamespaces.Vml + "textbox")),
         });
         return true;
     }
@@ -3126,7 +3252,8 @@ internal static class DocxReader
     private static ParagraphStyle ReadParagraphStyle(
         XElement? pPr,
         string? paragraphStyleId,
-        DocxReadContext context)
+        DocxReadContext context,
+        XElement? paragraph = null)
     {
         ParagraphStyle style = ParagraphStyle.Default;
         IReadOnlyList<XElement> chain = context.Styles.ParagraphProperties(paragraphStyleId, context.TableStyle, context.TableConditions);
@@ -3134,9 +3261,57 @@ internal static class DocxReader
             style = ApplyParagraphProperties(styleParagraphProperties, context.Numbering, style, context.Styles.Theme);
 
         style = ApplyParagraphProperties(pPr, context.Numbering, style, context.Styles.Theme);
+        style = ApplyAutoSpacing(style, chain, pPr, paragraph, context.Styles.HtmlParagraphAutoSpacing);
         if (context.Band != RunningBand.Body || context.InParagraphFrame)
             style = style with { Border = ReadParagraphBorder(chain, pPr, context.Styles.Theme) };
-        return ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
+        style = ApplyList(style, chain, pPr, paragraphStyleId, context.Numbering);
+        return context.Styles.HtmlParagraphAutoSpacing && style.ListKind != ListKind.None && paragraph is not null
+            ? TrimListAutoSpacing(style, chain, pPr, paragraph, paragraphStyleId)
+            : style;
+    }
+
+    /// <summary>
+    /// Takes the automatic space off between two items of a list: the space
+    /// above an item whose paragraph before is numbered too, and the space
+    /// below one whose paragraph after is, as writerfilter's
+    /// <c>finishParagraph</c> does for paragraphs of one numbering
+    /// (tdf#133052, tdf#133363).
+    /// </summary>
+    private static ParagraphStyle TrimListAutoSpacing(
+        ParagraphStyle style, IReadOnlyList<XElement> chain, XElement? pPr, XElement paragraph, string? paragraphStyleId)
+    {
+        (bool? before, bool? after) = AutoSpacingStates(chain, pPr);
+        XNamespace w = DocxNamespaces.Wordprocessing;
+        bool Numbered(XElement? sibling)
+        {
+            if (sibling?.Name != w + "p")
+                return false;
+            XElement? siblingProperties = sibling.Element(w + "pPr");
+            if (siblingProperties?.Element(w + "numPr") is { } numPr)
+                return (string?)numPr.Element(w + "numId")?.Attribute(w + "val") is { } id && id != "0";
+            return paragraphStyleId is not null &&
+                DocxValueReader.WordValue(siblingProperties?.Element(w + "pStyle")) == paragraphStyleId;
+        }
+
+        if (before == true && Numbered(paragraph.ElementsBeforeSelf().LastOrDefault()))
+            style = style with { SpacingBefore = 0 };
+        if (after == true && Numbered(paragraph.ElementsAfterSelf().FirstOrDefault()))
+            style = style with { SpacingAfter = 0 };
+        return style;
+    }
+
+    private static (bool? Before, bool? After) AutoSpacingStates(IReadOnlyList<XElement> chain, XElement? pPr)
+    {
+        bool? before = null, after = null;
+        foreach (XElement? properties in chain.Append(pPr))
+        {
+            if (properties?.Element(DocxNamespaces.Wordprocessing + "spacing") is not { } spacing)
+                continue;
+            before = AutoSpacingState(spacing, "before") ?? before;
+            after = AutoSpacingState(spacing, "after") ?? after;
+        }
+
+        return (before, after);
     }
 
     private static ParagraphBorder? ReadParagraphBorder(IReadOnlyList<XElement> chain, XElement? direct, DocxTheme theme)
@@ -3257,6 +3432,58 @@ internal static class DocxReader
     }
 
     /// <summary>Applies paragraph properties, resolving shading against the document theme.</summary>
+    /// <summary>
+    /// Applies <c>w:beforeAutospacing</c> and <c>w:afterAutospacing</c>, the
+    /// paragraph's own or its style chain's, which take priority over
+    /// <c>w:before</c> and <c>w:after</c>: 14 pt where the settings leave HTML
+    /// paragraph auto spacing on, 5 pt where they turn it off. With it on, the
+    /// first paragraph of a cell, of a text box and of the document has no
+    /// automatic space above, and the last of a cell none below
+    /// (writerfilter's <c>DomainMapper_Impl::finishParagraph</c> and its table
+    /// handler). cell-grid-span.docx's HTML-born paragraphs stand 14 pt apart.
+    /// </summary>
+    private static ParagraphStyle ApplyAutoSpacing(
+        ParagraphStyle style, IReadOnlyList<XElement> chain, XElement? pPr, XElement? paragraph, bool html)
+    {
+        (bool? before, bool? after) = AutoSpacingStates(chain, pPr);
+        if (before != true && after != true)
+            return style;
+
+        float amount = html ? 14f : 5f;
+        if (before == true)
+        {
+            XElement? container = paragraph?.Parent;
+            bool first = html && paragraph is not null && container is not null &&
+                container.Name.LocalName is "tc" or "txbxContent" or "body" &&
+                container.Elements(DocxNamespaces.Wordprocessing + "p").FirstOrDefault() == paragraph &&
+                !paragraph.ElementsBeforeSelf().Any(e => e.Name.LocalName == "tbl");
+            style = style with { SpacingBefore = first ? 0 : amount };
+        }
+
+        if (after == true)
+        {
+            bool lastInCell = html && paragraph?.Parent is { Name.LocalName: "tc" } cell &&
+                cell.Elements(DocxNamespaces.Wordprocessing + "p").LastOrDefault() == paragraph &&
+                !paragraph.ElementsAfterSelf().Any(e => e.Name.LocalName == "tbl");
+            style = style with { SpacingAfter = lastInCell ? 0 : amount };
+        }
+
+        return style;
+    }
+
+    /// <summary>
+    /// True where a <c>w:spacing</c> turns automatic spacing on for
+    /// <paramref name="side"/>, false where it turns it off or states the
+    /// space itself, null where it says nothing of that side.
+    /// </summary>
+    private static bool? AutoSpacingState(XElement spacing, string side)
+    {
+        XAttribute? auto = spacing.Attribute(DocxNamespaces.Wordprocessing + (side + "Autospacing"));
+        if (auto is not null)
+            return (string?)auto is "1" or "true" or "on";
+        return spacing.Attribute(DocxNamespaces.Wordprocessing + side) is not null ? false : null;
+    }
+
     private static ParagraphStyle ApplyParagraphProperties(
         XElement? pPr,
         DocxNumbering numbering,
@@ -3311,7 +3538,10 @@ internal static class DocxReader
         // heading would open a page of its own.
         XElement? pageBreakBefore = pPr.Element(DocxNamespaces.Wordprocessing + "pageBreakBefore");
         if (pageBreakBefore is not null)
-            style = style with { PageBreakBefore = ReadOnOff(pageBreakBefore) };
+        {
+            bool on = ReadOnOff(pageBreakBefore);
+            style = style with { PageBreakBefore = on, PageBreakKeepsSpaceAbove = on };
+        }
 
         // Paragraph shading (ECMA-376 §17.3.1.31). The fill is the colour behind
         // the pattern, and a "clear" pattern - nearly every one Word writes -

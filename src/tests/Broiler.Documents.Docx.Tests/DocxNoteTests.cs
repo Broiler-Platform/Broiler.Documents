@@ -134,6 +134,28 @@ public sealed class DocxNoteTests
     }
 
     [Fact]
+    public void A_Table_In_A_Note_Is_Kept_Over_Its_Cells_Paragraphs()
+    {
+        // tdf136778.docx: the footnote's label paragraph, then a 4 x 2 table.
+        // The cells' text stays among the note's paragraphs; the table states
+        // which of them are its cells.
+        DocumentReadResult result = Read(
+            "<w:p><w:r><w:t>text</w:t></w:r>" + Reference("footnote", 1) + "</w:p>",
+            "<w:footnote w:id=\"1\"><w:p><w:r><w:footnoteRef/></w:r></w:p>" +
+            DocxTestPackage.Table(
+                [DocxTestPackage.Paragraph("a"), DocxTestPackage.Paragraph("b")],
+                [DocxTestPackage.Paragraph("c"), DocxTestPackage.Paragraph("d")]) +
+            "<w:p/></w:footnote>");
+
+        DocumentNote note = Assert.Single(result.Document.Notes);
+        DocumentTable table = Assert.Single(note.Tables);
+        Assert.Equal(2, table.Rows.Count);
+        Assert.Equal("a", note.Paragraphs[table.Rows[0].Cells[0].ParagraphIndex].Text);
+        Assert.Equal("d", note.Paragraphs[table.Rows[1].Cells[1].ParagraphIndex].Text);
+        Assert.DoesNotContain(result.Diagnostics, diagnostic => diagnostic.Code == "docx.note.content");
+    }
+
+    [Fact]
     public void A_Note_Cited_In_A_Table_Cell_Is_Read()
     {
         DocumentReadResult result = Read(

@@ -1004,13 +1004,16 @@ internal static class OdtReader
 
         // A text box that states fo:min-height grows to its text from there
         // (ODF 1.3, `fo:min-height` on a text box), whether or not the frame states a height too; one
-        // that states neither is sized by its text alone.
+        // that states neither is sized by its text alone. When the frame states svg:height as well,
+        // that height is the least the box is: LibreOffice reads the text box's attributes before the
+        // frame's into one height (XMLTextFrameContext_Impl), so the frame's svg:height overrides the
+        // text box's fo:min-height and the box stays a growing one.
         bool statedHeight = OdtUnits.TryParseLength(
             (string?)drawing.Attribute(OdtNamespaces.Svg + "height"), out double height);
         bool grows = OdtUnits.TryParseLength(
             (string?)textBox?.Attribute(OdtNamespaces.Fo + "min-height"), out double minHeight);
-        if (grows)
-            height = statedHeight ? Math.Max(height, minHeight) : minHeight;
+        if (grows && !statedHeight)
+            height = minHeight;
         bool sizedByText = !statedHeight && textBox is null && GrowsToItsText(drawing, context.Styles);
         if (!grows && !statedHeight && (textBox is not null || sizedByText))
             (grows, height) = (true, 0);
@@ -1023,9 +1026,21 @@ internal static class OdtReader
         (ShapeFill? fill, BColor outline, bool behindText, ShapeWrap wrap, WrapSide wrapSide) =
             ReadShapeStyle(styleName, context.Styles, implicitSolid: drawing.Name != OdtNamespaces.Draw + "frame");
         double outlineWidth = OdtUnits.TryParseLength((string?)graphic?.Attribute(OdtNamespaces.Svg + "stroke-width"), out double strokeWidth) ? strokeWidth : 0.75;
-        if (drawing.Name == OdtNamespaces.Draw + "frame" && graphic?.Attribute(OdtNamespaces.Fo + "border") is not null)
+        // A Writer text frame's edge is its fo:border, as a picture frame's is
+        // (ReadFloatingPicture): the svg:stroke-color it inherits from the default
+        // graphic style is for drawing shapes, and LibreOffice draws no line from
+        // it. A frame inside a draw:g is a drawing object and keeps its line, and
+        // so does one whose own style turns a line on with draw:stroke (a shape's
+        // text box saved as a frame, ww8export/data/tdf136620.odt).
+        // The model keeps one outline, so a frame with only some edges drawn
+        // (fo:border-top and the like) is outlined with the first of them.
+        string? borderAttribute = drawing.Name == OdtNamespaces.Draw + "frame" ? FrameBorderAttribute(graphic) : null;
+        if (drawing.Name == OdtNamespaces.Draw + "frame" && drawing.Parent?.Name != OdtNamespaces.Draw + "g" &&
+            borderAttribute is null && !StatesOwnStroke(styleName, context.Styles))
+            outline = BColor.Empty;
+        if (borderAttribute is not null)
         {
-            TableBorder border = OdtTableReader.ReadBorderEdge(graphic, "border");
+            TableBorder border = OdtTableReader.ReadBorderEdge(graphic!, borderAttribute);
             outline = border.Width > 0 ? border.Color : BColor.Empty;
             outlineWidth = border.Width;
         }
@@ -1034,8 +1049,9 @@ internal static class OdtReader
         // paragraphs itself.
         XElement textSource = drawing.Element(OdtNamespaces.Draw + "text-box") ?? drawing;
         TableCellPadding textPadding = ReadShapePadding(graphic);
+        var pageRelativeShapes = new HashSet<DocumentShape>(ReferenceEqualityComparer.Instance);
         RichTextDocument shapeContent = ReadShapeParagraphs(textSource, context, depth,
-            Math.Max(1, width - textPadding.Left - textPadding.Right));
+            Math.Max(1, width - textPadding.Left - textPadding.Right), pageRelativeShapes);
         IReadOnlyList<RichTextParagraph> paragraphs = shapeContent.ParagraphCount == 1 &&
             shapeContent.Paragraphs[0].Length == 0 && shapeContent.Paragraphs[0].Style.Border is null &&
             shapeContent.Tables.Count == 0 ? [] : shapeContent.Paragraphs;
@@ -1070,7 +1086,7 @@ internal static class OdtReader
             (rotation, x, y) = (angle, offsetX + dx, offsetY + dy);
         (int anchorPage, x, y, bool fromPage) = PlaceOnPage(drawing, styleName, x, y, width, height, context, inheritedAnchor, inheritedAnchorPage);
 
-        context.Builder.AddShape(new DocumentShape(
+        var shape = new DocumentShape(
             context.Builder.CurrentParagraphIndex,
             x,
             y,
@@ -1095,16 +1111,18 @@ internal static class OdtReader
                 "bottom" => CellVerticalAlignment.Bottom,
                 _ => CellVerticalAlignment.Top,
             },
+            // A frame that states no svg:width, only its text box's fo:min-width, is
+            // Writer's auto-width frame (XMLTextFrameContext_Impl sets WidthType MIN
+            // for it): it widens to its text, and the layout stops it at the text
+            // column, where its text wraps.
             growsWidthToText: (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-width") == "true" ||
                 (width <= 0 && textBox is not null) ||
                 (drawing.Attribute(OdtNamespaces.Svg + "width") is null &&
                 textBox?.Attribute(OdtNamespaces.Fo + "min-width") is not null &&
-                (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-width") != "false" &&
-                (string?)graphic?.Attribute(OdtNamespaces.Fo + "wrap-option") == "no-wrap"),
+                (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-width") != "false"),
             frameName: linked ? frameName : null,
             nextFrameName: nextFrameName,
-            geometry: drawing.Name == OdtNamespaces.Draw + "ellipse" ||
-                (string?)drawing.Element(OdtNamespaces.Draw + "enhanced-geometry")?.Attribute(OdtNamespaces.Draw + "type") is "ellipse" ? ShapeGeometry.Ellipse : ShapeGeometry.Rectangle,
+            geometry: ReadShapeGeometry(drawing),
             outlineWidth: outlineWidth,
             offsetXFromCell: context.TableDepth > 0 &&
                 ((string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-rel") is null or "paragraph" or "paragraph-content"),
@@ -1115,13 +1133,149 @@ internal static class OdtReader
             IsCustomShape = drawing.Name != OdtNamespaces.Draw + "frame",
             RotationRadians = rotation,
             // A text box keeps its width and grows down to its text, where a
-            // drawn shape with words in it fits itself about them.
+            // drawn shape with words in it fits itself about them - unless its
+            // style says it keeps its size (draw:auto-grow-height="false",
+            // LibreOffice's "Resize shape to fit text" off): tdf129655-vtextbox.odt's
+            // 9.6 x 9 cm rectangle around four characters.
             FitsText = drawing.Name == OdtNamespaces.Draw + "custom-shape" && paragraphs.Count > 0 &&
-                shapeContent.Tables.Count == 0 && !sizedByText,
+                shapeContent.Tables.Count == 0 && !sizedByText &&
+                (string?)graphic?.Attribute(OdtNamespaces.Draw + "auto-grow-height") != "false",
             WrapMargins = ReadWrapMargins(graphic),
             MinimumWrapRoom = MinimumWrapRoom(graphic),
-        });
+        };
+        context.Builder.AddShape(shape);
+        if (context.PageRelativeShapes is { } pageRelative &&
+            (string?)graphic?.Attribute(OdtNamespaces.Style + "horizontal-rel") is "page" or "page-content")
+            pageRelative.Add(shape);
+        HoistNestedShapes(shapeContent, pageRelativeShapes, context, x, y, textPadding, anchorPage, fromPage, ZIndex(drawing));
         return true;
+    }
+
+    /// <summary>
+    /// Lifts the frames anchored in a frame's own text (a text frame inside a
+    /// text box, tdf46441-2.odt) out to the frame's anchor, where they are drawn
+    /// above it. A shape's text keeps only paragraphs and tables, so they were
+    /// dropped with everything they said.
+    /// </summary>
+    /// <remarks>
+    /// An inner frame is placed against the outer frame's content box: its
+    /// offset from its own paragraph, plus that paragraph's top in the frame.
+    /// The reader does not lay text out, so the paragraph's top is estimated
+    /// from the paragraphs before it, one line each at their largest font size
+    /// with their spacing; a frame anchored in the box's first paragraph is
+    /// placed exactly. The body text runs past an inner frame: it wraps the
+    /// text inside the outer frame, not the page's. A character-anchored inner
+    /// frame stays a part of its line and is not lifted.
+    /// </remarks>
+    private static void HoistNestedShapes(
+        RichTextDocument content,
+        IReadOnlySet<DocumentShape> pageRelative,
+        OdtReadContext context,
+        double frameX,
+        double frameY,
+        TableCellPadding padding,
+        int anchorPage,
+        bool fromPage,
+        int frameZOrder)
+    {
+        foreach (DocumentShape inner in content.Shapes)
+        {
+            if (inner.IsAsCharacter)
+                continue;
+            if (inner.AnchorPage > 0)
+            {
+                context.Builder.AddShape(inner.WithParagraphIndex(context.Builder.CurrentParagraphIndex));
+                continue;
+            }
+
+            // Measured from the page (style:horizontal-rel or vertical-rel of
+            // page), an inner frame keeps that measure: LibreOffice places
+            // nested-text-frames.odt's middle and inner frames by the page,
+            // not by the frame they are in.
+            double x = pageRelative.Contains(inner) ? inner.OffsetX : frameX + padding.Left + inner.OffsetX;
+            (double y, bool yFromPage) = inner.OffsetFromPage
+                ? (inner.OffsetY, true)
+                : (frameY + padding.Top + EstimatedParagraphTop(content, inner.ParagraphIndex) + inner.OffsetY, fromPage);
+            context.Builder.AddShape(inner.WithPlacement(
+                context.Builder.CurrentParagraphIndex,
+                x,
+                y,
+                anchorPage,
+                yFromPage,
+                ShapeWrap.None,
+                Math.Max(inner.ZOrder, frameZOrder + 1)));
+        }
+    }
+
+    /// <summary>
+    /// Roughly where paragraph <paramref name="index"/> of a frame's text
+    /// starts below the frame's content top: each paragraph before it as one
+    /// line, or one per line break, of its largest font at 1.15 em, scaled by
+    /// its line spacing, with the space before and after it.
+    /// </summary>
+    private static double EstimatedParagraphTop(RichTextDocument content, int index)
+    {
+        double top = 0;
+        for (int i = 0; i < Math.Min(index, content.ParagraphCount); i++)
+        {
+            RichTextParagraph paragraph = content.Paragraphs[i];
+            double size = paragraph.Text.Length == 0 || paragraph.Runs.Count == 0
+                ? paragraph.MarkStyle.FontSize ?? 12
+                : paragraph.Runs.Max(run => run.Style.FontSize ?? 12);
+            int lines = 1 + paragraph.Text.Count(character => character is '\n' or '\u2028' or '\v');
+            top += paragraph.Style.SpacingBefore + paragraph.Style.SpacingAfter +
+                lines * paragraph.Style.LineBoxHeight(size * 1.15);
+        }
+        return top;
+    }
+
+    /// <summary>
+    /// The <c>fo:border</c> attribute a frame's edge is read from: the shorthand
+    /// when it is stated, or else the first of the four edges that draws a line.
+    /// Null when the frame states no border at all.
+    /// </summary>
+    private static string? FrameBorderAttribute(XElement? graphic)
+    {
+        if (graphic is null)
+            return null;
+        if (graphic.Attribute(OdtNamespaces.Fo + "border") is not null)
+            return "border";
+        string[] edges = ["border-top", "border-bottom", "border-left", "border-right"];
+        string? stated = null;
+        foreach (string edge in edges)
+        {
+            if (graphic.Attribute(OdtNamespaces.Fo + edge) is null)
+                continue;
+            stated ??= edge;
+            if (OdtTableReader.ReadBorderEdge(graphic, edge).Width > 0)
+                return edge;
+        }
+        return stated;
+    }
+
+    /// <summary>
+    /// Whether a drawing's own style chain, not the document's default graphic
+    /// style, states a <c>draw:stroke</c> other than <c>none</c>.
+    /// </summary>
+    private static bool StatesOwnStroke(string? styleName, OdtStyles styles) =>
+        !string.IsNullOrEmpty(styleName) && styles.GraphicProperties.TryGetValue(styleName, out XElement? own) &&
+        (string?)own.Attribute(OdtNamespaces.Draw + "stroke") is string stroke && stroke != "none";
+
+    /// <summary>
+    /// The outline a drawing paints: an ellipse (<c>draw:ellipse</c>, or a custom
+    /// shape of <c>draw:type="ellipse"</c>), a diamond (<c>draw:type="diamond"</c>,
+    /// the four edge midpoints joined), or the box itself.
+    /// </summary>
+    private static ShapeGeometry ReadShapeGeometry(XElement drawing)
+    {
+        if (drawing.Name == OdtNamespaces.Draw + "ellipse")
+            return ShapeGeometry.Ellipse;
+        return (string?)drawing.Element(OdtNamespaces.Draw + "enhanced-geometry")?.Attribute(OdtNamespaces.Draw + "type") switch
+        {
+            "ellipse" => ShapeGeometry.Ellipse,
+            "diamond" => ShapeGeometry.Diamond,
+            _ => ShapeGeometry.Rectangle,
+        };
     }
 
     private static bool TryReadShapeRotation(XElement drawing, out double angle, out double x, out double y)
@@ -1198,6 +1352,9 @@ internal static class OdtReader
 
     private static bool? EvaluateCondition(string condition, IReadOnlyDictionary<string, string> variables)
     {
+        // LibreOffice writes a bare constant with its formula namespace: "ooow:TRUE".
+        if (condition.StartsWith("ooow:", StringComparison.OrdinalIgnoreCase) && condition.IndexOf(' ') < 0)
+            condition = condition[5..];
         if (string.Equals(condition, "true", StringComparison.OrdinalIgnoreCase) || condition == "1")
             return true;
         if (string.Equals(condition, "false", StringComparison.OrdinalIgnoreCase) || condition == "0")
@@ -1268,6 +1425,36 @@ internal static class OdtReader
         styles.EmptyDbFieldHidesParagraph &&
         paragraph.Descendants(OdtNamespaces.Text + "database-display").Any(field => field.Value.Length == 0) &&
         !paragraph.Descendants().Any(element => element.Name.Namespace == OdtNamespaces.Draw);
+
+    /// <summary>
+    /// Whether <paramref name="paragraph"/> is hidden by its own
+    /// <c>text:hidden-paragraph</c> fields (ODF §7.7.11): it is when it holds at
+    /// least one and every one of them hides it, as LibreOffice's
+    /// <c>SwTextNode::CalcHiddenParaField</c> decides. A field's
+    /// <c>text:condition</c> is evaluated where it can be; otherwise its stored
+    /// <c>text:is-hidden</c> stands. LibreOffice hides the paragraph's anchored
+    /// objects with it, so the paragraph is left out whole. Fields in a frame
+    /// anchored here belong to the frame's own paragraphs and are not counted.
+    /// </summary>
+    private static bool HiddenByParagraphField(XElement paragraph, OdtReadContext context)
+    {
+        bool any = false;
+        foreach (XElement field in paragraph.Descendants(OdtNamespaces.Text + "hidden-paragraph"))
+        {
+            if (field.Ancestors().TakeWhile(ancestor => ancestor != paragraph)
+                .Any(ancestor => ancestor.Name.Namespace == OdtNamespaces.Draw))
+                continue;
+            string? condition = (string?)field.Attribute(OdtNamespaces.Text + "condition");
+            bool hides = !string.IsNullOrWhiteSpace(condition) &&
+                EvaluateCondition(condition.Trim(), context.Variables) is bool evaluated
+                    ? evaluated
+                    : (string?)field.Attribute(OdtNamespaces.Text + "is-hidden") == "true";
+            if (!hides)
+                return false;
+            any = true;
+        }
+        return any;
+    }
 
     /// <summary>
     /// Reads a <c>draw:control</c> that places a label (<c>form:fixed-text</c>)
@@ -2037,14 +2224,17 @@ internal static class OdtReader
         XElement textBox,
         OdtReadContext context,
         int depth,
-        double? frameTextWidth = null)
+        double? frameTextWidth = null,
+        HashSet<DocumentShape>? pageRelativeShapes = null)
     {
         var builder = new OdtDocumentBuilder(context.Builder.Limits, context.Builder.Diagnostics);
         var nested = new OdtReadContext(context.Styles, context.Images, builder)
         {
+            ActivePage = context.ActivePage,
             Variables = context.Variables,
             FrameTextWidth = frameTextWidth,
             InShapeText = true,
+            PageRelativeShapes = pageRelativeShapes,
         };
         // A custom shape holds its geometry alongside its text. The geometry is
         // the shape's form, not content, and walking it as a block reports an
@@ -2252,7 +2442,7 @@ internal static class OdtReader
 
             if (name == OdtNamespaces.Text + "p" || name == OdtNamespaces.Text + "h")
             {
-                if (!HiddenByEmptyDatabaseField(element, context.Styles))
+                if (!HiddenByEmptyDatabaseField(element, context.Styles) && !HiddenByParagraphField(element, context))
                     ReadParagraph(element, context, list, depth);
                 continue;
             }
@@ -2573,9 +2763,11 @@ internal static class OdtReader
         if (name.Namespace != OdtNamespaces.Text)
             return false;
 
+        // A linked section's text:section-source only names where its text comes
+        // from; the section holds the copy LibreOffice saved, which is what it shows.
         return name.LocalName is
             "sequence-decls" or "variable-decls" or "user-field-decls" or
-            "dde-connection-decls" or "alphabetical-index-auto-mark-file" or
+            "dde-connection-decls" or "alphabetical-index-auto-mark-file" or "section-source" or
             "soft-page-break" or "index-title" or "index-title-template" or
             "index-body-template" or "bookmark" or "bookmark-start" or "bookmark-end" or
             "change" or "change-start" or "change-end";
