@@ -14,7 +14,8 @@ namespace Broiler.Documents.Docx;
 /// the legacy VML shape (<c>w:pict</c>) — into <see cref="InlineImage"/> values,
 /// loading each referenced <c>word/media</c> part at most once.
 /// </summary>
-internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits, DocumentConversionContextBuilder resources)
+internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits, DocumentConversionContextBuilder resources,
+    DocxTheme? theme = null)
 {
     /// <summary>English Metric Units per point: 914400 per inch over 72 points per inch.</summary>
     private const double EmusPerPoint = 12700.0;
@@ -170,9 +171,9 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
                     {
                         _chartBytes += part.Length;
                         XElement? root = DocxPackage.LoadEntryXml(part, limits, builder.Diagnostics, "docx.chart.xml")?.Root;
-                        if (root is not null && DocxChartPreview.Render(root, width, height) is byte[] png)
+                        if (root is not null && DocxChartPreview.Render(root, width, height, theme) is byte[] png)
                         {
-                            diagnostics.AddDiagnosticOnce("docx.chart.preview", "A clustered column chart was drawn from its cached values with simplified axes and styling.");
+                            diagnostics.AddDiagnosticOnce("docx.chart.preview", "A chart was drawn from its cached values with simplified axes and styling.");
                             return AdmitGeneratedImage(png, width, height, diagnostics, altText, name);
                         }
                     }

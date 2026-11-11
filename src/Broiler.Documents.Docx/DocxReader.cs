@@ -61,7 +61,7 @@ internal static class DocxReader
                 diagnostics);
 
             var resources = new DocumentConversionContextBuilder(options.ResourcePolicy);
-            var images = new DocxImageLoader(archive, options.Limits, resources);
+            var images = new DocxImageLoader(archive, options.Limits, resources, styles.Theme);
             var reported = new HashSet<string>(StringComparer.Ordinal);
             // Read before the content, not after it: an anchor states which frame
             // its offsets are measured from, and converting one to the column the
