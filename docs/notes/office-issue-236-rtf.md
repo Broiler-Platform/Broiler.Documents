@@ -41,6 +41,42 @@ renders that differed by mean absolute grey difference against LibreOffice.
   The largest improvements are `tdf158982.rtf` (17.53 → 17.04) and the `cjklist*.rtf`
   samples (about 6.0 → 5.7).
 
+## tdf164835_nonDummyLineHeight.docx and the pinned serif face
+
+A full-corpus run showed `ooxmlexport/data/tdf164835_nonDummyLineHeight.docx` going
+from passed to failed (18.48%; 14.92% locally) on this branch. The paragraphs beside
+its image are whitespace only, each a tab to a dot-leader stop that `Normal` states.
+The first tab is 72 pt. The base build dropped those trailing tabs, so it drew no
+leaders. It also set the first line at the 36 pt paragraph-mark height, which left
+room for the fourth paragraph on page 1. That paragraph rendered blank either way,
+and the page passed by accident.
+
+LibreOffice 24.2 draws all three leaders. Its first line takes the 72 pt tab's
+height: the leader's baseline sits 66.75 pt below the margin, the ascent of DejaVu
+Serif at 72 pt. Its fourth paragraph still fits on page 1, a few points above the
+bottom margin.
+
+This branch now lays the page out the same way, and then it depends on the face.
+- **The cause:** the runs ask for Times New Roman, and the runner aliases that to
+  Liberation Serif. The reference font set has no Liberation faces (only DejaVu,
+  Carlito and Caladea), so the alias is skipped and broilerdoc draws with its host
+  fallback. LibreOffice drew with DejaVu Serif, the only face its PDF embeds. The
+  host face is taller, so the fourth paragraph overflows to page 2 by about 9 pt.
+- **The evidence:** pinned the way LibreOffice drew it (`--font-file "Times New
+  Roman=DejaVuSerif.ttf"`), this branch's render matches the reference. The leaders
+  sit at the same positions and lengths, and page 2 holds only the closing line.
+  With the runner given a font directory where DejaVu Serif stands in for Liberation
+  Serif, all four checks pass (fdo81033, tdf115153, tdf141964_numId0,
+  tdf164835_nonDummyLineHeight). Only tdf141964's missing "Geschichte" bullet
+  remains as a text difference.
+
+The layout change is kept. Dropping the leaders again would put back the line
+heights that differ from LibreOffice. The gap is in the harness's font pinning
+(`FontPinning.MetricAliases` assumes Liberation faces the reference set does not
+carry), and closing it changes every sample that names Times New Roman, Arial or
+Courier New. So it is left for a deliberate run of the whole corpus rather than
+folded into this change.
+
 ## Tests
 
 - `RtfIssue236Tests` (Rtf.Tests): a paragraph's stops replacing its style's, a
