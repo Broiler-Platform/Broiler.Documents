@@ -718,6 +718,16 @@ DOCX probing is conservative because DOCX is a ZIP-based OPC package:
 - Generic ZIP files are not claimed without a DOCX hint or WordprocessingML
   package evidence.
 
+## VML groups: sibling children and inline canvases
+
+`fdo46361.docx` is a drawing canvas (`v:group`, inline, no position) of three
+`v:rect`s. Resolving shape types copied a shape's children by name, replacing
+an earlier child of the same name, so a group kept only its last rectangle.
+Only a child inherited from a `v:shapetype` is replaced now. LibreOffice also
+draws an inline group shrunk to its children's bounds at the anchor, not with
+the canvas's empty lead space, so a top-level group stating no position starts
+its coordinate space at its children's least left and top.
+
 ## Standards and rights
 
 DOCX is ECMA-376, republished as ISO/IEC 29500. Its rights position (the

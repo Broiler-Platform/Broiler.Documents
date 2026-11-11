@@ -68,6 +68,21 @@ internal static class DocxVmlShapeWalker
                         report("docx.shape.group", "A VML group had an invalid coordinate origin and was skipped.");
                         continue;
                     }
+                    if (frame is null && !string.Equals(style.GetValueOrDefault("position"), "absolute", StringComparison.OrdinalIgnoreCase) &&
+                        !new[] { "left", "top", "margin-left", "margin-top" }.Any(style.ContainsKey))
+                    {
+                        // An inline group (a drawing canvas, fdo46361) is drawn by
+                        // LibreOffice shrunk to its children's bounds at the anchor.
+                        var bounds = shape.Elements().Where(e => e.Name.Namespace == DocxNamespaces.Vml && e.Name.LocalName is not ("shapetype" or "fill" or "stroke" or "path" or "formulas"))
+                            .Select(e => DocxVml.ReadStyle((string?)e.Attribute("style")))
+                            .Select(s => (X: Unitless(s, "left") + Unitless(s, "margin-left"), Y: Unitless(s, "top") + Unitless(s, "margin-top")))
+                            .ToList();
+                        if (bounds.Count > 0)
+                        {
+                            ox = Math.Max(ox, bounds.Min(b => b.X));
+                            oy = Math.Max(oy, bounds.Min(b => b.Y));
+                        }
+                    }
                     Length(style, "left", out double left); Length(style, "margin-left", out double ml);
                     Length(style, "top", out double top); Length(style, "margin-top", out double mt);
                     (double x, double y) = frame?.Map(left + ml, top + mt) ?? (left + ml, top + mt);
@@ -152,9 +167,12 @@ internal static class DocxVmlShapeWalker
             if (ReferenceEquals(element, source))
                 foreach (var pair in DocxVml.ReadStyle((string?)element.Attribute("style"))) style[pair.Key] = pair.Value;
             if (style.Count > 0) result.SetAttributeValue("style", string.Join(";", style.Select(p => p.Key + ":" + p.Value)));
+            // A child overrides one inherited from a shape type, never a sibling:
+            // a group's own v:rect children must all survive.
+            var inherited = result.Elements().ToList();
             foreach (XElement child in element.Elements())
             {
-                XElement? existing = result.Element(child.Name);
+                XElement? existing = inherited.FirstOrDefault(e => e.Parent is not null && e.Name == child.Name);
                 if (existing is not null && child.Name.Namespace == DocxNamespaces.Vml && child.Name.LocalName is "fill" or "stroke")
                 {
                     var merged = new XElement(existing);
@@ -176,6 +194,8 @@ internal static class DocxVmlShapeWalker
         _ => 0,
     };
 
+    private static double Unitless(Dictionary<string, string> style, string key) =>
+        double.TryParse(style.GetValueOrDefault(key), NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value) ? value : 0;
     private static string Pt(double value) => value.ToString("R", CultureInfo.InvariantCulture) + "pt";
     private static bool Length(Dictionary<string, string> style, string key, out double value) => DocxVml.TryLength(style.GetValueOrDefault(key), out value);
     private static bool Pair(string value, out double x, out double y)

@@ -652,6 +652,19 @@ ODF was designed to be identifiable from its first bytes, so probing is cheap:
   `.fodt` hint. LibreOffice writes the attribute after its namespace
   declarations, at about byte 2,150, so the default 4,096-byte prefix sees it.
 
+## Pictures in text boxes and frames in text columns
+
+`tdf132420.odt` holds six as-character text frames, one per paragraph of a
+three-column section, each with a paragraph-anchored picture inside. A shape's
+text keeps only paragraphs and tables, so the picture went down the floating
+path into a builder nobody read and vanished; inside a shape's text it is now
+placed in the text. The frames were drawn at the content's left edge whatever
+column their line was in; an as-character frame now takes its line's column.
+The columns did not balance either: the section ended the body, and only a
+following paragraph triggers balancing, so the reader now ends such a body on
+an empty paragraph, as LibreOffice does. Widow and orphan settings no longer
+stop balancing for a paragraph of one line, which they cannot split.
+
 ## Standards and rights
 
 ODF is an OASIS standard, republished as ISO/IEC 26300. Its rights position (the

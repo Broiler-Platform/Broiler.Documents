@@ -307,6 +307,12 @@ internal sealed class OdtDocumentBuilder(DocumentLimits limits, List<DocumentDia
         // paragraph as its anchor; page-anchored objects need no body anchor.
         if (_shapes.Any(shape => !shape.IsPageAnchored && shape.ParagraphIndex == _paragraphs.Count))
             FinishParagraph();
+        // LibreOffice never ends a body on a section: it keeps an empty
+        // paragraph after it, and that is what balances the section's columns
+        // (tdf132420). Without it the last columns ran unbalanced.
+        else if (_paragraphs.Count > 0 && _sections.Any(section => section.ParagraphEnd == _paragraphs.Count &&
+            section.ColumnCount > 1 && !section.DontBalanceColumns))
+            FinishParagraph();
 
         RichTextDocument document = _paragraphs.Count == 0
             ? RichTextDocument.Empty

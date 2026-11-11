@@ -27,6 +27,27 @@ public sealed class DocxVmlShapeTests
         "<v:textbox><w:txbxContent><w:p><w:r><w:t>" + text + "</w:t></w:r></w:p></w:txbxContent></v:textbox>";
 
     [Fact]
+    public void An_Inline_Group_Keeps_Every_Child_And_Starts_At_Their_Bounds()
+    {
+        // fdo46361: a drawing canvas of three rectangles. Same-named children
+        // replaced each other, and the canvas's empty lead space was kept where
+        // LibreOffice draws the group shrunk to its children.
+        var shapes = Read("""
+            <v:group style="width:450pt;height:657pt;mso-position-horizontal-relative:char" coordsize="57150,83439">
+              <v:rect style="position:absolute;left:43434;top:43434;width:11430;height:16002" fillcolor="#396"/>
+              <v:rect style="position:absolute;left:44577;top:45720;width:9144;height:5715"/>
+              <v:rect style="position:absolute;left:44577;top:52578;width:9144;height:5715"/>
+            </v:group>
+            """).Document.Shapes;
+
+        Assert.Equal(3, shapes.Count);
+        Assert.Equal(0, shapes[0].OffsetX, 3);
+        Assert.Equal(0, shapes[0].OffsetY, 3);
+        Assert.Equal(90, shapes[0].Width, 3);
+        Assert.Equal(9, shapes[1].OffsetX, 3);
+    }
+
+    [Fact]
     public void A_Grouped_Polygon_Preserves_Transparent_Space_And_Group_Alignment()
     {
         var shape = Assert.Single(Read("""

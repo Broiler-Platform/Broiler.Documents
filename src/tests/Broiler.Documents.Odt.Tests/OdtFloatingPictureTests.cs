@@ -104,6 +104,27 @@ public sealed class OdtFloatingPictureTests
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "odt.image.anchored");
     }
 
+    [Fact]
+    public void A_Picture_Floating_In_A_Text_Box_Is_Kept_In_The_Box_Text()
+    {
+        // tdf132420: a shape's text keeps only paragraphs, so a paragraph-anchored
+        // picture inside an as-character text frame used to vanish.
+        var result = OdtTestPackage.ReadWithPictures(
+            "<text:section text:name=\"S\" text:style-name=\"Sect\"><text:p>" +
+            "<draw:frame draw:name=\"Frame1\" text:anchor-type=\"as-char\" svg:width=\"2in\">" +
+            "<draw:text-box fo:min-height=\"2in\"><text:p>" + Frame(x: "0in", y: "0in") + "caption</text:p></draw:text-box>" +
+            "</draw:frame></text:p></text:section>",
+            Pictures(), options: RoundTripReadOptions,
+            automaticStylesXml: OdtTestPackage.Style("Sect",
+                "<style:section-properties><style:columns fo:column-count=\"3\" fo:column-gap=\"0in\"/></style:section-properties>",
+                family: "section"));
+
+        DocumentShape box = Assert.Single(result.Document.Shapes);
+        Assert.Contains(box.Paragraphs.SelectMany(paragraph => paragraph.Runs), run => run.Style.Image is not null);
+        // LibreOffice ends the body on a paragraph after the section, which balances its columns.
+        Assert.Equal(2, result.Document.ParagraphCount);
+    }
+
     private static Dictionary<string, byte[]> Pictures() =>
         new(StringComparer.Ordinal) { ["Pictures/logo.png"] = OdtTestPackage.OnePixelPng };
 

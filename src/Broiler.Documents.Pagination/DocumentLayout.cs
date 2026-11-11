@@ -1543,8 +1543,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
                         wrapColumnLeft: columns.Offset(column));
                 }
             }
+            // Widow and orphan control cannot split a one-line paragraph, so it
+            // does not stop the columns balancing (tdf132420).
             if (region is not null && columns.Count > 1 &&
-                (style.KeepTogether || style.KeepWithNext || style.OrphanLines is > 0 || style.WidowLines is > 0))
+                (style.KeepTogether || style.KeepWithNext ||
+                 (composed.Lines.Count > 1 && (style.OrphanLines is > 0 || style.WidowLines is > 0))))
                 regionUnbalanced = true;
             if (column == 0 && currentLines.Count == columnStart && spacingBefore > 0)
                 regionTop = y + spacingBefore;
@@ -2168,7 +2171,7 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
             return placed;
 
         var cellTextAreas = new Dictionary<int, (double Left, double Width)>();
-        if (_documentShapes.Any(shape => shape.OffsetXFromCell))
+        if (_documentShapes.Any(shape => shape.OffsetXFromCell || shape.IsAsCharacter))
             foreach (LayoutLine line in sourceLines)
                 cellTextAreas.TryAdd(line.ParagraphIndex, (line.TextAreaLeft, line.TextAreaWidth));
 
@@ -2189,6 +2192,11 @@ public sealed class DocumentLayout(LayoutSettings settings, ImageStore images)
 
             var area = shape.OffsetXFromCell && cellTextAreas.TryGetValue(shape.ParagraphIndex, out var cellArea)
                 ? cellArea : (Left: setup.ContentLeftPoints, Width: setup.ContentWidthPoints);
+            // An as-character frame sits in its line, so in its text column
+            // (tdf132420: one frame per paragraph in a three-column section).
+            if (!shape.OffsetXFromCell && shape.IsAsCharacter && !shape.IsPageAnchored && !shape.OffsetFromPage &&
+                cellTextAreas.TryGetValue(shape.ParagraphIndex, out var lineArea))
+                area = (lineArea.Left, lineArea.Width);
             double offset = shape.CellHorizontalAlignment switch
             {
                 TextAlignment.Left => 0,
