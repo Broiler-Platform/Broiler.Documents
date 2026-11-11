@@ -68,6 +68,32 @@ internal sealed class DocxFrameAccumulator
 
         DocumentShape shape = CreateFrameShape(props, frameDoc.Paragraphs, anchorIndex, context.PlacementPage);
         context.Builder.AddShape(shape);
+
+        // Drawings read inside the frame's paragraphs (a VML group in a framed
+        // logo paragraph, say) were built into the frame's own document and
+        // dropped with it. Move them out, measured from the frame's box.
+        foreach (DocumentShape inner in frameDoc.Shapes)
+            context.Builder.AddShape(MoveIntoFrame(inner, shape));
+    }
+
+    private static DocumentShape MoveIntoFrame(DocumentShape inner, DocumentShape frame)
+    {
+        bool fixedOnPage = inner.IsPageAnchored || inner.OffsetFromPage;
+        double x = fixedOnPage ? inner.OffsetX : frame.OffsetX + inner.OffsetX;
+        double y = fixedOnPage ? inner.OffsetY : frame.OffsetY + inner.OffsetY;
+        return new DocumentShape(frame.ParagraphIndex, x, y, inner.Width, inner.Height, inner.Fill, inner.Outline,
+            inner.Paragraphs, inner.Image, inner.BehindText, inner.Wrap, inner.WrapSide, inner.WrapDistance, inner.ZOrder,
+            inner.AnchorPage, fixedOnPage ? inner.OffsetFromPage : frame.OffsetFromPage, inner.GrowsToText, inner.Tables,
+            inner.TextPadding, inner.TextVerticalAlignment, inner.TextOverflow, inner.GrowsWidthToText, inner.FrameName,
+            inner.NextFrameName, inner.Geometry, inner.OutlineWidth, inner.OffsetXFromCell, inner.CellHorizontalAlignment,
+            inner.Printable)
+        {
+            IsAsCharacter = inner.IsAsCharacter,
+            IsCustomShape = inner.IsCustomShape,
+            FitsText = inner.FitsText,
+            RotationRadians = inner.RotationRadians,
+            WrapMargins = inner.WrapMargins,
+        };
     }
 
     public static DocxFrameProperties? ReadProperties(
