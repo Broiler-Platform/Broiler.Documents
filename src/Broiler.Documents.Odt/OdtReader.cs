@@ -1683,6 +1683,35 @@ internal static class OdtReader
             out width);
 
     /// <summary>
+    /// Where a paragraph-anchored object sits across its text column when its
+    /// style aligns it (<c>style:horizontal-pos</c> left, center or right,
+    /// measured from the paragraph area): Writer then ignores <c>svg:x</c>
+    /// (<c>SwAnchoredObjectPosition::CalcRelPosX</c>), keeping the object's
+    /// <c>fo:margin-left</c> or <c>fo:margin-right</c> from the edge it is set
+    /// against. Null for any other position, which keeps the stated offset.
+    /// </summary>
+    /// <remarks>
+    /// Within a table cell the layout aligns the object in the cell's text
+    /// area instead (<see cref="DocumentShape.CellHorizontalAlignment"/>).
+    /// <c>fdo68839.odt</c>'s centered text frame stood at the left margin.
+    /// </remarks>
+    private static double? AlignInColumn(XElement? properties, double columnWidth, double width)
+    {
+        return (string?)properties?.Attribute(OdtNamespaces.Style + "horizontal-pos") switch
+        {
+            "left" => FrameMargin(properties, "left"),
+            "center" => (columnWidth - width) / 2,
+            "right" => columnWidth - width - FrameMargin(properties, "right"),
+            _ => null,
+        };
+    }
+
+    /// <summary>The <c>fo:margin-*</c> an object keeps on <paramref name="side"/>, or zero.</summary>
+    private static double FrameMargin(XElement? properties, string side) =>
+        OdtUnits.TryParseLength((string?)properties?.Attribute(OdtNamespaces.Fo + "margin-" + side), out double margin) && margin > 0
+            ? margin : 0;
+
+    /// <summary>
     /// The page a drawing is anchored to by number, and its position in the
     /// model's terms: x from the text column's left edge, y from the page's top
     /// edge. A paragraph's drawing whose style measures it down the page
@@ -1738,19 +1767,28 @@ internal static class OdtReader
                     _ => horizontalLeft + x,
                 };
             }
+            else if (anchorType is "paragraph" or "char" && horizontalRel is null or "paragraph" or "paragraph-content" &&
+                context.TableDepth == 0 && !context.InShapeText && context.ActivePage is { ColumnWidth: > 0 } column &&
+                AlignInColumn(properties, column.ColumnWidth, width) is double aligned)
+            {
+                x = aligned;
+            }
             string? verticalRel = (string?)properties?.Attribute(OdtNamespaces.LibreOffice + "vertical-rel") ??
                 (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-rel");
             if (anchorType is "paragraph" or "char" && verticalRel is "line" or "text")
             {
                 string? verticalPos = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-pos");
+                // Above the line, with its lower margin between them.
                 if (verticalPos == "top")
-                    y = -height + y;
+                    y = -height - FrameMargin(properties, "bottom") + y;
             }
             else if (anchorType is "paragraph" or "char" && (verticalRel is null or "paragraph" or "paragraph-content"))
             {
                 string? verticalPos = (string?)properties?.Attribute(OdtNamespaces.Style + "vertical-pos");
+                // Writer keeps the object's upper margin below the top it is set
+                // against (SwAnchoredObjectPosition::GetVertRelPos, TOP).
                 if (verticalPos == "top")
-                    y = 0;
+                    y = FrameMargin(properties, "top");
             }
 
             if (anchorType is "paragraph" or "char" && verticalRel is "page" or "page-content" or "page-content-bottom")
