@@ -103,6 +103,7 @@ internal sealed class DocxDocumentBuilder(
     /// <summary>Collects the tables read from here until the matching pop.</summary>
     public void PushTableSink(List<DocumentTable> sink)
     {
+        _flowBoundaries++;
         // A table ends a paragraph held open for a field's instruction.
         if (_joinsNextParagraph)
             FinishParagraph();
@@ -120,6 +121,7 @@ internal sealed class DocxDocumentBuilder(
 
     public void PopTableSink()
     {
+        _flowBoundaries++;
         if (_tableSinks.Count > 0)
             _tableSinks.Pop();
         if (_cellStarts.Count > 0)
@@ -568,6 +570,34 @@ internal sealed class DocxDocumentBuilder(
         _joinedParagraphs++;
         _joinsNextParagraph = true;
         return true;
+    }
+
+    // Table and cell boundaries crossed so far: paragraphs either side of one
+    // are not neighbours for contextual spacing.
+    private int _flowBoundaries;
+    private (string StyleId, bool Contextual, int Index, int Boundaries)? _previousSpacing;
+
+    /// <summary>
+    /// Applies <c>w:contextualSpacing</c> between the paragraph being read and
+    /// the one before it in the same text flow (ECMA-376 §17.3.1.9): where
+    /// both have the paragraph style <paramref name="styleId"/>, a paragraph
+    /// with the setting loses its space before, and the one before it, when it
+    /// has the setting, its space after. Word's "Don't add space between
+    /// paragraphs of the same style", which LibreOffice imports as its
+    /// context margin.
+    /// </summary>
+    public void ApplyContextualSpacing(string styleId, bool contextual)
+    {
+        int index = _paragraphs.Count;
+        var previous = _previousSpacing;
+        _previousSpacing = (styleId, contextual, index, _flowBoundaries);
+        if (previous is not { } before || before.Index != index - 1 || before.Boundaries != _flowBoundaries ||
+            !string.Equals(before.StyleId, styleId, StringComparison.Ordinal))
+            return;
+        if (contextual)
+            _paragraphStyle = _paragraphStyle with { SpacingBefore = 0 };
+        if (before.Contextual)
+            _paragraphs[index - 1] = _paragraphs[index - 1].WithParagraphStyle(_paragraphs[index - 1].Style with { SpacingAfter = 0 });
     }
 
     public void FinishParagraph()

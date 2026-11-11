@@ -1,13 +1,108 @@
+using Broiler.Graphics.Color;
 using System.IO.Compression;
 
 namespace Broiler.Documents.Docx.Tests;
 
 /// <summary>
 /// DOCX charts and drawn shapes of office issue #238: area charts drawn from
-/// their cached values, and the automatic value axis they are scaled to.
+/// their cached values and the automatic value axis they are scaled to,
+/// floating WordArt drawn as its text rather than its box, and the spacing
+/// and field code of an address block.
 /// </summary>
 public sealed class DocxOfficeIssue238Tests
 {
+    private const string Vml =
+        "xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\"";
+
+    [Fact]
+    public void A_Floating_WordArt_Shape_Draws_Its_String_And_Not_Its_Box()
+    {
+        // watermark-shapetype.docx: the shape names its type without the "#",
+        // and inherits on="t" from the type's v:textpath while stating its own
+        // string. The fill colours the glyphs; the path is only their envelope.
+        DocumentReadResult result = DocxTestPackage.ReadBody(
+            "<w:p><w:r><w:pict " + Vml + ">" +
+            "<v:shapetype id='shapetype_136' coordsize='21600,21600' o:spt='136' path='m@7,l@8,m@5,21600l@6,21600e'>" +
+            "<v:textpath on='t' fitshape='t'/></v:shapetype>" +
+            "<v:shape type='shapetype_136' style='position:absolute;margin-left:0;margin-top:0;width:400pt;height:100pt;rotation:315' " +
+            "fillcolor='silver' stroked='f'>" +
+            "<v:textpath style='font-family:&quot;Calibri&quot;;font-size:1pt' string='DRAFT'/></v:shape>" +
+            "</w:pict></w:r></w:p>");
+
+        DocumentShape shape = Assert.Single(result.Document.Shapes);
+        Assert.Null(shape.Fill);
+        Assert.True(shape.Outline.IsEmpty);
+        Assert.Null(shape.Image);
+        RichTextParagraph line = Assert.Single(shape.Paragraphs);
+        Assert.Equal("DRAFT", line.Text);
+        Assert.Equal(TextAlignment.Center, line.Style.Alignment);
+        InlineStyle glyphs = line.Runs[0].Style;
+        Assert.Equal("Calibri", glyphs.FontFamily);
+        Assert.Equal(new BColor(192, 192, 192), glyphs.Foreground);
+        Assert.Equal(CellVerticalAlignment.Center, shape.TextVerticalAlignment);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.shape.geometry");
+    }
+
+    [Fact]
+    public void Line_Breaks_In_A_Field_Instruction_Are_Not_Drawn()
+    {
+        // tdf129520.docx: an ADDRESSBLOCK writes a w:cr for each line of its
+        // format string between the field's begin and separator.
+        DocumentReadResult result = DocxTestPackage.ReadBody(
+            "<w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r>" +
+            "<w:r><w:instrText xml:space=\"preserve\"> ADDRESSBLOCK \\f \"&lt;&lt;_FIRST0_</w:instrText></w:r>" +
+            "<w:r><w:cr/><w:instrText>&gt;&gt;\"</w:instrText><w:tab/></w:r>" +
+            "<w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>" +
+            "<w:r><w:t>M</w:t><w:cr/><w:t>N</w:t></w:r>" +
+            "<w:r><w:fldChar w:fldCharType=\"end\"/></w:r></w:p>");
+
+        Assert.Equal("M\u2028N", Assert.Single(result.Document.Paragraphs).Text);
+    }
+
+    [Fact]
+    public void Contextual_Spacing_Drops_The_Space_Between_Paragraphs_Of_One_Style()
+    {
+        // tdf129520.docx: Normal states w:contextualSpacing, so its empty
+        // paragraphs stack without the default 10 pt after each.
+        DocumentReadResult result = DocxTestPackage.ReadStyled(
+            "<w:p><w:r><w:t>a</w:t></w:r></w:p>" +
+            "<w:p><w:r><w:t>b</w:t></w:r></w:p>" +
+            "<w:p><w:pPr><w:pStyle w:val=\"Other\"/></w:pPr><w:r><w:t>c</w:t></w:r></w:p>" +
+            "<w:p><w:pPr><w:pStyle w:val=\"Other\"/></w:pPr><w:r><w:t>d</w:t></w:r></w:p>",
+            DocxTestPackage.DocumentDefaults(string.Empty, "<w:pPr><w:spacing w:before=\"100\" w:after=\"200\"/></w:pPr>") +
+            DocxTestPackage.Style("Normal", "<w:pPr><w:contextualSpacing/></w:pPr>", isDefault: true) +
+            DocxTestPackage.Style("Other", string.Empty, basedOn: "Normal"));
+
+        IReadOnlyList<RichTextParagraph> paragraphs = result.Document.Paragraphs;
+        // a and b share Normal: a loses its space after, b its space before.
+        Assert.Equal(0, paragraphs[0].Style.SpacingAfter);
+        Assert.Equal(0, paragraphs[1].Style.SpacingBefore);
+        // b and c differ in style, so b keeps its space after and c its before.
+        Assert.Equal(10, paragraphs[1].Style.SpacingAfter);
+        Assert.Equal(5, paragraphs[2].Style.SpacingBefore);
+        // Other inherits the setting from Normal.
+        Assert.Equal(0, paragraphs[2].Style.SpacingAfter);
+        Assert.Equal(0, paragraphs[3].Style.SpacingBefore);
+        Assert.Equal(10, paragraphs[3].Style.SpacingAfter);
+    }
+
+    [Fact]
+    public void Contextual_Spacing_Stops_At_A_Table()
+    {
+        DocumentReadResult result = DocxTestPackage.ReadStyled(
+            "<w:p><w:r><w:t>a</w:t></w:r></w:p>" +
+            "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>" +
+            "<w:p><w:r><w:t>b</w:t></w:r></w:p>",
+            DocxTestPackage.DocumentDefaults(string.Empty, "<w:pPr><w:spacing w:before=\"100\" w:after=\"200\"/></w:pPr>") +
+            DocxTestPackage.Style("Normal", "<w:pPr><w:contextualSpacing/></w:pPr>", isDefault: true));
+
+        Assert.All(result.Document.Paragraphs, paragraph =>
+        {
+            Assert.Equal(5, paragraph.Style.SpacingBefore);
+            Assert.Equal(10, paragraph.Style.SpacingAfter);
+        });
+    }
+
     private const string ChartRelationship =
         "<Relationship Id='rId1' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart' Target='charts/chart1.xml'/>";
 

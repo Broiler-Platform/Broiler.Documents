@@ -29,6 +29,9 @@ internal sealed class DocxStyles
     private readonly XElement? _defaultParagraphProperties;
     private readonly XElement? _defaultRunProperties;
     private readonly string? _defaultParagraphStyleId;
+
+    /// <summary>The paragraph style an unstyled paragraph takes, or null when the part names none.</summary>
+    public string? DefaultParagraphStyleId => _defaultParagraphStyleId;
     private readonly string? _defaultTableStyleId;
     private readonly int _maxChainDepth;
     private readonly List<DocumentDiagnostic> _diagnostics;
