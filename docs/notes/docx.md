@@ -651,6 +651,10 @@ sized so the longest line fits the shape's width. Glyphs are not stretched to
 the path (`docx.shape.wordart`). The sample's centred footer frame
 (`w:framePr w:xAlign="center"` in a footer) is still drawn at the left margin.
 
+The same applies inside a VML text box (`fdo78300.docx`): the box's
+`w:txbxContent` is read detached from the document, so the `v:shapetype`
+that turns the text path on is looked up from the content's topmost ancestor.
+
 ## Intentional Limits
 
 Each feature's limits are stated with it above. Beyond those:

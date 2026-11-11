@@ -1538,10 +1538,12 @@ internal static class DocxReader
         if (shape is null || textPath is null)
             return false;
         // The shape's v:textpath usually inherits on="t" from its v:shapetype,
-        // which may sit in the other branch of an mc:AlternateContent.
+        // which may sit in the other branch of an mc:AlternateContent. A text
+        // box's content is read detached from the document (fdo78300), so the
+        // type is looked up from the topmost ancestor rather than the document.
         string? typeId = ((string?)shape.Attribute("type"))?.TrimStart('#');
         string? on = (string?)textPath.Attribute("on") ?? (string.IsNullOrEmpty(typeId) ? null :
-            (string?)picture.Document?.Descendants(DocxNamespaces.Vml + "shapetype")
+            (string?)picture.AncestorsAndSelf().Last().Descendants(DocxNamespaces.Vml + "shapetype")
                 .FirstOrDefault(type => (string?)type.Attribute("id") == typeId)
                 ?.Element(DocxNamespaces.Vml + "textpath")?.Attribute("on"));
         if (on is not ("t" or "true" or "1"))

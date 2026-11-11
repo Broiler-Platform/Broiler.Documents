@@ -258,4 +258,22 @@ public sealed class DocxVmlShapeTests
         Assert.StartsWith("Watch LIVE\u2028ask", paragraph.Text);
         Assert.Contains(result.Diagnostics, d => d.Code == "docx.shape.wordart");
     }
+
+    [Fact]
+    public void A_WordArt_Shape_In_A_Text_Box_Inherits_Its_Type_And_Draws_Its_String()
+    {
+        // fdo78300: the text box's content is read detached from the document,
+        // so the v:shapetype that turns the text path on was not found.
+        DocumentReadResult result = Read(
+            "<v:shape style='position:absolute;margin-left:30pt;width:175pt;height:40pt' stroked='f'>" +
+            "<v:textbox><w:txbxContent><w:p><w:r><w:pict>" +
+            "<v:shapetype id='t136' coordsize='21600,21600'><v:textpath on='t' fitshape='t'/></v:shapetype>" +
+            "<v:shape type='#t136' style='width:150pt;height:19.5pt' fillcolor='#9400ed'>" +
+            "<v:textpath style='font-family:\"Arial Black\"' string='Homer was sleeping'/></v:shape>" +
+            "</w:pict></w:r></w:p></w:txbxContent></v:textbox></v:shape>");
+
+        DocumentShape box = Assert.Single(result.Document.Shapes);
+        Assert.Contains(box.Paragraphs, p => p.Text.Contains("Homer was sleeping"));
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "docx.shape.geometry");
+    }
 }
