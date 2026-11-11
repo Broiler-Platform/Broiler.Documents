@@ -188,4 +188,21 @@ public sealed class RtfPageGeometryTests
         Assert.True(paper > 0 && body > 0);
         Assert.True(paper < body, "a reader takes these as section properties, so they come first");
     }
+
+    [Fact]
+    public void A_Negative_Margin_Is_Its_Magnitude_With_A_Band_That_Does_Not_Grow()
+    {
+        // tdf107413.rtf: \margb-3600 is Word's "exactly 2.5in". Read as signed it
+        // left no room on the page, and the whole geometry - footer distance and
+        // all - was dropped.
+        DocumentReadResult result = RtfReader.Read(
+            "{\\rtf1\\paperw11909\\paperh16834\\margl720\\margr720\\margt5760\\margb-3600 body\\par}"u8.ToArray());
+
+        PageGeometry geometry = Assert.IsType<PageGeometry>(result.Document.PageGeometry);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "rtf.page.geometry");
+        Assert.Equal(288, geometry.MarginTop);
+        Assert.Equal(180, geometry.MarginBottom);
+        Assert.False(geometry.FixedHeaderHeight);
+        Assert.True(geometry.FixedFooterHeight);
+    }
 }
