@@ -9,6 +9,29 @@ namespace Broiler.Documents.Model.Tests;
 
 public sealed class ExclusionGeometryKernelTests
 {
+    [Fact]
+    public void A_Largest_Side_Shape_With_A_Minimum_Room_Keeps_Text_Out_Of_A_Narrower_Gap()
+    {
+        // Writer keeps text out of the 0.9 cm strip two side-by-side frames
+        // leave (ToC-in-linked-frame-on-first-page-style.fodt).
+        var wrap = new TextWrapExclusions();
+        wrap.Add(new DocumentShape(0, 20, 0, 200, 100, wrap: ShapeWrap.Square) { MinimumWrapRoom = 56.7 }, 0, 1, null, null);
+        wrap.Add(new DocumentShape(0, 240, 0, 200, 100, wrap: ShapeWrap.Square) { MinimumWrapRoom = 56.7 }, 0, 1, null, null);
+
+        double top = 0;
+        TextBand band = wrap.Resolve(ref top, 12, 480, out double skip);
+
+        Assert.Equal(100, top, 3);
+        Assert.Equal(480, band.Width, 3);
+
+        var open = new TextWrapExclusions();
+        open.Add(new DocumentShape(0, 20, 0, 200, 100, wrap: ShapeWrap.Square), 0, 1, null, null);
+        open.Add(new DocumentShape(0, 240, 0, 200, 100, wrap: ShapeWrap.Square), 0, 1, null, null);
+        double free = 0;
+        Assert.Equal(40, open.Resolve(ref free, 12, 480, out _).Width, 3);
+        Assert.Equal(0, free, 3);
+    }
+
     #region 1. ExclusionRect Validation & Geometry
 
     [Fact]

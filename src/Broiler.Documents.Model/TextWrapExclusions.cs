@@ -116,7 +116,10 @@ public sealed class TextWrapExclusions
         };
 
         foreach (ExclusionRect band in rects)
-            _kernel.Add(new ExclusionObstacle(band, wrapKind, sidePolicy, zOrder: shape.ZOrder, tag: shape));
+            _kernel.Add(new ExclusionObstacle(band, wrapKind, sidePolicy, zOrder: shape.ZOrder, tag: shape)
+            {
+                MinimumSideRoom = Math.Max(0, shape.MinimumWrapRoom) * scale,
+            });
     }
 
     /// <summary>

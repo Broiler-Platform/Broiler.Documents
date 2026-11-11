@@ -37,7 +37,10 @@ toolkit behind it.
 
 - Paragraphs (`text:p`) and headings (`text:h`). A heading is an ordinary
   paragraph carrying whatever its named style resolves to; the model has no
-  heading rank. ODF has no paragraph mark of its own, so
+  heading rank. A `text:h` naming no style is drawn in `Heading N` for its
+  outline level, as Writer imports it; a document that does not define it gets
+  Writer's built-in one (a bold child of `Heading` at 130/115/101/95/85%, 12,
+  10, 7 then 6 pt above, 6 pt below). ODF has no paragraph mark of its own, so
   `RichTextParagraph.MarkStyle` is the paragraph style's text properties (what
   an empty paragraph is as tall as). It is not written back: an empty paragraph
   written here takes its height from the document's defaults.
@@ -175,6 +178,11 @@ toolkit behind it.
   `text:continue-list` names the `xml:id` of the one it carries on; a sub-list
   counts in the list it is nested in; a `text:list-item`'s `text:start-value`
   restarts the count there. A `text:list-header` paragraph is in no list.
+- A `text:list` that names no list style takes Writer's built-in label-alignment
+  indents: text at a quarter inch per level plus one (1.27 cm at level 1), the
+  label a quarter inch before it (`tdf163285.fodt`). LibreOffice's reference
+  of that file also spaces those items wider, from the fallback font its missing
+  bullet glyph is drawn in; that is not modelled.
 - Outline numbering: a `text:h` outside any list is numbered by the document's
   `text:outline-style` at its `text:outline-level`, unless it is a list header;
   `text:restart-numbering` restarts the count. A level above a heading's that
@@ -318,6 +326,11 @@ toolkit behind it.
   read backwards are read as ODF means them: `run-through` is text through the
   shape, `none` is no text beside it. A wrapped line keeps one span down
   whichever side has more room, so `parallel` gets the larger side.
+  Writer keeps text out of a gap under 2 cm (`TEXT_MIN`) beside a `parallel`,
+  `dynamic` or `biggest` frame: with less room on both sides the line goes
+  below it (`DocumentShape.MinimumWrapRoom`;
+  `ToC-in-linked-frame-on-first-page-style.fodt`, whose two side-by-side frames
+  leave a 0.9 cm strip).
 - `style:run-through` is the shape against the text and `draw:z-index` the shape
   against other shapes; both are read and written, and a drawing with no index
   reads as zero, keeping read order. A style that states no run-through is read
@@ -344,6 +357,11 @@ toolkit behind it.
   and lists are composed in the box's own flow. Fixed-height frames clip
   overflow; growing frames measure their table content. Explicit text overflow
   cannot be written (`odt.shape.overflow`).
+- A tiled bitmap fill with no `draw:fill-image-width`/`-height` tiles at the
+  size its picture states: the pixels at its JFIF density or PNG `pHYs`
+  resolution, as LibreOffice does, not at 96 DPI (`tdf127862_pageFillStyle.odt`:
+  a 513-pixel 300-DPI cloud picture tiles at 4.3 cm). A picture stating no
+  resolution keeps its pixels at 96 DPI.
 - A frame anchored to a page by number (`text:anchor-type="page"` with
   `text:anchor-page-number`) is `DocumentShape.AnchorPage`: it stands on that
   page, and the layout makes the pages needed, as LibreOffice does
@@ -354,6 +372,9 @@ toolkit behind it.
   it and the anchor counts that page. Its PDF export then leaves the blank page
   out (`stable-at-page-anchored-fly-position.odt`: frames anchored to pages 3
   and 4 export on pages 2 and 3 of 3); the layout marks it `IsParityBlank`.
+  The page after the blank one is the first of the master's page-style
+  sequence, not its second (`tdf127862_pageFillStyle.odt`: the right page
+  after the blank one is the patterned one, then the hatched left page).
   Its position comes from the area the graphic style names
   (`style:horizontal-rel`/`style:vertical-rel` of `page` or `page-content`,
   `page` when unstated) and from `style:horizontal-pos` and

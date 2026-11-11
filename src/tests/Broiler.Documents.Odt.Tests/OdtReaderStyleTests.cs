@@ -43,6 +43,27 @@ public sealed class OdtReaderStyleTests
         Assert.Equal(BColor.FromArgb(0xFF, 0xFF, 0x00), style.Background);
     }
 
+    [Fact]
+    public void An_Unstyled_Heading_Takes_Writers_Built_In_Heading_Style()
+    {
+        // ToC-in-linked-frame-on-first-page-style.fodt: a text:h naming no
+        // style is Heading 1, a bold child of the document's Heading at 130%.
+        string styles = "<office:styles>" +
+            "<style:default-style style:family=\"paragraph\"><style:text-properties fo:font-size=\"12pt\"/></style:default-style>" +
+            "<style:style style:name=\"Heading\" style:family=\"paragraph\"><style:paragraph-properties fo:keep-with-next=\"always\"/>" +
+            "<style:text-properties fo:font-size=\"14pt\"/></style:style></office:styles>";
+        DocumentReadResult result = OdtTestPackage.ReadStyled(
+            "<text:h text:outline-level=\"1\">Title</text:h><text:h text:outline-level=\"2\">Sub</text:h>", styles);
+
+        InlineStyle first = result.Document.Paragraphs[0].StyleAt(0);
+        Assert.True(first.Bold);
+        Assert.Equal(18.2f, first.FontSize!.Value, 1);
+        Assert.Equal(12f, result.Document.Paragraphs[0].Style.SpacingBefore, 1);
+        Assert.True(result.Document.Paragraphs[0].Style.KeepWithNext);
+        Assert.Equal(16.1f, result.Document.Paragraphs[1].StyleAt(0).FontSize!.Value, 1);
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == "odt.styles.unknown");
+    }
+
     [Theory]
     [InlineData("fo:font-weight=\"700\"", true)]
     [InlineData("fo:font-weight=\"400\"", false)]

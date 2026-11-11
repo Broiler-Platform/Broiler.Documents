@@ -1069,6 +1069,7 @@ internal static class OdtReader
             FitsText = drawing.Name == OdtNamespaces.Draw + "custom-shape" && paragraphs.Count > 0 &&
                 shapeContent.Tables.Count == 0,
             WrapMargins = ReadWrapMargins(graphic),
+            MinimumWrapRoom = MinimumWrapRoom(graphic),
         });
         return true;
     }
@@ -1627,6 +1628,18 @@ internal static class OdtReader
             _ => (ShapeWrap.None, WrapSide.Largest),
         };
 
+    /// <summary>
+    /// Writer's least gap beside a frame wrapping on its larger side
+    /// (<c>parallel</c>, <c>dynamic</c>, <c>biggest</c>): 2 cm, <c>TEXT_MIN</c>.
+    /// Two 7 cm frames side by side on an A4 page leave text a 0.9 cm strip,
+    /// and Writer starts it below them instead
+    /// (<c>ToC-in-linked-frame-on-first-page-style.fodt</c>).
+    /// </summary>
+    private static double MinimumWrapRoom(XElement? graphicProperties) =>
+        graphicProperties is not null && ReadWrap(graphicProperties) is (ShapeWrap.Square, WrapSide.Largest)
+            ? 2 * 72 / 2.54
+            : 0;
+
     private static bool BehindText(XElement graphicProperties) =>
         (string?)graphicProperties.Attribute(OdtNamespaces.Style + "run-through") switch
         {
@@ -1747,6 +1760,12 @@ internal static class OdtReader
                             (string?)properties.Attribute(OdtNamespaces.Style + "repeat");
         var repeat = repeatStr switch
             { "stretch" => ImageFillRepeat.Stretch, "no-repeat" => ImageFillRepeat.Single, _ => ImageFillRepeat.Tile };
+        // An unstated tile size is the picture's own: its pixels at the
+        // resolution it states, as LibreOffice reads it, not at 96 DPI.
+        if (repeat != ImageFillRepeat.Stretch && width <= 0 && height <= 0 &&
+            image.TryGetEncoded(out ReadOnlyMemory<byte> encoded, out _) &&
+            OdtImageFormats.StatedSize(encoded.Span) is { } stated)
+            (width, height) = stated;
         return ShapeFill.Solid(BColor.Empty) with { Image = new ImageFill(image, repeat, width, height,
             position.Contains("left", StringComparison.Ordinal) ? 0 : position.Contains("right", StringComparison.Ordinal) ? 1 : 0.5,
             position.Contains("top", StringComparison.Ordinal) ? 0 : position.Contains("bottom", StringComparison.Ordinal) ? 1 : 0.5) };
@@ -2448,7 +2467,7 @@ internal static class OdtReader
         OdtListContext? list,
         int depth)
     {
-        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name");
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles);
 
         ParagraphStyle paragraphStyle = ParagraphStyle.Default;
         string? breakAfter = null;
@@ -2543,6 +2562,21 @@ internal static class OdtReader
         context.Builder.StartParagraph(paragraphStyle, inherited);
         ReadInlineContent(paragraph, context, inherited, depth + 1);
         context.Builder.FinishParagraph();
+    }
+
+    /// <summary>
+    /// The style a <c>text:h</c> naming none is drawn in: the <c>Heading N</c>
+    /// of its outline level (one when unstated), as Writer imports it
+    /// (<c>ToC-in-linked-frame-on-first-page-style.fodt</c>'s headings are bold
+    /// and a third larger than its body text). Null for a <c>text:p</c>.
+    /// </summary>
+    private static string? UnstyledHeadingStyle(XElement paragraph, OdtStyles styles)
+    {
+        if (paragraph.Name != OdtNamespaces.Text + "h")
+            return null;
+        int level = int.TryParse((string?)paragraph.Attribute(OdtNamespaces.Text + "outline-level"),
+            NumberStyles.Integer, CultureInfo.InvariantCulture, out int stated) && stated > 0 ? stated : 1;
+        return styles.HeadingStyleName(level);
     }
 
     /// <summary>
@@ -2953,7 +2987,7 @@ internal static class OdtReader
         OdtListContext? list,
         OdtReadContext context)
     {
-        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name");
+        string? styleName = (string?)paragraph.Attribute(OdtNamespaces.Text + "style-name") ?? UnstyledHeadingStyle(paragraph, context.Styles);
         ParagraphStyle style = ParagraphStyle.Default;
         foreach (XElement properties in context.Styles.ParagraphProperties(styleName))
             style = ApplyParagraphProperties(properties, style, context.Builder, context.Styles);
@@ -3424,6 +3458,7 @@ internal static class OdtReader
             printable: Prints(graphic))
         {
             WrapMargins = ReadWrapMargins(graphic),
+            MinimumWrapRoom = MinimumWrapRoom(graphic),
         });
         return true;
     }
