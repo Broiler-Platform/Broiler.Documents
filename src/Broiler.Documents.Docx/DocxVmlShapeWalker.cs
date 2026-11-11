@@ -152,9 +152,13 @@ internal static class DocxVmlShapeWalker
             if (ReferenceEquals(element, source))
                 foreach (var pair in DocxVml.ReadStyle((string?)element.Attribute("style"))) style[pair.Key] = pair.Value;
             if (style.Count > 0) result.SetAttributeValue("style", string.Join(";", style.Select(p => p.Key + ":" + p.Value)));
+            // A shape overrides its type's child of the same name, but children
+            // of one element never replace each other: a group's shapes are all
+            // v:shape, and all but the last of them were dropped.
+            var inherited = result.Elements().ToList();
             foreach (XElement child in element.Elements())
             {
-                XElement? existing = result.Element(child.Name);
+                XElement? existing = inherited.FirstOrDefault(e => e.Name == child.Name && e.Parent is not null);
                 if (existing is not null && child.Name.Namespace == DocxNamespaces.Vml && child.Name.LocalName is "fill" or "stroke")
                 {
                     var merged = new XElement(existing);

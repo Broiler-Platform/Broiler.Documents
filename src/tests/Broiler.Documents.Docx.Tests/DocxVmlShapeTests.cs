@@ -27,6 +27,35 @@ public sealed class DocxVmlShapeTests
         "<v:textbox><w:txbxContent><w:p><w:r><w:t>" + text + "</w:t></w:r></w:p></w:txbxContent></v:textbox>";
 
     [Fact]
+    public void Every_Sibling_Shape_In_A_Group_Is_Read()
+    {
+        // FDO78590.docx: a logo of ninety-odd v:shape siblings drew only the last.
+        string Shape(int left) =>
+            $"<v:shape coordsize=\"10,10\" style=\"position:absolute;left:{left};top:0;width:10;height:10\" " +
+            "fillcolor=\"red\" stroked=\"f\" path=\"m,l10,,10,10xe\"/>";
+        var document = Read("<v:group coordsize=\"30,10\" style=\"width:30pt;height:10pt\">" +
+            Shape(0) + Shape(10) + Shape(20) + "</v:group>").Document;
+
+        Assert.Equal(3, document.Shapes.Count);
+    }
+
+    [Fact]
+    public void A_Shape_In_A_Framed_Paragraph_Is_Kept_And_Placed_From_The_Frame()
+    {
+        var document = DocxTestPackage.ReadBody(
+            "<w:p><w:pPr><w:framePr w:w=\"2000\" w:h=\"1000\" w:hRule=\"exact\" w:hAnchor=\"page\" " +
+            "w:vAnchor=\"page\" w:x=\"2000\" w:y=\"1000\"/></w:pPr><w:r><w:pict " + Vml + ">" +
+            "<v:rect style=\"width:20pt;height:10pt\" fillcolor=\"red\"/></w:pict></w:r></w:p>" + Section).Document;
+
+        Assert.Equal(2, document.Shapes.Count);
+        DocumentShape inner = document.Shapes[1];
+        Assert.Equal(20, inner.Width, 3);
+        Assert.Equal(document.Shapes[0].OffsetX, inner.OffsetX, 3);
+        Assert.Equal(50, inner.OffsetY, 3);
+        Assert.True(inner.OffsetFromPage);
+    }
+
+    [Fact]
     public void A_Grouped_Polygon_Preserves_Transparent_Space_And_Group_Alignment()
     {
         var shape = Assert.Single(Read("""

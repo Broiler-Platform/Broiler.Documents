@@ -139,6 +139,13 @@ internal sealed class DocxStyles
                 defaultTableStyleId ??= id;
         }
 
+        // A styles part that marks no paragraph style w:default still has a
+        // "Normal": Word and LibreOffice both give it to unstyled paragraphs.
+        if (defaultParagraphStyleId is null
+            && styles.TryGetValue("Normal", out StyleDefinition? normal)
+            && normal.Type.Equals("paragraph", StringComparison.Ordinal))
+            defaultParagraphStyleId = "Normal";
+
         return new DocxStyles(
             styles,
             defaultParagraphProperties,

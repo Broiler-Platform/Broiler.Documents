@@ -620,6 +620,16 @@ LibreOffice's `DomainMapperTableHandler` does:
   two-colour pattern or picture as `w:color`, these three reported as
   `docx.background.fill`. A write puts `w:color` (a gradient's middle colour)
   on `w:background`, a `v:background` for a gradient, and turns the switch on.
+- A styles part that marks no paragraph style `w:default` still has a default
+  one: the style whose id is `Normal`, as in Word and LibreOffice
+  (`ooxmlexport/data/noDefault.docx`, whose magenta 24 pt `Normal` outranks the
+  table style's run properties).
+- Every child of a VML group is read. Resolving a shape against its
+  `v:shapetype` let a child replace its same-named predecessor, so a group of
+  `v:shape` siblings kept only the last (`FDO78590.docx`, a logo of 95
+  freeforms). Drawings inside a `w:framePr` paragraph are moved out of the
+  frame's own document beside the frame shape, offset by its box; before, they
+  were dropped with it. WordArt (`v:textpath`) still falls back to its box.
 
 ## Intentional Limits
 
