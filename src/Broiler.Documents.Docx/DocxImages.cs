@@ -399,9 +399,15 @@ internal sealed class DocxImageLoader(ZipArchive archive, DocumentLimits limits,
         }
 
         string? contentType = DocumentImageFormats.ContentTypeForExtension(Path.GetExtension(partPath)) ?? DocumentImageFormats.ContentTypeForSignature(data);
+        if (contentType is null && EmfRasterizer.IsEmf(data) && EmfRasterizer.RenderPng(data) is byte[] png)
+        {
+            // An EMF is rasterized to the subset EmfRasterizer draws, as RTF does.
+            (data, contentType) = (png, "image/png");
+        }
+
         if (contentType is null)
         {
-            // EMF/WMF metafiles land here, as does anything Word stored under an
+            // WMF metafiles and EMFs that draw nothing understood land here, as does anything Word stored under an
             // extension this codec does not decode.
             diagnostics.AddDiagnosticOnce("docx.image.format", "A DOCX picture used an image format this codec does not carry and was skipped.");
             result = LoadResult.Format;
