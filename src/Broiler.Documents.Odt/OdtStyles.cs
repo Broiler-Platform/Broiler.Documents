@@ -433,6 +433,17 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
     /// wins; child elements are taken whole from the nearest style that has any.
     /// A chain that loops or runs past <paramref name="maxDepth"/> stops there.
     /// </remarks>
+    /// <summary>Writer's built-in frame style, which a document may name as a parent without defining it.</summary>
+    private const string WriterFrameStyle = "Frame";
+
+    /// <summary>
+    /// The edge Writer's built-in "Frame" style gives a text frame: a black hairline
+    /// (<c>DocumentStylePoolManager</c>, <c>RES_POOLFRM_FRAME</c>). A frame whose
+    /// style derives from "Frame" in a document that does not define it is drawn with it.
+    /// </summary>
+    private static readonly XElement WriterFrameStyleBorder =
+        new(OdtNamespaces.Style + "graphic-properties", new XAttribute(OdtNamespaces.Fo + "border", "0.06pt solid #000000"));
+
     private static Dictionary<string, XElement> ResolvePropertyChains(
         Dictionary<StyleKey, StyleDefinition> styles,
         Dictionary<string, XElement> own,
@@ -453,9 +464,16 @@ internal sealed class OdtStyles : IOdtImageDiagnostics
                 if (own.TryGetValue(current, out XElement? properties))
                     chain.Add(properties);
 
-                current = styles.TryGetValue(new StyleKey(family, current), out StyleDefinition? definition)
-                    ? definition.ParentStyleName
-                    : null;
+                if (styles.TryGetValue(new StyleKey(family, current), out StyleDefinition? definition))
+                {
+                    current = definition.ParentStyleName;
+                }
+                else
+                {
+                    if (family == "graphic" && current == WriterFrameStyle && chain.Count > 0)
+                        chain.Add(WriterFrameStyleBorder);
+                    current = null;
+                }
             }
 
             if (chain.Count == 0)

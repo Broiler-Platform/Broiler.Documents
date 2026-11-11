@@ -363,5 +363,8 @@ public sealed class DocumentShape(
         ((Width <= 0 && Height > 0) || (Height <= 0 && Width > 0));
 }
 
-/// <summary>Basic shape paths; line directions use page coordinates with y increasing downwards.</summary>
-public enum ShapeGeometry { Rectangle, Ellipse, Line, LineAscending, RoundedRectangle, Triangle }
+/// <summary>
+/// Basic shape paths; line directions use page coordinates with y increasing downwards.
+/// <see cref="Diamond"/> joins the midpoints of the box's four edges.
+/// </summary>
+public enum ShapeGeometry { Rectangle, Ellipse, Line, LineAscending, RoundedRectangle, Triangle, Diamond }

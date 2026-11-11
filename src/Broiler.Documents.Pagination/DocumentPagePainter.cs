@@ -241,6 +241,12 @@ public sealed class DocumentPagePainter
                 list.FillRoundedRect(bounds, fill.Start, radius, radius);
             else if (shape.Geometry == ShapeGeometry.Triangle && !fill.IsGradient && !fill.HasExtendedPaint)
                 list.FillTriangle(apex, lowerLeft, lowerRight, fill.Start);
+            else if (shape.Geometry == ShapeGeometry.Diamond && !fill.IsGradient && !fill.HasExtendedPaint)
+            {
+                (BPoint top, BPoint right, BPoint bottom, BPoint left) = DiamondCorners(bounds);
+                list.FillTriangle(top, right, bottom, fill.Start);
+                list.FillTriangle(top, bottom, left, fill.Start);
+            }
             else DrawFill(list, shape.Bounds, fill, resolveImage);
         }
 
@@ -260,6 +266,14 @@ public sealed class DocumentPagePainter
                 DrawSegment(list, apex, lowerLeft, shape.Outline, thickness);
                 DrawSegment(list, lowerLeft, lowerRight, shape.Outline, thickness);
                 DrawSegment(list, lowerRight, apex, shape.Outline, thickness);
+            }
+            else if (shape.Geometry == ShapeGeometry.Diamond)
+            {
+                (BPoint top, BPoint right, BPoint bottom, BPoint left) = DiamondCorners(bounds);
+                DrawSegment(list, top, right, shape.Outline, thickness);
+                DrawSegment(list, right, bottom, shape.Outline, thickness);
+                DrawSegment(list, bottom, left, shape.Outline, thickness);
+                DrawSegment(list, left, top, shape.Outline, thickness);
             }
             else list.StrokeRect(shape.Bounds, shape.Outline, thickness);
         }
@@ -285,6 +299,14 @@ public sealed class DocumentPagePainter
             list.FillRect(new BRect(bounds.Left - (width / 2), bounds.Top, width, bounds.Height), shape.Outline);
         else if (bounds.Height <= 0 && bounds.Width > 0)
             list.FillRect(new BRect(bounds.Left, bounds.Top - (width / 2), bounds.Width, width), shape.Outline);
+    }
+
+    /// <summary>The midpoints of a box's four edges, the corners of the diamond it holds.</summary>
+    private static (BPoint Top, BPoint Right, BPoint Bottom, BPoint Left) DiamondCorners(BRect bounds)
+    {
+        double middleX = bounds.Left + bounds.Width / 2, middleY = bounds.Top + bounds.Height / 2;
+        return (new BPoint(middleX, bounds.Top), new BPoint(bounds.Right, middleY),
+            new BPoint(middleX, bounds.Bottom), new BPoint(bounds.Left, middleY));
     }
 
     private static void DrawSegment(BRenderList list, BPoint start, BPoint end, BColor color, double width)
