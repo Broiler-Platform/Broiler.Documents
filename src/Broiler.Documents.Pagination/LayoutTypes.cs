@@ -135,6 +135,13 @@ public sealed class LayoutLine : IPaginatedLineArtifact
     /// </remarks>
     public double LeadingSkip { get; internal set; }
 
+    /// <summary>
+    /// How far a line in a table cell was moved below the top of its paragraph,
+    /// past an object anchored there that left it no room beside it. The
+    /// paragraph's objects stay at the paragraph's top, <see cref="Top"/> less this.
+    /// </summary>
+    internal double AnchorSkip { get; set; }
+
     public double Height { get; internal set; }
 
     /// <summary>Visible height within a fixed table row, relative to Top; null leaves the line unclipped.</summary>
